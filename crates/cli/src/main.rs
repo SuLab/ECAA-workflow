@@ -36,7 +36,7 @@ enum Commands {
         #[arg(short, long, default_value = "output-package")]
         output: String,
     },
-    /// LLM-mediated intake REPL (dev/test surface — requires SWFC_ANTHROPIC_API_KEY)
+    /// LLM-mediated intake REPL (dev/test surface — requires ECAA_ANTHROPIC_API_KEY)
     ChatLlm {
         /// Path to config directory (default:./config)
         #[arg(long, default_value = "config")]
@@ -112,7 +112,7 @@ enum Commands {
         json: bool,
     },
     /// v3 P7 — apply schema-version migrations to on-disk session
-    /// JSON in place. Walks `$SWFC_CHAT_SESSIONS_DIR` (or
+    /// JSON in place. Walks `$ECAA_CHAT_SESSIONS_DIR` (or
     /// `$HOME/.scripps-workflow/sessions`) and rewrites legacy
     /// `schema_version: u32` values to the canonical SemVer string.
     /// `--dry-run` reports counts without writing back.
@@ -743,7 +743,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     } else {
         ecaa_workflow_core::runtime_prereqs::RuntimePrereqs::new()
     };
-    // Per-atom prereqs map for the SWFC_PER_TASK_IMAGES path. See
+    // Per-atom prereqs map for the ECAA_PER_TASK_IMAGES path. See
     // sibling site in the chat-driven intake above for the wiring rationale.
     let per_atom_prereqs: std::collections::BTreeMap<
         String,

@@ -120,13 +120,13 @@ impl OrphanReapSummary {
 /// real provisioning call; the loader checks them up-front in `new`.
 #[derive(Debug, Clone)]
 pub struct AwsConfig {
-    /// AWS region (e.g. "us-west-2"). Sourced from `SWFC_AWS_REGION`.
+    /// AWS region (e.g. "us-west-2"). Sourced from `ECAA_AWS_REGION`.
     pub region: String,
-    /// AMI id used for EC2 provisioning. Sourced from `SWFC_AWS_AMI_ID`.
+    /// AMI id used for EC2 provisioning. Sourced from `ECAA_AWS_AMI_ID`.
     pub ami_id: String,
-    /// Round-robin subnet cursor built from `SWFC_AWS_SUBNET_IDS`.
+    /// Round-robin subnet cursor built from `ECAA_AWS_SUBNET_IDS`.
     pub subnets: SubnetCursor,
-    /// Default VPC security group id. Sourced from `SWFC_AWS_SECURITY_GROUP`.
+    /// Default VPC security group id. Sourced from `ECAA_AWS_SECURITY_GROUP`.
     pub security_group: String,
     /// Optional egress-restricted security group id. Selected at
     /// provision time when any task in the DAG declares
@@ -135,17 +135,17 @@ pub struct AwsConfig {
     /// the executor advertises `NetworkPolicy::Bridge` capabilities
     /// and `enforce_safety_policy` blocks the offending task with
     /// `BlockerKind::NetworkPolicyMismatch`. Sourced from
-    /// `SWFC_AWS_RESTRICTED_SG_ID`.
+    /// `ECAA_AWS_RESTRICTED_SG_ID`.
     pub restricted_security_group: Option<String>,
-    /// IAM instance profile ARN attached to provisioned instances. Sourced from `SWFC_AWS_INSTANCE_PROFILE`.
+    /// IAM instance profile ARN attached to provisioned instances. Sourced from `ECAA_AWS_INSTANCE_PROFILE`.
     pub instance_profile: String,
-    /// Optional EC2 key pair name for SSH access. Sourced from `SWFC_AWS_KEY_PAIR`.
+    /// Optional EC2 key pair name for SSH access. Sourced from `ECAA_AWS_KEY_PAIR`.
     pub key_pair: Option<String>,
     /// Git SHA of the workspace; tagged on EC2 instances for traceability.
     pub workspace_sha: String,
     /// When `true`, requests Spot instances via `--instance-market-options`.
     pub spot: bool,
-    /// Maximum concurrent instance policy (from `SWFC_AWS_HIGH_WATER`).
+    /// Maximum concurrent instance policy (from `ECAA_AWS_HIGH_WATER`).
     pub high_water: HighWaterPolicy,
     /// the chat session id the harness is attached
     /// to (from `--session-id`). Threaded onto EC2 instance tags as
@@ -155,31 +155,31 @@ pub struct AwsConfig {
 }
 
 impl AwsConfig {
-    /// Read every SWFC_AWS_* env var and validate the required
+    /// Read every ECAA_AWS_* env var and validate the required
     /// fields. Returns a config the executor can use, or an error
     /// listing every missing variable so the operator gets a single
     /// actionable diagnostic instead of a piecewise failure.
     pub fn from_env() -> Result<Self> {
         let mut missing: Vec<&'static str> = Vec::new();
-        let region = std::env::var("SWFC_AWS_REGION").unwrap_or_else(|_| {
-            missing.push("SWFC_AWS_REGION");
+        let region = std::env::var("ECAA_AWS_REGION").unwrap_or_else(|_| {
+            missing.push("ECAA_AWS_REGION");
             String::new()
         });
-        let ami_id = std::env::var("SWFC_AWS_AMI_ID").unwrap_or_else(|_| {
-            missing.push("SWFC_AWS_AMI_ID");
+        let ami_id = std::env::var("ECAA_AWS_AMI_ID").unwrap_or_else(|_| {
+            missing.push("ECAA_AWS_AMI_ID");
             String::new()
         });
-        let security_group = std::env::var("SWFC_AWS_SECURITY_GROUP").unwrap_or_else(|_| {
-            missing.push("SWFC_AWS_SECURITY_GROUP");
+        let security_group = std::env::var("ECAA_AWS_SECURITY_GROUP").unwrap_or_else(|_| {
+            missing.push("ECAA_AWS_SECURITY_GROUP");
             String::new()
         });
-        let instance_profile = std::env::var("SWFC_AWS_INSTANCE_PROFILE").unwrap_or_else(|_| {
-            missing.push("SWFC_AWS_INSTANCE_PROFILE");
+        let instance_profile = std::env::var("ECAA_AWS_INSTANCE_PROFILE").unwrap_or_else(|_| {
+            missing.push("ECAA_AWS_INSTANCE_PROFILE");
             String::new()
         });
         let subnets = SubnetCursor::from_env();
         if subnets.is_empty() {
-            missing.push("SWFC_AWS_SUBNET_IDS (or SWFC_AWS_SUBNET_ID)");
+            missing.push("ECAA_AWS_SUBNET_IDS (or ECAA_AWS_SUBNET_ID)");
         }
         if !missing.is_empty() {
             return Err(anyhow!(
@@ -187,12 +187,12 @@ impl AwsConfig {
                 missing.join(", ")
             ));
         }
-        let key_pair = std::env::var("SWFC_AWS_KEY_PAIR").ok();
+        let key_pair = std::env::var("ECAA_AWS_KEY_PAIR").ok();
         let workspace_sha =
-            std::env::var("SWFC_WORKSPACE_SHA").unwrap_or_else(|_| "unknown".into());
+            std::env::var("ECAA_WORKSPACE_SHA").unwrap_or_else(|_| "unknown".into());
         let high_water = HighWaterPolicy::from_env().unwrap_or_default();
-        let harness_session_id = std::env::var("SWFC_CHAT_SESSION_ID").ok();
-        let restricted_security_group = std::env::var("SWFC_AWS_RESTRICTED_SG_ID")
+        let harness_session_id = std::env::var("ECAA_CHAT_SESSION_ID").ok();
+        let restricted_security_group = std::env::var("ECAA_AWS_RESTRICTED_SG_ID")
             .ok()
             .filter(|v| !v.trim().is_empty());
         Ok(Self {
@@ -556,8 +556,8 @@ impl Executor for AwsExecutor {
     /// every agent task inside a container (Docker / Apptainer / Podman,
     /// resolved by `agent-claude-aws.sh`), so ProcessIsolation is the
     /// guaranteed floor. Egress depends on the security group selected
-    /// at `do_provision` time: `SWFC_AWS_SECURITY_GROUP` (permissive)
-    /// → `NetworkPolicy::Bridge`; `SWFC_AWS_RESTRICTED_SG_ID`
+    /// at `do_provision` time: `ECAA_AWS_SECURITY_GROUP` (permissive)
+    /// → `NetworkPolicy::Bridge`; `ECAA_AWS_RESTRICTED_SG_ID`
     /// (egress-restricted) → `NetworkPolicy::None` whose allowlist is
     /// the union of every restricted atom's allowlist in the DAG.
     /// Before provision runs (`effective_network` is `None`) we
@@ -723,7 +723,7 @@ impl Executor for AwsExecutor {
                 );
                 continue;
             }
-            let key = format!("SWFC_LIB_PIN_{suffix}");
+            let key = format!("ECAA_LIB_PIN_{suffix}");
             self.pending_envelope_additions.insert(key, ver.clone());
         }
         for (k, v) in &ov.env_passthrough {

@@ -58,17 +58,17 @@ make dev-ui
 The chat surface boots in offline mode without an API key (the UI renders but assistant turns are mocked). For LLM-mediated chat:
 
 ```bash
-export SWFC_ANTHROPIC_API_KEY=<your key>
+export ECAA_ANTHROPIC_API_KEY=<your key>
 make dev-server
 ```
 
 Smoke-test the compiler against a bundled scenario:
 
 ```bash
-scripps-workflow intake \
+ecaa-workflow intake \
   --input testdata/scenarios/01-bulk-rnaseq-ibd/request.md \
   --output /tmp/ibd-package
-scripps-workflow dag --package /tmp/ibd-package
+ecaa-workflow dag --package /tmp/ibd-package
 ```
 
 ## Test

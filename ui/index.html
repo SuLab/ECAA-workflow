@@ -6,11 +6,11 @@
     <meta name="color-scheme" content="light dark" />
     <!--
       Security remediation Phase 1 (2026-05-14). When the server binds
-      non-loopback (or SWFC_SERVER_AUTH_TOKEN is set), it serves an
+      non-loopback (or ECAA_SERVER_AUTH_TOKEN is set), it serves an
       `<meta name="swfc-auth-token">` tag here. The inline script below
-      copies the value to `window.__SWFC_AUTH_TOKEN__`, which the
+      copies the value to `window.__ECAA_AUTH_TOKEN__`, which the
       `_fetch.ts` helpers attach as `Authorization: Bearer …` on every
-      `/api/*` request. For local dev with `SWFC_BIND_ADDR=127.0.0.1`
+      `/api/*` request. For local dev with `ECAA_BIND_ADDR=127.0.0.1`
       and no token configured, the meta tag stays empty and the UI
       works unauthenticated.
     -->
@@ -22,7 +22,7 @@
       (function () {
         var meta = document.querySelector('meta[name="swfc-auth-token"]');
         if (meta && meta.content) {
-          window.__SWFC_AUTH_TOKEN__ = meta.content;
+          window.__ECAA_AUTH_TOKEN__ = meta.content;
         }
       })();
     </script>

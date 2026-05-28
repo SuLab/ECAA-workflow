@@ -31,7 +31,7 @@ pub async fn branch_session_endpoint(
         }
     }
     // `Idempotency-Key` short-circuit. A retry
-    // within `SWFC_IDEMPOTENCY_TTL_SECS` with the same header value
+    // within `ECAA_IDEMPOTENCY_TTL_SECS` with the same header value
     // replays the cached response — prevents a flaky network from
     // forking the same session twice.
     let ticket = app

@@ -350,7 +350,7 @@ pub struct ChatAppState {
     /// Process-local LRU cache that backs the
     /// `Idempotency-Key` header semantics on high-impact mutating
     /// endpoints (`confirm`, `branch_session`, `start-execution`).
-    /// A retry within `SWFC_IDEMPOTENCY_TTL_SECS` (default 1 hour)
+    /// A retry within `ECAA_IDEMPOTENCY_TTL_SECS` (default 1 hour)
     /// replays the cached response instead of re-firing the action.
     /// See `_idempotency.rs` for the handler-side API.
     pub idempotency: Arc<IdempotencyStore>,
@@ -368,13 +368,13 @@ pub struct ChatAppState {
     /// authoritative path that mutates the values feeding the
     /// reconciliation).
     pub reconciled_progress_cache: Arc<DashMap<SessionId, ReconciledProgressEntry>>,
-    /// Test-only override for the `SWFC_AUTO_TITLE` env-var gate. `None`
+    /// Test-only override for the `ECAA_AUTO_TITLE` env-var gate. `None`
     /// (production) keeps the legacy "read env on every request"
     /// semantics; `Some(true)` / `Some(false)` lets unit tests pin the
     /// flag onto the app state so they don't have to mutate the
     /// process-wide env table to exercise the auto-title routes. The
     /// `auto_title` + `config` handlers consult this field first and
-    /// fall back to `env_bool("SWFC_AUTO_TITLE")` when unset, so prod
+    /// fall back to `env_bool("ECAA_AUTO_TITLE")` when unset, so prod
     /// behavior is unchanged.
     pub auto_title_override: Option<bool>,
 }
@@ -421,8 +421,8 @@ pub type ArtifactCache = Arc<DashMap<(SessionId, String), (u64, u64, Vec<Artifac
 
 impl ChatAppState {
     /// Construct the production `ChatAppState` from env-vars. Reads
-    /// `SWFC_CHAT_SESSIONS_DIR`, `SWFC_CONFIG_DIR`, `SWFC_ANTHROPIC_API_KEY`, and
-    /// `SWFC_CHAT_MODE` among others via `Config::from_env`.
+    /// `ECAA_CHAT_SESSIONS_DIR`, `ECAA_CONFIG_DIR`, `ECAA_ANTHROPIC_API_KEY`, and
+    /// `ECAA_CHAT_MODE` among others via `Config::from_env`.
     pub async fn new() -> anyhow::Result<Self> {
         let config = Arc::new(Config::from_env()?);
         let session_dir = config.chat_sessions_dir.clone();
@@ -494,7 +494,7 @@ impl ChatAppState {
     /// Resolve the auto-title feature flag. Tests pin
     /// `auto_title_override` so they don't have to mutate the
     /// process-wide env table; production leaves the override as `None`
-    /// and reads `SWFC_AUTO_TITLE` on every request (the documented
+    /// and reads `ECAA_AUTO_TITLE` on every request (the documented
     /// behavior for the `auto-title` + `/api/chat/config` routes).
     pub fn auto_title_enabled(&self) -> bool {
         if let Some(v) = self.auto_title_override {
@@ -701,7 +701,7 @@ impl ChatAppState {
 
 #[allow(dead_code)]
 pub(crate) fn sessions_dir() -> PathBuf {
-    if let Ok(d) = std::env::var("SWFC_CHAT_SESSIONS_DIR") {
+    if let Ok(d) = std::env::var("ECAA_CHAT_SESSIONS_DIR") {
         return PathBuf::from(d);
     }
     if let Some(home) = std::env::var_os("HOME") {

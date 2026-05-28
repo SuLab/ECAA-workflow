@@ -95,7 +95,7 @@ impl SlurmMapping {
 
     /// Like `pick` but also reports whether the result is the mapping's
     /// `fallback` class. Callers that want to apply the env-var
-    /// `SWFC_SLURM_DEFAULT_TIME_LIMIT` ("fallback `--time=` when
+    /// `ECAA_SLURM_DEFAULT_TIME_LIMIT` ("fallback `--time=` when
     /// sizing mapping is silent") use the boolean to decide.
     pub fn pick_detailed(&self, req: &ResourceRequirements) -> (&ResourceClass, bool) {
         let mut candidates: Vec<&ResourceClass> = self

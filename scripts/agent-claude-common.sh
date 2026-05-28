@@ -13,44 +13,44 @@
 # Percent of container memory budget reserved as soft high-water mark.
 # Above this, the systemd-run / docker cgroup pressures jobs into reclaim
 # before OOM-killing. 85% gives ~15% headroom for OS + system daemons.
-: "${SWFC_AGENT_MEMORY_HIGH_WATER_PCT:=85}"
+: "${ECAA_AGENT_MEMORY_HIGH_WATER_PCT:=85}"
 
 # --- Docker tmpfs sizes ---
 
 # /tmp tmpfs size. 1g covers typical intermediate-file usage; raise for
 # stages with large in-memory pivots.
-: "${SWFC_DOCKER_TMPFS_TMP_SIZE:=1g}"
+: "${ECAA_DOCKER_TMPFS_TMP_SIZE:=1g}"
 
 # /var/tmp tmpfs size. Smaller default for fewer-but-larger temps.
-: "${SWFC_DOCKER_TMPFS_VARTMP_SIZE:=512m}"
+: "${ECAA_DOCKER_TMPFS_VARTMP_SIZE:=512m}"
 
 # --- Docker security ---
 
 # Fork-bomb fence. 2048 PIDs is generous for parallel batch jobs without
 # blocking common multi-threaded workloads (STAR, salmon).
-: "${SWFC_DOCKER_PIDS_LIMIT:=2048}"
+: "${ECAA_DOCKER_PIDS_LIMIT:=2048}"
 
 # --- Heartbeat ---
 
 # Heartbeat touch interval. UI tails progress.log every 2 s but the agent
 # only touches its heartbeat every 30 s — covers transient I/O stalls
 # without false stall-detection signals.
-: "${SWFC_HEARTBEAT_INTERVAL_SECS:=30}"
+: "${ECAA_HEARTBEAT_INTERVAL_SECS:=30}"
 
 # --- Credential refresh ---
 
 # Cycle for the credential-rotation copy loop.
-: "${SWFC_AGENT_CRED_REFRESH_SECS:=15}"
+: "${ECAA_AGENT_CRED_REFRESH_SECS:=15}"
 
 # Grace period before clobbering a freshly-rotated credential file.
-: "${SWFC_AGENT_CRED_ROTATION_GRACE_SECS:=2}"
+: "${ECAA_AGENT_CRED_ROTATION_GRACE_SECS:=2}"
 
 # --- Shared helpers ---
 # Single source of truth for the agent-wrapper helpers; the three
 # wrappers (local / aws / slurm) inherit via `source`.
 
 # Security remediation validate
-# SWFC_CHAT_SESSION_ID is a syntactically-correct UUID before any code
+# ECAA_CHAT_SESSION_ID is a syntactically-correct UUID before any code
 # interpolates it into a docker label, cache path, or per-session log
 # location. A malformed value (e.g. shell metacharacters, path
 # traversal) would otherwise reach `--label swfc-session=$ID`,
@@ -60,15 +60,15 @@
 validate_uuid() {
     local v="$1"
     if [[ ! "$v" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
-        echo "FATAL: SWFC_CHAT_SESSION_ID is not a valid UUIDv4: $v" >&2
+        echo "FATAL: ECAA_CHAT_SESSION_ID is not a valid UUIDv4: $v" >&2
         exit 98
     fi
 }
 
-# Validate SWFC_TASK_ID before it interpolates into per-task paths
-# (runtime/outputs/$SWFC_TASK_ID/, scratch dirs, docker labels). Without
+# Validate ECAA_TASK_ID before it interpolates into per-task paths
+# (runtime/outputs/$ECAA_TASK_ID/, scratch dirs, docker labels). Without
 # validation a hostile id like `../../etc` or `x;rm -rf /` lands
-# directly in `mkdir -p $PACKAGE/runtime/outputs/$SWFC_TASK_ID` and any
+# directly in `mkdir -p $PACKAGE/runtime/outputs/$ECAA_TASK_ID` and any
 # subsequent `cat > $TASK_DIR/...` heredoc. Same `^[A-Za-z0-9_.-]+$`
 # shape the Rust `_id_validator::is_safe_id` enforces on the harness
 # side. Refuses `..`, `/`, leading `.`, NUL, length > 128. Exit 99
@@ -77,28 +77,28 @@ validate_uuid() {
 validate_task_id() {
     local v="$1"
     if [ -z "$v" ]; then
-        echo "FATAL: SWFC_TASK_ID is empty" >&2
+        echo "FATAL: ECAA_TASK_ID is empty" >&2
         exit 99
     fi
     if [ "${#v}" -gt 128 ]; then
-        echo "FATAL: SWFC_TASK_ID exceeds 128 chars: ${v:0:64}..." >&2
+        echo "FATAL: ECAA_TASK_ID exceeds 128 chars: ${v:0:64}..." >&2
         exit 99
     fi
     case "$v" in
         .*|*..*|*/*|*\\*)
-            echo "FATAL: SWFC_TASK_ID contains path-traversal chars: $v" >&2
+            echo "FATAL: ECAA_TASK_ID contains path-traversal chars: $v" >&2
             exit 99
             ;;
     esac
     if ! [[ "$v" =~ ^[A-Za-z0-9_.-]+$ ]]; then
-        echo "FATAL: SWFC_TASK_ID outside ^[A-Za-z0-9_.-]+$ shape: $v" >&2
+        echo "FATAL: ECAA_TASK_ID outside ^[A-Za-z0-9_.-]+$ shape: $v" >&2
         exit 99
     fi
 }
 
 # Run a command with xtrace temporarily disabled.
 # Used to hide secret expansions (ANTHROPIC_API_KEY, HF_TOKEN, etc.)
-# from agent-trace.log when SWFC_AGENT_DEBUG=1 enables `set -x`. The
+# from agent-trace.log when ECAA_AGENT_DEBUG=1 enables `set -x`. The
 # `2>/dev/null` swallows the trace line from `set +x` itself.
 run_no_xtrace() {
     { set +x; } 2>/dev/null
@@ -120,9 +120,9 @@ run_no_xtrace() {
 # Args:
 #   $1 — absolute path to scripts/agent-prompts/task-execution.md
 #
-# Required env at call time: PACKAGE, SWFC_TASK_ID. MAX_TURNS_PER_TASK is
+# Required env at call time: PACKAGE, ECAA_TASK_ID. MAX_TURNS_PER_TASK is
 # optional and defaults to 40. Other placeholders in the file (e.g.
-# <SWFC_HARNESS_RUN_ID>, <task_id>) are intentionally literal — the agent
+# <ECAA_HARNESS_RUN_ID>, <task_id>) are intentionally literal — the agent
 # receives them as-is for runtime substitution.
 load_task_execution_prompt() {
     local prompt_path="$1"
@@ -144,7 +144,7 @@ load_task_execution_prompt() {
     local body
     body="$(cat "$prompt_path")"
     body="${body//\$PACKAGE/$PACKAGE}"
-    body="${body//\$SWFC_TASK_ID/${SWFC_TASK_ID:-}}"
+    body="${body//\$ECAA_TASK_ID/${ECAA_TASK_ID:-}}"
     body="${body//\{\{MAX_TURNS_PER_TASK\}\}/$max_turns}"
     body="${body//\{\{SOFT_TURNS_PER_TASK\}\}/$soft_turns}"
     printf '%s' "$body"
@@ -309,7 +309,7 @@ enforce_turn_budget_limit() {
        }' > "$tmp_result"
     mv "$tmp_result" "$task_dir/result.json"
 
-    local epoch="${SWFC_DISPATCH_EPOCH:-}"
+    local epoch="${ECAA_DISPATCH_EPOCH:-}"
     if ! [[ "$epoch" =~ ^[0-9]+$ ]]; then
         epoch=""
     fi
@@ -318,7 +318,7 @@ enforce_turn_budget_limit() {
     tmp_patch="$(mktemp)"
     jq -n \
       --arg reason "$reason" \
-      --arg run_id "${SWFC_HARNESS_RUN_ID:-}" \
+      --arg run_id "${ECAA_HARNESS_RUN_ID:-}" \
       --arg epoch "$epoch" \
       '{
          from: "running",

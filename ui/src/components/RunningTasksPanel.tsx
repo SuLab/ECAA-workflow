@@ -204,7 +204,7 @@ function ActiveTaskCard({
 
 function HeartbeatDot({ ageSecs }: { ageSecs: number | null }): JSX.Element {
   // None → starting (grey). <60s → green. 60-300s → amber.
-  // >300s → red (matches SWFC_TASK_HEARTBEAT_STALL_SECS default).
+  // >300s → red (matches ECAA_TASK_HEARTBEAT_STALL_SECS default).
   const { color, label } = (() => {
     if (ageSecs === null)
       return { color: 'var(--color-text-faint)', label: 'starting' }

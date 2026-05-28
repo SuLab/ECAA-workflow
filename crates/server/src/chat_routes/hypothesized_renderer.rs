@@ -73,7 +73,7 @@ pub(super) async fn post_propose_hypothesized_renderer(
     // The registry is loaded here (outside the update closure) so we can
     // return a structured HTTP 500 on load failure rather than an opaque
     // closure panic.
-    let config_dir: PathBuf = std::env::var("SWFC_CONFIG_DIR")
+    let config_dir: PathBuf = std::env::var("ECAA_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("config"));
     let plot_dir = config_dir.join("plot-affordances");

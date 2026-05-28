@@ -139,7 +139,7 @@ fn relay_loop(session_id: String, server_url: String, relay_rx: Receiver<StallSi
         server_url.trim_end_matches('/'),
         session_id
     );
-    let auth_token = std::env::var("SWFC_SERVER_AUTH_TOKEN")
+    let auth_token = std::env::var("ECAA_SERVER_AUTH_TOKEN")
         .ok()
         .filter(|t| !t.is_empty());
 

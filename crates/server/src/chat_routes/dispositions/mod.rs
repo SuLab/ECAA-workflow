@@ -27,7 +27,7 @@
 //!   methods, writing one `DispositionApplied` / `DispositionRejected`
 //!   decision record per action.
 //! - v2 escape hatch — `auto_apply_if_enabled` is fired on ingest and
-//!   checks `SWFC_AUTO_APPLY_DISPOSITIONS=1 && disposition.auto_apply`.
+//!   checks `ECAA_AUTO_APPLY_DISPOSITIONS=1 && disposition.auto_apply`.
 
 use super::*;
 use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
@@ -55,12 +55,12 @@ pub(crate) use scan::{ingest_disposition_from_progress_event, scan_after_task_co
 /// on disk — the queue is a UX-time index, not the durable store.
 pub(crate) type DispositionQueue = Arc<RwLock<BTreeMap<SessionId, BTreeMap<PathBuf, Disposition>>>>;
 
-/// Return true when the env var `SWFC_AUTO_APPLY_DISPOSITIONS=1` is
+/// Return true when the env var `ECAA_AUTO_APPLY_DISPOSITIONS=1` is
 /// set. The double-gate (env + per-file `auto_apply: true`) means both
 /// operator consent and agent consent are required before the server
 /// applies without an SME click.
 pub(crate) fn auto_apply_enabled_globally() -> bool {
-    ecaa_workflow_core::env_helpers::env_bool("SWFC_AUTO_APPLY_DISPOSITIONS")
+    ecaa_workflow_core::env_helpers::env_bool("ECAA_AUTO_APPLY_DISPOSITIONS")
 }
 
 /// Load + normalize a disposition file on disk. Returns Err with a

@@ -25,13 +25,13 @@ pub enum EcaaMode {
 }
 
 impl EcaaMode {
-    /// Parse `SWFC_ECAA_MODE`. Unknown / empty / unset → `Full`.
+    /// Parse `ECAA_ECAA_MODE`. Unknown / empty / unset → `Full`.
     pub fn from_env_str(s: Option<&str>) -> Self {
         match s.map(|x| x.trim().to_ascii_lowercase()).as_deref() {
             Some("conventional") => Self::Conventional,
             Some("full") | None | Some("") => Self::Full,
             Some(other) => {
-                tracing::warn!(value = %other, "unknown SWFC_ECAA_MODE; falling back to Full");
+                tracing::warn!(value = %other, "unknown ECAA_ECAA_MODE; falling back to Full");
                 Self::Full
             }
         }

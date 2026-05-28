@@ -101,7 +101,7 @@ pub(super) async fn write_decision_log_tiered(
     tier: ecaa_workflow_core::provenance_tiers::ProvenanceTier,
 ) -> Result<()> {
     // Grant v19 §Aim 3A Arm B′ — short-circuit emission when the
-    // operator has set SWFC_ABLATE_DECISION_RECORDS=1 (or any truthy
+    // operator has set ECAA_ABLATE_DECISION_RECORDS=1 (or any truthy
     // value). The Arm B′ control package carries no decisions.jsonl;
     // every other emit-site stays active.
     use ecaa_workflow_core::ablation::AblationFlagExt;

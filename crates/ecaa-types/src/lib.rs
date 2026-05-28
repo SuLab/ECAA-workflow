@@ -16,7 +16,7 @@
 //!   `NetworkPolicy`, `SandboxRequirement`, `ToolErrorEnvelope`,
 //!   `ExcludedPath`, `SandboxRefusalRecord`, `StallSignalWire`,
 //!   `StallAction`, `BlockerContext`, `BlockerEntry`).
-//! - [`AblationFlag`] (6 variants) + [`all_flags`] — the SWFC_ABLATE_*
+//! - [`AblationFlag`] (6 variants) + [`all_flags`] — the ECAA_ABLATE_*
 //!   contract enum. The runtime `is_active()` check is in
 //!   `ecaa-workflow-core::ablation::AblationFlagExt` (kept there to
 //!   avoid coupling this crate to env-var access).

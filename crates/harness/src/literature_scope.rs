@@ -1,8 +1,8 @@
 //! Phase D of the literature-atom plan — typed reader for the four
-//! SWFC_LIT_* env vars that gate literature retrieval scope, NCBI rate
+//! ECAA_LIT_* env vars that gate literature retrieval scope, NCBI rate
 //! limits, evidence storage caps, and institutional-access opt-in.
 //! Invalid values fall back to safe defaults with a tracing warning
-//! (per the SWFC_HARNESS_BATCH_WINDOW_SECS precedent).
+//! (per the ECAA_HARNESS_BATCH_WINDOW_SECS precedent).
 //!
 //! The agent helper (`scripts/agent_literature_fetch.py`) reads these
 //! env vars from its environment at task-execution time; the harness
@@ -23,7 +23,7 @@ pub enum LiteratureScope {
 }
 
 impl LiteratureScope {
-    /// Returns the canonical `SWFC_LIT_SOURCE_SCOPE` string for this variant.
+    /// Returns the canonical `ECAA_LIT_SOURCE_SCOPE` string for this variant.
     pub fn as_env_str(self) -> &'static str {
         match self {
             Self::PmcOa => "pmc_oa",
@@ -31,7 +31,7 @@ impl LiteratureScope {
             Self::AllSourcesLocalOnly => "all_sources_local_only",
         }
     }
-    /// Parses a `SWFC_LIT_SOURCE_SCOPE` string. Returns `None` on unrecognised values.
+    /// Parses a `ECAA_LIT_SOURCE_SCOPE` string. Returns `None` on unrecognised values.
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "pmc_oa" => Some(Self::PmcOa),
@@ -43,50 +43,50 @@ impl LiteratureScope {
 }
 
 #[derive(Debug, Clone)]
-/// Typed configuration for the four `SWFC_LIT_*` environment variables.
+/// Typed configuration for the four `ECAA_LIT_*` environment variables.
 pub struct LiteratureScopeConfig {
     /// Which literature sources to fetch from.
     pub scope: LiteratureScope,
-    /// Optional NCBI E-utilities API key (`SWFC_LIT_NCBI_API_KEY`). Absent means 3 req/s rate limit.
+    /// Optional NCBI E-utilities API key (`ECAA_LIT_NCBI_API_KEY`). Absent means 3 req/s rate limit.
     pub ncbi_api_key: Option<String>,
-    /// Per-task evidence storage cap in MiB (`SWFC_LIT_EVIDENCE_MAX_MB`, default 200).
+    /// Per-task evidence storage cap in MiB (`ECAA_LIT_EVIDENCE_MAX_MB`, default 200).
     pub evidence_max_mb: u64,
-    /// When `true`, enables institutional-access paths (`SWFC_LIT_INSTITUTIONAL_ACCESS=1`).
+    /// When `true`, enables institutional-access paths (`ECAA_LIT_INSTITUTIONAL_ACCESS=1`).
     /// Only effective with `AllSourcesLocalOnly` scope.
     pub institutional_access: bool,
 }
 
 impl LiteratureScopeConfig {
-    /// Reads all `SWFC_LIT_*` env vars and constructs the config. Invalid values fall back to safe defaults.
+    /// Reads all `ECAA_LIT_*` env vars and constructs the config. Invalid values fall back to safe defaults.
     pub fn from_env() -> Self {
-        let raw_scope = env::var("SWFC_LIT_SOURCE_SCOPE").ok();
+        let raw_scope = env::var("ECAA_LIT_SOURCE_SCOPE").ok();
         let scope = match raw_scope.as_deref() {
             None => LiteratureScope::PmcOa,
             Some(s) => match LiteratureScope::parse(s) {
                 Some(v) => v,
                 None => {
                     tracing::warn!(
-                        "invalid SWFC_LIT_SOURCE_SCOPE={}; falling back to pmc_oa",
+                        "invalid ECAA_LIT_SOURCE_SCOPE={}; falling back to pmc_oa",
                         s
                     );
                     LiteratureScope::PmcOa
                 }
             },
         };
-        let ncbi_api_key = env::var("SWFC_LIT_NCBI_API_KEY")
+        let ncbi_api_key = env::var("ECAA_LIT_NCBI_API_KEY")
             .ok()
             .filter(|s| !s.is_empty());
-        let evidence_max_mb = env::var("SWFC_LIT_EVIDENCE_MAX_MB")
+        let evidence_max_mb = env::var("ECAA_LIT_EVIDENCE_MAX_MB")
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(200);
-        let institutional_access = env::var("SWFC_LIT_INSTITUTIONAL_ACCESS")
+        let institutional_access = env::var("ECAA_LIT_INSTITUTIONAL_ACCESS")
             .map(|v| v == "1")
             .unwrap_or(false);
 
         if institutional_access && scope != LiteratureScope::AllSourcesLocalOnly {
             tracing::warn!(
-                "SWFC_LIT_INSTITUTIONAL_ACCESS=1 but scope is {}; institutional_access ignored",
+                "ECAA_LIT_INSTITUTIONAL_ACCESS=1 but scope is {}; institutional_access ignored",
                 scope.as_env_str()
             );
         }
@@ -99,23 +99,23 @@ impl LiteratureScopeConfig {
         }
     }
 
-    /// Returns the `SWFC_LIT_*` env-var key-value pairs to inject into the agent subprocess.
+    /// Returns the `ECAA_LIT_*` env-var key-value pairs to inject into the agent subprocess.
     pub fn agent_env_vars(&self) -> Vec<(String, String)> {
         let mut vars = vec![
             (
-                "SWFC_LIT_SOURCE_SCOPE".into(),
+                "ECAA_LIT_SOURCE_SCOPE".into(),
                 self.scope.as_env_str().to_string(),
             ),
             (
-                "SWFC_LIT_EVIDENCE_MAX_MB".into(),
+                "ECAA_LIT_EVIDENCE_MAX_MB".into(),
                 self.evidence_max_mb.to_string(),
             ),
         ];
         if let Some(k) = &self.ncbi_api_key {
-            vars.push(("SWFC_LIT_NCBI_API_KEY".into(), k.clone()));
+            vars.push(("ECAA_LIT_NCBI_API_KEY".into(), k.clone()));
         }
         if self.institutional_access && self.scope == LiteratureScope::AllSourcesLocalOnly {
-            vars.push(("SWFC_LIT_INSTITUTIONAL_ACCESS".into(), "1".into()));
+            vars.push(("ECAA_LIT_INSTITUTIONAL_ACCESS".into(), "1".into()));
         }
         vars
     }
@@ -146,10 +146,10 @@ mod tests {
     fn defaults_to_pmc_oa() {
         with_env(
             &[
-                ("SWFC_LIT_SOURCE_SCOPE", None),
-                ("SWFC_LIT_NCBI_API_KEY", None),
-                ("SWFC_LIT_EVIDENCE_MAX_MB", None),
-                ("SWFC_LIT_INSTITUTIONAL_ACCESS", None),
+                ("ECAA_LIT_SOURCE_SCOPE", None),
+                ("ECAA_LIT_NCBI_API_KEY", None),
+                ("ECAA_LIT_EVIDENCE_MAX_MB", None),
+                ("ECAA_LIT_INSTITUTIONAL_ACCESS", None),
             ],
             || {
                 let cfg = LiteratureScopeConfig::from_env();
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn invalid_scope_falls_back_to_default() {
-        with_env(&[("SWFC_LIT_SOURCE_SCOPE", Some("bogus"))], || {
+        with_env(&[("ECAA_LIT_SOURCE_SCOPE", Some("bogus"))], || {
             assert_eq!(
                 LiteratureScopeConfig::from_env().scope,
                 LiteratureScope::PmcOa
@@ -175,20 +175,20 @@ mod tests {
     fn agent_env_vars_round_trip() {
         with_env(
             &[
-                ("SWFC_LIT_SOURCE_SCOPE", Some("pmc_oa_plus_abstracts")),
-                ("SWFC_LIT_NCBI_API_KEY", Some("test_key_value")),
-                ("SWFC_LIT_EVIDENCE_MAX_MB", Some("500")),
+                ("ECAA_LIT_SOURCE_SCOPE", Some("pmc_oa_plus_abstracts")),
+                ("ECAA_LIT_NCBI_API_KEY", Some("test_key_value")),
+                ("ECAA_LIT_EVIDENCE_MAX_MB", Some("500")),
             ],
             || {
                 let cfg = LiteratureScopeConfig::from_env();
                 let vars: std::collections::HashMap<_, _> =
                     cfg.agent_env_vars().into_iter().collect();
                 assert_eq!(
-                    vars.get("SWFC_LIT_SOURCE_SCOPE").unwrap(),
+                    vars.get("ECAA_LIT_SOURCE_SCOPE").unwrap(),
                     "pmc_oa_plus_abstracts"
                 );
-                assert_eq!(vars.get("SWFC_LIT_NCBI_API_KEY").unwrap(), "test_key_value");
-                assert_eq!(vars.get("SWFC_LIT_EVIDENCE_MAX_MB").unwrap(), "500");
+                assert_eq!(vars.get("ECAA_LIT_NCBI_API_KEY").unwrap(), "test_key_value");
+                assert_eq!(vars.get("ECAA_LIT_EVIDENCE_MAX_MB").unwrap(), "500");
             },
         );
     }
@@ -197,8 +197,8 @@ mod tests {
     fn institutional_access_ignored_outside_local_scope() {
         with_env(
             &[
-                ("SWFC_LIT_SOURCE_SCOPE", Some("pmc_oa")),
-                ("SWFC_LIT_INSTITUTIONAL_ACCESS", Some("1")),
+                ("ECAA_LIT_SOURCE_SCOPE", Some("pmc_oa")),
+                ("ECAA_LIT_INSTITUTIONAL_ACCESS", Some("1")),
             ],
             || {
                 let cfg = LiteratureScopeConfig::from_env();
@@ -208,7 +208,7 @@ mod tests {
                 // but is NOT emitted into agent_env_vars when the scope
                 // disagrees (gated by the warning at from_env).
                 assert!(cfg.institutional_access);
-                assert!(!vars.contains_key("SWFC_LIT_INSTITUTIONAL_ACCESS"));
+                assert!(!vars.contains_key("ECAA_LIT_INSTITUTIONAL_ACCESS"));
             },
         );
     }
@@ -217,14 +217,14 @@ mod tests {
     fn institutional_access_emitted_under_correct_scope() {
         with_env(
             &[
-                ("SWFC_LIT_SOURCE_SCOPE", Some("all_sources_local_only")),
-                ("SWFC_LIT_INSTITUTIONAL_ACCESS", Some("1")),
+                ("ECAA_LIT_SOURCE_SCOPE", Some("all_sources_local_only")),
+                ("ECAA_LIT_INSTITUTIONAL_ACCESS", Some("1")),
             ],
             || {
                 let cfg = LiteratureScopeConfig::from_env();
                 let vars: std::collections::HashMap<_, _> =
                     cfg.agent_env_vars().into_iter().collect();
-                assert_eq!(vars.get("SWFC_LIT_INSTITUTIONAL_ACCESS").unwrap(), "1");
+                assert_eq!(vars.get("ECAA_LIT_INSTITUTIONAL_ACCESS").unwrap(), "1");
             },
         );
     }

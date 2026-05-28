@@ -7,7 +7,7 @@
 //! pass; this middleware is a thin permission gate, not an auth
 //! system.
 //!
-//! `SWFC_SHARED_URLS_ENABLED=1` turns the whole thing on; without
+//! `ECAA_SHARED_URLS_ENABLED=1` turns the whole thing on; without
 //! the flag, tokens are never honored and the middleware is a no-op
 //! (every request passes through).
 
@@ -25,7 +25,7 @@ use uuid::Uuid;
 use crate::chat_routes::ChatAppState;
 
 fn feature_enabled() -> bool {
-    ecaa_workflow_core::env_helpers::env_bool("SWFC_SHARED_URLS_ENABLED")
+    ecaa_workflow_core::env_helpers::env_bool("ECAA_SHARED_URLS_ENABLED")
 }
 
 /// Tokens are 64-char lowercase hex (sha256 of 32 random bytes; see
@@ -172,13 +172,13 @@ mod tests {
 
     impl FlagGuard {
         fn enable() -> Self {
-            let prior = std::env::var("SWFC_SHARED_URLS_ENABLED").ok();
-            unsafe { std::env::set_var("SWFC_SHARED_URLS_ENABLED", "1") };
+            let prior = std::env::var("ECAA_SHARED_URLS_ENABLED").ok();
+            unsafe { std::env::set_var("ECAA_SHARED_URLS_ENABLED", "1") };
             Self { prior }
         }
         fn disable() -> Self {
-            let prior = std::env::var("SWFC_SHARED_URLS_ENABLED").ok();
-            unsafe { std::env::remove_var("SWFC_SHARED_URLS_ENABLED") };
+            let prior = std::env::var("ECAA_SHARED_URLS_ENABLED").ok();
+            unsafe { std::env::remove_var("ECAA_SHARED_URLS_ENABLED") };
             Self { prior }
         }
     }
@@ -186,8 +186,8 @@ mod tests {
     impl Drop for FlagGuard {
         fn drop(&mut self) {
             match &self.prior {
-                Some(v) => unsafe { std::env::set_var("SWFC_SHARED_URLS_ENABLED", v) },
-                None => unsafe { std::env::remove_var("SWFC_SHARED_URLS_ENABLED") },
+                Some(v) => unsafe { std::env::set_var("ECAA_SHARED_URLS_ENABLED", v) },
+                None => unsafe { std::env::remove_var("ECAA_SHARED_URLS_ENABLED") },
             }
         }
     }

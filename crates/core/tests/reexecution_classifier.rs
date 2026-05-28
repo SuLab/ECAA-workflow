@@ -234,7 +234,7 @@ fn scenario_ablation_engaged_sidecar_empty() {
     // conversation crate's sidecars module. We test the *core* representation:
     // `ReexecutionReport::empty` returns a report with empty per_artifact and
     // empty bucket_counts — matching what the sidecar writer serializes when
-    // SWFC_ABLATE_REEXECUTION_CLASS is active.
+    // ECAA_ABLATE_REEXECUTION_CLASS is active.
     let empty = ReexecutionReport::empty("0.1");
     assert_eq!(empty.schema_version, "0.1");
     assert!(

@@ -5,7 +5,7 @@
 //! captures every cap adjustment alongside the prior value. The cap
 //! itself is advisory (the warn / exceeded chip drives UI behavior);
 //! the harness auto-relaunch predicate refuses to spawn when the
-//! projected cost would exceed the cap *and* `SWFC_BUDGET_HARD_STOP=1`.
+//! projected cost would exceed the cap *and* `ECAA_BUDGET_HARD_STOP=1`.
 
 use super::{client_ip_from, ChatAppState};
 use axum::extract::{ConnectInfo, Path};

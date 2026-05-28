@@ -27,15 +27,15 @@
 /// this set as the floor. Pure data — adding a new well-known
 /// credential here is always correct regardless of executor.
 pub(super) const BASE_SECRET_KEYS: &[&str] = &[
-    "SWFC_ANTHROPIC_API_KEY",
+    "ECAA_ANTHROPIC_API_KEY",
     "ANTHROPIC_API_KEY",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
-    "SWFC_SERVER_AUTH_TOKEN",
+    "ECAA_SERVER_AUTH_TOKEN",
     "GH_TOKEN",
     "GITHUB_TOKEN",
-    "SWFC_LIT_NCBI_API_KEY",
+    "ECAA_LIT_NCBI_API_KEY",
 ];
 
 /// W3.1 — AWS-only credentials that the local executor doesn't normally

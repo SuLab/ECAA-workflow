@@ -193,7 +193,7 @@ pub enum BlockerKind {
 
     /// The harness observed that every Running task's heartbeat file
     /// is older than the configured threshold
-    /// (`SWFC_TASK_HEARTBEAT_STALL_SECS`). Distinct from
+    /// (`ECAA_TASK_HEARTBEAT_STALL_SECS`). Distinct from
     /// `BlockerKind::Stalled` (which is a CPU / memory / GPU / runtime
     /// signal from the stall monitor). UI BlockerCard offers Rerun.
     HeartbeatStalled {
@@ -251,7 +251,7 @@ pub enum BlockerKind {
     /// mismatch, unsupported OS, missing capabilities). `reason`
     /// is the runtime's exec failure text. SME affordance: retry
     /// on a different host, fall back to host-env via
-    /// `SWFC_DISABLE_CONTAINERS=1`, or pivot to a CPU image if the
+    /// `ECAA_DISABLE_CONTAINERS=1`, or pivot to a CPU image if the
     /// failure is GPU-related.
     ContainerStartFailed { image: String, reason: String },
 
@@ -259,8 +259,8 @@ pub enum BlockerKind {
     /// `podman`) isn't on the host's PATH. The harness probes
     /// runtimes in priority order; this kind fires when none are
     /// available. SME affordance: install a runtime, set
-    /// `SWFC_CONTAINER_RUNTIME=<name>` to point at a non-default
-    /// install path, or set `SWFC_DISABLE_CONTAINERS=1` to fall
+    /// `ECAA_CONTAINER_RUNTIME=<name>` to point at a non-default
+    /// install path, or set `ECAA_DISABLE_CONTAINERS=1` to fall
     /// through to the host environment.
     RuntimeMissing { runtime: String },
 
@@ -268,7 +268,7 @@ pub enum BlockerKind {
     /// itself completed successfully but the supply-chain attestation
     /// couldn't be written. `reason` is the syft binary's failure
     /// text. SME affordance: rerun the SBOM emit standalone, or set
-    /// `SWFC_SBOM_EMIT=0` to skip on subsequent tasks.
+    /// `ECAA_SBOM_EMIT=0` to skip on subsequent tasks.
     SbomEmissionFailed { reason: String },
 
     /// The task attempted network egress while running under a
@@ -306,7 +306,7 @@ pub enum BlockerKind {
 
     /// The SLURM scheduler reported `TIMEOUT` (the task hit the
     /// `--time=` wallclock cap) or AWS reported the task exceeded its
-    /// `expected_secs * SWFC_RUNTIME_MULTIPLIER` budget. Distinct from
+    /// `expected_secs * ECAA_RUNTIME_MULTIPLIER` budget. Distinct from
     /// `Stalled { signal: RuntimeOverExpected }` which fires *during*
     /// runtime as a heads-up — this kind fires *after* the scheduler
     /// has already killed the job. `wallclock_secs` is the elapsed time
@@ -348,7 +348,7 @@ pub enum BlockerKind {
     /// reference; `reason` is the resolver's diagnostic. SME
     /// affordance: retry once registry is reachable (transient), pin
     /// a different image:tag (mistyped / removed), or set
-    /// `SWFC_DISABLE_CONTAINERS=1` to fall through to host-mode.
+    /// `ECAA_DISABLE_CONTAINERS=1` to fall through to host-mode.
     ImageDigestUnresolved {
         image: String,
         tag: String,
@@ -396,7 +396,7 @@ pub enum BlockerKind {
     /// `OUT_OF_MEMORY` state) because cgroup-OOM-kill happens inside
     /// the agent's lifetime and yields a partial output set the SME
     /// can still inspect. SME affordance: re-run with a larger memory
-    /// cap (`SWFC_AGENT_MEMORY_CAP_GB`), or amend the stage method to
+    /// cap (`ECAA_AGENT_MEMORY_CAP_GB`), or amend the stage method to
     /// a less memory-hungry alternative.
     ContainerExitedAbnormally {
         exit_code: i32,
@@ -413,7 +413,7 @@ pub enum BlockerKind {
     /// SLURM partition name; `required` is the atom's runtime
     /// declaration; `available` is the site's capability list. SME
     /// affordance: pick a different partition (when one exists with
-    /// the runtime), set `SWFC_SLURM_NATIVE_CONTAINER=1` to use SLURM
+    /// the runtime), set `ECAA_SLURM_NATIVE_CONTAINER=1` to use SLURM
     /// 25.11's `--container` directive when applicable, or amend the
     /// atom to drop the container requirement.
     SlurmRuntimeUnavailable {
@@ -444,7 +444,7 @@ pub enum BlockerKind {
     },
 
     /// The container-aware orphan reaper observed a
-    /// stale heartbeat (older than `SWFC_TASK_HEARTBEAT_STALL_SECS`)
+    /// stale heartbeat (older than `ECAA_TASK_HEARTBEAT_STALL_SECS`)
     /// while the SSM/SSH probe found the container itself still
     /// alive (`docker ps --filter label=swfc-task=<id>` returned a
     /// row, or `apptainer instance list` showed the named instance).
@@ -534,8 +534,8 @@ pub enum BlockerKind {
     /// because controlled-access data must not be forwarded to a
     /// third-party LLM inference endpoint. SME affordance: declassify
     /// the data source via an institutional data-sharing agreement, or
-    /// switch to a host-mode executor (`SWFC_EXECUTOR_MODE=local` +
-    /// `SWFC_DISABLE_CONTAINERS=1`) that does not call an LLM service.
+    /// switch to a host-mode executor (`ECAA_EXECUTOR_MODE=local` +
+    /// `ECAA_DISABLE_CONTAINERS=1`) that does not call an LLM service.
     ControlledAccessViolation {
         task_id: String,
         port_name: String,
@@ -543,7 +543,7 @@ pub enum BlockerKind {
     },
 
     /// The aggregate byte total of `runtime/outputs/<task_id>/` exceeded
-    /// the operator-configured cap (`SWFC_TASK_OUTPUT_MAX_MB`, default
+    /// the operator-configured cap (`ECAA_TASK_OUTPUT_MAX_MB`, default
     /// 5120 = 5 GiB). The harness refused to merge the task's
     /// `state.patch.json` and blocked the task so disk exhaustion cannot
     /// spread silently across the package root.
@@ -577,24 +577,24 @@ pub enum BlockerKind {
     },
 
     /// The harness's local clock differs from the server's clock by
-    /// more than `SWFC_CLOCK_SKEW_THRESHOLD_SECS` (default 60).
+    /// more than `ECAA_CLOCK_SKEW_THRESHOLD_SECS` (default 60).
     /// Clock skew corrupts WAL timeout_at math and can trigger false
     /// orphan flags. Dispatch is refused until the clocks are brought
     /// into agreement. `observed_secs` is the absolute difference
     /// between `client_now` (harness) and `server_now` (server);
     /// `threshold_secs` is the configured ceiling. SME affordance:
     /// correct the host or server clock via NTP, or raise the threshold
-    /// with `SWFC_CLOCK_SKEW_THRESHOLD_SECS` if the skew is acceptable.
+    /// with `ECAA_CLOCK_SKEW_THRESHOLD_SECS` if the skew is acceptable.
     ClockSkew {
         /// Absolute difference between harness clock and server clock, in seconds.
         observed_secs: i64,
-        /// Configured ceiling (from `SWFC_CLOCK_SKEW_THRESHOLD_SECS`).
+        /// Configured ceiling (from `ECAA_CLOCK_SKEW_THRESHOLD_SECS`).
         threshold_secs: u64,
     },
 
     /// The wall-clock watchdog detected that a Running task has been
     /// executing for longer than `task.expected_wall_seconds *
-    /// SWFC_WATCHDOG_MULTIPLIER` (default 6×), or that the dispatch
+    /// ECAA_WATCHDOG_MULTIPLIER` (default 6×), or that the dispatch
     /// record's `timeout_at` timestamp has elapsed. This fires
     /// irrespective of CPU / memory / heartbeat signals — it catches
     /// CPU-bound infinite loops that produce a fresh heartbeat touch

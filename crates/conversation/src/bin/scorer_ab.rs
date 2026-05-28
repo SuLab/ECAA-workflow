@@ -1,7 +1,7 @@
 //! scorer_ab — A/B the rubric scorer against Sonnet 4.6 (baseline) vs
 //! Haiku 4.5 (candidate) over a curated corpus of representative
 //! transcripts. Hits the live Anthropic API twice per transcript; gated
-//! behind `SWFC_LIVE_API=1 + ANTHROPIC_API_KEY`. Emits CSV to stdout and
+//! behind `ECAA_LIVE_API=1 + ANTHROPIC_API_KEY`. Emits CSV to stdout and
 //! asserts the ship criteria:
 //!
 //! - Mean total absolute delta ≤ 1.0 points (out of 18)
@@ -45,16 +45,16 @@ async fn main() -> ExitCode {
 }
 
 async fn run() -> Result<()> {
-    if std::env::var("SWFC_LIVE_API").ok().as_deref() != Some("1") {
-        eprintln!("SKIP: SWFC_LIVE_API=1 required (scorer_ab hits the live Anthropic API).");
+    if std::env::var("ECAA_LIVE_API").ok().as_deref() != Some("1") {
+        eprintln!("SKIP: ECAA_LIVE_API=1 required (scorer_ab hits the live Anthropic API).");
         eprintln!(
-            "      SWFC_ANTHROPIC_API_KEY must also be set (legacy ANTHROPIC_API_KEY accepted)."
+            "      ECAA_ANTHROPIC_API_KEY must also be set (legacy ANTHROPIC_API_KEY accepted)."
         );
         return Ok(());
     }
 
     let client = AnthropicClient::new()
-        .context("failed to construct AnthropicClient — is SWFC_ANTHROPIC_API_KEY set?")?;
+        .context("failed to construct AnthropicClient — is ECAA_ANTHROPIC_API_KEY set?")?;
     let backend: Arc<dyn LlmBackend> = Arc::new(client);
     let metrics = MetricsStore::new();
 

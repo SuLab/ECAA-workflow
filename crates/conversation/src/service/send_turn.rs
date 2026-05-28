@@ -440,13 +440,13 @@ impl ConversationService {
         }
 
         // Optional per-turn token-burn logger, off by default. Set
-        // SWFC_DEBUG_TOKEN_BURN=1 to stream a
+        // ECAA_DEBUG_TOKEN_BURN=1 to stream a
         // one-line summary to stderr after every turn so operators
         // can watch cache-hit ratios and spend accumulate in real
         // time without opening the UI. Warns on suspicious ratios
         // (<30% after 3+ turns on the session) — the canonical
         // silent-cache-invalidation signal.
-        if ecaa_workflow_core::env_helpers::env_bool("SWFC_DEBUG_TOKEN_BURN") {
+        if ecaa_workflow_core::env_helpers::env_bool("ECAA_DEBUG_TOKEN_BURN") {
             if let Some(snap) = self.metrics_store().snapshot(id).await {
                 let billed =
                     snap.total_input_tokens + snap.cache_read_tokens + snap.cache_creation_tokens;
@@ -789,7 +789,7 @@ impl ConversationService {
     /// auto-title disabled, etc.) — the dedicated route handles
     /// failures the operator cares about visibly.
     ///
-    /// Gated on `SWFC_AUTO_TITLE=1` (same flag as the explicit
+    /// Gated on `ECAA_AUTO_TITLE=1` (same flag as the explicit
     /// `/auto-title` route) so that:
     /// - Production deployments that set the flag get a title once
     ///   the session ripens (no operator action required).
@@ -797,7 +797,7 @@ impl ConversationService {
     ///   (no extra LLM call consumed by a background task).
     pub(super) async fn maybe_auto_title(&self, id: SessionId) {
         const AUTO_TITLE_TURN_THRESHOLD: usize = 6;
-        if std::env::var("SWFC_AUTO_TITLE").ok().as_deref() != Some("1") {
+        if std::env::var("ECAA_AUTO_TITLE").ok().as_deref() != Some("1") {
             return;
         }
         let session = match self.store_handle().get(id).await {

@@ -5,12 +5,12 @@
 //! Exercises three layers:
 //! - Pure-Rust JSON Schema (always-on; `schema_only` mode).
 //! - BLOCK_ON_FAIL gate (clean fixture passes; malformed fixture aborts emit).
-//! - External Python validators when SWFC_VALIDATE_ON_EMIT=full (graceful
+//! - External Python validators when ECAA_VALIDATE_ON_EMIT=full (graceful
 //!   degradation expected if Python deps absent — both `Pass` and
 //!   `Unavailable` are accepted outcomes).
 //!
 //! Tests are `#[serial]` because they mutate process-global env vars
-//! (`SWFC_VALIDATE_ON_EMIT`, `SWFC_VALIDATION_BLOCK_ON_FAIL`) that the
+//! (`ECAA_VALIDATE_ON_EMIT`, `ECAA_VALIDATION_BLOCK_ON_FAIL`) that the
 //! validator reads on every call.
 
 use ecaa_workflow_conversation::emit::validation::{
@@ -50,15 +50,15 @@ fn clone_fixture(dst: &std::path::Path) {
 }
 
 fn clear_validation_env() {
-    std::env::remove_var("SWFC_VALIDATE_ON_EMIT");
-    std::env::remove_var("SWFC_VALIDATION_BLOCK_ON_FAIL");
+    std::env::remove_var("ECAA_VALIDATE_ON_EMIT");
+    std::env::remove_var("ECAA_VALIDATION_BLOCK_ON_FAIL");
 }
 
 #[test]
 #[serial]
 fn schema_only_mode_runs_on_fixture() {
     clear_validation_env();
-    std::env::set_var("SWFC_VALIDATE_ON_EMIT", "schema_only");
+    std::env::set_var("ECAA_VALIDATE_ON_EMIT", "schema_only");
     let pkg = fixture_path();
     let summary = validate_emitted_package(&pkg).expect("validation should not block");
     assert_eq!(summary.mode, ValidationMode::SchemaOnly);
@@ -86,7 +86,7 @@ fn schema_only_mode_runs_on_fixture() {
 #[serial]
 fn disabled_mode_skips_all() {
     clear_validation_env();
-    std::env::set_var("SWFC_VALIDATE_ON_EMIT", "off");
+    std::env::set_var("ECAA_VALIDATE_ON_EMIT", "off");
     let pkg = fixture_path();
     let summary = validate_emitted_package(&pkg).expect("validation should not block");
     assert_eq!(summary.mode, ValidationMode::Disabled);
@@ -101,8 +101,8 @@ fn disabled_mode_skips_all() {
 #[serial]
 fn validates_under_block_on_fail_passes_on_clean_fixture() {
     clear_validation_env();
-    std::env::set_var("SWFC_VALIDATE_ON_EMIT", "schema_only");
-    std::env::set_var("SWFC_VALIDATION_BLOCK_ON_FAIL", "1");
+    std::env::set_var("ECAA_VALIDATE_ON_EMIT", "schema_only");
+    std::env::set_var("ECAA_VALIDATION_BLOCK_ON_FAIL", "1");
     let pkg = fixture_path();
     // The clean fixture must succeed under BLOCK_ON_FAIL=1 because R2.9
     // skips the two harness-runtime sidecars rather than recording them
@@ -123,8 +123,8 @@ fn validates_under_block_on_fail_passes_on_clean_fixture() {
 #[serial]
 fn validates_under_block_on_fail_rejects_malformed_decision_jsonl() {
     clear_validation_env();
-    std::env::set_var("SWFC_VALIDATE_ON_EMIT", "schema_only");
-    std::env::set_var("SWFC_VALIDATION_BLOCK_ON_FAIL", "1");
+    std::env::set_var("ECAA_VALIDATE_ON_EMIT", "schema_only");
+    std::env::set_var("ECAA_VALIDATION_BLOCK_ON_FAIL", "1");
     let tmp = tempfile::tempdir().expect("create tempdir");
     let pkg = tmp.path();
     clone_fixture(pkg);
@@ -148,7 +148,7 @@ fn validates_under_block_on_fail_rejects_malformed_decision_jsonl() {
 #[serial]
 fn full_mode_invokes_external_validators() {
     clear_validation_env();
-    std::env::set_var("SWFC_VALIDATE_ON_EMIT", "full");
+    std::env::set_var("ECAA_VALIDATE_ON_EMIT", "full");
     let pkg = fixture_path();
     let summary = validate_emitted_package(&pkg).expect("full-mode validation should not block");
     assert_eq!(summary.mode, ValidationMode::Full);

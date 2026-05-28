@@ -1,6 +1,6 @@
 //! Cost guard that estimates the spend of a planned run before
 //! `AwsExecutor::provision` launches an instance. When the projected
-//! total exceeds `SWFC_AWS_COST_CEILING_USD`, `provision` aborts
+//! total exceeds `ECAA_AWS_COST_CEILING_USD`, `provision` aborts
 //! with a clear error pointing at the ceiling value.
 //!
 //! R-21 — alongside the per-provision ceiling check there's a
@@ -8,7 +8,7 @@
 //! running total to a per-package sidecar file. A run that piecewise
 //! stays under the per-provision ceiling but spends $100+ over many
 //! cycles (e.g. spot reclaim → reprovision loops) is caught by the
-//! cumulative ceiling, default $100 via `SWFC_AWS_RUN_TOTAL_CEILING_USD`.
+//! cumulative ceiling, default $100 via `ECAA_AWS_RUN_TOTAL_CEILING_USD`.
 
 use super::aws::pricing::{on_demand_usd_per_hour, SPOT_DISCOUNT_FRACTION};
 use std::env;
@@ -58,7 +58,7 @@ pub fn estimate_run_cost_usd(
     Ok(total)
 }
 
-/// Check the estimated spend against `SWFC_AWS_COST_CEILING_USD`.
+/// Check the estimated spend against `ECAA_AWS_COST_CEILING_USD`.
 ///
 /// The ceiling is REQUIRED for AWS provisioning. An unset /
 /// unparseable / non-positive value MUST refuse to provision —
@@ -111,11 +111,11 @@ pub enum CostGuardError {
     CeilingExceeded {
         /// Projected spend in USD for this provision.
         estimated_usd: f64,
-        /// Ceiling value in USD from `SWFC_AWS_COST_CEILING_USD`.
+        /// Ceiling value in USD from `ECAA_AWS_COST_CEILING_USD`.
         ceiling_usd: f64,
     },
-    /// One of the cost-ceiling env vars (`SWFC_AWS_COST_CEILING_USD` for
-    /// per-provision, `SWFC_AWS_RUN_TOTAL_CEILING_USD` for cumulative)
+    /// One of the cost-ceiling env vars (`ECAA_AWS_COST_CEILING_USD` for
+    /// per-provision, `ECAA_AWS_RUN_TOTAL_CEILING_USD` for cumulative)
     /// is unset, empty, non-positive, or unparseable. AWS provisioning
     /// fails closed: the operator must set a positive USD value
     /// explicitly before any `aws ec2 run-instances` call can fire.
@@ -123,7 +123,7 @@ pub enum CostGuardError {
     /// failure so the diagnostic doesn't mislead when both gates exist.
     CeilingUnset { which_env: &'static str },
     /// R-21 — cumulative run spend would push past the configured
-    /// `SWFC_AWS_RUN_TOTAL_CEILING_USD` (default 100 USD). A single
+    /// `ECAA_AWS_RUN_TOTAL_CEILING_USD` (default 100 USD). A single
     /// provision may stay under the per-launch ceiling but
     /// reprovision loops (spot reclaim, capacity rebalance, manual
     /// retry) can quietly accrue past $100; this stops the loop.
@@ -132,7 +132,7 @@ pub enum CostGuardError {
         cumulative_usd: f64,
         /// Estimated spend for the next provision (USD).
         next_estimate_usd: f64,
-        /// Run-total ceiling in USD from `SWFC_AWS_RUN_TOTAL_CEILING_USD`.
+        /// Run-total ceiling in USD from `ECAA_AWS_RUN_TOTAL_CEILING_USD`.
         ceiling_usd: f64,
     },
     /// R-21 — the cumulative-spend sidecar exists but contains
@@ -160,7 +160,7 @@ impl std::fmt::Display for CostGuardError {
                 ceiling_usd,
             } => write!(
                 f,
-                "estimated spend ${:.2} exceeds SWFC_AWS_COST_CEILING_USD=${:.2}. Set a higher ceiling or reduce the planned run.",
+                "estimated spend ${:.2} exceeds ECAA_AWS_COST_CEILING_USD=${:.2}. Set a higher ceiling or reduce the planned run.",
                 estimated_usd, ceiling_usd
             ),
             CostGuardError::CeilingUnset { which_env } => write!(
@@ -177,7 +177,7 @@ impl std::fmt::Display for CostGuardError {
             } => write!(
                 f,
                 "cumulative run spend ${:.2} + next provision ${:.2} would exceed \
-                 SWFC_AWS_RUN_TOTAL_CEILING_USD=${:.2}. The current run has accrued \
+                 ECAA_AWS_RUN_TOTAL_CEILING_USD=${:.2}. The current run has accrued \
                  too much spend across repeated provisions; raise the ceiling or \
                  stop the run.",
                 cumulative_usd, next_estimate_usd, ceiling_usd
@@ -213,12 +213,12 @@ impl std::error::Error for CostGuardError {}
 // partial write never corrupts the persisted total.
 
 /// R-21 — env var name for the cumulative run-total ceiling.
-pub const RUN_TOTAL_CEILING_ENV: &str = "SWFC_AWS_RUN_TOTAL_CEILING_USD";
+pub const RUN_TOTAL_CEILING_ENV: &str = "ECAA_AWS_RUN_TOTAL_CEILING_USD";
 
 /// Companion to `RUN_TOTAL_CEILING_ENV` — the per-provision ceiling.
 /// Both share `CostGuardError::CeilingUnset`; the variant carries
 /// `which_env` so the diagnostic names whichever variable is missing.
-pub const PER_PROVISION_CEILING_ENV: &str = "SWFC_AWS_COST_CEILING_USD";
+pub const PER_PROVISION_CEILING_ENV: &str = "ECAA_AWS_COST_CEILING_USD";
 
 /// R-21 — default cumulative ceiling when the env var is unset. Picked
 /// to match the per-provision default surface area: most real-world
@@ -244,7 +244,7 @@ impl CumulativeSpend {
     /// R-21 — construct a tracker for `package_id`. Resolves the
     /// sidecar path under `$HOME/.scripps-workflow/cumulative_spend/`
     /// and reads the run-total ceiling from
-    /// `SWFC_AWS_RUN_TOTAL_CEILING_USD` (default $100). Creates the
+    /// `ECAA_AWS_RUN_TOTAL_CEILING_USD` (default $100). Creates the
     /// directory lazily on first write.
     pub fn for_package(package_id: &str) -> Self {
         Self::with_root(default_cumulative_root(), package_id)
@@ -264,7 +264,7 @@ impl CumulativeSpend {
     }
 
     /// W5.1 — fail-closed constructor. Returns `Err(CeilingUnset)` when
-    /// `SWFC_AWS_RUN_TOTAL_CEILING_USD` is unset or unparseable. Use
+    /// `ECAA_AWS_RUN_TOTAL_CEILING_USD` is unset or unparseable. Use
     /// from AWS production paths so a missing ceiling refuses to
     /// provision instead of silently applying the $100 default.
     pub fn for_package_strict(package_id: &str) -> Result<Self, CostGuardError> {
@@ -457,7 +457,7 @@ fn sanitize_package_id(s: &str) -> String {
     out
 }
 
-/// R-21 — read `SWFC_AWS_RUN_TOTAL_CEILING_USD` with default fallback.
+/// R-21 — read `ECAA_AWS_RUN_TOTAL_CEILING_USD` with default fallback.
 /// Unset / unparseable / non-positive → `DEFAULT_RUN_TOTAL_CEILING_USD`
 /// ($100). A zero or negative explicit override is treated as a typo
 /// and falls back to the default with a warn.
@@ -491,7 +491,7 @@ fn read_run_total_ceiling() -> f64 {
             tracing::warn!(
                 env = RUN_TOTAL_CEILING_ENV,
                 default = DEFAULT_RUN_TOTAL_CEILING_USD,
-                "SWFC_AWS_RUN_TOTAL_CEILING_USD unset; falling back to default \
+                "ECAA_AWS_RUN_TOTAL_CEILING_USD unset; falling back to default \
                  (production deployments should set this explicitly — strict mode \
                  will refuse provisioning)"
             );
@@ -505,7 +505,7 @@ fn read_run_total_ceiling() -> f64 {
 /// matching the per-provision `check_ceiling` semantics. Production
 /// constructors (`CumulativeSpend::for_package_strict`,
 /// `with_root_strict`) call this so a missing
-/// `SWFC_AWS_RUN_TOTAL_CEILING_USD` aborts provisioning at startup
+/// `ECAA_AWS_RUN_TOTAL_CEILING_USD` aborts provisioning at startup
 /// rather than letting a silent $100 default ship to AWS.
 fn read_run_total_ceiling_strict() -> Result<f64, CostGuardError> {
     match env::var(RUN_TOTAL_CEILING_ENV) {
@@ -538,7 +538,7 @@ fn read_run_total_ceiling_strict() -> Result<f64, CostGuardError> {
 
 /// Which backend's cost-guard semantics to use.
 ///
-/// `Aws` — full pricing-table estimate + `SWFC_AWS_COST_CEILING_USD`
+/// `Aws` — full pricing-table estimate + `ECAA_AWS_COST_CEILING_USD`
 /// ceiling check. `NoEstimate` — backends that don't model $/hr cost
 /// (SLURM where the posture is fairshare/QoS quotas, local where there
 /// is no infra spend). Returns `Ok(None)` from `estimate_for_backend`
@@ -548,7 +548,7 @@ fn read_run_total_ceiling_strict() -> Result<f64, CostGuardError> {
 /// with a matching arm in both free functions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackendKind {
-    /// AWS EC2 executor; estimates cost from the pricing table and enforces `SWFC_AWS_COST_CEILING_USD`.
+    /// AWS EC2 executor; estimates cost from the pricing table and enforces `ECAA_AWS_COST_CEILING_USD`.
     Aws,
     /// Executor that doesn't model per-hour cost (SLURM, local). Cost checks are no-ops.
     NoEstimate,
@@ -581,13 +581,13 @@ pub fn check_ceiling_for_backend(
     }
 }
 
-/// Read the per-provision ceiling from `SWFC_AWS_COST_CEILING_USD`.
+/// Read the per-provision ceiling from `ECAA_AWS_COST_CEILING_USD`.
 /// Returns `None` when the env var is unset or non-positive (same
 /// conditions that `check_ceiling` treats as `CeilingUnset`). Used by
 /// the emission site so the `CostGuardSnapshot` can include the ceiling
 /// that was actually enforced.
 pub fn read_provision_ceiling_usd() -> Option<f64> {
-    match std::env::var("SWFC_AWS_COST_CEILING_USD") {
+    match std::env::var("ECAA_AWS_COST_CEILING_USD") {
         Ok(raw) => match raw.trim().parse::<f64>() {
             Ok(v) if v > 0.0 && v.is_finite() => Some(v),
             _ => None,
@@ -820,19 +820,19 @@ mod tests {
     fn with_ceiling<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {
         // Serialize on the crate-wide env lock so these tests don't
         // race concurrent AwsExecutor / sizing tests that touch the
-        // same SWFC_AWS_* env space.
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        // same ECAA_AWS_* env space.
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        let prior = env::var("SWFC_AWS_COST_CEILING_USD").ok();
+        let prior = env::var("ECAA_AWS_COST_CEILING_USD").ok();
         match value {
-            Some(v) => unsafe { env::set_var("SWFC_AWS_COST_CEILING_USD", v) },
-            None => unsafe { env::remove_var("SWFC_AWS_COST_CEILING_USD") },
+            Some(v) => unsafe { env::set_var("ECAA_AWS_COST_CEILING_USD", v) },
+            None => unsafe { env::remove_var("ECAA_AWS_COST_CEILING_USD") },
         }
         let out = body();
         match prior {
-            Some(v) => unsafe { env::set_var("SWFC_AWS_COST_CEILING_USD", v) },
-            None => unsafe { env::remove_var("SWFC_AWS_COST_CEILING_USD") },
+            Some(v) => unsafe { env::set_var("ECAA_AWS_COST_CEILING_USD", v) },
+            None => unsafe { env::remove_var("ECAA_AWS_COST_CEILING_USD") },
         }
         out
     }
@@ -923,7 +923,7 @@ mod tests {
             let err = check_ceiling(1.0).unwrap_err();
             let msg = format!("{}", err);
             assert!(
-                msg.contains("SWFC_AWS_COST_CEILING_USD"),
+                msg.contains("ECAA_AWS_COST_CEILING_USD"),
                 "diagnostic must name the env var, got: {msg}"
             );
         });
@@ -993,7 +993,7 @@ mod tests {
     // ── R-21 CumulativeSpend tests ───────────────────────────────────
 
     fn with_run_total<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         let prior = env::var(RUN_TOTAL_CEILING_ENV).ok();

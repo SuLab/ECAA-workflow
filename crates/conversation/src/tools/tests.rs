@@ -1871,7 +1871,7 @@ async fn append_intake_prose_resolves_bulk_de_tie_via_modality_hint() {
 /// (composer_version=1, today's default) does not consult
 /// `archetype_snapshot`, so cross-omics fixing requires the session
 /// to have committed to the archetype-fast-path composer at
-/// creation time (set via `SWFC_COMPOSER=archetypes`). The test
+/// creation time (set via `ECAA_COMPOSER=archetypes`). The test
 /// sets `composer_version=2` directly on the session because
 /// `Session::new` reads the env var and tests run with it unset.
 /// The legacy-taxonomy sunset will flip the default, at which point

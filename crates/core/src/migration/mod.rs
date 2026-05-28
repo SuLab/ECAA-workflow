@@ -26,7 +26,7 @@
 //!
 //! The `scripps-workflow migrate-sessions` CLI subcommand calls
 //! `MigrationRegistry::with_starters()` against
-//! `SWFC_CHAT_SESSIONS_DIR`, applying any starter migrations to
+//! `ECAA_CHAT_SESSIONS_DIR`, applying any starter migrations to
 //! on-disk session JSON in place. `--dry-run` reports counts without
 //! writing.
 

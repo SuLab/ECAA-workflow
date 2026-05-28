@@ -68,22 +68,22 @@ impl Default for StallThresholds {
 }
 
 impl StallThresholds {
-    /// Read thresholds from `SWFC_STALL_*` env vars. Unset vars fall
+    /// Read thresholds from `ECAA_STALL_*` env vars. Unset vars fall
     /// back to the compiled-in defaults. `enabled` auto-enables on
-    /// `SWFC_EXECUTOR_MODE=aws` when not explicitly set.
+    /// `ECAA_EXECUTOR_MODE=aws` when not explicitly set.
     pub fn from_env() -> Self {
         let mut t = Self::default();
-        let aws_mode = env::var("SWFC_EXECUTOR_MODE").as_deref() == Ok("aws");
-        t.enabled = match env::var("SWFC_STALL_ENABLED") {
+        let aws_mode = env::var("ECAA_EXECUTOR_MODE").as_deref() == Ok("aws");
+        t.enabled = match env::var("ECAA_STALL_ENABLED") {
             Ok(v) => parse_bool(&v).unwrap_or(aws_mode),
             Err(_) => aws_mode,
         };
-        if let Ok(v) = env::var("SWFC_STALL_CPU_MIN_PCT") {
+        if let Ok(v) = env::var("ECAA_STALL_CPU_MIN_PCT") {
             if let Ok(n) = v.trim().parse() {
                 t.cpu_min_pct = n;
             }
         }
-        if let Ok(v) = env::var("SWFC_STALL_CPU_WINDOW_MINS") {
+        if let Ok(v) = env::var("ECAA_STALL_CPU_WINDOW_MINS") {
             if let Ok(n) = v.trim().parse() {
                 // 0 is a legitimate setting: after
                 // `sample_stall_loop` clamps the window size to a
@@ -93,32 +93,32 @@ impl StallThresholds {
                 t.cpu_window_mins = n;
             }
         }
-        if let Ok(v) = env::var("SWFC_STALL_MEM_MAX_PCT") {
+        if let Ok(v) = env::var("ECAA_STALL_MEM_MAX_PCT") {
             if let Ok(n) = v.trim().parse() {
                 t.mem_max_pct = n;
             }
         }
-        if let Ok(v) = env::var("SWFC_STALL_MEM_WINDOW_MINS") {
+        if let Ok(v) = env::var("ECAA_STALL_MEM_WINDOW_MINS") {
             if let Ok(n) = v.trim().parse() {
                 // Same rationale as CPU window.
                 t.mem_window_mins = n;
             }
         }
-        if let Ok(v) = env::var("SWFC_STALL_GPU_IDLE_MINS") {
+        if let Ok(v) = env::var("ECAA_STALL_GPU_IDLE_MINS") {
             if let Ok(n) = v.trim().parse() {
                 if n > 0 {
                     t.gpu_idle_when_training_mins = n;
                 }
             }
         }
-        if let Ok(v) = env::var("SWFC_STALL_RUNTIME_MULT") {
+        if let Ok(v) = env::var("ECAA_STALL_RUNTIME_MULT") {
             if let Ok(n) = v.trim().parse() {
                 if n > 0.0 {
                     t.runtime_over_expected_mult = n;
                 }
             }
         }
-        if let Ok(v) = env::var("SWFC_STALL_SAMPLE_INTERVAL_SECS") {
+        if let Ok(v) = env::var("ECAA_STALL_SAMPLE_INTERVAL_SECS") {
             if let Ok(n) = v.trim().parse() {
                 if n > 0 {
                     t.sample_interval_secs = n;
@@ -636,10 +636,10 @@ mod tests {
     #[test]
     fn env_parsing_overrides_defaults() {
         unsafe {
-            env::set_var("SWFC_STALL_ENABLED", "1");
-            env::set_var("SWFC_STALL_CPU_MIN_PCT", "10");
-            env::set_var("SWFC_STALL_CPU_WINDOW_MINS", "60");
-            env::set_var("SWFC_STALL_MEM_MAX_PCT", "85");
+            env::set_var("ECAA_STALL_ENABLED", "1");
+            env::set_var("ECAA_STALL_CPU_MIN_PCT", "10");
+            env::set_var("ECAA_STALL_CPU_WINDOW_MINS", "60");
+            env::set_var("ECAA_STALL_MEM_MAX_PCT", "85");
         }
         let t = StallThresholds::from_env();
         assert!(t.enabled);
@@ -647,10 +647,10 @@ mod tests {
         assert_eq!(t.cpu_window_mins, 60);
         assert_eq!(t.mem_max_pct, 85.0);
         unsafe {
-            env::remove_var("SWFC_STALL_ENABLED");
-            env::remove_var("SWFC_STALL_CPU_MIN_PCT");
-            env::remove_var("SWFC_STALL_CPU_WINDOW_MINS");
-            env::remove_var("SWFC_STALL_MEM_MAX_PCT");
+            env::remove_var("ECAA_STALL_ENABLED");
+            env::remove_var("ECAA_STALL_CPU_MIN_PCT");
+            env::remove_var("ECAA_STALL_CPU_WINDOW_MINS");
+            env::remove_var("ECAA_STALL_MEM_MAX_PCT");
         }
     }
 

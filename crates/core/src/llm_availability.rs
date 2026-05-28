@@ -9,8 +9,8 @@
 //! main chat-state machine.
 //!
 //! Detection is deliberately env-driven so it stays deterministic and
-//! testable: the canonical sources are `SWFC_CHAT_MODE=offline` (operator
-//! kill-switch) and the API-key pair (`SWFC_ANTHROPIC_API_KEY` /
+//! testable: the canonical sources are `ECAA_CHAT_MODE=offline` (operator
+//! kill-switch) and the API-key pair (`ECAA_ANTHROPIC_API_KEY` /
 //! `ANTHROPIC_API_KEY`). The conversation service caches the result per
 //! session and refreshes it when an Anthropic call returns a transient
 //! `Unavailable` error so the UI can re-mount the form mid-session
@@ -56,17 +56,17 @@ impl LlmAvailability {
     /// path consume the result.
     pub fn detect_from_env() -> Self {
         // Operator kill-switch first: even if an API key is present,
-        // `SWFC_CHAT_MODE=offline` forces the structured-form path.
-        if std::env::var("SWFC_CHAT_MODE").as_deref() == Ok("offline") {
+        // `ECAA_CHAT_MODE=offline` forces the structured-form path.
+        if std::env::var("ECAA_CHAT_MODE").as_deref() == Ok("offline") {
             return Self::Disabled {
-                reason: "SWFC_CHAT_MODE=offline".into(),
+                reason: "ECAA_CHAT_MODE=offline".into(),
                 set_by: "operator".into(),
             };
         }
         // No API key configured anywhere — disable regardless of mode.
         // Both env names are accepted (legacy ANTHROPIC_API_KEY support
         // matches the rest of the chat surface).
-        if std::env::var("SWFC_ANTHROPIC_API_KEY").is_err()
+        if std::env::var("ECAA_ANTHROPIC_API_KEY").is_err()
             && std::env::var("ANTHROPIC_API_KEY").is_err()
         {
             return Self::Disabled {
@@ -93,30 +93,30 @@ mod tests {
 
     /// Operator kill-switch takes precedence over the API-key check.
     ///
-    /// Serialized on `SWFC_CHAT_MODE` so this and the
+    /// Serialized on `ECAA_CHAT_MODE` so this and the
     /// `composer_offline` integration tests can't interleave each
     /// other's set/remove sequences.
-    #[serial_test::serial(SWFC_CHAT_MODE)]
+    #[serial_test::serial(ECAA_CHAT_MODE)]
     #[test]
     fn offline_mode_overrides_api_key() {
         // SAFETY: env mutation inside a single-test scope. Restore
         // any prior value to avoid contaminating downstream tests.
-        let prior_mode = std::env::var("SWFC_CHAT_MODE").ok();
-        let prior_key = std::env::var("SWFC_ANTHROPIC_API_KEY").ok();
-        std::env::set_var("SWFC_CHAT_MODE", "offline");
-        std::env::set_var("SWFC_ANTHROPIC_API_KEY", "sk-doesntmatter");
+        let prior_mode = std::env::var("ECAA_CHAT_MODE").ok();
+        let prior_key = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
+        std::env::set_var("ECAA_CHAT_MODE", "offline");
+        std::env::set_var("ECAA_ANTHROPIC_API_KEY", "sk-doesntmatter");
 
         let av = LlmAvailability::detect_from_env();
         assert!(matches!(av, LlmAvailability::Disabled { .. }));
 
         // Restore.
         match prior_mode {
-            Some(v) => std::env::set_var("SWFC_CHAT_MODE", v),
-            None => std::env::remove_var("SWFC_CHAT_MODE"),
+            Some(v) => std::env::set_var("ECAA_CHAT_MODE", v),
+            None => std::env::remove_var("ECAA_CHAT_MODE"),
         }
         match prior_key {
-            Some(v) => std::env::set_var("SWFC_ANTHROPIC_API_KEY", v),
-            None => std::env::remove_var("SWFC_ANTHROPIC_API_KEY"),
+            Some(v) => std::env::set_var("ECAA_ANTHROPIC_API_KEY", v),
+            None => std::env::remove_var("ECAA_ANTHROPIC_API_KEY"),
         }
     }
 

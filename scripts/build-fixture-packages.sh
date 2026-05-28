@@ -9,7 +9,7 @@
 set -euo pipefail
 ROOT="${1:-testdata/wrroc-fixtures}"
 OUT="${2:-testdata/emitted-packages}"
-CONFIG_DIR="${SWFC_CONFIG_DIR:-config}"
+CONFIG_DIR="${ECAA_CONFIG_DIR:-config}"
 mkdir -p "$OUT"
 TMP_PROSE_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_PROSE_DIR"' EXIT

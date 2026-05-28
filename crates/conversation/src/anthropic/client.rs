@@ -33,11 +33,11 @@ pub const CONTEXT_MANAGEMENT_BETA: &str = "context-management-2025-06-27";
 /// Default HTTP timeout for the Anthropic Messages API client. Plan
 /// D-R10 / S2.7 — 180s gives Sonnet/Opus + tool loop enough headroom
 /// without the previous 120s ceiling that masked stalls as timeouts on
-/// long generations. Override via `SWFC_ANTHROPIC_TIMEOUT_SECS=<n>`.
+/// long generations. Override via `ECAA_ANTHROPIC_TIMEOUT_SECS=<n>`.
 pub const DEFAULT_ANTHROPIC_TIMEOUT_SECS: u64 = 180;
 
 fn anthropic_client_timeout() -> std::time::Duration {
-    let secs = std::env::var("SWFC_ANTHROPIC_TIMEOUT_SECS")
+    let secs = std::env::var("ECAA_ANTHROPIC_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_ANTHROPIC_TIMEOUT_SECS);
@@ -87,10 +87,10 @@ pub const CONTEXT_MGMT_TRIGGER_TOOL_USES: u32 = 8;
 pub const CONTEXT_MGMT_KEEP_TOOL_USES: u32 = 4;
 
 /// True if context editing is enabled (the default). The
-/// `SWFC_DISABLE_CONTEXT_EDITING=1` escape hatch turns it off for A/B
+/// `ECAA_DISABLE_CONTEXT_EDITING=1` escape hatch turns it off for A/B
 /// comparison or if the beta ever regresses.
 pub(crate) fn context_editing_enabled() -> bool {
-    std::env::var("SWFC_DISABLE_CONTEXT_EDITING")
+    std::env::var("ECAA_DISABLE_CONTEXT_EDITING")
         .ok()
         .as_deref()
         != Some("1")
@@ -98,25 +98,25 @@ pub(crate) fn context_editing_enabled() -> bool {
 
 /// Guarded payload dumper.
 ///
-/// `SWFC_DUMP_ANTHROPIC_PAYLOAD` writes the request body the chat is
+/// `ECAA_DUMP_ANTHROPIC_PAYLOAD` writes the request body the chat is
 /// about to send to Anthropic to a local file. Useful for debugging
 /// "schema too complex" / cache-prefix mismatches, but the file
 /// contains the system prompt, tool catalog, and any tool-result
 /// payloads already in the conversation — so:
 ///
-/// 1. The dump is gated on `SWFC_DEBUG=1` so an operator can't dump
+/// 1. The dump is gated on `ECAA_DEBUG=1` so an operator can't dump
 ///    accidentally / surreptitiously. A warning is logged when the
-///    dump path is set but `SWFC_DEBUG` isn't.
+///    dump path is set but `ECAA_DEBUG` isn't.
 /// 2. The file is created with mode 0600 so a co-tenant on the same
 ///    Unix host can't read it. (Default mode is 0644 on most distros
 ///    via umask 022.)
 fn dump_anthropic_payload(dump_path: &str, body: &serde_json::Value) {
-    let debug_enabled = std::env::var("SWFC_DEBUG")
+    let debug_enabled = std::env::var("ECAA_DEBUG")
         .map(|v| v == "1" || v == "true")
         .unwrap_or(false);
     if !debug_enabled {
         tracing::warn!(
-            "SWFC_DUMP_ANTHROPIC_PAYLOAD={dump_path} set but SWFC_DEBUG=1 not set; ignoring \
+            "ECAA_DUMP_ANTHROPIC_PAYLOAD={dump_path} set but ECAA_DEBUG=1 not set; ignoring \
              (the dump may contain prompt + tool-result payloads, only enabled under explicit debug)"
         );
         return;
@@ -140,14 +140,14 @@ fn dump_anthropic_payload(dump_path: &str, body: &serde_json::Value) {
             use std::io::Write;
             if let Err(e) = f.write_all(serialized.as_bytes()) {
                 tracing::warn!(
-                    "SWFC_DUMP_ANTHROPIC_PAYLOAD: write to {} failed: {e}",
+                    "ECAA_DUMP_ANTHROPIC_PAYLOAD: write to {} failed: {e}",
                     path.display()
                 );
             }
         }
         Err(e) => {
             tracing::warn!(
-                "SWFC_DUMP_ANTHROPIC_PAYLOAD: opening {} (mode 0600) failed: {e}",
+                "ECAA_DUMP_ANTHROPIC_PAYLOAD: opening {} (mode 0600) failed: {e}",
                 path.display()
             );
         }
@@ -317,11 +317,11 @@ pub struct AnthropicClient {
 }
 
 impl AnthropicClient {
-    /// Construct from `SWFC_ANTHROPIC_API_KEY` (or legacy `ANTHROPIC_API_KEY`)
+    /// Construct from `ECAA_ANTHROPIC_API_KEY` (or legacy `ANTHROPIC_API_KEY`)
     /// and the optional `ANTHROPIC_BASE_URL` override.
     pub fn new() -> Result<Self> {
         let api_key = crate::anthropic_api_key()
-            .context("SWFC_ANTHROPIC_API_KEY required for AnthropicClient::new — set the env var or use MockLlmBackend (legacy ANTHROPIC_API_KEY is also accepted with a deprecation warning)")?;
+            .context("ECAA_ANTHROPIC_API_KEY required for AnthropicClient::new — set the env var or use MockLlmBackend (legacy ANTHROPIC_API_KEY is also accepted with a deprecation warning)")?;
         let raw_base = std::env::var("ANTHROPIC_BASE_URL")
             .unwrap_or_else(|_| "https://api.anthropic.com".into());
         let base_url = url::Url::parse(&raw_base)
@@ -448,10 +448,10 @@ impl LlmBackend for AnthropicClient {
         // The dumped payload contains the
         // full system prompt + tool definitions + any tool-result bodies
         // already in the conversation, and is reachable through any LLM
-        // turn with the env var set. Gate on SWFC_DEBUG=1 so the dump is
+        // turn with the env var set. Gate on ECAA_DEBUG=1 so the dump is
         // off unless the operator explicitly opted in, and force mode
         // 0600 so other users on a shared host can't read the file.
-        if let Ok(dump_path) = std::env::var("SWFC_DUMP_ANTHROPIC_PAYLOAD") {
+        if let Ok(dump_path) = std::env::var("ECAA_DUMP_ANTHROPIC_PAYLOAD") {
             dump_anthropic_payload(&dump_path, &body);
         }
 
@@ -854,16 +854,16 @@ pub fn build_messages_payload(req: &TurnRequest) -> serde_json::Value {
     // markers would be rejected by the Anthropic API at send time with
     // HTTP 400; catching it locally surfaces the offending call-site
     // instead of a runtime failure. Also asserts TTL is the 5-minute
-    // default unless explicitly allowed via SWFC_ALLOW_1H_CACHE=1.
+    // default unless explicitly allowed via ECAA_ALLOW_1H_CACHE=1.
     debug_assert!(
         count_cache_markers(&payload) <= MAX_CACHE_BREAKPOINTS,
         "cache_control marker count exceeds {} — Anthropic rejects these",
         MAX_CACHE_BREAKPOINTS
     );
-    if std::env::var("SWFC_ALLOW_1H_CACHE").ok().as_deref() != Some("1") {
+    if std::env::var("ECAA_ALLOW_1H_CACHE").ok().as_deref() != Some("1") {
         debug_assert!(
             !has_non_default_ttl(&payload),
-            "cache_control ttl must be the default (5m ephemeral); set SWFC_ALLOW_1H_CACHE=1 to override"
+            "cache_control ttl must be the default (5m ephemeral); set ECAA_ALLOW_1H_CACHE=1 to override"
         );
     }
 
@@ -953,7 +953,7 @@ struct ApiUsage {
     /// `ephemeral_1h_input_tokens` split. The 1h tier costs 2× base
     /// input vs 1.25× for the 5-minute tier (the `has_non_default_ttl`
     /// guard at this file's L687 already exists to flip
-    /// `SWFC_ALLOW_1H_CACHE=1`), so per-tier accounting is necessary
+    /// `ECAA_ALLOW_1H_CACHE=1`), so per-tier accounting is necessary
     /// for accurate cost attribution. Defaults to `CacheCreation::default()`
     /// when absent — older fixtures + the mock backend leave it unset.
     #[serde(default)]
@@ -1299,7 +1299,7 @@ mod tests {
 
     // R-38: per-TTL nested shape sums into the flat field when the
     // legacy flat field is absent / zero. Validates the
-    // `SWFC_ALLOW_1H_CACHE=1` future-flip scenario flagged in the
+    // `ECAA_ALLOW_1H_CACHE=1` future-flip scenario flagged in the
     // remediation plan.
     #[test]
     fn parse_response_derives_flat_from_nested_per_ttl() {
@@ -1354,17 +1354,17 @@ mod tests {
 
     #[test]
     fn missing_api_key_errors_at_new() {
-        let prior_swfc = std::env::var("SWFC_ANTHROPIC_API_KEY").ok();
+        let prior_swfc = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
         let prior_legacy = std::env::var("ANTHROPIC_API_KEY").ok();
         // SAFETY: tests in this module run single-threaded by virtue of
         // accessing the same env var; we restore on drop below.
         unsafe {
-            std::env::remove_var("SWFC_ANTHROPIC_API_KEY");
+            std::env::remove_var("ECAA_ANTHROPIC_API_KEY");
             std::env::remove_var("ANTHROPIC_API_KEY");
         };
         let r = AnthropicClient::new();
         if let Some(k) = prior_swfc {
-            unsafe { std::env::set_var("SWFC_ANTHROPIC_API_KEY", k) };
+            unsafe { std::env::set_var("ECAA_ANTHROPIC_API_KEY", k) };
         }
         if let Some(k) = prior_legacy {
             unsafe { std::env::set_var("ANTHROPIC_API_KEY", k) };
@@ -1793,13 +1793,13 @@ mod tests {
     #[test]
     fn context_management_applied_by_default_and_disabled_by_env() {
         // §3.13: the beta feature that auto-clears stale tool_result
-        // blocks is on by default. `SWFC_DISABLE_CONTEXT_EDITING=1`
+        // blocks is on by default. `ECAA_DISABLE_CONTEXT_EDITING=1`
         // turns it off so an operator can A/B or roll back without a
         // redeploy.
         let mut body = serde_json::json!({"model": "claude-sonnet-4-6"});
         // Scope env mutation — tests in this module are serial because
         // they share the process-wide env.
-        unsafe { std::env::remove_var("SWFC_DISABLE_CONTEXT_EDITING") };
+        unsafe { std::env::remove_var("ECAA_DISABLE_CONTEXT_EDITING") };
         apply_context_management(&mut body);
         let edits = body["context_management"]["edits"].as_array().unwrap();
         assert_eq!(edits[0]["type"], "clear_tool_uses_20250919");
@@ -1809,10 +1809,10 @@ mod tests {
 
         // Escape hatch: env flag disables the injection entirely.
         let mut body2 = serde_json::json!({"model": "claude-sonnet-4-6"});
-        unsafe { std::env::set_var("SWFC_DISABLE_CONTEXT_EDITING", "1") };
+        unsafe { std::env::set_var("ECAA_DISABLE_CONTEXT_EDITING", "1") };
         apply_context_management(&mut body2);
         assert!(body2.get("context_management").is_none());
-        unsafe { std::env::remove_var("SWFC_DISABLE_CONTEXT_EDITING") };
+        unsafe { std::env::remove_var("ECAA_DISABLE_CONTEXT_EDITING") };
     }
 
     #[test]
@@ -1820,7 +1820,7 @@ mod tests {
         // 5-minute ephemeral is the default and what interactive chat
         // wants (writes cost 1.25× base input; 1-hour writes cost 2×).
         // Any future change that sets `ttl: "1h"` on a cache_control
-        // block must first flip SWFC_ALLOW_1H_CACHE=1. This test pins
+        // block must first flip ECAA_ALLOW_1H_CACHE=1. This test pins
         // the guard. See §4.6.
         let mut payload = serde_json::json!({
             "system": [
@@ -1839,7 +1839,7 @@ mod tests {
     // ── dump_anthropic_payload ───────
 
     /// Serialise the `dump_anthropic_payload` tests so concurrent
-    /// `cargo test` threads don't observe each other's `SWFC_DEBUG`
+    /// `cargo test` threads don't observe each other's `ECAA_DEBUG`
     /// flipping. The env table is process-global; tests in this
     /// module already use `unsafe { set_var/remove_var }` under the
     /// crate-level `#![allow(unsafe_code)]` waiver.
@@ -1848,7 +1848,7 @@ mod tests {
     #[test]
     fn dump_anthropic_payload_skips_when_debug_unset() {
         let _g = DUMP_TEST_LOCK.lock().unwrap();
-        unsafe { std::env::remove_var("SWFC_DEBUG") };
+        unsafe { std::env::remove_var("ECAA_DEBUG") };
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("dump.json");
         dump_anthropic_payload(
@@ -1857,32 +1857,32 @@ mod tests {
         );
         assert!(
             !path.exists(),
-            "dump file MUST NOT be written when SWFC_DEBUG is unset"
+            "dump file MUST NOT be written when ECAA_DEBUG is unset"
         );
     }
 
     #[test]
     fn dump_anthropic_payload_writes_when_debug_set() {
         let _g = DUMP_TEST_LOCK.lock().unwrap();
-        unsafe { std::env::set_var("SWFC_DEBUG", "1") };
+        unsafe { std::env::set_var("ECAA_DEBUG", "1") };
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("dump.json");
         dump_anthropic_payload(
             path.to_str().unwrap(),
             &serde_json::json!({"test": "payload"}),
         );
-        assert!(path.exists(), "dump file should exist when SWFC_DEBUG=1");
+        assert!(path.exists(), "dump file should exist when ECAA_DEBUG=1");
         let contents = std::fs::read_to_string(&path).unwrap();
         assert!(contents.contains("\"test\""));
         assert!(contents.contains("\"payload\""));
-        unsafe { std::env::remove_var("SWFC_DEBUG") };
+        unsafe { std::env::remove_var("ECAA_DEBUG") };
     }
 
     #[test]
     #[cfg(unix)]
     fn dump_anthropic_payload_forces_0600_mode_under_debug() {
         let _g = DUMP_TEST_LOCK.lock().unwrap();
-        unsafe { std::env::set_var("SWFC_DEBUG", "1") };
+        unsafe { std::env::set_var("ECAA_DEBUG", "1") };
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("dump.json");
         dump_anthropic_payload(path.to_str().unwrap(), &serde_json::json!({"k": "v"}));
@@ -1895,30 +1895,30 @@ mod tests {
             "dump file mode must be 0600 (was {:o})",
             mode & 0o777
         );
-        unsafe { std::env::remove_var("SWFC_DEBUG") };
+        unsafe { std::env::remove_var("ECAA_DEBUG") };
     }
 
     #[test]
     fn dump_anthropic_payload_debug_true_string_also_enables() {
         // The guard accepts "1" or "true" as truthy.
         let _g = DUMP_TEST_LOCK.lock().unwrap();
-        unsafe { std::env::set_var("SWFC_DEBUG", "true") };
+        unsafe { std::env::set_var("ECAA_DEBUG", "true") };
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("dump.json");
         dump_anthropic_payload(path.to_str().unwrap(), &serde_json::json!({"k": "v"}));
-        assert!(path.exists(), "SWFC_DEBUG=true must also enable the dump");
-        unsafe { std::env::remove_var("SWFC_DEBUG") };
+        assert!(path.exists(), "ECAA_DEBUG=true must also enable the dump");
+        unsafe { std::env::remove_var("ECAA_DEBUG") };
     }
 
     #[test]
     fn dump_anthropic_payload_skips_for_other_values() {
         let _g = DUMP_TEST_LOCK.lock().unwrap();
-        unsafe { std::env::set_var("SWFC_DEBUG", "0") };
+        unsafe { std::env::set_var("ECAA_DEBUG", "0") };
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("dump.json");
         dump_anthropic_payload(path.to_str().unwrap(), &serde_json::json!({"k": "v"}));
-        assert!(!path.exists(), "SWFC_DEBUG=0 must NOT enable the dump");
-        unsafe { std::env::remove_var("SWFC_DEBUG") };
+        assert!(!path.exists(), "ECAA_DEBUG=0 must NOT enable the dump");
+        unsafe { std::env::remove_var("ECAA_DEBUG") };
     }
 
     // ── ResilientClient wiring (E28) ────────────────────────────────────────
@@ -1937,11 +1937,11 @@ mod tests {
         let _g = DUMP_TEST_LOCK.lock().unwrap();
         // Inject a non-https, non-loopback base URL.
         let prior_url = std::env::var("ANTHROPIC_BASE_URL").ok();
-        let prior_swfc = std::env::var("SWFC_ANTHROPIC_API_KEY").ok();
+        let prior_swfc = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
         unsafe {
             std::env::set_var("ANTHROPIC_BASE_URL", "http://api.anthropic.com");
             // Provide a dummy key so the key-check doesn't fire first.
-            std::env::set_var("SWFC_ANTHROPIC_API_KEY", "sk-ant-test-dummy");
+            std::env::set_var("ECAA_ANTHROPIC_API_KEY", "sk-ant-test-dummy");
         }
         let result = AnthropicClient::new();
         // Restore env.
@@ -1951,8 +1951,8 @@ mod tests {
                 None => std::env::remove_var("ANTHROPIC_BASE_URL"),
             }
             match prior_swfc {
-                Some(v) => std::env::set_var("SWFC_ANTHROPIC_API_KEY", v),
-                None => std::env::remove_var("SWFC_ANTHROPIC_API_KEY"),
+                Some(v) => std::env::set_var("ECAA_ANTHROPIC_API_KEY", v),
+                None => std::env::remove_var("ECAA_ANTHROPIC_API_KEY"),
             }
         }
         assert!(
@@ -1973,10 +1973,10 @@ mod tests {
     fn resilient_client_accepts_loopback_http_base_url() {
         let _g = DUMP_TEST_LOCK.lock().unwrap();
         let prior_url = std::env::var("ANTHROPIC_BASE_URL").ok();
-        let prior_swfc = std::env::var("SWFC_ANTHROPIC_API_KEY").ok();
+        let prior_swfc = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
         unsafe {
             std::env::set_var("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080");
-            std::env::set_var("SWFC_ANTHROPIC_API_KEY", "sk-ant-test-dummy");
+            std::env::set_var("ECAA_ANTHROPIC_API_KEY", "sk-ant-test-dummy");
         }
         let result = AnthropicClient::new();
         unsafe {
@@ -1985,8 +1985,8 @@ mod tests {
                 None => std::env::remove_var("ANTHROPIC_BASE_URL"),
             }
             match prior_swfc {
-                Some(v) => std::env::set_var("SWFC_ANTHROPIC_API_KEY", v),
-                None => std::env::remove_var("SWFC_ANTHROPIC_API_KEY"),
+                Some(v) => std::env::set_var("ECAA_ANTHROPIC_API_KEY", v),
+                None => std::env::remove_var("ECAA_ANTHROPIC_API_KEY"),
             }
         }
         assert!(

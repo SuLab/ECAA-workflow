@@ -139,7 +139,7 @@ async fn confirm_with_different_keys_each_runs_handler() {
 
 #[tokio::test]
 async fn ttl_env_override_is_picked_up_by_store() {
-    // `SWFC_IDEMPOTENCY_TTL_SECS` should override the default
+    // `ECAA_IDEMPOTENCY_TTL_SECS` should override the default
     // 1 hour. We test the constructor path only (not the full router)
     // because mutating env in a multi-threaded integration test is
     // fragile; the deeper behavioral test lives in the unit-test block

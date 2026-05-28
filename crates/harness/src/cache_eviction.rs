@@ -1,8 +1,8 @@
 //! LRU eviction for the per-session agent cache.
 //!
-//! `SWFC_AGENT_CACHE_MAX_GB` is documented as a soft ceiling;
+//! `ECAA_AGENT_CACHE_MAX_GB` is documented as a soft ceiling;
 //! this module is the enforcement code. Per-session
-//! caches (`$SWFC_AGENT_CACHE_DIR` rooted at
+//! caches (`$ECAA_AGENT_CACHE_DIR` rooted at
 //! `~/.scripps-workflow/agent-cache/` by default, with one subdirectory
 //! per session id) grew unbounded between the 30-day persistence-TTL
 //! sweep. Long-running operators with many sessions hit disk-pressure
@@ -15,7 +15,7 @@
 //! per-file, so we never half-evict a session and leave a broken cache
 //! that an active dispatch would reuse.
 //!
-//! Activation: opt-in via `SWFC_AGENT_CACHE_MAX_GB=<integer>`. Unset =
+//! Activation: opt-in via `ECAA_AGENT_CACHE_MAX_GB=<integer>`. Unset =
 //! no enforcement (graceful default for hosts where cache-pressure
 //! isn't a problem yet). Invoked from `main::main` after
 //! `SessionLock::acquire` so the host-level multi-process guard is
@@ -25,7 +25,7 @@
 //!
 //! A periodic background sweep is also launched via `spawn_periodic` to
 //! catch bursty workloads that fill disk between harness restarts. The
-//! period is controlled by `SWFC_CACHE_EVICTION_PERIOD_SECS` (default
+//! period is controlled by `ECAA_CACHE_EVICTION_PERIOD_SECS` (default
 //! 600 = 10 min; clamped to [60, 3600]). The sweep runs the same LRU
 //! walk as the one-shot startup call; the background thread exits
 //! cleanly when the `EvictionGuard` (which holds the shutdown sender)
@@ -37,7 +37,7 @@ use std::sync::mpsc;
 use std::time::{Duration, SystemTime};
 
 /// Walk-rooted enforcer keyed by an LRU strategy. Constructed via
-/// `from_env()`; the absence of `SWFC_AGENT_CACHE_MAX_GB` returns
+/// `from_env()`; the absence of `ECAA_AGENT_CACHE_MAX_GB` returns
 /// `None` so the harness can call `.map(|e| e.enforce())` without
 /// branching itself.
 pub struct CacheEvictor {
@@ -47,14 +47,14 @@ pub struct CacheEvictor {
 
 impl CacheEvictor {
     /// Build from environment. Returns `None` when
-    /// `SWFC_AGENT_CACHE_MAX_GB` is unset / non-numeric — graceful
+    /// `ECAA_AGENT_CACHE_MAX_GB` is unset / non-numeric — graceful
     /// opt-in, never panics on bad input.
     pub fn from_env() -> Option<Self> {
-        let max_gb: u64 = std::env::var("SWFC_AGENT_CACHE_MAX_GB")
+        let max_gb: u64 = std::env::var("ECAA_AGENT_CACHE_MAX_GB")
             .ok()?
             .parse()
             .ok()?;
-        let cache_dir = std::env::var_os("SWFC_AGENT_CACHE_DIR")
+        let cache_dir = std::env::var_os("ECAA_AGENT_CACHE_DIR")
             .map(PathBuf::from)
             .or_else(|| {
                 std::env::var_os("HOME")
@@ -310,7 +310,7 @@ impl Drop for EvictionGuard {
     }
 }
 
-/// Resolve `SWFC_CACHE_EVICTION_PERIOD_SECS` from the environment.
+/// Resolve `ECAA_CACHE_EVICTION_PERIOD_SECS` from the environment.
 /// Returns a `Duration` clamped to [60 s, 3600 s]; default is 600 s.
 /// Non-numeric or out-of-range values fall back to the default with a
 /// warning so a misconfigured operator doesn't silently disable sweeps.
@@ -319,7 +319,7 @@ pub fn eviction_period_from_env() -> Duration {
     const MIN_SECS: u64 = 60;
     const MAX_SECS: u64 = 3600;
 
-    let raw = match std::env::var("SWFC_CACHE_EVICTION_PERIOD_SECS") {
+    let raw = match std::env::var("ECAA_CACHE_EVICTION_PERIOD_SECS") {
         Ok(v) => v,
         Err(_) => return Duration::from_secs(DEFAULT_SECS),
     };
@@ -328,7 +328,7 @@ pub fn eviction_period_from_env() -> Duration {
         Err(_) => {
             tracing::warn!(
                 value = %raw,
-                "SWFC_CACHE_EVICTION_PERIOD_SECS is not a valid integer; \
+                "ECAA_CACHE_EVICTION_PERIOD_SECS is not a valid integer; \
                  using default {}s",
                 DEFAULT_SECS,
             );
@@ -340,7 +340,7 @@ pub fn eviction_period_from_env() -> Duration {
             value = parsed,
             min = MIN_SECS,
             max = MAX_SECS,
-            "SWFC_CACHE_EVICTION_PERIOD_SECS out of range [60, 3600]; \
+            "ECAA_CACHE_EVICTION_PERIOD_SECS out of range [60, 3600]; \
              clamping to bounds",
         );
         return Duration::from_secs(parsed.clamp(MIN_SECS, MAX_SECS));
@@ -573,7 +573,7 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_AGENT_CACHE_MAX_GB");
+            std::env::remove_var("ECAA_AGENT_CACHE_MAX_GB");
         }
         assert!(CacheEvictor::from_env().is_none());
     }
@@ -583,16 +583,16 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         #[allow(unsafe_code)]
         unsafe {
-            std::env::set_var("SWFC_AGENT_CACHE_MAX_GB", "not-a-number");
+            std::env::set_var("ECAA_AGENT_CACHE_MAX_GB", "not-a-number");
         }
         let got = CacheEvictor::from_env();
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_AGENT_CACHE_MAX_GB");
+            std::env::remove_var("ECAA_AGENT_CACHE_MAX_GB");
         }
         assert!(
             got.is_none(),
-            "non-numeric SWFC_AGENT_CACHE_MAX_GB must be ignored"
+            "non-numeric ECAA_AGENT_CACHE_MAX_GB must be ignored"
         );
     }
 
@@ -602,14 +602,14 @@ mod tests {
         let custom = tempfile::tempdir().unwrap();
         #[allow(unsafe_code)]
         unsafe {
-            std::env::set_var("SWFC_AGENT_CACHE_MAX_GB", "5");
-            std::env::set_var("SWFC_AGENT_CACHE_DIR", custom.path());
+            std::env::set_var("ECAA_AGENT_CACHE_MAX_GB", "5");
+            std::env::set_var("ECAA_AGENT_CACHE_DIR", custom.path());
         }
         let ev = CacheEvictor::from_env().expect("must construct");
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_AGENT_CACHE_MAX_GB");
-            std::env::remove_var("SWFC_AGENT_CACHE_DIR");
+            std::env::remove_var("ECAA_AGENT_CACHE_MAX_GB");
+            std::env::remove_var("ECAA_AGENT_CACHE_DIR");
         }
         // No assert on private fields directly — just verify enforce()
         // doesn't blow up against the temp root.
@@ -702,7 +702,7 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_CACHE_EVICTION_PERIOD_SECS");
+            std::env::remove_var("ECAA_CACHE_EVICTION_PERIOD_SECS");
         }
         assert_eq!(super::eviction_period_from_env(), Duration::from_secs(600));
     }
@@ -712,12 +712,12 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         #[allow(unsafe_code)]
         unsafe {
-            std::env::set_var("SWFC_CACHE_EVICTION_PERIOD_SECS", "10");
+            std::env::set_var("ECAA_CACHE_EVICTION_PERIOD_SECS", "10");
         }
         let result = super::eviction_period_from_env();
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_CACHE_EVICTION_PERIOD_SECS");
+            std::env::remove_var("ECAA_CACHE_EVICTION_PERIOD_SECS");
         }
         assert_eq!(result, Duration::from_secs(60));
     }
@@ -727,12 +727,12 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         #[allow(unsafe_code)]
         unsafe {
-            std::env::set_var("SWFC_CACHE_EVICTION_PERIOD_SECS", "9999");
+            std::env::set_var("ECAA_CACHE_EVICTION_PERIOD_SECS", "9999");
         }
         let result = super::eviction_period_from_env();
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_CACHE_EVICTION_PERIOD_SECS");
+            std::env::remove_var("ECAA_CACHE_EVICTION_PERIOD_SECS");
         }
         assert_eq!(result, Duration::from_secs(3600));
     }
@@ -742,12 +742,12 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         #[allow(unsafe_code)]
         unsafe {
-            std::env::set_var("SWFC_CACHE_EVICTION_PERIOD_SECS", "300");
+            std::env::set_var("ECAA_CACHE_EVICTION_PERIOD_SECS", "300");
         }
         let result = super::eviction_period_from_env();
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_CACHE_EVICTION_PERIOD_SECS");
+            std::env::remove_var("ECAA_CACHE_EVICTION_PERIOD_SECS");
         }
         assert_eq!(result, Duration::from_secs(300));
     }
@@ -757,12 +757,12 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         #[allow(unsafe_code)]
         unsafe {
-            std::env::set_var("SWFC_CACHE_EVICTION_PERIOD_SECS", "not-a-number");
+            std::env::set_var("ECAA_CACHE_EVICTION_PERIOD_SECS", "not-a-number");
         }
         let result = super::eviction_period_from_env();
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_CACHE_EVICTION_PERIOD_SECS");
+            std::env::remove_var("ECAA_CACHE_EVICTION_PERIOD_SECS");
         }
         assert_eq!(result, Duration::from_secs(600));
     }

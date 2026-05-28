@@ -16,7 +16,7 @@
 //!
 //! ## Bypass / single-user-dev posture
 //!
-//! 1. `SWFC_OWNER_AUTHZ_DISABLE=1` — global kill-switch for the layer.
+//! 1. `ECAA_OWNER_AUTHZ_DISABLE=1` — global kill-switch for the layer.
 //!    Used by the integration test harness and by single-user dev where
 //!    the bearer-token layer is already the only auth boundary.
 //! 2. `Session.owner_user == "local"` — the default value derived from
@@ -56,13 +56,13 @@ pub const OWNER_USER_HEADER: &str = "X-Scripps-User";
 /// `X-Scripps-User` header populates the session at create time.
 pub(super) const LOCAL_OWNER_SENTINEL: &str = "local";
 
-/// `SWFC_OWNER_AUTHZ_DISABLE=1` env-var bypass. Documented in CLAUDE.md;
+/// `ECAA_OWNER_AUTHZ_DISABLE=1` env-var bypass. Documented in CLAUDE.md;
 /// used by integration tests that mount the chat router without a
 /// fronting proxy. Resolved fresh on each request so the integration
 /// tests can flip the bypass mid-suite without restarting the server.
 pub fn owner_authz_disabled() -> bool {
     matches!(
-        std::env::var("SWFC_OWNER_AUTHZ_DISABLE").as_deref(),
+        std::env::var("ECAA_OWNER_AUTHZ_DISABLE").as_deref(),
         Ok("1")
     )
 }

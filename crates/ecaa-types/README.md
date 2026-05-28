@@ -1,4 +1,4 @@
-# scripps-workflow-ecaa-types
+# ecaa-workflow-ecaa-types
 
 Canonical Rust binding of the ECAA v0.1 typed object model.
 
@@ -16,13 +16,13 @@ Closed types and constants downstream consumers bind to:
 - **F sub-graph (typed blockers):** `BlockerKind` (47 variants, `#[non_exhaustive]`) and its payload cascade — `ValidationFailureCause`, `LiteratureClaimFailureKind`, `ExcludedPath`, `SandboxRefusalRecord`, `StallSignalWire`, `StallAction`, `BlockerContext`, `BlockerEntry`.
 - **Atom safety payloads:** `NetworkPolicy`, `SandboxRequirement` (re-exported from the `atom` module; these are payload types of `BlockerKind` variants).
 - **Tool-error envelope:** `ToolErrorEnvelope` — the on-disk shape consumed by the remediation proposer.
-- **Ablation contract:** `AblationFlag` (6 variants) + `all_flags()`. The runtime `is_active()` check is in `scripps-workflow-core::ablation::AblationFlagExt` — kept there so this crate stays free of env-var coupling.
+- **Ablation contract:** `AblationFlag` (6 variants) + `all_flags()`. The runtime `is_active()` check is in `ecaa-workflow-core::ablation::AblationFlagExt` — kept there so this crate stays free of env-var coupling.
 - **`consts::{NODE_TYPES, EDGE_PREDICATES, INVARIANT_IDS, SIDECAR_PATHS, REQUIRED_PROFILE_IRIS}`** — canonical const arrays used by spec-check tooling for cross-doc consistency.
 
 ## How consumers should import
 
 - **First-party code** (the `awa-workflow` workspace itself): use the `scripps_workflow_core::blocker::*` re-exports so call sites stay stable across future internal moves.
-- **Second implementations** (a different Rust ECAA producer): depend on `scripps-workflow-ecaa-types` directly. The crate has no async runtime, no filesystem access, and no environment access, so it's safe to vendor into a minimal compiler.
+- **Second implementations** (a different Rust ECAA producer): depend on `ecaa-workflow-ecaa-types` directly. The crate has no async runtime, no filesystem access, and no environment access, so it's safe to vendor into a minimal compiler.
 
 A second Rust-language ECAA implementation imports this crate, uses serde to deserialize sidecar JSON into the moved types, applies its own invariant-checking logic, and emits its own `audit-proof-report.json` per the normative shape.
 

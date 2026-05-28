@@ -38,7 +38,7 @@ The directory tree and regenerate script ship in this commit; the per-archetype
 `intake.yaml` files + their committed `WORKFLOW.json` snapshots populate
 in a follow-up commit once the Stage 4 atom-extraction completion (S4.4 +
 S4.11) lands and the composer fast path emits canonical shape under
-`SWFC_COMPOSER=archetypes`. The `golden-diff` CI job therefore runs in
+`ECAA_COMPOSER=archetypes`. The `golden-diff` CI job therefore runs in
 permissive mode (skips empty subdirectories with a warning) until the
 corpus is fully populated.
 

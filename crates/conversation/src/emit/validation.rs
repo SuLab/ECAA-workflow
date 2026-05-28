@@ -9,7 +9,7 @@
 //!    `include_str!`. Fast (~ms per sidecar), no runtime deps.
 //!
 //! 2. **External Python validators** — opt-in via
-//!    `SWFC_VALIDATE_ON_EMIT=full`. Invokes
+//!    `ECAA_VALIDATE_ON_EMIT=full`. Invokes
 //!    `scripts/spec-check/project_package.py` (RDF projection → SHACL
 //!    via pyshacl), `owl_consistency.py` (HermiT DL satisfiability via
 //!    owlready2), and `runcrate validate` (WRROC v0.5 round-trip).
@@ -18,22 +18,22 @@
 //!
 //! All results aggregate into `runtime/validation-summary.json`.
 //! Warn-only by default: validation failure NEVER blocks `emit_package`
-//! unless `SWFC_VALIDATION_BLOCK_ON_FAIL=1` is set.
+//! unless `ECAA_VALIDATION_BLOCK_ON_FAIL=1` is set.
 //!
 //! # Environment variables
 //!
-//! - `SWFC_VALIDATE_ON_EMIT`
+//! - `ECAA_VALIDATE_ON_EMIT`
 //!   - unset / `schema_only` (default, sane for production) — Pure-Rust JSON Schema only.
 //!   - `full` — Schema + external Python validators.
 //!   - `off` / `0` / `false` / `no` — Skip all validation (escape hatch).
-//! - `SWFC_SPEC_SCRIPTS_DIR` (default: auto-detect from CARGO_MANIFEST_DIR)
+//! - `ECAA_SPEC_SCRIPTS_DIR` (default: auto-detect from CARGO_MANIFEST_DIR)
 //!   Override directory containing `project_package.py` and
 //!   `owl_consistency.py`. Auto-detect resolves
 //!   `<crate>/../../scripts/spec-check/`.
-//! - `SWFC_VALIDATION_BLOCK_ON_FAIL` (default `0`, warn-only)
+//! - `ECAA_VALIDATION_BLOCK_ON_FAIL` (default `0`, warn-only)
 //!   When `1`/`true`/`yes`, schema-validation failures cause
 //!   `validate_emitted_package` to return `Err`, aborting the emit.
-//! - `SWFC_VALIDATION_EXTERNAL_TIMEOUT_SECS` (default `30`)
+//! - `ECAA_VALIDATION_EXTERNAL_TIMEOUT_SECS` (default `30`)
 //!   Per-subprocess timeout for external Python validators.
 
 use anyhow::{anyhow, Result};
@@ -98,16 +98,16 @@ pub struct ValidationSummary {
     pub duration_ms: u128,
 }
 
-/// Effective validation level. Derived from `SWFC_VALIDATE_ON_EMIT`.
+/// Effective validation level. Derived from `ECAA_VALIDATE_ON_EMIT`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ValidationMode {
-    /// Skip all validation (`SWFC_VALIDATE_ON_EMIT=off`).
+    /// Skip all validation (`ECAA_VALIDATE_ON_EMIT=off`).
     Disabled,
     /// Pure-Rust JSON Schema validation only (default, or
-    /// `SWFC_VALIDATE_ON_EMIT=schema_only`).
+    /// `ECAA_VALIDATE_ON_EMIT=schema_only`).
     SchemaOnly,
-    /// Schema + external Python validators (`SWFC_VALIDATE_ON_EMIT=full`).
+    /// Schema + external Python validators (`ECAA_VALIDATE_ON_EMIT=full`).
     Full,
 }
 
@@ -178,7 +178,7 @@ pub enum ExternalCheckOutcome {
 
 /// Where a sidecar is produced. The validator skips harness-runtime
 /// sidecars at emit time so a missing-but-expected file doesn't block
-/// emission under `SWFC_VALIDATION_BLOCK_ON_FAIL=1`.
+/// emission under `ECAA_VALIDATION_BLOCK_ON_FAIL=1`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SidecarSource {
     /// Written by `emit_with_conversation_log` (always present after emit).
@@ -290,11 +290,11 @@ static SCHEMA_CACHE: Lazy<HashMap<&'static str, JSONSchema>> = Lazy::new(|| {
     map
 });
 
-/// Read `SWFC_VALIDATE_ON_EMIT`. Defaults to `SchemaOnly` for sane
+/// Read `ECAA_VALIDATE_ON_EMIT`. Defaults to `SchemaOnly` for sane
 /// production behavior — pure-Rust validation only, no Python dep.
 /// Local dev / CI sets `=full` to enable the external validators.
 fn read_mode() -> ValidationMode {
-    let raw = std::env::var("SWFC_VALIDATE_ON_EMIT").unwrap_or_default();
+    let raw = std::env::var("ECAA_VALIDATE_ON_EMIT").unwrap_or_default();
     let mode = match raw.as_str() {
         "off" | "0" | "false" | "no" => ValidationMode::Disabled,
         "full" => ValidationMode::Full,
@@ -302,7 +302,7 @@ fn read_mode() -> ValidationMode {
         other => {
             tracing::warn!(
                 value = ?other,
-                "[ecaa-validation] unknown SWFC_VALIDATE_ON_EMIT; falling back to schema_only"
+                "[ecaa-validation] unknown ECAA_VALIDATE_ON_EMIT; falling back to schema_only"
             );
             ValidationMode::SchemaOnly
         }
@@ -313,7 +313,7 @@ fn read_mode() -> ValidationMode {
 
 fn read_block_on_fail() -> bool {
     matches!(
-        std::env::var("SWFC_VALIDATION_BLOCK_ON_FAIL")
+        std::env::var("ECAA_VALIDATION_BLOCK_ON_FAIL")
             .as_deref()
             .unwrap_or("0"),
         "1" | "true" | "yes" | "on"
@@ -321,7 +321,7 @@ fn read_block_on_fail() -> bool {
 }
 
 fn read_external_timeout() -> Duration {
-    let secs = std::env::var("SWFC_VALIDATION_EXTERNAL_TIMEOUT_SECS")
+    let secs = std::env::var("ECAA_VALIDATION_EXTERNAL_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(30);
@@ -329,10 +329,10 @@ fn read_external_timeout() -> Duration {
 }
 
 /// Resolve the path to `scripts/spec-check/` relative to a known anchor.
-/// Order: `SWFC_SPEC_SCRIPTS_DIR` env var, then
+/// Order: `ECAA_SPEC_SCRIPTS_DIR` env var, then
 /// `CARGO_MANIFEST_DIR/../../scripts/spec-check/`.
 fn spec_scripts_dir() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("SWFC_SPEC_SCRIPTS_DIR") {
+    if let Ok(p) = std::env::var("ECAA_SPEC_SCRIPTS_DIR") {
         let pb = PathBuf::from(p);
         if pb.is_dir() {
             tracing::debug!(path = %pb.display(), "[ecaa-validation] scripts dir from env");
@@ -340,7 +340,7 @@ fn spec_scripts_dir() -> Option<PathBuf> {
         }
         tracing::warn!(
             path = %pb.display(),
-            "[ecaa-validation] SWFC_SPEC_SCRIPTS_DIR not a directory; falling back to auto-detect"
+            "[ecaa-validation] ECAA_SPEC_SCRIPTS_DIR not a directory; falling back to auto-detect"
         );
     }
     let default = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -386,7 +386,7 @@ fn validate_schemas_pure_rust(pkg_root: &Path) -> SchemaValidationResults {
             if ablated_sidecar(relpath) {
                 tracing::debug!(
                     relpath = %relpath,
-                    "[ecaa-validation] sidecar skipped (ablated by SWFC_ABLATE_* flag)"
+                    "[ecaa-validation] sidecar skipped (ablated by ECAA_ABLATE_* flag)"
                 );
                 continue;
             }
@@ -589,7 +589,7 @@ fn run_external_check(
                     );
                     return ExternalCheckOutcome::Error {
                         reason: format!(
-                            "subprocess timeout after {}s (set SWFC_VALIDATION_EXTERNAL_TIMEOUT_SECS to extend)",
+                            "subprocess timeout after {}s (set ECAA_VALIDATION_EXTERNAL_TIMEOUT_SECS to extend)",
                             timeout.as_secs()
                         ),
                     };
@@ -709,7 +709,7 @@ fn run_runcrate_validate(pkg_root: &Path, timeout: Duration) -> ExternalCheckOut
 }
 
 /// Run the full emit-time validation suite and return the aggregated
-/// summary. Returns `Err` only when `SWFC_VALIDATION_BLOCK_ON_FAIL=1`
+/// summary. Returns `Err` only when `ECAA_VALIDATION_BLOCK_ON_FAIL=1`
 /// AND at least one schema failure was recorded. Otherwise warn-only.
 pub fn validate_emitted_package(pkg_root: &Path) -> Result<ValidationSummary> {
     let start = Instant::now();
@@ -721,7 +721,7 @@ pub fn validate_emitted_package(pkg_root: &Path) -> Result<ValidationSummary> {
     );
 
     if matches!(mode, ValidationMode::Disabled) {
-        tracing::info!("[ecaa-validation] disabled via SWFC_VALIDATE_ON_EMIT");
+        tracing::info!("[ecaa-validation] disabled via ECAA_VALIDATE_ON_EMIT");
         return Ok(ValidationSummary {
             schema_version: "0.1".to_string(),
             mode,
@@ -756,7 +756,7 @@ pub fn validate_emitted_package(pkg_root: &Path) -> Result<ValidationSummary> {
                 ),
                 None => {
                     let reason =
-                        "scripts/spec-check/ not found (set SWFC_SPEC_SCRIPTS_DIR)".to_string();
+                        "scripts/spec-check/ not found (set ECAA_SPEC_SCRIPTS_DIR)".to_string();
                     (
                         ExternalCheckOutcome::Unavailable {
                             reason: reason.clone(),
@@ -791,11 +791,11 @@ pub fn validate_emitted_package(pkg_root: &Path) -> Result<ValidationSummary> {
     if schema_failed && read_block_on_fail() {
         let n_failed = summary.schema_validation.failed.len();
         tracing::error!(
-            "[ecaa-validation] BLOCKING emit: {} schema failures + SWFC_VALIDATION_BLOCK_ON_FAIL=1",
+            "[ecaa-validation] BLOCKING emit: {} schema failures + ECAA_VALIDATION_BLOCK_ON_FAIL=1",
             n_failed
         );
         return Err(anyhow!(
-            "ECAA emit-time validation blocked: {} schema failure(s) and SWFC_VALIDATION_BLOCK_ON_FAIL=1",
+            "ECAA emit-time validation blocked: {} schema failure(s) and ECAA_VALIDATION_BLOCK_ON_FAIL=1",
             n_failed
         ));
     }

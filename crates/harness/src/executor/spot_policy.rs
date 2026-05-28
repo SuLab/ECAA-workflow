@@ -1,23 +1,23 @@
-//! Reads the `SWFC_AWS_SPOT` env var and returns whether
+//! Reads the `ECAA_AWS_SPOT` env var and returns whether
 //! `AwsExecutor::provision` should request spot capacity with
 //! `CapacityRebalance: true`. Defaults to on-demand (safe default)
 //! when unset.
 
 use std::env;
 
-/// Returns `true` when `SWFC_AWS_SPOT` is set to a truthy value,
+/// Returns `true` when `ECAA_AWS_SPOT` is set to a truthy value,
 /// `false` when unset or set to a falsy value. Unrecognized values
 /// log a warning and fall back to on-demand so operators don't
 /// accidentally start a spot run from a typo.
 pub fn is_spot_requested() -> bool {
-    match env::var("SWFC_AWS_SPOT") {
+    match env::var("ECAA_AWS_SPOT") {
         Ok(raw) => parse(&raw).unwrap_or(false),
         Err(_) => false,
     }
 }
 
 /// P0-43 — value passed to `aws ec2 run-instances
-/// --instance-market-options` when `SWFC_AWS_SPOT=1`. Encodes the
+/// --instance-market-options` when `ECAA_AWS_SPOT=1`. Encodes the
 /// full spot envelope the harness wants:
 ///
 /// * `SpotInstanceType=persistent` — AWS keeps the spot request open
@@ -48,7 +48,7 @@ fn parse(raw: &str) -> Option<bool> {
         "0" | "false" | "f" | "no" | "n" | "" => Some(false),
         other => {
             eprintln!(
-                "[spot_policy] SWFC_AWS_SPOT='{}' not recognized (expected true/false); falling back to on-demand",
+                "[spot_policy] ECAA_AWS_SPOT='{}' not recognized (expected true/false); falling back to on-demand",
                 other
             );
             None
@@ -87,15 +87,15 @@ mod tests {
     }
 
     fn with_spot<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {
-        let prior = env::var("SWFC_AWS_SPOT").ok();
+        let prior = env::var("ECAA_AWS_SPOT").ok();
         match value {
-            Some(v) => unsafe { env::set_var("SWFC_AWS_SPOT", v) },
-            None => unsafe { env::remove_var("SWFC_AWS_SPOT") },
+            Some(v) => unsafe { env::set_var("ECAA_AWS_SPOT", v) },
+            None => unsafe { env::remove_var("ECAA_AWS_SPOT") },
         }
         let out = body();
         match prior {
-            Some(v) => unsafe { env::set_var("SWFC_AWS_SPOT", v) },
-            None => unsafe { env::remove_var("SWFC_AWS_SPOT") },
+            Some(v) => unsafe { env::set_var("ECAA_AWS_SPOT", v) },
+            None => unsafe { env::remove_var("ECAA_AWS_SPOT") },
         }
         out
     }

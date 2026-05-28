@@ -466,10 +466,10 @@ pub(crate) fn append_intake_prose(
     session.intake_prose.push_str(prose);
 
     // Path-hint extraction (e2e #13). Scan the prose for filesystem-
-    // shaped tokens that resolve under SWFC_INPUT_ROOTS and stash
+    // shaped tokens that resolve under ECAA_INPUT_ROOTS and stash
     // them on the session so the LLM (via get_session_state) and the
     // UI (via SessionStateSnapshot) can offer to register them. When
-    // `SWFC_AUTO_REGISTER_PROSE_PATHS=1` is set we promote each hint
+    // `ECAA_AUTO_REGISTER_PROSE_PATHS=1` is set we promote each hint
     // straight onto `session.inputs` without waiting for SME approval
     // — useful in non-interactive fixture runs where no SME loop
     // exists.
@@ -965,12 +965,12 @@ pub(super) fn route_local_extensions_through_aggregator(session: &mut Session) {
 }
 
 /// Resolve the sessions directory the aggregator writes its registry
-/// JSONL into. Honors `SWFC_CHAT_SESSIONS_DIR` so tests can point at a
+/// JSONL into. Honors `ECAA_CHAT_SESSIONS_DIR` so tests can point at a
 /// tmpdir; falls back to `$HOME/.scripps-workflow/sessions`; ultimate
 /// fallback is `./.scripps-sessions` so the unit-test path doesn't
 /// panic on a HOME-less environment.
 fn sessions_dir_for_aggregator() -> std::path::PathBuf {
-    if let Ok(d) = std::env::var("SWFC_CHAT_SESSIONS_DIR") {
+    if let Ok(d) = std::env::var("ECAA_CHAT_SESSIONS_DIR") {
         return std::path::PathBuf::from(d);
     }
     if let Some(home) = std::env::var_os("HOME") {
@@ -980,9 +980,9 @@ fn sessions_dir_for_aggregator() -> std::path::PathBuf {
 }
 
 /// Resolve the config dir to load `local-extension-graduation.yaml`
-/// from. Honors `SWFC_CONFIG_DIR`; falls back to `./config`.
+/// from. Honors `ECAA_CONFIG_DIR`; falls back to `./config`.
 fn config_dir_for_graduation() -> std::path::PathBuf {
-    std::env::var("SWFC_CONFIG_DIR")
+    std::env::var("ECAA_CONFIG_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("config"))
 }
@@ -1208,7 +1208,7 @@ pub(crate) fn clear_disambiguation_on_selection(
     }
 }
 
-/// Default `SWFC_INPUT_ROOTS` when unset. Matches the server's
+/// Default `ECAA_INPUT_ROOTS` when unset. Matches the server's
 /// `register_input_path` constant — keep in sync.
 const DEFAULT_INPUT_ROOTS_FOR_HINTS: &str = "/home/${USER}/data";
 
@@ -1219,7 +1219,7 @@ const DEFAULT_INPUT_ROOTS_FOR_HINTS: &str = "/home/${USER}/data";
 /// flip the dep direction). Both readers consult the same env var.
 fn input_roots_for_hints(owner_user: &str) -> Vec<std::path::PathBuf> {
     let raw =
-        std::env::var("SWFC_INPUT_ROOTS").unwrap_or_else(|_| DEFAULT_INPUT_ROOTS_FOR_HINTS.into());
+        std::env::var("ECAA_INPUT_ROOTS").unwrap_or_else(|_| DEFAULT_INPUT_ROOTS_FOR_HINTS.into());
     raw.split(':')
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.replace("${USER}", owner_user))
@@ -1286,7 +1286,7 @@ fn extract_and_apply_path_hints(session: &mut crate::session::Session, prose_chu
         );
     }
 
-    // SWFC_AUTO_REGISTER_PROSE_PATHS=1: promote every newly-added hint
+    // ECAA_AUTO_REGISTER_PROSE_PATHS=1: promote every newly-added hint
     // straight onto session.inputs without waiting for the SME to
     // click "Register path". Useful for non-interactive fixture runs
     // and for development sessions where the SME shouldn't have to
@@ -1294,7 +1294,7 @@ fn extract_and_apply_path_hints(session: &mut crate::session::Session, prose_chu
     // sha256-hashed inline (same shape the REST `register_input_path`
     // endpoint produces). Hints whose root fails to walk or hash are
     // left in `pending_input_hints` so the SME can retry via the UI.
-    if std::env::var("SWFC_AUTO_REGISTER_PROSE_PATHS")
+    if std::env::var("ECAA_AUTO_REGISTER_PROSE_PATHS")
         .ok()
         .as_deref()
         == Some("1")

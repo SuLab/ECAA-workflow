@@ -16,10 +16,10 @@
 //!
 //! ## Regional override
 //!
-//! Set `SWFC_AWS_PRICING_REGION_MULT=1.10` to scale all prices by 10% when
+//! Set `ECAA_AWS_PRICING_REGION_MULT=1.10` to scale all prices by 10% when
 //! running in a region pricier than us-east-1. `Pricing::for_region` reads
 //! the env var at construction time and applies the multiplier to every
-//! lookup. Set `SWFC_AWS_PRICING_OVERRIDES_JSON=/path/to/override.json` to
+//! lookup. Set `ECAA_AWS_PRICING_OVERRIDES_JSON=/path/to/override.json` to
 //! inject a full replacement table (not yet wired — file an issue if you
 //! need this).
 
@@ -33,12 +33,12 @@ pub const PRICING_TABLE_STALENESS_WARN_DAYS: i64 = 90;
 /// AWS spot instances historically run 20–40% of on-demand pricing across
 /// regions. This is the conservative midpoint; bid is computed as
 /// `on_demand * SPOT_DISCOUNT_FRACTION`. Override via
-/// `SWFC_AWS_SPOT_DISCOUNT_FRACTION` env if you've measured a region-specific
+/// `ECAA_AWS_SPOT_DISCOUNT_FRACTION` env if you've measured a region-specific
 /// average that materially differs.
 pub const SPOT_DISCOUNT_FRACTION: f64 = 0.30;
 
 /// R-20 — env var name for the regional pricing multiplier.
-pub const PRICING_REGION_MULT_ENV: &str = "SWFC_AWS_PRICING_REGION_MULT";
+pub const PRICING_REGION_MULT_ENV: &str = "ECAA_AWS_PRICING_REGION_MULT";
 
 /// On-demand USD per hour, reference region us-east-1.
 /// Sorted by instance family then size. Approximate 2026-Q1 list rates;
@@ -79,7 +79,7 @@ pub const INSTANCE_PRICES_USD_PER_HOUR: &[(&str, f64)] = &[
 /// R-20 — region-aware pricing handle. Carries a multiplier applied to
 /// the table on every lookup. Construct via `Pricing::for_region`.
 ///
-/// Multiplier is read from `SWFC_AWS_PRICING_REGION_MULT` at
+/// Multiplier is read from `ECAA_AWS_PRICING_REGION_MULT` at
 /// construction time. Unset / unparseable / non-positive values fall
 /// back to 1.0 (the us-east-1 reference). Operators in pricier regions
 /// set the multiplier explicitly; the harness never tries to infer it
@@ -281,8 +281,8 @@ mod tests {
     fn with_region_mult<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {
         // Serialize on the crate-wide env lock so these tests don't
         // race concurrent harness/pricing tests touching the same
-        // SWFC_AWS_* env space.
-        let _lock = super::super::super::SWFC_AWS_ENV_LOCK
+        // ECAA_AWS_* env space.
+        let _lock = super::super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         let prior = std::env::var(PRICING_REGION_MULT_ENV).ok();

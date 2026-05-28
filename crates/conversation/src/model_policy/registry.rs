@@ -9,7 +9,7 @@
 //! Default seed lives at `config/model-policy.yaml`. The seed is
 //! `include_str!`-embedded so the registry never depends on
 //! filesystem state at runtime; an operator can still override via
-//! `SWFC_MODEL_POLICY_PATH` for ad-hoc experimentation.
+//! `ECAA_MODEL_POLICY_PATH` for ad-hoc experimentation.
 //!
 //! Behavior parity with the pre-refactor imperative path is asserted
 //! by the existing pin tests in `super::tests` (careful-mode, blocked
@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 /// Default routing table embedded at compile time. Keeps the policy
 /// available to every code path (chat handlers, side calls, tests)
 /// without filesystem access. Operators who need to experiment can
-/// set `SWFC_MODEL_POLICY_PATH=<file.yaml>` to override.
+/// set `ECAA_MODEL_POLICY_PATH=<file.yaml>` to override.
 const DEFAULT_SEED_YAML: &str = include_str!("../../../../config/model-policy.yaml");
 
 /// Typed predicate DSL parsed from `config/model-policy.yaml`.
@@ -219,7 +219,7 @@ pub enum RoutingLoadError {
     /// The last rule in the table was not an `always` fallback.
     #[error("last rule must be `always` (got {0:?})")]
     LastRuleNotAlways(String),
-    /// Filesystem read failed when loading from `SWFC_MODEL_POLICY_PATH`.
+    /// Filesystem read failed when loading from `ECAA_MODEL_POLICY_PATH`.
     #[error("reading {path}: {source}")]
     Io {
         /// Path that could not be read.
@@ -230,7 +230,7 @@ pub enum RoutingLoadError {
     },
 }
 
-/// Apply `SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD` over every
+/// Apply `ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD` over every
 /// `confidence < <t>` predicate in `rules`.
 ///
 /// The threshold gates the Sonnet→Opus escalation for low-classifier-
@@ -244,7 +244,7 @@ pub enum RoutingLoadError {
 /// and ignored; the YAML default is preserved. Unset env var is a
 /// silent no-op.
 fn apply_confidence_threshold_env_override(rules: &mut [RoutingRule]) {
-    let Ok(raw) = std::env::var("SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD") else {
+    let Ok(raw) = std::env::var("ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD") else {
         return;
     };
     let parsed = match raw.parse::<f64>() {
@@ -253,7 +253,7 @@ fn apply_confidence_threshold_env_override(rules: &mut [RoutingRule]) {
             tracing::warn!(
                 value = %raw,
                 error = %e,
-                "SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD not a float; ignoring"
+                "ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD not a float; ignoring"
             );
             return;
         }
@@ -261,7 +261,7 @@ fn apply_confidence_threshold_env_override(rules: &mut [RoutingRule]) {
     if !(0.0..=1.0).contains(&parsed) {
         tracing::warn!(
             value = parsed,
-            "SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD out of [0, 1]; ignoring"
+            "ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD out of [0, 1]; ignoring"
         );
         return;
     }
@@ -271,7 +271,7 @@ fn apply_confidence_threshold_env_override(rules: &mut [RoutingRule]) {
             tracing::info!(
                 yaml_value = *t,
                 env_value = new_threshold,
-                "SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD overriding model-policy.yaml"
+                "ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD overriding model-policy.yaml"
             );
             *t = new_threshold;
         }
@@ -283,7 +283,7 @@ impl ModelRoutingTable {
     /// and that the last rule is the `always` fallback so callers
     /// always get a deterministic decision.
     ///
-    /// Applies `SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD` override (if set
+    /// Applies `ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD` override (if set
     /// and within `[0.0, 1.0]`) over every `confidence < <t>` predicate
     /// after the YAML-derived rules are validated. The threshold is
     /// cost-relevant: lowering it routes more uncertain decisions to
@@ -323,7 +323,7 @@ impl ModelRoutingTable {
     }
 
     /// Default seed embedded at compile time. Used by every call into
-    /// `ModelPolicy::*` unless `SWFC_MODEL_POLICY_PATH` overrides.
+    /// `ModelPolicy::*` unless `ECAA_MODEL_POLICY_PATH` overrides.
     pub fn default_seed() -> &'static Self {
         use std::sync::OnceLock;
         static SEED: OnceLock<ModelRoutingTable> = OnceLock::new();
@@ -334,12 +334,12 @@ impl ModelRoutingTable {
     }
 
     /// Load the routing table for the current process. Reads
-    /// `SWFC_MODEL_POLICY_PATH` if set, otherwise returns the embedded
+    /// `ECAA_MODEL_POLICY_PATH` if set, otherwise returns the embedded
     /// seed. The override path is resolved per-call (no global
     /// caching) so tests can swap policies without dancing around
     /// `OnceLock`.
     pub fn current() -> std::borrow::Cow<'static, Self> {
-        if let Ok(path) = std::env::var("SWFC_MODEL_POLICY_PATH") {
+        if let Ok(path) = std::env::var("ECAA_MODEL_POLICY_PATH") {
             let path = std::path::PathBuf::from(path);
             match std::fs::read_to_string(&path) {
                 Ok(yaml) => match Self::parse(&yaml) {
@@ -348,7 +348,7 @@ impl ModelRoutingTable {
                         tracing::warn!(
                             path = %path.display(),
                             error = %e,
-                            "SWFC_MODEL_POLICY_PATH parse failed; using embedded seed"
+                            "ECAA_MODEL_POLICY_PATH parse failed; using embedded seed"
                         );
                     }
                 },
@@ -356,7 +356,7 @@ impl ModelRoutingTable {
                     tracing::warn!(
                         path = %path.display(),
                         error = %e,
-                        "SWFC_MODEL_POLICY_PATH read failed; using embedded seed"
+                        "ECAA_MODEL_POLICY_PATH read failed; using embedded seed"
                     );
                 }
             }
@@ -557,10 +557,10 @@ rules:
     /// of-range ignored, non-numeric ignored.
     ///
     /// Serialized on
-    /// `SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD` so the three sequential
+    /// `ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD` so the three sequential
     /// set/remove pairs inside this test (and any future tests on the
     /// same var) can't be interleaved by `cargo test` parallel workers.
-    #[serial_test::serial(SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD)]
+    #[serial_test::serial(ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD)]
     #[test]
     fn confidence_threshold_env_override_branches() {
         // In-range value overrides every `confidence <` predicate.
@@ -579,27 +579,27 @@ rules:
             other => panic!("expected ConfidenceLessThan, got {other:?}"),
         }
         // In-range override.
-        std::env::set_var("SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD", "0.42");
+        std::env::set_var("ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD", "0.42");
         apply_confidence_threshold_env_override(&mut table.rules);
-        std::env::remove_var("SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD");
+        std::env::remove_var("ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD");
         match &table.rules[0].predicate {
             Predicate::ConfidenceLessThan(t) => assert!((t - 0.42).abs() < 1e-5),
             other => panic!("expected ConfidenceLessThan after override, got {other:?}"),
         }
 
         // Out-of-range is ignored — last applied value (0.42) persists.
-        std::env::set_var("SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD", "1.5");
+        std::env::set_var("ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD", "1.5");
         apply_confidence_threshold_env_override(&mut table.rules);
-        std::env::remove_var("SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD");
+        std::env::remove_var("ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD");
         match &table.rules[0].predicate {
             Predicate::ConfidenceLessThan(t) => assert!((t - 0.42).abs() < 1e-5),
             other => panic!("expected ConfidenceLessThan still, got {other:?}"),
         }
 
         // Non-numeric is ignored.
-        std::env::set_var("SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD", "not_a_float");
+        std::env::set_var("ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD", "not_a_float");
         apply_confidence_threshold_env_override(&mut table.rules);
-        std::env::remove_var("SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD");
+        std::env::remove_var("ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD");
         match &table.rules[0].predicate {
             Predicate::ConfidenceLessThan(t) => assert!((t - 0.42).abs() < 1e-5),
             other => panic!("expected ConfidenceLessThan still, got {other:?}"),

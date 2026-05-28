@@ -84,7 +84,7 @@ fn errors_when_no_figure_ids() {
 ///
 /// Guards on `python` being available on PATH; skips when absent so CI
 /// hosts without a Python install don't fail.
-#[ignore = "requires live python on PATH + bwrap (SWFC_LOCAL_SANDBOX=bubblewrap) \
+#[ignore = "requires live python on PATH + bwrap (ECAA_LOCAL_SANDBOX=bubblewrap) \
            for the DeterminismRunner spawn; the in-body python guard is partial \
            (no bwrap-presence skip), so default cargo test can still fail when \
            bwrap is partially installed. Run with `cargo test -- --include-ignored` \
@@ -92,7 +92,7 @@ fn errors_when_no_figure_ids() {
 #[test]
 fn passes_when_module_is_deterministic() {
     if !std::path::Path::new("/usr/bin/bwrap").exists() {
-        // The DeterminismRunner uses bwrap when SWFC_LOCAL_SANDBOX=bubblewrap;
+        // The DeterminismRunner uses bwrap when ECAA_LOCAL_SANDBOX=bubblewrap;
         // the spawn itself only needs python, but we guard bwrap too since
         // the live-spawn test family is gated on the sandbox env.
         // Skip gracefully when either is missing.
@@ -176,7 +176,7 @@ def deterministic_figure(out_dir):
 ///
 /// Guards on `python` being available on PATH; skips when absent so CI
 /// hosts without a Python install don't fail.
-#[ignore = "requires live python on PATH + bwrap (SWFC_LOCAL_SANDBOX=bubblewrap) \
+#[ignore = "requires live python on PATH + bwrap (ECAA_LOCAL_SANDBOX=bubblewrap) \
            for the DeterminismRunner spawn; same caveat as \
            passes_when_module_is_deterministic. Run with \
            `cargo test -- --include-ignored` locally or in the eval-smoke \

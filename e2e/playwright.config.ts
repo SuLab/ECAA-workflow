@@ -19,7 +19,7 @@ const LIVE = process.env.PLAYWRIGHT_LIVE === '1'
 const PORT = LIVE ? 3737 : 4173
 const BASE_URL = `http://127.0.0.1:${PORT}`
 const HARNESS_BIN_PATH =
-  process.env.SWFC_HARNESS_BIN_PATH ??
+  process.env.ECAA_HARNESS_BIN_PATH ??
   (process.env.CARGO_TARGET_DIR
     ? `${process.env.CARGO_TARGET_DIR}/debug/scripps-workflow-harness`
     : `${process.cwd()}/../target/debug/scripps-workflow-harness`)
@@ -98,7 +98,7 @@ export default defineConfig({
         // POST-only and a GET on /api/chat/session returns 405, which
         // Playwright does not treat as "ready".
         command:
-          'cd .. && SWFC_CHAT_SESSIONS_DIR=/tmp/scripps-e2e-sessions cargo run -q -p scripps-workflow-server -- --port 3737',
+          'cd .. && ECAA_CHAT_SESSIONS_DIR=/tmp/scripps-e2e-sessions cargo run -q -p scripps-workflow-server -- --port 3737',
         port: PORT,
         // Reuse a pre-started server when one is already listening on
         //:3737. Lets long-running full-DAG specs outlive Playwright —
@@ -110,29 +110,29 @@ export default defineConfig({
         reuseExistingServer: true,
         timeout: 180_000,
         env: {
-          SWFC_CHAT_SESSIONS_DIR: '/tmp/scripps-e2e-sessions',
+          ECAA_CHAT_SESSIONS_DIR: '/tmp/scripps-e2e-sessions',
           // Absolute path so /start-execution finds the harness without
           // relying on PATH. The harness must be pre-built
           // (cargo build -p scripps-workflow-harness) before running the
           // start-execution live spec.
-          SWFC_HARNESS_BIN_PATH: HARNESS_BIN_PATH,
-          // Individual specs override per-run via SWFC_DEFAULT_AGENT_PATH
+          ECAA_HARNESS_BIN_PATH: HARNESS_BIN_PATH,
+          // Individual specs override per-run via ECAA_DEFAULT_AGENT_PATH
           // in process.env before starting Playwright.
-          SWFC_DEFAULT_AGENT_PATH:
-            process.env.SWFC_DEFAULT_AGENT_PATH ?? 'scripts/agent-claude.sh',
+          ECAA_DEFAULT_AGENT_PATH:
+            process.env.ECAA_DEFAULT_AGENT_PATH ?? 'scripts/agent-claude.sh',
           // Matches DEFAULT_MAX_ITERATIONS in crates/server/src/chat_routes/execution/start.rs.
-          SWFC_DEFAULT_MAX_ITERATIONS:
-            process.env.SWFC_DEFAULT_MAX_ITERATIONS ?? '20',
+          ECAA_DEFAULT_MAX_ITERATIONS:
+            process.env.ECAA_DEFAULT_MAX_ITERATIONS ?? '20',
           // Keep live harness runs from spending an unbounded number of
           // Claude turns per atom. The agent prompt and post-run wrapper
           // both read this value.
           MAX_TURNS_PER_TASK:
             process.env.MAX_TURNS_PER_TASK ?? '25',
-          // Override any .env SWFC_SERVER_URL (which may point at the CLI
+          // Override any .env ECAA_SERVER_URL (which may point at the CLI
           // dev port 3000) so the harness callback URL matches the live
           // test server port. The server reads this on startup and passes
           // it as --server-url to every harness launch.
-          SWFC_SERVER_URL: `http://127.0.0.1:${PORT}`,
+          ECAA_SERVER_URL: `http://127.0.0.1:${PORT}`,
         },
       }
     : {

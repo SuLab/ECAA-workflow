@@ -36,7 +36,7 @@ use std::sync::{mpsc, Arc};
 /// so the AWS SSM secret-filter consumes the same set. This alias is
 /// retained so existing call sites and tests don't have to change.
 ///
-/// Bypass: `SWFC_DISABLE_ENV_CLEAR=1` falls back to full env inherit
+/// Bypass: `ECAA_DISABLE_ENV_CLEAR=1` falls back to full env inherit
 /// for legacy tests / scripts that relied on the prior behaviour.
 pub(super) const SECRET_KEYS: &[&str] = super::_secrets::BASE_SECRET_KEYS;
 
@@ -47,11 +47,11 @@ pub(super) const SECRET_KEYS: &[&str] = super::_secrets::BASE_SECRET_KEYS;
 /// here keeps the allowlist explicit instead of having the env_clear
 /// path silently break agent invocation.
 ///
-/// `SWFC_DEFAULT_CONTAINER_IMAGE` and the four sibling container/sandbox
+/// `ECAA_DEFAULT_CONTAINER_IMAGE` and the four sibling container/sandbox
 /// policy vars are inherited so the operator's `.env` policy reaches
 /// agent-claude.sh. Without this, agents fall through to host execution
 /// even when a default image is set, because the per-dispatch envelope
-/// only populates `SWFC_DEFAULT_CONTAINER_IMAGE` for tasks that have a
+/// only populates `ECAA_DEFAULT_CONTAINER_IMAGE` for tasks that have a
 /// buildable `source_atom_id` (per-task-image flow). Generic tasks lose
 /// the operator's container intent silently.
 pub(super) const REQUIRED_INHERITED_KEYS: &[&str] = &[
@@ -69,19 +69,19 @@ pub(super) const REQUIRED_INHERITED_KEYS: &[&str] = &[
     // Container / sandbox policy — operator's .env intent must reach
     // the agent shell. These are policy declarations, not secrets, and
     // are read by `scripts/agent-claude.sh` at every dispatch.
-    "SWFC_DEFAULT_CONTAINER_IMAGE",
-    "SWFC_CONTAINER_RUNTIME",
-    "SWFC_CONTAINER_NETWORK_DEFAULT",
-    "SWFC_CONTAINER_VERIFY",
-    "SWFC_LOCAL_SANDBOX",
-    "SWFC_PER_TASK_IMAGES",
+    "ECAA_DEFAULT_CONTAINER_IMAGE",
+    "ECAA_CONTAINER_RUNTIME",
+    "ECAA_CONTAINER_NETWORK_DEFAULT",
+    "ECAA_CONTAINER_VERIFY",
+    "ECAA_LOCAL_SANDBOX",
+    "ECAA_PER_TASK_IMAGES",
     // Execution-agent cost discipline. The wrapper renders turn budgets into
     // the task prompt and uses the billing mode when choosing Claude auth.
-    "SWFC_AGENT_BILLING",
+    "ECAA_AGENT_BILLING",
     "MAX_TURNS_PER_TASK",
 ];
 
-/// `SWFC_DISABLE_ENV_CLEAR=1` legacy bypass.
+/// `ECAA_DISABLE_ENV_CLEAR=1` legacy bypass.
 ///
 /// W2.3: emits a one-shot `tracing::warn!` whenever the flag is honored
 /// so deployments that still rely on it surface in logs. The flag is
@@ -91,13 +91,13 @@ pub(super) const REQUIRED_INHERITED_KEYS: &[&str] = &[
 /// locator). The Once guard means the warn fires at most once per
 /// harness process, avoiding log spam on the per-dispatch hot path.
 fn env_clear_disabled() -> bool {
-    let enabled = matches!(std::env::var("SWFC_DISABLE_ENV_CLEAR").as_deref(), Ok("1"));
+    let enabled = matches!(std::env::var("ECAA_DISABLE_ENV_CLEAR").as_deref(), Ok("1"));
     if enabled {
         static DEPRECATION_WARNED: std::sync::Once = std::sync::Once::new();
         DEPRECATION_WARNED.call_once(|| {
             tracing::warn!(
                 target: "env_clear_disabled",
-                "SWFC_DISABLE_ENV_CLEAR=1 is deprecated and scheduled for removal. \
+                "ECAA_DISABLE_ENV_CLEAR=1 is deprecated and scheduled for removal. \
                  Migrate by adding the required env vars to SECRET_KEYS (credentials) \
                  or REQUIRED_INHERITED_KEYS (host paths) in crates/harness/src/executor/_secrets.rs \
                  + executor/local.rs respectively. The legacy inherit-everything \
@@ -109,7 +109,7 @@ fn env_clear_disabled() -> bool {
     enabled
 }
 
-/// W2.1 — validate `SWFC_LOCAL_SANDBOX` at executor build time. The
+/// W2.1 — validate `ECAA_LOCAL_SANDBOX` at executor build time. The
 /// historical behavior silently disabled the sandbox on any unknown
 /// value (e.g. a typo like `bublewrap`), turning a security-relevant
 /// flag into a footgun. Fail closed instead: refuse to start the
@@ -120,11 +120,11 @@ fn env_clear_disabled() -> bool {
 /// `bubblewrap` (require bwrap). Anything else is a configuration
 /// error.
 pub(super) fn validate_sandbox_env() -> anyhow::Result<()> {
-    match std::env::var("SWFC_LOCAL_SANDBOX").as_deref() {
+    match std::env::var("ECAA_LOCAL_SANDBOX").as_deref() {
         Ok("bubblewrap") | Ok("off") | Ok("") => Ok(()),
         Err(_) => Ok(()),
         Ok(other) => anyhow::bail!(
-            "SWFC_LOCAL_SANDBOX='{}' is not a valid policy. \
+            "ECAA_LOCAL_SANDBOX='{}' is not a valid policy. \
              Valid: bubblewrap, off, or unset (auto-detect). \
              Fix the env var and retry.",
             other
@@ -132,27 +132,27 @@ pub(super) fn validate_sandbox_env() -> anyhow::Result<()> {
     }
 }
 
-/// R2.5 — read `SWFC_CONTAINER_REGISTRY_AUTH` (format
+/// R2.5 — read `ECAA_CONTAINER_REGISTRY_AUTH` (format
 /// `registry|username|password`) and run `docker login` (or `podman
-/// login` when `SWFC_CONTAINER_RUNTIME=podman`) once so subsequent
+/// login` when `ECAA_CONTAINER_RUNTIME=podman`) once so subsequent
 /// image pulls / builds inherit the cached credential. Returns silently
 /// when the env var is unset or malformed. A failed `login` invocation
 /// is logged to stderr but does not propagate — public images keep
 /// working without auth.
 fn registry_login_if_configured() {
-    let raw = match std::env::var("SWFC_CONTAINER_REGISTRY_AUTH") {
+    let raw = match std::env::var("ECAA_CONTAINER_REGISTRY_AUTH") {
         Ok(v) if !v.is_empty() => v,
         _ => return,
     };
     let parts: Vec<&str> = raw.splitn(3, '|').collect();
     if parts.len() != 3 {
         eprintln!(
-            "[registry-auth] SWFC_CONTAINER_REGISTRY_AUTH must be registry|username|password; ignoring"
+            "[registry-auth] ECAA_CONTAINER_REGISTRY_AUTH must be registry|username|password; ignoring"
         );
         return;
     }
     let (registry, username, password) = (parts[0], parts[1], parts[2]);
-    let runtime = std::env::var("SWFC_CONTAINER_RUNTIME").unwrap_or_else(|_| "docker".into());
+    let runtime = std::env::var("ECAA_CONTAINER_RUNTIME").unwrap_or_else(|_| "docker".into());
     let tool: &str = match runtime.as_str() {
         "podman" => "podman",
         // docker login also covers the apptainer-via-docker registry path;
@@ -209,7 +209,7 @@ fn registry_login_if_configured() {
 /// `env_clear` strips every inherited variable first; the allowlist
 /// + envelope are then explicitly re-added.
 ///
-/// When `SWFC_DISABLE_ENV_CLEAR=1` the function falls back to the
+/// When `ECAA_DISABLE_ENV_CLEAR=1` the function falls back to the
 /// prior inherit-everything behaviour: it does NOT call `env_clear`,
 /// only applies the envelope on top of whatever the harness inherits.
 fn apply_env_with_allowlist(cmd: &mut std::process::Command, envelope: &BTreeMap<String, String>) {
@@ -229,7 +229,7 @@ fn apply_env_with_allowlist(cmd: &mut std::process::Command, envelope: &BTreeMap
         }
     }
     // Envelope wins on collision — the harness-computed values for
-    // SWFC_TASK_ID, SWFC_PACKAGE_ROOT, etc. should never be shadowed
+    // ECAA_TASK_ID, ECAA_PACKAGE_ROOT, etc. should never be shadowed
     // by host env-vars even if they happen to share names.
     for (k, v) in envelope.iter() {
         cmd.env(k, v);
@@ -265,7 +265,7 @@ fn duct_expr_with_allowlist(
 
 /// Phase C7 — bubblewrap sandbox wiring.
 ///
-/// Checks whether SWFC_LOCAL_SANDBOX=bubblewrap and the task is an
+/// Checks whether ECAA_LOCAL_SANDBOX=bubblewrap and the task is an
 /// `Implementation::GeneratedCode` node (the only case where the sandbox
 /// is mandatory — other task kinds are dispatched unwrapped). Returns
 /// `Some(wrapped_command)` when the sandbox should apply, `None` when
@@ -284,7 +284,7 @@ fn maybe_wrap_with_bwrap(
     use ecaa_workflow_core::workflow_contracts::implementation::Implementation;
     use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
 
-    // Build the runner (checks SWFC_LOCAL_SANDBOX and bwrap existence).
+    // Build the runner (checks ECAA_LOCAL_SANDBOX and bwrap existence).
     let runner = match BubblewrapRunner::from_env(package.to_path_buf()) {
         Ok(Some(r)) => r,
         Ok(None) => return Ok(None), // mode=off (default)
@@ -369,18 +369,18 @@ fn maybe_wrap_with_bwrap(
 /// to append the sandbox-runs.jsonl record. Separated from `maybe_wrap_with_bwrap`
 /// so the exit code is available.
 ///
-/// Only records when SWFC_LOCAL_SANDBOX=bubblewrap AND runtime/sandbox-policy.json
+/// Only records when ECAA_LOCAL_SANDBOX=bubblewrap AND runtime/sandbox-policy.json
 /// is present (same conditions that caused the wrap in the first place).
 fn record_sandbox_run(package: &Path, task_id: &str, exit_code: Option<i32>) {
     use crate::sandbox_enforcer::{append_sandbox_run_record, BubblewrapRunner};
 
-    // Fast path: when SWFC_LOCAL_SANDBOX is unset / off / empty, no wrap
+    // Fast path: when ECAA_LOCAL_SANDBOX is unset / off / empty, no wrap
     // occurred and there is nothing to record. Returning here matches
     // this function's documented invariant and avoids the misleading
     // `sandbox_record_skipped` silent-skip noise on every single
     // dispatch in operator configurations that intentionally run
     // unsandboxed (the harness's default).
-    let sandbox_mode = std::env::var("SWFC_LOCAL_SANDBOX").ok().unwrap_or_default();
+    let sandbox_mode = std::env::var("ECAA_LOCAL_SANDBOX").ok().unwrap_or_default();
     if sandbox_mode.is_empty() || sandbox_mode == "off" {
         return;
     }
@@ -427,15 +427,15 @@ fn record_sandbox_run(package: &Path, task_id: &str, exit_code: Option<i32>) {
         let bwrap_args = runner.render_args(&policy);
         append_sandbox_run_record(package, task_id, &policy, &bwrap_args, exit_code);
     } else {
-        // Runner is None when SWFC_LOCAL_SANDBOX is "off" or unset
+        // Runner is None when ECAA_LOCAL_SANDBOX is "off" or unset
         // without bwrap available — by-design no record to write.
         // Don't tick the counter for this case.
     }
 }
 
 /// `Executor` implementation that runs agent subprocesses on the local host.
-/// Supports optional bubblewrap sandboxing (`SWFC_LOCAL_SANDBOX=bubblewrap`)
-/// and per-task derived-image builds (`SWFC_PER_TASK_IMAGES=1`).
+/// Supports optional bubblewrap sandboxing (`ECAA_LOCAL_SANDBOX=bubblewrap`)
+/// and per-task derived-image builds (`ECAA_PER_TASK_IMAGES=1`).
 pub struct LocalExecutor {
     task_timeout_secs: u64,
     package: String,
@@ -453,9 +453,9 @@ pub struct LocalExecutor {
     /// extended to other session-scoped vars without rewiring callers.
     session_env_additions: BTreeMap<String, String>,
     /// Per-task image tag overrides populated at `provision`-time
-    /// when `SWFC_PER_TASK_IMAGES=1`. Maps
+    /// when `ECAA_PER_TASK_IMAGES=1`. Maps
     /// `task_id -> "scripps-derived:<per_atom_hash>"`. Read by
-    /// `run_iteration` against the dispatched task's `SWFC_TASK_ID`
+    /// `run_iteration` against the dispatched task's `ECAA_TASK_ID`
     /// envelope value; absent entries fall through to the
     /// session-wide image (legacy union build) or host mode.
     /// Populated fresh on each `provision` (LocalExecutor is constructed
@@ -497,15 +497,15 @@ impl LocalExecutor {
     ///   already cached locally OR built by `scripts/build-derived-image.sh`,
     /// - returns `Err(...)` when the build failed.
     ///
-    /// On success, also stores `SWFC_DEFAULT_CONTAINER_IMAGE=<tag>` in
+    /// On success, also stores `ECAA_DEFAULT_CONTAINER_IMAGE=<tag>` in
     /// `session_env_additions` so every subsequent agent dispatch
     /// inherits the override automatically.
     ///
-    /// Honors `SWFC_FORCE_IMAGE_REBUILD=1` (skip cache check) and
-    /// `SWFC_IMAGE_BUILD_TIMEOUT_SECS` (build-wallclock cap; default
+    /// Honors `ECAA_FORCE_IMAGE_REBUILD=1` (skip cache check) and
+    /// `ECAA_IMAGE_BUILD_TIMEOUT_SECS` (build-wallclock cap; default
     /// 1800). The builder script handles those env vars directly.
     pub fn warm_runtime_image(&mut self, package_dir: &Path) -> Result<Option<String>> {
-        // R2.5 — if SWFC_CONTAINER_REGISTRY_AUTH is set, perform a one-shot
+        // R2.5 — if ECAA_CONTAINER_REGISTRY_AUTH is set, perform a one-shot
         // `docker login` (or `podman login`) before any image pull/build so
         // the builder + agent subprocesses inherit the credential cache.
         // Best-effort: a failure here logs but does not abort warm-up because
@@ -547,7 +547,7 @@ impl LocalExecutor {
             // mounted per-session cache.
             let base = prereqs.base_image.as_ref().unwrap().clone();
             self.session_env_additions
-                .insert("SWFC_DEFAULT_CONTAINER_IMAGE".into(), base.clone());
+                .insert("ECAA_DEFAULT_CONTAINER_IMAGE".into(), base.clone());
             return Ok(Some(base));
         }
         // Hash the on-disk bytes so the tag matches what
@@ -562,14 +562,14 @@ impl LocalExecutor {
                     manifest_path.display()
                 )
             })?;
-        let prefix = std::env::var("SWFC_DERIVED_IMAGE_TAG_PREFIX")
+        let prefix = std::env::var("ECAA_DERIVED_IMAGE_TAG_PREFIX")
             .unwrap_or_else(|_| "scripps-derived".into());
         let tag = format!("{prefix}:{hash}");
 
-        // Resolve the builder script. Honor the same SWFC_*_PATH style
+        // Resolve the builder script. Honor the same ECAA_*_PATH style
         // override convention the harness already uses for sibling
         // scripts so operators can point this at a fork without rebuilding.
-        let builder = std::env::var("SWFC_IMAGE_BUILDER_PATH").unwrap_or_else(|_| {
+        let builder = std::env::var("ECAA_IMAGE_BUILDER_PATH").unwrap_or_else(|_| {
             // Default: walk up from the package's parent until we hit
             // the repo root (contains scripts/build-derived-image.sh).
             // For ad-hoc smokes operators can pass an absolute path
@@ -581,11 +581,11 @@ impl LocalExecutor {
         cmd.arg(package_dir);
         // Pass through the envs the builder script reads.
         for var in [
-            "SWFC_FORCE_IMAGE_REBUILD",
-            "SWFC_IMAGE_BUILD_TIMEOUT_SECS",
-            "SWFC_BUILDX_CACHE_DIR",
-            "SWFC_DERIVED_IMAGE_TAG_PREFIX",
-            "SWFC_AGENT_CACHE_DIR",
+            "ECAA_FORCE_IMAGE_REBUILD",
+            "ECAA_IMAGE_BUILD_TIMEOUT_SECS",
+            "ECAA_BUILDX_CACHE_DIR",
+            "ECAA_DERIVED_IMAGE_TAG_PREFIX",
+            "ECAA_AGENT_CACHE_DIR",
         ] {
             if let Ok(v) = std::env::var(var) {
                 cmd.env(var, v);
@@ -597,7 +597,7 @@ impl LocalExecutor {
         match status.code() {
             Some(0) => {
                 self.session_env_additions
-                    .insert("SWFC_DEFAULT_CONTAINER_IMAGE".into(), tag.clone());
+                    .insert("ECAA_DEFAULT_CONTAINER_IMAGE".into(), tag.clone());
                 Ok(Some(tag))
             }
             Some(10) => {
@@ -640,12 +640,12 @@ impl LocalExecutor {
 /// Defaults are SECURITY-RELEVANT: changes here affect blast radius of
 /// Implementation::GeneratedCode tasks.
 ///
-/// Called when `SWFC_LOCAL_SANDBOX` is unset. Probes PATH for `bwrap`:
+/// Called when `ECAA_LOCAL_SANDBOX` is unset. Probes PATH for `bwrap`:
 /// - Found → returns `ProcessIsolation` (bubblewrap enabled).
 /// - Not found → emits a one-shot `tracing::warn!` and returns `None`.
 ///
 /// The warn fires at most once per process lifetime via `std::sync::Once`.
-/// Operators who explicitly set `SWFC_LOCAL_SANDBOX=off` bypass this
+/// Operators who explicitly set `ECAA_LOCAL_SANDBOX=off` bypass this
 /// function entirely and see no warning.
 fn detect_default_sandbox() -> ecaa_workflow_core::atom::SandboxRequirement {
     // One-shot warn so long-running harness loops don't spam logs.
@@ -662,10 +662,10 @@ fn detect_default_sandbox() -> ecaa_workflow_core::atom::SandboxRequirement {
     } else {
         WARN_ONCE.call_once(|| {
             tracing::warn!(
-                "SWFC_LOCAL_SANDBOX unset and bwrap not found on PATH. \
+                "ECAA_LOCAL_SANDBOX unset and bwrap not found on PATH. \
                  Implementation::GeneratedCode tasks will run unsandboxed. \
                  Install bwrap (sudo apt install bubblewrap) or set \
-                 SWFC_LOCAL_SANDBOX=off explicitly to suppress this warning."
+                 ECAA_LOCAL_SANDBOX=off explicitly to suppress this warning."
             );
         });
         ecaa_workflow_core::atom::SandboxRequirement::None
@@ -678,26 +678,26 @@ impl Executor for LocalExecutor {
     }
 
     /// Local executor capability profile. Sandbox tier is
-    /// driven by `SWFC_LOCAL_SANDBOX`: `bubblewrap` enables the bwrap path;
+    /// driven by `ECAA_LOCAL_SANDBOX`: `bubblewrap` enables the bwrap path;
     /// `off` explicitly disables it; unset auto-detects via
     /// `detect_default_sandbox`. Network is `Bridge` by default — the
     /// host has the same egress as the operator's shell.
     fn capabilities(&self) -> super::ExecutorCapabilities {
         // W2.1: `validate_sandbox_env` is called at executor build time
         // (see `executor::build` in `mod.rs`) and refuses to construct
-        // the LocalExecutor when SWFC_LOCAL_SANDBOX carries an unknown
+        // the LocalExecutor when ECAA_LOCAL_SANDBOX carries an unknown
         // token. Reaching this match arm with an unknown value would
         // require a TOCTOU between build and capabilities() — vanishingly
         // unlikely in practice — but the match below still rejects loudly
         // via tracing::warn! so the regression isn't silent.
-        let sandbox = match std::env::var("SWFC_LOCAL_SANDBOX").as_deref() {
+        let sandbox = match std::env::var("ECAA_LOCAL_SANDBOX").as_deref() {
             Ok("bubblewrap") => ecaa_workflow_core::atom::SandboxRequirement::ProcessIsolation,
             Ok("off") | Ok("") => ecaa_workflow_core::atom::SandboxRequirement::None,
             Ok(other) => {
                 tracing::warn!(
                     target: "local_sandbox",
                     value = %other,
-                    "SWFC_LOCAL_SANDBOX changed to an unknown value after executor build; \
+                    "ECAA_LOCAL_SANDBOX changed to an unknown value after executor build; \
                      using SandboxRequirement::None (the build-time validator should have caught \
                      this — operator likely mutated the env mid-run)"
                 );
@@ -773,13 +773,13 @@ impl Executor for LocalExecutor {
         // bubble up so the harness can surface a typed
         // BlockerKind::ImageBuildFailed (callers wrap this).
         //
-        // When SWFC_PER_TASK_IMAGES=1 is set, the union-build path
+        // When ECAA_PER_TASK_IMAGES=1 is set, the union-build path
         // below is skipped entirely:
         // we walk the DAG, derive a per-atom image for each task
         // whose source atom carries a buildable manifest, and stash
         // the resulting tag in `per_task_image_overrides[task.id]`.
         // `run_iteration` then injects the per-task tag into the
-        // dispatched agent's `SWFC_DEFAULT_CONTAINER_IMAGE`
+        // dispatched agent's `ECAA_DEFAULT_CONTAINER_IMAGE`
         // (overriding any session-wide tag from the legacy union
         // build). Atoms with no install delta (no
         // `policies/atom-prereqs/<atom_id>.json`, or an unbuildable
@@ -797,7 +797,7 @@ impl Executor for LocalExecutor {
         let package_dir = std::path::Path::new(&self.package).to_path_buf();
         if ecaa_workflow_core::derived_image::per_task_images_enabled() {
             eprintln!(
-                "  ◇ SWFC_PER_TASK_IMAGES=1 — per-atom build path active \
+                "  ◇ ECAA_PER_TASK_IMAGES=1 — per-atom build path active \
                  (skipping session-wide union build)"
             );
             let mut per_atom_cache: std::collections::HashMap<String, Option<String>> =
@@ -891,11 +891,11 @@ impl Executor for LocalExecutor {
         // have the child PID and can sample `/proc/<pid>/stat`. Falls
         // back to the byte-identical duct-based path otherwise. The
         // hardware envelope is applied to the subprocess as
-        // env vars in both paths — the agent script reads SWFC_HW_*
+        // env vars in both paths — the agent script reads ECAA_HW_*
         // per `prompt_role.txt` → "Hardware-aware execution".
         let started = std::time::Instant::now();
         // Session-wide additions (e.g. the warm-up pre-flight's
-        // `SWFC_DEFAULT_CONTAINER_IMAGE=<derived-tag>`) merge in
+        // `ECAA_DEFAULT_CONTAINER_IMAGE=<derived-tag>`) merge in
         // before per-task additions. Per-task wins on collision,
         // which keeps any future remediation precedence intact.
         let mut merged_envelope: BTreeMap<String, String> = envelope
@@ -905,7 +905,7 @@ impl Executor for LocalExecutor {
             .chain(self.drain_envelope_additions())
             .collect();
 
-        // Validate SWFC_TASK_ID at the harness boundary before it flows
+        // Validate ECAA_TASK_ID at the harness boundary before it flows
         // into per-task path composition (per-task image override
         // lookup, sandbox-wrap, `runtime/outputs/<task_id>/` paths
         // inside the agent subprocess). Agent scripts enforce on their
@@ -915,7 +915,7 @@ impl Executor for LocalExecutor {
             merged_envelope.get(crate::executor::hardware_envelope::TASK_ID_ENV)
         {
             crate::executor::_id_validator::sanitize_task_id(task_id_env).map_err(|reason| {
-                anyhow::anyhow!("refusing dispatch: unsafe SWFC_TASK_ID in envelope: {reason}")
+                anyhow::anyhow!("refusing dispatch: unsafe ECAA_TASK_ID in envelope: {reason}")
             })?;
         }
 
@@ -923,9 +923,9 @@ impl Executor for LocalExecutor {
         // override if `provision` derived one for this task's atom.
         // The override wins on collision: a per-atom tag set in
         // `per_task_image_overrides[task_id]` replaces any
-        // `SWFC_DEFAULT_CONTAINER_IMAGE` from the session
+        // `ECAA_DEFAULT_CONTAINER_IMAGE` from the session
         // (per_task_image_overrides is only populated when
-        // SWFC_PER_TASK_IMAGES=1, and in that mode the session-wide
+        // ECAA_PER_TASK_IMAGES=1, and in that mode the session-wide
         // warm-up is skipped — so there's nothing to collide with in
         // practice, but the precedence is documented here for the
         // future remediation that swaps task images at runtime).
@@ -933,12 +933,12 @@ impl Executor for LocalExecutor {
             merged_envelope.get(crate::executor::hardware_envelope::TASK_ID_ENV)
         {
             if let Some(tag) = self.per_task_image_overrides.get(task_id_for_image) {
-                merged_envelope.insert("SWFC_DEFAULT_CONTAINER_IMAGE".into(), tag.clone());
+                merged_envelope.insert("ECAA_DEFAULT_CONTAINER_IMAGE".into(), tag.clone());
             }
         }
 
         // Phase C7 — bubblewrap sandbox enforcement.
-        // Read SWFC_TASK_ID from the envelope to know which node to check.
+        // Read ECAA_TASK_ID from the envelope to know which node to check.
         // When bubblewrap is active AND the task is GeneratedCode, build a
         // bwrap-wrapped Command and use the std::process path (regardless of
         // whether the stall monitor is armed) so we have the child PID.
@@ -994,7 +994,7 @@ impl Executor for LocalExecutor {
             // Mirror SLURM's allowlist approach.
             // env_clear() strips the inherited host environment;
             // SECRET_KEYS + REQUIRED_INHERITED_KEYS + the merged
-            // envelope are then explicitly re-added. SWFC_DISABLE_ENV_CLEAR=1
+            // envelope are then explicitly re-added. ECAA_DISABLE_ENV_CLEAR=1
             // bypasses for legacy test compatibility.
             apply_env_with_allowlist(&mut cmd, &merged_envelope);
             let mut child = cmd
@@ -1010,7 +1010,7 @@ impl Executor for LocalExecutor {
             // Best-effort write — failure to write the sidecar means
             // the probe falls back to mtime-only, which is the prior
             // behavior. The task_id lives in the envelope under
-            // `SWFC_TASK_ID` (validated above by sanitize_task_id).
+            // `ECAA_TASK_ID` (validated above by sanitize_task_id).
             if let Some(task_id_env) = merged_envelope
                 .get(crate::executor::hardware_envelope::TASK_ID_ENV)
                 .filter(|v| !v.is_empty())
@@ -1037,17 +1037,17 @@ impl Executor for LocalExecutor {
                 *self.stall_shutdown.lock() = false;
                 let shutdown = self.stall_shutdown.clone();
                 // Heartbeat-veto inputs: resolve the per-task output
-                // dir from the envelope's SWFC_TASK_ID; if absent
+                // dir from the envelope's ECAA_TASK_ID; if absent
                 // (legacy / test path), pass None and the veto is a
                 // no-op. The freshness threshold mirrors the harness's
-                // own `SWFC_TASK_HEARTBEAT_STALL_SECS` (300s default)
+                // own `ECAA_TASK_HEARTBEAT_STALL_SECS` (300s default)
                 // so the stall monitor agrees with the orphan-reaper
                 // about what counts as "alive".
                 let heartbeat_root: Option<std::path::PathBuf> = merged_envelope
                     .get(crate::executor::hardware_envelope::TASK_ID_ENV)
                     .filter(|v| !v.is_empty())
                     .map(|tid| package.join("runtime/outputs").join(tid));
-                let heartbeat_freshness_secs: u64 = std::env::var("SWFC_TASK_HEARTBEAT_STALL_SECS")
+                let heartbeat_freshness_secs: u64 = std::env::var("ECAA_TASK_HEARTBEAT_STALL_SECS")
                     .ok()
                     .and_then(|s| s.parse::<u64>().ok())
                     .unwrap_or(300);
@@ -1099,7 +1099,7 @@ impl Executor for LocalExecutor {
 
             // Phase C7 — record sandbox provenance after the process exits.
             if !task_id_for_sandbox.is_empty() {
-                // Only records when SWFC_LOCAL_SANDBOX=bubblewrap and
+                // Only records when ECAA_LOCAL_SANDBOX=bubblewrap and
                 // task-nodes.json + sandbox-policy.json are present.
                 record_sandbox_run(package, &task_id_for_sandbox, status.code());
             }
@@ -1121,7 +1121,7 @@ impl Executor for LocalExecutor {
             use std::os::unix::process::ExitStatusExt;
             let expr = duct::cmd!(agent_cmd, package.to_string_lossy().to_string());
             // Same env_clear + allowlist policy as
-            // the std::process path above. SWFC_DISABLE_ENV_CLEAR=1
+            // the std::process path above. ECAA_DISABLE_ENV_CLEAR=1
             // falls back to the legacy inherit-everything behaviour.
             let expr = duct_expr_with_allowlist(expr, &merged_envelope);
             let output = expr
@@ -1172,7 +1172,7 @@ impl Executor for LocalExecutor {
     /// compute-resource-policy. Falls back to `max(1, nproc / 8)` when
     /// the policy is absent so small boxes don't thrash.
     ///
-    /// The budget is a maximum — `SWFC_HARNESS_CONCURRENCY` still
+    /// The budget is a maximum — `ECAA_HARNESS_CONCURRENCY` still
     /// clamps it lower when the operator wants explicit control.
     fn cpu_budget(&self) -> usize {
         let nproc = std::thread::available_parallelism()
@@ -1191,14 +1191,14 @@ impl Executor for LocalExecutor {
     }
 
     /// Honoured overrides on local:
-    /// * `resources.memory_gb` → `SWFC_AGENT_MEMORY_CAP_GB` env var
+    /// * `resources.memory_gb` → `ECAA_AGENT_MEMORY_CAP_GB` env var
     ///   (the existing systemd-run / prlimit / docker memory cap
     ///   already consumes this; we just override the value)
-    /// * `resources.wallclock_secs` → `SWFC_AGENT_WALLCLOCK_SECS`
+    /// * `resources.wallclock_secs` → `ECAA_AGENT_WALLCLOCK_SECS`
     ///   env var consumed by `agent-claude.sh` to set a SIGTERM
     ///   timer
-    /// * `resources.vcpus` → advisory `SWFC_HW_NPROC_HINT`
-    /// * `library_pins` → `SWFC_LIB_PIN_<NAME>=<VERSION>` envs
+    /// * `resources.vcpus` → advisory `ECAA_HW_NPROC_HINT`
+    /// * `library_pins` → `ECAA_LIB_PIN_<NAME>=<VERSION>` envs
     /// * `stage_parameters` → merged into
     ///   `runtime/inputs/<task_id>/params.json` (additive)
     /// * `env_passthrough` → forwarded verbatim
@@ -1209,13 +1209,13 @@ impl Executor for LocalExecutor {
         let mut env: BTreeMap<String, String> = BTreeMap::new();
         if let Some(res) = ov.resources.as_ref() {
             if let Some(gb) = res.memory_gb {
-                env.insert("SWFC_AGENT_MEMORY_CAP_GB".into(), gb.to_string());
+                env.insert("ECAA_AGENT_MEMORY_CAP_GB".into(), gb.to_string());
             }
             if let Some(secs) = res.wallclock_secs {
-                env.insert("SWFC_AGENT_WALLCLOCK_SECS".into(), secs.to_string());
+                env.insert("ECAA_AGENT_WALLCLOCK_SECS".into(), secs.to_string());
             }
             if let Some(vcpus) = res.vcpus {
-                env.insert("SWFC_HW_NPROC_HINT".into(), vcpus.to_string());
+                env.insert("ECAA_HW_NPROC_HINT".into(), vcpus.to_string());
             }
         }
         for (lib, ver) in &ov.library_pins {
@@ -1240,7 +1240,7 @@ impl Executor for LocalExecutor {
                 );
                 continue;
             }
-            let key = format!("SWFC_LIB_PIN_{suffix}");
+            let key = format!("ECAA_LIB_PIN_{suffix}");
             env.insert(key, ver.clone());
         }
         for (k, v) in &ov.env_passthrough {
@@ -1958,16 +1958,16 @@ mod tests {
         ov.library_pins.insert("scanpy".into(), "1.9.6".into());
         ov.library_pins.insert("ann-data".into(), "0.10.5".into());
         ov.env_passthrough
-            .insert("SWFC_DEBUG_TOKEN_BURN".into(), "1".into());
+            .insert("ECAA_DEBUG_TOKEN_BURN".into(), "1".into());
 
         e.apply_overrides("alignment", &ov).unwrap();
         let envs = e.drain_envelope_additions();
-        assert_eq!(envs.get("SWFC_AGENT_MEMORY_CAP_GB").unwrap(), "64");
-        assert_eq!(envs.get("SWFC_AGENT_WALLCLOCK_SECS").unwrap(), "7200");
-        assert_eq!(envs.get("SWFC_HW_NPROC_HINT").unwrap(), "8");
-        assert_eq!(envs.get("SWFC_LIB_PIN_SCANPY").unwrap(), "1.9.6");
-        assert_eq!(envs.get("SWFC_LIB_PIN_ANN_DATA").unwrap(), "0.10.5");
-        assert_eq!(envs.get("SWFC_DEBUG_TOKEN_BURN").unwrap(), "1");
+        assert_eq!(envs.get("ECAA_AGENT_MEMORY_CAP_GB").unwrap(), "64");
+        assert_eq!(envs.get("ECAA_AGENT_WALLCLOCK_SECS").unwrap(), "7200");
+        assert_eq!(envs.get("ECAA_HW_NPROC_HINT").unwrap(), "8");
+        assert_eq!(envs.get("ECAA_LIB_PIN_SCANPY").unwrap(), "1.9.6");
+        assert_eq!(envs.get("ECAA_LIB_PIN_ANN_DATA").unwrap(), "0.10.5");
+        assert_eq!(envs.get("ECAA_DEBUG_TOKEN_BURN").unwrap(), "1");
         // After draining, accumulator is empty.
         assert!(e.drain_envelope_additions().is_empty());
     }
@@ -1997,7 +1997,7 @@ mod tests {
         };
         e.apply_overrides("t1", &ov).unwrap();
         let first = e.drain_envelope_additions();
-        assert_eq!(first.get("SWFC_AGENT_MEMORY_CAP_GB").unwrap(), "96");
+        assert_eq!(first.get("ECAA_AGENT_MEMORY_CAP_GB").unwrap(), "96");
         // Second drain returns empty — accumulator was cleared.
         let second = e.drain_envelope_additions();
         assert!(second.is_empty());
@@ -2152,7 +2152,7 @@ mod tests {
                 tx,
                 shutdown_for_thread,
                 Some(heartbeat_root_for_thread),
-                300, // matches SWFC_TASK_HEARTBEAT_STALL_SECS default
+                300, // matches ECAA_TASK_HEARTBEAT_STALL_SECS default
             );
         });
 
@@ -2319,7 +2319,7 @@ mod tests {
         );
         assert!(
             !e.session_env_additions
-                .contains_key("SWFC_DEFAULT_CONTAINER_IMAGE"),
+                .contains_key("ECAA_DEFAULT_CONTAINER_IMAGE"),
             "no env override when there's no manifest"
         );
     }
@@ -2357,15 +2357,15 @@ mod tests {
         assert!(res.is_err(), "malformed manifest must surface an error");
     }
 
-    // ── SWFC_PER_TASK_IMAGES=1 wiring ────────
+    // ── ECAA_PER_TASK_IMAGES=1 wiring ────────
 
     // Shared with `per_atom_image::tests`. Serializes tests that
-    // mutate the per-atom-image env vars (SWFC_PER_TASK_IMAGES,
-    // SWFC_PER_ATOM_BUILD_ROOT, SWFC_IMAGE_BUILDER_PATH) so parallel
+    // mutate the per-atom-image env vars (ECAA_PER_TASK_IMAGES,
+    // ECAA_PER_ATOM_BUILD_ROOT, ECAA_IMAGE_BUILDER_PATH) so parallel
     // `cargo test` runs can't trip on a stale env var another test
     // left briefly set. See
-    // `executor/mod.rs::SWFC_PER_TASK_IMAGE_ENV_LOCK`.
-    use crate::executor::SWFC_PER_TASK_IMAGE_ENV_LOCK as PER_TASK_ENV_LOCK;
+    // `executor/mod.rs::ECAA_PER_TASK_IMAGE_ENV_LOCK`.
+    use crate::executor::ECAA_PER_TASK_IMAGE_ENV_LOCK as PER_TASK_ENV_LOCK;
 
     fn write_atom_prereqs_manifest(package_dir: &Path, atom_id: &str, apt: &[&str]) {
         use ecaa_workflow_core::runtime_prereqs::{RuntimePrereqs, SystemPackages};
@@ -2414,7 +2414,7 @@ mod tests {
 
     #[test]
     fn provision_populates_per_task_image_overrides_when_gate_on() {
-        // With SWFC_PER_TASK_IMAGES=1, provision walks the DAG and
+        // With ECAA_PER_TASK_IMAGES=1, provision walks the DAG and
         // pins each task whose source atom carries a buildable manifest
         // to a scripps-derived:<hash> tag. Atoms with no manifest are
         // skipped (host mode); tasks with no source_atom_id are
@@ -2449,13 +2449,13 @@ mod tests {
             agent: "/bin/true".into(),
             task_timeout_secs: 300,
         });
-        std::env::set_var("SWFC_PER_TASK_IMAGES", "1");
-        std::env::set_var("SWFC_PER_ATOM_BUILD_ROOT", build_root.path());
-        std::env::set_var("SWFC_IMAGE_BUILDER_PATH", &builder);
+        std::env::set_var("ECAA_PER_TASK_IMAGES", "1");
+        std::env::set_var("ECAA_PER_ATOM_BUILD_ROOT", build_root.path());
+        std::env::set_var("ECAA_IMAGE_BUILDER_PATH", &builder);
         let res = e.provision(&dag);
-        std::env::remove_var("SWFC_PER_TASK_IMAGES");
-        std::env::remove_var("SWFC_PER_ATOM_BUILD_ROOT");
-        std::env::remove_var("SWFC_IMAGE_BUILDER_PATH");
+        std::env::remove_var("ECAA_PER_TASK_IMAGES");
+        std::env::remove_var("ECAA_PER_ATOM_BUILD_ROOT");
+        std::env::remove_var("ECAA_IMAGE_BUILDER_PATH");
 
         res.expect("provision");
         // task_a / task_b each have an atom with a buildable manifest
@@ -2492,10 +2492,10 @@ mod tests {
             "task whose atom has no manifest must not get an override"
         );
         // The session-wide warm-up MUST be skipped — no
-        // SWFC_DEFAULT_CONTAINER_IMAGE in session_env_additions.
+        // ECAA_DEFAULT_CONTAINER_IMAGE in session_env_additions.
         assert!(
             !e.session_env_additions
-                .contains_key("SWFC_DEFAULT_CONTAINER_IMAGE"),
+                .contains_key("ECAA_DEFAULT_CONTAINER_IMAGE"),
             "session_env_additions must not pin a union image when gate is on"
         );
     }
@@ -2534,13 +2534,13 @@ mod tests {
             agent: "/bin/true".into(),
             task_timeout_secs: 300,
         });
-        std::env::set_var("SWFC_PER_TASK_IMAGES", "1");
-        std::env::set_var("SWFC_PER_ATOM_BUILD_ROOT", build_root.path());
-        std::env::set_var("SWFC_IMAGE_BUILDER_PATH", &builder);
+        std::env::set_var("ECAA_PER_TASK_IMAGES", "1");
+        std::env::set_var("ECAA_PER_ATOM_BUILD_ROOT", build_root.path());
+        std::env::set_var("ECAA_IMAGE_BUILDER_PATH", &builder);
         e.provision(&dag).expect("provision");
-        std::env::remove_var("SWFC_PER_TASK_IMAGES");
-        std::env::remove_var("SWFC_PER_ATOM_BUILD_ROOT");
-        std::env::remove_var("SWFC_IMAGE_BUILDER_PATH");
+        std::env::remove_var("ECAA_PER_TASK_IMAGES");
+        std::env::remove_var("ECAA_PER_ATOM_BUILD_ROOT");
+        std::env::remove_var("ECAA_IMAGE_BUILDER_PATH");
 
         let tag_one = e
             .per_task_image_overrides
@@ -2558,7 +2558,7 @@ mod tests {
 
     #[test]
     fn provision_falls_through_to_union_when_gate_off() {
-        // With SWFC_PER_TASK_IMAGES=0 (the explicit opt-out),
+        // With ECAA_PER_TASK_IMAGES=0 (the explicit opt-out),
         // provision must use the union warm_runtime_image path.
         // With no manifest in the package, that's a no-op
         // (Ok(None)), and per_task_image_overrides should stay
@@ -2587,9 +2587,9 @@ mod tests {
             agent: "/bin/true".into(),
             task_timeout_secs: 300,
         });
-        std::env::set_var("SWFC_PER_TASK_IMAGES", "0");
+        std::env::set_var("ECAA_PER_TASK_IMAGES", "0");
         let res = e.provision(&dag);
-        std::env::remove_var("SWFC_PER_TASK_IMAGES");
+        std::env::remove_var("ECAA_PER_TASK_IMAGES");
         res.expect("provision");
         assert!(
             e.per_task_image_overrides.is_empty(),
@@ -2608,7 +2608,7 @@ mod tests {
     #[test]
     fn secret_keys_includes_critical_tokens() {
         for required in [
-            "SWFC_ANTHROPIC_API_KEY",
+            "ECAA_ANTHROPIC_API_KEY",
             "AWS_SECRET_ACCESS_KEY",
             "GH_TOKEN",
         ] {
@@ -2620,15 +2620,15 @@ mod tests {
         }
     }
 
-    /// `SWFC_DISABLE_ENV_CLEAR=1` returns `true` from
+    /// `ECAA_DISABLE_ENV_CLEAR=1` returns `true` from
     /// `env_clear_disabled` so the apply_env_with_allowlist function
     /// short-circuits onto the legacy inherit-everything path.
     #[test]
     fn env_clear_disabled_honours_bypass_flag() {
         let _guard = ENV_CLEAR_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        std::env::set_var("SWFC_DISABLE_ENV_CLEAR", "1");
+        std::env::set_var("ECAA_DISABLE_ENV_CLEAR", "1");
         assert!(env_clear_disabled());
-        std::env::remove_var("SWFC_DISABLE_ENV_CLEAR");
+        std::env::remove_var("ECAA_DISABLE_ENV_CLEAR");
         assert!(!env_clear_disabled());
     }
 
@@ -2638,48 +2638,48 @@ mod tests {
     #[test]
     fn validate_sandbox_env_accepts_known_values() {
         let _guard = ENV_CLEAR_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        std::env::remove_var("SWFC_LOCAL_SANDBOX");
+        std::env::remove_var("ECAA_LOCAL_SANDBOX");
         assert!(validate_sandbox_env().is_ok(), "unset must be valid");
         for ok in ["bubblewrap", "off", ""] {
-            std::env::set_var("SWFC_LOCAL_SANDBOX", ok);
+            std::env::set_var("ECAA_LOCAL_SANDBOX", ok);
             assert!(validate_sandbox_env().is_ok(), "value {ok:?} must be valid");
         }
-        std::env::remove_var("SWFC_LOCAL_SANDBOX");
+        std::env::remove_var("ECAA_LOCAL_SANDBOX");
     }
 
     #[test]
     fn validate_sandbox_env_refuses_unknown_values() {
         let _guard = ENV_CLEAR_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         for bad in ["bublewrap", "BUBBLEWRAP", "on", "true", "yes", "1"] {
-            std::env::set_var("SWFC_LOCAL_SANDBOX", bad);
+            std::env::set_var("ECAA_LOCAL_SANDBOX", bad);
             let err = validate_sandbox_env()
-                .expect_err("unknown SWFC_LOCAL_SANDBOX value must be refused");
+                .expect_err("unknown ECAA_LOCAL_SANDBOX value must be refused");
             assert!(
                 err.to_string().contains("not a valid policy"),
                 "wrong error message for {bad:?}: {err}"
             );
         }
-        std::env::remove_var("SWFC_LOCAL_SANDBOX");
+        std::env::remove_var("ECAA_LOCAL_SANDBOX");
     }
 
     /// End-to-end: spawn a `/usr/bin/env` subprocess via the env-cleared
     /// path with one envelope entry. The child's stdout should contain
     /// the envelope variable, the SECRET_KEY allowlist (when present in
     /// the parent env), but NOT a freshly-set
-    /// `SWFC_TEST_DISALLOWED_LEAK_*` that's not on the allowlist.
+    /// `ECAA_TEST_DISALLOWED_LEAK_*` that's not on the allowlist.
     #[test]
     fn apply_env_with_allowlist_strips_non_allowlisted() {
         let _guard = ENV_CLEAR_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        std::env::remove_var("SWFC_DISABLE_ENV_CLEAR");
+        std::env::remove_var("ECAA_DISABLE_ENV_CLEAR");
         // Set a non-allowlisted var that MUST get stripped.
-        std::env::set_var("SWFC_TEST_DISALLOWED_LEAK_KEY", "secret-leak");
+        std::env::set_var("ECAA_TEST_DISALLOWED_LEAK_KEY", "secret-leak");
         // Set an allowlisted var that MUST survive.
-        std::env::set_var("SWFC_ANTHROPIC_API_KEY", "test-allowed");
-        std::env::set_var("SWFC_AGENT_BILLING", "api");
+        std::env::set_var("ECAA_ANTHROPIC_API_KEY", "test-allowed");
+        std::env::set_var("ECAA_AGENT_BILLING", "api");
         std::env::set_var("MAX_TURNS_PER_TASK", "25");
         let mut envelope = BTreeMap::new();
         envelope.insert(
-            "SWFC_TEST_ENVELOPE".to_string(),
+            "ECAA_TEST_ENVELOPE".to_string(),
             "envelope-value".to_string(),
         );
 
@@ -2688,18 +2688,18 @@ mod tests {
         let out = cmd.output().expect("spawn env");
         let text = String::from_utf8_lossy(&out.stdout);
 
-        std::env::remove_var("SWFC_TEST_DISALLOWED_LEAK_KEY");
-        std::env::remove_var("SWFC_ANTHROPIC_API_KEY");
-        std::env::remove_var("SWFC_AGENT_BILLING");
+        std::env::remove_var("ECAA_TEST_DISALLOWED_LEAK_KEY");
+        std::env::remove_var("ECAA_ANTHROPIC_API_KEY");
+        std::env::remove_var("ECAA_AGENT_BILLING");
         std::env::remove_var("MAX_TURNS_PER_TASK");
 
         assert!(
-            text.contains("SWFC_TEST_ENVELOPE=envelope-value"),
+            text.contains("ECAA_TEST_ENVELOPE=envelope-value"),
             "envelope must reach child: {}",
             text
         );
         assert!(
-            text.contains("SWFC_ANTHROPIC_API_KEY=test-allowed"),
+            text.contains("ECAA_ANTHROPIC_API_KEY=test-allowed"),
             "allowlisted secret must reach child: {}",
             text
         );
@@ -2709,19 +2709,19 @@ mod tests {
             text
         );
         assert!(
-            text.contains("SWFC_AGENT_BILLING=api"),
+            text.contains("ECAA_AGENT_BILLING=api"),
             "agent billing mode must reach local executor child: {}",
             text
         );
         assert!(
-            !text.contains("SWFC_TEST_DISALLOWED_LEAK_KEY"),
+            !text.contains("ECAA_TEST_DISALLOWED_LEAK_KEY"),
             "non-allowlisted host env MUST NOT leak: {}",
             text
         );
     }
 
     /// Verifies that the one-shot warning text for the no-bwrap default path
-    /// mentions both `SWFC_LOCAL_SANDBOX=off` (opt-out instruction) and `bwrap`
+    /// mentions both `ECAA_LOCAL_SANDBOX=off` (opt-out instruction) and `bwrap`
     /// (the missing binary). This test does not exercise the probe itself
     /// (filesystem-dependent) — it validates the message content by inspecting
     /// the source literal.
@@ -2730,14 +2730,14 @@ mod tests {
         // The warning string is a compile-time literal in detect_default_sandbox().
         // Extract it here so changes to the message are caught by this test.
         let warn_text = concat!(
-            "SWFC_LOCAL_SANDBOX unset and bwrap not found on PATH. ",
+            "ECAA_LOCAL_SANDBOX unset and bwrap not found on PATH. ",
             "Implementation::GeneratedCode tasks will run unsandboxed. ",
             "Install bwrap (sudo apt install bubblewrap) or set ",
-            "SWFC_LOCAL_SANDBOX=off explicitly to suppress this warning."
+            "ECAA_LOCAL_SANDBOX=off explicitly to suppress this warning."
         );
         assert!(
-            warn_text.contains("SWFC_LOCAL_SANDBOX=off"),
-            "warning must mention SWFC_LOCAL_SANDBOX=off opt-out: {warn_text}"
+            warn_text.contains("ECAA_LOCAL_SANDBOX=off"),
+            "warning must mention ECAA_LOCAL_SANDBOX=off opt-out: {warn_text}"
         );
         assert!(
             warn_text.contains("bwrap"),
@@ -2745,24 +2745,24 @@ mod tests {
         );
     }
 
-    /// `SWFC_DISABLE_ENV_CLEAR=1` falls back to legacy inherit-all so
+    /// `ECAA_DISABLE_ENV_CLEAR=1` falls back to legacy inherit-all so
     /// existing tests / scripts that depend on inherited env keep working.
     #[test]
     fn bypass_flag_inherits_non_allowlisted() {
         let _guard = ENV_CLEAR_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        std::env::set_var("SWFC_DISABLE_ENV_CLEAR", "1");
-        std::env::set_var("SWFC_TEST_INHERIT_PROBE", "inherited-value");
+        std::env::set_var("ECAA_DISABLE_ENV_CLEAR", "1");
+        std::env::set_var("ECAA_TEST_INHERIT_PROBE", "inherited-value");
         let envelope = BTreeMap::new();
         let mut cmd = std::process::Command::new("/usr/bin/env");
         apply_env_with_allowlist(&mut cmd, &envelope);
         let out = cmd.output().expect("spawn env");
         let text = String::from_utf8_lossy(&out.stdout);
 
-        std::env::remove_var("SWFC_DISABLE_ENV_CLEAR");
-        std::env::remove_var("SWFC_TEST_INHERIT_PROBE");
+        std::env::remove_var("ECAA_DISABLE_ENV_CLEAR");
+        std::env::remove_var("ECAA_TEST_INHERIT_PROBE");
 
         assert!(
-            text.contains("SWFC_TEST_INHERIT_PROBE=inherited-value"),
+            text.contains("ECAA_TEST_INHERIT_PROBE=inherited-value"),
             "bypass flag must restore legacy inherit-all: {}",
             text
         );

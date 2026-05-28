@@ -16,7 +16,7 @@
 //! `intake` subcommand)? The CLI `intake` always uses the legacy
 //! taxonomy build (composer_version == 1); driving v2 + v4 through
 //! `compose_with_version_and_modalities_full` here avoids needing
-//! to thread `SWFC_COMPOSER` through the CLI surface and keeps the
+//! to thread `ECAA_COMPOSER` through the CLI surface and keeps the
 //! corpus regression byte-stable.
 
 use std::collections::BTreeSet;

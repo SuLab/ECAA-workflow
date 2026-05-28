@@ -2,7 +2,7 @@ id: pain_pathway_canonical
 description: |
   Canonical pain-pathway gene panel (subset of the 1,047-gene pain-gene
   registry referenced in specs/09_INTERPRETATION.md). One gene symbol per
-  entry. Override by setting `SWFC_PAIN_GENE_PANEL` to an alternate path.
+  entry. Override by setting `ECAA_PAIN_GENE_PANEL` to an alternate path.
 source: Lotz lab IVD reference + curated nociception literature.
 genes:
   - SCN9A

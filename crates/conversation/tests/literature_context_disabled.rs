@@ -8,15 +8,15 @@ fn env_lock() -> &'static Mutex<()> {
 
 fn with_disabled_env(value: Option<&str>, f: impl FnOnce()) {
     let _guard = env_lock().lock().unwrap();
-    let saved = std::env::var("SWFC_LITERATURE_CONTEXT_DISABLED").ok();
+    let saved = std::env::var("ECAA_LITERATURE_CONTEXT_DISABLED").ok();
     match value {
-        Some(v) => std::env::set_var("SWFC_LITERATURE_CONTEXT_DISABLED", v),
-        None => std::env::remove_var("SWFC_LITERATURE_CONTEXT_DISABLED"),
+        Some(v) => std::env::set_var("ECAA_LITERATURE_CONTEXT_DISABLED", v),
+        None => std::env::remove_var("ECAA_LITERATURE_CONTEXT_DISABLED"),
     }
     f();
     match saved {
-        Some(v) => std::env::set_var("SWFC_LITERATURE_CONTEXT_DISABLED", v),
-        None => std::env::remove_var("SWFC_LITERATURE_CONTEXT_DISABLED"),
+        Some(v) => std::env::set_var("ECAA_LITERATURE_CONTEXT_DISABLED", v),
+        None => std::env::remove_var("ECAA_LITERATURE_CONTEXT_DISABLED"),
     }
 }
 

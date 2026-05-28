@@ -13,32 +13,32 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 source "$SCRIPT_DIR/agent-claude-common.sh"
 
 # Security remediation validate
-# SWFC_CHAT_SESSION_ID is a syntactically-correct UUID before any code
+# ECAA_CHAT_SESSION_ID is a syntactically-correct UUID before any code
 # interpolates it into a docker label, cache path, or per-session log
 # location. `validate_uuid` is defined in agent-claude-common.sh.
 # Empty session id is tolerated; the cache + label code paths gate on
 # `-n` already. Only validate when set.
-if [ -n "${SWFC_CHAT_SESSION_ID:-}" ]; then
-    validate_uuid "$SWFC_CHAT_SESSION_ID"
+if [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
+    validate_uuid "$ECAA_CHAT_SESSION_ID"
 fi
 
-# Validate SWFC_TASK_ID before it lands in any per-task path or label.
+# Validate ECAA_TASK_ID before it lands in any per-task path or label.
 # Empty value is tolerated by the path-composition code below (the
 # harness pre-flights this in `run_iteration`), but any non-empty value
 # MUST satisfy the safe-id shape.
-if [ -n "${SWFC_TASK_ID:-}" ]; then
-    validate_task_id "$SWFC_TASK_ID"
+if [ -n "${ECAA_TASK_ID:-}" ]; then
+    validate_task_id "$ECAA_TASK_ID"
 fi
 
 PACKAGE="$(realpath "$1")"
 
-# Agent debug tracing: SWFC_AGENT_DEBUG=1 redirects all
+# Agent debug tracing: ECAA_AGENT_DEBUG=1 redirects all
 # stderr to runtime/outputs/<task_id>/agent-trace.log AND turns on
 # bash xtrace, so a silent `set -e` exit between BLAS bootstrap and
 # docker run leaves a forensic trail. Off by default; tracing adds noise
 # to the harness's stderr_tail otherwise.
-if [ "${SWFC_AGENT_DEBUG:-0}" = "1" ] && [ -n "${SWFC_TASK_ID:-}" ]; then
-  __AGENT_TRACE_DIR="$PACKAGE/runtime/outputs/$SWFC_TASK_ID"
+if [ "${ECAA_AGENT_DEBUG:-0}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
+  __AGENT_TRACE_DIR="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
   mkdir -p "$__AGENT_TRACE_DIR" 2>/dev/null || true
   export PS4='+ [${BASH_SOURCE##*/}:${LINENO}] '
   exec 2> >(tee -a "$__AGENT_TRACE_DIR/agent-trace.log" >&2)
@@ -109,9 +109,9 @@ ${TASK_EXECUTION_BODY}"
 # CLAUDE_EXIT capture) leaves a forensic trail. Otherwise a
 # `set -euo pipefail` crash inside the docker pipeline would surface
 # only as exit 1 with empty stderr_tail. The fallback `mktemp` path
-# (no SWFC_TASK_ID) preserves standalone invocations.
-if [ -n "${SWFC_TASK_ID:-}" ]; then
-  OUT_LOG_DIR="$PACKAGE/runtime/outputs/$SWFC_TASK_ID"
+# (no ECAA_TASK_ID) preserves standalone invocations.
+if [ -n "${ECAA_TASK_ID:-}" ]; then
+  OUT_LOG_DIR="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
   mkdir -p "$OUT_LOG_DIR" 2>/dev/null || true
   OUT_LOG="$OUT_LOG_DIR/agent-claude.log"
   OUT_LOG_PERSISTENT=1
@@ -126,7 +126,7 @@ fi
 # of room for runtime/outputs. The cap is a per-log soft limit; when
 # the file size crosses it during the run, a background watcher
 # rotates the file in place (mv → log.old; truncate the live log).
-SWFC_AGENT_LOG_MAX_BYTES="${SWFC_AGENT_LOG_MAX_BYTES:-209715200}"
+ECAA_AGENT_LOG_MAX_BYTES="${ECAA_AGENT_LOG_MAX_BYTES:-209715200}"
 
 # Per-task turn budget for the executor agent. On overshoot the agent
 # is expected to write status=blocked to result.json; this wrapper
@@ -134,15 +134,15 @@ SWFC_AGENT_LOG_MAX_BYTES="${SWFC_AGENT_LOG_MAX_BYTES:-209715200}"
 MAX_TURNS_PER_TASK="${MAX_TURNS_PER_TASK:-40}"
 
 LOG_WATCHER_PID=""
-if [ -n "${SWFC_TASK_ID:-}" ] && [ "$SWFC_AGENT_LOG_MAX_BYTES" -gt 0 ]; then
+if [ -n "${ECAA_TASK_ID:-}" ] && [ "$ECAA_AGENT_LOG_MAX_BYTES" -gt 0 ]; then
   ( while :; do
       sleep 30
       if [ -f "$OUT_LOG" ]; then
         SIZE=$(stat -c%s "$OUT_LOG" 2>/dev/null || echo 0)
-        if [ "$SIZE" -gt "$SWFC_AGENT_LOG_MAX_BYTES" ]; then
+        if [ "$SIZE" -gt "$ECAA_AGENT_LOG_MAX_BYTES" ]; then
           mv "$OUT_LOG" "${OUT_LOG}.rotated" 2>/dev/null || true
           : > "$OUT_LOG"
-          echo "[agent-log] rotated $OUT_LOG at $SIZE bytes (cap $SWFC_AGENT_LOG_MAX_BYTES)" >&2
+          echo "[agent-log] rotated $OUT_LOG at $SIZE bytes (cap $ECAA_AGENT_LOG_MAX_BYTES)" >&2
         fi
       fi
     done ) &
@@ -152,15 +152,15 @@ fi
 # Heartbeat touch loop. The harness seeds the file at pre-mark time;
 # this loop keeps it fresh while the agent is genuinely running so a
 # hang at a single syscall is distinguishable from a legitimately
-# long-running task. SWFC_TASK_ID is set by the harness hardware
+# long-running task. ECAA_TASK_ID is set by the harness hardware
 # envelope; absent = skip the loop.
 HEARTBEAT_PID=""
-if [ -n "${SWFC_TASK_ID:-}" ]; then
-  HEARTBEAT_FILE="$PACKAGE/runtime/outputs/$SWFC_TASK_ID/.heartbeat"
+if [ -n "${ECAA_TASK_ID:-}" ]; then
+  HEARTBEAT_FILE="$PACKAGE/runtime/outputs/$ECAA_TASK_ID/.heartbeat"
   mkdir -p "$(dirname "$HEARTBEAT_FILE")" 2>/dev/null || true
   ( while :; do
       date -u +%Y-%m-%dT%H:%M:%SZ > "$HEARTBEAT_FILE" 2>/dev/null || exit 0
-      sleep "$SWFC_HEARTBEAT_INTERVAL_SECS"
+      sleep "$ECAA_HEARTBEAT_INTERVAL_SECS"
     done ) &
   HEARTBEAT_PID=$!
 fi
@@ -197,14 +197,14 @@ trap cleanup_heartbeat EXIT
 # location: `$PACKAGE/runtime/scratch/<task_id>/`. Lifecycle: created
 # here at agent-launch time; harness cleans up on task transition to
 # Completed/Failed (retained on Blocked for forensic per S15.7).
-# Override via `SWFC_AGENT_SCRATCH_DIR` for site-specific layouts.
-# Surfaced to the agent as `SWFC_TASK_SCRATCH_DIR` so tool scripts can
+# Override via `ECAA_AGENT_SCRATCH_DIR` for site-specific layouts.
+# Surfaced to the agent as `ECAA_TASK_SCRATCH_DIR` so tool scripts can
 # write large intermediates without polluting the package's outputs.
-if [ -n "${SWFC_TASK_ID:-}" ]; then
-  SCRATCH_BASE="${SWFC_AGENT_SCRATCH_DIR:-$PACKAGE/runtime/scratch}"
-  SCRATCH_DIR="$SCRATCH_BASE/$SWFC_TASK_ID"
+if [ -n "${ECAA_TASK_ID:-}" ]; then
+  SCRATCH_BASE="${ECAA_AGENT_SCRATCH_DIR:-$PACKAGE/runtime/scratch}"
+  SCRATCH_DIR="$SCRATCH_BASE/$ECAA_TASK_ID"
   mkdir -p "$SCRATCH_DIR" 2>/dev/null || true
-  export SWFC_TASK_SCRATCH_DIR="$SCRATCH_DIR"
+  export ECAA_TASK_SCRATCH_DIR="$SCRATCH_DIR"
 fi
 
 # Per-session cache mount. Persists pip / conda / apt /
@@ -214,11 +214,11 @@ fi
 # the per-session dir is pruned at session-store TTL (existing 30-day
 # `persistence.rs::load_then_prune`). Default location:
 # `~/.scripps-workflow/agent-cache/<session_id>/{pip,conda,apt,R-libs}`.
-# `SWFC_AGENT_CACHE_DIR` overrides the parent; `SWFC_AGENT_CACHE_DISABLE=1`
+# `ECAA_AGENT_CACHE_DIR` overrides the parent; `ECAA_AGENT_CACHE_DISABLE=1`
 # opts out entirely.
-if [ "${SWFC_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${SWFC_CHAT_SESSION_ID:-}" ]; then
-  CACHE_BASE="${SWFC_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
-  # `SWFC_AGENT_CACHE_GLOBAL=1` opts into a cross-session-shared cache.
+if [ "${ECAA_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
+  CACHE_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
+  # `ECAA_AGENT_CACHE_GLOBAL=1` opts into a cross-session-shared cache.
   # Default behavior (off) is per-session isolation to prevent
   # cross-session cache poisoning (D-R13). The global mode trades
   # isolation for install-cost amortization: a heavy R package like
@@ -230,13 +230,13 @@ if [ "${SWFC_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${SWFC_CHAT_SESSION_ID:-
   # same package don't corrupt each other, but a flock guards the
   # CACHE_DIR root itself to serialize the first-touch directory
   # bootstrap.
-  if [ "${SWFC_AGENT_CACHE_GLOBAL:-0}" = "1" ]; then
+  if [ "${ECAA_AGENT_CACHE_GLOBAL:-0}" = "1" ]; then
     CACHE_DIR="$CACHE_BASE/global"
   else
-    CACHE_DIR="$CACHE_BASE/$SWFC_CHAT_SESSION_ID"
+    CACHE_DIR="$CACHE_BASE/$ECAA_CHAT_SESSION_ID"
   fi
   mkdir -p "$CACHE_DIR/pip" "$CACHE_DIR/conda" "$CACHE_DIR/apt" "$CACHE_DIR/R-libs" 2>/dev/null || true
-  export SWFC_SESSION_CACHE_DIR="$CACHE_DIR"
+  export ECAA_SESSION_CACHE_DIR="$CACHE_DIR"
   # Surface the standard pip / conda / R env vars so tool scripts pick
   # them up without per-tool override. Apt cache is bind-mounted in
   # container mode only (host mode lacks rights to redirect apt).
@@ -253,22 +253,22 @@ fi
 # per-session cache (one ~30s npm install per session, then reused),
 # bind-mount it into the container, and prepend its bin dir to the
 # container's PATH so `claude` resolves to the upgraded copy. Pin
-# via SWFC_AGENT_CLAUDE_VERSION (default `latest`); set
-# SWFC_AGENT_CLAUDE_FORCE_REINSTALL=1 to refresh between tasks.
+# via ECAA_AGENT_CLAUDE_VERSION (default `latest`); set
+# ECAA_AGENT_CLAUDE_FORCE_REINSTALL=1 to refresh between tasks.
 # Falls back to the image's bundled CLI when npm is unavailable on
-# the host or when SWFC_AGENT_CLAUDE_DISABLE=1.
+# the host or when ECAA_AGENT_CLAUDE_DISABLE=1.
 CLAUDE_CODE_INSTALL_DIR=""
 CLAUDE_CODE_INSTALLED_VERSION=""
-if [ "${SWFC_AGENT_CLAUDE_DISABLE:-0}" != "1" ]; then
-  if [ -n "${SWFC_SESSION_CACHE_DIR:-}" ]; then
-    CLAUDE_CODE_INSTALL_DIR="$SWFC_SESSION_CACHE_DIR/claude-code"
+if [ "${ECAA_AGENT_CLAUDE_DISABLE:-0}" != "1" ]; then
+  if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
+    CLAUDE_CODE_INSTALL_DIR="$ECAA_SESSION_CACHE_DIR/claude-code"
   else
-    CLAUDE_CODE_FALLBACK_BASE="${SWFC_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
+    CLAUDE_CODE_FALLBACK_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
     CLAUDE_CODE_INSTALL_DIR="$CLAUDE_CODE_FALLBACK_BASE/standalone-$(basename "$PACKAGE")/claude-code"
   fi
   CLAUDE_CODE_PKG_JSON="$CLAUDE_CODE_INSTALL_DIR/node_modules/@anthropic-ai/claude-code/package.json"
-  CLAUDE_CODE_VERSION="${SWFC_AGENT_CLAUDE_VERSION:-latest}"
-  if [ -f "$CLAUDE_CODE_PKG_JSON" ] && [ "${SWFC_AGENT_CLAUDE_FORCE_REINSTALL:-0}" != "1" ]; then
+  CLAUDE_CODE_VERSION="${ECAA_AGENT_CLAUDE_VERSION:-latest}"
+  if [ -f "$CLAUDE_CODE_PKG_JSON" ] && [ "${ECAA_AGENT_CLAUDE_FORCE_REINSTALL:-0}" != "1" ]; then
     CLAUDE_CODE_INSTALLED_VERSION="$(jq -r .version "$CLAUDE_CODE_PKG_JSON" 2>/dev/null || echo "")"
   fi
   if [ -z "$CLAUDE_CODE_INSTALLED_VERSION" ]; then
@@ -323,7 +323,7 @@ log_policy_opens() {
 # (legacy path); falls through to host-env when both are absent.
 # Requires `docker` (bio + clinical-trial containers ship multi-arch
 # images). SLURM sites can set
-# SWFC_SLURM_CONTAINER_RUNTIME=singularity|apptainer|podman at the
+# ECAA_SLURM_CONTAINER_RUNTIME=singularity|apptainer|podman at the
 # sbatch-prologue layer; for this harness entry the host path uses
 # docker.
 CONTAINER_IMAGE=""
@@ -332,10 +332,10 @@ CONTAINER_IMAGE=""
 # Combines image + tag (falling back to digest when present, since a
 # digest pin is strictly more reproducible than a tag).
 WORKFLOW_JSON="$PACKAGE/WORKFLOW.json"
-if [ -n "${SWFC_TASK_ID:-}" ] \
+if [ -n "${ECAA_TASK_ID:-}" ] \
    && [ -f "$WORKFLOW_JSON" ] \
    && command -v jq >/dev/null 2>&1; then
-  TASK_CONTAINER="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_CONTAINER="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].container // empty | tojson' "$WORKFLOW_JSON" 2>/dev/null || true)"
   if [ -n "$TASK_CONTAINER" ] && [ "$TASK_CONTAINER" != "null" ]; then
     TC_IMAGE="$(printf '%s' "$TASK_CONTAINER" | jq -r '.image // empty')"
@@ -369,11 +369,11 @@ if [ -n "${SWFC_TASK_ID:-}" ] \
   # `--nv` get the right device id. `mig_profile` selects a slice
   # name like `3g.40gb` (S5.49) for an H100; falls back to
   # `--gpus all` when unset.
-  TASK_GPU_KIND="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_GPU_KIND="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].resource_profile.gpu.kind // empty' "$WORKFLOW_JSON" 2>/dev/null || true)"
-  TASK_GPU_COUNT="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_GPU_COUNT="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].resource_profile.gpu.count // 0' "$WORKFLOW_JSON" 2>/dev/null || true)"
-  TASK_GPU_MIG_PROFILE="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_GPU_MIG_PROFILE="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].resource_profile.gpu.mig_profile // empty' "$WORKFLOW_JSON" 2>/dev/null || true)"
   export TASK_GPU_KIND
   export TASK_GPU_COUNT
@@ -391,13 +391,13 @@ if [ -z "$CONTAINER_IMAGE" ]; then
 fi
 
 # Operator-level default. When per-task lookup AND the package policy
-# both came back empty, fall back to SWFC_DEFAULT_CONTAINER_IMAGE if
+# both came back empty, fall back to ECAA_DEFAULT_CONTAINER_IMAGE if
 # The operator pinned one in their.env. This makes container mode the
 # default for hosts that have a baseline agent image installed, without
 # requiring every taxonomy to declare `preferred_container`. Per-task
 # and package-level pins still win — this is the lowest-priority source.
-if [ -z "$CONTAINER_IMAGE" ] && [ -n "${SWFC_DEFAULT_CONTAINER_IMAGE:-}" ]; then
-  CONTAINER_IMAGE="$SWFC_DEFAULT_CONTAINER_IMAGE"
+if [ -z "$CONTAINER_IMAGE" ] && [ -n "${ECAA_DEFAULT_CONTAINER_IMAGE:-}" ]; then
+  CONTAINER_IMAGE="$ECAA_DEFAULT_CONTAINER_IMAGE"
 fi
 
 # Agent billing mode: subscription (default) vs api.
@@ -407,25 +407,25 @@ fi
 # against the plan's quotas instead of the API. Per-run cost: $0
 # (subscription-flat). Default.
 #
-# NOTE: the chat-side API key lives at SWFC_ANTHROPIC_API_KEY — the
+# NOTE: the chat-side API key lives at ECAA_ANTHROPIC_API_KEY — the
 # SWFC-prefixed name doesn't collide with Claude Code's ANTHROPIC_API_KEY
 # scan, so no subprocess env surgery is needed for the modern path. The
 # Unset below handles legacy.env files that still set ANTHROPIC_API_KEY
 # as the chat-side key (pre-rename).
 #
-# API mode: set SWFC_AGENT_BILLING=api to bill the API per-token. In
-# api mode we forward the available key (prefer SWFC_ANTHROPIC_API_KEY,
+# API mode: set ECAA_AGENT_BILLING=api to bill the API per-token. In
+# api mode we forward the available key (prefer ECAA_ANTHROPIC_API_KEY,
 # fall back to ANTHROPIC_API_KEY) into ANTHROPIC_API_KEY so the CLI
 # picks it up.
-if [ "${SWFC_AGENT_BILLING:-subscription}" = "subscription" ]; then
+if [ "${ECAA_AGENT_BILLING:-subscription}" = "subscription" ]; then
   unset ANTHROPIC_API_KEY
-elif [ "${SWFC_AGENT_BILLING:-}" = "api" ]; then
-  if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -n "${SWFC_ANTHROPIC_API_KEY:-}" ]; then
+elif [ "${ECAA_AGENT_BILLING:-}" = "api" ]; then
+  if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -n "${ECAA_ANTHROPIC_API_KEY:-}" ]; then
     # Suppress xtrace around the secret expansion
     # so the literal key never lands in agent-trace.log under
-    # SWFC_AGENT_DEBUG=1.
+    # ECAA_AGENT_DEBUG=1.
     { set +x; } 2>/dev/null
-    export ANTHROPIC_API_KEY="$SWFC_ANTHROPIC_API_KEY"
+    export ANTHROPIC_API_KEY="$ECAA_ANTHROPIC_API_KEY"
     { set -x; } 2>/dev/null
   fi
 fi
@@ -434,9 +434,9 @@ fi
 # Regression assertion. If the xtrace suppression above regresses
 # and the key lands in the trace log verbatim, fail fast rather
 # than emit a package containing the literal key. Best-effort:
-# only checks when SWFC_AGENT_DEBUG=1 produced a trace log AND the
+# only checks when ECAA_AGENT_DEBUG=1 produced a trace log AND the
 # active key has the recognizable `sk-` prefix.
-if [ "${SWFC_AGENT_DEBUG:-0}" = "1" ] \
+if [ "${ECAA_AGENT_DEBUG:-0}" = "1" ] \
    && [ -n "${AGENT_TRACE_LOG:-}" ] \
    && [ -f "${AGENT_TRACE_LOG}" ] \
    && grep -qE 'ANTHROPIC_API_KEY=sk-[A-Za-z0-9_-]{8}' "$AGENT_TRACE_LOG" 2>/dev/null; then
@@ -444,7 +444,7 @@ if [ "${SWFC_AGENT_DEBUG:-0}" = "1" ] \
     exit 99
 fi
 
-# Model tiering (§R-5 — on by default; opt out with SWFC_AGENT_MODEL_TIER=0).
+# Model tiering (§R-5 — on by default; opt out with ECAA_AGENT_MODEL_TIER=0).
 # Routes the high-cognitive-load buckets to Opus and the deterministic /
 # code-execution buckets to Sonnet:
 #
@@ -473,15 +473,15 @@ fi
 #      declares a verifiableEntities block) run on the narrative and
 #      cross-check claims against the result tables. Any LLM-introduced
 #      hallucination is surfaced as a ClaimVerificationReport block.
-#   3. SWFC_AGENT_MODEL_TIER=0 reverts to all-Opus for users who want
+#   3. ECAA_AGENT_MODEL_TIER=0 reverts to all-Opus for users who want
 #      maximum quality regardless of cost.
 #
-# Reads SWFC_TASK_ID directly (the harness sets it before each agent
+# Reads ECAA_TASK_ID directly (the harness sets it before each agent
 # invocation) instead of peeking at WORKFLOW.json's first-ready task —
 # the peek-vs-actual heuristic could pick the wrong task when multiple
 # tasks are concurrently ready (e.g. validate_qc running parallel to
 # normalisation; the peek picks normalisation → validate gets Sonnet
-# instead of Opus). SWFC_TASK_ID is authoritative.
+# instead of Opus). ECAA_TASK_ID is authoritative.
 MODEL_FLAG_ARGS=()
 # Per-task hard budget cap. claude CLI's `--max-budget-usd` (only
 # works with --print mode, which we use via --output-format=json)
@@ -497,29 +497,29 @@ MODEL_FLAG_ARGS=()
 #   reporting    $0.95 avg        → $1.50 cap
 #   analytical   $1.30 avg        → $1.75 cap
 #
-# Per-class envs override the defaults; SWFC_AGENT_BUDGET_USD
+# Per-class envs override the defaults; ECAA_AGENT_BUDGET_USD
 # overrides all classes. Set to 0 to disable the cap entirely.
 BUDGET_FLAG_ARGS=()
-if [ "${SWFC_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${SWFC_TASK_ID:-}" ]; then
-  case "$SWFC_TASK_ID" in
+if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
+  case "$ECAA_TASK_ID" in
     validate_*)
       # validate_* tasks write a deterministic schema/checksum check
       # script. Sonnet handles this shape reliably and is 5x cheaper
       # than Opus. Tighter budget than discover_* because validators
       # have a stable codegen shape.
       MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
-      _BUDGET="${SWFC_AGENT_BUDGET_USD_VALIDATE:-0.75}"
+      _BUDGET="${ECAA_AGENT_BUDGET_USD_VALIDATE:-0.75}"
       ;;
     discover_*)
       # discover_* tasks score methods via env-capability + spec
       # preferences. Opus's deeper analytical reasoning pays off
       # here when the candidate pool has subtle trade-offs.
       MODEL_FLAG_ARGS+=(--model claude-opus-4-7)
-      _BUDGET="${SWFC_AGENT_BUDGET_USD_DISCOVER:-1.50}"
+      _BUDGET="${ECAA_AGENT_BUDGET_USD_DISCOVER:-1.50}"
       ;;
     data_acquisition|data_import)
       MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
-      _BUDGET="${SWFC_AGENT_BUDGET_USD_DATA_ACQ:-1.20}"
+      _BUDGET="${ECAA_AGENT_BUDGET_USD_DATA_ACQ:-1.20}"
       ;;
     *)
       # Pull the task kind only when needed — `kind: discovery` is a
@@ -528,21 +528,21 @@ if [ "${SWFC_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${SWFC_TASK_ID:-}" ]; then
       # gated on jq being available and WORKFLOW.json being present.
       TID_KIND=""
       if command -v jq >/dev/null 2>&1 && [ -f "$PACKAGE/WORKFLOW.json" ]; then
-        TID_KIND="$(jq -r --arg tid "$SWFC_TASK_ID" '
+        TID_KIND="$(jq -r --arg tid "$ECAA_TASK_ID" '
           .tasks[$tid].kind | if type == "object" then (keys[0]) else . end
         ' "$PACKAGE/WORKFLOW.json" 2>/dev/null)"
       fi
       if [ "$TID_KIND" = "discovery" ]; then
         MODEL_FLAG_ARGS+=(--model claude-opus-4-7)
-        _BUDGET="${SWFC_AGENT_BUDGET_USD_DISCOVER:-1.50}"
+        _BUDGET="${ECAA_AGENT_BUDGET_USD_DISCOVER:-1.50}"
       else
         MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
-        _BUDGET="${SWFC_AGENT_BUDGET_USD_ANALYTICAL:-1.75}"
+        _BUDGET="${ECAA_AGENT_BUDGET_USD_ANALYTICAL:-1.75}"
       fi
       ;;
   esac
   # Global override beats per-class.
-  _BUDGET="${SWFC_AGENT_BUDGET_USD:-$_BUDGET}"
+  _BUDGET="${ECAA_AGENT_BUDGET_USD:-$_BUDGET}"
   # `0` opts out; any positive number is the dollar ceiling. claude
   # CLI accepts fractional dollars (e.g. 0.75).
   if [ -n "$_BUDGET" ] && [ "$_BUDGET" != "0" ]; then
@@ -550,7 +550,7 @@ if [ "${SWFC_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${SWFC_TASK_ID:-}" ]; then
   fi
 fi
 
-# Host-path memory cap. When SWFC_AGENT_MEMORY_CAP_GB is set, wrap the
+# Host-path memory cap. When ECAA_AGENT_MEMORY_CAP_GB is set, wrap the
 # host-path CLI invocation in a systemd-run --user --scope so the
 # claude subprocess tree runs in a dedicated cgroup with
 # MemoryMax=<N>G. On memory breach the kernel reaps ONLY that cgroup —
@@ -570,11 +570,11 @@ fi
 AGENT_CMD_PREFIX=()
 DOCKER_MEMORY_ARGS=()
 AGENT_MEMORY_LIMIT_GB=""
-if [ -n "${SWFC_AGENT_MEMORY_CAP_GB:-}" ]; then
-  if ! [[ "$SWFC_AGENT_MEMORY_CAP_GB" =~ ^[0-9]+$ ]]; then
-    echo "agent-claude.sh: SWFC_AGENT_MEMORY_CAP_GB must be a positive integer (got '$SWFC_AGENT_MEMORY_CAP_GB'); ignoring." >&2
+if [ -n "${ECAA_AGENT_MEMORY_CAP_GB:-}" ]; then
+  if ! [[ "$ECAA_AGENT_MEMORY_CAP_GB" =~ ^[0-9]+$ ]]; then
+    echo "agent-claude.sh: ECAA_AGENT_MEMORY_CAP_GB must be a positive integer (got '$ECAA_AGENT_MEMORY_CAP_GB'); ignoring." >&2
   elif command -v systemd-run >/dev/null 2>&1; then
-    AGENT_MEMORY_LIMIT_GB="$SWFC_AGENT_MEMORY_CAP_GB"
+    AGENT_MEMORY_LIMIT_GB="$ECAA_AGENT_MEMORY_CAP_GB"
     # --user requires an active user systemd instance; fall back to
     # prlimit below when that probe fails. The probe is cheap (~10 ms)
     # and catches WSL / rootless / minimal container hosts.
@@ -582,28 +582,28 @@ if [ -n "${SWFC_AGENT_MEMORY_CAP_GB:-}" ]; then
       # MemoryHigh = floor(0.85 * MemoryMax_MB).
       # Use integer arithmetic on MB so we don't get float
       # precision drift. e.g. 16 GiB → 13926 MiB.
-      MEM_MAX_MB=$((SWFC_AGENT_MEMORY_CAP_GB * 1024))
-      MEM_HIGH_MB=$((MEM_MAX_MB * SWFC_AGENT_MEMORY_HIGH_WATER_PCT / 100))
+      MEM_MAX_MB=$((ECAA_AGENT_MEMORY_CAP_GB * 1024))
+      MEM_HIGH_MB=$((MEM_MAX_MB * ECAA_AGENT_MEMORY_HIGH_WATER_PCT / 100))
       AGENT_CMD_PREFIX=(systemd-run --user --scope --quiet \
-        -p "MemoryMax=${SWFC_AGENT_MEMORY_CAP_GB}G" \
+        -p "MemoryMax=${ECAA_AGENT_MEMORY_CAP_GB}G" \
         -p "MemoryHigh=${MEM_HIGH_MB}M")
     elif command -v prlimit >/dev/null 2>&1; then
-      CAP_BYTES=$((SWFC_AGENT_MEMORY_CAP_GB * 1024 * 1024 * 1024))
+      CAP_BYTES=$((ECAA_AGENT_MEMORY_CAP_GB * 1024 * 1024 * 1024))
       AGENT_CMD_PREFIX=(prlimit "--as=$CAP_BYTES")
     fi
   elif command -v prlimit >/dev/null 2>&1; then
-    AGENT_MEMORY_LIMIT_GB="$SWFC_AGENT_MEMORY_CAP_GB"
-    CAP_BYTES=$((SWFC_AGENT_MEMORY_CAP_GB * 1024 * 1024 * 1024))
+    AGENT_MEMORY_LIMIT_GB="$ECAA_AGENT_MEMORY_CAP_GB"
+    CAP_BYTES=$((ECAA_AGENT_MEMORY_CAP_GB * 1024 * 1024 * 1024))
     AGENT_CMD_PREFIX=(prlimit "--as=$CAP_BYTES")
   else
-    AGENT_MEMORY_LIMIT_GB="$SWFC_AGENT_MEMORY_CAP_GB"
+    AGENT_MEMORY_LIMIT_GB="$ECAA_AGENT_MEMORY_CAP_GB"
   fi
-elif [[ "${SWFC_HW_MEMORY_GB:-}" =~ ^[0-9]+$ ]] && [ "$SWFC_HW_MEMORY_GB" -gt 0 ]; then
+elif [[ "${ECAA_HW_MEMORY_GB:-}" =~ ^[0-9]+$ ]] && [ "$ECAA_HW_MEMORY_GB" -gt 0 ]; then
   # Dynamic local sizing provides a per-agent memory slice as
-  # SWFC_HW_MEMORY_GB. In container mode, make that an actual cgroup
-  # limit; host mode remains advisory unless SWFC_AGENT_MEMORY_CAP_GB
+  # ECAA_HW_MEMORY_GB. In container mode, make that an actual cgroup
+  # limit; host mode remains advisory unless ECAA_AGENT_MEMORY_CAP_GB
   # is explicitly set above.
-  AGENT_MEMORY_LIMIT_GB="$SWFC_HW_MEMORY_GB"
+  AGENT_MEMORY_LIMIT_GB="$ECAA_HW_MEMORY_GB"
 fi
 if [ -n "$AGENT_MEMORY_LIMIT_GB" ]; then
   # Pair --memory with --memory-reservation (docker's
@@ -637,7 +637,7 @@ AGENT_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # workflow. The retry is intentionally narrow: no state.patch.json written,
 # terminal JSON classified as a transport error, and bounded attempts.
 run_claude_with_retries() {
-  local max_attempts="${SWFC_AGENT_TRANSIENT_MAX_ATTEMPTS:-2}"
+  local max_attempts="${ECAA_AGENT_TRANSIENT_MAX_ATTEMPTS:-2}"
   if ! [[ "$max_attempts" =~ ^[0-9]+$ ]] || [ "$max_attempts" -lt 1 ]; then
     max_attempts=1
   fi
@@ -646,8 +646,8 @@ run_claude_with_retries() {
   local exit_code=0
   local task_dir=""
   local patch_path=""
-  if [ -n "${SWFC_TASK_ID:-}" ]; then
-    task_dir="$PACKAGE/runtime/outputs/$SWFC_TASK_ID"
+  if [ -n "${ECAA_TASK_ID:-}" ]; then
+    task_dir="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
     patch_path="$task_dir/state.patch.json"
     mkdir -p "$task_dir" 2>/dev/null || true
   fi
@@ -706,7 +706,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # mounted creds. In api mode we pass the key through.
   #
   # Critical: `docker run` does NOT inherit env from the parent shell.
-  # Without explicit -e flags the BLAS thread vars + SWFC_HW_* envelope
+  # Without explicit -e flags the BLAS thread vars + ECAA_HW_* envelope
   # are dropped at the container boundary, leaving Rscript inside the
   # container running single-threaded BLAS. The bootstrap built
   # _AGENT_ENV_FORWARD_PAIRS for exactly this; fan it into -e flags.
@@ -721,7 +721,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   done
   unset __agent_kv
   DOCKER_SECRET_ENV_ARGS=()
-  if [ "${SWFC_AGENT_BILLING:-subscription}" = "api" ] \
+  if [ "${ECAA_AGENT_BILLING:-subscription}" = "api" ] \
      && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
     # Suppress xtrace while writing the env-file so the literal key
     # never lands in agent-trace.log or the docker process argv.
@@ -749,7 +749,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   fi
 
   DOCKER_CPU_ARGS=()
-  __agent_container_cpus="${SWFC_HW_NPROC_HINT:-${SWFC_HW_VCPUS_AVAILABLE:-}}"
+  __agent_container_cpus="${ECAA_HW_NPROC_HINT:-${ECAA_HW_VCPUS_AVAILABLE:-}}"
   if [[ "$__agent_container_cpus" =~ ^[0-9]+$ ]] && [ "$__agent_container_cpus" -gt 0 ]; then
     DOCKER_CPU_ARGS+=(--cpus "$__agent_container_cpus")
   fi
@@ -760,11 +760,11 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # label=swfc-task=<id>` and reap a hung container without touching
   # the host. Empty values are tolerated (legacy package-only path).
   DOCKER_LABEL_ARGS=()
-  if [ -n "${SWFC_TASK_ID:-}" ]; then
-    DOCKER_LABEL_ARGS+=("--label" "swfc-task=${SWFC_TASK_ID}")
+  if [ -n "${ECAA_TASK_ID:-}" ]; then
+    DOCKER_LABEL_ARGS+=("--label" "swfc-task=${ECAA_TASK_ID}")
   fi
-  if [ -n "${SWFC_CHAT_SESSION_ID:-}" ]; then
-    DOCKER_LABEL_ARGS+=("--label" "swfc-session=${SWFC_CHAT_SESSION_ID}")
+  if [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
+    DOCKER_LABEL_ARGS+=("--label" "swfc-session=${ECAA_CHAT_SESSION_ID}")
   fi
 
   # Drop to the host UID/GID inside the container so:
@@ -785,15 +785,15 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # lives at `PIP_CACHE_DIR`. Python's site.py automatically adds
   # `$PYTHONUSERBASE/lib/pythonX.Y/site-packages` to sys.path.
   DOCKER_CACHE_ARGS=()
-  if [ -n "${SWFC_SESSION_CACHE_DIR:-}" ]; then
-    mkdir -p "$SWFC_SESSION_CACHE_DIR/python" 2>/dev/null || true
+  if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
+    mkdir -p "$ECAA_SESSION_CACHE_DIR/python" 2>/dev/null || true
     DOCKER_CACHE_ARGS+=(
-      -v "$SWFC_SESSION_CACHE_DIR":"$SWFC_SESSION_CACHE_DIR":rw
-      -e "SWFC_SESSION_CACHE_DIR=$SWFC_SESSION_CACHE_DIR"
-      -e "R_LIBS_USER=$SWFC_SESSION_CACHE_DIR/R-libs"
-      -e "PIP_CACHE_DIR=$SWFC_SESSION_CACHE_DIR/pip"
-      -e "CONDA_PKGS_DIRS=$SWFC_SESSION_CACHE_DIR/conda"
-      -e "PYTHONUSERBASE=$SWFC_SESSION_CACHE_DIR/python"
+      -v "$ECAA_SESSION_CACHE_DIR":"$ECAA_SESSION_CACHE_DIR":rw
+      -e "ECAA_SESSION_CACHE_DIR=$ECAA_SESSION_CACHE_DIR"
+      -e "R_LIBS_USER=$ECAA_SESSION_CACHE_DIR/R-libs"
+      -e "PIP_CACHE_DIR=$ECAA_SESSION_CACHE_DIR/pip"
+      -e "CONDA_PKGS_DIRS=$ECAA_SESSION_CACHE_DIR/conda"
+      -e "PYTHONUSERBASE=$ECAA_SESSION_CACHE_DIR/python"
       # Default every `pip install` to user-mode so packages land in
       # PYTHONUSERBASE (the mounted cache). Bypasses PEP 668's
       # externally-managed marker on Python 3.11+ Debian/Ubuntu bases
@@ -804,13 +804,13 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   fi
 
   DOCKER_SCRATCH_ARGS=()
-  if [ -n "${SWFC_TASK_SCRATCH_DIR:-}" ]; then
-    mkdir -p "$SWFC_TASK_SCRATCH_DIR" 2>/dev/null || true
-    case "$SWFC_TASK_SCRATCH_DIR" in
+  if [ -n "${ECAA_TASK_SCRATCH_DIR:-}" ]; then
+    mkdir -p "$ECAA_TASK_SCRATCH_DIR" 2>/dev/null || true
+    case "$ECAA_TASK_SCRATCH_DIR" in
       "$PACKAGE"/*) ;;
-      *) DOCKER_SCRATCH_ARGS+=(-v "$SWFC_TASK_SCRATCH_DIR":"$SWFC_TASK_SCRATCH_DIR":rw) ;;
+      *) DOCKER_SCRATCH_ARGS+=(-v "$ECAA_TASK_SCRATCH_DIR":"$ECAA_TASK_SCRATCH_DIR":rw) ;;
     esac
-    DOCKER_SCRATCH_ARGS+=(-e "SWFC_TASK_SCRATCH_DIR=$SWFC_TASK_SCRATCH_DIR")
+    DOCKER_SCRATCH_ARGS+=(-e "ECAA_TASK_SCRATCH_DIR=$ECAA_TASK_SCRATCH_DIR")
   fi
 
   # Bind-mount SME-registered local_path inputs into the container so
@@ -852,7 +852,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # from on startup). Mounting the host's `$HOME/.claude` directly:
   #  - races with the operator's own Claude Code session on the host
   #  (both stomp on.credentials.json refresh + history.jsonl), and
-  #  - races between concurrent agent containers (SWFC_HARNESS_CONCURRENCY > 1).
+  #  - races between concurrent agent containers (ECAA_HARNESS_CONCURRENCY > 1).
   # Read-only mounts cause claude to silently hang because the CLI
   # cannot write its OAuth refresh token / history.
   # Solution: maintain a per-session copy of the host's claude state in
@@ -862,13 +862,13 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   AGENT_HOME_DIR=""
   AGENT_CLAUDE_DIR=""
   AGENT_CLAUDE_JSON=""
-  if [ -n "${SWFC_SESSION_CACHE_DIR:-}" ]; then
-    AGENT_HOME_DIR="$SWFC_SESSION_CACHE_DIR/agent-claude-home"
+  if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
+    AGENT_HOME_DIR="$ECAA_SESSION_CACHE_DIR/agent-claude-home"
   else
     # Fallback for harness invocations without a session id (`make
     # ivd-execute` etc.). Use a per-package directory under the agent
     # cache so multiple ad-hoc runs don't clobber each other.
-    AGENT_FALLBACK_BASE="${SWFC_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
+    AGENT_FALLBACK_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
     AGENT_HOME_DIR="$AGENT_FALLBACK_BASE/standalone-$(basename "$PACKAGE")"
   fi
   AGENT_CLAUDE_DIR="$AGENT_HOME_DIR/.claude"
@@ -936,24 +936,24 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # Background credential refresh loop. The initial seed above only
   # runs at task start; without this loop a long-running agent never
   # picks up an operator account switch (`claude /login`) until the
-  # next dispatch. Polls every SWFC_AGENT_CRED_REFRESH_SECS seconds
+  # next dispatch. Polls every ECAA_AGENT_CRED_REFRESH_SECS seconds
   # (default 15) and re-copies host's.credentials.json into the
   # per-session mount when the host is newer (mtime-gated, so we
   # don't clobber claude's in-container OAuth refresh — the bind-
   # mounted file's mtime advances on every rotation, leaving host
   # -nt per-session false until the operator actually logs into a
-  # different account). Set SWFC_AGENT_CRED_REFRESH_SECS=0 to disable
+  # different account). Set ECAA_AGENT_CRED_REFRESH_SECS=0 to disable
   # the loop entirely; values <5 or non-numeric fall back to default.
-  __cred_refresh_secs="${SWFC_AGENT_CRED_REFRESH_SECS:-15}"
+  __cred_refresh_secs="${ECAA_AGENT_CRED_REFRESH_SECS:-15}"
   if [[ "$__cred_refresh_secs" == "0" ]]; then
     :  # explicit opt-out — leave loop unstarted
   elif ! [[ "$__cred_refresh_secs" =~ ^[0-9]+$ ]] || [ "$__cred_refresh_secs" -lt 5 ]; then
-    echo "agent-claude.sh: SWFC_AGENT_CRED_REFRESH_SECS='$__cred_refresh_secs' invalid (need 0 or integer >=5); using default 15" >&2
+    echo "agent-claude.sh: ECAA_AGENT_CRED_REFRESH_SECS='$__cred_refresh_secs' invalid (need 0 or integer >=5); using default 15" >&2
     __cred_refresh_secs=15
   fi
   if [ "$__cred_refresh_secs" != "0" ] && [ -f "$HOME/.claude/.credentials.json" ]; then
     # When two agents in the same session run
-    # concurrently (SWFC_HARNESS_CONCURRENCY>1), their refresh loops
+    # concurrently (ECAA_HARNESS_CONCURRENCY>1), their refresh loops
     # would race on the per-session credentials file. flock the loop
     # body so only one loop actively writes; the loser skips silently.
     __cred_refresh_lock="$AGENT_CLAUDE_DIR/.cred-refresh.lock"
@@ -990,11 +990,11 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # the container. `--pids-limit` fences fork-bombs.
   if run_claude_with_retries docker run --rm \
     --read-only \
-    --tmpfs "/tmp:rw,size=$SWFC_DOCKER_TMPFS_TMP_SIZE,mode=1777" \
-    --tmpfs "/var/tmp:rw,size=$SWFC_DOCKER_TMPFS_VARTMP_SIZE,mode=1777" \
+    --tmpfs "/tmp:rw,size=$ECAA_DOCKER_TMPFS_TMP_SIZE,mode=1777" \
+    --tmpfs "/var/tmp:rw,size=$ECAA_DOCKER_TMPFS_VARTMP_SIZE,mode=1777" \
     --security-opt no-new-privileges \
     --cap-drop=ALL \
-    --pids-limit "$SWFC_DOCKER_PIDS_LIMIT" \
+    --pids-limit "$ECAA_DOCKER_PIDS_LIMIT" \
     "${DOCKER_USER_ARGS[@]}" \
     "${DOCKER_MEMORY_ARGS[@]}" \
     "${DOCKER_CPU_ARGS[@]}" \
@@ -1020,18 +1020,18 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # SLURM-side container-aware orphan reaper (heartbeat probe) and
   # the AWS-side equivalent can confirm container exit code without
   # re-running `docker inspect` on a possibly-already-reaped container.
-  # Best-effort; missing SWFC_TASK_ID = legacy path with no per-task
+  # Best-effort; missing ECAA_TASK_ID = legacy path with no per-task
   # output dir to write into.
-  if [ -n "${SWFC_TASK_ID:-}" ]; then
-    CONTAINER_STATE_DIR="$PACKAGE/runtime/outputs/$SWFC_TASK_ID"
+  if [ -n "${ECAA_TASK_ID:-}" ]; then
+    CONTAINER_STATE_DIR="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
     mkdir -p "$CONTAINER_STATE_DIR" 2>/dev/null || true
     cat > "$CONTAINER_STATE_DIR/.container-state.json" 2>/dev/null <<EOF || true
 {
   "exit_code": $CLAUDE_EXIT,
   "image": "${CONTAINER_IMAGE:-}",
   "runtime": "docker",
-  "session_id": "${SWFC_CHAT_SESSION_ID:-}",
-  "task_id": "${SWFC_TASK_ID}",
+  "session_id": "${ECAA_CHAT_SESSION_ID:-}",
+  "task_id": "${ECAA_TASK_ID}",
   "ended_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
@@ -1040,7 +1040,7 @@ else
   # Host-env path (existing bio behavior; preserves byte-identical
   # output for sessions that don't declare a container).
   #
-  # When SWFC_LOCAL_SANDBOX=bubblewrap, layer
+  # When ECAA_LOCAL_SANDBOX=bubblewrap, layer
   # bubblewrap on top of the cgroup wrapper so filesystem + network
   # containment apply without container overhead. Anthropic Claude
   # Code uses the same bwrap pattern internally (Round-4 §22.10);
@@ -1055,11 +1055,11 @@ else
   # bind list: read-only system paths (so the agent can read libs +
   # binaries) + RW the package working dir + a tmpfs scratch for
   # /tmp + procfs + devfs + share ~/.claude RO so the subscription
-  # creds resolve. --unshare-net is gated on the SWFC_CONTAINER_NETWORK_DEFAULT
+  # creds resolve. --unshare-net is gated on the ECAA_CONTAINER_NETWORK_DEFAULT
   # env: when set to `none` we drop networking; otherwise the agent
   # keeps the host bridge so it can reach Anthropic + GitHub.
   BWRAP_PREFIX=()
-  if [ "${SWFC_LOCAL_SANDBOX:-off}" = "bubblewrap" ]; then
+  if [ "${ECAA_LOCAL_SANDBOX:-off}" = "bubblewrap" ]; then
     if command -v bwrap >/dev/null 2>&1; then
       # Tighter bwrap profile:
       #  --unshare-pid     — fresh pid namespace (agent can't see host PIDs)
@@ -1082,7 +1082,7 @@ else
       #                                        task scratch)
       #   /etc                              -> TLS-cert + resolver only
       #
-      # Without SWFC_TASK_ID set, fall back to the legacy package-wide
+      # Without ECAA_TASK_ID set, fall back to the legacy package-wide
       # bind so standalone debug runs still work; harness-launched
       # agents always have it set.
       BWRAP_PREFIX=(
@@ -1121,19 +1121,19 @@ else
         BWRAP_PREFIX+=(--ro-bind /etc/nsswitch.conf /etc/nsswitch.conf)
       fi
       # Package narrowing: RO whole tree, RW only the per-task scratch.
-      # Harness-launched agents always have SWFC_TASK_ID set; the
+      # Harness-launched agents always have ECAA_TASK_ID set; the
       # legacy fallback keeps standalone debug runs working.
-      if [ -n "${SWFC_TASK_ID:-}" ]; then
+      if [ -n "${ECAA_TASK_ID:-}" ]; then
         # mkdir -p was already issued earlier (OUT_LOG_DIR / HEARTBEAT)
         # but repeat here for safety -- bwrap binds error out on a
         # missing path.
-        mkdir -p "$PACKAGE/runtime/outputs/$SWFC_TASK_ID" 2>/dev/null || true
+        mkdir -p "$PACKAGE/runtime/outputs/$ECAA_TASK_ID" 2>/dev/null || true
         BWRAP_PREFIX+=(
           --ro-bind "$PACKAGE" "$PACKAGE"
-          --bind "$PACKAGE/runtime/outputs/$SWFC_TASK_ID" "$PACKAGE/runtime/outputs/$SWFC_TASK_ID"
+          --bind "$PACKAGE/runtime/outputs/$ECAA_TASK_ID" "$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
         )
       else
-        # Legacy fallback for SWFC_TASK_ID-less invocations.
+        # Legacy fallback for ECAA_TASK_ID-less invocations.
         BWRAP_PREFIX+=(--bind "$PACKAGE" "$PACKAGE")
       fi
       # Bind-mount the per-task scratch dir RW into
@@ -1141,10 +1141,10 @@ else
       # the tmpfs `/tmp`. With the C5 narrowing above, $PACKAGE is
       # bound RO whether the scratch lives inside or outside the
       # package root -- so we now always emit an explicit RW bind.
-      if [ -n "${SWFC_TASK_SCRATCH_DIR:-}" ]; then
-        mkdir -p "$SWFC_TASK_SCRATCH_DIR" 2>/dev/null || true
-        BWRAP_PREFIX+=(--bind "$SWFC_TASK_SCRATCH_DIR" "$SWFC_TASK_SCRATCH_DIR")
-        BWRAP_PREFIX+=(--setenv SWFC_TASK_SCRATCH_DIR "$SWFC_TASK_SCRATCH_DIR")
+      if [ -n "${ECAA_TASK_SCRATCH_DIR:-}" ]; then
+        mkdir -p "$ECAA_TASK_SCRATCH_DIR" 2>/dev/null || true
+        BWRAP_PREFIX+=(--bind "$ECAA_TASK_SCRATCH_DIR" "$ECAA_TASK_SCRATCH_DIR")
+        BWRAP_PREFIX+=(--setenv ECAA_TASK_SCRATCH_DIR "$ECAA_TASK_SCRATCH_DIR")
       fi
       # Bind-mount the per-session cache dir RW so
       # pip / conda / R-libs caches persist across task invocations
@@ -1152,20 +1152,20 @@ else
       # by the bwrap-spawned process tree; bwrap needs the explicit
       # --setenv for the path so PIP_CACHE_DIR / CONDA_PKGS_DIRS /
       # R_LIBS_USER resolve identically inside the sandbox.
-      if [ -n "${SWFC_SESSION_CACHE_DIR:-}" ]; then
+      if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
         BWRAP_PREFIX+=(
-          --bind "$SWFC_SESSION_CACHE_DIR" "$SWFC_SESSION_CACHE_DIR"
-          --setenv SWFC_SESSION_CACHE_DIR "$SWFC_SESSION_CACHE_DIR"
-          --setenv PIP_CACHE_DIR "$SWFC_SESSION_CACHE_DIR/pip"
-          --setenv CONDA_PKGS_DIRS "$SWFC_SESSION_CACHE_DIR/conda"
-          --setenv R_LIBS_USER "$SWFC_SESSION_CACHE_DIR/R-libs"
+          --bind "$ECAA_SESSION_CACHE_DIR" "$ECAA_SESSION_CACHE_DIR"
+          --setenv ECAA_SESSION_CACHE_DIR "$ECAA_SESSION_CACHE_DIR"
+          --setenv PIP_CACHE_DIR "$ECAA_SESSION_CACHE_DIR/pip"
+          --setenv CONDA_PKGS_DIRS "$ECAA_SESSION_CACHE_DIR/conda"
+          --setenv R_LIBS_USER "$ECAA_SESSION_CACHE_DIR/R-libs"
         )
       fi
-      if [ "${SWFC_CONTAINER_NETWORK_DEFAULT:-bridge}" = "none" ]; then
+      if [ "${ECAA_CONTAINER_NETWORK_DEFAULT:-bridge}" = "none" ]; then
         BWRAP_PREFIX+=(--unshare-net)
       fi
     else
-      echo "agent-claude.sh: SWFC_LOCAL_SANDBOX=bubblewrap requested but bwrap is not on PATH; falling back to unsandboxed host path." >&2
+      echo "agent-claude.sh: ECAA_LOCAL_SANDBOX=bubblewrap requested but bwrap is not on PATH; falling back to unsandboxed host path." >&2
     fi
   fi
   if run_claude_with_retries "${AGENT_CMD_PREFIX[@]}" "${BWRAP_PREFIX[@]}" npx @anthropic-ai/claude-code \
@@ -1182,10 +1182,10 @@ else
 fi
 
 # Find the task id the agent just completed/advanced. Harness launches set
-# SWFC_TASK_ID, so prefer the exact task directory; the mtime fallback only
+# ECAA_TASK_ID, so prefer the exact task directory; the mtime fallback only
 # exists for legacy standalone invocations without an envelope.
-if [ -n "${SWFC_TASK_ID:-}" ]; then
-  TASK_DIR="$PACKAGE/runtime/outputs/$SWFC_TASK_ID/"
+if [ -n "${ECAA_TASK_ID:-}" ]; then
+  TASK_DIR="$PACKAGE/runtime/outputs/$ECAA_TASK_ID/"
 else
   TASK_DIR="$(ls -dt "$PACKAGE/runtime/outputs/"*/ 2>/dev/null | head -1 || true)"
 fi
@@ -1247,9 +1247,9 @@ fi
 #   completed_at   — captured now (after CLI exit).
 #
 # Atomically published via tmp+rename. Missing jq = skip silently.
-if [ -n "${SWFC_TASK_ID:-}" ] && command -v jq >/dev/null 2>&1; then
+if [ -n "${ECAA_TASK_ID:-}" ] && command -v jq >/dev/null 2>&1; then
   _AGENT_CODE_COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  _AGENT_CODE_OUT_DIR="$PACKAGE/runtime/outputs/$SWFC_TASK_ID"
+  _AGENT_CODE_OUT_DIR="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
   mkdir -p "$_AGENT_CODE_OUT_DIR" 2>/dev/null || true
 
   # Extract the last non-empty code-fence block (```lang … ```) or
@@ -1328,7 +1328,7 @@ fi
 # Reads num_turns from agent-usage.json; if it exceeds MAX_TURNS_PER_TASK
 # and the agent didn't already self-block, rewrite result.json and
 # state.patch.json so the harness applies the budget block.
-enforce_turn_budget_limit "$PACKAGE" "${SWFC_TASK_ID:-}" "$MAX_TURNS_PER_TASK"
+enforce_turn_budget_limit "$PACKAGE" "${ECAA_TASK_ID:-}" "$MAX_TURNS_PER_TASK"
 
 # Log which policies were referenced this turn.
 log_policy_opens "$OUT_LOG"
@@ -1340,23 +1340,23 @@ log_policy_opens "$OUT_LOG"
 # emitter (S6.14) registers this as a `CreativeWork` `hasPart` of the
 # task's `CreateAction` — the retrospective P-PLAN side. Skipped
 # automatically for host-mode tasks (no container = no image to
-# fingerprint). `SWFC_SBOM_EMIT=0` opts out site-wide.
-if [ "${SWFC_SBOM_EMIT:-1}" = "1" ] \
-   && [ -n "${SWFC_TASK_ID:-}" ] \
+# fingerprint). `ECAA_SBOM_EMIT=0` opts out site-wide.
+if [ "${ECAA_SBOM_EMIT:-1}" = "1" ] \
+   && [ -n "${ECAA_TASK_ID:-}" ] \
    && [ -n "${TASK_CONTAINER_DIGEST:-}" ] \
    && command -v syft >/dev/null 2>&1; then
   SBOM_DIR="$PACKAGE/runtime/sboms"
   mkdir -p "$SBOM_DIR" 2>/dev/null || true
   syft scan "oci:${TASK_CONTAINER_IMAGE:-}@${TASK_CONTAINER_DIGEST}" \
-    -o spdx-json="$SBOM_DIR/$SWFC_TASK_ID.spdx.json" 2>/dev/null \
-    || echo "agent-claude.sh: syft scan failed for $SWFC_TASK_ID — SBOM not emitted (non-fatal)" >&2
+    -o spdx-json="$SBOM_DIR/$ECAA_TASK_ID.spdx.json" 2>/dev/null \
+    || echo "agent-claude.sh: syft scan failed for $ECAA_TASK_ID — SBOM not emitted (non-fatal)" >&2
 fi
 
 # Reconcile contradictory Claude Code outcomes only after all forensic
 # sidecars have been written. A nonzero CLI status remains nonzero unless
 # the terminal JSON says success and the task produced a parseable patch.
 _ORIGINAL_CLAUDE_EXIT="$CLAUDE_EXIT"
-CLAUDE_EXIT="$(normalize_claude_exit_status "$CLAUDE_EXIT" "$OUT_LOG" "$PACKAGE" "${SWFC_TASK_ID:-}")"
+CLAUDE_EXIT="$(normalize_claude_exit_status "$CLAUDE_EXIT" "$OUT_LOG" "$PACKAGE" "${ECAA_TASK_ID:-}")"
 if [ "$_ORIGINAL_CLAUDE_EXIT" != "$CLAUDE_EXIT" ]; then
   echo "[agent-exit] normalized Claude Code exit $_ORIGINAL_CLAUDE_EXIT to $CLAUDE_EXIT after successful terminal result and state.patch.json" >&2
 fi

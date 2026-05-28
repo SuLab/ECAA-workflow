@@ -13,7 +13,7 @@
 //! UI via `SessionStateSnapshot.pending_input_hints`; the LLM is prompted
 //! (see `prompt_role.txt`) to offer registration to the SME via plain
 //! language rather than silently committing. When
-//! `SWFC_AUTO_REGISTER_PROSE_PATHS=1` the conversation service registers
+//! `ECAA_AUTO_REGISTER_PROSE_PATHS=1` the conversation service registers
 //! every validated hint automatically — useful for non-interactive
 //! fixture runs where there's no SME loop to confirm.
 //!
@@ -21,7 +21,7 @@
 //!
 //! - **Validate before exposing.** A path is surfaced only when (a) it
 //!   resolves to an existing file or directory, (b) it canonicalizes
-//!   under one of the `SWFC_INPUT_ROOTS` allowlisted roots, and (c) the
+//!   under one of the `ECAA_INPUT_ROOTS` allowlisted roots, and (c) the
 //!   file extension is in the recognized-data-format set. A SME
 //!   pasting `/etc/passwd` produces no hint.
 //! - **No prose-driven write paths.** Hints are read-only metadata; the

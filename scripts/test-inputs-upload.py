@@ -20,7 +20,7 @@ import sys
 import urllib.error
 import urllib.request
 
-SERVER = os.environ.get("SWFC_SERVER_URL", "http://127.0.0.1:3000")
+SERVER = os.environ.get("ECAA_SERVER_URL", "http://127.0.0.1:3000")
 PREFIX = "/api/v1/chat"
 
 

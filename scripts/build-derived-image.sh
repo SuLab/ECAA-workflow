@@ -6,7 +6,7 @@
 #  - exits 0 immediately when an image with that tag is already in the
 #  local docker registry (cache hit; cheap), OR
 #  - invokes `docker buildx build` (or `docker build` if buildx absent)
-#  to produce `<SWFC_DERIVED_IMAGE_TAG_PREFIX>:<hash>`.
+#  to produce `<ECAA_DERIVED_IMAGE_TAG_PREFIX>:<hash>`.
 #
 # Writes runtime/derived-image.lock.json on success: { content_hash,
 # base_image, modality, built_at, build_duration_secs }.
@@ -27,12 +27,12 @@
 #  scripts/build-derived-image.sh <package_dir>
 #
 # Inputs (env):
-#  SWFC_DERIVED_IMAGE_TAG_PREFIX — image-tag prefix (default: scripps-derived)
-#  SWFC_BUILDX_CACHE_DIR — buildkit cache root (default:
-#  $SWFC_AGENT_CACHE_DIR/buildkit if
+#  ECAA_DERIVED_IMAGE_TAG_PREFIX — image-tag prefix (default: scripps-derived)
+#  ECAA_BUILDX_CACHE_DIR — buildkit cache root (default:
+#  $ECAA_AGENT_CACHE_DIR/buildkit if
 #  set, else ~/.scripps-workflow/buildkit-cache)
-#  SWFC_FORCE_IMAGE_REBUILD — set to 1 to skip the local-cache check
-#  SWFC_IMAGE_BUILD_TIMEOUT_SECS — cap build wall time (default: 1800 = 30min)
+#  ECAA_FORCE_IMAGE_REBUILD — set to 1 to skip the local-cache check
+#  ECAA_IMAGE_BUILD_TIMEOUT_SECS — cap build wall time (default: 1800 = 30min)
 
 set -euo pipefail
 
@@ -85,9 +85,9 @@ MANIFEST="$PACKAGE/policies/runtime-prereqs.json"
 DOCKERFILE="$PACKAGE/runtime/derived-image.Dockerfile"
 LOCK="$PACKAGE/runtime/derived-image.lock.json"
 
-TAG_PREFIX="${SWFC_DERIVED_IMAGE_TAG_PREFIX:-scripps-derived}"
-BUILD_TIMEOUT="${SWFC_IMAGE_BUILD_TIMEOUT_SECS:-1800}"
-CACHE_DIR="${SWFC_BUILDX_CACHE_DIR:-${SWFC_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}/buildkit}"
+TAG_PREFIX="${ECAA_DERIVED_IMAGE_TAG_PREFIX:-scripps-derived}"
+BUILD_TIMEOUT="${ECAA_IMAGE_BUILD_TIMEOUT_SECS:-1800}"
+CACHE_DIR="${ECAA_BUILDX_CACHE_DIR:-${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}/buildkit}"
 
 # Serialize concurrent buildx invocations on the
 # same host. Two parallel `docker buildx build` calls writing to the
@@ -184,7 +184,7 @@ TAG="${TAG_PREFIX}:${HASH}"
 
 # Cache check: skip the build when the local docker registry already
 # has this tag.
-if [[ "${SWFC_FORCE_IMAGE_REBUILD:-0}" != "1" ]]; then
+if [[ "${ECAA_FORCE_IMAGE_REBUILD:-0}" != "1" ]]; then
   if docker image inspect "$TAG" >/dev/null 2>&1; then
     echo "build-derived-image: cache hit for $TAG (local registry)"
     # Refresh the lock if missing so the harness can find it.
@@ -242,9 +242,9 @@ if "${TIMEOUT_PREFIX[@]}" "${BUILDER[@]}" \
   # must be a symlink to its shim. Real binaries (when present in
   # the base) must have moved aside to /usr/local/bin/.real/. A
   # broken bake here would silently let an agent execute denied
-  # installs at task time. Skipped when SWFC_SKIP_SHIM_SMOKE=1
+  # installs at task time. Skipped when ECAA_SKIP_SHIM_SMOKE=1
   # (CI scenarios without a fresh docker daemon).
-  if [[ "${SWFC_SKIP_SHIM_SMOKE:-0}" != "1" ]]; then
+  if [[ "${ECAA_SKIP_SHIM_SMOKE:-0}" != "1" ]]; then
     if ! docker run --rm --entrypoint /bin/sh "$TAG" -c '
       set -eu
       for shim in _common.py apt.py pip.py conda.py npm.py rscript.py gem.py; do

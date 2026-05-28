@@ -201,7 +201,7 @@ pub struct CompositionResult {
     /// this so the cost preview lands before approval, not after.
     /// Sourced from atom-level coarse buckets (small/medium/…); the
     /// pilot subsystem produces a finer-grained projection at
-    /// emit time when `SWFC_PILOT_ENABLED=1`.
+    /// emit time when `ECAA_PILOT_ENABLED=1`.
     pub resource_estimate: ResourceEstimate,
 }
 
@@ -382,7 +382,7 @@ pub struct ResourceEstimate {
     /// Count of atoms whose `resource_profile.gpu` is true.
     pub gpu_task_count: u32,
     /// Optional dollar projection — left `None` here (pilot's
-    /// `estimate_cost_usd` populates it when SWFC_PILOT_ENABLED=1
+    /// `estimate_cost_usd` populates it when ECAA_PILOT_ENABLED=1
     /// surfaces the per-atom cost rate).
     #[ts(optional)]
     pub estimated_cost_usd: Option<f64>,

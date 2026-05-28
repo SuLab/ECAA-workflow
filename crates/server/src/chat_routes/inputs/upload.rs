@@ -30,7 +30,7 @@ use uuid::Uuid;
 /// guard fired.
 ///
 /// The whole-file size is still capped separately by `max_file_bytes()`
-/// against `SWFC_INPUT_MAX_FILE_BYTES`; this constant is the per-chunk
+/// against `ECAA_INPUT_MAX_FILE_BYTES`; this constant is the per-chunk
 /// limit so per-message DoS can never exhaust memory regardless of how
 /// the overall file budget is configured.
 pub(super) const MAX_UPLOAD_CHUNK_BYTES: usize = 32 * 1024 * 1024;
@@ -55,7 +55,7 @@ pub(super) const MAX_UPLOAD_CHUNK_BYTES: usize = 32 * 1024 * 1024;
 ///   Server hashes the assembled file and rejects on mismatch.
 ///
 /// On final-chunk success the server atomically renames the staging
-/// file under `<SWFC_UPLOAD_ROOT>/<session_id>/<upload_token>/<filename>`,
+/// file under `<ECAA_UPLOAD_ROOT>/<session_id>/<upload_token>/<filename>`,
 /// updates an in-progress upload registry, and returns
 /// `{"status":"complete", "input_id": null}`. The UI then calls
 /// `POST /inputs/upload/:upload_token/finalize` once it has uploaded
@@ -172,7 +172,7 @@ pub(crate) async fn upload_input_chunk(
         return (
             StatusCode::PAYLOAD_TOO_LARGE,
             format!(
-                "file size {total_bytes} exceeds SWFC_INPUT_MAX_FILE_BYTES={}",
+                "file size {total_bytes} exceeds ECAA_INPUT_MAX_FILE_BYTES={}",
                 max_file_bytes()
             ),
         )
@@ -501,7 +501,7 @@ pub(crate) async fn finalize_upload(
 }
 
 /// Per-user upload root. Resolution order:
-///   1. `SWFC_UPLOAD_ROOT` env var (operator override), with
+///   1. `ECAA_UPLOAD_ROOT` env var (operator override), with
 ///      `${USER}` substituted.
 ///   2. `<allowlist[0]>/.scripps-uploads` if the allowlist directory
 ///      is writable by the server's effective user (probed).
@@ -512,7 +512,7 @@ pub(crate) async fn finalize_upload(
 /// when no operator override is set and the allowlist directory isn't
 /// writable. Per-session sub-directory is added by the caller.
 fn upload_root_for(owner_user: &str) -> PathBuf {
-    if let Ok(s) = std::env::var("SWFC_UPLOAD_ROOT") {
+    if let Ok(s) = std::env::var("ECAA_UPLOAD_ROOT") {
         return PathBuf::from(s.replace("${USER}", owner_user));
     }
     let roots = allowlisted_roots(owner_user);
@@ -551,10 +551,10 @@ fn dir_is_writable(dir: &StdPath) -> bool {
 }
 
 /// Bail out of new chunk writes when the upload root's filesystem has
-/// less than `SWFC_UPLOAD_DISK_RESERVE_GB` GB free (default 50). This
+/// less than `ECAA_UPLOAD_DISK_RESERVE_GB` GB free (default 50). This
 /// is a per-server soft guard; per-user quotas land later.
 async fn check_disk_reserve_for(_session_id: Uuid, owner_user: &str) -> Result<(), String> {
-    let reserve_gb: u64 = std::env::var("SWFC_UPLOAD_DISK_RESERVE_GB")
+    let reserve_gb: u64 = std::env::var("ECAA_UPLOAD_DISK_RESERVE_GB")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(50);
@@ -589,7 +589,7 @@ async fn check_disk_reserve_for(_session_id: Uuid, owner_user: &str) -> Result<(
     if avail_gb < reserve_gb {
         return Err(format!(
             "disk reserve guard tripped — {avail_gb} GB free on upload volume, \
-             SWFC_UPLOAD_DISK_RESERVE_GB={reserve_gb}"
+             ECAA_UPLOAD_DISK_RESERVE_GB={reserve_gb}"
         ));
     }
     Ok(())
@@ -665,7 +665,7 @@ pub(super) fn routes() -> axum::Router<ChatAppState> {
     // requests can carry a manifest larger than 2 MiB for big batches.
     // Disable the default and rely on our own validation:
     // - per-chunk hard cap is `max_file_bytes()` (the smaller of
-    // SWFC_UPLOAD_MAX_BYTES / disk reserve), enforced in
+    // ECAA_UPLOAD_MAX_BYTES / disk reserve), enforced in
     // `upload_input_chunk` after parsing the Content-Range header
     // - finalize takes a JSON manifest, naturally bounded.
     // Without this override the browser sees `NetworkError when
@@ -692,7 +692,7 @@ mod tests {
     use sha2::{Digest, Sha256};
     use tower::util::ServiceExt;
 
-    /// Serializes tests that mutate `SWFC_UPLOAD_*` env vars —
+    /// Serializes tests that mutate `ECAA_UPLOAD_*` env vars —
     /// `std::env::set_var` is process-global and concurrent test
     /// threads racing on the same key produce flaky results
     /// (e.g. one test sees another's "/disabled" upload root and
@@ -710,7 +710,7 @@ mod tests {
         // Point upload root inside the test allowlist so the disk
         // reserve probe and create_dir paths land where we control.
         std::env::set_var(
-            "SWFC_UPLOAD_ROOT",
+            "ECAA_UPLOAD_ROOT",
             ensure_shared_root().display().to_string() + "/.uploads",
         );
         // Disable the 50-GB free-space guard in unit tests — /tmp on
@@ -718,7 +718,7 @@ mod tests {
         // would short-circuit every upload assertion before we ever
         // exercise the real code path. Production deployments still
         // get the guard via the env-var default.
-        std::env::set_var("SWFC_UPLOAD_DISK_RESERVE_GB", "0");
+        std::env::set_var("ECAA_UPLOAD_DISK_RESERVE_GB", "0");
         let req = Request::builder()
             .method("POST")
             .uri(format!("/api/chat/session/{}/inputs/upload", id))
@@ -736,7 +736,7 @@ mod tests {
         let (router, app) = make_router(vec![]).await;
         let (id, _) = app.conversation.start_session(false).await.unwrap();
         std::env::set_var(
-            "SWFC_UPLOAD_ROOT",
+            "ECAA_UPLOAD_ROOT",
             ensure_shared_root().display().to_string() + "/.uploads",
         );
         // Disable the 50-GB free-space guard in unit tests — /tmp on
@@ -744,7 +744,7 @@ mod tests {
         // would short-circuit every upload assertion before we ever
         // exercise the real code path. Production deployments still
         // get the guard via the env-var default.
-        std::env::set_var("SWFC_UPLOAD_DISK_RESERVE_GB", "0");
+        std::env::set_var("ECAA_UPLOAD_DISK_RESERVE_GB", "0");
 
         let payload = b"hello scripps upload\n";
         let total = payload.len();
@@ -802,7 +802,7 @@ mod tests {
         let (router, app) = make_router(vec![]).await;
         let (id, _) = app.conversation.start_session(false).await.unwrap();
         std::env::set_var(
-            "SWFC_UPLOAD_ROOT",
+            "ECAA_UPLOAD_ROOT",
             ensure_shared_root().display().to_string() + "/.uploads",
         );
         // Disable the 50-GB free-space guard in unit tests — /tmp on
@@ -810,7 +810,7 @@ mod tests {
         // would short-circuit every upload assertion before we ever
         // exercise the real code path. Production deployments still
         // get the guard via the env-var default.
-        std::env::set_var("SWFC_UPLOAD_DISK_RESERVE_GB", "0");
+        std::env::set_var("ECAA_UPLOAD_DISK_RESERVE_GB", "0");
 
         let payload: Vec<u8> = (0u8..200).collect();
         let total = payload.len();
@@ -859,7 +859,7 @@ mod tests {
         let (router, app) = make_router(vec![]).await;
         let (id, _) = app.conversation.start_session(false).await.unwrap();
         std::env::set_var(
-            "SWFC_UPLOAD_ROOT",
+            "ECAA_UPLOAD_ROOT",
             ensure_shared_root().display().to_string() + "/.uploads",
         );
         // Disable the 50-GB free-space guard in unit tests — /tmp on
@@ -867,7 +867,7 @@ mod tests {
         // would short-circuit every upload assertion before we ever
         // exercise the real code path. Production deployments still
         // get the guard via the env-var default.
-        std::env::set_var("SWFC_UPLOAD_DISK_RESERVE_GB", "0");
+        std::env::set_var("ECAA_UPLOAD_DISK_RESERVE_GB", "0");
 
         let payload = b"corruption-test\n";
         let total = payload.len();
@@ -891,7 +891,7 @@ mod tests {
         let (router, app) = make_router(vec![]).await;
         let (id, _) = app.conversation.start_session(false).await.unwrap();
         std::env::set_var(
-            "SWFC_UPLOAD_ROOT",
+            "ECAA_UPLOAD_ROOT",
             ensure_shared_root().display().to_string() + "/.uploads",
         );
         // Disable the 50-GB free-space guard in unit tests — /tmp on
@@ -899,7 +899,7 @@ mod tests {
         // would short-circuit every upload assertion before we ever
         // exercise the real code path. Production deployments still
         // get the guard via the env-var default.
-        std::env::set_var("SWFC_UPLOAD_DISK_RESERVE_GB", "0");
+        std::env::set_var("ECAA_UPLOAD_DISK_RESERVE_GB", "0");
         // Send a chunk starting at byte 100 without first uploading 0..100.
         // Server should 409 with current-size hint.
         let req = Request::builder()
@@ -932,10 +932,10 @@ mod tests {
         let (router, app) = make_router(vec![]).await;
         let (id, _) = app.conversation.start_session(false).await.unwrap();
         std::env::set_var(
-            "SWFC_UPLOAD_ROOT",
+            "ECAA_UPLOAD_ROOT",
             ensure_shared_root().display().to_string() + "/.uploads",
         );
-        std::env::set_var("SWFC_UPLOAD_DISK_RESERVE_GB", "0");
+        std::env::set_var("ECAA_UPLOAD_DISK_RESERVE_GB", "0");
 
         // Forge a 33 MiB Content-Length but send a small body. Pre-check
         // should 413 before to_bytes even runs.

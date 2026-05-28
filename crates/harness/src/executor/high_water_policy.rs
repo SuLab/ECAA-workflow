@@ -1,6 +1,6 @@
 //! Policy enum the AWS executor consults when the realized compute
 //! exceeds the high-water baseline computed by `sizing.rs`. Driven by
-//! the `SWFC_AWS_HIGH_WATER_POLICY` env var.
+//! the `ECAA_AWS_HIGH_WATER_POLICY` env var.
 
 use std::env;
 
@@ -24,13 +24,13 @@ pub enum HighWaterPolicy {
 }
 
 impl HighWaterPolicy {
-    /// Parse the `SWFC_AWS_HIGH_WATER_POLICY` env var. Returns
+    /// Parse the `ECAA_AWS_HIGH_WATER_POLICY` env var. Returns
     /// `Default::default()` (Resize) when the var is unset, an error
     /// when the value isn't one of the three accepted tokens. The
     /// case-insensitive parse keeps `Block`, `BLOCK`, `block` all
     /// equivalent so operators don't get bitten by shell quoting.
     pub fn from_env() -> Result<Self, HighWaterPolicyParseError> {
-        match env::var("SWFC_AWS_HIGH_WATER_POLICY") {
+        match env::var("ECAA_AWS_HIGH_WATER_POLICY") {
             Ok(raw) => Self::parse(&raw),
             Err(env::VarError::NotPresent) => Ok(Self::default()),
             Err(env::VarError::NotUnicode(raw)) => {
@@ -39,7 +39,7 @@ impl HighWaterPolicy {
         }
     }
 
-    /// Parse a `SWFC_AWS_HIGH_WATER_POLICY` token string. Case-insensitive.
+    /// Parse a `ECAA_AWS_HIGH_WATER_POLICY` token string. Case-insensitive.
     pub fn parse(raw: &str) -> Result<Self, HighWaterPolicyParseError> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "block" => Ok(HighWaterPolicy::Block),
@@ -61,7 +61,7 @@ impl HighWaterPolicy {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// Errors returned when parsing a `SWFC_AWS_HIGH_WATER_POLICY` value.
+/// Errors returned when parsing a `ECAA_AWS_HIGH_WATER_POLICY` value.
 pub enum HighWaterPolicyParseError {
     /// The value was not one of "block", "resize", or "continue".
     UnknownToken(String),
@@ -74,12 +74,12 @@ impl std::fmt::Display for HighWaterPolicyParseError {
         match self {
             HighWaterPolicyParseError::UnknownToken(t) => write!(
                 f,
-                "SWFC_AWS_HIGH_WATER_POLICY='{}' is not a valid policy. Valid: block, resize, continue.",
+                "ECAA_AWS_HIGH_WATER_POLICY='{}' is not a valid policy. Valid: block, resize, continue.",
                 t
             ),
             HighWaterPolicyParseError::NotUtf8(raw) => write!(
                 f,
-                "SWFC_AWS_HIGH_WATER_POLICY is not valid UTF-8: {}",
+                "ECAA_AWS_HIGH_WATER_POLICY is not valid UTF-8: {}",
                 raw
             ),
         }
@@ -162,11 +162,11 @@ mod tests {
         // SAFETY: tests in this module are not run in parallel by default;
         // we restore the prior value at the end. Cargo defaults to a
         // shared environment per process.
-        let prior = env::var("SWFC_AWS_HIGH_WATER_POLICY").ok();
-        unsafe { env::remove_var("SWFC_AWS_HIGH_WATER_POLICY") };
+        let prior = env::var("ECAA_AWS_HIGH_WATER_POLICY").ok();
+        unsafe { env::remove_var("ECAA_AWS_HIGH_WATER_POLICY") };
         let got = HighWaterPolicy::from_env().unwrap();
         if let Some(v) = prior {
-            unsafe { env::set_var("SWFC_AWS_HIGH_WATER_POLICY", v) };
+            unsafe { env::set_var("ECAA_AWS_HIGH_WATER_POLICY", v) };
         }
         assert_eq!(got, HighWaterPolicy::default());
     }

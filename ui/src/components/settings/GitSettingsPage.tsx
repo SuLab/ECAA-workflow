@@ -389,7 +389,7 @@ export default function GitSettingsPage({
             }}
           >
             When off, no git subprocess runs regardless of the settings below.
-            The <code>SWFC_GIT_ENABLED=0</code> env var forces this off even
+            The <code>ECAA_GIT_ENABLED=0</code> env var forces this off even
             when the checkbox is on.
           </p>
         </div>

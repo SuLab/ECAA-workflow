@@ -4,7 +4,7 @@
 //! The contract is implemented on the consumer side by `runtime/install-proxy/_common.py`.
 //! Each executor calls [`render_provisioning_json`] before invoking the
 //! agent so the per-task policy file is on disk; the shims read it via
-//! the `SWFC_PROVISIONING_POLICY` env var (or fall back to
+//! the `ECAA_PROVISIONING_POLICY` env var (or fall back to
 //! `/etc/scripps-workflow/provisioning.json` when bind-mounted into the
 //! container).
 //!

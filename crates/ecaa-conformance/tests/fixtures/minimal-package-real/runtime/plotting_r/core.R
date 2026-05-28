@@ -55,7 +55,7 @@ suppressPackageStartupMessages({
   "1.1.0"
 }
 
-SWFC_PLOTTING_R_VERSION <- .swfc_read_shared_version()
+ECAA_PLOTTING_R_VERSION <- .swfc_read_shared_version()
 
 # ---------------------------------------------------------------------------
 # Theme: read theme.json from the sibling Python plotting dir so both
@@ -151,15 +151,15 @@ THEME <- .swfc_load_theme()
 swfc_wong_palette <- function() .WONG_PALETTE
 swfc_glasbey20_palette <- function() .GLASBEY20_PALETTE
 
-.SWFC_HIGH_CARD_WARNED <- new.env(parent = emptyenv())
+.ECAA_HIGH_CARD_WARNED <- new.env(parent = emptyenv())
 
 swfc_palette <- function(n, name = NULL) {
   if (n <= 0) return(character(0))
   base <- if (n <= 8) .WONG_PALETTE else .GLASBEY20_PALETTE
   if (n > 20) {
     key <- if (is.null(name)) "global" else name
-    if (!exists(key, envir = .SWFC_HIGH_CARD_WARNED)) {
-      assign(key, TRUE, envir = .SWFC_HIGH_CARD_WARNED)
+    if (!exists(key, envir = .ECAA_HIGH_CARD_WARNED)) {
+      assign(key, TRUE, envir = .ECAA_HIGH_CARD_WARNED)
       warning(sprintf("swfc_palette(%d) exceeds 20 colors; cycling glasbey20. ",
                       n),
               "At this cardinality, encode category by shape or label as well.",
@@ -208,11 +208,11 @@ swfc_apply_theme()
 # ---------------------------------------------------------------------------
 
 .swfc_provenance_text <- function(stage_id) {
-  pkg <- Sys.getenv("SWFC_PACKAGE_ID", "unknown")
-  sha <- Sys.getenv("SWFC_GIT_SHA", "unknown")
+  pkg <- Sys.getenv("ECAA_PACKAGE_ID", "unknown")
+  sha <- Sys.getenv("ECAA_GIT_SHA", "unknown")
   sha_short <- if (nchar(sha) > 0 && sha != "unknown") substr(sha, 1, 7) else "unknown"
   sprintf("%s · %s · plotting v%s · git@%s",
-          pkg, stage_id, SWFC_PLOTTING_R_VERSION, sha_short)
+          pkg, stage_id, ECAA_PLOTTING_R_VERSION, sha_short)
 }
 
 .swfc_attach_footer <- function(plot, stage_id) {
@@ -279,26 +279,26 @@ swfc_savefig <- function(plot, path,
 # Registry + dispatcher: matches the Python @register_figure pattern.
 # ---------------------------------------------------------------------------
 
-.SWFC_FIGURE_REGISTRY <- new.env(parent = emptyenv())
+.ECAA_FIGURE_REGISTRY <- new.env(parent = emptyenv())
 
 swfc_register_figure <- function(stage_id, figure_id, fn) {
-  bucket <- get0(stage_id, envir = .SWFC_FIGURE_REGISTRY)
+  bucket <- get0(stage_id, envir = .ECAA_FIGURE_REGISTRY)
   if (is.null(bucket)) {
     bucket <- new.env(parent = emptyenv())
-    assign(stage_id, bucket, envir = .SWFC_FIGURE_REGISTRY)
+    assign(stage_id, bucket, envir = .ECAA_FIGURE_REGISTRY)
   }
   assign(figure_id, fn, envir = bucket)
   invisible(fn)
 }
 
 swfc_lookup_figure <- function(stage_id, figure_id) {
-  bucket <- get0(stage_id, envir = .SWFC_FIGURE_REGISTRY)
+  bucket <- get0(stage_id, envir = .ECAA_FIGURE_REGISTRY)
   if (is.null(bucket)) return(NULL)
   get0(figure_id, envir = bucket)
 }
 
 swfc_known_figures <- function(stage_id) {
-  bucket <- get0(stage_id, envir = .SWFC_FIGURE_REGISTRY)
+  bucket <- get0(stage_id, envir = .ECAA_FIGURE_REGISTRY)
   if (is.null(bucket)) return(character(0))
   ls(envir = bucket)
 }

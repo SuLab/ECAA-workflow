@@ -61,11 +61,11 @@ pub(super) struct AnnotateGraduationRequest {
 }
 
 /// Resolve the sessions directory the aggregator looks at. Honors
-/// `SWFC_CHAT_SESSIONS_DIR`; falls back to
+/// `ECAA_CHAT_SESSIONS_DIR`; falls back to
 /// `$HOME/.scripps-workflow/sessions`; fallback `./.scripps-sessions`
 /// so the unit-test path doesn't panic on a HOME-less environment.
 fn sessions_dir() -> PathBuf {
-    if let Ok(d) = std::env::var("SWFC_CHAT_SESSIONS_DIR") {
+    if let Ok(d) = std::env::var("ECAA_CHAT_SESSIONS_DIR") {
         return PathBuf::from(d);
     }
     if let Some(home) = std::env::var_os("HOME") {
@@ -75,9 +75,9 @@ fn sessions_dir() -> PathBuf {
 }
 
 /// Resolve the config dir for `local-extension-graduation.yaml`. Honors
-/// `SWFC_CONFIG_DIR`; falls back to `./config`.
+/// `ECAA_CONFIG_DIR`; falls back to `./config`.
 fn config_dir() -> PathBuf {
-    std::env::var("SWFC_CONFIG_DIR")
+    std::env::var("ECAA_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("config"))
 }
@@ -229,13 +229,13 @@ mod tests {
 
     #[tokio::test]
     async fn list_candidates_returns_thresholds_for_known_session() {
-        // Use a tempdir-backed SWFC_CHAT_SESSIONS_DIR so the test
+        // Use a tempdir-backed ECAA_CHAT_SESSIONS_DIR so the test
         // doesn't read the developer's real ~/.scripps-workflow/sessions
         // registry (and accidentally include in-flight graduation
         // candidates from prior runs). Drop the env var on teardown via
         // a guard so concurrent tests don't trample each other.
         let dir = tempfile::tempdir().unwrap();
-        std::env::set_var("SWFC_CHAT_SESSIONS_DIR", dir.path());
+        std::env::set_var("ECAA_CHAT_SESSIONS_DIR", dir.path());
         let (router, app) = make_router(vec![]).await;
         let (id, _) = app.conversation.start_session(false).await.unwrap();
         let req = Request::builder()
@@ -248,7 +248,7 @@ mod tests {
         let body = body_json(resp.into_body()).await;
         assert!(body.get("thresholds").is_some());
         assert!(body.get("candidates").is_some());
-        std::env::remove_var("SWFC_CHAT_SESSIONS_DIR");
+        std::env::remove_var("ECAA_CHAT_SESSIONS_DIR");
     }
 
     #[tokio::test]

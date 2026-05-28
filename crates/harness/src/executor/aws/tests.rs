@@ -22,11 +22,11 @@ use ecaa_workflow_core::dag::TaskState;
 use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
-/// Re-export the crate-wide `SWFC_AWS_ENV_LOCK` under the short
+/// Re-export the crate-wide `ECAA_AWS_ENV_LOCK` under the short
 /// `ENV_LOCK` name the tests use. Sharing the lock with
 /// `multi_az_policy` tests eliminates the race where they observed
-/// our transient `SWFC_AWS_SUBNET_IDS=subnet-test` value.
-use super::super::SWFC_AWS_ENV_LOCK as ENV_LOCK;
+/// our transient `ECAA_AWS_SUBNET_IDS=subnet-test` value.
+use super::super::ECAA_AWS_ENV_LOCK as ENV_LOCK;
 
 fn args() -> ExecutorArgs {
     ExecutorArgs {
@@ -74,33 +74,33 @@ fn from_env_lists_every_missing_var_in_one_diagnostic() {
     // Save and clear all required env vars so the loader fails on
     // every one in a single message.
     let _g = EnvGuard::new(&[
-        ("SWFC_AWS_REGION", ""),
-        ("SWFC_AWS_AMI_ID", ""),
-        ("SWFC_AWS_SECURITY_GROUP", ""),
-        ("SWFC_AWS_INSTANCE_PROFILE", ""),
-        ("SWFC_AWS_SUBNET_ID", ""),
-        ("SWFC_AWS_SUBNET_IDS", ""),
+        ("ECAA_AWS_REGION", ""),
+        ("ECAA_AWS_AMI_ID", ""),
+        ("ECAA_AWS_SECURITY_GROUP", ""),
+        ("ECAA_AWS_INSTANCE_PROFILE", ""),
+        ("ECAA_AWS_SUBNET_ID", ""),
+        ("ECAA_AWS_SUBNET_IDS", ""),
     ]);
     // EnvGuard set them to empty strings; we want them genuinely
     // absent for this test.
     for k in [
-        "SWFC_AWS_REGION",
-        "SWFC_AWS_AMI_ID",
-        "SWFC_AWS_SECURITY_GROUP",
-        "SWFC_AWS_INSTANCE_PROFILE",
-        "SWFC_AWS_SUBNET_ID",
-        "SWFC_AWS_SUBNET_IDS",
+        "ECAA_AWS_REGION",
+        "ECAA_AWS_AMI_ID",
+        "ECAA_AWS_SECURITY_GROUP",
+        "ECAA_AWS_INSTANCE_PROFILE",
+        "ECAA_AWS_SUBNET_ID",
+        "ECAA_AWS_SUBNET_IDS",
     ] {
         unsafe { std::env::remove_var(k) };
     }
     let err = AwsConfig::from_env().unwrap_err();
     let msg = format!("{:#}", err);
     for token in [
-        "SWFC_AWS_REGION",
-        "SWFC_AWS_AMI_ID",
-        "SWFC_AWS_SECURITY_GROUP",
-        "SWFC_AWS_INSTANCE_PROFILE",
-        "SWFC_AWS_SUBNET_IDS",
+        "ECAA_AWS_REGION",
+        "ECAA_AWS_AMI_ID",
+        "ECAA_AWS_SECURITY_GROUP",
+        "ECAA_AWS_INSTANCE_PROFILE",
+        "ECAA_AWS_SUBNET_IDS",
     ] {
         assert!(
             msg.contains(token),
@@ -115,11 +115,11 @@ fn from_env_lists_every_missing_var_in_one_diagnostic() {
 fn from_env_succeeds_with_all_required_set() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let _g = EnvGuard::new(&[
-        ("SWFC_AWS_REGION", "us-west-2"),
-        ("SWFC_AWS_AMI_ID", "ami-deadbeef"),
-        ("SWFC_AWS_SECURITY_GROUP", "sg-12345"),
-        ("SWFC_AWS_INSTANCE_PROFILE", "scripps-agent"),
-        ("SWFC_AWS_SUBNET_IDS", "subnet-a,subnet-b"),
+        ("ECAA_AWS_REGION", "us-west-2"),
+        ("ECAA_AWS_AMI_ID", "ami-deadbeef"),
+        ("ECAA_AWS_SECURITY_GROUP", "sg-12345"),
+        ("ECAA_AWS_INSTANCE_PROFILE", "scripps-agent"),
+        ("ECAA_AWS_SUBNET_IDS", "subnet-a,subnet-b"),
     ]);
     let config = AwsConfig::from_env().unwrap();
     assert_eq!(config.region, "us-west-2");
@@ -220,16 +220,16 @@ fn aws_executor_with_shim(scratch: &Path, canned: &str) -> (AwsExecutor, std::pa
     // running-harness lockfiles on a dev box.
     unsafe { std::env::set_var("HOME", scratch) };
     let _g = EnvGuard::new(&[
-        ("SWFC_AWS_REGION", "us-west-2"),
-        ("SWFC_AWS_AMI_ID", "ami-test"),
-        ("SWFC_AWS_SECURITY_GROUP", "sg-test"),
-        ("SWFC_AWS_INSTANCE_PROFILE", "scripps"),
-        ("SWFC_AWS_SUBNET_IDS", "subnet-test"),
+        ("ECAA_AWS_REGION", "us-west-2"),
+        ("ECAA_AWS_AMI_ID", "ami-test"),
+        ("ECAA_AWS_SECURITY_GROUP", "sg-test"),
+        ("ECAA_AWS_INSTANCE_PROFILE", "scripps"),
+        ("ECAA_AWS_SUBNET_IDS", "subnet-test"),
         // Provisioning paths now require a
         // positive ceiling.
-        ("SWFC_AWS_COST_CEILING_USD", "1000000"),
+        ("ECAA_AWS_COST_CEILING_USD", "1000000"),
         // W5.1 cumulative guard requires the run-total ceiling too.
-        ("SWFC_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
+        ("ECAA_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
     ]);
     // Detach the EnvGuard — caller's test will hold its own.
     std::mem::forget(_g);
@@ -248,7 +248,7 @@ fn aws_executor_with_shim(scratch: &Path, canned: &str) -> (AwsExecutor, std::pa
 /// than the older `aws_executor_with_shim` helper (which leaked via
 /// `std::mem::forget`) because pilot tests must leave the env
 /// clean so parallel `multi_az_policy` tests don't observe
-/// a leaked `SWFC_AWS_SUBNET_IDS=subnet-test` value.
+/// a leaked `ECAA_AWS_SUBNET_IDS=subnet-test` value.
 #[must_use]
 fn aws_executor_with_multi_shim_and_package(
     scratch: &Path,
@@ -260,17 +260,17 @@ fn aws_executor_with_multi_shim_and_package(
     let prior_path = std::env::var("PATH").unwrap_or_default();
     unsafe { std::env::set_var("PATH", format!("{}:{}", bin_dir.display(), prior_path)) };
     let guard = EnvGuard::new(&[
-        ("SWFC_AWS_REGION", "us-west-2"),
-        ("SWFC_AWS_AMI_ID", "ami-test"),
-        ("SWFC_AWS_SECURITY_GROUP", "sg-test"),
-        ("SWFC_AWS_INSTANCE_PROFILE", "scripps"),
-        ("SWFC_AWS_SUBNET_IDS", "subnet-test"),
+        ("ECAA_AWS_REGION", "us-west-2"),
+        ("ECAA_AWS_AMI_ID", "ami-test"),
+        ("ECAA_AWS_SECURITY_GROUP", "sg-test"),
+        ("ECAA_AWS_INSTANCE_PROFILE", "scripps"),
+        ("ECAA_AWS_SUBNET_IDS", "subnet-test"),
         // Provision now requires a positive ceiling.
         // Tests that exercise the provisioning path set a deliberately
         // high one so they don't have to think about the cost model.
-        ("SWFC_AWS_COST_CEILING_USD", "1000000"),
+        ("ECAA_AWS_COST_CEILING_USD", "1000000"),
         // W5.1 cumulative guard requires the run-total ceiling too.
-        ("SWFC_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
+        ("ECAA_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
     ]);
     let args = ExecutorArgs {
         package: pkg_path.to_string_lossy().to_string(),
@@ -292,7 +292,7 @@ fn scan_orphans_warn_mode_returns_orphan_ids_without_terminating() {
     // parse against the new `InstanceRow`.
     let response = r#"[{"Id":"i-orphan-a","Tags":[]},{"Id":"i-orphan-b","Tags":[]}]"#;
     let (executor, log) = aws_executor_with_shim(scratch.path(), response);
-    let _g = EnvGuard::new(&[("SWFC_AWS_ORPHAN_POLICY", "warn")]);
+    let _g = EnvGuard::new(&[("ECAA_AWS_ORPHAN_POLICY", "warn")]);
 
     let orphans = executor.scan_orphans().unwrap();
     assert_eq!(
@@ -315,7 +315,7 @@ fn scan_orphans_reap_mode_terminates_each_orphan() {
     let scratch = tempfile::tempdir().unwrap();
     let response = r#"[{"Id":"i-orphan-only","Tags":[]}]"#;
     let (executor, log) = aws_executor_with_shim(scratch.path(), response);
-    let _g = EnvGuard::new(&[("SWFC_AWS_ORPHAN_POLICY", "reap")]);
+    let _g = EnvGuard::new(&[("ECAA_AWS_ORPHAN_POLICY", "reap")]);
 
     let _ = executor.scan_orphans().unwrap();
     let log_contents = std::fs::read_to_string(&log).unwrap();
@@ -379,23 +379,23 @@ fn scan_orphans_verified_filters_by_session_id_and_reaps_only_returned_ids() {
     // don't cause this test to skip session-A's orphan.
     unsafe { std::env::set_var("HOME", scratch.path()) };
     let _env = EnvGuard::new(&[
-        ("SWFC_AWS_REGION", "us-west-2"),
-        ("SWFC_AWS_AMI_ID", "ami-test"),
-        ("SWFC_AWS_SECURITY_GROUP", "sg-test"),
-        ("SWFC_AWS_INSTANCE_PROFILE", "scripps"),
-        ("SWFC_AWS_SUBNET_IDS", "subnet-test"),
-        ("SWFC_AWS_ORPHAN_POLICY", "reap"),
+        ("ECAA_AWS_REGION", "us-west-2"),
+        ("ECAA_AWS_AMI_ID", "ami-test"),
+        ("ECAA_AWS_SECURITY_GROUP", "sg-test"),
+        ("ECAA_AWS_INSTANCE_PROFILE", "scripps"),
+        ("ECAA_AWS_SUBNET_IDS", "subnet-test"),
+        ("ECAA_AWS_ORPHAN_POLICY", "reap"),
         // Tiny verification deadline so the test doesn't sit in the
         // 10s-sleep poll loop. With 1s deadline the verification
         // loop exits after its first iteration regardless.
-        ("SWFC_AWS_ORPHAN_VERIFY_TIMEOUT_SECS", "1"),
+        ("ECAA_AWS_ORPHAN_VERIFY_TIMEOUT_SECS", "1"),
         // `scan_orphans_verified` doesn't touch the cost guard, but
         // a previously-run test in this `ENV_LOCK` group may have
         // dropped its EnvGuard and cleared the ceiling. Pin it so any
         // future code path that does call the guard stays green.
-        ("SWFC_AWS_COST_CEILING_USD", "1000000"),
+        ("ECAA_AWS_COST_CEILING_USD", "1000000"),
         // W5.1 cumulative guard requires the run-total ceiling too.
-        ("SWFC_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
+        ("ECAA_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
     ]);
     let executor = AwsExecutor::new(&args()).expect("config");
 
@@ -458,7 +458,7 @@ fn scan_orphans_filters_live_peer_session() {
     )
     .unwrap();
 
-    let _g = EnvGuard::new(&[("SWFC_AWS_ORPHAN_POLICY", "warn")]);
+    let _g = EnvGuard::new(&[("ECAA_AWS_ORPHAN_POLICY", "warn")]);
     let orphans = executor.scan_orphans().unwrap();
     assert_eq!(
         orphans,
@@ -485,16 +485,16 @@ fn aws_executor_with_shim_and_package(
     let prior_path = std::env::var("PATH").unwrap_or_default();
     unsafe { std::env::set_var("PATH", format!("{}:{}", bin_dir.display(), prior_path)) };
     let g = EnvGuard::new(&[
-        ("SWFC_AWS_REGION", "us-west-2"),
-        ("SWFC_AWS_AMI_ID", "ami-test"),
-        ("SWFC_AWS_SECURITY_GROUP", "sg-test"),
-        ("SWFC_AWS_INSTANCE_PROFILE", "scripps"),
-        ("SWFC_AWS_SUBNET_IDS", "subnet-test"),
+        ("ECAA_AWS_REGION", "us-west-2"),
+        ("ECAA_AWS_AMI_ID", "ami-test"),
+        ("ECAA_AWS_SECURITY_GROUP", "sg-test"),
+        ("ECAA_AWS_INSTANCE_PROFILE", "scripps"),
+        ("ECAA_AWS_SUBNET_IDS", "subnet-test"),
         // Provisioning paths now require a
         // positive ceiling; tests pre-set one so they don't need to.
-        ("SWFC_AWS_COST_CEILING_USD", "1000000"),
+        ("ECAA_AWS_COST_CEILING_USD", "1000000"),
         // W5.1 cumulative guard requires the run-total ceiling too.
-        ("SWFC_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
+        ("ECAA_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
     ]);
     std::mem::forget(g);
     let args = ExecutorArgs {
@@ -621,19 +621,19 @@ fn pick_instance_type_uses_pilot_projection_for_real_provision() {
     let pkg = tempfile::tempdir().unwrap();
     seed_pilot_profiles(pkg.path());
     let _env = EnvGuard::new(&[
-        ("SWFC_AWS_REGION", "us-west-2"),
-        ("SWFC_AWS_AMI_ID", "ami-test"),
-        ("SWFC_AWS_SECURITY_GROUP", "sg-test"),
-        ("SWFC_AWS_INSTANCE_PROFILE", "scripps"),
-        ("SWFC_AWS_SUBNET_IDS", "subnet-test"),
+        ("ECAA_AWS_REGION", "us-west-2"),
+        ("ECAA_AWS_AMI_ID", "ami-test"),
+        ("ECAA_AWS_SECURITY_GROUP", "sg-test"),
+        ("ECAA_AWS_INSTANCE_PROFILE", "scripps"),
+        ("ECAA_AWS_SUBNET_IDS", "subnet-test"),
         // `pick_instance_type` itself doesn't call the cost guard, but
         // a previously-run test in this `ENV_LOCK` group may have
         // dropped its EnvGuard and cleared the ceiling. Pin it here so
         // any downstream provision call (or future test extension) has
         // a stable ceiling regardless of ordering.
-        ("SWFC_AWS_COST_CEILING_USD", "1000000"),
+        ("ECAA_AWS_COST_CEILING_USD", "1000000"),
         // W5.1 cumulative guard requires the run-total ceiling too.
-        ("SWFC_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
+        ("ECAA_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
     ]);
     let args = ExecutorArgs {
         package: pkg.path().to_string_lossy().to_string(),

@@ -164,15 +164,15 @@ pub struct SessionMetrics {
     #[serde(default)]
     pub composer_exclusion_hits: u64,
     /// §4.4 — configured session-wide input-token ceiling, read from
-    /// `SWFC_SESSION_TOKEN_BUDGET` (default 500_000) at snapshot time.
-    /// `None` when the budget is disabled (`SWFC_SESSION_TOKEN_BUDGET=0`),
+    /// `ECAA_SESSION_TOKEN_BUDGET` (default 500_000) at snapshot time.
+    /// `None` when the budget is disabled (`ECAA_SESSION_TOKEN_BUDGET=0`),
     /// `Some(n)` otherwise. The UI renders a progress bar of
     /// `total_input_tokens` against this value when it's set; `None`
     /// suppresses the row entirely. The ceiling is only counted against
     /// the uncached remainder (`total_input_tokens`), not cache reads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_token_budget: Option<u64>,
-    /// `SWFC_AGENT_BILLING` at snapshot time — either "subscription"
+    /// `ECAA_AGENT_BILLING` at snapshot time — either "subscription"
     /// (default; per-task agent runs bill the Max/Pro plan via
     /// `~/.claude/.credentials.json`, real Anthropic API charge = $0)
     /// or "api" (forwarded `ANTHROPIC_API_KEY`, real per-token charge).
@@ -232,7 +232,7 @@ pub struct SessionMetrics {
     pub per_surface_cache_savings_usd: BTreeMap<String, f64>,
     /// Session-level soft budget cap in USD. None when no cap is set.
     /// Set via `POST /api/chat/session/:id/budget` or seeded at session
-    /// creation from `SWFC_DEFAULT_SESSION_BUDGET_USD`.
+    /// creation from `ECAA_DEFAULT_SESSION_BUDGET_USD`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget_usd: Option<f64>,
     /// Fraction of the budget consumed by `total_cost_usd`. None when

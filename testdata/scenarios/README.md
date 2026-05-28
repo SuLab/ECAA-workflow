@@ -57,15 +57,15 @@ Each `request.md` is a self-contained intake file. Feed it to the compiler with 
 
 ```bash
 # From the repo root, with the workspace built (`make build`)
-scripps-workflow intake \
+ecaa-workflow intake \
   --input testdata/scenarios/01-bulk-rnaseq-ibd/request.md \
   --output /tmp/scenario-01
 
 # Inspect the DAG
-scripps-workflow dag --package /tmp/scenario-01
+ecaa-workflow dag --package /tmp/scenario-01
 
 # Or execute it end-to-end with Claude Code as the agent
-scripps-workflow-harness \
+ecaa-workflow-harness \
   --package /tmp/scenario-01 \
   --agent ./scripts/agent-claude.sh \
   --max-iterations 30

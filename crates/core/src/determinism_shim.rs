@@ -34,7 +34,7 @@ pub struct DeterminismShimSidecar {
     pub locale: String,
     /// Timezone.
     pub timezone: String,
-    /// Mirrors `SWFC_ABLATE_REEXECUTION_CLASS` per Subsystem B6.
+    /// Mirrors `ECAA_ABLATE_REEXECUTION_CLASS` per Subsystem B6.
     ///
     /// When `true`, the deterministic re-execution class is suppressed on
     /// the emit side (Arm B′ control). This bool flip is retained for
@@ -82,7 +82,7 @@ const CAPTURED_ENV_VARS: &[&str] = &[
 
 const REDACTED_ENV_VARS: &[&str] = &[
     "ANTHROPIC_API_KEY",
-    "SWFC_ANTHROPIC_API_KEY",
+    "ECAA_ANTHROPIC_API_KEY",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
 ];

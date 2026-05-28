@@ -1,5 +1,5 @@
 //! Render the per-task hardware envelope the agent
-//! subprocess receives as `SWFC_HW_*` environment variables. The
+//! subprocess receives as `ECAA_HW_*` environment variables. The
 //! envelope is inline (env vars, not written into `PROMPT.md` which
 //! stays byte-reproducible from emit time).
 //!
@@ -22,25 +22,25 @@ use std::path::Path;
 /// list so tests can assert every entry without re-reading the spec
 /// from prompt_role.txt.
 /// Env var key: available vCPUs for this task invocation.
-pub const HW_VCPUS_AVAILABLE: &str = "SWFC_HW_VCPUS_AVAILABLE";
+pub const HW_VCPUS_AVAILABLE: &str = "ECAA_HW_VCPUS_AVAILABLE";
 /// Env var key: total memory in GiB for this task invocation.
-pub const HW_MEMORY_GB: &str = "SWFC_HW_MEMORY_GB";
+pub const HW_MEMORY_GB: &str = "ECAA_HW_MEMORY_GB";
 /// Env var key: GPU descriptor string (e.g. "none" or "nvidia-l4:1").
-pub const HW_GPU: &str = "SWFC_HW_GPU";
+pub const HW_GPU: &str = "ECAA_HW_GPU";
 /// Env var key: recommended thread count for this task's resource class.
-pub const HW_RECOMMENDED_THREADS: &str = "SWFC_HW_RECOMMENDED_THREADS";
+pub const HW_RECOMMENDED_THREADS: &str = "ECAA_HW_RECOMMENDED_THREADS";
 /// Env var key: JSON map of tool → thread-count curves for this stage class.
-pub const HW_TOOL_THREAD_CURVES: &str = "SWFC_HW_TOOL_THREAD_CURVES";
+pub const HW_TOOL_THREAD_CURVES: &str = "ECAA_HW_TOOL_THREAD_CURVES";
 /// Env var key: JSON map of additional per-task env-var overrides.
-pub const HW_ENV_OVERRIDES: &str = "SWFC_HW_ENV_OVERRIDES";
+pub const HW_ENV_OVERRIDES: &str = "ECAA_HW_ENV_OVERRIDES";
 /// Env var key: JSON GPU-capability reference for the provisioned instance.
-pub const HW_GPU_CAPABILITY_REF: &str = "SWFC_HW_GPU_CAPABILITY_REF";
+pub const HW_GPU_CAPABILITY_REF: &str = "ECAA_HW_GPU_CAPABILITY_REF";
 /// Env var key: JSON-serialised `SizingIntakeFacts` for the current package.
-pub const HW_INTAKE_FACTS: &str = "SWFC_HW_INTAKE_FACTS";
+pub const HW_INTAKE_FACTS: &str = "ECAA_HW_INTAKE_FACTS";
 /// Env var key: JSON map of concurrent peer counts by resource class.
-pub const HW_CONCURRENT_PEERS_BY_CLASS: &str = "SWFC_HW_CONCURRENT_PEERS_BY_CLASS";
+pub const HW_CONCURRENT_PEERS_BY_CLASS: &str = "ECAA_HW_CONCURRENT_PEERS_BY_CLASS";
 /// Env var key: resource class string of the dispatched task (e.g. "cpu_heavy").
-pub const HW_TASK_RESOURCE_CLASS: &str = "SWFC_HW_TASK_RESOURCE_CLASS";
+pub const HW_TASK_RESOURCE_CLASS: &str = "ECAA_HW_TASK_RESOURCE_CLASS";
 
 /// BLAS / OpenMP / numerical-library thread-budget env vars the harness
 /// always exports as bare env vars on the agent subprocess. Each is
@@ -80,13 +80,13 @@ pub const BLAS_THREAD_ENV_KEYS: &[&str] = &[
 /// this to drive the heartbeat-touch background loop. Required for the
 /// heartbeat stall detector; absent ⇒ the detector falls back to
 /// `started_at` age only.
-pub const TASK_ID_ENV: &str = "SWFC_TASK_ID";
+pub const TASK_ID_ENV: &str = "ECAA_TASK_ID";
 
 /// Backend identity the envelope describes. Keeps the renderer
 /// backend-agnostic: local takes these from `nproc` / `/proc/meminfo`;
 /// AWS paths take them from the provisioned instance type.
 #[derive(Debug, Clone)]
-/// Inputs that render the `SWFC_HW_*` env-var envelope for a single task dispatch.
+/// Inputs that render the `ECAA_HW_*` env-var envelope for a single task dispatch.
 pub struct HardwareEnvelopeInputs {
     /// Number of vCPUs available to the task on the host.
     pub vcpus_available: u32,
@@ -185,7 +185,7 @@ pub fn render_envelope(
                     let resolved =
                         resolve_env_overrides_template(overrides, inputs.vcpus_available);
                     // Bundled JSON (back-compat for callers parsing
-                    // SWFC_HW_ENV_OVERRIDES).
+                    // ECAA_HW_ENV_OVERRIDES).
                     env.insert(HW_ENV_OVERRIDES.into(), resolved.to_string());
                     // Promote each override key to a bare env var. The
                     // bundled JSON alone is useless for thread control
@@ -482,7 +482,7 @@ mod tests {
     fn envelope_always_sets_bare_blas_thread_env_vars() {
         // Reference netlib BLAS reads OPENBLAS_NUM_THREADS at.so init,
         // so the harness MUST export bare keys (not just the bundled
-        // SWFC_HW_ENV_OVERRIDES JSON) to avoid single-threaded BLAS in
+        // ECAA_HW_ENV_OVERRIDES JSON) to avoid single-threaded BLAS in
         // every Rscript / numpy invocation. Verify the contract for a
         // representative inputs shape and a representative stage.
         let tmp = TempDir::new().unwrap();

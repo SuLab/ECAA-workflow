@@ -99,7 +99,7 @@ tempfile.workspace = true
 # guarantee a joined path never escapes the jail root.
 proptest = { workspace = true }
 # Serialize env-mutating tests (e.g. `bind_address.rs` toggles
-# SWFC_BIND_ADDR) so they don't race under `cargo test`. Aligned with
+# ECAA_BIND_ADDR) so they don't race under `cargo test`. Aligned with
 # the workspace pin in `core` / `eval-adapters`.
 serial_test = "3"
 

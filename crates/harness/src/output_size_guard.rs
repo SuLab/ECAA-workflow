@@ -15,7 +15,7 @@
 //! the harness to skip the patch merge and transition the task to
 //! `BlockerKind::OutputSizeExceeded`.
 //!
-//! The threshold is controlled by the `SWFC_TASK_OUTPUT_MAX_MB` environment
+//! The threshold is controlled by the `ECAA_TASK_OUTPUT_MAX_MB` environment
 //! variable (default 5120 = 5 GiB). Set to `0` to disable the cap entirely
 //! (not recommended in production).
 
@@ -25,9 +25,9 @@ use std::path::Path;
 const DEFAULT_MAX_MB: u64 = 5120;
 
 /// Name of the env var that overrides the default cap.
-const ENV_VAR: &str = "SWFC_TASK_OUTPUT_MAX_MB";
+const ENV_VAR: &str = "ECAA_TASK_OUTPUT_MAX_MB";
 
-/// Read the configured threshold from `SWFC_TASK_OUTPUT_MAX_MB`.
+/// Read the configured threshold from `ECAA_TASK_OUTPUT_MAX_MB`.
 /// Falls back to [`DEFAULT_MAX_MB`] on parse error or if unset.
 fn threshold_bytes() -> u64 {
     std::env::var(ENV_VAR)

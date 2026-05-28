@@ -91,7 +91,7 @@ pub(crate) fn parse_window_value(raw: &str) -> Option<Duration> {
 }
 
 impl BatcherConfig {
-    /// Read `SWFC_HARNESS_BATCH_WINDOW_SECS` from the
+    /// Read `ECAA_HARNESS_BATCH_WINDOW_SECS` from the
     /// environment and construct a `BatcherConfig` whose debounce window
     /// reflects it. Out-of-range or non-numeric values fall back to the
     /// default and emit a tracing warning so misconfiguration surfaces
@@ -106,14 +106,14 @@ impl BatcherConfig {
     /// - Otherwise → that value, in seconds.
     pub fn from_env() -> Self {
         let mut cfg = Self::default();
-        if let Ok(raw) = std::env::var("SWFC_HARNESS_BATCH_WINDOW_SECS") {
+        if let Ok(raw) = std::env::var("ECAA_HARNESS_BATCH_WINDOW_SECS") {
             match parse_window_value(&raw) {
                 Some(window) => cfg.window = window,
                 None if !raw.trim().is_empty() => {
                     tracing::warn!(
                         target: "harness_batch",
                         raw = %raw,
-                        "SWFC_HARNESS_BATCH_WINDOW_SECS={} rejected (must be 1..=600); \
+                        "ECAA_HARNESS_BATCH_WINDOW_SECS={} rejected (must be 1..=600); \
                          falling back to {}s default",
                         raw,
                         DEFAULT_HARNESS_BATCH_WINDOW_SECS

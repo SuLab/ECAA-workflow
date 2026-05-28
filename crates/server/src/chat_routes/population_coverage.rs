@@ -59,9 +59,9 @@ pub(super) struct PopulationCoverageResponse {
 }
 
 /// Resolve the directory where population-coverage YAMLs live. Honors
-/// `SWFC_CONFIG_DIR` so test harnesses can point at a tmpdir.
+/// `ECAA_CONFIG_DIR` so test harnesses can point at a tmpdir.
 fn coverage_dir() -> PathBuf {
-    let config_dir = std::env::var("SWFC_CONFIG_DIR")
+    let config_dir = std::env::var("ECAA_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("config"));
     config_dir.join("population-coverage")
@@ -130,12 +130,12 @@ pub(super) async fn post_population_waiver(
 
     // V3 §10.2 registry-validate the policy_rule_id when the
     // `policy_rules:` registry is loadable. The registry lives next to
-    // the coverage YAMLs under `SWFC_CONFIG_DIR`. If the file isn't on
+    // the coverage YAMLs under `ECAA_CONFIG_DIR`. If the file isn't on
     // disk (test sandboxes without a full config tree), we fall back to the
     // unchecked-construction path so the surface stays available; the
     // production deploy ships the registry, so this is operator-noticeable
     // only when running outside a fully-provisioned config tree.
-    let assumption_policy_path = std::env::var("SWFC_CONFIG_DIR")
+    let assumption_policy_path = std::env::var("ECAA_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("config"))
         .join("assumption-policy.yaml");

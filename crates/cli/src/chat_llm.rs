@@ -28,7 +28,7 @@ async fn run_chat_llm_async(config_dir: &str, output: &str) -> Result<()> {
 
     let llm: Arc<dyn LlmBackend> = Arc::new(
         AnthropicClient::new()
-            .context("SWFC_ANTHROPIC_API_KEY required for chat-llm — set the env var first (legacy ANTHROPIC_API_KEY also accepted with a deprecation warning)")?,
+            .context("ECAA_ANTHROPIC_API_KEY required for chat-llm — set the env var first (legacy ANTHROPIC_API_KEY also accepted with a deprecation warning)")?,
     );
     let service = ConversationService::new(llm, store, config_path);
     let (session_id, greeting) = service
@@ -128,7 +128,7 @@ async fn run_chat_llm_async(config_dir: &str, output: &str) -> Result<()> {
 }
 
 fn sessions_dir() -> PathBuf {
-    if let Ok(d) = std::env::var("SWFC_CHAT_SESSIONS_DIR") {
+    if let Ok(d) = std::env::var("ECAA_CHAT_SESSIONS_DIR") {
         return PathBuf::from(d);
     }
     if let Some(home) = dirs_home() {

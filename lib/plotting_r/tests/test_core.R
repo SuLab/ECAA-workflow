@@ -140,12 +140,12 @@ hp2 <- digest::digest(file = pdf_det2, algo = "sha256")
 # Provenance footer text
 # ---------------------------------------------------------------------------
 
-Sys.setenv(SWFC_PACKAGE_ID = "test-pkg-r", SWFC_GIT_SHA = "abc123def456")
+Sys.setenv(ECAA_PACKAGE_ID = "test-pkg-r", ECAA_GIT_SHA = "abc123def456")
 text <- .swfc_provenance_text("clustering")
 .report("provenance footer carries pkg id, stage, version, sha",
         grepl("test-pkg-r", text) &&
         grepl("clustering", text) &&
-        grepl(SWFC_PLOTTING_R_VERSION, text, fixed = TRUE) &&
+        grepl(ECAA_PLOTTING_R_VERSION, text, fixed = TRUE) &&
         grepl("abc123d", text, fixed = TRUE))
 
 # ---------------------------------------------------------------------------

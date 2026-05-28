@@ -235,9 +235,9 @@ impl OverheadPolicy {
     /// default — a typo can't accidentally remove the overhead margin.
     pub fn from_env() -> Self {
         Self {
-            reserved_vcpus: env_u32("SWFC_HW_OVERHEAD_VCPUS", Self::DEFAULT_VCPUS),
-            reserved_memory_gb: env_u32("SWFC_HW_OVERHEAD_MEMORY_GB", Self::DEFAULT_MEMORY_GB),
-            reserved_pct: env_u32("SWFC_HW_OVERHEAD_PCT", Self::DEFAULT_PCT).min(50),
+            reserved_vcpus: env_u32("ECAA_HW_OVERHEAD_VCPUS", Self::DEFAULT_VCPUS),
+            reserved_memory_gb: env_u32("ECAA_HW_OVERHEAD_MEMORY_GB", Self::DEFAULT_MEMORY_GB),
+            reserved_pct: env_u32("ECAA_HW_OVERHEAD_PCT", Self::DEFAULT_PCT).min(50),
         }
     }
 
@@ -264,7 +264,7 @@ fn env_u32(key: &str, default: u32) -> u32 {
 // ── Per-pick allocator ──────────────────────────────────────────────────────
 
 /// Final allocated slice for one agent invocation. Plugged into
-/// `HardwareEnvelopeInputs` so the agent's `SWFC_HW_*` env vars
+/// `HardwareEnvelopeInputs` so the agent's `ECAA_HW_*` env vars
 /// reflect the agent-specific budget rather than the full host.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentAllocation {
@@ -272,7 +272,7 @@ pub struct AgentAllocation {
     pub vcpus: u32,
     /// Allocated memory in gigabytes for this agent invocation.
     pub memory_gb: u32,
-    /// "none" or "<kind>:<count>" matching `SWFC_HW_GPU` shape.
+    /// "none" or "<kind>:<count>" matching `ECAA_HW_GPU` shape.
     pub gpu_descriptor: String,
 }
 
@@ -625,10 +625,10 @@ mod tests {
 
     #[test]
     fn overhead_percent_capped_at_50_to_prevent_typos() {
-        std::env::set_var("SWFC_HW_OVERHEAD_PCT", "200");
+        std::env::set_var("ECAA_HW_OVERHEAD_PCT", "200");
         let p = OverheadPolicy::from_env();
         assert!(p.reserved_pct <= 50);
-        std::env::remove_var("SWFC_HW_OVERHEAD_PCT");
+        std::env::remove_var("ECAA_HW_OVERHEAD_PCT");
     }
 
     #[test]
@@ -755,11 +755,11 @@ mod tests {
 
     #[test]
     fn resolve_high_water_merges_enabled_pilot_projection_with_static_profile() {
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        let prior = std::env::var("SWFC_PILOT_ENABLED").ok();
-        std::env::set_var("SWFC_PILOT_ENABLED", "1");
+        let prior = std::env::var("ECAA_PILOT_ENABLED").ok();
+        std::env::set_var("ECAA_PILOT_ENABLED", "1");
 
         let pkg = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(pkg.path().join("policies")).unwrap();
@@ -824,8 +824,8 @@ mod tests {
         assert_eq!(gpu.count, 1);
 
         match prior {
-            Some(v) => std::env::set_var("SWFC_PILOT_ENABLED", v),
-            None => std::env::remove_var("SWFC_PILOT_ENABLED"),
+            Some(v) => std::env::set_var("ECAA_PILOT_ENABLED", v),
+            None => std::env::remove_var("ECAA_PILOT_ENABLED"),
         }
     }
 }

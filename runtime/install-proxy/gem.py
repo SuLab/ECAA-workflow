@@ -13,9 +13,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _common  # noqa: E402
 
 
-REAL = os.environ.get("SWFC_REAL_GEM", "/usr/local/bin/.real/gem")
+REAL = os.environ.get("ECAA_REAL_GEM", "/usr/local/bin/.real/gem")
 INSTALL_LOG = os.environ.get(
-    "SWFC_INSTALL_LOG", "/workspace/runtime/install-log.jsonl"
+    "ECAA_INSTALL_LOG", "/workspace/runtime/install-log.jsonl"
 )
 
 

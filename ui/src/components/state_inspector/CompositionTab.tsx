@@ -18,7 +18,7 @@
  *
  * v1/v2/v3 sessions return 204 / empty arrays for compose-outcome
  * and compose-alternatives; the tab renders the empty-state legend
- * and prompts the SME toward `SWFC_COMPOSER=semantic` for
+ * and prompts the SME toward `ECAA_COMPOSER=semantic` for
  * proof-carrying composition.
  */
 
@@ -286,7 +286,7 @@ export function CompositionTab({
           This session predates the typed-composer view. To see
           composition outcomes, ranked alternatives, and proof-carrying
           edges, start a new session with{' '}
-          <code style={codeStyle}>SWFC_COMPOSER=semantic</code>.
+          <code style={codeStyle}>ECAA_COMPOSER=semantic</code>.
         </div>
       )}
 

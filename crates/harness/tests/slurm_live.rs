@@ -1,16 +1,16 @@
 //! Live-cluster SLURM integration test.
 //!
 //! "One `#[ignore]`'d test gated on
-//! `SWFC_SLURM_HOST` + `SWFC_SLURM_STAGING_DIR`. Submits a trivial
+//! `ECAA_SLURM_HOST` + `ECAA_SLURM_STAGING_DIR`. Submits a trivial
 //! `sleep 1` job, asserts terminal state + exit code. Documented in the
 //! operator runbook."
 //!
 //! Run explicitly when SSH access to a real cluster is configured:
 //!
 //! ```sh
-//! export SWFC_SLURM_HOST=login.cluster.example.org
-//! export SWFC_SLURM_STAGING_DIR=/scratch/$USER/scripps
-//! export SWFC_SLURM_DEFAULT_PARTITION=normal
+//! export ECAA_SLURM_HOST=login.cluster.example.org
+//! export ECAA_SLURM_STAGING_DIR=/scratch/$USER/scripps
+//! export ECAA_SLURM_DEFAULT_PARTITION=normal
 //! cargo test -p ecaa-workflow-harness --features slurm \
 //! --test slurm_live -- --ignored
 //! ```
@@ -32,19 +32,19 @@ use ecaa_workflow_harness::executor::slurm::ssh::{SshSession, SystemSshSession};
 /// Submits a trivial `sbatch` job, polls `sacct` to terminal state,
 /// and asserts it reached `COMPLETED`. Cancels the job on timeout.
 #[test]
-#[ignore = "live-cluster test: requires SWFC_SLURM_HOST + SWFC_SLURM_STAGING_DIR + SSH access. Run manually with --ignored. See plan §8 + docs/remote-compute-operator-reference.md."]
+#[ignore = "live-cluster test: requires ECAA_SLURM_HOST + ECAA_SLURM_STAGING_DIR + SSH access. Run manually with --ignored. See plan §8 + docs/remote-compute-operator-reference.md."]
 fn live_slurm_sleep_job_reaches_terminal_state() {
-    let host = std::env::var("SWFC_SLURM_HOST")
-        .expect("SWFC_SLURM_HOST must be set for the live SLURM test");
-    let staging = std::env::var("SWFC_SLURM_STAGING_DIR")
-        .expect("SWFC_SLURM_STAGING_DIR must be set for the live SLURM test");
+    let host = std::env::var("ECAA_SLURM_HOST")
+        .expect("ECAA_SLURM_HOST must be set for the live SLURM test");
+    let staging = std::env::var("ECAA_SLURM_STAGING_DIR")
+        .expect("ECAA_SLURM_STAGING_DIR must be set for the live SLURM test");
     let partition =
-        std::env::var("SWFC_SLURM_DEFAULT_PARTITION").unwrap_or_else(|_| "normal".into());
-    let user = std::env::var("SWFC_SLURM_USER").ok();
-    let key = std::env::var("SWFC_SLURM_SSH_KEY")
+        std::env::var("ECAA_SLURM_DEFAULT_PARTITION").unwrap_or_else(|_| "normal".into());
+    let user = std::env::var("ECAA_SLURM_USER").ok();
+    let key = std::env::var("ECAA_SLURM_SSH_KEY")
         .ok()
         .map(std::path::PathBuf::from);
-    let proxy = std::env::var("SWFC_SLURM_PROXY_JUMP").ok();
+    let proxy = std::env::var("ECAA_SLURM_PROXY_JUMP").ok();
 
     let ssh = SystemSshSession::new(host.clone(), user, key, proxy)
         .expect("building SystemSshSession against live host");

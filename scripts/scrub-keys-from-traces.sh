@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Scrub-keys-from-traces.sh — redact secret patterns from emitted package traces.
 #
-# Walks every emitted package under $SWFC_PACKAGE_ROOT (default
+# Walks every emitted package under $ECAA_PACKAGE_ROOT (default
 # ~/.scripps-workflow/packages) and rewrites `agent-trace.log` files
 # to redact known secret patterns:
 #
@@ -18,11 +18,11 @@
 #
 # Usage:
 #  bash scripts/scrub-keys-from-traces.sh
-#  SWFC_PACKAGE_ROOT=/custom/path bash scripts/scrub-keys-from-traces.sh
+#  ECAA_PACKAGE_ROOT=/custom/path bash scripts/scrub-keys-from-traces.sh
 
 set -euo pipefail
 
-ROOT="${SWFC_PACKAGE_ROOT:-$HOME/.scripps-workflow/packages}"
+ROOT="${ECAA_PACKAGE_ROOT:-$HOME/.scripps-workflow/packages}"
 if [ ! -d "$ROOT" ]; then
     echo "no package root at $ROOT — nothing to scrub"
     exit 0

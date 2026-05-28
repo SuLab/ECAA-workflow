@@ -83,7 +83,7 @@ pub struct ExecutorInfoWire {
     /// Harness crate version (`CARGO_PKG_VERSION`). Lets the Progress
     /// tab surface harness-upgrade mismatches between UI and harness.
     pub harness_version: String,
-    /// Value of `SWFC_EXECUTOR_MODE` at harness startup ("local" if
+    /// Value of `ECAA_EXECUTOR_MODE` at harness startup ("local" if
     /// unset). Matches `name` in happy paths; differs only if the
     /// factory silently substitutes (it doesn't today, but cheap to
     /// record).
@@ -194,12 +194,12 @@ pub struct HarnessProgressEvent {
 pub struct CostGuardSnapshot {
     /// Estimated spend in USD for the current provision (per-provision ceiling check).
     pub estimated_usd: f64,
-    /// Per-provision ceiling value in USD (`SWFC_AWS_COST_CEILING_USD`).
+    /// Per-provision ceiling value in USD (`ECAA_AWS_COST_CEILING_USD`).
     pub ceiling_usd: f64,
     /// Cumulative spend in USD across all provisions this run so far
     /// (read from the persisted sidecar after `record_provision`).
     pub cumulative_usd: f64,
-    /// Run-total ceiling in USD (`SWFC_AWS_RUN_TOTAL_CEILING_USD`,
+    /// Run-total ceiling in USD (`ECAA_AWS_RUN_TOTAL_CEILING_USD`,
     /// default $100). The UI can render `cumulative_usd / total_ceiling_usd`
     /// as a budget bar.
     pub total_ceiling_usd: f64,
@@ -363,7 +363,7 @@ pub struct ProgressClient {
     /// Session id kept for the same reason as `base_url`.
     session_id: String,
     /// Optional bearer token attached to every outbound HTTP call.
-    /// Captured once at construction from `SWFC_SERVER_AUTH_TOKEN`.
+    /// Captured once at construction from `ECAA_SERVER_AUTH_TOKEN`.
     /// The sender thread
     /// receives its own owned copy at spawn time so the field here
     /// is just a record for `is_session_pausing_dispatch` and the
@@ -436,7 +436,7 @@ impl ProgressClient {
         // can attach the `Authorization: Bearer …` header that the
         // server's `auth_middleware` requires when bound non-loopback
         // or when the token is explicitly set.
-        let auth_token = std::env::var("SWFC_SERVER_AUTH_TOKEN")
+        let auth_token = std::env::var("ECAA_SERVER_AUTH_TOKEN")
             .ok()
             .filter(|t| !t.is_empty());
 
@@ -519,7 +519,7 @@ impl ProgressClient {
 
     /// Read-only accessor for the captured auth token. Exposed for
     /// regression tests in `tests/progress_auth.rs`. Returns `None`
-    /// when `SWFC_SERVER_AUTH_TOKEN` was unset or empty at construction
+    /// when `ECAA_SERVER_AUTH_TOKEN` was unset or empty at construction
     /// time. The bin does not call this accessor; it's a test-only
     /// hook so the `dead_code` allow is intentional.
     #[allow(dead_code)]
@@ -529,7 +529,7 @@ impl ProgressClient {
 
     /// Returns a `BlockerKind::ClockSkew` when the sender thread detected
     /// that the host clock differs from the server clock by more than
-    /// `SWFC_CLOCK_SKEW_THRESHOLD_SECS`. Returns `None` when the first
+    /// `ECAA_CLOCK_SKEW_THRESHOLD_SECS`. Returns `None` when the first
     /// POST hasn't completed yet or when the skew is within the threshold.
     /// Called by the harness main loop before each dispatch iteration.
     #[allow(dead_code)]
@@ -540,7 +540,7 @@ impl ProgressClient {
     /// One-shot probe: GET `<base_url>/api/health` (or fall back to the
     /// session-state endpoint when health isn't available). Returns
     /// `true` when the server replied 401 — meaning auth is enforced
-    /// and the harness must be started with `SWFC_SERVER_AUTH_TOKEN`
+    /// and the harness must be started with `ECAA_SERVER_AUTH_TOKEN`
     /// in its env. Returns `false` on any other status (200, 404, …)
     /// AND on network errors so an unreachable server doesn't refuse
     /// to start the harness (the server might still be coming up).
@@ -694,7 +694,7 @@ impl ProgressClient {
     ///   this as "unknown — wait", NOT "proceed". Returning false on
     ///   any error would let the harness launch agents while the SME
     ///   was mid-amend with a server briefly unreachable; the caller
-    ///   instead sleeps `SWFC_HARNESS_SETTLE_SECS` and retries on the
+    ///   instead sleeps `ECAA_HARNESS_SETTLE_SECS` and retries on the
     ///   next iteration. This trades a bounded stall window for not
     ///   racing against a paused session.
     ///
@@ -818,7 +818,7 @@ impl ProgressClient {
     }
 
     /// Fired when one or more Running tasks' heartbeat files are older
-    /// than `SWFC_TASK_HEARTBEAT_STALL_SECS`. Per-task emission — the
+    /// than `ECAA_TASK_HEARTBEAT_STALL_SECS`. Per-task emission — the
     /// task_id identifies the stalled task; also carries the
     /// `age_secs` so the Progress tab can render "15m no heartbeat".
     pub(crate) fn heartbeat_stalled(&self, task_id: &str, age_secs: u64) {
@@ -850,7 +850,7 @@ impl ProgressClient {
     }
 
     /// Fired by the wall-clock watchdog when a Running task has exceeded its
-    /// budget (`expected_wall_seconds × SWFC_WATCHDOG_MULTIPLIER` or
+    /// budget (`expected_wall_seconds × ECAA_WATCHDOG_MULTIPLIER` or
     /// `timeout_at` from the dispatch WAL). Posts a
     /// `task_wall_clock_exceeded` event so the server can transition the
     /// task to `Blocked { WallClockExceeded }`.
@@ -1109,11 +1109,11 @@ impl Drop for ProgressClient {
     }
 }
 
-/// Parse the `SWFC_CLOCK_SKEW_THRESHOLD_SECS` environment variable with
+/// Parse the `ECAA_CLOCK_SKEW_THRESHOLD_SECS` environment variable with
 /// clamping to `[10, 3600]`. Returns the default of 60 when the variable
 /// is absent or unparseable.
 fn clock_skew_threshold_secs() -> u64 {
-    let raw = std::env::var("SWFC_CLOCK_SKEW_THRESHOLD_SECS")
+    let raw = std::env::var("ECAA_CLOCK_SKEW_THRESHOLD_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(60);
@@ -1619,7 +1619,7 @@ mod tests {
     }
 
     /// §9.1 — when the mock server echoes an `X-Server-Now` header
-    /// whose value is more than `SWFC_CLOCK_SKEW_THRESHOLD_SECS` away
+    /// whose value is more than `ECAA_CLOCK_SKEW_THRESHOLD_SECS` away
     /// from the harness's `client_now`, the sender thread must set the
     /// `clock_skew_blocker` flag so the harness main loop can refuse
     /// to dispatch.

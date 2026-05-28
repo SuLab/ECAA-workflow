@@ -37,7 +37,7 @@ struct StageDescriptionsResponse {
 }
 
 fn config_path() -> PathBuf {
-    let dir = std::env::var("SWFC_CONFIG_DIR")
+    let dir = std::env::var("ECAA_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("config"));
     dir.join("stage-descriptions.yaml")
@@ -98,7 +98,7 @@ mod tests {
     use axum::Router;
     use tower::util::ServiceExt;
 
-    // Serialize every test in this module — they all mutate SWFC_CONFIG_DIR
+    // Serialize every test in this module — they all mutate ECAA_CONFIG_DIR
     // and would race under parallel `cargo test`. tokio::sync::Mutex (vs
     // std::sync::Mutex) is async-aware, so holding the guard across the
     // test's `.await` calls doesn't trigger `clippy::await_holding_lock`.
@@ -107,10 +107,10 @@ mod tests {
     struct EnvGuard(Option<String>);
     impl EnvGuard {
         fn capture_and_set(value: &std::path::Path) -> Self {
-            let prior = std::env::var("SWFC_CONFIG_DIR").ok();
+            let prior = std::env::var("ECAA_CONFIG_DIR").ok();
             // SAFETY: mutation serialized by ENV_LOCK.
             unsafe {
-                std::env::set_var("SWFC_CONFIG_DIR", value);
+                std::env::set_var("ECAA_CONFIG_DIR", value);
             }
             Self(prior)
         }
@@ -119,8 +119,8 @@ mod tests {
         fn drop(&mut self) {
             // SAFETY: mutation serialized by ENV_LOCK.
             match &self.0 {
-                Some(v) => unsafe { std::env::set_var("SWFC_CONFIG_DIR", v) },
-                None => unsafe { std::env::remove_var("SWFC_CONFIG_DIR") },
+                Some(v) => unsafe { std::env::set_var("ECAA_CONFIG_DIR", v) },
+                None => unsafe { std::env::remove_var("ECAA_CONFIG_DIR") },
             }
         }
     }

@@ -7,7 +7,7 @@
 //! harness invocations can drive all three to reach
 //! `--max-iterations 1000` and exit prematurely.
 //!
-//! Test strategy: set `SWFC_HARNESS_SETTLE_SECS=0` (settle disabled —
+//! Test strategy: set `ECAA_HARNESS_SETTLE_SECS=0` (settle disabled —
 //! the production fallback path that disables the sleep entirely)
 //! plus `--max-iterations=3`. With the bug, the harness exits after
 //! 3 fail-closed iterations (budget drained). With the fix, the
@@ -137,7 +137,7 @@ fn seed_minimal_package(pkg: &std::path::Path, task_id: &str) {
 }
 
 /// Drive the harness against a 404 server with the smallest possible
-/// `--max-iterations` budget and `SWFC_HARNESS_SETTLE_SECS=0`
+/// `--max-iterations` budget and `ECAA_HARNESS_SETTLE_SECS=0`
 /// (settle disabled).
 ///
 /// Bug-mode behaviour: each fail-closed iteration burns one slot, so
@@ -174,14 +174,14 @@ fn fail_closed_does_not_drain_max_iterations_budget() {
         .arg("fail-closed-budget-test")
         .arg("--server-url")
         .arg(format!("http://127.0.0.1:{}", port))
-        .env("SWFC_EXECUTOR_MODE", "local")
-        .env("SWFC_PILOT_ENABLED", "0")
-        .env("SWFC_STALL_ENABLED", "0")
+        .env("ECAA_EXECUTOR_MODE", "local")
+        .env("ECAA_PILOT_ENABLED", "0")
+        .env("ECAA_STALL_ENABLED", "0")
         // Disable settle entirely so iteration rate is bounded only
         // by network round-trips, not sleeps. This makes the test
         // fast (~seconds) and isolates the budget-accounting change
         // from any sleep timing.
-        .env("SWFC_HARNESS_SETTLE_SECS", "0")
+        .env("ECAA_HARNESS_SETTLE_SECS", "0")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

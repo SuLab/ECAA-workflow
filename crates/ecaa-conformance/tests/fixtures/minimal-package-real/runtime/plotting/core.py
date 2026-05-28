@@ -428,13 +428,13 @@ def categorical_palette(n: int, *, name: Optional[str] = None) -> List[str]:
 
 
 def _provenance_text(stage_id: str) -> str:
-    """Build the per-figure footer text. Reads SWFC_PACKAGE_ID and
-    SWFC_GIT_SHA from env when present; falls back to "unknown" so the
+    """Build the per-figure footer text. Reads ECAA_PACKAGE_ID and
+    ECAA_GIT_SHA from env when present; falls back to "unknown" so the
     footer text is byte-stable across runs in environments that do not
     set them (e.g. the unit test suite).
     """
-    package_id = os.environ.get("SWFC_PACKAGE_ID", "unknown")
-    git_sha = os.environ.get("SWFC_GIT_SHA", "unknown")
+    package_id = os.environ.get("ECAA_PACKAGE_ID", "unknown")
+    git_sha = os.environ.get("ECAA_GIT_SHA", "unknown")
     sha_short = git_sha[:7] if git_sha and git_sha != "unknown" else "unknown"
     return f"{package_id} · {stage_id} · plotting v{__version__} · git@{sha_short}"
 

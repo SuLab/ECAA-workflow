@@ -44,7 +44,7 @@ use ssh::{SshSession, SystemSshSession};
 use staging::Staging;
 
 /// Operator-supplied SLURM configuration. All fields flow from
-/// `SWFC_SLURM_*` env vars in `from_env`.
+/// `ECAA_SLURM_*` env vars in `from_env`.
 #[derive(Debug, Clone)]
 pub struct SlurmConfig {
     pub host: String,
@@ -64,19 +64,19 @@ pub struct SlurmConfig {
 impl SlurmConfig {
     pub fn from_env() -> Result<Self> {
         let mut missing: Vec<&'static str> = Vec::new();
-        let host = std::env::var("SWFC_SLURM_HOST").unwrap_or_else(|_| {
-            missing.push("SWFC_SLURM_HOST");
+        let host = std::env::var("ECAA_SLURM_HOST").unwrap_or_else(|_| {
+            missing.push("ECAA_SLURM_HOST");
             String::new()
         });
-        let staging_dir = std::env::var("SWFC_SLURM_STAGING_DIR")
+        let staging_dir = std::env::var("ECAA_SLURM_STAGING_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|_| {
-                missing.push("SWFC_SLURM_STAGING_DIR");
+                missing.push("ECAA_SLURM_STAGING_DIR");
                 PathBuf::new()
             });
         let default_partition =
-            std::env::var("SWFC_SLURM_DEFAULT_PARTITION").unwrap_or_else(|_| {
-                missing.push("SWFC_SLURM_DEFAULT_PARTITION");
+            std::env::var("ECAA_SLURM_DEFAULT_PARTITION").unwrap_or_else(|_| {
+                missing.push("ECAA_SLURM_DEFAULT_PARTITION");
                 String::new()
             });
         if !missing.is_empty() {
@@ -86,12 +86,12 @@ impl SlurmConfig {
             ));
         }
 
-        let user = std::env::var("SWFC_SLURM_USER").ok();
-        let ssh_key = std::env::var("SWFC_SLURM_SSH_KEY").ok().map(PathBuf::from);
-        let proxy_jump = std::env::var("SWFC_SLURM_PROXY_JUMP").ok();
-        let account = std::env::var("SWFC_SLURM_ACCOUNT").ok();
-        let default_qos = std::env::var("SWFC_SLURM_DEFAULT_QOS").ok();
-        let modules = std::env::var("SWFC_SLURM_MODULES")
+        let user = std::env::var("ECAA_SLURM_USER").ok();
+        let ssh_key = std::env::var("ECAA_SLURM_SSH_KEY").ok().map(PathBuf::from);
+        let proxy_jump = std::env::var("ECAA_SLURM_PROXY_JUMP").ok();
+        let account = std::env::var("ECAA_SLURM_ACCOUNT").ok();
+        let default_qos = std::env::var("ECAA_SLURM_DEFAULT_QOS").ok();
+        let modules = std::env::var("ECAA_SLURM_MODULES")
             .ok()
             .map(|s| {
                 s.split(',')
@@ -101,14 +101,14 @@ impl SlurmConfig {
             })
             .unwrap_or_default();
         let poll_interval = parse_secs(
-            "SWFC_SLURM_POLL_INTERVAL_SECS",
+            "ECAA_SLURM_POLL_INTERVAL_SECS",
             SLURM_POLL_INTERVAL_SECS_DEFAULT,
         );
         let max_queue_wait = parse_secs(
-            "SWFC_SLURM_MAX_QUEUE_WAIT_SECS",
+            "ECAA_SLURM_MAX_QUEUE_WAIT_SECS",
             SLURM_MAX_QUEUE_WAIT_SECS_DEFAULT,
         );
-        let default_time_limit = std::env::var("SWFC_SLURM_DEFAULT_TIME_LIMIT")
+        let default_time_limit = std::env::var("ECAA_SLURM_DEFAULT_TIME_LIMIT")
             .unwrap_or_else(|_| SLURM_DEFAULT_TIME_LIMIT.to_string());
 
         Ok(Self {
@@ -345,11 +345,11 @@ impl SlurmExecutor {
     /// staged into a per-job 0600 creds file the sbatch body sources.
     const SECRET_KEYS: &'static [&'static str] = &[
         "ANTHROPIC_API_KEY",
-        "SWFC_ANTHROPIC_API_KEY",
+        "ECAA_ANTHROPIC_API_KEY",
         "GITHUB_PERSONAL_ACCESS_TOKEN",
         "GITHUB_TOKEN",
         "HF_TOKEN",
-        "SWFC_SERVER_AUTH_TOKEN",
+        "ECAA_SERVER_AUTH_TOKEN",
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "AWS_SESSION_TOKEN",
@@ -481,7 +481,7 @@ impl SlurmExecutor {
             body,
         };
         partition::apply_class(&mut spec, &class);
-        // SWFC_SLURM_DEFAULT_TIME_LIMIT is "Fallback
+        // ECAA_SLURM_DEFAULT_TIME_LIMIT is "Fallback
         // `--time=` when sizing mapping is silent". When the resolver
         // fell back (no named class satisfied the requirement), the
         // env-var default wins over the mapping's generic fallback
@@ -499,7 +499,7 @@ impl SlurmExecutor {
             apply_overrides_to_spec(&mut spec, ov);
         }
 
-        // Drain `SWFC_TASK_ID` so `run_iteration` can key `active_jobs`
+        // Drain `ECAA_TASK_ID` so `run_iteration` can key `active_jobs`
         // by the exact task id rather than suffix-matching on `job_name`.
         // The envelope is built by the harness main before dispatch and
         // always includes the picked task's id; production paths always
@@ -562,7 +562,7 @@ struct SbatchSpecPayload {
     class: ResourceClass,
     remote_pkg: String,
     /// Task id of the dispatched ready task, drained from the
-    /// envelope's `SWFC_TASK_ID`. Used as the `active_jobs` map key
+    /// envelope's `ECAA_TASK_ID`. Used as the `active_jobs` map key
     /// (replaces the previous `job_name` keying which suffix-collided
     /// on shared task-name fragments). `None` when the envelope is
     /// empty (test fixtures) — in that case the caller falls back to a
@@ -615,7 +615,7 @@ fn apply_overrides_to_spec(spec: &mut SbatchSpec, ov: &ExecutorOverrides) {
             );
             continue;
         }
-        let key = format!("SWFC_LIB_PIN_{suffix}");
+        let key = format!("ECAA_LIB_PIN_{suffix}");
         spec.exports.entry(key).or_insert(ver.clone());
     }
     for (k, v) in &ov.env_passthrough {
@@ -685,16 +685,16 @@ fn normalize_gpu_kind(kind: &str) -> String {
 
 /// Load `config/compute-profiles/slurm-mapping.yaml` alongside its
 /// schema. Searches from CWD (operators run from repo root); honors
-/// `SWFC_CONFIG_DIR` as an override.
+/// `ECAA_CONFIG_DIR` as an override.
 fn load_mapping() -> Result<SlurmMapping> {
-    let config_dir = std::env::var("SWFC_CONFIG_DIR")
+    let config_dir = std::env::var("ECAA_CONFIG_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("config"));
     let yaml = config_dir.join("compute-profiles/slurm-mapping.yaml");
     let schema = config_dir.join("compute-profiles/slurm-mapping.schema.json");
     if !yaml.exists() {
         return Err(anyhow!(
-            "SLURM mapping not found at {}. Set SWFC_CONFIG_DIR or run from repo root.",
+            "SLURM mapping not found at {}. Set ECAA_CONFIG_DIR or run from repo root.",
             yaml.display()
         ));
     }
@@ -811,22 +811,22 @@ impl Executor for SlurmExecutor {
     }
 
     /// SLURM executor capability profile. Sandbox tier is
-    /// driven by `SWFC_SLURM_NATIVE_CONTAINER=1` (SLURM 25.11+ ships
+    /// driven by `ECAA_SLURM_NATIVE_CONTAINER=1` (SLURM 25.11+ ships
     /// `--container` directives that the harness can require). Network
     /// defaults to deny-all because production clusters are typically
     /// egress-restricted; operators wire explicit allowlists through
     /// the `partition` policy when the cluster permits outbound.
     //
     // W8.2 — R1.6 follow-through complete: the bash script at lines
-    // ~416-440 now reads SWFC_TASK_NETWORK and falls back to
-    // SWFC_CONTAINER_NETWORK_DEFAULT then to `none`. The earlier
+    // ~416-440 now reads ECAA_TASK_NETWORK and falls back to
+    // ECAA_CONTAINER_NETWORK_DEFAULT then to `none`. The earlier
     // hardcoded `--net --network=none` is gone. The matching
     // R2.5 docker-pull credential threading remains a separate
-    // follow-up (`SWFC_CONTAINER_REGISTRY_AUTH` is not yet honored
+    // follow-up (`ECAA_CONTAINER_REGISTRY_AUTH` is not yet honored
     // on the SLURM apptainer pull path — but it is honored on the
     // local docker login path via `registry_login_if_configured`).
     fn capabilities(&self) -> super::ExecutorCapabilities {
-        let sandbox = if ecaa_workflow_core::env_helpers::env_bool("SWFC_SLURM_NATIVE_CONTAINER")
+        let sandbox = if ecaa_workflow_core::env_helpers::env_bool("ECAA_SLURM_NATIVE_CONTAINER")
         {
             ecaa_workflow_core::atom::SandboxRequirement::ProcessIsolation
         } else {
@@ -841,7 +841,7 @@ impl Executor for SlurmExecutor {
 
     /// Provision: validate SSH reachability. Cluster pre-exists so
     /// there's no instance to launch; failures here mean the operator's
-    /// SWFC_SLURM_* env is broken.
+    /// ECAA_SLURM_* env is broken.
     #[tracing::instrument(skip(self, _dag), fields(executor = "slurm"))]
     fn provision(&mut self, _dag: &DAG) -> Result<()> {
         let out = self
@@ -1165,7 +1165,7 @@ impl Executor for SlurmExecutor {
     }
 
     /// F13 — parallel SLURM dispatch budget. Read from
-    /// `SWFC_SLURM_MAX_PARALLEL_TASKS` (default `1`, matching the
+    /// `ECAA_SLURM_MAX_PARALLEL_TASKS` (default `1`, matching the
     /// pre-parallel-scheduler serial contract). Operators raise this
     /// when the cluster has fair-share or QOS headroom and the
     /// workload's sbatch queue can absorb additional concurrent jobs.
@@ -1173,21 +1173,21 @@ impl Executor for SlurmExecutor {
     /// with a tracing warning. A hard ceiling of `256` guards against
     /// fat-fingered env values overwhelming the scheduler.
     fn cpu_budget(&self) -> usize {
-        parse_slurm_budget("SWFC_SLURM_MAX_PARALLEL_TASKS", 1)
+        parse_slurm_budget("ECAA_SLURM_MAX_PARALLEL_TASKS", 1)
     }
 
     /// F13 — parallel SLURM GPU dispatch budget. Read from
-    /// `SWFC_SLURM_MAX_GPU_TASKS` (default `0`, matching the
+    /// `ECAA_SLURM_MAX_GPU_TASKS` (default `0`, matching the
     /// no-GPU-by-default contract). Operators raise this on clusters
     /// with multiple GPU partitions where the harness can keep more
     /// than one GPU task in flight. Same parse/fallback rules as
     /// `cpu_budget`.
     fn gpu_budget(&self) -> usize {
-        parse_slurm_budget("SWFC_SLURM_MAX_GPU_TASKS", 0)
+        parse_slurm_budget("ECAA_SLURM_MAX_GPU_TASKS", 0)
     }
 }
 
-/// F13 — parse a `SWFC_SLURM_*` budget env var as `usize`. Empty,
+/// F13 — parse a `ECAA_SLURM_*` budget env var as `usize`. Empty,
 /// non-numeric, zero, or oversized values fall back to `default` with
 /// a tracing warning so a typo doesn't silently brick concurrency.
 /// The ceiling matches what we'd reasonably expect a single login
@@ -1391,7 +1391,7 @@ mod tests {
         assert_eq!(spec.time_limit, "02:00:00");
         assert_eq!(spec.gres.as_deref(), Some("gpu:a100:2"));
         assert_eq!(spec.partition, "highmem");
-        assert_eq!(spec.exports.get("SWFC_LIB_PIN_SCANPY").unwrap(), "1.9.6");
+        assert_eq!(spec.exports.get("ECAA_LIB_PIN_SCANPY").unwrap(), "1.9.6");
     }
 
     #[test]
@@ -1426,11 +1426,11 @@ mod tests {
 
     #[test]
     fn resolve_next_task_requirements_uses_enabled_pilot_projection() {
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        let prior = std::env::var("SWFC_PILOT_ENABLED").ok();
-        unsafe { std::env::set_var("SWFC_PILOT_ENABLED", "1") };
+        let prior = std::env::var("ECAA_PILOT_ENABLED").ok();
+        unsafe { std::env::set_var("ECAA_PILOT_ENABLED", "1") };
 
         let pkg = tempfile::TempDir::new().unwrap();
         std::fs::create_dir_all(pkg.path().join("policies")).unwrap();
@@ -1501,8 +1501,8 @@ mod tests {
         assert_eq!(req.storage_gb, 20);
 
         match prior {
-            Some(v) => unsafe { std::env::set_var("SWFC_PILOT_ENABLED", v) },
-            None => unsafe { std::env::remove_var("SWFC_PILOT_ENABLED") },
+            Some(v) => unsafe { std::env::set_var("ECAA_PILOT_ENABLED", v) },
+            None => unsafe { std::env::remove_var("ECAA_PILOT_ENABLED") },
         }
     }
 
@@ -1620,14 +1620,14 @@ mod tests {
     fn from_env_reports_every_missing_required_var() {
         // Serialize on the crate-wide env lock so this doesn't race
         // the factory test in executor/mod.rs (both touch the same
-        // SWFC_SLURM_* vars).
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        // ECAA_SLURM_* vars).
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         let prior: Vec<(&str, Option<String>)> = [
-            "SWFC_SLURM_HOST",
-            "SWFC_SLURM_STAGING_DIR",
-            "SWFC_SLURM_DEFAULT_PARTITION",
+            "ECAA_SLURM_HOST",
+            "ECAA_SLURM_STAGING_DIR",
+            "ECAA_SLURM_DEFAULT_PARTITION",
         ]
         .iter()
         .map(|k| (*k, std::env::var(k).ok()))
@@ -1643,11 +1643,11 @@ mod tests {
         }
         let msg = err.to_string();
         assert!(
-            msg.contains("SWFC_SLURM_HOST") && msg.contains("missing required env vars"),
+            msg.contains("ECAA_SLURM_HOST") && msg.contains("missing required env vars"),
             "compound diagnostic expected, got: {msg}"
         );
-        assert!(msg.contains("SWFC_SLURM_STAGING_DIR"));
-        assert!(msg.contains("SWFC_SLURM_DEFAULT_PARTITION"));
+        assert!(msg.contains("ECAA_SLURM_STAGING_DIR"));
+        assert!(msg.contains("ECAA_SLURM_DEFAULT_PARTITION"));
     }
 
     #[test]
@@ -2114,7 +2114,7 @@ mod tests {
 
     #[test]
     fn build_spec_honors_default_time_limit_when_mapping_falls_back() {
-        // SWFC_SLURM_DEFAULT_TIME_LIMIT is the fallback
+        // ECAA_SLURM_DEFAULT_TIME_LIMIT is the fallback
         // `--time=` "when sizing mapping is silent". Construct a
         // mapping whose only named class can't satisfy a big request,
         // forcing `pick_detailed` to report used_fallback=true. The
@@ -2161,7 +2161,7 @@ mod tests {
         // When the resolver falls back, env-var time limit wins.
         assert_eq!(
             payload.spec.time_limit, "12:34:56",
-            "fallback path must use SWFC_SLURM_DEFAULT_TIME_LIMIT, not fallback-class time"
+            "fallback path must use ECAA_SLURM_DEFAULT_TIME_LIMIT, not fallback-class time"
         );
     }
 
@@ -2194,14 +2194,14 @@ mod tests {
     #[test]
     fn split_envelope_secrets_partitions_known_keys() {
         let mut envelope = BTreeMap::new();
-        envelope.insert("SWFC_HW_NPROC_HINT".into(), "16".into());
-        envelope.insert("SWFC_TASK_ID".into(), "t1".into());
+        envelope.insert("ECAA_HW_NPROC_HINT".into(), "16".into());
+        envelope.insert("ECAA_TASK_ID".into(), "t1".into());
         envelope.insert("ANTHROPIC_API_KEY".into(), "sk-ant-api03-XYZ".into());
         envelope.insert("HF_TOKEN".into(), "hf_abc".into());
         envelope.insert("GITHUB_TOKEN".into(), "ghp_def".into());
         let (safe, secret) = SlurmExecutor::split_envelope_secrets(&envelope);
-        assert!(safe.contains_key("SWFC_HW_NPROC_HINT"));
-        assert!(safe.contains_key("SWFC_TASK_ID"));
+        assert!(safe.contains_key("ECAA_HW_NPROC_HINT"));
+        assert!(safe.contains_key("ECAA_TASK_ID"));
         assert!(!safe.contains_key("ANTHROPIC_API_KEY"));
         assert!(!safe.contains_key("HF_TOKEN"));
         assert!(!safe.contains_key("GITHUB_TOKEN"));
@@ -2222,7 +2222,7 @@ mod tests {
     #[test]
     fn split_envelope_secrets_no_known_secrets_returns_safe_only() {
         let mut envelope = BTreeMap::new();
-        envelope.insert("SWFC_HW_NPROC_HINT".into(), "16".into());
+        envelope.insert("ECAA_HW_NPROC_HINT".into(), "16".into());
         let (safe, secret) = SlurmExecutor::split_envelope_secrets(&envelope);
         assert_eq!(safe.len(), 1);
         assert!(secret.is_empty());
@@ -2270,8 +2270,8 @@ mod tests {
             Box::new(FakeSshSession::new("cluster")),
         );
         let mut envelope = BTreeMap::new();
-        envelope.insert("SWFC_TASK_ID".into(), "t1".into());
-        envelope.insert("SWFC_HW_NPROC_HINT".into(), "8".into());
+        envelope.insert("ECAA_TASK_ID".into(), "t1".into());
+        envelope.insert("ECAA_HW_NPROC_HINT".into(), "8".into());
         envelope.insert(
             "ANTHROPIC_API_KEY".into(),
             "sk-ant-api03-DONT-LEAK-ME-IN-EXPORTS".into(),
@@ -2290,8 +2290,8 @@ mod tests {
             payload.spec.exports
         );
         // Safe vars survive.
-        assert!(payload.spec.exports.contains_key("SWFC_TASK_ID"));
-        assert!(payload.spec.exports.contains_key("SWFC_HW_NPROC_HINT"));
+        assert!(payload.spec.exports.contains_key("ECAA_TASK_ID"));
+        assert!(payload.spec.exports.contains_key("ECAA_HW_NPROC_HINT"));
         // Body carries the creds-source placeholder.
         assert!(
             payload.spec.body.contains("__SCRIPPS_CREDS_PATH__"),

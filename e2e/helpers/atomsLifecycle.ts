@@ -23,7 +23,7 @@ import { waitForEmittedPackagePath } from './liveServer'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = resolve(__dirname, '..', '..')
 
-const BASE_URL = process.env.SWFC_PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3737'
+const BASE_URL = process.env.ECAA_PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3737'
 
 /** Minimum time between session-state polls when waiting for task completion. */
 const POLL_INTERVAL_MS = 15_000

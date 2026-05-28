@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use ts_rs::TS;
 
-/// Returns false when `SWFC_LITERATURE_CONTEXT_DISABLED` is set to `1` or
+/// Returns false when `ECAA_LITERATURE_CONTEXT_DISABLED` is set to `1` or
 /// `true` (case-insensitive). External eval runs (BiomniBench Arms B / D)
 /// set this to honor Phylo's "do not search for the source paper" instruction.
 pub fn literature_context_enabled() -> bool {
-    match std::env::var("SWFC_LITERATURE_CONTEXT_DISABLED") {
+    match std::env::var("ECAA_LITERATURE_CONTEXT_DISABLED") {
         Ok(v) => {
             let v = v.trim().to_lowercase();
             !(v == "1" || v == "true" || v == "yes")
@@ -186,9 +186,9 @@ pub(super) fn get_literature_context(
 ) -> ToolResult {
     if !literature_context_enabled() {
         return ToolResult::err(ToolError::PreconditionFailure {
-            reason: "literature_context is disabled via SWFC_LITERATURE_CONTEXT_DISABLED".into(),
+            reason: "literature_context is disabled via ECAA_LITERATURE_CONTEXT_DISABLED".into(),
             hint: "External eval run requested no literature lookups; unset \
-                   SWFC_LITERATURE_CONTEXT_DISABLED to re-enable."
+                   ECAA_LITERATURE_CONTEXT_DISABLED to re-enable."
                 .into(),
         });
     }

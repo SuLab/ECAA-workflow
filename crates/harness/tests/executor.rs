@@ -10,7 +10,7 @@
 
 // S5.32: workspace lint is `unsafe_code = "deny"`. This integration
 // file uses `unsafe { std::env::set_var / remove_var }` to control
-// SWFC_* envs (unsafe in Rust 2024 edition because the env table is
+// ECAA_* envs (unsafe in Rust 2024 edition because the env table is
 // not thread-safe). All call sites take the shared PATH mutex above
 // so mutation can't race; the bounded waiver is scoped to this
 // integration test target.
@@ -33,7 +33,7 @@ fn args() -> ExecutorArgs {
     }
 }
 
-/// Shared mutex so tests mutating PATH / SWFC_AWS_* env vars run
+/// Shared mutex so tests mutating PATH / ECAA_AWS_* env vars run
 /// one-at-a-time. `cargo test` schedules tests across multiple threads
 /// by default; each shim test grabs this lock for its duration.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -47,7 +47,7 @@ fn factory_returns_error_for_unknown_mode() {
         .expect("kubernetes is not a known mode");
     let msg = err.to_string();
     assert!(
-        msg.contains("Unknown SWFC_EXECUTOR_MODE"),
+        msg.contains("Unknown ECAA_EXECUTOR_MODE"),
         "error should mention the env var, got: {msg}"
     );
     assert!(
@@ -68,15 +68,15 @@ fn factory_returns_local_executor_for_local() {
 
 #[test]
 fn factory_returns_error_for_aws_without_required_env_vars() {
-    // With no SWFC_AWS_* env vars set, the factory must reject with
+    // With no ECAA_AWS_* env vars set, the factory must reject with
     // a single diagnostic listing every missing variable.
     for k in [
-        "SWFC_AWS_REGION",
-        "SWFC_AWS_AMI_ID",
-        "SWFC_AWS_SECURITY_GROUP",
-        "SWFC_AWS_INSTANCE_PROFILE",
-        "SWFC_AWS_SUBNET_ID",
-        "SWFC_AWS_SUBNET_IDS",
+        "ECAA_AWS_REGION",
+        "ECAA_AWS_AMI_ID",
+        "ECAA_AWS_SECURITY_GROUP",
+        "ECAA_AWS_INSTANCE_PROFILE",
+        "ECAA_AWS_SUBNET_ID",
+        "ECAA_AWS_SUBNET_IDS",
     ] {
         unsafe { std::env::remove_var(k) };
     }
@@ -89,7 +89,7 @@ fn factory_returns_error_for_aws_without_required_env_vars() {
         "error must list missing env vars, got: {msg}"
     );
     assert!(
-        msg.contains("SWFC_AWS_REGION"),
+        msg.contains("ECAA_AWS_REGION"),
         "error must enumerate each missing var, got: {msg}"
     );
 }
@@ -304,7 +304,7 @@ impl Drop for PathGuard {
 }
 
 /// Build an `AwsExecutor` against the current env (caller already set
-/// the required SWFC_AWS_* vars via EnvGuard).
+/// the required ECAA_AWS_* vars via EnvGuard).
 fn make_executor(package: &str, timeout_secs: u64) -> AwsExecutor {
     let exec_args = ExecutorArgs {
         package: package.into(),
@@ -316,11 +316,11 @@ fn make_executor(package: &str, timeout_secs: u64) -> AwsExecutor {
 
 fn required_env() -> Vec<(&'static str, &'static str)> {
     vec![
-        ("SWFC_AWS_REGION", "us-west-2"),
-        ("SWFC_AWS_AMI_ID", "ami-test"),
-        ("SWFC_AWS_SECURITY_GROUP", "sg-test"),
-        ("SWFC_AWS_INSTANCE_PROFILE", "scripps-agent"),
-        ("SWFC_AWS_SUBNET_IDS", "subnet-only"),
+        ("ECAA_AWS_REGION", "us-west-2"),
+        ("ECAA_AWS_AMI_ID", "ami-test"),
+        ("ECAA_AWS_SECURITY_GROUP", "sg-test"),
+        ("ECAA_AWS_INSTANCE_PROFILE", "scripps-agent"),
+        ("ECAA_AWS_SUBNET_IDS", "subnet-only"),
         // `do_provision` runs the cost guard before `ec2 run-instances`;
         // an unset ceiling fails closed with `CostGuardError::CeilingUnset`.
         // Shim-backed tests don't model real spend, so set deliberately
@@ -329,8 +329,8 @@ fn required_env() -> Vec<(&'static str, &'static str)> {
         // commit 9322b924 (W5.1 fail-closed cumulative guard); test
         // fixtures were missed, surfacing as "CeilingUnset" panics that
         // misleadingly blamed only the per-provision env var.
-        ("SWFC_AWS_COST_CEILING_USD", "1000000"),
-        ("SWFC_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
+        ("ECAA_AWS_COST_CEILING_USD", "1000000"),
+        ("ECAA_AWS_RUN_TOTAL_CEILING_USD", "1000000"),
     ]
 }
 
@@ -477,7 +477,7 @@ fn run_iteration_sends_ssm_command_with_expected_parameters() {
         .unwrap()
         .to_string();
     assert!(
-        params.contains("SWFC_TASK_ID=align-42"),
+        params.contains("ECAA_TASK_ID=align-42"),
         "parameters must embed the task id, got: {}",
         params
     );
@@ -880,7 +880,7 @@ fn is_task_stale_uses_env_ssm_timeout_when_no_profile_override() {
     seed_ready_dag(&pkg, "env-tune-1");
 
     // No policies/compute-resource-policy.json — the fallback chain
-    // consults SWFC_AWS_SSM_TIMEOUT_SECS next. Set it to a large
+    // consults ECAA_AWS_SSM_TIMEOUT_SECS next. Set it to a large
     // value so an old-looking task still isn't stale on timestamp
     // alone; the SSM query is skipped because elapsed < timeout.
     let responses = canned_run_iteration_success(0);
@@ -888,7 +888,7 @@ fn is_task_stale_uses_env_ssm_timeout_when_no_profile_override() {
 
     let _env = EnvGuard::new(&required_env());
     let _path = PathGuard::prepend(&bin_dir);
-    let _tmo = EnvGuard::new(&[("SWFC_AWS_SSM_TIMEOUT_SECS", "14400")]);
+    let _tmo = EnvGuard::new(&[("ECAA_AWS_SSM_TIMEOUT_SECS", "14400")]);
 
     let mut exec = make_executor(pkg.to_str().unwrap(), 60);
     provision_with_shim(&mut exec, &pkg);

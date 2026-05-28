@@ -90,7 +90,7 @@ pub struct EmitConfig<'a> {
     pub runtime_prereqs: Option<&'a crate::runtime_prereqs::RuntimePrereqs>,
     /// Per-atom runtime prereqs the harness pre-flight reads to
     /// build per-atom isolated derived
-    /// images when `SWFC_PER_TASK_IMAGES=1`. Each entry maps
+    /// images when `ECAA_PER_TASK_IMAGES=1`. Each entry maps
     /// `atom_id -> RuntimePrereqs` and is written to
     /// `policies/atom-prereqs/<atom_id>.json` for the buildable
     /// entries only — unbuildable manifests (empty deltas) are skipped
@@ -131,7 +131,7 @@ pub struct AmendContext {
 /// Surface is `Result<(), EmitError>` so callers can promote the
 /// typed error onto a `BlockerKind` or wrap it through anyhow.
 ///
-/// `SWFC_CONTAINER_VERIFY=1` (already documented elsewhere) is the
+/// `ECAA_CONTAINER_VERIFY=1` (already documented elsewhere) is the
 /// opt-in handle for re-resolving the digest against the upstream
 /// registry; today that's handled inside `verify-reproducibility`.
 /// The empty-digest guard here fires unconditionally because an
@@ -353,7 +353,7 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     // Emit one policies/atom-prereqs/<atom_id>.json per buildable
     // atom so the
     // harness pre-flight can build per-atom isolated derived images
-    // when SWFC_PER_TASK_IMAGES=1. Additive: when the caller passes
+    // when ECAA_PER_TASK_IMAGES=1. Additive: when the caller passes
     // `None` no files are written, which preserves the byte-baseline
     // for callers that haven't opted in.
     if let Some(map) = config.per_atom_runtime_prereqs {
@@ -366,7 +366,7 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     // large dense matrix (scRNA-seq normalization, cohort integration,
     // bulk variant matrices). Lives behind an explicit policy file so
     // taxonomies can eventually override the thresholds per-stage; the
-    // host-wide memory cap (SWFC_AGENT_MEMORY_CAP_GB in the agent
+    // host-wide memory cap (ECAA_AGENT_MEMORY_CAP_GB in the agent
     // scripts) is the defensive backstop when the agent ignores the
     // policy (e.g. normalization stages running R with unbounded RSS).
     emit_memory_discipline_policy(dir).context("emitting memory-discipline policy")?;
@@ -552,11 +552,11 @@ pub fn render_prompt(
 You are executing one harness-dispatched task from a {domain} workflow defined in WORKFLOW.json.\n\
 **Workflow:** {description}\n\n\
 ## Dispatch Contract\n\
-1. Read `SWFC_TASK_ID`. That is the only task you may execute in this invocation.\n\
+1. Read `ECAA_TASK_ID`. That is the only task you may execute in this invocation.\n\
 2. Read WORKFLOW.json only to inspect that task's spec and completed dependency outputs.\n\
-3. Write outputs only under `runtime/outputs/$SWFC_TASK_ID/`.\n\
-4. Write the state transition only to `runtime/outputs/$SWFC_TASK_ID/state.patch.json`.\n\
-5. Include top-level `harness_run_id` and `dispatch_epoch` values copied from `SWFC_HARNESS_RUN_ID` and `SWFC_DISPATCH_EPOCH` in that patch.\n\
+3. Write outputs only under `runtime/outputs/$ECAA_TASK_ID/`.\n\
+4. Write the state transition only to `runtime/outputs/$ECAA_TASK_ID/state.patch.json`.\n\
+5. Include top-level `harness_run_id` and `dispatch_epoch` values copied from `ECAA_HARNESS_RUN_ID` and `ECAA_DISPATCH_EPOCH` in that patch.\n\
 6. Do not edit WORKFLOW.json. The harness is the only writer of task state.\n\
 7. Do not execute any other ready task. The harness will invoke a new agent for the next dispatch.\n\
 8. Append a JSON line to runtime/LOG.jsonl for audit context only.\n\n\
@@ -566,9 +566,9 @@ You are executing one harness-dispatched task from a {domain} workflow defined i
 - Blocked: {blocked}\n\
 - Pending: {pending}\n\n\
 ## Rules\n\
-- Execute only the task named by `SWFC_TASK_ID`\n\
+- Execute only the task named by `ECAA_TASK_ID`\n\
 - Never skip a task's dependencies\n\
-- Never mark, patch, or edit any task other than `SWFC_TASK_ID`\n\
+- Never mark, patch, or edit any task other than `ECAA_TASK_ID`\n\
 - For discovery tasks, consult the policy file referenced in the task spec\n\
 - For blocked tasks, write a clear reason and what you tried\n\
 - All decisions go in runtime/LOG.jsonl as one JSON object per line\n\
@@ -688,16 +688,16 @@ The library owns determinism (Agg backend, stripped metadata, seeded RNG, theme 
 **For R-based tasks** (Seurat / DESeq2 / Bioconductor), source the parallel R-side library at `runtime/plotting_r/core.R` and call `swfc_savefig(plot, path, stage_id=...)`. Both renderers consume the same `theme.json`, the same Wong palette, and produce figures at the same figure_id catalog so the validator's `figures_present` check is renderer-agnostic.\n\n\
 ## Hardware-aware execution\n\
 \n\
-You run under a harness that passes a per-task hardware envelope in environment variables (prefix `SWFC_HW_`). Never ignore these vars. Parse `SWFC_HW_TOOL_THREAD_CURVES`, `SWFC_HW_ENV_OVERRIDES`, `SWFC_HW_INTAKE_FACTS`, `SWFC_HW_CONCURRENT_PEERS_BY_CLASS` as JSON; the rest are plain scalars.\n\
+You run under a harness that passes a per-task hardware envelope in environment variables (prefix `ECAA_HW_`). Never ignore these vars. Parse `ECAA_HW_TOOL_THREAD_CURVES`, `ECAA_HW_ENV_OVERRIDES`, `ECAA_HW_INTAKE_FACTS`, `ECAA_HW_CONCURRENT_PEERS_BY_CLASS` as JSON; the rest are plain scalars.\n\
 \n\
-- BLAS / OpenMP / NumExpr / etc. thread budgets are ALREADY set as bare env vars on your shell environment by the harness (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, `BLIS_NUM_THREADS`, `TBB_NUM_THREADS`, `RAYON_NUM_THREADS`, `NUMBA_NUM_THREADS`, `JULIA_NUM_THREADS`, `POLARS_MAX_THREADS`, `VECLIB_MAXIMUM_THREADS`, `GOTO_NUM_THREADS`). Numerical libraries read these at .so init time, so DO NOT use `Sys.setenv()` in R or `os.environ[...] = ...` in Python to set them — that runs after BLAS has already loaded and is a no-op. To change BLAS thread count at runtime use `RhpcBLASctl::blas_set_num_threads(N)` in R or `threadpoolctl.threadpool_limits(N)` in Python. The bundled `SWFC_HW_ENV_OVERRIDES` JSON is back-compat metadata; you do not need to parse or re-export it.\n\
-- Pass `--threads N` (or the tool-specific equivalent) equal to `min(SWFC_HW_RECOMMENDED_THREADS, SWFC_HW_TOOL_THREAD_CURVES[<your-tool>])`. Never default to 1, never default to `$(nproc)`. If your tool isn't in `tool_thread_curves`, fall back to `SWFC_HW_RECOMMENDED_THREADS`.\n\
-- Piped multi-threaded tools (`bwa mem -t X | samtools sort -@ Y`): split `SWFC_HW_RECOMMENDED_THREADS` favoring the CPU-bound stage. Typical split: `X = 0.6 * recommended_threads`, `Y = 0.4 * recommended_threads`.\n\
+- BLAS / OpenMP / NumExpr / etc. thread budgets are ALREADY set as bare env vars on your shell environment by the harness (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, `BLIS_NUM_THREADS`, `TBB_NUM_THREADS`, `RAYON_NUM_THREADS`, `NUMBA_NUM_THREADS`, `JULIA_NUM_THREADS`, `POLARS_MAX_THREADS`, `VECLIB_MAXIMUM_THREADS`, `GOTO_NUM_THREADS`). Numerical libraries read these at .so init time, so DO NOT use `Sys.setenv()` in R or `os.environ[...] = ...` in Python to set them — that runs after BLAS has already loaded and is a no-op. To change BLAS thread count at runtime use `RhpcBLASctl::blas_set_num_threads(N)` in R or `threadpoolctl.threadpool_limits(N)` in Python. The bundled `ECAA_HW_ENV_OVERRIDES` JSON is back-compat metadata; you do not need to parse or re-export it.\n\
+- Pass `--threads N` (or the tool-specific equivalent) equal to `min(ECAA_HW_RECOMMENDED_THREADS, ECAA_HW_TOOL_THREAD_CURVES[<your-tool>])`. Never default to 1, never default to `$(nproc)`. If your tool isn't in `tool_thread_curves`, fall back to `ECAA_HW_RECOMMENDED_THREADS`.\n\
+- Piped multi-threaded tools (`bwa mem -t X | samtools sort -@ Y`): split `ECAA_HW_RECOMMENDED_THREADS` favoring the CPU-bound stage. Typical split: `X = 0.6 * recommended_threads`, `Y = 0.4 * recommended_threads`.\n\
 - Distinguish compression/decompression thread flags (`samtools -@`, `pigz -p`, `bgzip -@`) from compute thread flags (`--threads`). They are separate pools and should not share a budget.\n\
-- GPU routing (not recommendation): if the chosen method has an entry in `policies/gpu-capability-policy.json` AND `SWFC_HW_GPU != \"none\"` AND the `requires` binaries are on `PATH` (probe with `which`), invoke the `gpu_impl`. This is routing — the method was selected upstream. On missing binary, fall back to `cpu_impl` with a warning logged to `runtime/task-log.jsonl`.\n\
-- Size batch parameters (AlphaFold tile, Parabricks batch, ESMfold max sequence length) to the VRAM implied by `SWFC_HW_GPU` (format `nvidia-<kind>:<count>`; VRAM is implicit from kind).\n\
+- GPU routing (not recommendation): if the chosen method has an entry in `policies/gpu-capability-policy.json` AND `ECAA_HW_GPU != \"none\"` AND the `requires` binaries are on `PATH` (probe with `which`), invoke the `gpu_impl`. This is routing — the method was selected upstream. On missing binary, fall back to `cpu_impl` with a warning logged to `runtime/task-log.jsonl`.\n\
+- Size batch parameters (AlphaFold tile, Parabricks batch, ESMfold max sequence length) to the VRAM implied by `ECAA_HW_GPU` (format `nvidia-<kind>:<count>`; VRAM is implicit from kind).\n\
 - Multi-phase tools (DeepVariant `make_examples → call_variants → postprocess_variants`): read `phase_thread_counts` from `policies/compute-resource-policy.json` rather than using a single `recommended_threads` for every phase.\n\
-- Respect `SWFC_HW_CONCURRENT_PEERS_BY_CLASS`. When your class's peer count > 1 in that map, reduce your thread budget proportionally — the scheduler has granted you a slice, not the whole box. This field is always `{{cpu_heavy: 1}}` today but will be dynamic once parallel scheduling lands.\n\
+- Respect `ECAA_HW_CONCURRENT_PEERS_BY_CLASS`. When your class's peer count > 1 in that map, reduce your thread budget proportionally — the scheduler has granted you a slice, not the whole box. This field is always `{{cpu_heavy: 1}}` today but will be dynamic once parallel scheduling lands.\n\
 \n\
 ## Auto-detect compute and fan out embarrassingly parallel work\n\
 \n\
@@ -709,14 +709,14 @@ Run these probes before any heavy work and log the results to `runtime/outputs/<
 \n\
 - **Total cores**: `nproc --all` (Linux) — fallback `getconf _NPROCESSORS_ONLN` if `nproc` is missing. In Python: `os.cpu_count()`. In R: `parallel::detectCores(logical=TRUE)`.\n\
 - **Free memory (MiB)**: `free -m | awk 'NR==2 {{print $7}}'` (the \"available\" column on Linux). In Python: `psutil.virtual_memory().available // (1024*1024)`. In R: read `/proc/meminfo` `MemAvailable`.\n\
-- **GPU presence**: `nvidia-smi --query-gpu=name,memory.free --format=csv,noheader 2>/dev/null` — empty output = no GPU. Cross-check against `SWFC_HW_GPU`.\n\
+- **GPU presence**: `nvidia-smi --query-gpu=name,memory.free --format=csv,noheader 2>/dev/null` — empty output = no GPU. Cross-check against `ECAA_HW_GPU`.\n\
 - **Container limits**: if running under cgroups v2, also check `/sys/fs/cgroup/cpu.max` and `/sys/fs/cgroup/memory.max` — these can be tighter than the host nproc.\n\
 \n\
 ### Step 2 — Compute the worker pool\n\
 \n\
-- **Effective core budget**: `cores = min(detected_cores, SWFC_HW_RECOMMENDED_THREADS or detected_cores)`. The env var is a ceiling, not a target. If unset, use the full detected count.\n\
+- **Effective core budget**: `cores = min(detected_cores, ECAA_HW_RECOMMENDED_THREADS or detected_cores)`. The env var is a ceiling, not a target. If unset, use the full detected count.\n\
 - **Reserve 1 core** for the orchestrator process: `usable = max(1, cores - 1)`.\n\
-- **Inner thread budget per unit**: pick from `SWFC_HW_TOOL_THREAD_CURVES[your-tool]` if your tool is listed; otherwise default to `min(4, usable)` for BLAS-heavy R/Python (SCTransform, DESeq2, Seurat anchor finding) or `1` for pure-Python single-threaded code.\n\
+- **Inner thread budget per unit**: pick from `ECAA_HW_TOOL_THREAD_CURVES[your-tool]` if your tool is listed; otherwise default to `min(4, usable)` for BLAS-heavy R/Python (SCTransform, DESeq2, Seurat anchor finding) or `1` for pure-Python single-threaded code.\n\
 - **Outer worker count**: `outer_workers = max(1, floor(usable / inner_threads_per_unit))`. Total active threads stay bounded: `outer_workers * inner_threads_per_unit ≤ usable`.\n\
 - **Memory check**: estimate per-worker memory (e.g. an SCTransform on a 30k-cell Seurat object ≈ 6 GiB). If `outer_workers * per_worker_gib > available_gib`, reduce `outer_workers` until it fits, OR switch to BPCells/DelayedArray on-disk backing per the memory-discipline policy.\n\
 \n\

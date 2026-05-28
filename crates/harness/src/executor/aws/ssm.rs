@@ -37,7 +37,7 @@ pub(super) const SSM_STALE_CACHE_TTL_SECS: u64 = 30;
 /// The harness refuses to build a payload containing any of these
 /// keys. The remote agent must obtain them via a different path:
 ///
-///   * `SWFC_ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY` — staged onto
+///   * `ECAA_ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY` — staged onto
 ///     the instance under `/etc/scripps-workflow/credentials/`
 ///     (mode 0600, owner ssm-user) by the AMI bootstrap and read by
 ///     `run-task-on-instance.sh` before invoking the agent.
@@ -71,7 +71,7 @@ fn is_curated_secret(name: &str) -> Option<&'static str> {
 ///
 /// 1. **Curated list** (`SECRET_KEYS`): exact-name matches for well-known
 ///    credential vars that may not follow a predictable naming convention
-///    (e.g. `GH_TOKEN`, `HF_TOKEN`, `SWFC_ANTHROPIC_API_KEY`). The curated
+///    (e.g. `GH_TOKEN`, `HF_TOKEN`, `ECAA_ANTHROPIC_API_KEY`). The curated
 ///    list is the primary false-negative defence — adding a new well-known
 ///    credential here is always correct regardless of its suffix.
 ///
@@ -186,17 +186,17 @@ impl AwsExecutor {
         let stage_class = task_stage_class(&task);
         let timeout_secs = resolve_ssm_timeout_for_stage(&self.args.package, &stage_class);
 
-        // Build the SSM parameters. The wrapper reads SWFC_TASK_ID /
-        // SWFC_S3_PACKAGE_URI / SWFC_AGENT_CMD / SWFC_S3_OUTPUT_URI
+        // Build the SSM parameters. The wrapper reads ECAA_TASK_ID /
+        // ECAA_S3_PACKAGE_URI / ECAA_AGENT_CMD / ECAA_S3_OUTPUT_URI
         // from its env, so we export them inline before invoking it.
-        // S3 URIs come from the existing SWFC_AWS_S3_BUCKET /
-        // SWFC_AWS_S3_PREFIX env vars; if unset we fall back to
+        // S3 URIs come from the existing ECAA_AWS_S3_BUCKET /
+        // ECAA_AWS_S3_PREFIX env vars; if unset we fall back to
         // placeholder values that make the missing configuration
         // obvious in the recorded SSM log.
         let s3_bucket =
-            std::env::var("SWFC_AWS_S3_BUCKET").unwrap_or_else(|_| "scripps-workflow".into());
+            std::env::var("ECAA_AWS_S3_BUCKET").unwrap_or_else(|_| "scripps-workflow".into());
         let s3_prefix =
-            std::env::var("SWFC_AWS_S3_PREFIX").unwrap_or_else(|_| "scripps-workflow/".into());
+            std::env::var("ECAA_AWS_S3_PREFIX").unwrap_or_else(|_| "scripps-workflow/".into());
         let package_name = Path::new(package)
             .file_name()
             .and_then(|s| s.to_str())
@@ -222,7 +222,7 @@ impl AwsExecutor {
         //
         // Per-task remediation overrides (library_pins, env_passthrough)
         // accumulated by `apply_overrides` ride into the envelope here so
-        // the remote agent gets `SWFC_LIB_PIN_*` etc. The drain is
+        // the remote agent gets `ECAA_LIB_PIN_*` etc. The drain is
         // unconditional — if no overrides are pending the map is empty.
         let remote_script = "/opt/scripps-workflow/run-task-on-instance.sh";
         let mut effective_envelope = envelope.clone();
@@ -256,7 +256,7 @@ impl AwsExecutor {
             command_line.push_str("' ");
         }
         command_line.push_str(&format!(
-            "SWFC_TASK_ID={} SWFC_S3_PACKAGE_URI={} SWFC_AGENT_CMD={} SWFC_S3_OUTPUT_URI={} {}",
+            "ECAA_TASK_ID={} ECAA_S3_PACKAGE_URI={} ECAA_AGENT_CMD={} ECAA_S3_OUTPUT_URI={} {}",
             task_id, package_uri, agent_cmd, output_uri, remote_script
         ));
         // The commands[] slot is a JSON string so its own embedded
@@ -755,7 +755,7 @@ pub(super) fn resolve_ssm_timeout_for_stage(package: &str, stage_class: &str) ->
 }
 
 fn fallback_ssm_timeout() -> u64 {
-    if let Ok(raw) = std::env::var("SWFC_AWS_SSM_TIMEOUT_SECS") {
+    if let Ok(raw) = std::env::var("ECAA_AWS_SSM_TIMEOUT_SECS") {
         if let Ok(n) = raw.trim().parse::<u64>() {
             if n > 0 {
                 return n;
@@ -789,13 +789,13 @@ mod secret_filter_tests {
     #[test]
     fn passes_non_secret_keys_unchanged() {
         let mut env = BTreeMap::new();
-        env.insert("SWFC_HW_TOOL_THREAD_CURVES".to_string(), "{}".to_string());
-        env.insert("SWFC_LIB_PIN_BWA".to_string(), "0.7.17".to_string());
+        env.insert("ECAA_HW_TOOL_THREAD_CURVES".to_string(), "{}".to_string());
+        env.insert("ECAA_LIB_PIN_BWA".to_string(), "0.7.17".to_string());
         let (safe, dropped) = filter_secrets(&env);
         assert!(dropped.is_empty());
         assert_eq!(safe.len(), 2);
         assert_eq!(
-            safe.get("SWFC_HW_TOOL_THREAD_CURVES").map(String::as_str),
+            safe.get("ECAA_HW_TOOL_THREAD_CURVES").map(String::as_str),
             Some("{}")
         );
     }
@@ -804,13 +804,13 @@ mod secret_filter_tests {
     fn strips_anthropic_api_key_both_namespaces() {
         let mut env = BTreeMap::new();
         env.insert("ANTHROPIC_API_KEY".into(), "sk-secret".into());
-        env.insert("SWFC_ANTHROPIC_API_KEY".into(), "sk-secret-2".into());
+        env.insert("ECAA_ANTHROPIC_API_KEY".into(), "sk-secret-2".into());
         env.insert("SAFE".into(), "value".into());
         let (safe, dropped) = filter_secrets(&env);
         assert_eq!(safe.len(), 1);
         assert!(safe.contains_key("SAFE"));
         assert!(dropped.contains(&"ANTHROPIC_API_KEY"));
-        assert!(dropped.contains(&"SWFC_ANTHROPIC_API_KEY"));
+        assert!(dropped.contains(&"ECAA_ANTHROPIC_API_KEY"));
     }
 
     #[test]
@@ -830,7 +830,7 @@ mod secret_filter_tests {
         env.insert("GITHUB_TOKEN".into(), "ghp_x".into());
         env.insert("GH_TOKEN".into(), "ghp_y".into());
         env.insert("HF_TOKEN".into(), "hf_z".into());
-        env.insert("SWFC_LIT_NCBI_API_KEY".into(), "k".into());
+        env.insert("ECAA_LIT_NCBI_API_KEY".into(), "k".into());
         let (safe, dropped) = filter_secrets(&env);
         assert!(safe.is_empty());
         assert_eq!(dropped.len(), 4);

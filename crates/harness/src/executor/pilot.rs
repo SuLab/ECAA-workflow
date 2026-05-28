@@ -66,14 +66,14 @@ impl Default for PilotConfig {
 /// aliases that emit a `tracing::warn!` when set. The short form wins
 /// on collision (operators who set both intentionally see the short
 /// form's value applied).
-const PILOT_TASK_COUNT_ENV: &str = "SWFC_PILOT_TASKS";
-const PILOT_TASK_COUNT_ENV_DEPRECATED: &str = "SWFC_PILOT_TASK_COUNT";
-const PILOT_MULTIPLIER_ENV: &str = "SWFC_PILOT_MULTIPLIER";
-const PILOT_MULTIPLIER_ENV_DEPRECATED: &str = "SWFC_PILOT_PROJECTION_MULT";
-const PILOT_INSTANCE_ENV: &str = "SWFC_PILOT_INSTANCE";
-const PILOT_INSTANCE_ENV_DEPRECATED: &str = "SWFC_PILOT_INSTANCE_TYPE";
-const PILOT_INTERVAL_ENV: &str = "SWFC_PILOT_INTERVAL_SECS";
-const PILOT_INTERVAL_ENV_DEPRECATED: &str = "SWFC_PILOT_MEASUREMENT_INTERVAL_SECS";
+const PILOT_TASK_COUNT_ENV: &str = "ECAA_PILOT_TASKS";
+const PILOT_TASK_COUNT_ENV_DEPRECATED: &str = "ECAA_PILOT_TASK_COUNT";
+const PILOT_MULTIPLIER_ENV: &str = "ECAA_PILOT_MULTIPLIER";
+const PILOT_MULTIPLIER_ENV_DEPRECATED: &str = "ECAA_PILOT_PROJECTION_MULT";
+const PILOT_INSTANCE_ENV: &str = "ECAA_PILOT_INSTANCE";
+const PILOT_INSTANCE_ENV_DEPRECATED: &str = "ECAA_PILOT_INSTANCE_TYPE";
+const PILOT_INTERVAL_ENV: &str = "ECAA_PILOT_INTERVAL_SECS";
+const PILOT_INTERVAL_ENV_DEPRECATED: &str = "ECAA_PILOT_MEASUREMENT_INTERVAL_SECS";
 
 /// W6.2 — warn when a deprecated long-form env var is set. Pure no-op
 /// when the var is unset.
@@ -91,18 +91,18 @@ fn warn_if_deprecated_pilot_env(deprecated: &'static str, canonical: &'static st
 impl PilotConfig {
     /// Read env vars. Called once at harness startup.
     ///
-    /// `SWFC_PILOT_ENABLED` defaults to `1` when
-    /// `SWFC_EXECUTOR_MODE=aws`, `0` otherwise. Explicit override wins.
+    /// `ECAA_PILOT_ENABLED` defaults to `1` when
+    /// `ECAA_EXECUTOR_MODE=aws`, `0` otherwise. Explicit override wins.
     ///
-    /// W6.2: short-form env vars (`SWFC_PILOT_TASKS`,
-    /// `SWFC_PILOT_MULTIPLIER`, `SWFC_PILOT_INSTANCE`,
-    /// `SWFC_PILOT_INTERVAL_SECS`) are canonical. Long-form aliases
+    /// W6.2: short-form env vars (`ECAA_PILOT_TASKS`,
+    /// `ECAA_PILOT_MULTIPLIER`, `ECAA_PILOT_INSTANCE`,
+    /// `ECAA_PILOT_INTERVAL_SECS`) are canonical. Long-form aliases
     /// remain readable for back-compat but emit a `tracing::warn!`
     /// when set. Short form wins on collision.
     pub fn from_env() -> Self {
         let mut cfg = Self::default();
-        let aws_mode = env::var("SWFC_EXECUTOR_MODE").as_deref() == Ok("aws");
-        cfg.enabled = match env::var("SWFC_PILOT_ENABLED") {
+        let aws_mode = env::var("ECAA_EXECUTOR_MODE").as_deref() == Ok("aws");
+        cfg.enabled = match env::var("ECAA_PILOT_ENABLED") {
             Ok(v) => parse_bool(&v).unwrap_or(aws_mode),
             Err(_) => aws_mode,
         };
@@ -426,7 +426,7 @@ pub fn write_pilot_artifacts(package: &Path, report: &PilotReport) -> Result<()>
 
 /// Load the latest pilot projections from `runtime/pilot/report.json`
 /// when pilot mode is enabled for the current run. Returning `None`
-/// when `SWFC_PILOT_ENABLED=0` avoids accidentally applying a stale
+/// when `ECAA_PILOT_ENABLED=0` avoids accidentally applying a stale
 /// report left behind by an older session.
 pub fn load_pilot_projected_requirements(
     package: &Path,
@@ -672,16 +672,16 @@ profiles:
     #[test]
     fn env_parsing_overrides_defaults() {
         // Serialize via the crate-wide env lock so parallel aws/sizing
-        // tests don't observe our transient SWFC_PILOT_* overrides
+        // tests don't observe our transient ECAA_PILOT_* overrides
         // (and vice versa).
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         unsafe {
-            env::set_var("SWFC_PILOT_ENABLED", "1");
-            env::set_var("SWFC_PILOT_TASKS", "5");
-            env::set_var("SWFC_PILOT_MULTIPLIER", "2.0");
-            env::set_var("SWFC_PILOT_INSTANCE", "t3.large");
+            env::set_var("ECAA_PILOT_ENABLED", "1");
+            env::set_var("ECAA_PILOT_TASKS", "5");
+            env::set_var("ECAA_PILOT_MULTIPLIER", "2.0");
+            env::set_var("ECAA_PILOT_INSTANCE", "t3.large");
         }
         let cfg = PilotConfig::from_env();
         assert!(cfg.enabled);
@@ -689,31 +689,31 @@ profiles:
         assert!((cfg.projection_multiplier - 2.0).abs() < 1e-9);
         assert_eq!(cfg.pilot_instance_type, "t3.large");
         unsafe {
-            env::remove_var("SWFC_PILOT_ENABLED");
-            env::remove_var("SWFC_PILOT_TASKS");
-            env::remove_var("SWFC_PILOT_MULTIPLIER");
-            env::remove_var("SWFC_PILOT_INSTANCE");
+            env::remove_var("ECAA_PILOT_ENABLED");
+            env::remove_var("ECAA_PILOT_TASKS");
+            env::remove_var("ECAA_PILOT_MULTIPLIER");
+            env::remove_var("ECAA_PILOT_INSTANCE");
         }
     }
 
     #[test]
     fn env_defaults_on_aws_mode() {
         // Serialize via the shared env lock.
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        // env clean; with SWFC_EXECUTOR_MODE=aws, pilot should default on.
+        // env clean; with ECAA_EXECUTOR_MODE=aws, pilot should default on.
         unsafe {
-            env::remove_var("SWFC_PILOT_ENABLED");
-            env::set_var("SWFC_EXECUTOR_MODE", "aws");
+            env::remove_var("ECAA_PILOT_ENABLED");
+            env::set_var("ECAA_EXECUTOR_MODE", "aws");
         }
         assert!(PilotConfig::from_env().enabled);
         unsafe {
-            env::set_var("SWFC_EXECUTOR_MODE", "local");
+            env::set_var("ECAA_EXECUTOR_MODE", "local");
         }
         assert!(!PilotConfig::from_env().enabled);
         unsafe {
-            env::remove_var("SWFC_EXECUTOR_MODE");
+            env::remove_var("ECAA_EXECUTOR_MODE");
         }
     }
 

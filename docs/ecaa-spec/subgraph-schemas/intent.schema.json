@@ -88,7 +88,7 @@
       "description": "Aggregated resource estimate for a composition. Coarse numeric form so the SME sees ballpark numbers instead of opaque \"moderate/large\" buckets. Pilot sizing replaces these projections with measured numbers at execution time; this is the pre-approval preview.\n\nBucket → number table (intentionally conservative; tuned to over-estimate slightly so the SME isn't surprised): - `cpu`: light → 2, moderate → 8, heavy → 32, very_heavy → 64 cores - `memory`: small → 4, medium → 16, large → 64, xl → 256 GB - `runtime_class`: seconds → 0.01, minutes → 0.5, hours → 4 hr",
       "properties": {
         "estimated_cost_usd": {
-          "description": "Optional dollar projection — left `None` here (pilot's `estimate_cost_usd` populates it when SWFC_PILOT_ENABLED=1 surfaces the per-atom cost rate).",
+          "description": "Optional dollar projection — left `None` here (pilot's `estimate_cost_usd` populates it when ECAA_PILOT_ENABLED=1 surfaces the per-atom cost rate).",
           "format": "double",
           "type": [
             "number",

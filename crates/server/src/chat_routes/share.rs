@@ -4,7 +4,7 @@
 //! - `DELETE /api/chat/session/:id/share-token/:token` — revoke.
 //! - `GET /api/chat/session/:id/share-tokens` — list active tokens.
 //!
-//! Gated on `SWFC_SHARED_URLS_ENABLED=1`. The read-only middleware
+//! Gated on `ECAA_SHARED_URLS_ENABLED=1`. The read-only middleware
 //! (`crate::read_only`) consumes the token from `?share_token=` or
 //! the `X-Share-Token` header and rejects any mutation endpoint
 //! (POST/PATCH/PUT/DELETE) with 403. Read endpoints let the request
@@ -89,7 +89,7 @@ pub async fn resolve_share_token_principal(
 }
 
 fn feature_enabled() -> bool {
-    ecaa_workflow_core::env_helpers::env_bool("SWFC_SHARED_URLS_ENABLED")
+    ecaa_workflow_core::env_helpers::env_bool("ECAA_SHARED_URLS_ENABLED")
 }
 
 /// Request body for `POST /api/chat/session/:id/share-token`.
@@ -172,7 +172,7 @@ pub async fn post_share_token(
     if !feature_enabled() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            "shared URLs disabled (set SWFC_SHARED_URLS_ENABLED=1 to enable)",
+            "shared URLs disabled (set ECAA_SHARED_URLS_ENABLED=1 to enable)",
         )
             .into_response();
     }
@@ -365,21 +365,21 @@ mod tests {
     }
     impl FlagGuard {
         fn enable() -> Self {
-            let prior = std::env::var("SWFC_SHARED_URLS_ENABLED").ok();
-            unsafe { std::env::set_var("SWFC_SHARED_URLS_ENABLED", "1") };
+            let prior = std::env::var("ECAA_SHARED_URLS_ENABLED").ok();
+            unsafe { std::env::set_var("ECAA_SHARED_URLS_ENABLED", "1") };
             Self { prior }
         }
         fn disable() -> Self {
-            let prior = std::env::var("SWFC_SHARED_URLS_ENABLED").ok();
-            unsafe { std::env::remove_var("SWFC_SHARED_URLS_ENABLED") };
+            let prior = std::env::var("ECAA_SHARED_URLS_ENABLED").ok();
+            unsafe { std::env::remove_var("ECAA_SHARED_URLS_ENABLED") };
             Self { prior }
         }
     }
     impl Drop for FlagGuard {
         fn drop(&mut self) {
             match &self.prior {
-                Some(v) => unsafe { std::env::set_var("SWFC_SHARED_URLS_ENABLED", v) },
-                None => unsafe { std::env::remove_var("SWFC_SHARED_URLS_ENABLED") },
+                Some(v) => unsafe { std::env::set_var("ECAA_SHARED_URLS_ENABLED", v) },
+                None => unsafe { std::env::remove_var("ECAA_SHARED_URLS_ENABLED") },
             }
         }
     }

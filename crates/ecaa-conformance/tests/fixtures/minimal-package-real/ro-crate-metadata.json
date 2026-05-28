@@ -1106,7 +1106,7 @@
         "File",
         "CreativeWork"
       ],
-      "description": "Per-narrative-claim verdict (verified / unverified / contradicted) against extracted result tables. Suppressed under SWFC_ABLATE_CLAIM_CONSISTENCY (Arm B' control).",
+      "description": "Per-narrative-claim verdict (verified / unverified / contradicted) against extracted result tables. Suppressed under ECAA_ABLATE_CLAIM_CONSISTENCY (Arm B' control).",
       "encodingFormat": "application/json",
       "name": "Deterministic claim verification report"
     },
@@ -1116,7 +1116,7 @@
         "File",
         "CreativeWork"
       ],
-      "description": "Captures the deterministic environment in effect at package emit time. The ablation_engaged field records whether SWFC_ABLATE_REEXECUTION_CLASS was set (Arm B' control).",
+      "description": "Captures the deterministic environment in effect at package emit time. The ablation_engaged field records whether ECAA_ABLATE_REEXECUTION_CLASS was set (Arm B' control).",
       "encodingFormat": "application/json",
       "name": "Determinism shim — active env, seed, temp-path, locale, timezone"
     },
@@ -1146,7 +1146,7 @@
         "File",
         "CreativeWork"
       ],
-      "description": "Per-invariant verdicts (claim-completeness, decision-justification, evidence-coverage, equivalence-failure, cross-graph-integrity, substrate-validity). Warn-only at emission time; the verdicts surface in the UI Verifier tab. Suppressed under SWFC_ABLATE_AUDIT_PROOF (Arm B' control).",
+      "description": "Per-invariant verdicts (claim-completeness, decision-justification, evidence-coverage, equivalence-failure, cross-graph-integrity, substrate-validity). Warn-only at emission time; the verdicts surface in the UI Verifier tab. Suppressed under ECAA_ABLATE_AUDIT_PROOF (Arm B' control).",
       "encodingFormat": "application/json",
       "name": "Audit-proof invariant report (D8)"
     }

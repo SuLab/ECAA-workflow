@@ -10,12 +10,12 @@
 //!
 //! Ablation pairing:
 //! - **D1 (claim-verification)** — suppressed under
-//!   `SWFC_ABLATE_CLAIM_CONSISTENCY` per Subsystem B4.
+//!   `ECAA_ABLATE_CLAIM_CONSISTENCY` per Subsystem B4.
 //! - **D2 (determinism-shim)** — always written; the
-//!   `ablation_engaged` field records `SWFC_ABLATE_REEXECUTION_CLASS`
+//!   `ablation_engaged` field records `ECAA_ABLATE_REEXECUTION_CLASS`
 //!   state per Subsystem B6.
 //! - **D5 (reexecution)** — written as an empty report under
-//!   `SWFC_ABLATE_REEXECUTION_CLASS` (file present, `per_artifact` empty)
+//!   `ECAA_ABLATE_REEXECUTION_CLASS` (file present, `per_artifact` empty)
 //!   so downstream tooling always finds the path; skipped entirely when
 //!   no parent package exists (first emit). See
 //!   [`write_reexecution_sidecar`] for the full ablation contract.
@@ -23,7 +23,7 @@
 //!   written; not ablation-gated (security + model-version disclosure
 //!   are load-bearing regardless of arm).
 //! - **D5 (typed-blocker)** — suppressed under
-//!   `SWFC_ABLATE_TYPED_BLOCKERS` per Subsystem B4. The SSE
+//!   `ECAA_ABLATE_TYPED_BLOCKERS` per Subsystem B4. The SSE
 //!   broadcaster always emits typed blockers regardless of the flag;
 //!   only the emit-time sidecar is ablation-gated.
 
@@ -41,7 +41,7 @@ use std::path::Path;
 /// claim "this surface ships at emit" holds; the runtime overwrites
 /// with concrete verdicts as tasks complete.
 ///
-/// Under `SWFC_ABLATE_CLAIM_CONSISTENCY` (Arm B′ ablation — Grant v19
+/// Under `ECAA_ABLATE_CLAIM_CONSISTENCY` (Arm B′ ablation — Grant v19
 /// §Aim 3A Subsystem B4) the file is still written but with an empty
 /// `verdicts` array and an `ablation_engaged: true` metadata note.
 /// Writing the file (rather than omitting it) preserves the runtime
@@ -63,7 +63,7 @@ pub(super) async fn write_claim_verification(output_dir: &Path) -> Result<()> {
             "n_mismatch": 0,
             "verdicts": [],
             "ablation_engaged": true,
-            "ablation_note": "SWFC_ABLATE_CLAIM_CONSISTENCY=1 — emitted artifact is intentionally empty; runtime /verify endpoint is unaffected",
+            "ablation_note": "ECAA_ABLATE_CLAIM_CONSISTENCY=1 — emitted artifact is intentionally empty; runtime /verify endpoint is unaffected",
         }))
     } else {
         serde_json::to_vec_pretty(&serde_json::json!({
@@ -88,7 +88,7 @@ pub(super) async fn write_claim_verification(output_dir: &Path) -> Result<()> {
 /// Captures `TZ`/`LANG`/`LC_ALL`/`PYTHONHASHSEED`/`SOURCE_DATE_EPOCH` env
 /// var presence, redacted-by-name secrets, seed policy, temp-path
 /// strategy, locale, and timezone at emit time. The `ablation_engaged`
-/// field mirrors `SWFC_ABLATE_REEXECUTION_CLASS` (Subsystem B6 — Arm B′).
+/// field mirrors `ECAA_ABLATE_REEXECUTION_CLASS` (Subsystem B6 — Arm B′).
 ///
 /// Always written — the env capture itself records whether the
 /// re-execution-class ablation is engaged, so reviewers see both arms
@@ -169,7 +169,7 @@ pub(super) async fn write_model_policy(session: &Session, output_dir: &Path) -> 
 /// `byte_identical` / `semantic_equivalent` / `acknowledged_non_determinism`
 /// / `unavailable` / `failed`.
 ///
-/// **Ablation contract (`SWFC_ABLATE_REEXECUTION_CLASS`):** when the flag is
+/// **Ablation contract (`ECAA_ABLATE_REEXECUTION_CLASS`):** when the flag is
 /// active, the file is written with an empty `per_artifact` list and an
 /// `ablation_engaged: true` field rather than being skipped. This ensures
 /// downstream tooling always finds `runtime/reexecution.json`; the absence of
@@ -259,7 +259,7 @@ pub(super) async fn write_reexecution_sidecar(session: &Session, output_dir: &Pa
 /// sentinel ensures the file is always present for downstream consumers
 /// that probe for it before any task has run.
 ///
-/// Suppressed entirely under `SWFC_ABLATE_TYPED_BLOCKERS` per the
+/// Suppressed entirely under `ECAA_ABLATE_TYPED_BLOCKERS` per the
 /// Arm B′ ablation contract (Subsystem B4 — Grant v19 §Aim 3A). When
 /// ablated, the file is absent from the package; the SSE broadcaster
 /// always emits typed blockers regardless of this flag (the ablation

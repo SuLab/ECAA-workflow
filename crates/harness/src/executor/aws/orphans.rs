@@ -6,7 +6,7 @@
 //! `describe_instance_state` / `scan_orphan_candidates` plus the
 //! `OrphanReapSummary` shape they return. They share three things:
 //! - the `BuiltBy=ecaa-workflow-harness` tag filter shape,
-//! - the `SWFC_AWS_ORPHAN_POLICY` env-var dispatch (`warn` / `dry-run`
+//! - the `ECAA_AWS_ORPHAN_POLICY` env-var dispatch (`warn` / `dry-run`
 //!   / `reap` / `none`),
 //! - the `ScrippsWorkflowHarnessSessionId` tag-namespacing so a
 //!   session-A reap never touches session-B's instance.
@@ -200,7 +200,7 @@ pub(super) fn wal_cross_check(
 
 impl AwsExecutor {
     /// List every EC2 instance the harness might have provisioned
-    /// (BuiltBy tag). Per `SWFC_AWS_ORPHAN_POLICY`, either log them
+    /// (BuiltBy tag). Per `ECAA_AWS_ORPHAN_POLICY`, either log them
     /// (`warn`) or terminate them (`reap`) or list-only (`dry-run`).
     /// Returns the list of orphan instance ids found so callers can
     /// include them in a status message.
@@ -247,7 +247,7 @@ impl AwsExecutor {
             })
             .map(|row| row.id)
             .collect();
-        let mode = std::env::var("SWFC_AWS_ORPHAN_POLICY").unwrap_or_else(|_| "warn".into());
+        let mode = std::env::var("ECAA_AWS_ORPHAN_POLICY").unwrap_or_else(|_| "warn".into());
         if !orphans.is_empty() && mode.trim().eq_ignore_ascii_case("reap") {
             // P1-158 — one batched API call (chunked by AWS's 1000-id
             // limit) instead of one per-id round-trip. Failures are
@@ -271,7 +271,7 @@ impl AwsExecutor {
     /// Verified orphan reap. Same candidate scan as
     /// [`Self::scan_orphans`], but after issuing `terminate-instances`
     /// this polls `describe-instances` every 10s up to 5 minutes
-    /// (configurable via `SWFC_AWS_ORPHAN_VERIFY_TIMEOUT_SECS`) and
+    /// (configurable via `ECAA_AWS_ORPHAN_VERIFY_TIMEOUT_SECS`) and
     /// records which ids converged to `terminated` / `shutting-down`.
     /// Returns a summary that callers forward as an
     /// `orphan_instances_reaped` progress event so the Progress tab
@@ -298,7 +298,7 @@ impl AwsExecutor {
     /// (fresh run, no AWS tasks dispatched yet) the guard degrades
     /// gracefully to tag-only filtering so the reaper still operates.
     pub fn scan_orphans_verified(&self, session_id_tag: Option<&str>) -> Result<OrphanReapSummary> {
-        let mode = std::env::var("SWFC_AWS_ORPHAN_POLICY").unwrap_or_else(|_| "warn".into());
+        let mode = std::env::var("ECAA_AWS_ORPHAN_POLICY").unwrap_or_else(|_| "warn".into());
         if mode.trim().eq_ignore_ascii_case("none") {
             return Ok(OrphanReapSummary::default_with_policy(&mode));
         }
@@ -345,7 +345,7 @@ impl AwsExecutor {
             .iter()
             .map(|(id, _)| id.as_str())
             .collect();
-        let timeout_secs: u64 = std::env::var("SWFC_AWS_ORPHAN_VERIFY_TIMEOUT_SECS")
+        let timeout_secs: u64 = std::env::var("ECAA_AWS_ORPHAN_VERIFY_TIMEOUT_SECS")
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(300);

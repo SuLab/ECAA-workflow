@@ -1,4 +1,4 @@
-//! AblationFlag enum + all_flags() — the 6-variant SWFC_ABLATE_* contract.
+//! AblationFlag enum + all_flags() — the 6-variant ECAA_ABLATE_* contract.
 //! The is_active() runtime check is in ecaa-workflow-core::ablation
 //! as an extension trait `AblationFlagExt` to keep env-var coupling there.
 
@@ -15,12 +15,12 @@ pub enum AblationFlag {
 impl AblationFlag {
     pub fn env_var(self) -> &'static str {
         match self {
-            Self::DecisionRecords => "SWFC_ABLATE_DECISION_RECORDS",
-            Self::AmendmentProvenance => "SWFC_ABLATE_AMENDMENT_PROVENANCE",
-            Self::ClaimConsistency => "SWFC_ABLATE_CLAIM_CONSISTENCY",
-            Self::TypedBlockers => "SWFC_ABLATE_TYPED_BLOCKERS",
-            Self::ReexecutionClass => "SWFC_ABLATE_REEXECUTION_CLASS",
-            Self::AuditProof => "SWFC_ABLATE_AUDIT_PROOF",
+            Self::DecisionRecords => "ECAA_ABLATE_DECISION_RECORDS",
+            Self::AmendmentProvenance => "ECAA_ABLATE_AMENDMENT_PROVENANCE",
+            Self::ClaimConsistency => "ECAA_ABLATE_CLAIM_CONSISTENCY",
+            Self::TypedBlockers => "ECAA_ABLATE_TYPED_BLOCKERS",
+            Self::ReexecutionClass => "ECAA_ABLATE_REEXECUTION_CLASS",
+            Self::AuditProof => "ECAA_ABLATE_AUDIT_PROOF",
         }
     }
 }

@@ -10,12 +10,12 @@
 //!   parser must never silently produce a non-finite multiplier).
 //! - Rejects non-`https://` `ANTHROPIC_BASE_URL` overrides unless the
 //!   host is a loopback address.
-//! - Validates documented bounds (e.g. `SWFC_AWS_PRICING_REGION_MULT`
-//!   ∈ `[0.5, 5.0]`; `SWFC_HARNESS_BATCH_WINDOW_SECS` ≤ 600).
+//! - Validates documented bounds (e.g. `ECAA_AWS_PRICING_REGION_MULT`
+//!   ∈ `[0.5, 5.0]`; `ECAA_HARNESS_BATCH_WINDOW_SECS` ≤ 600).
 //! - Redacts secrets in [`std::fmt::Debug`] so structured
 //!   `tracing::info!` captures of the loaded config never leak
-//!   `SWFC_ANTHROPIC_API_KEY`, `SWFC_SERVER_AUTH_TOKEN`, or
-//!   `SWFC_LIT_NCBI_API_KEY` into logs.
+//!   `ECAA_ANTHROPIC_API_KEY`, `ECAA_SERVER_AUTH_TOKEN`, or
+//!   `ECAA_LIT_NCBI_API_KEY` into logs.
 //!
 //! Migration of the ~30 per-request `std::env::var` consumer sites is
 //! incremental — this module ships the type + parsers + unit tests.
@@ -27,7 +27,7 @@
 //!
 //! Mirrors `docs/env-vars-reference.md` for the **shared** knobs read by the
 //! server, conversation crate, harness scheduler, and CLI. Container-runtime
-//! plumbing (`SWFC_CONTAINER_*`, `SWFC_AGENT_*`, `SWFC_AWS_*` provisioning
+//! plumbing (`ECAA_CONTAINER_*`, `ECAA_AGENT_*`, `ECAA_AWS_*` provisioning
 //! flags) is harness-only and deliberately deferred to a future
 //! `harness::HarnessConfig` — keeping this struct narrow avoids forcing the
 //! server crate to depend on harness-only env semantics.
@@ -42,32 +42,32 @@ use url::Url;
 const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
 
 /// Default harness-progress batcher debounce window. Documented in
-/// `docs/env-vars-reference.md` under `SWFC_HARNESS_BATCH_WINDOW_SECS`.
+/// `docs/env-vars-reference.md` under `ECAA_HARNESS_BATCH_WINDOW_SECS`.
 const DEFAULT_HARNESS_BATCH_WINDOW_SECS: u64 = 10;
 
-/// Upper bound for `SWFC_HARNESS_BATCH_WINDOW_SECS`. Values past this would
+/// Upper bound for `ECAA_HARNESS_BATCH_WINDOW_SECS`. Values past this would
 /// hide blockers from the SME for unreasonable spans; the docs explicitly
 /// reject `>600`.
 const MAX_HARNESS_BATCH_WINDOW_SECS: u64 = 600;
 
 /// Default heartbeat stall threshold (seconds). Documented under
-/// `SWFC_TASK_HEARTBEAT_STALL_SECS`. The harness flips Running tasks to
+/// `ECAA_TASK_HEARTBEAT_STALL_SECS`. The harness flips Running tasks to
 /// `Blocked { HeartbeatStalled }` after this many seconds without a
 /// `.heartbeat` touch.
 const DEFAULT_TASK_HEARTBEAT_STALL_SECS: u64 = 300;
 
 /// Default literature-evidence storage cap (MB) per task. Documented under
-/// `SWFC_LIT_EVIDENCE_MAX_MB`.
+/// `ECAA_LIT_EVIDENCE_MAX_MB`.
 const DEFAULT_LIT_EVIDENCE_MAX_MB: u64 = 200;
 
 /// Default upload-root free-space reserve (GB). Documented under
-/// `SWFC_UPLOAD_DISK_RESERVE_GB`.
+/// `ECAA_UPLOAD_DISK_RESERVE_GB`.
 const DEFAULT_UPLOAD_DISK_RESERVE_GB: u64 = 50;
 
-/// Default chat-server bind interface. Documented under `SWFC_BIND_ADDR`.
+/// Default chat-server bind interface. Documented under `ECAA_BIND_ADDR`.
 const DEFAULT_BIND_ADDR: &str = "127.0.0.1";
 
-/// Default chat-server port. Documented under `SWFC_PORT`. (The codebase
+/// Default chat-server port. Documented under `ECAA_PORT`. (The codebase
 /// historically uses `3737` for the harness↔server progress channel, but the
 /// SME-facing chat-server documented default in CLAUDE.md is `3000`.)
 const DEFAULT_PORT: u16 = 3000;
@@ -92,7 +92,7 @@ const LOOPBACK_HOSTS: &[&str] = &["localhost", "127.0.0.1", "::1", "[::1]"];
 // Public type surface
 // ----------------------------------------------------------------------------
 
-/// Chat-server LLM backend selector. `SWFC_CHAT_MODE=offline` forces the
+/// Chat-server LLM backend selector. `ECAA_CHAT_MODE=offline` forces the
 /// `MockLlmBackend`; everything else (unset or any other value) routes to
 /// the live Anthropic Messages API client.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,19 +123,19 @@ pub enum ModalityDriftMode {
 }
 
 /// Literature retrieval source-scope tier. Documented under
-/// `SWFC_LIT_SOURCE_SCOPE`.
+/// `ECAA_LIT_SOURCE_SCOPE`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LitSourceScope {
     /// PMC Open Access full-text XML only (default).
     PmcOa,
     /// PMC OA + NLM abstract fallback for non-OA PMIDs.
     PmcOaPlusAbstracts,
-    /// Stub tier — requires `SWFC_LIT_INSTITUTIONAL_ACCESS=1` and a
+    /// Stub tier — requires `ECAA_LIT_INSTITUTIONAL_ACCESS=1` and a
     /// credential flow not yet implemented. Do not set in production.
     AllSourcesLocalOnly,
 }
 
-/// Literature-atom configuration block. Wraps the four `SWFC_LIT_*` env
+/// Literature-atom configuration block. Wraps the four `ECAA_LIT_*` env
 /// vars consumed by `crates/harness/src/literature_scope.rs` and the
 /// `scripts/agent_literature_fetch.py` helper.
 #[derive(Clone)]
@@ -171,7 +171,7 @@ impl std::fmt::Debug for LiteratureConfig {
 #[derive(Clone)]
 pub struct Config {
     // Anthropic / LLM client ---------------------------------------------
-    /// `SWFC_ANTHROPIC_API_KEY` (or legacy `ANTHROPIC_API_KEY` with stderr
+    /// `ECAA_ANTHROPIC_API_KEY` (or legacy `ANTHROPIC_API_KEY` with stderr
     /// deprecation warning). **Redacted in `Debug`.**
     pub anthropic_api_key: Option<String>,
     /// `ANTHROPIC_BASE_URL`. Must be `https://` unless the host is
@@ -179,45 +179,45 @@ pub struct Config {
     pub anthropic_base_url: Url,
 
     // Chat server / sessions ---------------------------------------------
-    /// `SWFC_CHAT_MODE`. `offline` → [`ChatMode::Offline`]; anything else
+    /// `ECAA_CHAT_MODE`. `offline` → [`ChatMode::Offline`]; anything else
     /// → [`ChatMode::Online`].
     pub chat_mode: ChatMode,
-    /// `SWFC_CHAT_SESSIONS_DIR`. Default `~/.scripps-workflow/sessions`.
+    /// `ECAA_CHAT_SESSIONS_DIR`. Default `~/.scripps-workflow/sessions`.
     pub chat_sessions_dir: PathBuf,
-    /// `SWFC_CONFIG_DIR`. Default `./config`.
+    /// `ECAA_CONFIG_DIR`. Default `./config`.
     pub config_dir: PathBuf,
-    /// `SWFC_PACKAGE_ROOT`. Default `~/.scripps-workflow/packages`.
+    /// `ECAA_PACKAGE_ROOT`. Default `~/.scripps-workflow/packages`.
     pub package_root: PathBuf,
-    /// `SWFC_SERVER_AUTH_TOKEN`. Required when the server binds anything
+    /// `ECAA_SERVER_AUTH_TOKEN`. Required when the server binds anything
     /// other than `127.0.0.1` / `[::1]`. **Redacted in `Debug`.**
     pub server_auth_token: Option<String>,
 
     // Side-call gates ----------------------------------------------------
-    /// `SWFC_AUTO_TITLE`. Enables Haiku 4.5 auto-title side-call.
+    /// `ECAA_AUTO_TITLE`. Enables Haiku 4.5 auto-title side-call.
     pub auto_title: bool,
-    /// `SWFC_LIVE_API`. Gates live-API dev Make targets.
+    /// `ECAA_LIVE_API`. Gates live-API dev Make targets.
     pub live_api: bool,
 
     // AWS provisioning / cost --------------------------------------------
-    /// `SWFC_AWS_COST_CEILING_USD`. Optional finite USD cap on the AWS cost
+    /// `ECAA_AWS_COST_CEILING_USD`. Optional finite USD cap on the AWS cost
     /// guard. Must be finite (rejects NaN / ±∞) and non-negative.
     pub aws_cost_ceiling_usd: Option<f64>,
-    /// `SWFC_AWS_PRICING_REGION_MULT`. Default `1.0`; clamped to
+    /// `ECAA_AWS_PRICING_REGION_MULT`. Default `1.0`; clamped to
     /// `[0.5, 5.0]`.
     pub aws_pricing_region_mult: f64,
-    /// `SWFC_AWS_PRICING_OVERRIDES_JSON`. Parsed as a JSON object mapping
+    /// `ECAA_AWS_PRICING_OVERRIDES_JSON`. Parsed as a JSON object mapping
     /// instance-type → USD/hour. Each value must be finite and `> 0`.
     pub aws_pricing_overrides: HashMap<String, f64>,
 
     // Harness loop -------------------------------------------------------
-    /// `SWFC_HARNESS_BATCH_WINDOW_SECS`. Default `10`, max `600`. Values
+    /// `ECAA_HARNESS_BATCH_WINDOW_SECS`. Default `10`, max `600`. Values
     /// past the cap are rejected (the doc-gate guarantees blockers stay
     /// visible to the SME).
     pub harness_batch_window_secs: u64,
-    /// `SWFC_TASK_HEARTBEAT_STALL_SECS`. Default `300`. `0` disables the
+    /// `ECAA_TASK_HEARTBEAT_STALL_SECS`. Default `300`. `0` disables the
     /// stall trip-wire entirely (documented escape hatch).
     pub task_heartbeat_stall_secs: u64,
-    /// `SWFC_HARNESS_BIN_PATH`. Optional override for integration tests.
+    /// `ECAA_HARNESS_BIN_PATH`. Optional override for integration tests.
     pub harness_bin_path: Option<PathBuf>,
 
     // Literature atoms ---------------------------------------------------
@@ -225,34 +225,34 @@ pub struct Config {
     pub literature: LiteratureConfig,
 
     // Upload / input bounds ----------------------------------------------
-    /// `SWFC_UPLOAD_ROOT`. Default `~/.scripps-workflow/uploads`.
+    /// `ECAA_UPLOAD_ROOT`. Default `~/.scripps-workflow/uploads`.
     pub upload_root: Option<String>,
-    /// `SWFC_UPLOAD_DISK_RESERVE_GB`. Default `50`.
+    /// `ECAA_UPLOAD_DISK_RESERVE_GB`. Default `50`.
     pub upload_disk_reserve_gb: u64,
-    /// `SWFC_INPUT_ROOTS`. Colon- (or comma-)separated allowlist of
+    /// `ECAA_INPUT_ROOTS`. Colon- (or comma-)separated allowlist of
     /// filesystem roots an SME may point `local_path` inputs at.
     pub input_roots: Vec<String>,
 
     // Bind / port --------------------------------------------------------
-    /// `SWFC_BIND_ADDR`. Default `127.0.0.1`. `0.0.0.0` requires
+    /// `ECAA_BIND_ADDR`. Default `127.0.0.1`. `0.0.0.0` requires
     /// `server_auth_token`.
     pub bind_addr: String,
-    /// `SWFC_PORT`. Default `3000`.
+    /// `ECAA_PORT`. Default `3000`.
     pub port: u16,
 
     // Provenance / composer ----------------------------------------------
-    /// `SWFC_GIT_ENABLED`. Hard kill-switch for git-backed provenance.
+    /// `ECAA_GIT_ENABLED`. Hard kill-switch for git-backed provenance.
     /// Treats `0` / `false` / `no` / `off` as disabled; everything else
     /// (including unset) is enabled (default `true`).
     pub git_enabled: bool,
-    /// `SWFC_COMPOSER`. Default `"semantic"`; the v4 proof-carrying planner
+    /// `ECAA_COMPOSER`. Default `"semantic"`; the v4 proof-carrying planner
     /// also accepts `"proof-carrying"`. Legacy values warn and route to v4
     /// at the conversation crate's session-create site, so they're not
     /// rejected here.
     pub composer: String,
 
     // Core classifier policy ---------------------------------------------
-    /// `SWFC_MODALITY_DRIFT_MODE`. Controls how `Classifier::load`
+    /// `ECAA_MODALITY_DRIFT_MODE`. Controls how `Classifier::load`
     /// reacts to a non-empty legacy `modalities:` block in
     /// `config/modality-keywords.yaml`. Default [`ModalityDriftMode::Warn`].
     /// `Fail` refuses the load entirely.
@@ -263,7 +263,7 @@ pub struct Config {
     pub modality_drift_mode: ModalityDriftMode,
 
     // ECAA emission mode (Aim 3A Arm B″) ---------------------------------
-    /// `SWFC_ECAA_MODE`. Default `Full` (current behavior — full ECAA
+    /// `ECAA_ECAA_MODE`. Default `Full` (current behavior — full ECAA
     /// package shape with every typed sidecar materialized).
     /// `Conventional` is the Arm B″ control package: README +
     /// analysis.ipynb + basic RO-Crate + per-table CSVs, with no
@@ -303,41 +303,41 @@ impl Config {
             parse_https_url(env, "ANTHROPIC_BASE_URL", DEFAULT_ANTHROPIC_BASE_URL)?;
 
         // -- Chat server ------------------------------------------------
-        let chat_mode = match env.get("SWFC_CHAT_MODE").copied() {
+        let chat_mode = match env.get("ECAA_CHAT_MODE").copied() {
             Some("offline") => ChatMode::Offline,
             Some(other) if other.eq_ignore_ascii_case("offline") => ChatMode::Offline,
             _ => ChatMode::Online,
         };
-        let chat_sessions_dir = parse_pathbuf_with_default(env, "SWFC_CHAT_SESSIONS_DIR", || {
+        let chat_sessions_dir = parse_pathbuf_with_default(env, "ECAA_CHAT_SESSIONS_DIR", || {
             home_subdir(".scripps-workflow/sessions")
         });
         let config_dir =
-            parse_pathbuf_with_default(env, "SWFC_CONFIG_DIR", || PathBuf::from("./config"));
-        let package_root = parse_pathbuf_with_default(env, "SWFC_PACKAGE_ROOT", || {
+            parse_pathbuf_with_default(env, "ECAA_CONFIG_DIR", || PathBuf::from("./config"));
+        let package_root = parse_pathbuf_with_default(env, "ECAA_PACKAGE_ROOT", || {
             home_subdir(".scripps-workflow/packages")
         });
-        let server_auth_token = nonempty_string(env, "SWFC_SERVER_AUTH_TOKEN");
+        let server_auth_token = nonempty_string(env, "ECAA_SERVER_AUTH_TOKEN");
 
         // -- Side-call gates -------------------------------------------
-        let auto_title = parse_bool(env, "SWFC_AUTO_TITLE", false);
-        let live_api = parse_bool(env, "SWFC_LIVE_API", false);
+        let auto_title = parse_bool(env, "ECAA_AUTO_TITLE", false);
+        let live_api = parse_bool(env, "ECAA_LIVE_API", false);
 
         // -- AWS pricing -----------------------------------------------
-        let aws_cost_ceiling_usd = parse_finite_f64(env, "SWFC_AWS_COST_CEILING_USD")?;
+        let aws_cost_ceiling_usd = parse_finite_f64(env, "ECAA_AWS_COST_CEILING_USD")?;
         if let Some(c) = aws_cost_ceiling_usd {
             if c < 0.0 {
                 return Err(anyhow!(
-                    "SWFC_AWS_COST_CEILING_USD must be non-negative, got {c}"
+                    "ECAA_AWS_COST_CEILING_USD must be non-negative, got {c}"
                 ));
             }
         }
         let aws_pricing_region_mult =
-            parse_finite_f64(env, "SWFC_AWS_PRICING_REGION_MULT")?.unwrap_or(1.0);
+            parse_finite_f64(env, "ECAA_AWS_PRICING_REGION_MULT")?.unwrap_or(1.0);
         if !(AWS_PRICING_REGION_MULT_MIN..=AWS_PRICING_REGION_MULT_MAX)
             .contains(&aws_pricing_region_mult)
         {
             return Err(anyhow!(
-                "SWFC_AWS_PRICING_REGION_MULT must be in [{}, {}], got {}",
+                "ECAA_AWS_PRICING_REGION_MULT must be in [{}, {}], got {}",
                 AWS_PRICING_REGION_MULT_MIN,
                 AWS_PRICING_REGION_MULT_MAX,
                 aws_pricing_region_mult
@@ -348,23 +348,23 @@ impl Config {
         // -- Harness loop ----------------------------------------------
         let harness_batch_window_secs = parse_u64_bounded(
             env,
-            "SWFC_HARNESS_BATCH_WINDOW_SECS",
+            "ECAA_HARNESS_BATCH_WINDOW_SECS",
             DEFAULT_HARNESS_BATCH_WINDOW_SECS,
             Some(MAX_HARNESS_BATCH_WINDOW_SECS),
         )?;
         let task_heartbeat_stall_secs = parse_u64_bounded(
             env,
-            "SWFC_TASK_HEARTBEAT_STALL_SECS",
+            "ECAA_TASK_HEARTBEAT_STALL_SECS",
             DEFAULT_TASK_HEARTBEAT_STALL_SECS,
             None,
         )?;
         let harness_bin_path = env
-            .get("SWFC_HARNESS_BIN_PATH")
+            .get("ECAA_HARNESS_BIN_PATH")
             .filter(|s| !s.is_empty())
             .map(PathBuf::from);
 
         // -- Literature ------------------------------------------------
-        let source_scope = match env.get("SWFC_LIT_SOURCE_SCOPE").copied() {
+        let source_scope = match env.get("ECAA_LIT_SOURCE_SCOPE").copied() {
             None | Some("") => LitSourceScope::PmcOa,
             Some("pmc_oa") => LitSourceScope::PmcOa,
             Some("pmc_oa_plus_abstracts") => LitSourceScope::PmcOaPlusAbstracts,
@@ -375,15 +375,15 @@ impl Config {
                 // a typo in this env var must not brick a long-running
                 // harness loop mid-run.
                 tracing::warn!(
-                    "SWFC_LIT_SOURCE_SCOPE={other:?} not recognized; falling back to pmc_oa"
+                    "ECAA_LIT_SOURCE_SCOPE={other:?} not recognized; falling back to pmc_oa"
                 );
                 LitSourceScope::PmcOa
             }
         };
-        let ncbi_api_key = nonempty_string(env, "SWFC_LIT_NCBI_API_KEY");
+        let ncbi_api_key = nonempty_string(env, "ECAA_LIT_NCBI_API_KEY");
         let evidence_max_mb = parse_u64_bounded(
             env,
-            "SWFC_LIT_EVIDENCE_MAX_MB",
+            "ECAA_LIT_EVIDENCE_MAX_MB",
             DEFAULT_LIT_EVIDENCE_MAX_MB,
             None,
         )?;
@@ -394,19 +394,19 @@ impl Config {
         };
 
         // -- Upload / input bounds -------------------------------------
-        let upload_root = nonempty_string(env, "SWFC_UPLOAD_ROOT");
+        let upload_root = nonempty_string(env, "ECAA_UPLOAD_ROOT");
         let upload_disk_reserve_gb = parse_u64_bounded(
             env,
-            "SWFC_UPLOAD_DISK_RESERVE_GB",
+            "ECAA_UPLOAD_DISK_RESERVE_GB",
             DEFAULT_UPLOAD_DISK_RESERVE_GB,
             None,
         )?;
         // The documented separator is colon (POSIX `$PATH` style); we
-        // also accept comma to match the SWFC_AWS_SUBNET_IDS and
-        // SWFC_AWS_INSTANCE_TYPE_ALLOWLIST precedents elsewhere in the
+        // also accept comma to match the ECAA_AWS_SUBNET_IDS and
+        // ECAA_AWS_INSTANCE_TYPE_ALLOWLIST precedents elsewhere in the
         // catalog.
         let input_roots = env
-            .get("SWFC_INPUT_ROOTS")
+            .get("ECAA_INPUT_ROOTS")
             .copied()
             .unwrap_or("")
             .split([':', ','])
@@ -416,35 +416,35 @@ impl Config {
 
         // -- Bind / port -----------------------------------------------
         let bind_addr = env
-            .get("SWFC_BIND_ADDR")
+            .get("ECAA_BIND_ADDR")
             .copied()
             .filter(|s| !s.is_empty())
             .unwrap_or(DEFAULT_BIND_ADDR)
             .to_string();
-        let port = parse_u16_with_default(env, "SWFC_PORT", DEFAULT_PORT)?;
+        let port = parse_u16_with_default(env, "ECAA_PORT", DEFAULT_PORT)?;
 
         // -- Provenance / composer -------------------------------------
-        let git_enabled = match env.get("SWFC_GIT_ENABLED").copied() {
+        let git_enabled = match env.get("ECAA_GIT_ENABLED").copied() {
             // Documented kill-switch: ONLY `0` disables (the docs say
             // "any other value (or absent) = config-driven default").
             Some("0") => false,
             _ => true,
         };
         let composer = env
-            .get("SWFC_COMPOSER")
+            .get("ECAA_COMPOSER")
             .copied()
             .filter(|s| !s.is_empty())
             .unwrap_or(DEFAULT_COMPOSER)
             .to_string();
 
         // -- Core classifier policy ------------------------------------
-        let modality_drift_mode = match env.get("SWFC_MODALITY_DRIFT_MODE").copied() {
+        let modality_drift_mode = match env.get("ECAA_MODALITY_DRIFT_MODE").copied() {
             Some(v) if v.eq_ignore_ascii_case("fail") => ModalityDriftMode::Fail,
             Some(v) if v.eq_ignore_ascii_case("warn") => ModalityDriftMode::Warn,
             None | Some("") => ModalityDriftMode::Warn,
             Some(other) => {
                 tracing::warn!(
-                    "SWFC_MODALITY_DRIFT_MODE={other:?} not recognized; falling back to warn"
+                    "ECAA_MODALITY_DRIFT_MODE={other:?} not recognized; falling back to warn"
                 );
                 ModalityDriftMode::Warn
             }
@@ -452,7 +452,7 @@ impl Config {
 
         // -- ECAA emission mode ----------------------------------------
         let ecaa_mode =
-            crate::emit_mode::EcaaMode::from_env_str(env.get("SWFC_ECAA_MODE").copied());
+            crate::emit_mode::EcaaMode::from_env_str(env.get("ECAA_ECAA_MODE").copied());
 
         Ok(Config {
             anthropic_api_key,
@@ -760,11 +760,11 @@ impl ConfigBuilder {
 // Helper parsers
 // ----------------------------------------------------------------------------
 
-/// Reads `SWFC_ANTHROPIC_API_KEY`, falling back to legacy `ANTHROPIC_API_KEY`
+/// Reads `ECAA_ANTHROPIC_API_KEY`, falling back to legacy `ANTHROPIC_API_KEY`
 /// with a one-time stderr deprecation warning (matches the docs in
 /// `docs/env-vars-reference.md`).
 fn read_api_key(env: &HashMap<&str, &str>) -> Option<String> {
-    if let Some(k) = env.get("SWFC_ANTHROPIC_API_KEY").copied() {
+    if let Some(k) = env.get("ECAA_ANTHROPIC_API_KEY").copied() {
         if !k.is_empty() {
             return Some(k.to_string());
         }
@@ -775,7 +775,7 @@ fn read_api_key(env: &HashMap<&str, &str>) -> Option<String> {
             // structured-log pipeline, not bare stderr — consistent
             // with the rest of the workspace.
             tracing::warn!(
-                "ANTHROPIC_API_KEY is deprecated; use SWFC_ANTHROPIC_API_KEY \
+                "ANTHROPIC_API_KEY is deprecated; use ECAA_ANTHROPIC_API_KEY \
                  to keep agent + chat-side billing separate"
             );
             return Some(k.to_string());
@@ -829,7 +829,7 @@ fn parse_finite_f64(env: &HashMap<&str, &str>, key: &str) -> Result<Option<f64>>
 
 /// Parses a `u64` env-var with a documented default + optional inclusive
 /// maximum. Values above the max are rejected (mirrors the docs' explicit
-/// "values >600s are rejected" contract for `SWFC_HARNESS_BATCH_WINDOW_SECS`).
+/// "values >600s are rejected" contract for `ECAA_HARNESS_BATCH_WINDOW_SECS`).
 fn parse_u64_bounded(
     env: &HashMap<&str, &str>,
     key: &str,
@@ -879,7 +879,7 @@ fn parse_bool(env: &HashMap<&str, &str>, key: &str, default: bool) -> bool {
 }
 
 /// Parses an optional non-empty string env-var. Returns `None` when unset
-/// OR set to the empty string (an empty `SWFC_SERVER_AUTH_TOKEN` is just
+/// OR set to the empty string (an empty `ECAA_SERVER_AUTH_TOKEN` is just
 /// as broken as unset and should not paper over the operator's mistake).
 fn nonempty_string(env: &HashMap<&str, &str>, key: &str) -> Option<String> {
     env.get(key)
@@ -917,14 +917,14 @@ fn home_subdir(rel: &str) -> PathBuf {
     }
 }
 
-/// Parses `SWFC_AWS_PRICING_OVERRIDES_JSON`. Accepts either an inline JSON
+/// Parses `ECAA_AWS_PRICING_OVERRIDES_JSON`. Accepts either an inline JSON
 /// object (matching the historical site-tunable shape) or — per the docs
 /// in `env-vars-reference.md` — a path to a JSON file on disk. The
 /// inline path takes precedence if the env value parses as JSON.
 ///
 /// Each override value must be finite and `> 0`.
 fn parse_pricing_overrides(env: &HashMap<&str, &str>) -> Result<HashMap<String, f64>> {
-    let raw = match env.get("SWFC_AWS_PRICING_OVERRIDES_JSON").copied() {
+    let raw = match env.get("ECAA_AWS_PRICING_OVERRIDES_JSON").copied() {
         None => return Ok(HashMap::new()),
         Some("") => return Ok(HashMap::new()),
         Some(s) => s,
@@ -935,23 +935,23 @@ fn parse_pricing_overrides(env: &HashMap<&str, &str>) -> Result<HashMap<String, 
     // either way.
     let parsed: HashMap<String, f64> = if raw.trim_start().starts_with('{') {
         serde_json::from_str(raw)
-            .with_context(|| format!("SWFC_AWS_PRICING_OVERRIDES_JSON inline parse: {raw:?}"))?
+            .with_context(|| format!("ECAA_AWS_PRICING_OVERRIDES_JSON inline parse: {raw:?}"))?
     } else {
         let bytes = std::fs::read(raw).with_context(|| {
-            format!("SWFC_AWS_PRICING_OVERRIDES_JSON cannot read file: {raw:?}")
+            format!("ECAA_AWS_PRICING_OVERRIDES_JSON cannot read file: {raw:?}")
         })?;
         serde_json::from_slice(&bytes)
-            .with_context(|| format!("SWFC_AWS_PRICING_OVERRIDES_JSON file parse: {raw:?}"))?
+            .with_context(|| format!("ECAA_AWS_PRICING_OVERRIDES_JSON file parse: {raw:?}"))?
     };
     for (k, v) in &parsed {
         if !v.is_finite() {
             return Err(anyhow!(
-                "SWFC_AWS_PRICING_OVERRIDES_JSON[{k}] must be finite, got {v}"
+                "ECAA_AWS_PRICING_OVERRIDES_JSON[{k}] must be finite, got {v}"
             ));
         }
         if *v <= 0.0 {
             return Err(anyhow!(
-                "SWFC_AWS_PRICING_OVERRIDES_JSON[{k}] must be > 0, got {v}"
+                "ECAA_AWS_PRICING_OVERRIDES_JSON[{k}] must be > 0, got {v}"
             ));
         }
     }
@@ -1030,7 +1030,7 @@ mod tests {
     #[test]
     fn read_api_key_prefers_swfc_prefix() {
         let mut env = HashMap::new();
-        env.insert("SWFC_ANTHROPIC_API_KEY", "swfc-key");
+        env.insert("ECAA_ANTHROPIC_API_KEY", "swfc-key");
         env.insert("ANTHROPIC_API_KEY", "legacy-key");
         assert_eq!(read_api_key(&env), Some("swfc-key".to_string()));
     }
@@ -1045,7 +1045,7 @@ mod tests {
     #[test]
     fn parse_pricing_overrides_rejects_zero() {
         let mut env = HashMap::new();
-        env.insert("SWFC_AWS_PRICING_OVERRIDES_JSON", r#"{"m6i.large": 0.0}"#);
+        env.insert("ECAA_AWS_PRICING_OVERRIDES_JSON", r#"{"m6i.large": 0.0}"#);
         assert!(parse_pricing_overrides(&env).is_err());
     }
 
@@ -1058,7 +1058,7 @@ mod tests {
         // practice JSON forbids NaN, so this confirms the parse-level
         // refusal too.
         let mut env = HashMap::new();
-        env.insert("SWFC_AWS_PRICING_OVERRIDES_JSON", r#"{"x": NaN}"#);
+        env.insert("ECAA_AWS_PRICING_OVERRIDES_JSON", r#"{"x": NaN}"#);
         assert!(
             parse_pricing_overrides(&env).is_err(),
             "JSON disallows bare NaN; parser must surface that"

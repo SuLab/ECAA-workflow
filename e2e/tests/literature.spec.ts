@@ -16,7 +16,7 @@ import type { Beat } from '../helpers/types'
  * ui/src/components/AssistantTurnCard.litEntity.test.tsx (Task 17).
  *
  * Live tier: opt-in via `make e2e-literature-live`
- * (SWFC_LIT_LIVE_API=1) for a real PubMed roundtrip.
+ * (ECAA_LIT_LIVE_API=1) for a real PubMed roundtrip.
  */
 
 const MOCK_LIT_CTX = {

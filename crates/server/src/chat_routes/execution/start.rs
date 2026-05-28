@@ -36,7 +36,7 @@ pub(super) const DEFAULT_MAX_ITERATIONS: u32 = 20;
 /// `Command::new`.
 ///
 /// To add a new agent script, extend this slice AND drop the script
-/// under `SWFC_SCRIPTS_DIR` (or `./scripts/` by default). Absolute paths
+/// under `ECAA_SCRIPTS_DIR` (or `./scripts/` by default). Absolute paths
 /// and arbitrary basenames are refused with `400`.
 pub(crate) const ALLOWED_AGENT_SCRIPTS: &[&str] = &[
     "agent-claude.sh",
@@ -47,21 +47,21 @@ pub(crate) const ALLOWED_AGENT_SCRIPTS: &[&str] = &[
 ];
 
 /// Resolve a caller-supplied `agent_path` against the allowlist and
-/// return a path rooted under `SWFC_SCRIPTS_DIR` (default `scripts/`).
+/// return a path rooted under `ECAA_SCRIPTS_DIR` (default `scripts/`).
 /// The caller's path is reduced to its basename — any directory
 /// component is stripped — so an attacker cannot escape the scripts dir
 /// via `../../tmp/evil.sh` even if the basename happens to match an
-/// allowed name. `None` yields `SWFC_DEFAULT_AGENT_PATH` when set,
+/// allowed name. `None` yields `ECAA_DEFAULT_AGENT_PATH` when set,
 /// otherwise the production default (`agent-claude.sh`).
 pub(crate) fn validate_agent_path(req_path: Option<String>) -> Result<std::path::PathBuf, String> {
-    validate_agent_path_with_default(req_path, std::env::var("SWFC_DEFAULT_AGENT_PATH").ok())
+    validate_agent_path_with_default(req_path, std::env::var("ECAA_DEFAULT_AGENT_PATH").ok())
 }
 
 fn validate_agent_path_with_default(
     req_path: Option<String>,
     env_default: Option<String>,
 ) -> Result<std::path::PathBuf, String> {
-    let repo_scripts = std::env::var("SWFC_SCRIPTS_DIR")
+    let repo_scripts = std::env::var("ECAA_SCRIPTS_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("scripts"));
     let requested = req_path.or(env_default);
@@ -304,10 +304,10 @@ pub(super) const AUTO_RELAUNCH_SENTINEL_DEBOUNCE_SECS: i64 = 450;
 
 /// Threshold for treating a task's heartbeat as "fresh" in the
 /// sentinel-pending scan. Mirrors the harness's
-/// `SWFC_TASK_HEARTBEAT_STALL_SECS` so producer + consumer agree on
+/// `ECAA_TASK_HEARTBEAT_STALL_SECS` so producer + consumer agree on
 /// what "alive" means. Default 900s = 15 min.
 fn server_heartbeat_freshness_secs() -> u64 {
-    std::env::var("SWFC_TASK_HEARTBEAT_STALL_SECS")
+    std::env::var("ECAA_TASK_HEARTBEAT_STALL_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(900)
@@ -610,9 +610,9 @@ pub(crate) async fn maybe_auto_relaunch_harness(
     // optional hard stop. Refuse to (re)spawn
     // when the projected-finish cost would exceed the session's
     // budget cap *and* the operator opted in to hard-stop semantics
-    // via `SWFC_BUDGET_HARD_STOP=1`. Default is soft (warn-only +
+    // via `ECAA_BUDGET_HARD_STOP=1`. Default is soft (warn-only +
     // confirm modal at UI layer).
-    if ecaa_workflow_core::env_helpers::env_bool("SWFC_BUDGET_HARD_STOP") {
+    if ecaa_workflow_core::env_helpers::env_bool("ECAA_BUDGET_HARD_STOP") {
         if let Some(cap) = session.budget_usd {
             if let Some(metrics) = app.conversation.metrics_snapshot(session_id).await {
                 if metrics.projected_finish_usd > cap {
@@ -621,7 +621,7 @@ pub(crate) async fn maybe_auto_relaunch_harness(
                         trigger = %trigger,
                         projected_finish_usd = metrics.projected_finish_usd,
                         budget_usd = cap,
-                        "auto-relaunch skipped: SWFC_BUDGET_HARD_STOP=1 and projected finish exceeds budget"
+                        "auto-relaunch skipped: ECAA_BUDGET_HARD_STOP=1 and projected finish exceeds budget"
                     );
                     return;
                 }
@@ -727,10 +727,10 @@ async fn spawn_harness_for_session_reserved(
     agent_path: Option<String>,
     max_iterations: Option<u32>,
 ) -> Result<ExecutionHandle, SpawnHarnessError> {
-    let harness_bin = std::env::var("SWFC_HARNESS_BIN_PATH")
+    let harness_bin = std::env::var("ECAA_HARNESS_BIN_PATH")
         .unwrap_or_else(|_| "ecaa-workflow-harness".to_string());
     // C-3: the agent path is hard-allowlisted to known
-    // scripts under `SWFC_SCRIPTS_DIR`. The LLM tool no longer accepts
+    // scripts under `ECAA_SCRIPTS_DIR`. The LLM tool no longer accepts
     // an override; the REST surface still does for CLI/test flexibility
     // but every caller-supplied value is reduced to a basename and
     // rejected unless it appears in `ALLOWED_AGENT_SCRIPTS`. Production
@@ -748,15 +748,15 @@ async fn spawn_harness_for_session_reserved(
     };
     let max_iter = max_iterations.unwrap_or_else(|| {
         ecaa_workflow_core::env_helpers::env_parse(
-            "SWFC_DEFAULT_MAX_ITERATIONS",
+            "ECAA_DEFAULT_MAX_ITERATIONS",
             DEFAULT_MAX_ITERATIONS,
         )
     });
-    // SWFC_SERVER_URL default. Port 3737 is distinct from the CLI's 3000 to allow
+    // ECAA_SERVER_URL default. Port 3737 is distinct from the CLI's 3000 to allow
     // `make dev-server` and a live harness to run side-by-side without collision.
     // See docs/api-reference.md "Port Conventions".
     let server_url =
-        std::env::var("SWFC_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3737".to_string());
+        std::env::var("ECAA_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3737".to_string());
 
     // Tee the harness's stdout + stderr into a package-local log so
     // we can diagnose failures after the fact. Without this, the
@@ -1422,7 +1422,7 @@ mod tests {
         let id =
             seed_session_with_completed_task(&app, "t_demo", Some(pkg.path().to_path_buf())).await;
 
-        std::env::set_var("SWFC_HARNESS_BIN_PATH", "/usr/bin/true");
+        std::env::set_var("ECAA_HARNESS_BIN_PATH", "/usr/bin/true");
 
         let req = Request::builder()
             .method("POST")
@@ -1458,7 +1458,7 @@ mod tests {
         let resp = router.oneshot(req).await.unwrap();
         assert_ne!(resp.status(), StatusCode::CONFLICT);
 
-        std::env::remove_var("SWFC_HARNESS_BIN_PATH");
+        std::env::remove_var("ECAA_HARNESS_BIN_PATH");
         drop(pkg);
     }
 
@@ -1516,7 +1516,7 @@ mod tests {
 
         let id =
             seed_session_with_completed_task(&app, "t_demo", Some(pkg.path().to_path_buf())).await;
-        std::env::set_var("SWFC_HARNESS_BIN_PATH", "/usr/bin/true");
+        std::env::set_var("ECAA_HARNESS_BIN_PATH", "/usr/bin/true");
 
         let req = Request::builder()
             .method("POST")
@@ -1553,7 +1553,7 @@ mod tests {
             head_files
         );
 
-        std::env::remove_var("SWFC_HARNESS_BIN_PATH");
+        std::env::remove_var("ECAA_HARNESS_BIN_PATH");
         drop(pkg);
     }
 
@@ -1623,7 +1623,7 @@ mod tests {
             .await
             .unwrap();
 
-        std::env::set_var("SWFC_HARNESS_BIN_PATH", "/usr/bin/true");
+        std::env::set_var("ECAA_HARNESS_BIN_PATH", "/usr/bin/true");
 
         let req = Request::builder()
             .method("POST")
@@ -1648,7 +1648,7 @@ mod tests {
             .expect("maybe_auto_relaunch_harness must have spawned a harness");
         assert!(entry.value().pid > 0, "spawned process must have a pid");
 
-        std::env::remove_var("SWFC_HARNESS_BIN_PATH");
+        std::env::remove_var("ECAA_HARNESS_BIN_PATH");
         drop(pkg);
     }
 }

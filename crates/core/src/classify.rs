@@ -305,13 +305,13 @@ impl Classifier {
     /// `modalities:` block is rejected if non-empty so the two
     /// sources cannot drift.
     ///
-    /// `SWFC_MODALITY_DRIFT_MODE=warn` (default) logs a warning when
+    /// `ECAA_MODALITY_DRIFT_MODE=warn` (default) logs a warning when
     /// the YAML still carries a `modalities:` block; `=fail` refuses
     /// the load. Either way, the registry is authoritative.
     ///
     /// C22 / R-7: thin shim that reads the env var once and dispatches
     /// to [`Self::load_with_drift_mode`]. Production callers in
-    /// long-lived processes should snapshot `SWFC_MODALITY_DRIFT_MODE`
+    /// long-lived processes should snapshot `ECAA_MODALITY_DRIFT_MODE`
     /// into `Config` at boot (the field is `Config::modality_drift_mode`)
     /// and call `load_with_drift_mode(path, cfg.modality_drift_mode)`
     /// to avoid touching the process environment on every load.
@@ -320,7 +320,7 @@ impl Classifier {
         // unchanged. New code should prefer `load_with_drift_mode` with
         // a `Config`-sourced mode.
         #[allow(clippy::disallowed_methods)]
-        let env_mode = std::env::var("SWFC_MODALITY_DRIFT_MODE").ok();
+        let env_mode = std::env::var("ECAA_MODALITY_DRIFT_MODE").ok();
         let mode = match env_mode.as_deref() {
             Some(s) if s.eq_ignore_ascii_case("fail") => crate::config::ModalityDriftMode::Fail,
             _ => crate::config::ModalityDriftMode::Warn,

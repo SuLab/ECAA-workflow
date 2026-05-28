@@ -1,19 +1,19 @@
 //! Multi-AZ failover — when `AwsExecutor::provision` hits
 //! `InsufficientInstanceCapacity` in one subnet, it rotates to the
-//! next subnet in `SWFC_AWS_SUBNET_IDS` (comma-separated) and
+//! next subnet in `ECAA_AWS_SUBNET_IDS` (comma-separated) and
 //! retries.
 
 use std::env;
 
-/// Parses `SWFC_AWS_SUBNET_IDS` as a comma-separated list. Falls
-/// back to the single-subnet `SWFC_AWS_SUBNET_ID` when the plural
+/// Parses `ECAA_AWS_SUBNET_IDS` as a comma-separated list. Falls
+/// back to the single-subnet `ECAA_AWS_SUBNET_ID` when the plural
 /// form is unset. Empty result means "no subnet configured" — the
 /// caller should refuse to provision.
 pub fn subnet_rotation() -> Vec<String> {
-    if let Ok(raw) = env::var("SWFC_AWS_SUBNET_IDS") {
+    if let Ok(raw) = env::var("ECAA_AWS_SUBNET_IDS") {
         return parse_list(&raw);
     }
-    if let Ok(single) = env::var("SWFC_AWS_SUBNET_ID") {
+    if let Ok(single) = env::var("ECAA_AWS_SUBNET_ID") {
         let t = single.trim();
         if !t.is_empty() {
             return vec![t.to_string()];
@@ -45,7 +45,7 @@ impl SubnetCursor {
         Self { subnets, next: 0 }
     }
 
-    /// Creates a cursor from `SWFC_AWS_SUBNET_IDS` (or `SWFC_AWS_SUBNET_ID`).
+    /// Creates a cursor from `ECAA_AWS_SUBNET_IDS` (or `ECAA_AWS_SUBNET_ID`).
     pub fn from_env() -> Self {
         Self::new(subnet_rotation())
     }
@@ -124,29 +124,29 @@ mod tests {
 
     fn with_env<T>(plural: Option<&str>, singular: Option<&str>, body: impl FnOnce() -> T) -> T {
         // Serialize with the aws.rs env tests via the crate-wide
-        // SWFC_AWS_ENV_LOCK so we don't race their transient
-        // SWFC_AWS_SUBNET_IDS=subnet-test overrides.
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        // ECAA_AWS_ENV_LOCK so we don't race their transient
+        // ECAA_AWS_SUBNET_IDS=subnet-test overrides.
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        let prior_plural = env::var("SWFC_AWS_SUBNET_IDS").ok();
-        let prior_single = env::var("SWFC_AWS_SUBNET_ID").ok();
+        let prior_plural = env::var("ECAA_AWS_SUBNET_IDS").ok();
+        let prior_single = env::var("ECAA_AWS_SUBNET_ID").ok();
         match plural {
-            Some(v) => unsafe { env::set_var("SWFC_AWS_SUBNET_IDS", v) },
-            None => unsafe { env::remove_var("SWFC_AWS_SUBNET_IDS") },
+            Some(v) => unsafe { env::set_var("ECAA_AWS_SUBNET_IDS", v) },
+            None => unsafe { env::remove_var("ECAA_AWS_SUBNET_IDS") },
         }
         match singular {
-            Some(v) => unsafe { env::set_var("SWFC_AWS_SUBNET_ID", v) },
-            None => unsafe { env::remove_var("SWFC_AWS_SUBNET_ID") },
+            Some(v) => unsafe { env::set_var("ECAA_AWS_SUBNET_ID", v) },
+            None => unsafe { env::remove_var("ECAA_AWS_SUBNET_ID") },
         }
         let out = body();
         match prior_plural {
-            Some(v) => unsafe { env::set_var("SWFC_AWS_SUBNET_IDS", v) },
-            None => unsafe { env::remove_var("SWFC_AWS_SUBNET_IDS") },
+            Some(v) => unsafe { env::set_var("ECAA_AWS_SUBNET_IDS", v) },
+            None => unsafe { env::remove_var("ECAA_AWS_SUBNET_IDS") },
         }
         match prior_single {
-            Some(v) => unsafe { env::set_var("SWFC_AWS_SUBNET_ID", v) },
-            None => unsafe { env::remove_var("SWFC_AWS_SUBNET_ID") },
+            Some(v) => unsafe { env::set_var("ECAA_AWS_SUBNET_ID", v) },
+            None => unsafe { env::remove_var("ECAA_AWS_SUBNET_ID") },
         }
         out
     }

@@ -176,7 +176,7 @@ async fn emit_steps(
     config_dir: &Path,
     tier: ecaa_workflow_core::provenance_tiers::ProvenanceTier,
 ) -> Result<()> {
-    // Aim 3A Arm B″ branch. When `SWFC_ECAA_MODE=conventional`, emit
+    // Aim 3A Arm B″ branch. When `ECAA_ECAA_MODE=conventional`, emit
     // a competent conventional-documentation envelope (README +
     // analysis.ipynb + basic RO-Crate + tables/*.csv) and skip the full
     // ECAA pipeline entirely. The branch is intentionally placed inside
@@ -188,7 +188,7 @@ async fn emit_steps(
     // already parses this var into `Config::ecaa_mode`, so consumers
     // wanting the typed value have it.
     #[allow(clippy::disallowed_methods)]
-    let raw_mode = std::env::var("SWFC_ECAA_MODE").ok();
+    let raw_mode = std::env::var("ECAA_ECAA_MODE").ok();
     let mode = ecaa_workflow_core::emit_mode::EcaaMode::from_env_str(raw_mode.as_deref());
     if mode == ecaa_workflow_core::emit_mode::EcaaMode::Conventional {
         // Intent summary: prefer the SME's raw intake prose; fall back
@@ -308,7 +308,7 @@ async fn emit_steps(
 
     // Per-atom runtime prereqs. The harness reads
     // `policies/atom-prereqs/<atom_id>.json` per task under
-    // SWFC_PER_TASK_IMAGES (default on); a missing map silently falls
+    // ECAA_PER_TASK_IMAGES (default on); a missing map silently falls
     // back to host mode (harness/src/executor/per_atom_image.rs:86-88,
     // harness/src/executor/local.rs:582,592-624). Resolve atom ids from
     // the session's cached `WorkflowDag` (v4 composer-driven path) and
@@ -472,8 +472,8 @@ async fn emit_steps(
     // Grant v19 §Authentication of Key Resources (D1-D4) — emit the
     // four runtime/*.json sidecars cited as live disclosure surfaces.
     // D1 (claim-verification) is suppressed under
-    // SWFC_ABLATE_CLAIM_CONSISTENCY; D2's `ablation_engaged` field
-    // mirrors SWFC_ABLATE_REEXECUTION_CLASS; D3 + D4 are always
+    // ECAA_ABLATE_CLAIM_CONSISTENCY; D2's `ablation_engaged` field
+    // mirrors ECAA_ABLATE_REEXECUTION_CLASS; D3 + D4 are always
     // written (security + model-version disclosure are load-bearing
     // regardless of arm). The RO-Crate patcher below picks all four
     // up automatically (presence-gated registration loop).
@@ -481,14 +481,14 @@ async fn emit_steps(
     sidecars::write_determinism_shim(output_dir).await?;
     // D5 — 5-bucket re-execution classification sidecar. Written when a
     // parent package exists; suppressed (empty file) under
-    // SWFC_ABLATE_REEXECUTION_CLASS; absent on first emit. Uses the
+    // ECAA_ABLATE_REEXECUTION_CLASS; absent on first emit. Uses the
     // `output_dir` (staging) as the replay side and the session's
     // parent_package_path as the source side.
     sidecars::write_reexecution_sidecar(session, output_dir).await?;
     sidecars::write_security_policy(session, output_dir).await?;
     sidecars::write_model_policy(session, output_dir).await?;
     // D5 — typed-blocker sidecar. Suppressed under
-    // SWFC_ABLATE_TYPED_BLOCKERS (ablation moves from the SSE broadcaster
+    // ECAA_ABLATE_TYPED_BLOCKERS (ablation moves from the SSE broadcaster
     // to emit-only; the live runtime path always returns typed blockers).
     sidecars::write_typed_blocker(output_dir).await?;
     // v3 P7 — write `runtime/schema-versions.json` listing the
@@ -543,7 +543,7 @@ async fn emit_steps(
     // previously-written ECAA sidecars and persist it as
     // `runtime/audit-proof-report.json`. Warn-only: a serialization or
     // I/O failure must not abort the emit. Suppressed under
-    // SWFC_ABLATE_AUDIT_PROOF for the Arm B′ ablation control.
+    // ECAA_ABLATE_AUDIT_PROOF for the Arm B′ ablation control.
     if !ecaa_workflow_core::ablation::AblationFlag::AuditProof.is_active() {
         let validator = ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
         match ecaa_workflow_core::audit_proof::run_audit_proof(output_dir, &validator) {
@@ -572,11 +572,11 @@ async fn emit_steps(
     }
     // ECAA emit-time validation — runs after audit_proof so the
     // audit-proof-report.json file is present for the SHACL projection.
-    // Mode is read from SWFC_VALIDATE_ON_EMIT:
+    // Mode is read from ECAA_VALIDATE_ON_EMIT:
     //   unset / schema_only (default, sane production): pure-Rust JSON Schema only
     //   full: + external Python validators (SHACL via pyshacl, OWL DL via owlready2 + HermiT, runcrate validate)
     //   off / 0 / false / no: skipped entirely
-    // Warn-only unless SWFC_VALIDATION_BLOCK_ON_FAIL=1. See
+    // Warn-only unless ECAA_VALIDATION_BLOCK_ON_FAIL=1. See
     // crates/conversation/src/emit/validation.rs for full env-var docs.
     {
         let pkg_root = output_dir.to_path_buf();
@@ -592,7 +592,7 @@ async fn emit_steps(
                 .await;
             }
             Ok(Err(e)) => {
-                // SWFC_VALIDATION_BLOCK_ON_FAIL=1 path — propagate the abort.
+                // ECAA_VALIDATION_BLOCK_ON_FAIL=1 path — propagate the abort.
                 return Err(e);
             }
             Err(join_err) => {
@@ -1793,13 +1793,13 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn v4_default_emits_sidecars() {
-        // Make sure SWFC_COMPOSER is unset so we exercise the default.
-        std::env::remove_var("SWFC_COMPOSER");
+        // Make sure ECAA_COMPOSER is unset so we exercise the default.
+        std::env::remove_var("ECAA_COMPOSER");
 
         let mut session = Session::new(false);
         assert_eq!(
             session.composer_version, 4,
-            "Phase 5 default flip: new sessions with SWFC_COMPOSER unset must pin composer_version=4"
+            "Phase 5 default flip: new sessions with ECAA_COMPOSER unset must pin composer_version=4"
         );
 
         let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");

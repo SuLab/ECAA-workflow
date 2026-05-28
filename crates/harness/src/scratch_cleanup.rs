@@ -2,7 +2,7 @@
 //!
 //! The lifecycle for `runtime/scratch/<task_id>/` is:
 //! created by `scripts/agent-claude.sh` at task dispatch (line ~250,
-//! exported as `SWFC_TASK_SCRATCH_DIR`), used as ephemeral working area
+//! exported as `ECAA_TASK_SCRATCH_DIR`), used as ephemeral working area
 //! by the agent, and removed when the task reaches a terminal state
 //! (Completed / Failed). Without this hook the directory persists past
 //! the task — visible to a re-dispatched task in the same package, and
@@ -14,7 +14,7 @@
 //! same `task_id` on this host (the dispatch WAL guarantees at most
 //! one in-flight dispatch per `task_id`).
 //!
-//! Bypass: `SWFC_SCRATCH_KEEP=1` skips removal for forensic debugging.
+//! Bypass: `ECAA_SCRATCH_KEEP=1` skips removal for forensic debugging.
 //! Any other value (or unset) = cleanup runs.
 
 use std::path::Path;
@@ -22,13 +22,13 @@ use std::path::Path;
 /// Remove the per-task scratch directory `<package>/runtime/scratch/<task_id>/`.
 ///
 /// Returns `true` if a removal was attempted (directory existed and
-/// `SWFC_SCRATCH_KEEP` was not set), `false` if skipped. The boolean
+/// `ECAA_SCRATCH_KEEP` was not set), `false` if skipped. The boolean
 /// is primarily for tests — production callers ignore it. Errors during
 /// `remove_dir_all` are logged via `tracing::warn!` and swallowed: a
 /// stale scratch directory is undesirable but never load-bearing for
 /// task state.
 pub fn cleanup_task_scratch(package_root: &Path, task_id: &str) -> bool {
-    if ecaa_workflow_core::env_helpers::env_bool("SWFC_SCRATCH_KEEP") {
+    if ecaa_workflow_core::env_helpers::env_bool("ECAA_SCRATCH_KEEP") {
         return false;
     }
     let scratch = package_root.join("runtime").join("scratch").join(task_id);
@@ -57,7 +57,7 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    // SWFC_SCRATCH_KEEP is process-global; serialize the env mutators
+    // ECAA_SCRATCH_KEEP is process-global; serialize the env mutators
     // so the parallel test runner doesn't clobber. Each test that
     // touches the env var must hold this lock for its entire duration.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -74,7 +74,7 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_SCRATCH_KEEP");
+            std::env::remove_var("ECAA_SCRATCH_KEEP");
         }
         let pkg = tempfile::tempdir().unwrap();
         let scratch = make_scratch(pkg.path(), "task_alpha");
@@ -90,7 +90,7 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_SCRATCH_KEEP");
+            std::env::remove_var("ECAA_SCRATCH_KEEP");
         }
         let pkg = tempfile::tempdir().unwrap();
         // No scratch dir created. Should silently return false.
@@ -104,7 +104,7 @@ mod tests {
         // SAFETY: tests serialized via ENV_LOCK.
         #[allow(unsafe_code)]
         unsafe {
-            std::env::set_var("SWFC_SCRATCH_KEEP", "1");
+            std::env::set_var("ECAA_SCRATCH_KEEP", "1");
         }
         let pkg = tempfile::tempdir().unwrap();
         let scratch = make_scratch(pkg.path(), "task_beta");
@@ -116,7 +116,7 @@ mod tests {
         // Cleanup the env var so other tests don't see it.
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_SCRATCH_KEEP");
+            std::env::remove_var("ECAA_SCRATCH_KEEP");
         }
     }
 
@@ -125,7 +125,7 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         #[allow(unsafe_code)]
         unsafe {
-            std::env::remove_var("SWFC_SCRATCH_KEEP");
+            std::env::remove_var("ECAA_SCRATCH_KEEP");
         }
         let pkg = tempfile::tempdir().unwrap();
         let scratch_a = make_scratch(pkg.path(), "task_a");

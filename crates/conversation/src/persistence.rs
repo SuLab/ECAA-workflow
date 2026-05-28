@@ -297,7 +297,7 @@ impl SessionStore {
         // Kick off the background prune. If the task panics or the
         // runtime is dropped before it completes, the next startup
         // will pick up the unprune'd files. After the initial sweep,
-        // loop on `SWFC_TTL_PRUNE_INTERVAL_SECS` (default 3600s) so
+        // loop on `ECAA_TTL_PRUNE_INTERVAL_SECS` (default 3600s) so
         // a long-running server still reaps expired sessions during
         // its lifetime. A recurring sweep ensures expired sessions
         // are reaped during the server's lifetime, not just at boot.
@@ -823,7 +823,7 @@ impl SessionStore {
 ///   pass appends a `BlockerKind::ReplayCorruption` chip to a
 ///   freshly-created session so the SME knows replay was lossy.
 ///
-/// Selected via `SWFC_SESSION_LOAD_MODE=strict|permissive`; default
+/// Selected via `ECAA_SESSION_LOAD_MODE=strict|permissive`; default
 /// `permissive` so a single bad file doesn't hose the whole server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionLoadMode {
@@ -836,11 +836,11 @@ pub enum SessionLoadMode {
 }
 
 impl SessionLoadMode {
-    /// Resolve from `SWFC_SESSION_LOAD_MODE`. Unset / empty / unknown
+    /// Resolve from `ECAA_SESSION_LOAD_MODE`. Unset / empty / unknown
     /// → Permissive (production safe default). `strict` flips on the
     /// hard-fail path used in CI + tests.
     pub fn from_env() -> Self {
-        match std::env::var("SWFC_SESSION_LOAD_MODE")
+        match std::env::var("ECAA_SESSION_LOAD_MODE")
             .ok()
             .as_deref()
             .map(str::trim)
@@ -852,18 +852,18 @@ impl SessionLoadMode {
 }
 
 /// Recurring TTL prune cadence. Default 3600s (1 hour); override via
-/// `SWFC_TTL_PRUNE_INTERVAL_SECS`. Unset / unparseable / zero falls
+/// `ECAA_TTL_PRUNE_INTERVAL_SECS`. Unset / unparseable / zero falls
 /// back to the default with a `tracing::warn!`. The recurring sweep
 /// reaps expired sessions during the server's lifetime, not just at
 /// boot.
 fn ttl_prune_interval_from_env() -> std::time::Duration {
     const DEFAULT_SECS: u64 = 3600;
-    match std::env::var("SWFC_TTL_PRUNE_INTERVAL_SECS").ok() {
+    match std::env::var("ECAA_TTL_PRUNE_INTERVAL_SECS").ok() {
         Some(raw) => match raw.trim().parse::<u64>() {
             Ok(n) if n > 0 => std::time::Duration::from_secs(n),
             Ok(_) => {
                 tracing::warn!(
-                    "SWFC_TTL_PRUNE_INTERVAL_SECS=0 not allowed; falling back to {DEFAULT_SECS}s"
+                    "ECAA_TTL_PRUNE_INTERVAL_SECS=0 not allowed; falling back to {DEFAULT_SECS}s"
                 );
                 std::time::Duration::from_secs(DEFAULT_SECS)
             }
@@ -871,7 +871,7 @@ fn ttl_prune_interval_from_env() -> std::time::Duration {
                 tracing::warn!(
                     error = %e,
                     raw = %raw,
-                    "SWFC_TTL_PRUNE_INTERVAL_SECS unparseable; falling back to {DEFAULT_SECS}s"
+                    "ECAA_TTL_PRUNE_INTERVAL_SECS unparseable; falling back to {DEFAULT_SECS}s"
                 );
                 std::time::Duration::from_secs(DEFAULT_SECS)
             }
@@ -1194,15 +1194,15 @@ mod tests {
 
     #[test]
     fn session_load_mode_defaults_permissive() {
-        std::env::remove_var("SWFC_SESSION_LOAD_MODE");
+        std::env::remove_var("ECAA_SESSION_LOAD_MODE");
         assert_eq!(SessionLoadMode::from_env(), SessionLoadMode::Permissive);
     }
 
     #[test]
     fn session_load_mode_strict_via_env() {
-        std::env::set_var("SWFC_SESSION_LOAD_MODE", "strict");
+        std::env::set_var("ECAA_SESSION_LOAD_MODE", "strict");
         assert_eq!(SessionLoadMode::from_env(), SessionLoadMode::Strict);
-        std::env::remove_var("SWFC_SESSION_LOAD_MODE");
+        std::env::remove_var("ECAA_SESSION_LOAD_MODE");
     }
 
     #[tokio::test]

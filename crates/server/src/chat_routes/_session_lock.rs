@@ -1,6 +1,6 @@
 //! Multi-process server lock keyed by the session-store directory.
 //!
-//! Two server processes pointed at the same `SWFC_CHAT_SESSIONS_DIR`
+//! Two server processes pointed at the same `ECAA_CHAT_SESSIONS_DIR`
 //! would race on `atomic_write_rename` (the same `<id>.json.tmp` →
 //! `<id>.json` swap) and on the per-session HashMaps the prune-hook
 //! GC operates on. Symptoms of a collision are subtle: lost updates
@@ -22,7 +22,7 @@
 //! per-route guard. A single boot-time acquire on the store dir is
 //! both cheaper and more comprehensive.
 //!
-//! Bypass: `SWFC_SERVER_DEBUG_ALLOW_MULTI_PROCESS=1` skips the
+//! Bypass: `ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS=1` skips the
 //! acquire entirely so multi-server integration tests can opt out.
 //! Production never sets this.
 //!
@@ -54,11 +54,11 @@ impl ServerSessionStoreLock {
     /// holds it; the caller (`lib::run`) prints the contention
     /// message and exits.
     ///
-    /// Honors `SWFC_SERVER_DEBUG_ALLOW_MULTI_PROCESS=1` by returning
+    /// Honors `ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS=1` by returning
     /// a sentinel that holds no real lock — only test harnesses that
     /// need two server processes deliberately should set it.
     pub fn acquire(session_store_dir: &Path) -> Result<Self> {
-        if std::env::var("SWFC_SERVER_DEBUG_ALLOW_MULTI_PROCESS")
+        if std::env::var("ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS")
             .ok()
             .as_deref()
             == Some("1")
@@ -97,7 +97,7 @@ impl ServerSessionStoreLock {
             return Err(anyhow!(
                 "could not acquire server session-store lock {}: {} \
                  (another ecaa-workflow-server pointed at {} is already running; \
-                 set SWFC_SERVER_DEBUG_ALLOW_MULTI_PROCESS=1 to bypass for tests)",
+                 set ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS=1 to bypass for tests)",
                 path.display(),
                 err,
                 session_store_dir.display()
@@ -201,11 +201,11 @@ mod tests {
     #[test]
     fn bypass_env_returns_sentinel() {
         // SAFETY: process-wide env mutation is sound for single-threaded test scope.
-        std::env::set_var("SWFC_SERVER_DEBUG_ALLOW_MULTI_PROCESS", "1");
+        std::env::set_var("ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS", "1");
         let tmp = tempdir().unwrap();
         // Two acquires must both succeed under the bypass.
         let _l1 = ServerSessionStoreLock::acquire(tmp.path()).unwrap();
         let _l2 = ServerSessionStoreLock::acquire(tmp.path()).unwrap();
-        std::env::remove_var("SWFC_SERVER_DEBUG_ALLOW_MULTI_PROCESS");
+        std::env::remove_var("ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS");
     }
 }

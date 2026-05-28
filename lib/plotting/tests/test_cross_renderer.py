@@ -35,7 +35,7 @@ if str(ROOT) not in sys.path:
 
 R_AVAILABLE = shutil.which("Rscript") is not None
 DOCKER_AVAILABLE = shutil.which("docker") is not None
-R_CONTAINER_IMAGE = os.environ.get("SWFC_DEFAULT_CONTAINER_IMAGE", "bio-min:local")
+R_CONTAINER_IMAGE = os.environ.get("ECAA_DEFAULT_CONTAINER_IMAGE", "bio-min:local")
 R_PLOTTING_DIR = ROOT / "lib" / "plotting_r"
 R_REQUIRED_PACKAGES = ("ggplot2", "scales", "jsonlite", "ragg")
 
@@ -91,7 +91,7 @@ def _docker_r_has_required_packages() -> bool:
 
 def _run_rscript(script: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
     tmp_path.mkdir(parents=True, exist_ok=True)
-    force_container = os.environ.get("SWFC_PLOTTING_R_CONTAINER") == "1"
+    force_container = os.environ.get("ECAA_PLOTTING_R_CONTAINER") == "1"
     if not force_container and _host_r_has_required_packages():
         return subprocess.run(
             ["Rscript", "-e", script],

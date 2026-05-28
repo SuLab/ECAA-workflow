@@ -255,7 +255,7 @@
     "review_prior_work": {
       "assignee": "agent",
       "depends_on": [],
-      "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nSWFC_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
       "kind": "computation",
       "required_artifacts": [
         {
@@ -441,7 +441,7 @@
       "depends_on": [
         "review_prior_work"
       ],
-      "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nSWFC_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "state": {

@@ -193,7 +193,7 @@ pub(super) fn emit_runtime_prereqs(
 
 /// Write `policies/atom-prereqs/<atom_id>.json` per atom whose
 /// `runtime_packages` is buildable. The harness reads these at task
-/// launch time when `SWFC_PER_TASK_IMAGES=1`, derives a per-atom
+/// launch time when `ECAA_PER_TASK_IMAGES=1`, derives a per-atom
 /// content hash, and builds (or cache-hits) one image per unique
 /// atom hash. Atoms with empty / unbuildable manifests get no file
 /// — the harness then falls back to `atom.preferred_container.image`

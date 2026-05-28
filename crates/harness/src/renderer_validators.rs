@@ -11,7 +11,7 @@
 //! - `DeterminismRunner` — re-renders twice via `BubblewrapRunner` with
 //!   `SandboxPolicy::default_strict()` and asserts byte-identical PNG
 //!   output. Falls back to unwrapped Python when
-//!   `SWFC_LOCAL_SANDBOX != bubblewrap` (with a warning log) so the
+//!   `ECAA_LOCAL_SANDBOX != bubblewrap` (with a warning log) so the
 //!   runner functions in dev mode without a bubblewrap install.
 //!
 //! None of these runners are added to `default_runners()` by default —
@@ -23,7 +23,7 @@
 //!
 //! `DeterminismRunner` spawns the drafted Python module twice in
 //! independent `tempfile::TempDir` scratch directories. When
-//! `SWFC_LOCAL_SANDBOX=bubblewrap` the spawns are wrapped in
+//! `ECAA_LOCAL_SANDBOX=bubblewrap` the spawns are wrapped in
 //! `BubblewrapRunner::wrap()` with `SandboxPolicy::default_strict()`
 //! (deny_network, deny_secrets, deny_host_fs). This catches drafter bugs
 //! that try to fetch remote resources or read host credentials at render
@@ -300,7 +300,7 @@ impl ValidatorRunner for ThemeParityRunner {
 ///
 /// ## Sandbox
 ///
-/// When `SWFC_LOCAL_SANDBOX=bubblewrap` both spawns are wrapped in
+/// When `ECAA_LOCAL_SANDBOX=bubblewrap` both spawns are wrapped in
 /// `BubblewrapRunner::wrap()` with `SandboxPolicy::default_strict()`
 /// (deny_network=true, deny_secrets=true, deny_host_fs=true). This
 /// catches renderer bugs that attempt to fetch remote resources or
@@ -417,7 +417,7 @@ impl ValidatorRunner for DeterminismRunner {
         // 4. Determine sandbox mode.
         //
         // `BubblewrapRunner::from_env` returns:
-        // Ok(None) — SWFC_LOCAL_SANDBOX=off or unset
+        // Ok(None) — ECAA_LOCAL_SANDBOX=off or unset
         // Ok(Some(r)) — bubblewrap mode and bwrap binary present
         // Err(_) — bubblewrap mode but bwrap missing (hard error)
         //
@@ -441,7 +441,7 @@ impl ValidatorRunner for DeterminismRunner {
 
         if bwrap_runner.is_none() {
             eprintln!(
-                "[determinism_runner] WARNING: SWFC_LOCAL_SANDBOX != bubblewrap; \
+                "[determinism_runner] WARNING: ECAA_LOCAL_SANDBOX != bubblewrap; \
                  determinism re-renders will run without sandbox isolation"
             );
         }
@@ -484,8 +484,8 @@ impl ValidatorRunner for DeterminismRunner {
             }
             let python_body = format!(
                 "import importlib.util, os, sys\n\
-                 _module = os.environ['SWFC_RENDERER_MODULE']\n\
-                 _out = os.environ['SWFC_RENDERER_OUT_DIR']\n\
+                 _module = os.environ['ECAA_RENDERER_MODULE']\n\
+                 _out = os.environ['ECAA_RENDERER_OUT_DIR']\n\
                  spec = importlib.util.spec_from_file_location('_m', _module)\n\
                  m = importlib.util.module_from_spec(spec)\n\
                  spec.loader.exec_module(m)\n\
@@ -515,27 +515,27 @@ impl ValidatorRunner for DeterminismRunner {
             if !bwrap_policy
                 .allow_envs
                 .iter()
-                .any(|s| s == "SWFC_RENDERER_MODULE")
+                .any(|s| s == "ECAA_RENDERER_MODULE")
             {
-                bwrap_policy.allow_envs.push("SWFC_RENDERER_MODULE".into());
+                bwrap_policy.allow_envs.push("ECAA_RENDERER_MODULE".into());
             }
             if !bwrap_policy
                 .allow_envs
                 .iter()
-                .any(|s| s == "SWFC_RENDERER_OUT_DIR")
+                .any(|s| s == "ECAA_RENDERER_OUT_DIR")
             {
-                bwrap_policy.allow_envs.push("SWFC_RENDERER_OUT_DIR".into());
+                bwrap_policy.allow_envs.push("ECAA_RENDERER_OUT_DIR".into());
             }
             let mut cmd: std::process::Command = if let Some(ref runner) = bwrap_runner {
                 let mut c = runner.wrap("python", &[script_str.as_str()], &bwrap_policy);
-                c.env("SWFC_RENDERER_MODULE", &module_str);
-                c.env("SWFC_RENDERER_OUT_DIR", &out_str);
+                c.env("ECAA_RENDERER_MODULE", &module_str);
+                c.env("ECAA_RENDERER_OUT_DIR", &out_str);
                 c
             } else {
                 let mut c = std::process::Command::new("python");
                 c.arg(&script_str);
-                c.env("SWFC_RENDERER_MODULE", &module_str);
-                c.env("SWFC_RENDERER_OUT_DIR", &out_str);
+                c.env("ECAA_RENDERER_MODULE", &module_str);
+                c.env("ECAA_RENDERER_OUT_DIR", &out_str);
                 c
             };
 

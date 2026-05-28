@@ -271,7 +271,7 @@ pub(super) async fn post_apply_remediation(
         }
         overrides
             .env_passthrough
-            .entry("SWFC_REMEDIATION_RATIONALE".into())
+            .entry("ECAA_REMEDIATION_RATIONALE".into())
             .or_insert(reason.clone());
     }
     // C-8/C-9 final gate: refuse the entire request if any merged

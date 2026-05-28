@@ -24,13 +24,13 @@ const IVD_INTAKE_PATH = join(
   'ivd-chat-intake.md',
 )
 
-// `SWFC_TEST_PORT` lets parallel CI runners or local devs run multiple live
+// `ECAA_TEST_PORT` lets parallel CI runners or local devs run multiple live
 // servers without colliding on 3737. The server picks the same env var when
 // it boots, so the two surfaces stay in sync. (S5.14)
-const TEST_PORT = process.env.SWFC_TEST_PORT
-  ? Number.parseInt(process.env.SWFC_TEST_PORT, 10)
+const TEST_PORT = process.env.ECAA_TEST_PORT
+  ? Number.parseInt(process.env.ECAA_TEST_PORT, 10)
   : 3737
-const BASE_URL = process.env.SWFC_PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${TEST_PORT}`
+const BASE_URL = process.env.ECAA_PLAYWRIGHT_BASE_URL ?? `http://127.0.0.1:${TEST_PORT}`
 
 /**
  * Create a fresh temp directory for the emitted package and return its

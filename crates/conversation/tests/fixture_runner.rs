@@ -81,7 +81,7 @@ struct Fixture {
     rubric_notes: Option<String>,
     /// Pin the session's composer version. When set, the runner overwrites
     /// `Session::composer_version` after `start_session` so the fixture's
-    /// expected behavior is independent of the `SWFC_COMPOSER` default.
+    /// expected behavior is independent of the `ECAA_COMPOSER` default.
     /// Use this when a fixture's assertions depend on a specific composer
     /// path (e.g. legacy taxonomy `discover_*` stages that the v4 archetype
     /// path doesn't author yet).
@@ -380,7 +380,7 @@ async fn make_service_with_batcher(
 // ── Drive a fixture ─────────────────────────────────────────────────────────
 
 async fn drive_fixture(fixture: &Fixture, _tempdir: &tempfile::TempDir) -> SessionId {
-    let _auto_title_guard = EnvVarGuard::set("SWFC_AUTO_TITLE", "0");
+    let _auto_title_guard = EnvVarGuard::set("ECAA_AUTO_TITLE", "0");
     let mock_responses = build_mock(&fixture.mock_responses);
     // Use the batcher-equipped service whenever the fixture has any
     // EnqueueHarnessEvent step. Cheap to always construct, but we keep
@@ -425,7 +425,7 @@ async fn drive_fixture(fixture: &Fixture, _tempdir: &tempfile::TempDir) -> Sessi
     let (session_id, _greeting) = service.start_session(false).await.unwrap();
 
     // Honor an explicit `composer_version:` pin in the fixture YAML so a
-    // fixture's expected behavior is independent of the `SWFC_COMPOSER`
+    // fixture's expected behavior is independent of the `ECAA_COMPOSER`
     // Default (which flipped from v1 → v4 on).
     if let Some(pin) = fixture.composer_version {
         service

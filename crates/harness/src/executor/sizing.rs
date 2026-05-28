@@ -48,13 +48,13 @@ pub struct StageProfile {
     pub notes: Option<String>,
     /// Per-stage override for the SSM RunCommand timeout. When None,
     /// the AwsExecutor falls back to the session-level
-    /// SWFC_AWS_SSM_TIMEOUT_SECS env var (default 3600). Stages
+    /// ECAA_AWS_SSM_TIMEOUT_SECS env var (default 3600). Stages
     /// known to run longer than an hour — alignment_quantification,
     /// variant_calling — should bump this.
     #[serde(default)]
     pub ssm_timeout_secs: Option<u64>,
     /// Per-tool thread budget hint. Populates the agent's
-    /// `SWFC_HW_TOOL_THREAD_CURVES` envelope so STAR / BWA /
+    /// `ECAA_HW_TOOL_THREAD_CURVES` envelope so STAR / BWA /
     /// samtools / salmon / GATK pick the right `--threads` value
     /// instead of defaulting to 1 or `$(nproc)`. Keys are the lowercased
     /// tool name the agent invokes (`bwa`, `star`, `samtools_sort`,
@@ -406,7 +406,7 @@ fn apply_method_overrides(
 /// Resolve the SSM RunCommand timeout for a given stage. Priority
 /// order:
 /// 1. `profiles.yaml::profiles.<stage_class>.ssm_timeout_secs`
-/// 2. `SWFC_AWS_SSM_TIMEOUT_SECS` env var
+/// 2. `ECAA_AWS_SSM_TIMEOUT_SECS` env var
 /// 3. Default: 3600 (one hour)
 ///
 /// The env var is read at call time — the AWS executor consults this
@@ -418,7 +418,7 @@ pub fn resolve_ssm_timeout_secs(profiles: &ComputeProfiles, stage_class: &str) -
             return override_secs;
         }
     }
-    if let Ok(raw) = std::env::var("SWFC_AWS_SSM_TIMEOUT_SECS") {
+    if let Ok(raw) = std::env::var("ECAA_AWS_SSM_TIMEOUT_SECS") {
         if let Ok(n) = raw.trim().parse::<u64>() {
             if n > 0 {
                 return n;
@@ -475,7 +475,7 @@ pub(super) fn instance_capacity(instance_type: &str) -> (u32, u32) {
 /// at c6i.4xlarge (16 vCPU) / r6i.8xlarge (256 GB). When the chosen
 /// shape's vCPU count is still below the request, log a
 /// `swfc::sizing_undersized` warn so the operator can act on the
-/// gap (typically: widen the SWFC_AWS_INSTANCE_TYPE_ALLOWLIST so
+/// gap (typically: widen the ECAA_AWS_INSTANCE_TYPE_ALLOWLIST so
 /// the picker can climb further).
 pub fn resolve_instance_type(req: &ResourceRequirements) -> String {
     let picked = pick_instance_type(req);
@@ -493,7 +493,7 @@ pub fn resolve_instance_type(req: &ResourceRequirements) -> String {
             picked_memory_gb = picked_mem,
             picked = %picked,
             "sizing resolver could not satisfy vcpus request; consider widening \
-             SWFC_AWS_INSTANCE_TYPE_ALLOWLIST or adding a larger family to the picker"
+             ECAA_AWS_INSTANCE_TYPE_ALLOWLIST or adding a larger family to the picker"
         );
     }
     picked
@@ -1075,17 +1075,17 @@ mod tests {
     #[test]
     fn ssm_timeout_falls_back_to_default() {
         // Serialize via the shared env lock so parallel tests don't
-        // race on SWFC_AWS_SSM_TIMEOUT_SECS.
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        // race on ECAA_AWS_SSM_TIMEOUT_SECS.
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         let profiles = load_real_profiles();
         // Temporarily clear the env var so the fallback path runs.
-        let prior = std::env::var("SWFC_AWS_SSM_TIMEOUT_SECS").ok();
-        unsafe { std::env::remove_var("SWFC_AWS_SSM_TIMEOUT_SECS") };
+        let prior = std::env::var("ECAA_AWS_SSM_TIMEOUT_SECS").ok();
+        unsafe { std::env::remove_var("ECAA_AWS_SSM_TIMEOUT_SECS") };
         let timeout = resolve_ssm_timeout_secs(&profiles, "clustering");
         if let Some(v) = prior {
-            unsafe { std::env::set_var("SWFC_AWS_SSM_TIMEOUT_SECS", v) };
+            unsafe { std::env::set_var("ECAA_AWS_SSM_TIMEOUT_SECS", v) };
         }
         // No per-stage override + no env var = 3600.
         assert_eq!(timeout, 3600);
@@ -1093,23 +1093,23 @@ mod tests {
 
     #[test]
     fn ssm_timeout_honors_env_override() {
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         let profiles = load_real_profiles();
-        let prior = std::env::var("SWFC_AWS_SSM_TIMEOUT_SECS").ok();
-        unsafe { std::env::set_var("SWFC_AWS_SSM_TIMEOUT_SECS", "7200") };
+        let prior = std::env::var("ECAA_AWS_SSM_TIMEOUT_SECS").ok();
+        unsafe { std::env::set_var("ECAA_AWS_SSM_TIMEOUT_SECS", "7200") };
         let timeout = resolve_ssm_timeout_secs(&profiles, "clustering");
         match prior {
-            Some(v) => unsafe { std::env::set_var("SWFC_AWS_SSM_TIMEOUT_SECS", v) },
-            None => unsafe { std::env::remove_var("SWFC_AWS_SSM_TIMEOUT_SECS") },
+            Some(v) => unsafe { std::env::set_var("ECAA_AWS_SSM_TIMEOUT_SECS", v) },
+            None => unsafe { std::env::remove_var("ECAA_AWS_SSM_TIMEOUT_SECS") },
         }
         assert_eq!(timeout, 7200);
     }
 
     #[test]
     fn ssm_timeout_per_stage_override_wins_over_env() {
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         // Build a profiles map with one stage that carries an override.
@@ -1128,8 +1128,8 @@ default:
 "#;
         let profiles: ComputeProfiles = serde_yml::from_str(yaml).unwrap();
 
-        let prior = std::env::var("SWFC_AWS_SSM_TIMEOUT_SECS").ok();
-        unsafe { std::env::set_var("SWFC_AWS_SSM_TIMEOUT_SECS", "1800") };
+        let prior = std::env::var("ECAA_AWS_SSM_TIMEOUT_SECS").ok();
+        unsafe { std::env::set_var("ECAA_AWS_SSM_TIMEOUT_SECS", "1800") };
 
         // variant_calling has a per-stage override → wins over env.
         assert_eq!(
@@ -1140,23 +1140,23 @@ default:
         assert_eq!(resolve_ssm_timeout_secs(&profiles, "other"), 1800);
 
         match prior {
-            Some(v) => unsafe { std::env::set_var("SWFC_AWS_SSM_TIMEOUT_SECS", v) },
-            None => unsafe { std::env::remove_var("SWFC_AWS_SSM_TIMEOUT_SECS") },
+            Some(v) => unsafe { std::env::set_var("ECAA_AWS_SSM_TIMEOUT_SECS", v) },
+            None => unsafe { std::env::remove_var("ECAA_AWS_SSM_TIMEOUT_SECS") },
         }
     }
 
     #[test]
     fn ssm_timeout_ignores_malformed_env_var() {
-        let _lock = super::super::SWFC_AWS_ENV_LOCK
+        let _lock = super::super::ECAA_AWS_ENV_LOCK
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         let profiles = load_real_profiles();
-        let prior = std::env::var("SWFC_AWS_SSM_TIMEOUT_SECS").ok();
-        unsafe { std::env::set_var("SWFC_AWS_SSM_TIMEOUT_SECS", "not-a-number") };
+        let prior = std::env::var("ECAA_AWS_SSM_TIMEOUT_SECS").ok();
+        unsafe { std::env::set_var("ECAA_AWS_SSM_TIMEOUT_SECS", "not-a-number") };
         let timeout = resolve_ssm_timeout_secs(&profiles, "clustering");
         match prior {
-            Some(v) => unsafe { std::env::set_var("SWFC_AWS_SSM_TIMEOUT_SECS", v) },
-            None => unsafe { std::env::remove_var("SWFC_AWS_SSM_TIMEOUT_SECS") },
+            Some(v) => unsafe { std::env::set_var("ECAA_AWS_SSM_TIMEOUT_SECS", v) },
+            None => unsafe { std::env::remove_var("ECAA_AWS_SSM_TIMEOUT_SECS") },
         }
         assert_eq!(timeout, 3600);
     }

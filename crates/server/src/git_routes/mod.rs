@@ -16,7 +16,7 @@
 //!   avoids FFI build pain, and lets users keep their own
 //!   `~/.gitconfig` + ssh-agent.
 //! - Off by default. `GitConfig.enabled = false` is the initial state;
-//!   `SWFC_GIT_ENABLED=0` is a kill switch that overrides the config
+//!   `ECAA_GIT_ENABLED=0` is a kill switch that overrides the config
 //!   regardless of the UI checkbox.
 //! - Private SSH keys never cross the HTTP boundary. The config stores
 //!   a filesystem path; the UI only ever receives the public key +
@@ -32,7 +32,7 @@ pub mod service;
 pub use config::{git_config_path, GitConfig};
 pub use service::{CommitInput, GitService};
 
-/// Shared serializer for tests that mutate `HOME` / `SWFC_GIT_ENABLED`.
+/// Shared serializer for tests that mutate `HOME` / `ECAA_GIT_ENABLED`.
 /// `std::env::set_var` is process-global, so concurrent test threads
 /// racing on the same key produce flaky results. Both `config.rs` and
 /// `service.rs` use this lock so cross-module test parallelism is safe.

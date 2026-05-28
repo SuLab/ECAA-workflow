@@ -17,7 +17,7 @@
 //! AWS, a client that sets the header on the first request gets the
 //! same response replayed on every subsequent retry within the
 //! configured TTL (default 1 hour, override via
-//! `SWFC_IDEMPOTENCY_TTL_SECS`).
+//! `ECAA_IDEMPOTENCY_TTL_SECS`).
 //!
 //! ## How
 //!
@@ -75,7 +75,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
-/// Default TTL: 1 hour. Override via `SWFC_IDEMPOTENCY_TTL_SECS`.
+/// Default TTL: 1 hour. Override via `ECAA_IDEMPOTENCY_TTL_SECS`.
 pub const DEFAULT_IDEMPOTENCY_TTL_SECS: u64 = 3600;
 
 /// Maximum live entries. FIFO-evict the oldest when the cap is hit.
@@ -127,11 +127,11 @@ impl Default for IdempotencyStore {
 }
 
 impl IdempotencyStore {
-    /// Read TTL from `SWFC_IDEMPOTENCY_TTL_SECS`; fall back to
+    /// Read TTL from `ECAA_IDEMPOTENCY_TTL_SECS`; fall back to
     /// [`DEFAULT_IDEMPOTENCY_TTL_SECS`] (3600s) on parse failure or
     /// missing var.
     pub fn from_env() -> Self {
-        let ttl_secs = std::env::var("SWFC_IDEMPOTENCY_TTL_SECS")
+        let ttl_secs = std::env::var("ECAA_IDEMPOTENCY_TTL_SECS")
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
             .filter(|n| *n > 0)

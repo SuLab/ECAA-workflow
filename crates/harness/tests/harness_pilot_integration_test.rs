@@ -220,11 +220,11 @@ PYEOF
         .arg("pilot-test-session")
         .arg("--server-url")
         .arg(format!("http://127.0.0.1:{}", port))
-        .env("SWFC_EXECUTOR_MODE", "local")
-        .env("SWFC_PILOT_ENABLED", "1")
-        .env("SWFC_PILOT_TASKS", "1")
-        .env("SWFC_PILOT_INTERVAL_SECS", "1")
-        .env("SWFC_STALL_ENABLED", "0")
+        .env("ECAA_EXECUTOR_MODE", "local")
+        .env("ECAA_PILOT_ENABLED", "1")
+        .env("ECAA_PILOT_TASKS", "1")
+        .env("ECAA_PILOT_INTERVAL_SECS", "1")
+        .env("ECAA_STALL_ENABLED", "0")
         .status()
         .expect("spawn harness");
     assert!(status.success(), "harness exit status should be success");
@@ -260,7 +260,7 @@ PYEOF
 #[test]
 #[ignore = "flaky pre-existing test (fails in original repo too; timing-sensitive stall detection)"]
 fn harness_drains_stall_signal_and_posts_task_stalled() {
-    // `from_env` accepts `SWFC_STALL_CPU_WINDOW_MINS=0` and clamps
+    // `from_env` accepts `ECAA_STALL_CPU_WINDOW_MINS=0` and clamps
     // the resulting window size to 1 sample. With `cpu_min_pct=101`
     // (unreachable) and `sample_interval_secs=1`, the stall monitor
     // fires within ~2-3 samples of agent start. The mock server
@@ -293,14 +293,14 @@ fn harness_drains_stall_signal_and_posts_task_stalled() {
         .arg("stall-test-session")
         .arg("--server-url")
         .arg(format!("http://127.0.0.1:{}", port))
-        .env("SWFC_EXECUTOR_MODE", "local")
-        .env("SWFC_PILOT_ENABLED", "0")
-        .env("SWFC_STALL_ENABLED", "1")
-        .env("SWFC_STALL_CPU_MIN_PCT", "101")
-        .env("SWFC_STALL_CPU_WINDOW_MINS", "0")
-        .env("SWFC_STALL_SAMPLE_INTERVAL_SECS", "1")
-        .env("SWFC_STALL_MEM_MAX_PCT", "100")
-        .env("SWFC_STALL_MEM_WINDOW_MINS", "999")
+        .env("ECAA_EXECUTOR_MODE", "local")
+        .env("ECAA_PILOT_ENABLED", "0")
+        .env("ECAA_STALL_ENABLED", "1")
+        .env("ECAA_STALL_CPU_MIN_PCT", "101")
+        .env("ECAA_STALL_CPU_WINDOW_MINS", "0")
+        .env("ECAA_STALL_SAMPLE_INTERVAL_SECS", "1")
+        .env("ECAA_STALL_MEM_MAX_PCT", "100")
+        .env("ECAA_STALL_MEM_WINDOW_MINS", "999")
         .status()
         .expect("spawn harness");
     // The harness may exit zero (execution_finished) or non-zero

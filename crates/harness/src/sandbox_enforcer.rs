@@ -26,7 +26,7 @@
 //!
 //! `BubblewrapRunner` translates a `SandboxPolicy` into a `bwrap`-wrapped
 //! `std::process::Command`. Activated only when
-//! `SWFC_LOCAL_SANDBOX=bubblewrap`; the `off` (default) path returns the
+//! `ECAA_LOCAL_SANDBOX=bubblewrap`; the `off` (default) path returns the
 //! original command unchanged so non-sandbox users pay zero cost.
 //!
 //! Provenance: each wrapped dispatch appends a record to
@@ -175,7 +175,7 @@ impl PreDispatchRefusal {
 #[derive(Debug, thiserror::Error)]
 pub enum SandboxRunnerError {
     /// The `bwrap` binary was not found at the configured path.
-    #[error("bwrap binary not found at {0:?}; install bubblewrap or set SWFC_LOCAL_SANDBOX=off")]
+    #[error("bwrap binary not found at {0:?}; install bubblewrap or set ECAA_LOCAL_SANDBOX=off")]
     BwrapBinaryMissing(PathBuf),
     /// The sandbox policy configuration was invalid or inconsistent.
     #[error("local sandbox policy invalid: {0}")]
@@ -192,7 +192,7 @@ pub enum SandboxRunnerError {
 
 /// Translates a `SandboxPolicy` into a `bwrap`-wrapped
 /// `std::process::Command`. Call `from_env` to construct — it checks
-/// `SWFC_LOCAL_SANDBOX` and errors loudly when `bubblewrap` is
+/// `ECAA_LOCAL_SANDBOX` and errors loudly when `bubblewrap` is
 /// requested but `bwrap` is absent (no silent fallback).
 #[derive(Debug)]
 pub struct BubblewrapRunner {
@@ -220,7 +220,7 @@ const SECRET_ENV_PATTERNS: &[&str] = &[
 const SANDBOX_HOME: &str = "/tmp/sandbox_home";
 
 impl BubblewrapRunner {
-    /// Read `SWFC_LOCAL_SANDBOX`. Returns:
+    /// Read `ECAA_LOCAL_SANDBOX`. Returns:
     /// - `Ok(None)` — mode is `off` (default); caller should skip wrapping.
     /// - `Ok(Some(r))` — mode is `bubblewrap` and `bwrap` exists.
     /// - `Err(_)` — mode is `bubblewrap` but `bwrap` is missing.
@@ -228,7 +228,7 @@ impl BubblewrapRunner {
     /// The error is hard — the user explicitly opted in; silent fallback
     /// would violate the security guarantee.
     pub fn from_env(workdir: PathBuf) -> Result<Option<Self>, SandboxRunnerError> {
-        let mode = std::env::var("SWFC_LOCAL_SANDBOX").unwrap_or_else(|_| "off".into());
+        let mode = std::env::var("ECAA_LOCAL_SANDBOX").unwrap_or_else(|_| "off".into());
         match mode.to_ascii_lowercase().as_str() {
             "off" | "" => Ok(None),
             "bubblewrap" => {
@@ -242,14 +242,14 @@ impl BubblewrapRunner {
                 }))
             }
             other => Err(SandboxRunnerError::InvalidPolicy(format!(
-                "SWFC_LOCAL_SANDBOX={other:?} is not a recognised value; \
+                "ECAA_LOCAL_SANDBOX={other:?} is not a recognised value; \
                  expected 'off' or 'bubblewrap'"
             ))),
         }
     }
 
     /// Test helper: variant of `from_env` that uses a caller-supplied `bwrap_path`.
-    /// Checks `SWFC_LOCAL_SANDBOX` but substitutes the given path instead of
+    /// Checks `ECAA_LOCAL_SANDBOX` but substitutes the given path instead of
     /// `/usr/bin/bwrap`. Integration tests use this to simulate a missing binary.
     ///
     /// Not part of the production public API; exposed for integration testing
@@ -259,7 +259,7 @@ impl BubblewrapRunner {
         bwrap_path: PathBuf,
         workdir: PathBuf,
     ) -> Result<Option<Self>, SandboxRunnerError> {
-        let mode = std::env::var("SWFC_LOCAL_SANDBOX").unwrap_or_else(|_| "off".into());
+        let mode = std::env::var("ECAA_LOCAL_SANDBOX").unwrap_or_else(|_| "off".into());
         match mode.to_ascii_lowercase().as_str() {
             "off" | "" => Ok(None),
             "bubblewrap" => {
@@ -272,7 +272,7 @@ impl BubblewrapRunner {
                 }))
             }
             other => Err(SandboxRunnerError::InvalidPolicy(format!(
-                "SWFC_LOCAL_SANDBOX={other:?} is not a recognised value"
+                "ECAA_LOCAL_SANDBOX={other:?} is not a recognised value"
             ))),
         }
     }

@@ -117,16 +117,16 @@ where `{AblationFlag}` is a finite subset of the six normative flags (§4.3).
 
 ### 4.3 The ablation contract (NORMATIVE, load-bearing)
 
-The six `SWFC_ABLATE_*` flags suppress exactly one sub-graph artifact each:
+The six `ECAA_ABLATE_*` flags suppress exactly one sub-graph artifact each:
 
 | Flag | Suppresses | Effect on conformance |
 |---|---|---|
-| `SWFC_ABLATE_DECISION_RECORDS` | `runtime/decisions.jsonl` (D sub-graph) | Non-conformant: D missing |
-| `SWFC_ABLATE_AMENDMENT_PROVENANCE` | `prov:wasDerivedFrom` edges within D | Non-conformant: D lacks required predicate |
-| `SWFC_ABLATE_CLAIM_CONSISTENCY` | `runtime/claim-verification.json` (C sub-graph) | Non-conformant: C missing |
-| `SWFC_ABLATE_TYPED_BLOCKERS` | typed `kind` field on F.Blocker nodes | Non-conformant: F nodes lack required typed kind |
-| `SWFC_ABLATE_REEXECUTION_CLASS` | `class` field on Q.RerunOutcome nodes | Non-conformant: Q nodes lack required class assignment |
-| `SWFC_ABLATE_AUDIT_PROOF` | `runtime/audit-proof-report.json` (A sub-graph) | Non-conformant: A missing |
+| `ECAA_ABLATE_DECISION_RECORDS` | `runtime/decisions.jsonl` (D sub-graph) | Non-conformant: D missing |
+| `ECAA_ABLATE_AMENDMENT_PROVENANCE` | `prov:wasDerivedFrom` edges within D | Non-conformant: D lacks required predicate |
+| `ECAA_ABLATE_CLAIM_CONSISTENCY` | `runtime/claim-verification.json` (C sub-graph) | Non-conformant: C missing |
+| `ECAA_ABLATE_TYPED_BLOCKERS` | typed `kind` field on F.Blocker nodes | Non-conformant: F nodes lack required typed kind |
+| `ECAA_ABLATE_REEXECUTION_CLASS` | `class` field on Q.RerunOutcome nodes | Non-conformant: Q nodes lack required class assignment |
+| `ECAA_ABLATE_AUDIT_PROOF` | `runtime/audit-proof-report.json` (A sub-graph) | Non-conformant: A missing |
 
 ### 4.4 The byte-identity contract
 

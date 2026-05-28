@@ -19,7 +19,7 @@
 # rejects with `BlockerKind::SlurmRuntimeUnavailable` when an atom's
 # `preferred_container` requires a runtime not on the partition's
 # allow-list. SLURM 25.11's `--container` directive is gated behind
-# `SWFC_SLURM_NATIVE_CONTAINER=1` AND a partition whose runtimes
+# `ECAA_SLURM_NATIVE_CONTAINER=1` AND a partition whose runtimes
 # include the requested one — today the auto-detect chain at
 # agent-claude-slurm.sh covers the typical case (Apptainer pre-loaded
 # on most HPC compute nodes).

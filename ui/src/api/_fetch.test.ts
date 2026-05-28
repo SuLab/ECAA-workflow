@@ -4,7 +4,7 @@
 // preservation, and the 404-as-null short-circuit in jsonFetchOrNull.
 //
 // The wrappers also attach a bearer token from
-// `window.__SWFC_AUTH_TOKEN__`; the auth-header tests at the bottom
+// `window.__ECAA_AUTH_TOKEN__`; the auth-header tests at the bottom
 // of this file cover that path.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -22,7 +22,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
   // Clear the bootstrap-injected auth token between tests.
   if (typeof window !== 'undefined') {
-    delete (window as unknown as { __SWFC_AUTH_TOKEN__?: string }).__SWFC_AUTH_TOKEN__
+    delete (window as unknown as { __ECAA_AUTH_TOKEN__?: string }).__ECAA_AUTH_TOKEN__
   }
 })
 
@@ -125,8 +125,8 @@ describe('jsonFetch auth header', () => {
     )
   })
 
-  it('attaches Authorization: Bearer from window.__SWFC_AUTH_TOKEN__', async () => {
-    (window as unknown as { __SWFC_AUTH_TOKEN__?: string }).__SWFC_AUTH_TOKEN__ =
+  it('attaches Authorization: Bearer from window.__ECAA_AUTH_TOKEN__', async () => {
+    (window as unknown as { __ECAA_AUTH_TOKEN__?: string }).__ECAA_AUTH_TOKEN__ =
       'tok-123'
     await jsonFetch('/api/health', {})
     const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!
@@ -135,7 +135,7 @@ describe('jsonFetch auth header', () => {
   })
 
   it('omits Authorization when token is absent', async () => {
-    delete (window as unknown as { __SWFC_AUTH_TOKEN__?: string }).__SWFC_AUTH_TOKEN__
+    delete (window as unknown as { __ECAA_AUTH_TOKEN__?: string }).__ECAA_AUTH_TOKEN__
     await jsonFetch('/api/health', {})
     const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!
     const headers = new Headers(call[1].headers)
@@ -143,7 +143,7 @@ describe('jsonFetch auth header', () => {
   })
 
   it('also attaches Authorization on voidFetch', async () => {
-    (window as unknown as { __SWFC_AUTH_TOKEN__?: string }).__SWFC_AUTH_TOKEN__ =
+    (window as unknown as { __ECAA_AUTH_TOKEN__?: string }).__ECAA_AUTH_TOKEN__ =
       'tok-456'
     await voidFetch('/api/health', {})
     const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]!

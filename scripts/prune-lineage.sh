@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-ROOT="${SWFC_PACKAGE_ROOT:-$HOME/.scripps-workflow/packages}"
+ROOT="${ECAA_PACKAGE_ROOT:-$HOME/.scripps-workflow/packages}"
 KEEP_LAST=3
 MODE="dry-run"
 
@@ -24,7 +24,7 @@ and prunes intermediate packages in any linear chain longer than
 --keep-last.
 
 Defaults:
-  --root       \$SWFC_PACKAGE_ROOT (here: $ROOT)
+  --root       \$ECAA_PACKAGE_ROOT (here: $ROOT)
   --keep-last  $KEEP_LAST
   dry-run mode (no deletions)
 

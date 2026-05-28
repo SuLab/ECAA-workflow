@@ -795,7 +795,7 @@ pub fn scrub_secrets(input: &str) -> String {
 /// `scrub_secrets`. Idempotent.
 ///
 /// Called from `emit_package` as defense in depth: if a prior agent
-/// run under SWFC_AGENT_DEBUG=1 left a trace with an unredacted key
+/// run under ECAA_AGENT_DEBUG=1 left a trace with an unredacted key
 /// (e.g. on an older build that pre-dated the xtrace suppression in
 /// scripts/agent-claude*.sh), this guarantees the emitted package
 /// directory doesn't carry the literal key out the door.

@@ -107,7 +107,7 @@ pub fn content_hash_from_file(path: &std::path::Path) -> std::io::Result<String>
 /// Per-atom isolated image identification.
 /// Content-hash of an atom's `runtime_packages`, `preferred_container`,
 /// and `safety` policy. Used by the per-task image path
-/// (`SWFC_PER_TASK_IMAGES=1`) to derive a unique image tag per atom,
+/// (`ECAA_PER_TASK_IMAGES=1`) to derive a unique image tag per atom,
 /// replacing the union build that combines every reachable atom's
 /// declarations into a single image.
 ///
@@ -148,11 +148,11 @@ pub fn per_atom_image_hash(atom: &AtomDefinition) -> String {
 
 /// True when the operator has opted into per-atom-isolated images.
 ///
-/// Default-on. Operators can set `SWFC_PER_TASK_IMAGES=0` to fall
+/// Default-on. Operators can set `ECAA_PER_TASK_IMAGES=0` to fall
 /// back to the legacy union build path. Any other value (unset,
 /// "true", empty) keeps the per-atom behaviour.
 pub fn per_task_images_enabled() -> bool {
-    !matches!(std::env::var("SWFC_PER_TASK_IMAGES").as_deref(), Ok("0"))
+    !matches!(std::env::var("ECAA_PER_TASK_IMAGES").as_deref(), Ok("0"))
 }
 
 /// Hex-encode a byte slice (lowercase, no separators). Inlined so
@@ -264,7 +264,7 @@ pub fn render_dockerfile(prereqs: &RuntimePrereqs) -> Option<String> {
     // /usr/local/bin/<tool> becomes a symlink to the shim, shadowing
     // the real binary for any PATH-driven invocation. Denied installs
     // exit 73 with a structured-JSON marker the harness translates to
-    // BlockerKind::ProvisioningDenied. SWFC_PROVISIONING_DISABLE=1
+    // BlockerKind::ProvisioningDenied. ECAA_PROVISIONING_DISABLE=1
     // bypasses the policy check (debugging only).
     s.push_str("COPY runtime/install-proxy/_common.py /opt/scripps-workflow/install-proxy/\n");
     s.push_str("COPY runtime/install-proxy/apt.py     /opt/scripps-workflow/install-proxy/\n");
@@ -702,24 +702,24 @@ mod tests {
         // truthy string, empty, or unset) keeps the new default
         // behaviour. Save/restore the prior value so this test
         // doesn't bleed into other tests in the same crate.
-        let prev = std::env::var("SWFC_PER_TASK_IMAGES").ok();
+        let prev = std::env::var("ECAA_PER_TASK_IMAGES").ok();
 
-        std::env::set_var("SWFC_PER_TASK_IMAGES", "0");
+        std::env::set_var("ECAA_PER_TASK_IMAGES", "0");
         assert!(
             !per_task_images_enabled(),
             "literal \"0\" must opt out of per-task images"
         );
 
-        std::env::set_var("SWFC_PER_TASK_IMAGES", "1");
+        std::env::set_var("ECAA_PER_TASK_IMAGES", "1");
         assert!(per_task_images_enabled(), "literal \"1\" is enabled");
 
-        std::env::set_var("SWFC_PER_TASK_IMAGES", "true");
+        std::env::set_var("ECAA_PER_TASK_IMAGES", "true");
         assert!(
             per_task_images_enabled(),
             "any non-\"0\" value keeps the default-on behaviour"
         );
 
-        std::env::remove_var("SWFC_PER_TASK_IMAGES");
+        std::env::remove_var("ECAA_PER_TASK_IMAGES");
         assert!(
             per_task_images_enabled(),
             "unset uses the default-on behaviour"
@@ -727,8 +727,8 @@ mod tests {
 
         // Restore.
         match prev {
-            Some(v) => std::env::set_var("SWFC_PER_TASK_IMAGES", v),
-            None => std::env::remove_var("SWFC_PER_TASK_IMAGES"),
+            Some(v) => std::env::set_var("ECAA_PER_TASK_IMAGES", v),
+            None => std::env::remove_var("ECAA_PER_TASK_IMAGES"),
         }
     }
 

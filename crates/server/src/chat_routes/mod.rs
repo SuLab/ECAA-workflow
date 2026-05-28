@@ -264,7 +264,7 @@ pub use _git_hook_pool::{DropNotifier, GitHookPool};
 
 // Re-export the server-side session-store flock so `lib.rs` can
 // acquire it at boot and emit a clear contention message when a
-// second server points at the same SWFC_CHAT_SESSIONS_DIR.
+// second server points at the same ECAA_CHAT_SESSIONS_DIR.
 pub use _session_lock::ServerSessionStoreLock;
 
 // Re-export the ETag helpers so per-domain submodules can opt into

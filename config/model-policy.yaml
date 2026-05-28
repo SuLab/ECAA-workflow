@@ -27,7 +27,7 @@ rules:
   # Below this confidence, the classifier routes the next turn to Opus 4.7 for
   # careful_mode. Lowering increases Opus usage (and cost); raising lets more
   # uncertain decisions go to Sonnet (cheaper, less reliable on hard cases).
-  # Override at runtime: SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD=0.4 (must be
+  # Override at runtime: ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD=0.4 (must be
   # in [0, 1]).
   - predicate: "confidence < 0.3"
     model: opus_4_7

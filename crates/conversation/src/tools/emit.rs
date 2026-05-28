@@ -11,10 +11,10 @@ use crate::session::Session;
 use std::path::{Path, PathBuf};
 
 /// Server-controlled package root. Packages land under
-/// `$SWFC_PACKAGE_ROOT` when set, otherwise
+/// `$ECAA_PACKAGE_ROOT` when set, otherwise
 /// `~/.scripps-workflow/packages/`. The SME never chooses this.
 pub(super) fn default_package_root() -> PathBuf {
-    if let Ok(d) = std::env::var("SWFC_PACKAGE_ROOT") {
+    if let Ok(d) = std::env::var("ECAA_PACKAGE_ROOT") {
         return PathBuf::from(d);
     }
     if let Ok(home) = std::env::var("HOME") {
@@ -45,7 +45,7 @@ pub(super) fn auto_emit_dir(session: &Session) -> PathBuf {
 /// an explicit path keep compiling, but the value is intentionally
 /// dropped on the floor — the resolved path always comes from
 /// `auto_emit_dir(session)` and is jailed under
-/// `default_package_root()` (`$SWFC_PACKAGE_ROOT` or
+/// `default_package_root()` (`$ECAA_PACKAGE_ROOT` or
 /// `~/.scripps-workflow/packages`).
 pub(super) fn resolve_emit_output_dir(
     session: &Session,
@@ -211,7 +211,7 @@ pub(super) async fn emit_package(
     // so the LLM's prior power to choose the emit location is gone;
     // CLI/test paths must go through a different entry point if they
     // need to override the path. `auto_emit_dir` yields a per-session,
-    // per-emit subdir of `default_package_root()` — `$SWFC_PACKAGE_ROOT`
+    // per-emit subdir of `default_package_root()` — `$ECAA_PACKAGE_ROOT`
     // or `~/.scripps-workflow/packages` — which is jailed by the
     // operator-controlled env var rather than the model.
     let out: PathBuf = resolve_emit_output_dir(session, None);

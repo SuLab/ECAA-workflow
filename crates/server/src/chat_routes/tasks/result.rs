@@ -605,7 +605,7 @@ pub(crate) enum ActiveTaskProgress {
     },
     /// No countable signal. UI shows a CSS shimmer animation.
     /// `eta_min_secs`/`eta_max_secs` are optional pilot-report
-    /// projections; absent unless `SWFC_PILOT_ENABLED=1` produced
+    /// projections; absent unless `ECAA_PILOT_ENABLED=1` produced
     /// a sizing report for this stage class.
     Indeterminate {
         eta_min_secs: Option<u64>,

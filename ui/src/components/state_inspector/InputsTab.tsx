@@ -3,7 +3,7 @@
 // Two registration paths today:
 // 1. Path reference: SME types/pastes a server-local directory path,
 // clicks Validate; the server walks + hashes and persists into
-// Session.inputs. Allowlist enforced server-side via SWFC_INPUT_ROOTS.
+// Session.inputs. Allowlist enforced server-side via ECAA_INPUT_ROOTS.
 // 2. Upload (phase E placeholder): drag/drop UI is wired but the
 // actual chunked upload backend is stubbed (returns 501). The UI
 // surfaces the "coming soon" copy until phase E ships.

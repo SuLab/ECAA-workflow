@@ -103,7 +103,7 @@ pub(super) fn routes() -> axum::Router<ChatAppState> {
 /// lookup) and once-elsewhere; lives here so both submodules import via
 /// `super::config_dir_or_default()`.
 pub(super) fn config_dir_or_default() -> std::path::PathBuf {
-    std::env::var("SWFC_CONFIG_DIR")
+    std::env::var("ECAA_CONFIG_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::path::PathBuf::from("config"))
 }

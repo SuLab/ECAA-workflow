@@ -6,9 +6,9 @@ import type { UserInputKind } from "./UserInputKind";
  * SME-registered data input. Two flavors today:
  *
  * - `local_path` — SME pointed at a directory already on the server
- *   filesystem (validated against `SWFC_INPUT_ROOTS` allowlist).
+ *   filesystem (validated against `ECAA_INPUT_ROOTS` allowlist).
  * - `uploaded_files` — SME uploaded files through the UI; they live
- *   under `<SWFC_UPLOAD_ROOT>/<session_id>/`.
+ *   under `<ECAA_UPLOAD_ROOT>/<session_id>/`.
  *
  * In both cases the server walks the tree at registration time,
  * computes per-file size + sha256, and stores a manifest here. The

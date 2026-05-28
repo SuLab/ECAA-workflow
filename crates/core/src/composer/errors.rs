@@ -175,7 +175,7 @@ pub enum CompositionError {
     /// The full forward / backward / meet-in-the-middle planner
     /// lives in `composer_v4::plan` and produces real `ComposeOutcome`
     /// variants. `composer_version=4` is opt-in via
-    /// `SWFC_COMPOSER=semantic` at session creation so v1-v3 users
+    /// `ECAA_COMPOSER=semantic` at session creation so v1-v3 users
     /// see no behavior change until their fixtures + persisted
     /// sessions migrate.
     #[error(

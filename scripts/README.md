@@ -29,7 +29,7 @@ These scripts are the current active set, wired into the Rust workspace Make tar
 | `test-ivd-web-execute-mock.sh` | `make ivd-web-execute-mock` | Mock-backend smoke of the web chat + harness path. No `ANTHROPIC_API_KEY` needed. |
 | `test-ivd-cross-version.sh` | `make ivd-cross-version` | IVD v1→v5 cross-version regression. Invoked from `rust.yml` on PR and on demand locally. |
 | `test-chat-confirm.sh` | `make chat-confirm` | Regression test for the `awaiting_confirm` auto-proceed behavior. |
-| `measure-latency-baseline.sh` | `make latency-baseline` | Fixture latency baseline. Gated on `SWFC_FIXTURE_TIMEOUT_MS` (default 8000 ms). |
+| `measure-latency-baseline.sh` | `make latency-baseline` | Fixture latency baseline. Gated on `ECAA_FIXTURE_TIMEOUT_MS` (default 8000 ms). |
 | `check-test-counts.sh` | `test-count-check` CI job | Reproduces `.github/ci/expected-test-counts.json` baseline locally; fails on drift-down. |
 
 ### Provenance / lifecycle
@@ -37,7 +37,7 @@ These scripts are the current active set, wired into the Rust workspace Make tar
 | Script | Make target | Purpose |
 |---|---|---|
 | `enrich_provenance.py` | `make enrich PKG=<dir>` | Enriches an emitted package with additional provenance metadata. Requires Python 3.10+. |
-| `prune-lineage.sh` | `make prune-lineage [APPLY=1]` | Walks `$SWFC_PACKAGE_ROOT` and lists (dry-run by default) every amendment chain longer than `--keep-last` (default 3); `APPLY=1` deletes. |
+| `prune-lineage.sh` | `make prune-lineage [APPLY=1]` | Walks `$ECAA_PACKAGE_ROOT` and lists (dry-run by default) every amendment chain longer than `--keep-last` (default 3); `APPLY=1` deletes. |
 
 ### Helpers
 

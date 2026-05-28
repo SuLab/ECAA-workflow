@@ -138,7 +138,7 @@ pub async fn confirm(
         }
     }
     // `Idempotency-Key` short-circuit. A retry
-    // within `SWFC_IDEMPOTENCY_TTL_SECS` (default 1h) with the same
+    // within `ECAA_IDEMPOTENCY_TTL_SECS` (default 1h) with the same
     // header value replays the cached response.
     let ticket = app.idempotency.lookup(session_id, "confirm", &headers);
     if let Some(replay) = ticket.cached_response() {
@@ -735,7 +735,7 @@ mod tests {
     /// lock fails fast instead of stalling CI.
     #[tokio::test]
     async fn confirm_auto_emit_does_not_deadlock() {
-        let _validation_guard = EnvVarGuard::set("SWFC_VALIDATE_ON_EMIT", "schema_only");
+        let _validation_guard = EnvVarGuard::set("ECAA_VALIDATE_ON_EMIT", "schema_only");
         let (router, _) = make_router(vec![
             tool_use(Tool::Batchable(BatchableTool::AppendIntakeProse {
                 prose: "single cell scRNA-seq human samples".into(),

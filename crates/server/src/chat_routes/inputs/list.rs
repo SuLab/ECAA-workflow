@@ -22,7 +22,7 @@ use std::path::{Path as StdPath, PathBuf};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
-/// Default allowlist when `SWFC_INPUT_ROOTS` is unset. The literal
+/// Default allowlist when `ECAA_INPUT_ROOTS` is unset. The literal
 /// `${USER}` token is substituted with the session's `owner_user` at
 /// validation time so every user gets their own home-scoped sandbox
 /// without per-user configuration.
@@ -31,13 +31,13 @@ pub(super) const DEFAULT_INPUT_ROOTS: &str = "/home/${USER}/data";
 /// Cap on the per-file sha256 + read pass. A single input file larger
 /// than this is rejected with 413 — a 100 GB tarball isn't what this
 /// surface is for; SMEs with that much data should mount the dir
-/// directly. Override with `SWFC_INPUT_MAX_FILE_BYTES`.
+/// directly. Override with `ECAA_INPUT_MAX_FILE_BYTES`.
 pub(super) const DEFAULT_MAX_FILE_BYTES: u64 = 50 * 1024 * 1024 * 1024; // 50 GB
 
 /// Cap on the total directory walk size. Refuses runaway registrations
 /// (e.g. an SME accidentally pointing at `/home/<user>/data` when only
 /// `/home/<user>/data/2025-cohort` was meant). Override with
-/// `SWFC_INPUT_MAX_TOTAL_BYTES`.
+/// `ECAA_INPUT_MAX_TOTAL_BYTES`.
 pub(super) const DEFAULT_MAX_TOTAL_BYTES: u64 = 250 * 1024 * 1024 * 1024; // 250 GB
 
 /// Cap on the per-registration file count. Same rationale: catch the
@@ -57,7 +57,7 @@ pub(crate) struct RegisterPathRequest {
 /// Resolve the input-roots allowlist.
 ///
 /// Priority:
-/// 1. `SWFC_INPUT_ROOTS` env (`:`-separated list, supports `${USER}`)
+/// 1. `ECAA_INPUT_ROOTS` env (`:`-separated list, supports `${USER}`)
 /// 2. Built-in default `/home/${USER}/data`
 ///
 /// Roots are canonicalized once (failing roots that don't exist are
@@ -65,7 +65,7 @@ pub(crate) struct RegisterPathRequest {
 /// validation below will surface the missing-dir error to the SME
 /// rather than silently dropping the rule).
 pub(super) fn allowlisted_roots(owner_user: &str) -> Vec<PathBuf> {
-    let raw = std::env::var("SWFC_INPUT_ROOTS").unwrap_or_else(|_| DEFAULT_INPUT_ROOTS.to_string());
+    let raw = std::env::var("ECAA_INPUT_ROOTS").unwrap_or_else(|_| DEFAULT_INPUT_ROOTS.to_string());
     raw.split(':')
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.replace("${USER}", owner_user))
@@ -76,20 +76,20 @@ pub(super) fn allowlisted_roots(owner_user: &str) -> Vec<PathBuf> {
 
 pub(super) fn max_file_bytes() -> u64 {
     ecaa_workflow_core::env_helpers::env_parse(
-        "SWFC_INPUT_MAX_FILE_BYTES",
+        "ECAA_INPUT_MAX_FILE_BYTES",
         DEFAULT_MAX_FILE_BYTES,
     )
 }
 
 pub(super) fn max_total_bytes() -> u64 {
     ecaa_workflow_core::env_helpers::env_parse(
-        "SWFC_INPUT_MAX_TOTAL_BYTES",
+        "ECAA_INPUT_MAX_TOTAL_BYTES",
         DEFAULT_MAX_TOTAL_BYTES,
     )
 }
 
 pub(super) fn max_files() -> usize {
-    ecaa_workflow_core::env_helpers::env_parse("SWFC_INPUT_MAX_FILES", DEFAULT_MAX_FILES)
+    ecaa_workflow_core::env_helpers::env_parse("ECAA_INPUT_MAX_FILES", DEFAULT_MAX_FILES)
 }
 
 /// Returns Ok(canonicalized_path) if the supplied path exists, is a
@@ -116,7 +116,7 @@ pub(super) fn validate_input_path(raw: &str, owner_user: &str) -> Result<PathBuf
     let roots = allowlisted_roots(owner_user);
     if roots.is_empty() {
         return Err(
-            "no input roots configured; set SWFC_INPUT_ROOTS or rely on the default \
+            "no input roots configured; set ECAA_INPUT_ROOTS or rely on the default \
             /home/${USER}/data"
                 .to_string(),
         );
@@ -173,21 +173,21 @@ pub(super) fn build_manifest(root: &StdPath) -> Result<Vec<UserInputFile>, Strin
         let size = meta.len();
         if size > max_file {
             return Err(format!(
-                "file {} is {size} bytes, exceeds SWFC_INPUT_MAX_FILE_BYTES={max_file}",
+                "file {} is {size} bytes, exceeds ECAA_INPUT_MAX_FILE_BYTES={max_file}",
                 path.display()
             ));
         }
         total_bytes = total_bytes.saturating_add(size);
         if total_bytes > max_total {
             return Err(format!(
-                "total registration size exceeds SWFC_INPUT_MAX_TOTAL_BYTES={max_total} bytes; \
+                "total registration size exceeds ECAA_INPUT_MAX_TOTAL_BYTES={max_total} bytes; \
                 stop at a more specific subdirectory"
             ));
         }
         count += 1;
         if count > max_files_cap {
             return Err(format!(
-                "registration would include more than SWFC_INPUT_MAX_FILES={max_files_cap} files; \
+                "registration would include more than ECAA_INPUT_MAX_FILES={max_files_cap} files; \
                 stop at a more specific subdirectory"
             ));
         }

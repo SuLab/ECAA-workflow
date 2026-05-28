@@ -69,7 +69,7 @@ def test_build_bio_min_local_digest_fallback_is_quiet(tmp_path: Path) -> None:
     env = {
         **os.environ,
         "PATH": f"{bin_dir}:{os.environ['PATH']}",
-        "SWFC_BUILDX_CACHE_DIR": str(tmp_path / "cache"),
+        "ECAA_BUILDX_CACHE_DIR": str(tmp_path / "cache"),
     }
     result = subprocess.run(
         ["bash", "scripts/build-bio-min.sh", "bio-min:local"],

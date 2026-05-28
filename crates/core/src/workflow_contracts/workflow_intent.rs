@@ -373,7 +373,7 @@ pub struct DesiredOutput {
 #[ts(export)]
 pub struct ConstraintsBlock {
     /// Preferred backend (`local`, `aws`, `slurm`). Mirrors
-    /// `SWFC_EXECUTOR_MODE`.
+    /// `ECAA_EXECUTOR_MODE`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub preferred_backend: Option<String>,

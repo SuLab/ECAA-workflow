@@ -52,9 +52,9 @@ def run_task(pkg: Path, task_id: str) -> None:
     workflow_path.write_text(json.dumps(workflow, indent=2, sort_keys=True) + "\n")
     env = {
         **os.environ,
-        "SWFC_TASK_ID": task_id,
-        "SWFC_HARNESS_RUN_ID": "fixture-run",
-        "SWFC_DISPATCH_EPOCH": "1",
+        "ECAA_TASK_ID": task_id,
+        "ECAA_HARNESS_RUN_ID": "fixture-run",
+        "ECAA_DISPATCH_EPOCH": "1",
     }
     subprocess.run([str(AGENT), str(pkg)], check=True, cwd=REPO, env=env)
     apply_patch_to_workflow(pkg, task_id)

@@ -462,7 +462,7 @@ impl ValidatorRunner for TrainTestLeakageCheckRunner {
 /// `deterministic_or_bounded_variance`. Compares
 /// `<artifact_path>/result.json` to `<artifact_path>/result.rerun.json`
 /// (produced by an opt-in re-run pass when
-/// `SWFC_DETERMINISM_RERUN=1`). Asserts byte-equality of the two
+/// `ECAA_DETERMINISM_RERUN=1`). Asserts byte-equality of the two
 /// JSON values. Soft-skips when the rerun file is absent.
 pub struct DeterminismRerunRunner;
 
@@ -477,7 +477,7 @@ impl ValidatorRunner for DeterminismRerunRunner {
         if !rerun_path.exists() {
             return ValidatorOutcome::Errored {
                 reason: format!(
-                    "rerun artifact absent at {}; set SWFC_DETERMINISM_RERUN=1 to enable",
+                    "rerun artifact absent at {}; set ECAA_DETERMINISM_RERUN=1 to enable",
                     rerun_path.display()
                 ),
             };

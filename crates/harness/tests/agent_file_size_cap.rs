@@ -5,7 +5,7 @@
 //! - A small file passes the cap and returns its contents verbatim.
 //! - A file larger than the cap is rejected before any read happens.
 //! - The convenience env-resolved variant honours
-//!   `SWFC_AGENT_FILE_MAX_MB`.
+//!   `ECAA_AGENT_FILE_MAX_MB`.
 //! - The 200 MiB result.json scenario described in the security
 //!   remediation plan is refused at the default cap (100 MiB) — the
 //!   harness would historically have read this into memory and OOM'd
@@ -93,5 +93,5 @@ fn read_bytes_capped_respects_cap() {
 }
 
 /// Process-wide env lock so the cap-override tests don't race other
-/// tests in this binary that read `SWFC_AGENT_FILE_MAX_MB`.
+/// tests in this binary that read `ECAA_AGENT_FILE_MAX_MB`.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

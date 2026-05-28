@@ -9,7 +9,7 @@
 //!
 //! - `POST /api/chat/session/:id/inputs/upload` — chunked multipart
 //!   upload from the browser. Files land under
-//!   `<SWFC_UPLOAD_ROOT>/<session_id>/`. Lives in `upload.rs`.
+//!   `<ECAA_UPLOAD_ROOT>/<session_id>/`. Lives in `upload.rs`.
 //!
 //! Plus list (`GET /inputs`) in `list.rs` and delete
 //! (`DELETE /inputs/:input_id`) in `delete.rs` for the Inputs inspector
@@ -99,7 +99,7 @@ pub(super) mod test_helpers {
     use std::sync::OnceLock;
     use tempfile::TempDir;
 
-    /// Process-wide test root. Set once via `SWFC_INPUT_ROOTS` to the
+    /// Process-wide test root. Set once via `ECAA_INPUT_ROOTS` to the
     /// canonicalized temp dir parent, then each test creates a unique
     /// sub-directory under it. Avoids the race where parallel tests
     /// overwrite each other's env var with their own narrower
@@ -123,7 +123,7 @@ pub(super) mod test_helpers {
             .get_or_init(|| {
                 let parent = std::sync::Arc::new(TempDir::new().unwrap());
                 let canonical = parent.path().canonicalize().unwrap();
-                std::env::set_var("SWFC_INPUT_ROOTS", canonical.display().to_string());
+                std::env::set_var("ECAA_INPUT_ROOTS", canonical.display().to_string());
                 (canonical, parent)
             })
             .0

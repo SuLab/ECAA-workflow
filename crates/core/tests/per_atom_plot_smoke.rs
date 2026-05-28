@@ -4,7 +4,7 @@
 //! corresponding renderer module produces every declared figure when driven
 //! with synthetic stub data from `testdata/plot-stubs/<atom_id>/input/`.
 //!
-//! Behavior is controlled by `SWFC_PLOT_SMOKE_STRICT`:
+//! Behavior is controlled by `ECAA_PLOT_SMOKE_STRICT`:
 //! - unset / "0": warn-only (print failures + skip summary, test passes)
 //! - "1": hard failure on any renderer error, missing stub, or missing figure output
 //!
@@ -124,7 +124,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 
 #[test]
 fn per_atom_plot_smoke() {
-    let strict = std::env::var("SWFC_PLOT_SMOKE_STRICT")
+    let strict = std::env::var("ECAA_PLOT_SMOKE_STRICT")
         .map(|v| v == "1")
         .unwrap_or(false);
 
@@ -296,12 +296,12 @@ fn per_atom_plot_smoke() {
         let report = failed.join("\n  ");
         if strict {
             panic!(
-                "[per_atom_plot_smoke] {n_failed} failure(s) with SWFC_PLOT_SMOKE_STRICT=1:\n  {report}"
+                "[per_atom_plot_smoke] {n_failed} failure(s) with ECAA_PLOT_SMOKE_STRICT=1:\n  {report}"
             );
         } else {
             println!(
                 "[per_atom_plot_smoke] {n_failed} failure(s) (warn-only; set \
-                 SWFC_PLOT_SMOKE_STRICT=1 to fail):\n  {report}"
+                 ECAA_PLOT_SMOKE_STRICT=1 to fail):\n  {report}"
             );
         }
     }

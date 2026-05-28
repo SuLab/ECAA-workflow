@@ -30,7 +30,7 @@ def test_load_policy_honors_env_override(tmp_path, monkeypatch):
         "provisioning": "sealed",
         "atom_id": "x",
     }))
-    monkeypatch.setenv("SWFC_PROVISIONING_POLICY", str(policy_path))
+    monkeypatch.setenv("ECAA_PROVISIONING_POLICY", str(policy_path))
     p = _common.load_policy()
     assert p.provisioning == "sealed"
 
@@ -93,9 +93,9 @@ def test_log_install_appends_to_jsonl(tmp_path):
 
 
 def test_bypass_enabled(monkeypatch):
-    monkeypatch.delenv("SWFC_PROVISIONING_DISABLE", raising=False)
+    monkeypatch.delenv("ECAA_PROVISIONING_DISABLE", raising=False)
     assert _common.bypass_enabled() is False
-    monkeypatch.setenv("SWFC_PROVISIONING_DISABLE", "1")
+    monkeypatch.setenv("ECAA_PROVISIONING_DISABLE", "1")
     assert _common.bypass_enabled() is True
-    monkeypatch.setenv("SWFC_PROVISIONING_DISABLE", "0")
+    monkeypatch.setenv("ECAA_PROVISIONING_DISABLE", "0")
     assert _common.bypass_enabled() is False

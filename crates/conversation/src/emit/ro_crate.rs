@@ -157,7 +157,7 @@ fn register_literature_evidence(
                 continue;
             }
             // Grant v19 §Aim 3A Arm B′ — when
-            // SWFC_ABLATE_AMENDMENT_PROVENANCE is truthy, omit the
+            // ECAA_ABLATE_AMENDMENT_PROVENANCE is truthy, omit the
             // prov:wasDerivedFrom edges so the Arm B′ control package
             // carries no amendment-lineage graph. The CSV node itself
             // is still registered (so the file is still discoverable).
@@ -425,20 +425,20 @@ pub(super) async fn patch_ro_crate_metadata(
         ),
         // ── Grant v19 §Authentication of Key Resources (D1-D4) ──────
         // Four runtime/*.json sidecars cited as live disclosure
-        // surfaces. D1 is suppressed under SWFC_ABLATE_CLAIM_CONSISTENCY;
+        // surfaces. D1 is suppressed under ECAA_ABLATE_CLAIM_CONSISTENCY;
         // D2 is always written (its `ablation_engaged` field mirrors
-        // SWFC_ABLATE_REEXECUTION_CLASS); D3 + D4 are always written.
+        // ECAA_ABLATE_REEXECUTION_CLASS); D3 + D4 are always written.
         // Presence-gated like every other entry above.
         (
             "runtime/claim-verification.json",
             "Deterministic claim verification report",
-            "Per-narrative-claim verdict (verified / unverified / contradicted) against extracted result tables. Suppressed under SWFC_ABLATE_CLAIM_CONSISTENCY (Arm B' control).",
+            "Per-narrative-claim verdict (verified / unverified / contradicted) against extracted result tables. Suppressed under ECAA_ABLATE_CLAIM_CONSISTENCY (Arm B' control).",
             "application/json",
         ),
         (
             "runtime/determinism-shim.json",
             "Determinism shim — active env, seed, temp-path, locale, timezone",
-            "Captures the deterministic environment in effect at package emit time. The ablation_engaged field records whether SWFC_ABLATE_REEXECUTION_CLASS was set (Arm B' control).",
+            "Captures the deterministic environment in effect at package emit time. The ablation_engaged field records whether ECAA_ABLATE_REEXECUTION_CLASS was set (Arm B' control).",
             "application/json",
         ),
         (
@@ -456,7 +456,7 @@ pub(super) async fn patch_ro_crate_metadata(
         (
             "runtime/audit-proof-report.json",
             "Audit-proof invariant report (D8)",
-            "Per-invariant verdicts (claim-completeness, decision-justification, evidence-coverage, equivalence-failure, cross-graph-integrity, substrate-validity). Warn-only at emission time; the verdicts surface in the UI Verifier tab. Suppressed under SWFC_ABLATE_AUDIT_PROOF (Arm B' control).",
+            "Per-invariant verdicts (claim-completeness, decision-justification, evidence-coverage, equivalence-failure, cross-graph-integrity, substrate-validity). Warn-only at emission time; the verdicts surface in the UI Verifier tab. Suppressed under ECAA_ABLATE_AUDIT_PROOF (Arm B' control).",
             "application/json",
         ),
         // ECAA emit-time validation summary written by
@@ -464,12 +464,12 @@ pub(super) async fn patch_ro_crate_metadata(
         // pure-Rust + optional external validators run. Carries the
         // active validation mode, per-sidecar schema verdicts, skipped
         // harness-runtime sidecars count, and external-validator outcomes
-        // when SWFC_VALIDATE_ON_EMIT=full. Always written when validation
+        // when ECAA_VALIDATE_ON_EMIT=full. Always written when validation
         // is not `Disabled`.
         (
             "runtime/validation-summary.json",
             "ECAA emit-time validation summary",
-            "Aggregated outcome of the emit-time validator: ValidationMode (off/schema_only/full), per-sidecar JSON Schema verdicts (passed / failed / skipped_pending_harness), and external-validator outcomes (SHACL projection, OWL consistency, runcrate validate) when SWFC_VALIDATE_ON_EMIT=full. Warn-only unless SWFC_VALIDATION_BLOCK_ON_FAIL=1.",
+            "Aggregated outcome of the emit-time validator: ValidationMode (off/schema_only/full), per-sidecar JSON Schema verdicts (passed / failed / skipped_pending_harness), and external-validator outcomes (SHACL projection, OWL consistency, runcrate validate) when ECAA_VALIDATE_ON_EMIT=full. Warn-only unless ECAA_VALIDATION_BLOCK_ON_FAIL=1.",
             "application/json",
         ),
     ];

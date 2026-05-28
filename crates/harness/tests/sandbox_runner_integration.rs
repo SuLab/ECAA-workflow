@@ -25,7 +25,7 @@ fn policy_with(f: impl FnOnce(&mut SandboxPolicy)) -> SandboxPolicy {
     p
 }
 
-/// Lock for tests that mutate `SWFC_LOCAL_SANDBOX` in the process env.
+/// Lock for tests that mutate `ECAA_LOCAL_SANDBOX` in the process env.
 /// Without serialisation, parallel `cargo test` runs observe each
 /// other's transient overrides.
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -60,7 +60,7 @@ fn no_unshare_net_when_deny_network_false() {
 fn unsets_secret_env_vars_when_deny_secrets_true() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     // Plant a recognisable secret var.
-    let secret_key = "TEST_SWFC_C7_MY_API_KEY";
+    let secret_key = "TEST_ECAA_C7_MY_API_KEY";
     unsafe { std::env::set_var(secret_key, "super-secret") };
 
     let runner = BubblewrapRunner::new_for_test(PathBuf::from("/pkg"));
@@ -70,7 +70,7 @@ fn unsets_secret_env_vars_when_deny_secrets_true() {
     // Cleanup before assertions so a panic doesn't leak the var.
     unsafe { std::env::remove_var(secret_key) };
 
-    // The rendered args must contain `--unsetenv TEST_SWFC_C7_MY_API_KEY`.
+    // The rendered args must contain `--unsetenv TEST_ECAA_C7_MY_API_KEY`.
     let pairs: Vec<(&str, &str)> = args
         .windows(2)
         .filter_map(|w| {
@@ -110,9 +110,9 @@ fn deny_secrets_false_does_not_emit_unsetenv() {
 #[test]
 fn passthrough_when_mode_off() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    unsafe { std::env::set_var("SWFC_LOCAL_SANDBOX", "off") };
+    unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "off") };
     let result = BubblewrapRunner::from_env(PathBuf::from("/pkg"));
-    unsafe { std::env::remove_var("SWFC_LOCAL_SANDBOX") };
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
     assert!(
         matches!(result, Ok(None)),
         "off mode must return Ok(None), got: {:?}",
@@ -123,11 +123,11 @@ fn passthrough_when_mode_off() {
 #[test]
 fn passthrough_when_mode_unset() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    unsafe { std::env::remove_var("SWFC_LOCAL_SANDBOX") };
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
     let result = BubblewrapRunner::from_env(PathBuf::from("/pkg"));
     assert!(
         matches!(result, Ok(None)),
-        "unset SWFC_LOCAL_SANDBOX must return Ok(None), got: {:?}",
+        "unset ECAA_LOCAL_SANDBOX must return Ok(None), got: {:?}",
         result
     );
 }
@@ -135,7 +135,7 @@ fn passthrough_when_mode_unset() {
 #[test]
 fn errors_when_bwrap_missing_and_mode_bubblewrap() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    unsafe { std::env::set_var("SWFC_LOCAL_SANDBOX", "bubblewrap") };
+    unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap") };
     // Override the bwrap path to a nonexistent location via the
     // test-only constructor. `from_env` hardcodes /usr/bin/bwrap so we
     // test the error path by constructing with a bogus path.
@@ -143,7 +143,7 @@ fn errors_when_bwrap_missing_and_mode_bubblewrap() {
         PathBuf::from("/nonexistent/bwrap"),
         PathBuf::from("/pkg"),
     );
-    unsafe { std::env::remove_var("SWFC_LOCAL_SANDBOX") };
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
     assert!(
         matches!(result, Err(SandboxRunnerError::BwrapBinaryMissing(_))),
         "missing bwrap must produce BwrapBinaryMissing error, got: {:?}",
@@ -296,8 +296,8 @@ fn args_allow_envs_unsets_others() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
 
     // Plant two recognisable non-secret test vars.
-    let foo_key = "TEST_SWFC_C14_FOO";
-    let baz_key = "TEST_SWFC_C14_BAZ";
+    let foo_key = "TEST_ECAA_C14_FOO";
+    let baz_key = "TEST_ECAA_C14_BAZ";
     unsafe { std::env::set_var(foo_key, "bar") };
     unsafe { std::env::set_var(baz_key, "qux") };
 
@@ -360,11 +360,11 @@ fn bwrap_spawn_unshare_net_prevents_loopback() {
 
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let workdir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
-    unsafe { std::env::set_var("SWFC_LOCAL_SANDBOX", "bubblewrap") };
+    unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap") };
     let runner = BubblewrapRunner::from_env(workdir.clone())
         .expect("from_env ok")
         .expect("runner should be Some in bubblewrap mode");
-    unsafe { std::env::remove_var("SWFC_LOCAL_SANDBOX") };
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
 
     let policy = policy_with(|p| {
         p.deny_network = true;

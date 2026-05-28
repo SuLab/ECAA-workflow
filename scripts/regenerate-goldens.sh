@@ -82,11 +82,11 @@ regen_archetype() {
   # `intake` reads the intake fixture, classifies, builds, and writes
   # `WORKFLOW.json` into the out dir. The compiler emits deterministic
   # output under SOURCE_DATE_EPOCH (S5.20) so the diff against the
-  # committed copy is byte-stable. SWFC_COMPOSER=archetypes routes
+  # committed copy is byte-stable. ECAA_COMPOSER=archetypes routes
   # through the composer fast-path so the goldens reflect the
   # post-Phase-4-sunset shape.
   SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1735689600}" \
-  SWFC_COMPOSER="${SWFC_COMPOSER:-archetypes}" \
+  ECAA_COMPOSER="${ECAA_COMPOSER:-archetypes}" \
     "${CMD}" intake \
       --input "${intake}" \
       --output "${out_dir}/emit"
@@ -111,7 +111,7 @@ regen_edge_case() {
 
   echo "[regen] edge-case: ${case}"
   SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-1735689600}" \
-  SWFC_COMPOSER="${SWFC_COMPOSER:-archetypes}" \
+  ECAA_COMPOSER="${ECAA_COMPOSER:-archetypes}" \
     "${CMD}" intake \
       --input "${intake}" \
       --output "${out_dir}/emit"

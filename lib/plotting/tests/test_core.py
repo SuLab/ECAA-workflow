@@ -544,13 +544,13 @@ def test_savefig_explicit_formats_skips_pdf(tmp_path):
 
 def test_provenance_footer_text_uses_module_version(monkeypatch):
     """The footer always carries the loaded library version. With no
-    SWFC_PACKAGE_ID/SWFC_GIT_SHA in env, falls back to 'unknown' tokens
+    ECAA_PACKAGE_ID/ECAA_GIT_SHA in env, falls back to 'unknown' tokens
     so test bytes stay reproducible.
     """
     from lib.plotting.core import _provenance_text
 
-    monkeypatch.delenv("SWFC_PACKAGE_ID", raising=False)
-    monkeypatch.delenv("SWFC_GIT_SHA", raising=False)
+    monkeypatch.delenv("ECAA_PACKAGE_ID", raising=False)
+    monkeypatch.delenv("ECAA_GIT_SHA", raising=False)
     text = _provenance_text("clustering")
     assert __version__ in text
     assert "clustering" in text
@@ -560,8 +560,8 @@ def test_provenance_footer_text_uses_module_version(monkeypatch):
 def test_provenance_footer_includes_env_values_when_set(monkeypatch):
     from lib.plotting.core import _provenance_text
 
-    monkeypatch.setenv("SWFC_PACKAGE_ID", "364849f9")
-    monkeypatch.setenv("SWFC_GIT_SHA", "deadbeef1234567")
+    monkeypatch.setenv("ECAA_PACKAGE_ID", "364849f9")
+    monkeypatch.setenv("ECAA_GIT_SHA", "deadbeef1234567")
     text = _provenance_text("differential_expression")
     assert "364849f9" in text
     assert "deadbee" in text  # 7-char short sha

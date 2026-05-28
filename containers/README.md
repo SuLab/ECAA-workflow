@@ -19,7 +19,7 @@ Per CLAUDE.md "Container plumbing" / Stage 15:
 
 1. Per-task `container.image` (set by the composer from atom-level `preferred_container`)
 2. Package-level `policies/container.json::image`
-3. `SWFC_DEFAULT_CONTAINER_IMAGE` env var (operator-level default; recommended: `ghcr.io/scripps/bio-min:v0.1.0-eval`)
+3. `ECAA_DEFAULT_CONTAINER_IMAGE` env var (operator-level default; recommended: `ghcr.io/scripps/bio-min:v0.1.0-eval`)
 4. Bare-host execution (no container)
 
 ## Atom-level pinning convention

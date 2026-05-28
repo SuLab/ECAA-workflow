@@ -12,7 +12,7 @@ use ecaa_workflow_conversation::{
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// Process-wide lock for tests that mutate `SWFC_SHARED_URLS_ENABLED`.
+/// Process-wide lock for tests that mutate `ECAA_SHARED_URLS_ENABLED`.
 /// Lives here (not in each submodule's `mod tests`) so the
 /// `chat_routes::share` and crate-root `read_only` test modules
 /// serialize against a single mutex — otherwise cargo's parallel
@@ -73,7 +73,7 @@ pub async fn make_router(scripted: Vec<TurnResponse>) -> (Router, ChatAppState) 
 
 /// Like [`make_router`] but pins `app.auto_title_override = Some(true)`
 /// so the auto-title handler reaches its real logic instead of
-/// short-circuiting on the `SWFC_AUTO_TITLE` env-var gate. Lets the 5
+/// short-circuiting on the `ECAA_AUTO_TITLE` env-var gate. Lets the 5
 /// auto-title tests avoid mutating the process-wide env table.
 pub async fn make_router_with_auto_title_enabled(
     scripted: Vec<TurnResponse>,

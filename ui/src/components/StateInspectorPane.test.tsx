@@ -403,7 +403,7 @@ describe('JobsFeed — stall chip', () => {
 
 // Session input / budget progress bar. Renders only when the server
 // surfaces session_token_budget; older builds /
-// SWFC_SESSION_TOKEN_BUDGET=0 suppress the row entirely.
+// ECAA_SESSION_TOKEN_BUDGET=0 suppress the row entirely.
 describe('MetricsTable — session token budget progress bar', () => {
   it('hides the budget row when session_token_budget is absent (legacy server)', () => {
     // Legacy metrics snapshots don't carry the field — the row must not render.

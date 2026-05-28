@@ -394,7 +394,7 @@ export interface SessionMetrics {
   instance_type_seconds: Record<string, number>
   // Bumped when the harness realized more compute was needed than the
   // sizing baseline; the executor resized up per
-  // SWFC_AWS_HIGH_WATER_POLICY.
+  // ECAA_AWS_HIGH_WATER_POLICY.
   high_water_exceeded_count: number
   // Estimated Anthropic API spend for this session in USD, priced per
   // model using 5-min ephemeral cache rates (see metrics.rs::pricing).
@@ -426,7 +426,7 @@ export interface SessionMetrics {
   per_model_side_call_cost_usd?: Record<string, number>
   sonnet_cost_usd: number
   opus_cost_usd: number
-  // SWFC_AGENT_BILLING at snapshot time — "subscription" (default;
+  // ECAA_AGENT_BILLING at snapshot time — "subscription" (default;
   // per-task agent runs bill the Max/Pro plan, real charge = $0) or
   // "api" (forwarded API key, real per-token charges). Under
   // subscription, `agent_cost_usd` is NOTIONAL — the Claude Code CLI's
@@ -1715,7 +1715,7 @@ export async function postBranch(
 // ── SME data inputs ─────────────────────────────────────────────────
 // Powers the Inputs inspector tab. Two registration paths today:
 // - registerInputPath: SME points the server at an existing
-// directory (server walks + hashes; allowlist via SWFC_INPUT_ROOTS).
+// directory (server walks + hashes; allowlist via ECAA_INPUT_ROOTS).
 // - uploadInputFile (phase E): chunked browser upload.
 // Both return the updated Session.inputs list so the tab can re-render.
 // `UserInput` re-exported from the top-of-file ts-rs barrel.

@@ -248,7 +248,7 @@ pub trait Executor: Send {
     /// agent and any teardown after. Returns the agent's exit status plus
     /// optional remote metadata to attach to progress events.
     ///
-    /// `envelope` carries the per-task `SWFC_HW_*` hardware envelope
+    /// `envelope` carries the per-task `ECAA_HW_*` hardware envelope
     /// the executor passes through to the agent subprocess as
     /// env vars. An empty map is a valid value — the agent falls back
     /// to its pre-envelope behavior, preserving backward compatibility
@@ -378,7 +378,7 @@ pub trait Executor: Send {
     /// appears in `invalidated_tasks`. The default implementation sends
     /// SIGTERM to the agent subprocess group, waits 500 ms (matching the
     /// server-side `kill_process_group` grace), then SIGKILL — best-effort
-    /// via `pkill -f SWFC_TASK_ID=<id>`. Remote backends override:
+    /// via `pkill -f ECAA_TASK_ID=<id>`. Remote backends override:
     /// `AwsExecutor` calls `ssm cancel-command`; `SlurmExecutor` calls
     /// `scancel`.
     ///
@@ -412,7 +412,7 @@ pub trait Executor: Send {
             task_id = %safe_id,
             "cancel_task: default impl (SIGTERM → 500ms → SIGKILL local process group — backend-agnostic)"
         );
-        let pattern = format!("SWFC_TASK_ID={}", safe_id);
+        let pattern = format!("ECAA_TASK_ID={}", safe_id);
         // SIGTERM — best-effort. Any non-zero exit (e.g. pkill missing or
         // no matching process) is intentionally swallowed; the cancel is
         // advisory and the harness has independent stale-detection.
@@ -553,8 +553,8 @@ pub struct GpuRequirement {
 /// Build the executor named by `mode`, threading the current CLI args
 /// through to the impl's constructor.
 ///
-/// `SWFC_EXECUTOR_MODE=local` (the default) returns `LocalExecutor`.
-/// `SWFC_EXECUTOR_MODE=aws` returns `AwsExecutor`. `SWFC_EXECUTOR_MODE=slurm`
+/// `ECAA_EXECUTOR_MODE=local` (the default) returns `LocalExecutor`.
+/// `ECAA_EXECUTOR_MODE=aws` returns `AwsExecutor`. `ECAA_EXECUTOR_MODE=slurm`
 /// returns `SlurmExecutor` only when the harness was built with the
 /// `slurm` cargo feature (research-tier per F16-3); without the
 /// feature the dispatch errors with a "rebuild with --features slurm"
@@ -563,7 +563,7 @@ pub struct GpuRequirement {
 pub fn build(mode: &str, args: &ExecutorArgs) -> Result<Box<dyn Executor>> {
     match mode {
         "local" => {
-            // W2.1: validate SWFC_LOCAL_SANDBOX at build time so a typo
+            // W2.1: validate ECAA_LOCAL_SANDBOX at build time so a typo
             // (e.g. `bublewrap`) refuses to start the harness rather than
             // silently disabling sandboxing for the whole session.
             local::validate_sandbox_env()?;
@@ -574,10 +574,10 @@ pub fn build(mode: &str, args: &ExecutorArgs) -> Result<Box<dyn Executor>> {
         "slurm" => Ok(Box::new(slurm::SlurmExecutor::new(args)?)),
         #[cfg(not(feature = "slurm"))]
         "slurm" => anyhow::bail!(
-            "SWFC_EXECUTOR_MODE=slurm requires the 'slurm' cargo feature \
+            "ECAA_EXECUTOR_MODE=slurm requires the 'slurm' cargo feature \
              (research-tier per F16-3); rebuild the harness with \
              `cargo build -p ecaa-workflow-harness --features slurm` \
-             or use SWFC_EXECUTOR_MODE=local|aws on a product build."
+             or use ECAA_EXECUTOR_MODE=local|aws on a product build."
         ),
         #[cfg(feature = "dry-run")]
         "mock" => Ok(Box::new(mock::MockExecutor::with_successes(
@@ -585,18 +585,18 @@ pub fn build(mode: &str, args: &ExecutorArgs) -> Result<Box<dyn Executor>> {
         ))),
         #[cfg(not(feature = "dry-run"))]
         "mock" => anyhow::bail!(
-            "SWFC_EXECUTOR_MODE=mock requires the 'dry-run' cargo feature; \
+            "ECAA_EXECUTOR_MODE=mock requires the 'dry-run' cargo feature; \
              rebuild with `cargo build -p ecaa-workflow-harness --features dry-run` \
-             or use SWFC_EXECUTOR_MODE=local|aws|slurm."
+             or use ECAA_EXECUTOR_MODE=local|aws|slurm."
         ),
         other => anyhow::bail!(
-            "Unknown SWFC_EXECUTOR_MODE '{}'. Expected one of: local, aws, slurm",
+            "Unknown ECAA_EXECUTOR_MODE '{}'. Expected one of: local, aws, slurm",
             other
         ),
     }
 }
 
-/// Read `SWFC_MOCK_TASK_BUDGET` for the scripted-iteration budget of the
+/// Read `ECAA_MOCK_TASK_BUDGET` for the scripted-iteration budget of the
 /// dry-run `MockExecutor`. Unset, zero, or unparseable values fall back
 /// to `100`; the fallback emits a single `tracing::warn!` so operators
 /// notice malformed input. Bounded private to the executor module —
@@ -604,20 +604,20 @@ pub fn build(mode: &str, args: &ExecutorArgs) -> Result<Box<dyn Executor>> {
 #[cfg(feature = "dry-run")]
 fn mock_budget_from_env() -> usize {
     const DEFAULT: usize = 100;
-    match std::env::var("SWFC_MOCK_TASK_BUDGET") {
+    match std::env::var("ECAA_MOCK_TASK_BUDGET") {
         Err(_) => DEFAULT,
         Ok(raw) => match raw.parse::<usize>() {
             Ok(n) if n > 0 => n,
             Ok(_) => {
                 tracing::warn!(
-                    "SWFC_MOCK_TASK_BUDGET=0 is invalid; falling back to {}",
+                    "ECAA_MOCK_TASK_BUDGET=0 is invalid; falling back to {}",
                     DEFAULT
                 );
                 DEFAULT
             }
             Err(_) => {
                 tracing::warn!(
-                    "SWFC_MOCK_TASK_BUDGET='{}' is unparseable; falling back to {}",
+                    "ECAA_MOCK_TASK_BUDGET='{}' is unparseable; falling back to {}",
                     raw,
                     DEFAULT
                 );
@@ -641,26 +641,26 @@ pub struct ExecutorArgs {
 }
 
 /// Cross-module test lock serialising every test that mutates
-/// process-level env vars the executor crate consumes (`SWFC_AWS_*`,
-/// `SWFC_PILOT_*`, `SWFC_EXECUTOR_MODE`,...). `aws.rs`,
+/// process-level env vars the executor crate consumes (`ECAA_AWS_*`,
+/// `ECAA_PILOT_*`, `ECAA_EXECUTOR_MODE`,...). `aws.rs`,
 /// `multi_az_policy.rs`, `pilot.rs`, and `sizing.rs` all grab this
 /// before mutating those vars so parallel `cargo test` runs don't
 /// observe each other's transient overrides. Shared here so every
 /// test module can reach it without exposing one module's private state.
 /// Compiled only under `cfg(test)` to keep it out of the release binary.
 #[cfg(test)]
-pub(crate) static SWFC_AWS_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static ECAA_AWS_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Shared test lock for the per-atom-image build path.
 /// `per_atom_image::tests` (helper-level)
 /// and `local::tests` (provision-level) both mutate
-/// `SWFC_PER_TASK_IMAGES`, `SWFC_PER_ATOM_BUILD_ROOT`, and
-/// `SWFC_IMAGE_BUILDER_PATH`. They must serialize against EACH OTHER
+/// `ECAA_PER_TASK_IMAGES`, `ECAA_PER_ATOM_BUILD_ROOT`, and
+/// `ECAA_IMAGE_BUILDER_PATH`. They must serialize against EACH OTHER
 /// (not just within their own module) so parallel `cargo test` runs
 /// can't trip on a stale env var another test left briefly set. Same
-/// shape as `SWFC_AWS_ENV_LOCK`.
+/// shape as `ECAA_AWS_ENV_LOCK`.
 #[cfg(test)]
-pub(crate) static SWFC_PER_TASK_IMAGE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static ECAA_PER_TASK_IMAGE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[cfg(test)]
 mod tests {
@@ -695,7 +695,7 @@ mod tests {
             .expect("unknown mode must error");
         let msg = err.to_string();
         assert!(
-            msg.contains("Unknown SWFC_EXECUTOR_MODE"),
+            msg.contains("Unknown ECAA_EXECUTOR_MODE"),
             "error should name the env var, got: {msg}"
         );
         assert!(
@@ -713,21 +713,21 @@ mod tests {
     #[test]
     #[cfg(feature = "slurm")]
     fn factory_slurm_requires_env_vars() {
-        // Phase S-5: SlurmExecutor is fully wired. With no SWFC_SLURM_*
+        // Phase S-5: SlurmExecutor is fully wired. With no ECAA_SLURM_*
         // env set, the factory must fail with a compound env-var
         // diagnostic (same shape as AWS) pointing the operator at the
-        // runbook. Serialized on SWFC_AWS_ENV_LOCK with the other
+        // runbook. Serialized on ECAA_AWS_ENV_LOCK with the other
         // env-mutating tests so parallel runs don't race.
         //
         // F16-3: gated behind the `slurm` feature so product builds
         // (no feature) skip this test; the feature-off path is
         // exercised by `factory_slurm_without_feature_errors_clearly`
         // below.
-        let _lock = SWFC_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = ECAA_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let prior: Vec<(&str, Option<String>)> = [
-            "SWFC_SLURM_HOST",
-            "SWFC_SLURM_STAGING_DIR",
-            "SWFC_SLURM_DEFAULT_PARTITION",
+            "ECAA_SLURM_HOST",
+            "ECAA_SLURM_STAGING_DIR",
+            "ECAA_SLURM_DEFAULT_PARTITION",
         ]
         .iter()
         .map(|k| (*k, std::env::var(k).ok()))
@@ -750,13 +750,13 @@ mod tests {
             "expected env-var diagnostic, got: {msg}"
         );
         assert!(
-            msg.contains("SWFC_SLURM_HOST"),
-            "error should name SWFC_SLURM_HOST, got: {msg}"
+            msg.contains("ECAA_SLURM_HOST"),
+            "error should name ECAA_SLURM_HOST, got: {msg}"
         );
     }
 
     /// F16-3 — when the harness is built without `--features slurm`
-    /// (the product default), `SWFC_EXECUTOR_MODE=slurm` must fail
+    /// (the product default), `ECAA_EXECUTOR_MODE=slurm` must fail
     /// with a clear "rebuild with --features slurm" diagnostic. The
     /// `cfg(not(feature = "slurm"))` arm in `build()` provides this;
     /// this test pins the message so it stays operator-readable.
@@ -779,17 +779,17 @@ mod tests {
 
     #[test]
     fn factory_aws_requires_required_env_vars() {
-        // The AwsExecutor succeeds when SWFC_AWS_* env vars are
+        // The AwsExecutor succeeds when ECAA_AWS_* env vars are
         // configured and otherwise fails with a single diagnostic
         // listing every missing var. Test the fail-fast behavior here
         // so the factory contract stays honest.
         for k in [
-            "SWFC_AWS_REGION",
-            "SWFC_AWS_AMI_ID",
-            "SWFC_AWS_SECURITY_GROUP",
-            "SWFC_AWS_INSTANCE_PROFILE",
-            "SWFC_AWS_SUBNET_ID",
-            "SWFC_AWS_SUBNET_IDS",
+            "ECAA_AWS_REGION",
+            "ECAA_AWS_AMI_ID",
+            "ECAA_AWS_SECURITY_GROUP",
+            "ECAA_AWS_INSTANCE_PROFILE",
+            "ECAA_AWS_SUBNET_ID",
+            "ECAA_AWS_SUBNET_IDS",
         ] {
             unsafe { std::env::remove_var(k) };
         }
@@ -1040,7 +1040,7 @@ mod safety_tests {
 mod build_mock_arm_tests {
     // Env-var mutation in Rust 2024 edition is `unsafe`; the test table is
     // not thread-safe at the OS level. We serialize against the same lock
-    // every other env-mutating test in this crate uses (`SWFC_AWS_ENV_LOCK`)
+    // every other env-mutating test in this crate uses (`ECAA_AWS_ENV_LOCK`)
     // so parallel `cargo test` runs can't observe transient overrides.
     #![allow(unsafe_code)]
     use super::*;
@@ -1055,49 +1055,49 @@ mod build_mock_arm_tests {
 
     #[test]
     fn build_mock_returns_mock_executor() {
-        let _lock = SWFC_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let prior = std::env::var("SWFC_MOCK_TASK_BUDGET").ok();
-        unsafe { std::env::remove_var("SWFC_MOCK_TASK_BUDGET") };
+        let _lock = ECAA_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let prior = std::env::var("ECAA_MOCK_TASK_BUDGET").ok();
+        unsafe { std::env::remove_var("ECAA_MOCK_TASK_BUDGET") };
         let exec = build("mock", &args()).expect("mock mode must build under dry-run");
         assert_eq!(exec.name(), "mock");
         if let Some(v) = prior {
-            unsafe { std::env::set_var("SWFC_MOCK_TASK_BUDGET", v) };
+            unsafe { std::env::set_var("ECAA_MOCK_TASK_BUDGET", v) };
         }
     }
 
     #[test]
     fn mock_budget_from_env_defaults_to_100() {
-        let _lock = SWFC_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let prior = std::env::var("SWFC_MOCK_TASK_BUDGET").ok();
-        unsafe { std::env::remove_var("SWFC_MOCK_TASK_BUDGET") };
+        let _lock = ECAA_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let prior = std::env::var("ECAA_MOCK_TASK_BUDGET").ok();
+        unsafe { std::env::remove_var("ECAA_MOCK_TASK_BUDGET") };
         assert_eq!(mock_budget_from_env(), 100);
         if let Some(v) = prior {
-            unsafe { std::env::set_var("SWFC_MOCK_TASK_BUDGET", v) };
+            unsafe { std::env::set_var("ECAA_MOCK_TASK_BUDGET", v) };
         }
     }
 
     #[test]
     fn mock_budget_from_env_honors_value() {
-        let _lock = SWFC_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let prior = std::env::var("SWFC_MOCK_TASK_BUDGET").ok();
-        unsafe { std::env::set_var("SWFC_MOCK_TASK_BUDGET", "7") };
+        let _lock = ECAA_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let prior = std::env::var("ECAA_MOCK_TASK_BUDGET").ok();
+        unsafe { std::env::set_var("ECAA_MOCK_TASK_BUDGET", "7") };
         let got = mock_budget_from_env();
         match prior {
-            Some(v) => unsafe { std::env::set_var("SWFC_MOCK_TASK_BUDGET", v) },
-            None => unsafe { std::env::remove_var("SWFC_MOCK_TASK_BUDGET") },
+            Some(v) => unsafe { std::env::set_var("ECAA_MOCK_TASK_BUDGET", v) },
+            None => unsafe { std::env::remove_var("ECAA_MOCK_TASK_BUDGET") },
         }
         assert_eq!(got, 7);
     }
 
     #[test]
     fn mock_budget_from_env_zero_falls_back_to_default() {
-        let _lock = SWFC_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let prior = std::env::var("SWFC_MOCK_TASK_BUDGET").ok();
-        unsafe { std::env::set_var("SWFC_MOCK_TASK_BUDGET", "0") };
+        let _lock = ECAA_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let prior = std::env::var("ECAA_MOCK_TASK_BUDGET").ok();
+        unsafe { std::env::set_var("ECAA_MOCK_TASK_BUDGET", "0") };
         let got = mock_budget_from_env();
         match prior {
-            Some(v) => unsafe { std::env::set_var("SWFC_MOCK_TASK_BUDGET", v) },
-            None => unsafe { std::env::remove_var("SWFC_MOCK_TASK_BUDGET") },
+            Some(v) => unsafe { std::env::set_var("ECAA_MOCK_TASK_BUDGET", v) },
+            None => unsafe { std::env::remove_var("ECAA_MOCK_TASK_BUDGET") },
         }
         assert_eq!(got, 100);
     }

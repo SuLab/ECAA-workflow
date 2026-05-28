@@ -22,7 +22,7 @@
  * conversation history → deterministic per-input. Different runs
  * still vary because the chat-side LLM's questions differ.
  *
- * Gating: `SWFC_SPEC_SME_MODE=fm` selects this backend; `scripted`
+ * Gating: `ECAA_SPEC_SME_MODE=fm` selects this backend; `scripted`
  * (default) preserves the original IVD_FOLLOWUPS path so CI lanes
  * without an extra API budget keep working.
  */

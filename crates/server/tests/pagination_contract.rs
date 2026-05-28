@@ -316,7 +316,7 @@ async fn share_tokens_paginated_walk_returns_every_token() {
     // do not race on this env var.
     #[allow(unsafe_code)]
     unsafe {
-        std::env::set_var("SWFC_SHARED_URLS_ENABLED", "1");
+        std::env::set_var("ECAA_SHARED_URLS_ENABLED", "1");
     }
 
     let app = make_app().await;
@@ -379,7 +379,7 @@ async fn share_tokens_paginated_walk_returns_every_token() {
 async fn share_tokens_unpaginated_returns_legacy_array() {
     #[allow(unsafe_code)]
     unsafe {
-        std::env::set_var("SWFC_SHARED_URLS_ENABLED", "1");
+        std::env::set_var("ECAA_SHARED_URLS_ENABLED", "1");
     }
 
     let app = make_app().await;

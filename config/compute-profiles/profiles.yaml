@@ -83,7 +83,7 @@ profiles:
     ssm_timeout_secs: 7200
     # per-tool thread budgets. Values assume the agent is
     # running solo on the provisioned instance. When
-    # SWFC_HW_CONCURRENT_PEERS_BY_CLASS > 0, prompt_role.txt tells
+    # ECAA_HW_CONCURRENT_PEERS_BY_CLASS > 0, prompt_role.txt tells
     # the agent to reduce proportionally.
     tool_thread_curves:
       bwa: 8

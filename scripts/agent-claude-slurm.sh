@@ -8,7 +8,7 @@
 # the agent runtime is expected to be available via `module load` or a
 # pre-installed user environment.
 #
-# SWFC_SLURM_* env vars the harness passes through via
+# ECAA_SLURM_* env vars the harness passes through via
 # `#SBATCH --export=` are enumerated in the remote-compute operator
 # reference.
 #
@@ -32,7 +32,7 @@
 #
 # If a site explicitly wants the sidecar (api-billed SLURM is the
 # only realistic case), add an opt-in path gated on something like
-# SWFC_SLURM_EMIT_USAGE=1 that mirrors the jq post-processor block
+# ECAA_SLURM_EMIT_USAGE=1 that mirrors the jq post-processor block
 # from agent-claude-aws.sh. Keep the default off so existing sites
 # aren't disturbed.
 
@@ -44,16 +44,16 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 source "$SCRIPT_DIR/agent-claude-common.sh"
 
 # Security remediation validate
-# SWFC_CHAT_SESSION_ID before it interpolates into per-session paths
+# ECAA_CHAT_SESSION_ID before it interpolates into per-session paths
 # and labels. `validate_uuid` lives in agent-claude-common.sh.
-if [ -n "${SWFC_CHAT_SESSION_ID:-}" ]; then
-    validate_uuid "$SWFC_CHAT_SESSION_ID"
+if [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
+    validate_uuid "$ECAA_CHAT_SESSION_ID"
 fi
 
-# Validate SWFC_TASK_ID before per-task path/label interpolation.
+# Validate ECAA_TASK_ID before per-task path/label interpolation.
 # Same defense the local + aws wrappers carry.
-if [ -n "${SWFC_TASK_ID:-}" ]; then
-    validate_task_id "$SWFC_TASK_ID"
+if [ -n "${ECAA_TASK_ID:-}" ]; then
+    validate_task_id "$ECAA_TASK_ID"
 fi
 
 PACKAGE="$(realpath "$1")"
@@ -61,17 +61,17 @@ PACKAGE="$(realpath "$1")"
 # `run_no_xtrace` (01, C-12) is defined in agent-claude-common.sh.
 
 if [[ "${SLURM_CPUS_PER_TASK:-}" =~ ^[0-9]+$ ]] && [ "$SLURM_CPUS_PER_TASK" -gt 0 ]; then
-  : "${SWFC_HW_NPROC_HINT:=$SLURM_CPUS_PER_TASK}"
-  export SWFC_HW_NPROC_HINT
-  export SWFC_HW_VCPUS_AVAILABLE="$SWFC_HW_NPROC_HINT"
-  export SWFC_HW_RECOMMENDED_THREADS="$SWFC_HW_NPROC_HINT"
+  : "${ECAA_HW_NPROC_HINT:=$SLURM_CPUS_PER_TASK}"
+  export ECAA_HW_NPROC_HINT
+  export ECAA_HW_VCPUS_AVAILABLE="$ECAA_HW_NPROC_HINT"
+  export ECAA_HW_RECOMMENDED_THREADS="$ECAA_HW_NPROC_HINT"
 fi
 if [[ "${SLURM_MEM_PER_NODE:-}" =~ ^[0-9]+$ ]] && [ "$SLURM_MEM_PER_NODE" -gt 0 ]; then
-  export SWFC_HW_MEMORY_GB=$(((SLURM_MEM_PER_NODE + 1023) / 1024))
+  export ECAA_HW_MEMORY_GB=$(((SLURM_MEM_PER_NODE + 1023) / 1024))
 elif [[ "${SLURM_MEM_PER_CPU:-}" =~ ^[0-9]+$ ]] \
   && [ "$SLURM_MEM_PER_CPU" -gt 0 ] \
-  && [[ "${SWFC_HW_VCPUS_AVAILABLE:-}" =~ ^[0-9]+$ ]]; then
-  export SWFC_HW_MEMORY_GB=$((((SLURM_MEM_PER_CPU * SWFC_HW_VCPUS_AVAILABLE) + 1023) / 1024))
+  && [[ "${ECAA_HW_VCPUS_AVAILABLE:-}" =~ ^[0-9]+$ ]]; then
+  export ECAA_HW_MEMORY_GB=$((((SLURM_MEM_PER_CPU * ECAA_HW_VCPUS_AVAILABLE) + 1023) / 1024))
 fi
 
 # BLAS / OpenMP / numerical-library thread-budget exports + R BLAS
@@ -125,15 +125,15 @@ ${TASK_EXECUTION_BODY}"
 # tasks.<task_id>.container is the source of truth (S15.2); falls back
 # to policies/container.json::image (legacy), then host-env.
 # HPC sites typically use singularity/apptainer/podman rather than
-# docker for security + rootless reasons — `SWFC_SLURM_CONTAINER_RUNTIME`
+# docker for security + rootless reasons — `ECAA_SLURM_CONTAINER_RUNTIME`
 # selects the runtime (defaults to apptainer when the `apptainer`
 # binary is on PATH, then singularity, then podman, then docker).
 CONTAINER_IMAGE=""
 WORKFLOW_JSON="$PACKAGE/WORKFLOW.json"
-if [ -n "${SWFC_TASK_ID:-}" ] \
+if [ -n "${ECAA_TASK_ID:-}" ] \
    && [ -f "$WORKFLOW_JSON" ] \
    && command -v jq >/dev/null 2>&1; then
-  TASK_CONTAINER="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_CONTAINER="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].container // empty | tojson' "$WORKFLOW_JSON" 2>/dev/null || true)"
   if [ -n "$TASK_CONTAINER" ] && [ "$TASK_CONTAINER" != "null" ]; then
     TC_IMAGE="$(printf '%s' "$TASK_CONTAINER" | jq -r '.image // empty')"
@@ -158,11 +158,11 @@ if [ -n "${SWFC_TASK_ID:-}" ] \
   fi
 
   # Per-task GPU target (count + kind + mig_profile).
-  TASK_GPU_KIND="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_GPU_KIND="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].resource_profile.gpu.kind // empty' "$WORKFLOW_JSON" 2>/dev/null || true)"
-  TASK_GPU_COUNT="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_GPU_COUNT="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].resource_profile.gpu.count // 0' "$WORKFLOW_JSON" 2>/dev/null || true)"
-  TASK_GPU_MIG_PROFILE="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_GPU_MIG_PROFILE="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].resource_profile.gpu.mig_profile // empty' "$WORKFLOW_JSON" 2>/dev/null || true)"
   export TASK_GPU_KIND
   export TASK_GPU_COUNT
@@ -177,8 +177,8 @@ fi
 
 # Pick a container runtime — explicit override first, then auto-probe.
 select_slurm_runtime() {
-  if [ -n "${SWFC_SLURM_CONTAINER_RUNTIME:-}" ]; then
-    echo "$SWFC_SLURM_CONTAINER_RUNTIME"
+  if [ -n "${ECAA_SLURM_CONTAINER_RUNTIME:-}" ]; then
+    echo "$ECAA_SLURM_CONTAINER_RUNTIME"
     return
   fi
   for rt in apptainer singularity podman docker; do
@@ -196,18 +196,18 @@ select_slurm_runtime() {
 OUT_LOG="$(mktemp -t agent-claude-slurm.XXXXXX.log)"
 trap 'rm -f "$OUT_LOG"' EXIT
 
-if [ -n "${SWFC_TASK_ID:-}" ]; then
-  SCRATCH_BASE="${SWFC_AGENT_SCRATCH_DIR:-$PACKAGE/runtime/scratch}"
-  SCRATCH_DIR="$SCRATCH_BASE/$SWFC_TASK_ID"
+if [ -n "${ECAA_TASK_ID:-}" ]; then
+  SCRATCH_BASE="${ECAA_AGENT_SCRATCH_DIR:-$PACKAGE/runtime/scratch}"
+  SCRATCH_DIR="$SCRATCH_BASE/$ECAA_TASK_ID"
   mkdir -p "$SCRATCH_DIR" 2>/dev/null || true
-  export SWFC_TASK_SCRATCH_DIR="$SCRATCH_DIR"
+  export ECAA_TASK_SCRATCH_DIR="$SCRATCH_DIR"
 fi
 
-if [ "${SWFC_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${SWFC_CHAT_SESSION_ID:-}" ]; then
-  CACHE_BASE="${SWFC_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
-  CACHE_DIR="$CACHE_BASE/$SWFC_CHAT_SESSION_ID"
+if [ "${ECAA_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
+  CACHE_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
+  CACHE_DIR="$CACHE_BASE/$ECAA_CHAT_SESSION_ID"
   mkdir -p "$CACHE_DIR/pip" "$CACHE_DIR/conda" "$CACHE_DIR/apt" "$CACHE_DIR/R-libs" "$CACHE_DIR/python" 2>/dev/null || true
-  export SWFC_SESSION_CACHE_DIR="$CACHE_DIR"
+  export ECAA_SESSION_CACHE_DIR="$CACHE_DIR"
   export PIP_CACHE_DIR="$CACHE_DIR/pip"
   export CONDA_PKGS_DIRS="$CACHE_DIR/conda"
   export R_LIBS_USER="$CACHE_DIR/R-libs"
@@ -233,14 +233,14 @@ log_policy_opens() {
 }
 
 # Agent billing: same semantics as scripts/agent-claude.sh.
-if [ "${SWFC_AGENT_BILLING:-subscription}" = "subscription" ]; then
+if [ "${ECAA_AGENT_BILLING:-subscription}" = "subscription" ]; then
   unset ANTHROPIC_API_KEY
-elif [ "${SWFC_AGENT_BILLING:-}" = "api" ]; then
-  if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -n "${SWFC_ANTHROPIC_API_KEY:-}" ]; then
+elif [ "${ECAA_AGENT_BILLING:-}" = "api" ]; then
+  if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -n "${ECAA_ANTHROPIC_API_KEY:-}" ]; then
     # Suppress xtrace around the secret expansion
     # so the literal key never lands in any active trace log.
     { set +x; } 2>/dev/null
-    export ANTHROPIC_API_KEY="$SWFC_ANTHROPIC_API_KEY"
+    export ANTHROPIC_API_KEY="$ECAA_ANTHROPIC_API_KEY"
     { set -x; } 2>/dev/null
   fi
 fi
@@ -253,38 +253,38 @@ fi
 AGENT_CMD_PREFIX=()
 CONTAINER_MEM_ARGS=()
 AGENT_MEMORY_LIMIT_GB=""
-if [ -n "${SWFC_AGENT_MEMORY_CAP_GB:-}" ]; then
-  if ! [[ "$SWFC_AGENT_MEMORY_CAP_GB" =~ ^[0-9]+$ ]]; then
-    echo "agent-claude-slurm.sh: SWFC_AGENT_MEMORY_CAP_GB must be a positive integer (got '$SWFC_AGENT_MEMORY_CAP_GB'); ignoring." >&2
+if [ -n "${ECAA_AGENT_MEMORY_CAP_GB:-}" ]; then
+  if ! [[ "$ECAA_AGENT_MEMORY_CAP_GB" =~ ^[0-9]+$ ]]; then
+    echo "agent-claude-slurm.sh: ECAA_AGENT_MEMORY_CAP_GB must be a positive integer (got '$ECAA_AGENT_MEMORY_CAP_GB'); ignoring." >&2
   else
-    AGENT_MEMORY_LIMIT_GB="$SWFC_AGENT_MEMORY_CAP_GB"
+    AGENT_MEMORY_LIMIT_GB="$ECAA_AGENT_MEMORY_CAP_GB"
     # HPC nodes rarely expose a user systemd instance — prefer prlimit,
     # which works regardless. If somehow systemd --user is alive, take
     # it for the nicer cgroup-scoped kill.
     if command -v systemd-run >/dev/null 2>&1 \
       && systemd-run --user --scope --quiet -p "MemoryMax=100M" /bin/true >/dev/null 2>&1; then
       # Pair MemoryMax with MemoryHigh = 0.85*MemoryMax.
-      MEM_MAX_MB=$((SWFC_AGENT_MEMORY_CAP_GB * 1024))
-      MEM_HIGH_MB=$((MEM_MAX_MB * SWFC_AGENT_MEMORY_HIGH_WATER_PCT / 100))
+      MEM_MAX_MB=$((ECAA_AGENT_MEMORY_CAP_GB * 1024))
+      MEM_HIGH_MB=$((MEM_MAX_MB * ECAA_AGENT_MEMORY_HIGH_WATER_PCT / 100))
       AGENT_CMD_PREFIX=(systemd-run --user --scope --quiet \
-        -p "MemoryMax=${SWFC_AGENT_MEMORY_CAP_GB}G" \
+        -p "MemoryMax=${ECAA_AGENT_MEMORY_CAP_GB}G" \
         -p "MemoryHigh=${MEM_HIGH_MB}M")
     elif command -v prlimit >/dev/null 2>&1; then
-      CAP_BYTES=$((SWFC_AGENT_MEMORY_CAP_GB * 1024 * 1024 * 1024))
+      CAP_BYTES=$((ECAA_AGENT_MEMORY_CAP_GB * 1024 * 1024 * 1024))
       AGENT_CMD_PREFIX=(prlimit "--as=$CAP_BYTES")
     fi
     # Docker path on SLURM compute nodes (rare; most
     # HPC sites use apptainer) gets --memory-reservation paired with
     # --memory. apptainer/singularity don't accept --memory at all
     # (cgroup wrapping is via systemd-run above).
-    CONTAINER_RESERVATION_MB=$((SWFC_AGENT_MEMORY_CAP_GB * 1024 * 85 / 100))
+    CONTAINER_RESERVATION_MB=$((ECAA_AGENT_MEMORY_CAP_GB * 1024 * 85 / 100))
     CONTAINER_MEM_ARGS=(
-      "--memory=${SWFC_AGENT_MEMORY_CAP_GB}g"
+      "--memory=${ECAA_AGENT_MEMORY_CAP_GB}g"
       "--memory-reservation=${CONTAINER_RESERVATION_MB}m"
     )
   fi
-elif [[ "${SWFC_HW_MEMORY_GB:-}" =~ ^[0-9]+$ ]] && [ "$SWFC_HW_MEMORY_GB" -gt 0 ]; then
-  AGENT_MEMORY_LIMIT_GB="$SWFC_HW_MEMORY_GB"
+elif [[ "${ECAA_HW_MEMORY_GB:-}" =~ ^[0-9]+$ ]] && [ "$ECAA_HW_MEMORY_GB" -gt 0 ]; then
+  AGENT_MEMORY_LIMIT_GB="$ECAA_HW_MEMORY_GB"
 fi
 if [ -n "$AGENT_MEMORY_LIMIT_GB" ] && [ "${#CONTAINER_MEM_ARGS[@]}" -eq 0 ]; then
   CONTAINER_RESERVATION_MB=$((AGENT_MEMORY_LIMIT_GB * 1024 * 85 / 100))
@@ -294,7 +294,7 @@ if [ -n "$AGENT_MEMORY_LIMIT_GB" ] && [ "${#CONTAINER_MEM_ARGS[@]}" -eq 0 ]; the
   )
 fi
 
-# Parse SWFC_CONTAINER_REGISTRY_AUTH=<registry>|<user>|<pass>.
+# Parse ECAA_CONTAINER_REGISTRY_AUTH=<registry>|<user>|<pass>.
 # Sets _AGENT_REG_HOST / _AGENT_REG_USER / _AGENT_REG_PASS when the
 # image registry hostname matches the configured registry; leaves
 # them empty otherwise. Pipe-delimited so we accept passwords that
@@ -303,7 +303,7 @@ __agent_parse_registry_auth() {
   _AGENT_REG_HOST=""
   _AGENT_REG_USER=""
   _AGENT_REG_PASS=""
-  local raw="${SWFC_CONTAINER_REGISTRY_AUTH:-}"
+  local raw="${ECAA_CONTAINER_REGISTRY_AUTH:-}"
   [ -z "$raw" ] && return 0
   [ -z "$CONTAINER_IMAGE" ] && return 0
   local cfg_host cfg_user cfg_pass
@@ -312,7 +312,7 @@ __agent_parse_registry_auth() {
   cfg_user="${rest%%|*}"
   cfg_pass="${rest#*|}"
   if [ -z "$cfg_host" ] || [ -z "$cfg_user" ] || [ "$cfg_pass" = "$rest" ]; then
-    echo "  [agent-slurm] warn: SWFC_CONTAINER_REGISTRY_AUTH must be registry|user|pass; ignoring" >&2
+    echo "  [agent-slurm] warn: ECAA_CONTAINER_REGISTRY_AUTH must be registry|user|pass; ignoring" >&2
     return 0
   fi
   # Image may carry a `docker://` prefix or a digest/tag; reduce to
@@ -342,9 +342,9 @@ if [ -n "$CONTAINER_IMAGE" ]; then
       # apptainer/singularity do not accept --memory; fall back to
       # prlimit on the outer wrapper when a cap is requested.
       # apptainer/singularity also strip parent env (modulo --env
-      # passthrough) so we forward BLAS + SWFC_HW_* explicitly.
+      # passthrough) so we forward BLAS + ECAA_HW_* explicitly.
       #
-      # Pre-pull with registry credentials when SWFC_CONTAINER_REGISTRY_AUTH
+      # Pre-pull with registry credentials when ECAA_CONTAINER_REGISTRY_AUTH
       # matches the image hostname. apptainer caches by default
       # ($APPTAINER_CACHEDIR / ~/.apptainer/cache), so the subsequent
       # `exec docker://...` will read from the cache and skip the
@@ -366,7 +366,7 @@ if [ -n "$CONTAINER_IMAGE" ]; then
         APT_ENV_ARGS+=(--env "$__agent_kv")
       done
       unset __agent_kv
-      if [ "${SWFC_AGENT_BILLING:-subscription}" = "api" ] \
+      if [ "${ECAA_AGENT_BILLING:-subscription}" = "api" ] \
          && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
         # Suppress xtrace around apptainer --env
         # composition so the literal key isn't echoed to any trace log.
@@ -384,24 +384,24 @@ if [ -n "$CONTAINER_IMAGE" ]; then
         APT_GPU_ARGS+=("--nv")
       fi
       APT_BIND_ARGS=()
-      if [ -n "${SWFC_SESSION_CACHE_DIR:-}" ]; then
-        APT_BIND_ARGS+=(--bind "$SWFC_SESSION_CACHE_DIR":"$SWFC_SESSION_CACHE_DIR")
+      if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
+        APT_BIND_ARGS+=(--bind "$ECAA_SESSION_CACHE_DIR":"$ECAA_SESSION_CACHE_DIR")
         APT_ENV_ARGS+=(
-          --env "SWFC_SESSION_CACHE_DIR=$SWFC_SESSION_CACHE_DIR"
-          --env "R_LIBS_USER=$SWFC_SESSION_CACHE_DIR/R-libs"
-          --env "PIP_CACHE_DIR=$SWFC_SESSION_CACHE_DIR/pip"
-          --env "CONDA_PKGS_DIRS=$SWFC_SESSION_CACHE_DIR/conda"
-          --env "PYTHONUSERBASE=$SWFC_SESSION_CACHE_DIR/python"
+          --env "ECAA_SESSION_CACHE_DIR=$ECAA_SESSION_CACHE_DIR"
+          --env "R_LIBS_USER=$ECAA_SESSION_CACHE_DIR/R-libs"
+          --env "PIP_CACHE_DIR=$ECAA_SESSION_CACHE_DIR/pip"
+          --env "CONDA_PKGS_DIRS=$ECAA_SESSION_CACHE_DIR/conda"
+          --env "PYTHONUSERBASE=$ECAA_SESSION_CACHE_DIR/python"
           --env "PIP_USER=1"
           --env "PIP_BREAK_SYSTEM_PACKAGES=1"
         )
       fi
-      if [ -n "${SWFC_TASK_SCRATCH_DIR:-}" ]; then
-        case "$SWFC_TASK_SCRATCH_DIR" in
+      if [ -n "${ECAA_TASK_SCRATCH_DIR:-}" ]; then
+        case "$ECAA_TASK_SCRATCH_DIR" in
           "$PACKAGE"/*) ;;
-          *) APT_BIND_ARGS+=(--bind "$SWFC_TASK_SCRATCH_DIR":"$SWFC_TASK_SCRATCH_DIR") ;;
+          *) APT_BIND_ARGS+=(--bind "$ECAA_TASK_SCRATCH_DIR":"$ECAA_TASK_SCRATCH_DIR") ;;
         esac
-        APT_ENV_ARGS+=(--env "SWFC_TASK_SCRATCH_DIR=$SWFC_TASK_SCRATCH_DIR")
+        APT_ENV_ARGS+=(--env "ECAA_TASK_SCRATCH_DIR=$ECAA_TASK_SCRATCH_DIR")
       fi
       # apptainer containment profile.
       # `--contain` blocks the default $HOME/$TMPDIR auto-bind; we
@@ -413,23 +413,23 @@ if [ -n "$CONTAINER_IMAGE" ]; then
       # the host filesystem. `--no-privs` matches docker
       # `no-new-privileges`.
       #
-      # Network selection precedence: per-task SWFC_TASK_NETWORK
+      # Network selection precedence: per-task ECAA_TASK_NETWORK
       # (stamped by harness::stamp_safety_network from the atom's
       # safety.network policy) wins; falls back to operator-set
-      # SWFC_CONTAINER_NETWORK_DEFAULT; defaults to `bridge` so the
+      # ECAA_CONTAINER_NETWORK_DEFAULT; defaults to `bridge` so the
       # PROMPT.md "install at task start" path (pip / BiocManager /
       # conda for SME-pinned or discover-picked methods that aren't
       # in the base image) can reach pypi / Bioconductor / bioconda.
       # Operators who need air-gapped execution should either pin
-      # SWFC_CONTAINER_NETWORK_DEFAULT=none in the env or set
+      # ECAA_CONTAINER_NETWORK_DEFAULT=none in the env or set
       # safety.network: { kind: None } on the relevant atoms — both
-      # propagate through SWFC_TASK_NETWORK and override this default.
+      # propagate through ECAA_TASK_NETWORK and override this default.
       # Values:
       #   none   → --net --network=none (isolated)
       #   bridge → --net --network=bridge (cluster network reachable; default)
       #   host   → no --net flag (host network namespace)
       APT_NET_ARGS=()
-      __agent_net="${SWFC_TASK_NETWORK:-${SWFC_CONTAINER_NETWORK_DEFAULT:-bridge}}"
+      __agent_net="${ECAA_TASK_NETWORK:-${ECAA_CONTAINER_NETWORK_DEFAULT:-bridge}}"
       case "$__agent_net" in
         none)
           APT_NET_ARGS+=(--net --network=none)
@@ -467,16 +467,16 @@ if [ -n "$CONTAINER_IMAGE" ]; then
       # join key is the runtime/outputs/<task_id>/.container-state.json
       # file (squeue tells us the SLURM job is alive; this file tells
       # us the container exited).
-      if [ -n "${SWFC_TASK_ID:-}" ]; then
-        CONTAINER_STATE_DIR="$PACKAGE/runtime/outputs/$SWFC_TASK_ID"
+      if [ -n "${ECAA_TASK_ID:-}" ]; then
+        CONTAINER_STATE_DIR="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
         mkdir -p "$CONTAINER_STATE_DIR" 2>/dev/null || true
         cat > "$CONTAINER_STATE_DIR/.container-state.json" 2>/dev/null <<EOF || true
 {
   "exit_code": $CLAUDE_EXIT,
   "image": "${CONTAINER_IMAGE:-}",
   "runtime": "$RT",
-  "session_id": "${SWFC_CHAT_SESSION_ID:-}",
-  "task_id": "${SWFC_TASK_ID}",
+  "session_id": "${ECAA_CHAT_SESSION_ID:-}",
+  "task_id": "${ECAA_TASK_ID}",
   "backend": "slurm",
   "ended_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
@@ -507,7 +507,7 @@ EOF
         DOCKER_ENV_ARGS+=(-e "$__agent_kv")
       done
       unset __agent_kv
-      if [ "${SWFC_AGENT_BILLING:-subscription}" = "api" ] \
+      if [ "${ECAA_AGENT_BILLING:-subscription}" = "api" ] \
          && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
         # Suppress xtrace around docker/podman -e
         # env-arg composition so the literal key isn't echoed to any
@@ -529,42 +529,42 @@ EOF
         fi
       fi
       DOCKER_CPU_ARGS=()
-      __agent_container_cpus="${SWFC_HW_NPROC_HINT:-${SWFC_HW_VCPUS_AVAILABLE:-}}"
+      __agent_container_cpus="${ECAA_HW_NPROC_HINT:-${ECAA_HW_VCPUS_AVAILABLE:-}}"
       if [[ "$__agent_container_cpus" =~ ^[0-9]+$ ]] && [ "$__agent_container_cpus" -gt 0 ]; then
         DOCKER_CPU_ARGS+=(--cpus "$__agent_container_cpus")
       fi
       unset __agent_container_cpus
 
       DOCKER_CACHE_ARGS=()
-      if [ -n "${SWFC_SESSION_CACHE_DIR:-}" ]; then
+      if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
         DOCKER_CACHE_ARGS+=(
-          -v "$SWFC_SESSION_CACHE_DIR":"$SWFC_SESSION_CACHE_DIR":rw
-          -e "SWFC_SESSION_CACHE_DIR=$SWFC_SESSION_CACHE_DIR"
-          -e "R_LIBS_USER=$SWFC_SESSION_CACHE_DIR/R-libs"
-          -e "PIP_CACHE_DIR=$SWFC_SESSION_CACHE_DIR/pip"
-          -e "CONDA_PKGS_DIRS=$SWFC_SESSION_CACHE_DIR/conda"
-          -e "PYTHONUSERBASE=$SWFC_SESSION_CACHE_DIR/python"
+          -v "$ECAA_SESSION_CACHE_DIR":"$ECAA_SESSION_CACHE_DIR":rw
+          -e "ECAA_SESSION_CACHE_DIR=$ECAA_SESSION_CACHE_DIR"
+          -e "R_LIBS_USER=$ECAA_SESSION_CACHE_DIR/R-libs"
+          -e "PIP_CACHE_DIR=$ECAA_SESSION_CACHE_DIR/pip"
+          -e "CONDA_PKGS_DIRS=$ECAA_SESSION_CACHE_DIR/conda"
+          -e "PYTHONUSERBASE=$ECAA_SESSION_CACHE_DIR/python"
           -e "PIP_USER=1"
           -e "PIP_BREAK_SYSTEM_PACKAGES=1"
         )
       fi
 
       DOCKER_SCRATCH_ARGS=()
-      if [ -n "${SWFC_TASK_SCRATCH_DIR:-}" ]; then
-        mkdir -p "$SWFC_TASK_SCRATCH_DIR" 2>/dev/null || true
-        case "$SWFC_TASK_SCRATCH_DIR" in
+      if [ -n "${ECAA_TASK_SCRATCH_DIR:-}" ]; then
+        mkdir -p "$ECAA_TASK_SCRATCH_DIR" 2>/dev/null || true
+        case "$ECAA_TASK_SCRATCH_DIR" in
           "$PACKAGE"/*) ;;
-          *) DOCKER_SCRATCH_ARGS+=(-v "$SWFC_TASK_SCRATCH_DIR":"$SWFC_TASK_SCRATCH_DIR":rw) ;;
+          *) DOCKER_SCRATCH_ARGS+=(-v "$ECAA_TASK_SCRATCH_DIR":"$ECAA_TASK_SCRATCH_DIR":rw) ;;
         esac
-        DOCKER_SCRATCH_ARGS+=(-e "SWFC_TASK_SCRATCH_DIR=$SWFC_TASK_SCRATCH_DIR")
+        DOCKER_SCRATCH_ARGS+=(-e "ECAA_TASK_SCRATCH_DIR=$ECAA_TASK_SCRATCH_DIR")
       fi
       # Same labeling as the local + AWS docker paths.
       DOCKER_LABEL_ARGS=()
-      if [ -n "${SWFC_TASK_ID:-}" ]; then
-        DOCKER_LABEL_ARGS+=("--label" "swfc-task=${SWFC_TASK_ID}")
+      if [ -n "${ECAA_TASK_ID:-}" ]; then
+        DOCKER_LABEL_ARGS+=("--label" "swfc-task=${ECAA_TASK_ID}")
       fi
-      if [ -n "${SWFC_CHAT_SESSION_ID:-}" ]; then
-        DOCKER_LABEL_ARGS+=("--label" "swfc-session=${SWFC_CHAT_SESSION_ID}")
+      if [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
+        DOCKER_LABEL_ARGS+=("--label" "swfc-session=${ECAA_CHAT_SESSION_ID}")
       fi
 
       # Docker isolation hardening on the SLURM docker/podman
@@ -574,11 +574,11 @@ EOF
       # --pids-limit caps fork-bombs.
       "$RT" run --rm \
         --read-only \
-        --tmpfs "/tmp:rw,size=$SWFC_DOCKER_TMPFS_TMP_SIZE,mode=1777" \
-        --tmpfs "/var/tmp:rw,size=$SWFC_DOCKER_TMPFS_VARTMP_SIZE,mode=1777" \
+        --tmpfs "/tmp:rw,size=$ECAA_DOCKER_TMPFS_TMP_SIZE,mode=1777" \
+        --tmpfs "/var/tmp:rw,size=$ECAA_DOCKER_TMPFS_VARTMP_SIZE,mode=1777" \
         --security-opt no-new-privileges \
         --cap-drop=ALL \
-        --pids-limit "$SWFC_DOCKER_PIDS_LIMIT" \
+        --pids-limit "$ECAA_DOCKER_PIDS_LIMIT" \
         "${CONTAINER_MEM_ARGS[@]}" \
         "${DOCKER_CPU_ARGS[@]}" \
         "${DOCKER_GPU_ARGS[@]}" \
@@ -594,16 +594,16 @@ EOF
         claude --dangerously-skip-permissions -p "$PROMPT" \
         | tee "$OUT_LOG"
       CLAUDE_EXIT="${PIPESTATUS[0]}"
-      if [ -n "${SWFC_TASK_ID:-}" ]; then
-        CONTAINER_STATE_DIR="$PACKAGE/runtime/outputs/$SWFC_TASK_ID"
+      if [ -n "${ECAA_TASK_ID:-}" ]; then
+        CONTAINER_STATE_DIR="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
         mkdir -p "$CONTAINER_STATE_DIR" 2>/dev/null || true
         cat > "$CONTAINER_STATE_DIR/.container-state.json" 2>/dev/null <<EOF || true
 {
   "exit_code": $CLAUDE_EXIT,
   "image": "${CONTAINER_IMAGE:-}",
   "runtime": "$RT",
-  "session_id": "${SWFC_CHAT_SESSION_ID:-}",
-  "task_id": "${SWFC_TASK_ID}",
+  "session_id": "${ECAA_CHAT_SESSION_ID:-}",
+  "task_id": "${ECAA_TASK_ID}",
   "backend": "slurm",
   "ended_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }

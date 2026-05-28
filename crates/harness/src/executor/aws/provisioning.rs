@@ -15,12 +15,12 @@ use std::path::Path;
 use std::sync::Once;
 use std::time::Duration;
 
-/// Parse the `SWFC_AWS_INSTANCE_TYPE_ALLOWLIST`
+/// Parse the `ECAA_AWS_INSTANCE_TYPE_ALLOWLIST`
 /// env var into a vector of trimmed instance-type names. Unset (or
 /// empty / whitespace) returns `None` so callers can apply
 /// "unconfigured = allow any" semantics intentionally.
 fn parse_instance_type_allowlist() -> Option<Vec<String>> {
-    let raw = std::env::var("SWFC_AWS_INSTANCE_TYPE_ALLOWLIST").ok()?;
+    let raw = std::env::var("ECAA_AWS_INSTANCE_TYPE_ALLOWLIST").ok()?;
     let items: Vec<String> = raw
         .split(',')
         .map(|t| t.trim().to_string())
@@ -36,7 +36,7 @@ fn parse_instance_type_allowlist() -> Option<Vec<String>> {
 static ALLOWLIST_UNSET_WARN: Once = Once::new();
 
 /// Reject any instance type the operator hasn't
-/// added to `SWFC_AWS_INSTANCE_TYPE_ALLOWLIST`. Unconfigured ⇒ allow
+/// added to `ECAA_AWS_INSTANCE_TYPE_ALLOWLIST`. Unconfigured ⇒ allow
 /// any type (preserves the historical default while still letting an
 /// operator opt-in to a narrower surface).
 pub(super) fn check_instance_type_allowed(instance_type: &str) -> Result<()> {
@@ -48,7 +48,7 @@ pub(super) fn check_instance_type_allowed(instance_type: &str) -> Result<()> {
             ALLOWLIST_UNSET_WARN.call_once(|| {
                 tracing::warn!(
                     instance_type = instance_type,
-                    "SWFC_AWS_INSTANCE_TYPE_ALLOWLIST is unset; any instance type \
+                    "ECAA_AWS_INSTANCE_TYPE_ALLOWLIST is unset; any instance type \
                      the sizing layer picks will be launched. Set the env var to \
                      a comma-separated list (e.g. \
                      t3.medium,m6i.large,c6i.large,r6i.large,r6i.xlarge,g5.xlarge) \
@@ -59,7 +59,7 @@ pub(super) fn check_instance_type_allowed(instance_type: &str) -> Result<()> {
         }
         Some(list) if list.iter().any(|t| t == instance_type) => Ok(()),
         Some(list) => Err(anyhow!(
-            "instance type {} not in SWFC_AWS_INSTANCE_TYPE_ALLOWLIST {:?}; \
+            "instance type {} not in ECAA_AWS_INSTANCE_TYPE_ALLOWLIST {:?}; \
              widen the allowlist or change the sizing policy.",
             instance_type,
             list
@@ -300,7 +300,7 @@ impl AwsExecutor {
         // capacity rebalance, manual retries) that piecewise stay
         // below the per-launch ceiling but in aggregate breach the
         // run-total budget. W5.1: use the fail-closed constructor so a
-        // missing SWFC_AWS_RUN_TOTAL_CEILING_USD aborts provisioning
+        // missing ECAA_AWS_RUN_TOTAL_CEILING_USD aborts provisioning
         // instead of silently applying the $100 default.
         let cumulative =
             super::super::cost_guard::CumulativeSpend::for_package_strict(&self.args.package)?;
@@ -337,7 +337,7 @@ impl AwsExecutor {
         // the DAG. `required_network_floor` returns
         // `NetworkPolicy::None` when ANY Network/Exec task asks for
         // egress-restricted; otherwise `Bridge`. When the floor is
-        // restricted but no `SWFC_AWS_RESTRICTED_SG_ID` is configured,
+        // restricted but no `ECAA_AWS_RESTRICTED_SG_ID` is configured,
         // we fall back to the permissive SG and let
         // `enforce_safety_policy` (running against the capability we
         // advertise) block the offending task with
@@ -351,7 +351,7 @@ impl AwsExecutor {
             }
             (ecaa_workflow_core::atom::NetworkPolicy::None { .. }, None) => {
                 tracing::warn!(
-                    "SWFC_AWS_RESTRICTED_SG_ID is unset but DAG carries a task with \
+                    "ECAA_AWS_RESTRICTED_SG_ID is unset but DAG carries a task with \
                      safety.network=None; falling back to permissive SG. Affected tasks \
                      will be Blocked with NetworkPolicyMismatch."
                 );
@@ -931,22 +931,22 @@ mod allowlist_tests {
     // The `set/remove_var` calls inside these tests are flagged
     // as unsafe in Rust 2024 edition because the
     // env table is not thread-safe; all callsites are single-threaded
-    // setup gated by the crate-wide SWFC_AWS_ENV_LOCK.
+    // setup gated by the crate-wide ECAA_AWS_ENV_LOCK.
     #![allow(unsafe_code)]
-    use super::super::super::SWFC_AWS_ENV_LOCK;
+    use super::super::super::ECAA_AWS_ENV_LOCK;
     use super::check_instance_type_allowed;
 
     fn with_allowlist<T>(value: Option<&str>, body: impl FnOnce() -> T) -> T {
-        let _lock = SWFC_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        let prior = std::env::var("SWFC_AWS_INSTANCE_TYPE_ALLOWLIST").ok();
+        let _lock = ECAA_AWS_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let prior = std::env::var("ECAA_AWS_INSTANCE_TYPE_ALLOWLIST").ok();
         match value {
-            Some(v) => unsafe { std::env::set_var("SWFC_AWS_INSTANCE_TYPE_ALLOWLIST", v) },
-            None => unsafe { std::env::remove_var("SWFC_AWS_INSTANCE_TYPE_ALLOWLIST") },
+            Some(v) => unsafe { std::env::set_var("ECAA_AWS_INSTANCE_TYPE_ALLOWLIST", v) },
+            None => unsafe { std::env::remove_var("ECAA_AWS_INSTANCE_TYPE_ALLOWLIST") },
         }
         let out = body();
         match prior {
-            Some(v) => unsafe { std::env::set_var("SWFC_AWS_INSTANCE_TYPE_ALLOWLIST", v) },
-            None => unsafe { std::env::remove_var("SWFC_AWS_INSTANCE_TYPE_ALLOWLIST") },
+            Some(v) => unsafe { std::env::set_var("ECAA_AWS_INSTANCE_TYPE_ALLOWLIST", v) },
+            None => unsafe { std::env::remove_var("ECAA_AWS_INSTANCE_TYPE_ALLOWLIST") },
         }
         out
     }
@@ -961,7 +961,7 @@ mod allowlist_tests {
 
     #[test]
     fn empty_allowlist_treated_as_unset() {
-        // `SWFC_AWS_INSTANCE_TYPE_ALLOWLIST=""` is what `unset -v` in
+        // `ECAA_AWS_INSTANCE_TYPE_ALLOWLIST=""` is what `unset -v` in
         // a Makefile or `.env` reset looks like; treat as None.
         with_allowlist(Some(""), || {
             assert!(check_instance_type_allowed("t3.medium").is_ok());
@@ -985,7 +985,7 @@ mod allowlist_tests {
                 "diagnostic must echo bad type: {msg}"
             );
             assert!(
-                msg.contains("SWFC_AWS_INSTANCE_TYPE_ALLOWLIST"),
+                msg.contains("ECAA_AWS_INSTANCE_TYPE_ALLOWLIST"),
                 "diagnostic must name the env var: {msg}"
             );
         });

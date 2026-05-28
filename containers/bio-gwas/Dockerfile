@@ -54,7 +54,7 @@ RUN python -m pip install --no-cache-dir \
         "pyranges>=0.0.129"
 
 # Record per-domain additions on top of bio-min for the
-# RUNTIME_VERSIONS contract (Stage 15 / SWFC_AMI_RUNTIME_STRICT).
+# RUNTIME_VERSIONS contract (Stage 15 / ECAA_AMI_RUNTIME_STRICT).
 RUN mkdir -p /etc/bio-gwas \
  && python -c 'import json,subprocess; \
     raw = subprocess.check_output(["mamba","list","--json"]).decode(); \

@@ -4,12 +4,12 @@
 //! Two harness binary invocations are spawned against the same package
 //! directory. We verify two orthogonal invariants:
 //!
-//! 1. **Lock exclusion**: without `SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1`,
+//! 1. **Lock exclusion**: without `ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1`,
 //!    when both processes use the same `--session-id`, exactly one process
 //!    acquires the lock and the other exits with code 2.
 //!
 //! 2. **WAL integrity**: when both processes are allowed to run concurrently
-//!    (via `SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1`) and each appends WAL
+//!    (via `ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1`) and each appends WAL
 //!    records before exiting, every line in `runtime/dispatches.jsonl`
 //!    parses as a valid `DispatchRecord` — there are no torn writes.
 //!
@@ -100,9 +100,9 @@ fn write_noop_agent(path: &Path) {
         br#"#!/usr/bin/env bash
 set -euo pipefail
 pkg="${1:?missing package}"
-tid="${SWFC_TASK_ID:?missing SWFC_TASK_ID}"
-run_id="${SWFC_HARNESS_RUN_ID:?missing SWFC_HARNESS_RUN_ID}"
-epoch="${SWFC_DISPATCH_EPOCH:?missing SWFC_DISPATCH_EPOCH}"
+tid="${ECAA_TASK_ID:?missing ECAA_TASK_ID}"
+run_id="${ECAA_HARNESS_RUN_ID:?missing ECAA_HARNESS_RUN_ID}"
+epoch="${ECAA_DISPATCH_EPOCH:?missing ECAA_DISPATCH_EPOCH}"
 out="${pkg}/runtime/outputs/${tid}"
 mkdir -p "${out}"
 cat > "${out}/state.patch.json" <<JSON
@@ -179,15 +179,15 @@ fn two_harnesses_same_session_id_lock_exclusion() {
             .arg("--no-interactive")
             .arg("--session-id")
             .arg(&session_id)
-            // Deliberately NOT setting SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS
+            // Deliberately NOT setting ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS
             // so the lock is enforced.
             .env("HOME", &home)
-            .env("SWFC_EXECUTOR_MODE", "local")
-            .env("SWFC_STALL_ENABLED", "0")
+            .env("ECAA_EXECUTOR_MODE", "local")
+            .env("ECAA_STALL_ENABLED", "0")
             // Server URL unreachable — the harness will get progress-client
             // errors but those are non-fatal; it still writes the WAL and
             // exits cleanly.
-            .env("SWFC_SERVER_AUTH_TOKEN", "test-token")
+            .env("ECAA_SERVER_AUTH_TOKEN", "test-token")
             .arg("--server-url")
             .arg("http://127.0.0.1:1") // port 1 = guaranteed-refuse
             .stdin(std::process::Stdio::null())
@@ -237,7 +237,7 @@ fn two_harnesses_same_session_id_lock_exclusion() {
 }
 
 /// Both harness processes are allowed to run concurrently via
-/// `SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1`. Each dispatches tasks and
+/// `ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1`. Each dispatches tasks and
 /// appends WAL records. After both exit, every line in
 /// `runtime/dispatches.jsonl` must be parseable as a `DispatchRecord` —
 /// no torn writes.
@@ -285,8 +285,8 @@ fn two_harnesses_concurrent_wal_writes_no_torn_lines() {
             .arg("2")
             .arg("--no-interactive")
             .env("HOME", &home)
-            .env("SWFC_EXECUTOR_MODE", "local")
-            .env("SWFC_STALL_ENABLED", "0")
+            .env("ECAA_EXECUTOR_MODE", "local")
+            .env("ECAA_STALL_ENABLED", "0")
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())

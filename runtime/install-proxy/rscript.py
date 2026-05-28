@@ -16,9 +16,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _common  # noqa: E402
 
 
-REAL = os.environ.get("SWFC_REAL_RSCRIPT", "/usr/local/bin/.real/Rscript")
+REAL = os.environ.get("ECAA_REAL_RSCRIPT", "/usr/local/bin/.real/Rscript")
 INSTALL_LOG = os.environ.get(
-    "SWFC_INSTALL_LOG", "/workspace/runtime/install-log.jsonl"
+    "ECAA_INSTALL_LOG", "/workspace/runtime/install-log.jsonl"
 )
 
 # Capture package name(s) from install.packages("foo") OR

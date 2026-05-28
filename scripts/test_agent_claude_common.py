@@ -123,7 +123,7 @@ def test_agent_usage_sidecar_preserves_num_turns(tmp_path):
 
 def test_task_execution_prompt_renders_turn_budget_placeholders():
     result = run_common_helper(
-        "PACKAGE=/tmp/pkg SWFC_TASK_ID=data_acquisition "
+        "PACKAGE=/tmp/pkg ECAA_TASK_ID=data_acquisition "
         "MAX_TURNS_PER_TASK=25 "
         "load_task_execution_prompt scripts/agent-prompts/task-execution.md"
     )
@@ -150,7 +150,7 @@ def test_turn_budget_enforcement_respects_completed_state_patch(tmp_path):
     )
 
     result = run_common_helper(
-        "SWFC_HARNESS_RUN_ID=run123 SWFC_DISPATCH_EPOCH=7 "
+        "ECAA_HARNESS_RUN_ID=run123 ECAA_DISPATCH_EPOCH=7 "
         f'enforce_turn_budget_limit "{package}" data_acquisition 25'
     )
 

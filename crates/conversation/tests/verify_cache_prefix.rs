@@ -1,6 +1,6 @@
 //! Empirically measure the cacheable system-prompt + tools prefix in
 //! tokens via Anthropic's `/v1/messages/count_tokens` endpoint. Gated
-//! behind `SWFC_LIVE_API=1` + `ANTHROPIC_API_KEY` and `#[ignore]`-
+//! behind `ECAA_LIVE_API=1` + `ANTHROPIC_API_KEY` and `#[ignore]`-
 //! annotated, so `cargo test` never runs it automatically. Invoke via
 //! `make verify-cache-prefix`.
 //!
@@ -27,12 +27,12 @@ const SONNET_46_MIN_TOKENS: u32 = 2048;
 #[ignore]
 async fn measure_cacheable_prefix_tokens() {
     assert_eq!(
-        std::env::var("SWFC_LIVE_API").ok().as_deref(),
+        std::env::var("ECAA_LIVE_API").ok().as_deref(),
         Some("1"),
-        "SWFC_LIVE_API=1 required (this test hits the live Anthropic count_tokens endpoint)"
+        "ECAA_LIVE_API=1 required (this test hits the live Anthropic count_tokens endpoint)"
     );
     let api_key = ecaa_workflow_conversation::anthropic_api_key()
-        .expect("SWFC_ANTHROPIC_API_KEY required (count_tokens is not billed but still needs auth). Legacy ANTHROPIC_API_KEY also accepted.");
+        .expect("ECAA_ANTHROPIC_API_KEY required (count_tokens is not billed but still needs auth). Legacy ANTHROPIC_API_KEY also accepted.");
 
     // Worst-case prefix shape: bio session with a loaded taxonomy.
     // Phase B4 — synthesize the taxonomy metadata rather than loading

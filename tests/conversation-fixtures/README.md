@@ -106,10 +106,10 @@ rubric_notes: |
 
 ```bash
 # Scripted (always, fast — under the mock backend)
-cargo test -p scripps-workflow-conversation --test fixture_runner
+cargo test -p ecaa-workflow-conversation --test fixture_runner
 
 # Single fixture
-cargo test -p scripps-workflow-conversation --test fixture_runner -- 01_single
+cargo test -p ecaa-workflow-conversation --test fixture_runner -- 01_single
 
 # Latency baseline gate (8000 ms per fixture by default)
 make latency-baseline

@@ -16,7 +16,7 @@ use serde::Serialize;
 /// names are snake_case to match the rest of the chat API.
 #[derive(Debug, Clone, Serialize)]
 pub(super) struct ChatConfig {
-    /// True when `SWFC_AUTO_TITLE=1` is set. The UI uses this to hide
+    /// True when `ECAA_AUTO_TITLE=1` is set. The UI uses this to hide
     /// the "Auto-name session" button on servers / deployments that
     /// haven't opted into the Haiku side call yet.
     pub auto_title_enabled: bool,

@@ -17,7 +17,7 @@
 //! immediately and exits with a clear stderr message rather than
 //! racing on shared state.
 //!
-//! Bypass: setting `SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1` skips
+//! Bypass: setting `ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1` skips
 //! the acquire entirely so tests that deliberately spawn two
 //! harnesses (e.g. multi-process WAL contention scenarios) can opt
 //! out. Production paths should never set this.
@@ -42,11 +42,11 @@ impl SessionLock {
     /// it; the caller in `main` prints the contention message and
     /// exits with code 2.
     ///
-    /// Honors `SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1` by
+    /// Honors `ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1` by
     /// returning a sentinel that holds no real lock — only test
     /// harnesses that need two processes deliberately should set it.
     pub fn acquire(session_id: &str) -> Result<Self> {
-        if std::env::var("SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS")
+        if std::env::var("ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS")
             .ok()
             .as_deref()
             == Some("1")
@@ -117,7 +117,7 @@ impl SessionLock {
             return Err(anyhow!(
                 "could not acquire session lock {}: {} \
                  (another harness for session_id={} is already running; \
-                 set SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1 to bypass for tests)",
+                 set ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1 to bypass for tests)",
                 path.display(),
                 err,
                 session_id

@@ -2,14 +2,14 @@
 
 All notable changes to `ECAA-workflow` land here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note:** This project was renamed from `scripps-workflow` during the open-source split. Historical entries below reference docs and paths that lived in the originating repo and may not be present here.
+> **Note:** This project was renamed from `ecaa-workflow` during the open-source split. Historical entries below reference docs and paths that lived in the originating repo and may not be present here.
 
 New entries go at the top. One bullet per user-visible change.
 
 ## [Unreleased]
 
 ### Deprecated
-- **Plan §S9.1 — Phase 4 sunset notice.** `config/stage-taxonomies/`, the `--taxonomy` CLI flag, `expand_includes` / `expand_composition` taxonomy helpers, and the `build_dag_from_taxonomy()` builder entry point are all scheduled for removal in a future release once the archetype-default composer path (`SWFC_COMPOSER=archetypes`) has soaked through ≥2 release cycles with zero regressions and ≥2 novel-composition real-world validations. Concrete deprecation steps will be (1) `--taxonomy` warns when invoked, (2) next cycle: warns with a removal date, (3) third cycle: hard-errors. The `ClassificationResult.taxonomy_path` field will rename to `archetype_id` with a one-cycle `#[serde(alias)]` shim; the additive `archetype_id` field already shipped this cycle (post-S9.4) so live sessions reload across the rename. See `docs/2026-04/unified-implementation-plan-2026-04-28.md` §S9 for the full cutover plan.
+- **Plan §S9.1 — Phase 4 sunset notice.** `config/stage-taxonomies/`, the `--taxonomy` CLI flag, `expand_includes` / `expand_composition` taxonomy helpers, and the `build_dag_from_taxonomy()` builder entry point are all scheduled for removal in a future release once the archetype-default composer path (`ECAA_COMPOSER=archetypes`) has soaked through ≥2 release cycles with zero regressions and ≥2 novel-composition real-world validations. Concrete deprecation steps will be (1) `--taxonomy` warns when invoked, (2) next cycle: warns with a removal date, (3) third cycle: hard-errors. The `ClassificationResult.taxonomy_path` field will rename to `archetype_id` with a one-cycle `#[serde(alias)]` shim; the additive `archetype_id` field already shipped this cycle (post-S9.4) so live sessions reload across the rename. See `docs/2026-04/unified-implementation-plan-2026-04-28.md` §S9 for the full cutover plan.
 
 ### Added
 - **In-flow branching from completed tasks (M1.1).** `BranchFromHereCard` now wired into `ConversationPane` for session-scoped branching without leaving the chat flow. `TaskDetailDrawer` "Explore in a branch" entry point (M1.3) enables task-scoped branching; child sessions inherit parent's completed prerequisites and re-run only the named task and its descendants.
@@ -35,10 +35,10 @@ New entries go at the top. One bullet per user-visible change.
 - **DashboardTab empty placeholder** — the dev `<div>empty</div>` that leaked to prod is now a proper styled empty-state message.
 - **Adding a modality** in `config-reference.md` now documents the downstream-policy registration step, which was missing from the 4-step list and produced startup errors on follow-through.
 - **DAG terminology contradiction** — `sme-user-guide.md` no longer says "see the DAG" (the assistant's voice forbids that term); says "see the task graph" instead.
-- **README.md stale tool count** — `chat-llm` subsection now says "16-tool vocabulary" (was "15") and uses `SWFC_ANTHROPIC_API_KEY` (was the legacy `ANTHROPIC_API_KEY`) in every subsection that quoted it; legacy fallback preserved.
+- **README.md stale tool count** — `chat-llm` subsection now says "16-tool vocabulary" (was "15") and uses `ECAA_ANTHROPIC_API_KEY` (was the legacy `ANTHROPIC_API_KEY`) in every subsection that quoted it; legacy fallback preserved.
 
 ### Deprecated
-- `ANTHROPIC_API_KEY` (chat-side) — use `SWFC_ANTHROPIC_API_KEY`. The legacy name still works with a one-time stderr warning; removal target not set.
+- `ANTHROPIC_API_KEY` (chat-side) — use `ECAA_ANTHROPIC_API_KEY`. The legacy name still works with a one-time stderr warning; removal target not set.
 
 ### Deferred
 - **Annotated walkthrough screenshot** (`docs/images/sme-walkthrough-overview.png`) — requires running the UI in a browser and capturing a labelled reference frame. Defer until the next UI pass; not blocking since the split-pane layout is self-documenting and every labelled surface is also described in `sme-user-guide.md`.
@@ -50,6 +50,6 @@ The codebase prior to the docs remediation was never formally tagged. Everything
 - Natural-chat (intake→emit chat, confirmation gate, fixture corpus, latency baseline).
 - AWS remote compute, SLURM remote compute, modularity splits.
 - Full-lifecycle SME operations: result review, amendment, rerun, sensitivity winner, branching.
-- Token-burn remediation: `SWFC_LIVE_API` gate, `SWFC_DISABLE_CONTEXT_EDITING`, `SWFC_SESSION_TOKEN_BUDGET`, `SWFC_SLIM_TAXONOMY`, Opus 4.7 escalation target, 10-iteration tool-loop cap, soft-landing nudge at iteration 7.
+- Token-burn remediation: `ECAA_LIVE_API` gate, `ECAA_DISABLE_CONTEXT_EDITING`, `ECAA_SESSION_TOKEN_BUDGET`, `ECAA_SLIM_TAXONOMY`, Opus 4.7 escalation target, 10-iteration tool-loop cap, soft-landing nudge at iteration 7.
 
 Future entries will land here as they ship.

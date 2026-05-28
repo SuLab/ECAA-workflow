@@ -1,4 +1,4 @@
-//! Runtime SWFC_ABLATE_* env-var flag readers.
+//! Runtime ECAA_ABLATE_* env-var flag readers.
 //!
 //! The closed `AblationFlag` enum + `all_flags()` are canonical in
 //! `ecaa-workflow-types::ablation`. The `is_active()` extension
@@ -36,12 +36,12 @@ mod tests {
         let flags = all_flags();
         assert_eq!(flags.len(), 6);
         let env_vars: Vec<_> = flags.iter().map(|f| f.env_var()).collect();
-        assert!(env_vars.contains(&"SWFC_ABLATE_DECISION_RECORDS"));
-        assert!(env_vars.contains(&"SWFC_ABLATE_AMENDMENT_PROVENANCE"));
-        assert!(env_vars.contains(&"SWFC_ABLATE_CLAIM_CONSISTENCY"));
-        assert!(env_vars.contains(&"SWFC_ABLATE_TYPED_BLOCKERS"));
-        assert!(env_vars.contains(&"SWFC_ABLATE_REEXECUTION_CLASS"));
-        assert!(env_vars.contains(&"SWFC_ABLATE_AUDIT_PROOF"));
+        assert!(env_vars.contains(&"ECAA_ABLATE_DECISION_RECORDS"));
+        assert!(env_vars.contains(&"ECAA_ABLATE_AMENDMENT_PROVENANCE"));
+        assert!(env_vars.contains(&"ECAA_ABLATE_CLAIM_CONSISTENCY"));
+        assert!(env_vars.contains(&"ECAA_ABLATE_TYPED_BLOCKERS"));
+        assert!(env_vars.contains(&"ECAA_ABLATE_REEXECUTION_CLASS"));
+        assert!(env_vars.contains(&"ECAA_ABLATE_AUDIT_PROOF"));
     }
 
     #[test]
@@ -57,13 +57,13 @@ mod tests {
     #[test]
     #[serial_test::serial]
     fn flag_is_active_reads_env_var() {
-        let prev = env::var("SWFC_ABLATE_DECISION_RECORDS").ok();
-        env::set_var("SWFC_ABLATE_DECISION_RECORDS", "1");
+        let prev = env::var("ECAA_ABLATE_DECISION_RECORDS").ok();
+        env::set_var("ECAA_ABLATE_DECISION_RECORDS", "1");
         assert!(AblationFlag::DecisionRecords.is_active());
-        env::remove_var("SWFC_ABLATE_DECISION_RECORDS");
+        env::remove_var("ECAA_ABLATE_DECISION_RECORDS");
         assert!(!AblationFlag::DecisionRecords.is_active());
         if let Some(v) = prev {
-            env::set_var("SWFC_ABLATE_DECISION_RECORDS", v);
+            env::set_var("ECAA_ABLATE_DECISION_RECORDS", v);
         }
     }
 }

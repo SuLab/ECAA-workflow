@@ -4,13 +4,13 @@
 //! Exit codes:
 //! - 0: all atoms pass the safety lint
 //! - 1: lint violations
-//! - 2: registry load failed (bad SWFC_CONFIG_DIR, missing files, etc.)
+//! - 2: registry load failed (bad ECAA_CONFIG_DIR, missing files, etc.)
 //!
 //! Note: `AtomRegistry::load_from_dir` deliberately treats a missing
 //! directory as an empty registry (composer fallback). For an
 //! operator-facing lint that's a silent pass which masks misconfig, so
 //! this binary explicitly verifies the directory exists and is non-empty
-//! before delegating, and exits 2 with a pointer to SWFC_CONFIG_DIR.
+//! before delegating, and exits 2 with a pointer to ECAA_CONFIG_DIR.
 //!
 //! Scope: this binary runs ONLY the safety lint (`validate_atom_safety`
 //! per-atom), not the broader `AtomRegistry::validate_consistency`.
@@ -23,14 +23,14 @@ use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::atom_safety::validate_atom_safety;
 
 fn main() {
-    let config_dir = std::env::var("SWFC_CONFIG_DIR").unwrap_or_else(|_| "./config".into());
+    let config_dir = std::env::var("ECAA_CONFIG_DIR").unwrap_or_else(|_| "./config".into());
     let stage_atoms = PathBuf::from(&config_dir).join("stage-atoms");
     eprintln!("loading atoms from {}", stage_atoms.display());
 
     if !stage_atoms.is_dir() {
         eprintln!(
             "✗ failed to load atom registry: {} is not a directory \
-             (set SWFC_CONFIG_DIR to the config root)",
+             (set ECAA_CONFIG_DIR to the config root)",
             stage_atoms.display()
         );
         std::process::exit(2);
@@ -46,7 +46,7 @@ fn main() {
     if registry.is_empty() {
         eprintln!(
             "✗ failed to load atom registry: no atoms found under {} \
-             (check SWFC_CONFIG_DIR)",
+             (check ECAA_CONFIG_DIR)",
             stage_atoms.display()
         );
         std::process::exit(2);

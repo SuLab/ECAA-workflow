@@ -17,5 +17,5 @@ pub const FOUR_CONDITIONS_PREVENTING_EMISSION: [&str; 4] = [
     "Missing or contradictory SME intent that cannot be classified into any modality",
     "Deterministic schema-validation failure on a required intake field where no default exists",
     "Explicit SME rejection at the confirmation gate (`reject` endpoint)",
-    "Explicit operator kill-switch (an emission-side analogue to SWFC_GIT_ENABLED=0, possibly unwired today)",
+    "Explicit operator kill-switch (an emission-side analogue to ECAA_GIT_ENABLED=0, possibly unwired today)",
 ];

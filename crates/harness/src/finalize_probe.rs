@@ -70,21 +70,21 @@ use std::time::Duration;
 
 /// Default throttle: don't invoke the same task's recoverable_action
 /// more than once per this many seconds. Override with
-/// `SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS`.
+/// `ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS`.
 pub const DEFAULT_PROBE_MIN_INTERVAL_SECS: u64 = 60;
 
 /// Per-invocation timeout for the wrapper script. The script must
 /// either complete fast (sentinel present → finalize) or exit fast
 /// (sentinel pending → no-op exit 0). A wrapper that hangs is
 /// terminated; the harness logs a warning and the next iteration tries
-/// again. Override with `SWFC_HARNESS_FINALIZE_PROBE_TIMEOUT_SECS`.
+/// again. Override with `ECAA_HARNESS_FINALIZE_PROBE_TIMEOUT_SECS`.
 pub const DEFAULT_PROBE_TIMEOUT_SECS: u64 = 30;
 
 /// Read the probe interval threshold from env. Range-clamped to
 /// `[5, 3600]` to prevent both tight loops and accidental disables.
 /// Pass-through 0 disables the throttle entirely (used in tests).
 pub fn probe_min_interval_secs() -> u64 {
-    let raw = std::env::var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS")
+    let raw = std::env::var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_PROBE_MIN_INTERVAL_SECS);
@@ -101,7 +101,7 @@ pub fn probe_min_interval_secs() -> u64 {
 /// "exit early, no sentinel" path; consumers writing slower wrappers
 /// should bump the env var.
 pub fn probe_timeout_secs() -> u64 {
-    std::env::var("SWFC_HARNESS_FINALIZE_PROBE_TIMEOUT_SECS")
+    std::env::var("ECAA_HARNESS_FINALIZE_PROBE_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_PROBE_TIMEOUT_SECS)
@@ -338,7 +338,7 @@ fn read_recoverable_action(blocker_json: &Path) -> Result<Option<(String, String
 }
 
 /// Run one wrapper script with a timeout. The child process inherits
-/// the harness's environment (so `SWFC_*` vars propagate to the
+/// the harness's environment (so `ECAA_*` vars propagate to the
 /// wrapper) but its stdout / stderr are captured rather than
 /// streamed — keeps the harness's primary log readable when many
 /// probes fire per iteration.
@@ -527,7 +527,7 @@ mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
 
-    /// Serializes tests that mutate `SWFC_HARNESS_FINALIZE_PROBE_*`
+    /// Serializes tests that mutate `ECAA_HARNESS_FINALIZE_PROBE_*`
     /// env vars — `std::env::set_var` is process-global, so concurrent
     /// test threads racing on the same key produce flaky results
     /// (e.g. throttle test sees a previous test's "0" override).
@@ -595,9 +595,9 @@ mod tests {
         make_executable(&script);
         write_blocker_json(&task_dir, "rerun_script", "finalize.sh");
         // Disable throttle so we can run back-to-back in the test.
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
         let outcome = probe_one_task(tmp.path(), "t");
-        std::env::remove_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
+        std::env::remove_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
         assert!(matches!(outcome, ProbeOutcome::Ran { exit_code: 0 }));
         // Sidecar persisted.
         assert!(task_dir.join("last_probe.json").exists());
@@ -623,9 +623,9 @@ mod tests {
         .unwrap();
         make_executable(&script);
         write_blocker_json(&task_dir, "rerun_script", "finalize.sh");
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
         let outcome = probe_one_task(tmp.path(), "t");
-        std::env::remove_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
+        std::env::remove_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
         assert!(matches!(outcome, ProbeOutcome::Ran { exit_code: 0 }));
         let patch = std::fs::read_to_string(task_dir.join("state.patch.json")).unwrap();
         assert!(patch.contains("completed"));
@@ -642,7 +642,7 @@ mod tests {
         make_executable(&script);
         write_blocker_json(&task_dir, "rerun_script", "noop.sh");
         // Default throttle is 60s.
-        std::env::remove_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
+        std::env::remove_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
         let first = probe_one_task(tmp.path(), "t");
         assert!(matches!(first, ProbeOutcome::Ran { .. }));
         let second = probe_one_task(tmp.path(), "t");
@@ -676,9 +676,9 @@ mod tests {
         make_executable(&script);
         // rel_path is the BARE name — exercises the scripts/ fallback.
         write_blocker_json(&task_dir, "rerun_script", "finalize.sh");
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
         let outcome = probe_one_task(tmp.path(), "t");
-        std::env::remove_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
+        std::env::remove_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
         assert!(
             matches!(outcome, ProbeOutcome::Ran { exit_code: 0 }),
             "got {:?}",
@@ -706,9 +706,9 @@ mod tests {
         std::fs::write(&nested, "#!/bin/sh\necho 'NESTED'\nexit 0\n").unwrap();
         make_executable(&nested);
         write_blocker_json(&task_dir, "rerun_script", "finalize.sh");
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
         let outcome = probe_one_task(tmp.path(), "t");
-        std::env::remove_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
+        std::env::remove_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
         assert!(matches!(outcome, ProbeOutcome::Ran { exit_code: 0 }));
         let record = std::fs::read_to_string(task_dir.join("last_probe.json")).unwrap();
         assert!(
@@ -729,9 +729,9 @@ mod tests {
         std::fs::create_dir_all(&task_dir).unwrap();
         std::fs::write(task_dir.join("blocker.json"), "{}").unwrap();
         write_blocker_json(&task_dir, "rerun_script", "../../etc/passwd");
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
         let outcome = probe_one_task(tmp.path(), "t");
-        std::env::remove_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
+        std::env::remove_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
         assert!(matches!(outcome, ProbeOutcome::Skipped { .. }));
     }
 
@@ -742,9 +742,9 @@ mod tests {
         let task_dir = tmp.path().join("runtime/outputs/t");
         std::fs::create_dir_all(&task_dir).unwrap();
         write_blocker_json(&task_dir, "rerun_script", "/bin/sh");
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
         let outcome = probe_one_task(tmp.path(), "t");
-        std::env::remove_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
+        std::env::remove_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
         assert!(matches!(outcome, ProbeOutcome::Skipped { .. }));
     }
 
@@ -758,13 +758,13 @@ mod tests {
         std::fs::write(&script, "#!/bin/sh\nsleep 30\n").unwrap();
         make_executable(&script);
         write_blocker_json(&task_dir, "rerun_script", "hang.sh");
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_TIMEOUT_SECS", "1");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_TIMEOUT_SECS", "1");
         let started = std::time::Instant::now();
         let outcome = probe_one_task(tmp.path(), "t");
         let elapsed = started.elapsed().as_secs();
-        std::env::remove_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
-        std::env::remove_var("SWFC_HARNESS_FINALIZE_PROBE_TIMEOUT_SECS");
+        std::env::remove_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
+        std::env::remove_var("ECAA_HARNESS_FINALIZE_PROBE_TIMEOUT_SECS");
         assert!(
             matches!(outcome, ProbeOutcome::TimedOut),
             "got {:?}",
@@ -781,15 +781,15 @@ mod tests {
     #[test]
     fn probe_min_interval_clamps() {
         let _guard = ENV_LOCK.lock().unwrap();
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "1");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "1");
         assert_eq!(probe_min_interval_secs(), 5, "must clamp up to 5s");
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "9999");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "9999");
         assert_eq!(probe_min_interval_secs(), 3600, "must clamp down to 3600s");
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "0");
         assert_eq!(probe_min_interval_secs(), 0, "0 is the disable sentinel");
-        std::env::set_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "60");
+        std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "60");
         assert_eq!(probe_min_interval_secs(), 60);
-        std::env::remove_var("SWFC_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
+        std::env::remove_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS");
     }
 
     /// A symlink inside the task output dir whose target is outside the

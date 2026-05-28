@@ -469,7 +469,7 @@ pub fn classify_contract(sentence: &str) -> ClaimContract {
 /// upregulated" in two places yields two claims so that both occurrences
 /// are verifiable).
 pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
-    // SWFC_ABLATE_CLAIM_CONSISTENCY suppression deliberately lives at
+    // ECAA_ABLATE_CLAIM_CONSISTENCY suppression deliberately lives at
     // the emit-write site (crates/conversation/src/emit/sidecars.rs
     // ::write_claim_verification) so the runtime /verify endpoint can
     // still extract claims under the ablation flag. Do not re-add a

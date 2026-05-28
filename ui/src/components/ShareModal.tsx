@@ -120,7 +120,7 @@ export default function ShareModal({ sessionId, onClose }: Props): JSX.Element |
             style={{ color: 'var(--color-warning-accent)', fontSize: '0.85rem' }}
           >
             Shared URLs are disabled. Ask an operator to set
-            SWFC_SHARED_URLS_ENABLED=1 on the server.
+            ECAA_SHARED_URLS_ENABLED=1 on the server.
           </div>
         )}
         {error && (

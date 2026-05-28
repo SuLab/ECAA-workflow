@@ -5,7 +5,7 @@
 //! one incoming OR outgoing edge, with explicit allowlists for
 //! intake-source nodes and terminal reporting nodes.
 //!
-//! Behavior is controlled by `SWFC_STRANDED_NODES_STRICT`:
+//! Behavior is controlled by `ECAA_STRANDED_NODES_STRICT`:
 //! - unset / "0": warn-only (println strands, return Ok)
 //! - "1": fail the test on any strand.
 //!
@@ -79,7 +79,7 @@ fn emit_to_tempdir(request: &PathBuf, tmp: &tempfile::TempDir) -> Option<PathBuf
         .arg("--output")
         .arg(tmp.path())
         .current_dir(&root)
-        .env("SWFC_CONFIG_DIR", root.join("config"))
+        .env("ECAA_CONFIG_DIR", root.join("config"))
         .output();
 
     match output {
@@ -163,7 +163,7 @@ fn check_stranded_nodes(
 
 #[test]
 fn no_stranded_nodes_in_any_fixture() {
-    let strict = std::env::var("SWFC_STRANDED_NODES_STRICT")
+    let strict = std::env::var("ECAA_STRANDED_NODES_STRICT")
         .map(|v| v == "1")
         .unwrap_or(false);
 

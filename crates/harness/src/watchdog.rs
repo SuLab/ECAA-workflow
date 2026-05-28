@@ -79,15 +79,15 @@ impl Default for WatchdogConfig {
 }
 
 impl WatchdogConfig {
-    /// Read configuration from `SWFC_WATCHDOG_PERIOD_SECS` and
-    /// `SWFC_WATCHDOG_MULTIPLIER`. Out-of-range values are clamped with a
+    /// Read configuration from `ECAA_WATCHDOG_PERIOD_SECS` and
+    /// `ECAA_WATCHDOG_MULTIPLIER`. Out-of-range values are clamped with a
     /// warning to stderr; unparseable values silently use the default.
     pub fn from_env() -> Self {
         // W1.2/B8: clamp violations go through tracing now (structured),
         // and unparseable-value silent fallbacks emit tracing::warn so
-        // an operator typo (e.g. SWFC_WATCHDOG_PERIOD_SECS=thirty)
+        // an operator typo (e.g. ECAA_WATCHDOG_PERIOD_SECS=thirty)
         // surfaces in the log instead of being invisibly ignored.
-        let period_raw = std::env::var("SWFC_WATCHDOG_PERIOD_SECS").ok();
+        let period_raw = std::env::var("ECAA_WATCHDOG_PERIOD_SECS").ok();
         let period_secs = match period_raw.as_deref() {
             None => WATCHDOG_PERIOD_SECS_DEFAULT,
             Some(v) => match v.trim().parse::<u64>() {
@@ -96,7 +96,7 @@ impl WatchdogConfig {
                     if clamped != n {
                         tracing::warn!(
                             target: "watchdog",
-                            env = "SWFC_WATCHDOG_PERIOD_SECS",
+                            env = "ECAA_WATCHDOG_PERIOD_SECS",
                             value = n,
                             min = WATCHDOG_PERIOD_SECS_MIN,
                             max = WATCHDOG_PERIOD_SECS_MAX,
@@ -109,7 +109,7 @@ impl WatchdogConfig {
                 Err(_) => {
                     tracing::warn!(
                         target: "watchdog",
-                        env = "SWFC_WATCHDOG_PERIOD_SECS",
+                        env = "ECAA_WATCHDOG_PERIOD_SECS",
                         value = %v,
                         default = WATCHDOG_PERIOD_SECS_DEFAULT,
                         "unparseable u64; falling back to default"
@@ -119,7 +119,7 @@ impl WatchdogConfig {
             },
         };
 
-        let mult_raw = std::env::var("SWFC_WATCHDOG_MULTIPLIER").ok();
+        let mult_raw = std::env::var("ECAA_WATCHDOG_MULTIPLIER").ok();
         let multiplier = match mult_raw.as_deref() {
             None => WATCHDOG_MULTIPLIER_DEFAULT,
             Some(v) => match v.trim().parse::<f64>() {
@@ -128,7 +128,7 @@ impl WatchdogConfig {
                     if (clamped - n).abs() > 1e-9 {
                         tracing::warn!(
                             target: "watchdog",
-                            env = "SWFC_WATCHDOG_MULTIPLIER",
+                            env = "ECAA_WATCHDOG_MULTIPLIER",
                             value = n,
                             min = WATCHDOG_MULTIPLIER_MIN,
                             max = WATCHDOG_MULTIPLIER_MAX,
@@ -141,7 +141,7 @@ impl WatchdogConfig {
                 Err(_) => {
                     tracing::warn!(
                         target: "watchdog",
-                        env = "SWFC_WATCHDOG_MULTIPLIER",
+                        env = "ECAA_WATCHDOG_MULTIPLIER",
                         value = %v,
                         default = WATCHDOG_MULTIPLIER_DEFAULT,
                         "unparseable f64; falling back to default"
@@ -680,15 +680,15 @@ mod tests {
     #[test]
     fn watchdog_config_from_env() {
         unsafe {
-            std::env::set_var("SWFC_WATCHDOG_PERIOD_SECS", "45");
-            std::env::set_var("SWFC_WATCHDOG_MULTIPLIER", "3.5");
+            std::env::set_var("ECAA_WATCHDOG_PERIOD_SECS", "45");
+            std::env::set_var("ECAA_WATCHDOG_MULTIPLIER", "3.5");
         }
         let cfg = WatchdogConfig::from_env();
         assert_eq!(cfg.period_secs, 45);
         assert!((cfg.multiplier - 3.5).abs() < 1e-9);
         unsafe {
-            std::env::remove_var("SWFC_WATCHDOG_PERIOD_SECS");
-            std::env::remove_var("SWFC_WATCHDOG_MULTIPLIER");
+            std::env::remove_var("ECAA_WATCHDOG_PERIOD_SECS");
+            std::env::remove_var("ECAA_WATCHDOG_MULTIPLIER");
         }
     }
 
@@ -698,7 +698,7 @@ mod tests {
     #[test]
     fn watchdog_clamps_out_of_range_period() {
         unsafe {
-            std::env::set_var("SWFC_WATCHDOG_PERIOD_SECS", "5"); // below min=10
+            std::env::set_var("ECAA_WATCHDOG_PERIOD_SECS", "5"); // below min=10
         }
         let cfg = WatchdogConfig::from_env();
         assert_eq!(
@@ -706,7 +706,7 @@ mod tests {
             "period should be clamped to min"
         );
         unsafe {
-            std::env::remove_var("SWFC_WATCHDOG_PERIOD_SECS");
+            std::env::remove_var("ECAA_WATCHDOG_PERIOD_SECS");
         }
     }
 

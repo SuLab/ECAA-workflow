@@ -38,6 +38,6 @@ last_dispatch_at: string, } | { "kind": "tool_error", envelope: ToolErrorEnvelop
  */
 observed_secs: bigint, 
 /**
- * Configured ceiling (from `SWFC_CLOCK_SKEW_THRESHOLD_SECS`).
+ * Configured ceiling (from `ECAA_CLOCK_SKEW_THRESHOLD_SECS`).
  */
 threshold_secs: bigint, } | { "kind": "wall_clock_exceeded", task_id: string, observed_secs: bigint, threshold_secs: bigint, } | { "kind": "cancelled_by_amendment", task_id: string, target_stage: string, } | { "kind": "provenance_commit_dropped", trigger: string, reason: string, } | { "kind": "turn_budget_exceeded" };

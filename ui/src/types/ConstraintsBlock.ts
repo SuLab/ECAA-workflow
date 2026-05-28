@@ -6,7 +6,7 @@
 export type ConstraintsBlock = { 
 /**
  * Preferred backend (`local`, `aws`, `slurm`). Mirrors
- * `SWFC_EXECUTOR_MODE`.
+ * `ECAA_EXECUTOR_MODE`.
  */
 preferred_backend?: string, 
 /**

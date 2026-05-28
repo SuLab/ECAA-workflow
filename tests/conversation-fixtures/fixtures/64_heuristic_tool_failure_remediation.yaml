@@ -85,7 +85,7 @@ rubric_notes: |
       stays at zero); the failure injection is a pure dispatcher-side
       simulation.
 
-  When `SWFC_REMEDIATION_LIVE=1` is set (operator-driven, never in
+  When `ECAA_REMEDIATION_LIVE=1` is set (operator-driven, never in
   CI), the server route `POST /api/chat/session/:id/task/:task_id/
   remediation-suggestions` is the path that bills `side_call_cost_usd`
   with a real Opus 4.7 call. That route is exercised by the

@@ -94,7 +94,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                     });
                     // Per-atom runtime-prereqs map. The harness reads
                     // `policies/atom-prereqs/<atom_id>.json` per task
-                    // under SWFC_PER_TASK_IMAGES (default on); a missing
+                    // under ECAA_PER_TASK_IMAGES (default on); a missing
                     // map causes silent fallback to host mode. Sibling
                     // wiring: `run_intake` in `crates/cli/src/main.rs`
                     // (lines :462-487 and :736-757).

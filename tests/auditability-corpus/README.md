@@ -95,7 +95,7 @@ cargo test -p scripps-workflow-core claim_verifier
 Run the full Tier 20.1 ROC scorer (requires emitted packages):
 
 ```bash
-SWFC_TIER_20_1_LIVE=1 cargo run --bin tier-20-1 -- \
+ECAA_TIER_20_1_LIVE=1 cargo run --bin tier-20-1 -- \
   --corpus-dir tests/auditability-corpus
 ```
 

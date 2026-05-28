@@ -16,7 +16,7 @@ import { CardContainer } from './primitives/CardContainer'
  *
  * `idle` / `thinking` render nothing (caller already gates with
  * `stillThinking` for back-compat). The server-side
- * `SWFC_ANTHROPIC_TIMEOUT_SECS=180` ceiling will surface a typed
+ * `ECAA_ANTHROPIC_TIMEOUT_SECS=180` ceiling will surface a typed
  * `Backend` error if the call really hung; the chip's Cancel just
  * releases the UI's busy gate so the SME doesn't have to wait the
  * remaining 90s.

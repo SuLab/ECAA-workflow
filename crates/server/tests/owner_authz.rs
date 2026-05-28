@@ -10,7 +10,7 @@
 //! b. mismatched header → 403 Forbidden.
 //! c. no header AND non-`local` `owner_user` → 403.
 //! d. no header AND `local` (sentinel) `owner_user` → request passes.
-//! e. `SWFC_OWNER_AUTHZ_DISABLE=1` bypass → all requests pass.
+//! e. `ECAA_OWNER_AUTHZ_DISABLE=1` bypass → all requests pass.
 //! f. non-session routes (no `/session/<uuid>/` in the path) → bypass
 //! (the layer is route-blind by design and short-circuits when
 //! there's no session id to compare against).
@@ -84,7 +84,7 @@ async fn seed_session_with_owner(app: &ChatAppState, owner: &str) -> uuid::Uuid 
     id
 }
 
-/// Process-wide env-var lock so tests that mutate `SWFC_OWNER_AUTHZ_DISABLE`
+/// Process-wide env-var lock so tests that mutate `ECAA_OWNER_AUTHZ_DISABLE`
 /// don't race the other tests in this binary. `cargo test` runs tests
 /// within a binary in parallel; without this lock the bypass-flag test
 /// would observe the cleared state mid-call from another test.
@@ -106,7 +106,7 @@ async fn get_state(app_router: &Router, id: uuid::Uuid, header: Option<&str>) ->
 #[tokio::test]
 async fn matching_user_passes() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("SWFC_OWNER_AUTHZ_DISABLE");
+    std::env::remove_var("ECAA_OWNER_AUTHZ_DISABLE");
     let (router, app) = make_app().await;
     let id = seed_session_with_owner(&app, "alice").await;
     assert_eq!(get_state(&router, id, Some("alice")).await, StatusCode::OK);
@@ -115,7 +115,7 @@ async fn matching_user_passes() {
 #[tokio::test]
 async fn mismatched_user_returns_403() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("SWFC_OWNER_AUTHZ_DISABLE");
+    std::env::remove_var("ECAA_OWNER_AUTHZ_DISABLE");
     let (router, app) = make_app().await;
     let id = seed_session_with_owner(&app, "alice").await;
     assert_eq!(
@@ -127,7 +127,7 @@ async fn mismatched_user_returns_403() {
 #[tokio::test]
 async fn no_header_non_local_owner_returns_403() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("SWFC_OWNER_AUTHZ_DISABLE");
+    std::env::remove_var("ECAA_OWNER_AUTHZ_DISABLE");
     let (router, app) = make_app().await;
     let id = seed_session_with_owner(&app, "alice").await;
     assert_eq!(get_state(&router, id, None).await, StatusCode::FORBIDDEN);
@@ -140,7 +140,7 @@ async fn no_header_local_owner_passes() {
     // create time. In that mode the middleware short-circuits and
     // any caller is allowed through.
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("SWFC_OWNER_AUTHZ_DISABLE");
+    std::env::remove_var("ECAA_OWNER_AUTHZ_DISABLE");
     let (router, app) = make_app().await;
     let id = seed_session_with_owner(&app, "local").await;
     assert_eq!(get_state(&router, id, None).await, StatusCode::OK);
@@ -149,11 +149,11 @@ async fn no_header_local_owner_passes() {
 #[tokio::test]
 async fn bypass_flag_lets_mismatched_user_through() {
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::set_var("SWFC_OWNER_AUTHZ_DISABLE", "1");
+    std::env::set_var("ECAA_OWNER_AUTHZ_DISABLE", "1");
     let (router, app) = make_app().await;
     let id = seed_session_with_owner(&app, "alice").await;
     let status = get_state(&router, id, Some("eve")).await;
-    std::env::remove_var("SWFC_OWNER_AUTHZ_DISABLE");
+    std::env::remove_var("ECAA_OWNER_AUTHZ_DISABLE");
     assert_eq!(status, StatusCode::OK);
 }
 
@@ -164,7 +164,7 @@ async fn unknown_session_falls_through_to_handler() {
     // session-existence info to unauthorized callers. The handler
     // emits StatusCode::NOT_FOUND for an unknown id.
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("SWFC_OWNER_AUTHZ_DISABLE");
+    std::env::remove_var("ECAA_OWNER_AUTHZ_DISABLE");
     let (router, _app) = make_app().await;
     let id = uuid::Uuid::new_v4();
     assert_eq!(
@@ -178,7 +178,7 @@ async fn non_session_route_bypasses_owner_check() {
     // `GET /api/chat/sessions/recent` carries no session id; the layer
     // short-circuits when `session_id_from_path` returns `None`.
     let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    std::env::remove_var("SWFC_OWNER_AUTHZ_DISABLE");
+    std::env::remove_var("ECAA_OWNER_AUTHZ_DISABLE");
     let (router, _app) = make_app().await;
     let resp = router
         .oneshot(

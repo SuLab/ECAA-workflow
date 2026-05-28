@@ -1,6 +1,6 @@
 """Integration tests for install-proxy shims.
 
-Stubs the real package manager via SWFC_REAL_<TOOL> env vars; tests
+Stubs the real package manager via ECAA_REAL_<TOOL> env vars; tests
 that the shim correctly denies undeclared packages (exit 73) and
 passes through declared ones (exit 0; logs to install-log.jsonl).
 """
@@ -74,9 +74,9 @@ def test_apt_denies_undeclared(tmp_path):
     result = run_shim(
         "apt", "install", "-y", "wget",
         env_overrides={
-            "SWFC_REAL_APT": str(stub_dir / "apt"),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_APT": str(stub_dir / "apt"),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 73
@@ -92,9 +92,9 @@ def test_apt_accepts_declared(tmp_path):
     result = run_shim(
         "apt", "install", "-y", "samtools",
         env_overrides={
-            "SWFC_REAL_APT": str(stub),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_APT": str(stub),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 0, result.stderr
@@ -114,9 +114,9 @@ def test_pip_denies_undeclared(tmp_path):
     result = run_shim(
         "pip", "install", "requests",
         env_overrides={
-            "SWFC_REAL_PIP": str(stub_dir / "pip"),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_PIP": str(stub_dir / "pip"),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 73
@@ -132,9 +132,9 @@ def test_pip_accepts_declared(tmp_path):
     result = run_shim(
         "pip", "install", "numpy",
         env_overrides={
-            "SWFC_REAL_PIP": str(stub),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_PIP": str(stub),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 0, result.stderr
@@ -155,9 +155,9 @@ def test_conda_denies_undeclared_bioconda(tmp_path):
     result = run_shim(
         "conda", "install", "-c", "bioconda", "wget",
         env_overrides={
-            "SWFC_REAL_CONDA": str(stub_dir / "conda"),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_CONDA": str(stub_dir / "conda"),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 73
@@ -173,9 +173,9 @@ def test_conda_accepts_declared_bioconda(tmp_path):
     result = run_shim(
         "conda", "install", "-c", "bioconda", "samtools=1.17",
         env_overrides={
-            "SWFC_REAL_CONDA": str(stub),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_CONDA": str(stub),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 0, result.stderr
@@ -195,9 +195,9 @@ def test_npm_denies_undeclared(tmp_path):
     result = run_shim(
         "npm", "install", "express",
         env_overrides={
-            "SWFC_REAL_NPM": str(stub_dir / "npm"),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_NPM": str(stub_dir / "npm"),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 73
@@ -213,9 +213,9 @@ def test_npm_accepts_declared(tmp_path):
     result = run_shim(
         "npm", "install", "lodash",
         env_overrides={
-            "SWFC_REAL_NPM": str(stub),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_NPM": str(stub),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 0, result.stderr
@@ -236,9 +236,9 @@ def test_rscript_denies_undeclared_cran(tmp_path):
     result = run_shim(
         "rscript", "-e", 'install.packages("data.table")',
         env_overrides={
-            "SWFC_REAL_RSCRIPT": str(stub_dir / "Rscript"),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_RSCRIPT": str(stub_dir / "Rscript"),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 73
@@ -255,9 +255,9 @@ def test_rscript_accepts_declared_bioconductor(tmp_path):
     result = run_shim(
         "rscript", "-e", 'BiocManager::install("DESeq2")',
         env_overrides={
-            "SWFC_REAL_RSCRIPT": str(stub),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_RSCRIPT": str(stub),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 0, result.stderr
@@ -279,9 +279,9 @@ def test_gem_denies_undeclared(tmp_path):
     result = run_shim(
         "gem", "install", "bundler",
         env_overrides={
-            "SWFC_REAL_GEM": str(stub_dir / "gem"),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_GEM": str(stub_dir / "gem"),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 73
@@ -297,9 +297,9 @@ def test_gem_accepts_declared(tmp_path):
     result = run_shim(
         "gem", "install", "rake",
         env_overrides={
-            "SWFC_REAL_GEM": str(stub),
-            "SWFC_INSTALL_LOG": str(log),
-            "SWFC_PROVISIONING_POLICY": str(policy),
+            "ECAA_REAL_GEM": str(stub),
+            "ECAA_INSTALL_LOG": str(log),
+            "ECAA_PROVISIONING_POLICY": str(policy),
         },
     )
     assert result.returncode == 0, result.stderr

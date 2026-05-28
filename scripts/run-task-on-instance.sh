@@ -14,17 +14,17 @@
 #  that finished even if the harness crashed before observing it.
 #
 # Required env vars (passed via SSM `--parameters`):
-#  SWFC_S3_PACKAGE_URI — s3://bucket/prefix/<package>
-#  SWFC_AGENT_CMD — full agent invocation (e.g. /opt/scripps/bin/agent-claude.sh)
-#  SWFC_TASK_ID — task id this run targets, for log + atomic-rename
-#  SWFC_S3_OUTPUT_URI — s3://bucket/prefix/<package>/runtime/outputs/<task_id>/
+#  ECAA_S3_PACKAGE_URI — s3://bucket/prefix/<package>
+#  ECAA_AGENT_CMD — full agent invocation (e.g. /opt/scripps/bin/agent-claude.sh)
+#  ECAA_TASK_ID — task id this run targets, for log + atomic-rename
+#  ECAA_S3_OUTPUT_URI — s3://bucket/prefix/<package>/runtime/outputs/<task_id>/
 
 set -euo pipefail
 
-: "${SWFC_S3_PACKAGE_URI:?missing required env var}"
-: "${SWFC_AGENT_CMD:?missing required env var}"
-: "${SWFC_TASK_ID:?missing required env var}"
-: "${SWFC_S3_OUTPUT_URI:?missing required env var}"
+: "${ECAA_S3_PACKAGE_URI:?missing required env var}"
+: "${ECAA_AGENT_CMD:?missing required env var}"
+: "${ECAA_TASK_ID:?missing required env var}"
+: "${ECAA_S3_OUTPUT_URI:?missing required env var}"
 
 STAGING="$(mktemp -d -t scripps-task-XXXXXX)"
 FINAL="${STAGING}-final"
@@ -35,14 +35,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "[$(date -u +%FT%TZ)] task ${SWFC_TASK_ID} started; staging=${STAGING}" >> "$LOG"
+echo "[$(date -u +%FT%TZ)] task ${ECAA_TASK_ID} started; staging=${STAGING}" >> "$LOG"
 
 # 1. Pull the package from S3 to a fresh staging dir.
-aws s3 sync "$SWFC_S3_PACKAGE_URI" "$STAGING" --quiet
+aws s3 sync "$ECAA_S3_PACKAGE_URI" "$STAGING" --quiet
 
 # 2. Run the agent. Failure here aborts before the rename so the
 #  canonical output path stays untouched.
-"$SWFC_AGENT_CMD" "$STAGING"
+"$ECAA_AGENT_CMD" "$STAGING"
 
 # 3. Atomic rename: move staging into a sibling dir then rename to
 #  final so the canonical path either holds the previous run or
@@ -51,18 +51,18 @@ mv "$STAGING" "$FINAL"
 
 # 4. Push the updated package back to S3. Use sync --delete so files
 #  the agent removed (e.g. an old result_ref) actually disappear.
-aws s3 sync "$FINAL" "$SWFC_S3_PACKAGE_URI" --delete --quiet
+aws s3 sync "$FINAL" "$ECAA_S3_PACKAGE_URI" --delete --quiet
 
 # 5. Per-task output dir gets its own sync so the AwsExecutor can
 #  fetch just the task result without re-pulling the whole package.
-if [[ -d "$FINAL/runtime/outputs/$SWFC_TASK_ID" ]]; then
+if [[ -d "$FINAL/runtime/outputs/$ECAA_TASK_ID" ]]; then
   aws s3 sync \
-    "$FINAL/runtime/outputs/$SWFC_TASK_ID" \
-    "$SWFC_S3_OUTPUT_URI" \
+    "$FINAL/runtime/outputs/$ECAA_TASK_ID" \
+    "$ECAA_S3_OUTPUT_URI" \
     --delete --quiet
 fi
 
-echo "[$(date -u +%FT%TZ)] task ${SWFC_TASK_ID} completed" >> "$LOG"
+echo "[$(date -u +%FT%TZ)] task ${ECAA_TASK_ID} completed" >> "$LOG"
 
 # The trap clears $FINAL too — the canonical state lives in S3 from
 # this point on.

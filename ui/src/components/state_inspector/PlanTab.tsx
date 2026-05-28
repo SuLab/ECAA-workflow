@@ -185,7 +185,7 @@ export function PlanTab({ dag, sessionId, parentSessionId }: Props): JSX.Element
                 facet_matches: [],
                 inserted_adapter_node_ids: [],
                 warnings: [
-                  'This session is on a legacy composer; per-edge proofs are unavailable. Re-create the session with SWFC_COMPOSER=semantic to capture edge-level compatibility proofs.',
+                  'This session is on a legacy composer; per-edge proofs are unavailable. Re-create the session with ECAA_COMPOSER=semantic to capture edge-level compatibility proofs.',
                 ],
                 rationale: undefined,
               })

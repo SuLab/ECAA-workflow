@@ -559,7 +559,7 @@ fn raw_tool_schemas() -> Vec<serde_json::Value> {
         }),
         // C-10 / `output_dir` is intentionally
         // schema-less. The LLM cannot influence the emit location; the
-        // server resolves the path under `$SWFC_PACKAGE_ROOT` or
+        // server resolves the path under `$ECAA_PACKAGE_ROOT` or
         // `~/.scripps-workflow/packages` via `default_package_root`.
         // `ignore_llm_output_dir` (in tools/mod.rs) silently drops any
         // value the model sneaks in despite the schema.

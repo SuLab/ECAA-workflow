@@ -2,13 +2,13 @@
 //!
 //! The composer is deterministic and offline-only by design. The LLM
 //! is a UX shim, not the brain (CLAUDE.md §"LLM as UX shim, not the
-//! brain"). When `SWFC_CHAT_MODE=offline` and the operator commits to
-//! `SWFC_COMPOSER=archetypes` (or `backward-chain`), no LLM client
+//! brain"). When `ECAA_CHAT_MODE=offline` and the operator commits to
+//! `ECAA_COMPOSER=archetypes` (or `backward-chain`), no LLM client
 //! must be instantiated during composition. This test enforces that.
 
 // S5.32: workspace lint is `unsafe_code = "deny"`. This integration
 // file uses `unsafe { std::env::set_var / remove_var }` to scope
-// SWFC_* envs around test cases (unsafe in Rust 2024 edition because
+// ECAA_* envs around test cases (unsafe in Rust 2024 edition because
 // the env table is not thread-safe). All call sites are single-threaded
 // test setup/teardown; the bounded waiver is scoped to this integration
 // test target.
@@ -23,7 +23,7 @@
 //!
 //! Mechanism:
 //! 1. The compose call works under env where every "online" knob is
-//! disabled — `SWFC_CHAT_MODE=offline`, `SWFC_DISABLE_CONTAINERS=1`,
+//! disabled — `ECAA_CHAT_MODE=offline`, `ECAA_DISABLE_CONTAINERS=1`,
 //! no AWS/SLURM env vars, no Anthropic key. If anything in the call
 //! chain tried to spin up a client, it would fail at registry-load
 //! time or panic — neither is acceptable.
@@ -31,7 +31,7 @@
 //! covered by `composer_determinism.rs`); this test runs once per
 //! env permutation and confirms the structural contract.
 //!
-//! Future-proofing: when `SWFC_COMPOSER=archetypes` is wired
+//! Future-proofing: when `ECAA_COMPOSER=archetypes` is wired
 //! through the session-level entry point, that wrapper layer must
 //! continue to honor offline mode. A separate end-to-end test in
 //! `crates/conversation` will assert that contract once the wrapper
@@ -62,26 +62,26 @@ fn deterministic_goal() -> GoalSpec {
     }
 }
 
-/// Compose() under SWFC_CHAT_MODE=offline must not
+/// Compose() under ECAA_CHAT_MODE=offline must not
 /// fail or behave differently from the unset-env baseline. The env
 /// variable is the load-bearing toggle that the conversation layer
 /// uses to swap to `MockLlmBackend`; if any code in the compose
 /// path branched on it (it shouldn't), the offline-guarantee
 /// contract would be broken.
 ///
-/// Serialized on `SWFC_CHAT_MODE` so this and
+/// Serialized on `ECAA_CHAT_MODE` so this and
 /// `compose_output_is_invariant_under_chat_mode_env` don't race
 /// each other's set/remove sequences.
-#[serial_test::serial(SWFC_CHAT_MODE)]
+#[serial_test::serial(ECAA_CHAT_MODE)]
 #[test]
 fn compose_succeeds_under_offline_chat_mode() {
     // Snapshot + restore env so concurrent tests aren't affected.
-    let prior = std::env::var("SWFC_CHAT_MODE").ok();
+    let prior = std::env::var("ECAA_CHAT_MODE").ok();
     // Safety: tests run with a single process; the env-mutation is
     // restored at the end of the function. No async cancellation
     // can leak the changed env.
     unsafe {
-        std::env::set_var("SWFC_CHAT_MODE", "offline");
+        std::env::set_var("ECAA_CHAT_MODE", "offline");
     }
 
     let config = config_root();
@@ -99,21 +99,21 @@ fn compose_succeeds_under_offline_chat_mode() {
 
     unsafe {
         match prior {
-            Some(v) => std::env::set_var("SWFC_CHAT_MODE", v),
-            None => std::env::remove_var("SWFC_CHAT_MODE"),
+            Some(v) => std::env::set_var("ECAA_CHAT_MODE", v),
+            None => std::env::remove_var("ECAA_CHAT_MODE"),
         }
     }
 }
 
 /// Compose() must produce identical output regardless
-/// of `SWFC_CHAT_MODE` setting. The mode switches the LLM backend
+/// of `ECAA_CHAT_MODE` setting. The mode switches the LLM backend
 /// downstream of compose; compose itself never reads the env. Hash
 /// (via Debug rendering) the result with mode unset, then with mode
 /// = offline, then with mode = some-other-value; all three must
 /// match.
 ///
-/// Serialized on `SWFC_CHAT_MODE`.
-#[serial_test::serial(SWFC_CHAT_MODE)]
+/// Serialized on `ECAA_CHAT_MODE`.
+#[serial_test::serial(ECAA_CHAT_MODE)]
 #[test]
 fn compose_output_is_invariant_under_chat_mode_env() {
     use sha2::{Digest, Sha256};
@@ -125,7 +125,7 @@ fn compose_output_is_invariant_under_chat_mode_env() {
         ArchetypeRegistry::load_from_dir(&config.join("archetypes")).expect("load archetypes");
     let goal = deterministic_goal();
 
-    let prior = std::env::var("SWFC_CHAT_MODE").ok();
+    let prior = std::env::var("ECAA_CHAT_MODE").ok();
 
     fn run(atoms: &AtomRegistry, archetypes: &ArchetypeRegistry, goal: &GoalSpec) -> String {
         let r =
@@ -136,33 +136,33 @@ fn compose_output_is_invariant_under_chat_mode_env() {
     }
 
     unsafe {
-        std::env::remove_var("SWFC_CHAT_MODE");
+        std::env::remove_var("ECAA_CHAT_MODE");
     }
     let unset_hash = run(&atoms, &archetypes, &goal);
 
     unsafe {
-        std::env::set_var("SWFC_CHAT_MODE", "offline");
+        std::env::set_var("ECAA_CHAT_MODE", "offline");
     }
     let offline_hash = run(&atoms, &archetypes, &goal);
 
     unsafe {
-        std::env::set_var("SWFC_CHAT_MODE", "live");
+        std::env::set_var("ECAA_CHAT_MODE", "live");
     }
     let live_hash = run(&atoms, &archetypes, &goal);
 
     assert_eq!(
         unset_hash, offline_hash,
-        "compose output diverged when SWFC_CHAT_MODE=offline — composer must not branch on chat mode"
+        "compose output diverged when ECAA_CHAT_MODE=offline — composer must not branch on chat mode"
     );
     assert_eq!(
         unset_hash, live_hash,
-        "compose output diverged when SWFC_CHAT_MODE=live — composer must not branch on chat mode"
+        "compose output diverged when ECAA_CHAT_MODE=live — composer must not branch on chat mode"
     );
 
     unsafe {
         match prior {
-            Some(v) => std::env::set_var("SWFC_CHAT_MODE", v),
-            None => std::env::remove_var("SWFC_CHAT_MODE"),
+            Some(v) => std::env::set_var("ECAA_CHAT_MODE", v),
+            None => std::env::remove_var("ECAA_CHAT_MODE"),
         }
     }
 }

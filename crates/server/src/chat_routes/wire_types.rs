@@ -250,7 +250,7 @@ pub enum SsePayload {
     },
     /// Sizing-pilot was skipped.
     HarnessSizingPilotSkipped {
-        /// Human-readable reason (e.g. `"SWFC_PILOT_ENABLED unset"`).
+        /// Human-readable reason (e.g. `"ECAA_PILOT_ENABLED unset"`).
         reason: String,
     },
     /// Stall signal observed by the harness.

@@ -155,7 +155,7 @@ impl Session {
             // adapter on the field accepts legacy `u64` reads.
             schema_version: ecaa_workflow_core::migration::current_session_version(),
             // `composer_version` pins the composer this session
-            // committed to. `read_composer_version` consults SWFC_COMPOSER
+            // committed to. `read_composer_version` consults ECAA_COMPOSER
             // to pick between v1 (legacy taxonomy), v2 (archetype), v3
             // (backward-chain), and v4 (semantic). Pinned at creation;
             // amendments stay on the same composer.
@@ -313,7 +313,7 @@ impl Session {
     /// Return the SHA-256 image digests of every container the
     /// package's tasks dispatch into. Today returns an empty `Vec`;
     /// richer aggregation lands with the per-task derived-image work
-    /// (`SWFC_PER_TASK_IMAGES`).
+    /// (`ECAA_PER_TASK_IMAGES`).
     pub fn container_image_digests(&self) -> Vec<String> {
         Vec::new()
     }
@@ -507,11 +507,11 @@ impl Session {
     }
 }
 
-/// Read `SWFC_DEFAULT_SESSION_BUDGET_USD` at construction time. Unset or
+/// Read `ECAA_DEFAULT_SESSION_BUDGET_USD` at construction time. Unset or
 /// parse error = no default budget. Positive float = seed the session
 /// with that cap. Called from `Session::new`.
 fn read_default_budget_usd() -> Option<f64> {
-    std::env::var("SWFC_DEFAULT_SESSION_BUDGET_USD")
+    std::env::var("ECAA_DEFAULT_SESSION_BUDGET_USD")
         .ok()
         .and_then(|s| s.parse::<f64>().ok())
         .filter(|v| v.is_finite() && *v > 0.0)
@@ -520,7 +520,7 @@ fn read_default_budget_usd() -> Option<f64> {
 /// Default composer version for newly-created sessions. Set to v4
 /// (proof-carrying semantic). Existing sessions retain
 /// `Session::composer_version` from their creation-time pin; this
-/// default applies only to brand-new sessions where `SWFC_COMPOSER` is
+/// default applies only to brand-new sessions where `ECAA_COMPOSER` is
 /// unset.
 ///
 /// The v1 (`legacy`), v2 (`archetypes`), and v3 (`backward-chain`)
@@ -528,19 +528,19 @@ fn read_default_budget_usd() -> Option<f64> {
 /// existing CI scripts and operator runbooks don't fail loudly;
 /// instead they emit a `tracing::warn!` and route the new session to v4.
 fn read_composer_version() -> u32 {
-    match std::env::var("SWFC_COMPOSER").ok().as_deref() {
+    match std::env::var("ECAA_COMPOSER").ok().as_deref() {
         Some("legacy" | "archetypes" | "backward-chain") => {
-            let value = std::env::var("SWFC_COMPOSER").unwrap_or_default();
+            let value = std::env::var("ECAA_COMPOSER").unwrap_or_default();
             tracing::warn!(
                 value = %value,
-                "SWFC_COMPOSER={value:?} is retired; new sessions will use v4 (semantic). \
+                "ECAA_COMPOSER={value:?} is retired; new sessions will use v4 (semantic). \
                  Existing sessions retain their pinned composer_version."
             );
             4
         }
         Some("semantic" | "proof-carrying") => 4,
         Some(other) => {
-            tracing::warn!(other = %other, "SWFC_COMPOSER={other:?} unrecognized; defaulting to v4");
+            tracing::warn!(other = %other, "ECAA_COMPOSER={other:?} unrecognized; defaulting to v4");
             4
         }
         None => 4,

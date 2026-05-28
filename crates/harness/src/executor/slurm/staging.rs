@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn remote_pkg_dir_strips_trailing_slash_on_staging() {
-        // Operators sometimes set SWFC_SLURM_STAGING_DIR with a
+        // Operators sometimes set ECAA_SLURM_STAGING_DIR with a
         // trailing slash; the resulting paths must not end up doubled.
         let s = Staging::new("/scratch/alan/scripps/");
         let pkg = PathBuf::from("/tmp/pkg");

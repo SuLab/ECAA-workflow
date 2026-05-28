@@ -238,7 +238,7 @@ fn validate_all_eight(pkg_root: &Path) -> (usize, Vec<(String, String)>) {
 }
 
 /// Layer 1 — empirically prove a real emit produces 8 schema-conformant
-/// sidecars. Sets `SWFC_VALIDATE_ON_EMIT=schema_only` so the test runs
+/// sidecars. Sets `ECAA_VALIDATE_ON_EMIT=schema_only` so the test runs
 /// against the pure-Rust schema gate (no external Python deps).
 #[tokio::test]
 async fn real_emit_passes_all_8_schemas() {
@@ -246,7 +246,7 @@ async fn real_emit_passes_all_8_schemas() {
     // work happens in this test. The variable is set so any future
     // emit-time schema gate can read it without re-routing through a
     // different mode.
-    std::env::set_var("SWFC_VALIDATE_ON_EMIT", "schema_only");
+    std::env::set_var("ECAA_VALIDATE_ON_EMIT", "schema_only");
 
     let dir = tempdir().unwrap();
     let mut session = boot_session_with_dag().await;
@@ -277,7 +277,7 @@ async fn real_emit_passes_all_8_schemas() {
 /// acceptable here — the contract is "no Fail verdicts on a clean emit".
 #[tokio::test]
 async fn real_emit_audit_proof_invariants_pass_or_warn() {
-    std::env::set_var("SWFC_VALIDATE_ON_EMIT", "schema_only");
+    std::env::set_var("ECAA_VALIDATE_ON_EMIT", "schema_only");
 
     let dir = tempdir().unwrap();
     let mut session = boot_session_with_dag().await;
@@ -331,7 +331,7 @@ async fn real_emit_audit_proof_invariants_pass_or_warn() {
 #[tokio::test]
 #[ignore = "fixture-refresh helper; opt-in via --ignored"]
 async fn emit_to_kept_dir_for_fixture_refresh() {
-    std::env::set_var("SWFC_VALIDATE_ON_EMIT", "schema_only");
+    std::env::set_var("ECAA_VALIDATE_ON_EMIT", "schema_only");
 
     // The output dir lives under the system temp root but is NOT auto-cleaned —
     // `keep()` consumes the TempDir guard. The refresh script picks up the

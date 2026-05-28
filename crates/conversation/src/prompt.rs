@@ -162,7 +162,7 @@ fn format_taxonomy_info(tax: &ecaa_workflow_core::taxonomy::StageTaxonomy) -> St
     }
     out.push_str(&format!("  stages ({}):\n", tax.stages.len()));
     for stage in &tax.stages {
-        // §3.6 — flag-gated slimming. When SWFC_SLIM_TAXONOMY=1, emit
+        // §3.6 — flag-gated slimming. When ECAA_SLIM_TAXONOMY=1, emit
         // only the stage id (+ claim boundary if any, above) instead
         // of the per-stage description. The LLM still has
         // `get_taxonomy_info` available for detail lookups when a
@@ -182,7 +182,7 @@ fn format_taxonomy_info(tax: &ecaa_workflow_core::taxonomy::StageTaxonomy) -> St
 }
 
 fn slim_taxonomy_enabled() -> bool {
-    ecaa_workflow_core::env_helpers::env_bool("SWFC_SLIM_TAXONOMY")
+    ecaa_workflow_core::env_helpers::env_bool("ECAA_SLIM_TAXONOMY")
 }
 
 fn format_session_state(session: &Session) -> String {
@@ -477,11 +477,11 @@ mod tests {
             },
         ];
 
-        unsafe { std::env::remove_var("SWFC_SLIM_TAXONOMY") };
+        unsafe { std::env::remove_var("ECAA_SLIM_TAXONOMY") };
         let full = format_taxonomy_info(&tax);
-        unsafe { std::env::set_var("SWFC_SLIM_TAXONOMY", "1") };
+        unsafe { std::env::set_var("ECAA_SLIM_TAXONOMY", "1") };
         let slim = format_taxonomy_info(&tax);
-        unsafe { std::env::remove_var("SWFC_SLIM_TAXONOMY") };
+        unsafe { std::env::remove_var("ECAA_SLIM_TAXONOMY") };
 
         assert!(
             slim.len() < full.len(),

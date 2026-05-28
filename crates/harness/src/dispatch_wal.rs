@@ -74,7 +74,7 @@ use std::path::{Path, PathBuf};
 /// `MockProbe { live_ids: HashSet<String> }`. [`AlwaysDeadProbe`]
 /// recovers the legacy "no liveness check" behavior — used in tests
 /// that exercise the post-recovery state, and via the
-/// `SWFC_HEARTBEAT_LIVENESS_SECS=0` operator opt-out.
+/// `ECAA_HEARTBEAT_LIVENESS_SECS=0` operator opt-out.
 pub trait LivenessProbe {
     /// Returns `true` when `task_id`'s agent process is believed to be alive.
     fn is_live(&self, task_id: &str) -> bool;
@@ -166,7 +166,7 @@ impl LivenessProbe for HeartbeatLivenessProbe {
 }
 
 /// Probe that always reports dead. Selected by the legacy operator
-/// opt-out (`SWFC_HEARTBEAT_LIVENESS_SECS=0`) and used in unit tests
+/// opt-out (`ECAA_HEARTBEAT_LIVENESS_SECS=0`) and used in unit tests
 /// that want the pre-liveness orphan-flagging semantics.
 pub struct AlwaysDeadProbe;
 
@@ -870,7 +870,7 @@ mod tests {
 
     #[test]
     fn always_dead_probe_preserves_legacy_behavior() {
-        // The SWFC_HEARTBEAT_LIVENESS_SECS=0 operator opt-out selects
+        // The ECAA_HEARTBEAT_LIVENESS_SECS=0 operator opt-out selects
         // AlwaysDeadProbe. Verify it never reports live regardless
         // of input.
         let probe = AlwaysDeadProbe;

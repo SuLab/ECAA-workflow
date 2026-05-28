@@ -1796,7 +1796,7 @@ pub(super) fn push_with_rotation(session: &mut Session, record: ToolCallRecord) 
 /// Priority:
 /// 1. `<session.emitted_package_path>/runtime/` — post-emit sessions get
 ///    the violation appended alongside the other runtime artefacts.
-/// 2. `$SWFC_CHAT_SESSIONS_DIR/<session_id>/runtime/` — pre-emit sessions
+/// 2. `$ECAA_CHAT_SESSIONS_DIR/<session_id>/runtime/` — pre-emit sessions
 ///    write to the sessions dir so violations are always captured even
 ///    before a package exists on disk.
 /// 3. `/tmp/scripps-violations/<session_id>/runtime/` — emergency fallback
@@ -1805,7 +1805,7 @@ pub(super) fn violation_runtime_root(session: &Session) -> std::path::PathBuf {
     if let Some(pkg) = &session.emitted_package_path {
         return pkg.join("runtime");
     }
-    let sessions_dir = std::env::var("SWFC_CHAT_SESSIONS_DIR").unwrap_or_else(|_| {
+    let sessions_dir = std::env::var("ECAA_CHAT_SESSIONS_DIR").unwrap_or_else(|_| {
         std::env::var("HOME")
             .map(|h| format!("{}/.scripps-workflow/sessions", h))
             .unwrap_or_else(|_| "/tmp/scripps-violations".to_string())
@@ -2522,7 +2522,7 @@ fn try_build_via_composer(
     // handler that calls `rebuild_dag`, so the composer's archetype +
     // atom registry loads find the workspace config regardless of
     // whether the test harness sets CWD to the workspace root or a
-    // per-crate dir. Reading SWFC_CONFIG_DIR with a "./config"
+    // per-crate dir. Reading ECAA_CONFIG_DIR with a "./config"
     // fallback here would break under `cargo test -p
     // ecaa-workflow-conversation` (the per-crate CWD has no
     // `config/` sibling) and mask real composer dispatch errors.
@@ -2930,12 +2930,12 @@ fn try_build_via_composer(
 
     // R1/R2 closure (closure-residuals plan Task 1.4) — wire the
     // cross-session opaque-type observation sink from the session's
-    // runtime directory. `SWFC_CHAT_SESSIONS_DIR` mirrors the
+    // runtime directory. `ECAA_CHAT_SESSIONS_DIR` mirrors the
     // `SessionStore` default (`~/.scripps-workflow/sessions`); the
     // aggregator lives at `<sessions_dir>/<session_id>/_opaque_registry.jsonl`.
     // Bare callers (CLI `intake`, eval-baselines, tests) pass `None,
     // None` and preserve existing log-only behavior.
-    let sessions_dir = std::env::var("SWFC_CHAT_SESSIONS_DIR")
+    let sessions_dir = std::env::var("ECAA_CHAT_SESSIONS_DIR")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| {
             std::env::var("HOME")

@@ -1,12 +1,12 @@
 // Mock-backend Playwright spec for the novel-composition
-// (backward-chain) composer path. When SWFC_COMPOSER=backward-chain
+// (backward-chain) composer path. When ECAA_COMPOSER=backward-chain
 // fires, no archetype matches the goal and the composer plans bottom-
 // up from the goal's (edam_data, edam_format) tuple. The MockLlmBackend
 // fixture supplies a deterministic chat transcript that exercises the
 // path; the assertion is that the resulting WORKFLOW.json carries
 // `matched_archetype: null` (the legacy path emits a non-null value).
 //
-// Pairs with S7.18 — same scenario gated on SWFC_LIVE_API=1 against the
+// Pairs with S7.18 — same scenario gated on ECAA_LIVE_API=1 against the
 // real Anthropic backend — under e2e/tests/live/.
 //
 // This spec is a **placeholder** that documents the shape without
@@ -24,7 +24,7 @@ test.describe('Composer: novel backward-chain path (mock)', () => {
 spec scaffolds the placeholder so CI test-count tracking sees it.'
   )
 
-  test('SWFC_COMPOSER=backward-chain produces an archetype-less composition', async ({
+  test('ECAA_COMPOSER=backward-chain produces an archetype-less composition', async ({
     page,
   }) => {
     void page

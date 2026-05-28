@@ -40,7 +40,7 @@ use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
 use tracing::Level;
 
-/// Resolve the per-request body size cap from `SWFC_REQUEST_BODY_LIMIT_KB`
+/// Resolve the per-request body size cap from `ECAA_REQUEST_BODY_LIMIT_KB`
 /// (default 256 KiB). Returned value is bytes; consumed by the global
 /// `tower_http::RequestBodyLimitLayer` so a single malicious POST cannot
 /// exhaust memory.
@@ -50,7 +50,7 @@ use tracing::Level;
 /// chunk handler enforces its own 32 MiB hard cap (see
 /// `chat_routes::inputs::upload::MAX_UPLOAD_CHUNK_BYTES`).
 pub fn resolve_request_body_limit_bytes() -> usize {
-    let kb = std::env::var("SWFC_REQUEST_BODY_LIMIT_KB")
+    let kb = std::env::var("ECAA_REQUEST_BODY_LIMIT_KB")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
         .filter(|n| *n > 0)
@@ -58,7 +58,7 @@ pub fn resolve_request_body_limit_bytes() -> usize {
     kb.saturating_mul(1024)
 }
 
-/// Resolve the per-request timeout from `SWFC_REQUEST_TIMEOUT_SECS`
+/// Resolve the per-request timeout from `ECAA_REQUEST_TIMEOUT_SECS`
 /// (default 300s). Consumed by the `tower_http::TimeoutLayer` to cap
 /// long-poll DoS by a connection that sends headers and then never
 /// finishes the body.
@@ -71,7 +71,7 @@ pub fn resolve_request_body_limit_bytes() -> usize {
 /// model, so a 60s ceiling caught every real `/turn` against the live
 /// API.
 pub fn resolve_request_timeout() -> Duration {
-    let secs = std::env::var("SWFC_REQUEST_TIMEOUT_SECS")
+    let secs = std::env::var("ECAA_REQUEST_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .filter(|n| *n > 0)
@@ -140,14 +140,14 @@ pub fn build_trace_layer() -> HttpTraceLayer {
 }
 
 /// Resolve the bind address for the Axum HTTP server. Reads
-/// `SWFC_BIND_ADDR` (default `127.0.0.1`) and combines with `port`.
+/// `ECAA_BIND_ADDR` (default `127.0.0.1`) and combines with `port`.
 ///
 /// Default is loopback-only. Operators who want the server reachable
-/// on a LAN must opt in via `SWFC_BIND_ADDR=0.0.0.0` (or a specific
-/// interface), and in that case `SWFC_SERVER_AUTH_TOKEN` is also
+/// on a LAN must opt in via `ECAA_BIND_ADDR=0.0.0.0` (or a specific
+/// interface), and in that case `ECAA_SERVER_AUTH_TOKEN` is also
 /// required — see `crate::auth::AuthConfig::from_env`.
 pub fn resolve_bind_addr(port: u16) -> String {
-    let host = std::env::var("SWFC_BIND_ADDR")
+    let host = std::env::var("ECAA_BIND_ADDR")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
@@ -176,7 +176,7 @@ pub async fn run() {
         Ok(s) => Arc::new(s),
         Err(e) => {
             eprintln!(
-                "FATAL: chat routes failed to initialize — {} (set SWFC_ANTHROPIC_API_KEY or SWFC_CHAT_MODE=offline)",
+                "FATAL: chat routes failed to initialize — {} (set ECAA_ANTHROPIC_API_KEY or ECAA_CHAT_MODE=offline)",
                 e
             );
             std::process::exit(1);
@@ -187,7 +187,7 @@ pub async fn run() {
     // directory so two server processes pointed at the same store can
     // never race on the atomic-rename writes inside `SessionStore`.
     // The kernel drops the flock on exit (even via SIGKILL); bypass
-    // for multi-server tests with SWFC_SERVER_DEBUG_ALLOW_MULTI_PROCESS=1.
+    // for multi-server tests with ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS=1.
     // The guard is held by the run() stack frame so it lives exactly
     // as long as the server process.
     let session_store_dir = chat_state.config.chat_sessions_dir.clone();
@@ -201,29 +201,29 @@ pub async fn run() {
 
     let addr = resolve_bind_addr(port);
     let is_lan_bind = addr.starts_with("0.0.0.0") || addr.starts_with("[::]");
-    let auth_token_present = std::env::var("SWFC_SERVER_AUTH_TOKEN")
+    let auth_token_present = std::env::var("ECAA_SERVER_AUTH_TOKEN")
         .ok()
         .map(|t| !t.is_empty())
         .unwrap_or(false);
     if is_lan_bind && !auth_token_present {
         // The auth middleware already rejects every request fail-closed
-        // when SWFC_SERVER_AUTH_TOKEN is unset on a non-loopback bind,
+        // when ECAA_SERVER_AUTH_TOKEN is unset on a non-loopback bind,
         // but starting a server in that posture is almost never what
         // the operator wanted. Refuse to start unless they've explicitly
-        // ack'd via SWFC_SERVER_LAN_NO_AUTH=1; the bare warning the
+        // ack'd via ECAA_SERVER_LAN_NO_AUTH=1; the bare warning the
         // previous version emitted was easy to lose in log volume.
-        let allow_unsafe = ecaa_workflow_core::env_helpers::env_bool("SWFC_SERVER_LAN_NO_AUTH");
+        let allow_unsafe = ecaa_workflow_core::env_helpers::env_bool("ECAA_SERVER_LAN_NO_AUTH");
         if allow_unsafe {
             tracing::error!(
-                "server binding {} — LAN-exposed without auth (SWFC_SERVER_LAN_NO_AUTH=1 \
+                "server binding {} — LAN-exposed without auth (ECAA_SERVER_LAN_NO_AUTH=1 \
                  opt-in honored); the auth middleware will still reject every request",
                 addr
             );
         } else {
             eprintln!(
-                "FATAL: server bind {} is non-loopback and SWFC_SERVER_AUTH_TOKEN is unset.\n\
-                 Set SWFC_SERVER_AUTH_TOKEN=<random-string>, bind 127.0.0.1, or\n\
-                 explicitly opt in with SWFC_SERVER_LAN_NO_AUTH=1 (not recommended).",
+                "FATAL: server bind {} is non-loopback and ECAA_SERVER_AUTH_TOKEN is unset.\n\
+                 Set ECAA_SERVER_AUTH_TOKEN=<random-string>, bind 127.0.0.1, or\n\
+                 explicitly opt in with ECAA_SERVER_LAN_NO_AUTH=1 (not recommended).",
                 addr
             );
             std::process::exit(1);
@@ -244,8 +244,8 @@ pub async fn run() {
     // Configured BEFORE auth so a token-probing flood is rejected
     // without ever hitting the constant-time `subtle::ConstantTimeEq`.
     //
-    // Local-dev escape hatch: SWFC_RATE_LIMIT_INTERVAL_MS (refill
-    // period in milliseconds; LOWER = faster) and SWFC_RATE_LIMIT_BURST
+    // Local-dev escape hatch: ECAA_RATE_LIMIT_INTERVAL_MS (refill
+    // period in milliseconds; LOWER = faster) and ECAA_RATE_LIMIT_BURST
     // override the production defaults. Multiple headed Playwright
     // sessions share 127.0.0.1 and the UI polls /state, /dag,
     // /dispositions, /proposals, /metrics every few seconds — easy to
@@ -253,8 +253,8 @@ pub async fn run() {
     // the chat itself. For local dev set INTERVAL_MS=10 BURST=10000.
     // 2 s == prior `.per_second(2)` behavior
     let rl_interval_ms: u64 =
-        ecaa_workflow_core::env_helpers::env_parse("SWFC_RATE_LIMIT_INTERVAL_MS", 2_000);
-    let rl_burst: u32 = ecaa_workflow_core::env_helpers::env_parse("SWFC_RATE_LIMIT_BURST", 30);
+        ecaa_workflow_core::env_helpers::env_parse("ECAA_RATE_LIMIT_INTERVAL_MS", 2_000);
+    let rl_burst: u32 = ecaa_workflow_core::env_helpers::env_parse("ECAA_RATE_LIMIT_BURST", 30);
     let governor_conf = std::sync::Arc::new(
         GovernorConfigBuilder::default()
             .per_millisecond(rl_interval_ms.max(1))
@@ -288,7 +288,7 @@ pub async fn run() {
         // for every per-session route. Layered INSIDE the bearer auth
         // (auth_middleware) — bearer-auth is the bouncer for "any
         // upstream traffic", verify_owner is the per-session
-        // permission check. SWFC_OWNER_AUTHZ_DISABLE=1 disables; the
+        // permission check. ECAA_OWNER_AUTHZ_DISABLE=1 disables; the
         // "local" sentinel default for single-user dev also bypasses.
         .layer(from_fn_with_state(
             (*chat_state).clone(),
@@ -361,7 +361,7 @@ pub async fn run() {
             ServeDir::new("ui/dist").not_found_service(ServeFile::new("ui/dist/index.html")),
         );
     println!(
-        "ecaa-workflow-server listening on http://{} (set SWFC_BIND_ADDR=0.0.0.0 to widen)",
+        "ecaa-workflow-server listening on http://{} (set ECAA_BIND_ADDR=0.0.0.0 to widen)",
         addr
     );
 

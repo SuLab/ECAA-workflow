@@ -37,7 +37,7 @@ import { mergeBy } from './_merge'
  *   complex turns."
  * - `'very_slow'`: 60–90s — "If this is stuck, you can refresh."
  * - `'cancelable'`: >=90s — Cancel button visible. The server-side
- *   `SWFC_ANTHROPIC_TIMEOUT_SECS=180` ceiling will surface a typed
+ *   `ECAA_ANTHROPIC_TIMEOUT_SECS=180` ceiling will surface a typed
  *   `Backend` error if the call really hung, but at 90s the SME
  *   shouldn't be forced to wait the remaining 90s before they can act.
  */
@@ -85,7 +85,7 @@ interface UseConversation {
   /// D8 mitigation — abort the current turn's HTTP request. Available
   /// once `thinkingStage === 'cancelable'`. Does NOT send a server-side
   /// cancellation (the in-flight Anthropic call continues until its
-  /// `SWFC_ANTHROPIC_TIMEOUT_SECS` ceiling fires); it only releases the
+  /// `ECAA_ANTHROPIC_TIMEOUT_SECS` ceiling fires); it only releases the
   /// UI's busy gate so the SME can retry or send a different message
   /// without waiting on the hung response.
   cancelTurn: () => void

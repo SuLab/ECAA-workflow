@@ -11,7 +11,7 @@
 //!
 //! ## Configurable cap
 //!
-//! The default cap is 100 MiB; override via `SWFC_AGENT_FILE_MAX_MB`
+//! The default cap is 100 MiB; override via `ECAA_AGENT_FILE_MAX_MB`
 //! (positive integer, megabytes). A value of `0` is rejected as
 //! invalid and falls back to the default — the agent shouldn't be
 //! producing zero-byte JSON either way.
@@ -40,7 +40,7 @@ pub const DEFAULT_AGENT_FILE_MAX_BYTES: u64 = 100 * 1024 * 1024;
 
 /// Env-var name that overrides the default cap. Documented in
 /// `CLAUDE.md` (env-vars table) and `docs/env-vars-reference.md`.
-pub const ENV_AGENT_FILE_MAX_MB: &str = "SWFC_AGENT_FILE_MAX_MB";
+pub const ENV_AGENT_FILE_MAX_MB: &str = "ECAA_AGENT_FILE_MAX_MB";
 
 /// Resolve the active cap from the environment. Out-of-range values
 /// (`0`, non-numeric, negative) fall back to the default with a
@@ -90,7 +90,7 @@ pub fn read_capped(path: &Path, max_bytes: u64) -> std::io::Result<String> {
             std::io::ErrorKind::InvalidData,
             format!(
                 "agent file {} exceeds {} byte cap (size = {} bytes); refusing to read. \
-                 Set SWFC_AGENT_FILE_MAX_MB to raise the cap if intentional.",
+                 Set ECAA_AGENT_FILE_MAX_MB to raise the cap if intentional.",
                 path.display(),
                 max_bytes,
                 metadata.len(),
@@ -117,7 +117,7 @@ pub fn read_bytes_capped(path: &Path, max_bytes: u64) -> std::io::Result<Vec<u8>
             std::io::ErrorKind::InvalidData,
             format!(
                 "agent file {} exceeds {} byte cap (size = {} bytes); refusing to read. \
-                 Set SWFC_AGENT_FILE_MAX_MB to raise the cap if intentional.",
+                 Set ECAA_AGENT_FILE_MAX_MB to raise the cap if intentional.",
                 path.display(),
                 max_bytes,
                 metadata.len(),

@@ -98,10 +98,10 @@ fn write_tool_error_envelope(
         .get("executor")
         .cloned()
         .unwrap_or_else(|| {
-            // Fall back to the SWFC_EXECUTOR_MODE env var; the
+            // Fall back to the ECAA_EXECUTOR_MODE env var; the
             // harness main records the resolved mode on the
             // capture context, so this branch is the legacy path.
-            std::env::var("SWFC_EXECUTOR_MODE").unwrap_or_else(|_| "local".to_string())
+            std::env::var("ECAA_EXECUTOR_MODE").unwrap_or_else(|_| "local".to_string())
         });
     let mut ctx = capture.executor_context.clone();
     ctx.entry("executor".into())
@@ -271,18 +271,18 @@ fn heartbeat_age_secs(package_root: &Path, task_id: &str) -> Option<u64> {
     Some(elapsed.as_secs())
 }
 
-/// read `SWFC_TASK_HEARTBEAT_STALL_SECS` (default
+/// read `ECAA_TASK_HEARTBEAT_STALL_SECS` (default
 /// 900s = 15 minutes). Set to `0` to disable the detector entirely
 /// and keep legacy behavior.
 fn heartbeat_stall_threshold_secs() -> u64 {
     use ecaa_workflow_harness::constants::HEARTBEAT_STALL_THRESHOLD_SECS_DEFAULT;
-    std::env::var("SWFC_TASK_HEARTBEAT_STALL_SECS")
+    std::env::var("ECAA_TASK_HEARTBEAT_STALL_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(HEARTBEAT_STALL_THRESHOLD_SECS_DEFAULT)
 }
 
-/// `SWFC_HEARTBEAT_LIVENESS_SECS` — freshness window (in seconds) for
+/// `ECAA_HEARTBEAT_LIVENESS_SECS` — freshness window (in seconds) for
 /// the orphan-by-crash recovery's liveness check. The agent's
 /// heartbeat fork touches `runtime/outputs/<task_id>/.heartbeat`
 /// every 30s, so the default 60s window comfortably covers one
@@ -296,14 +296,14 @@ fn heartbeat_liveness_window_secs() -> u64 {
     use ecaa_workflow_harness::constants::{
         HEARTBEAT_LIVENESS_WINDOW_SECS_DEFAULT, HEARTBEAT_LIVENESS_WINDOW_SECS_MAX,
     };
-    let raw = std::env::var("SWFC_HEARTBEAT_LIVENESS_SECS")
+    let raw = std::env::var("ECAA_HEARTBEAT_LIVENESS_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(HEARTBEAT_LIVENESS_WINDOW_SECS_DEFAULT);
     raw.min(HEARTBEAT_LIVENESS_WINDOW_SECS_MAX)
 }
 
-/// `SWFC_HARNESS_SETTLE_SECS` — sleep this long
+/// `ECAA_HARNESS_SETTLE_SECS` — sleep this long
 /// at the END of any iteration whose only state was "Running tasks
 /// with fresh heartbeats and zero ready / blocked-needing-SME work."
 /// Covers the broader "harness has nothing to do but wait for
@@ -315,7 +315,7 @@ fn settle_interval_secs() -> u64 {
         HARNESS_SETTLE_INTERVAL_SECS_DEFAULT, HARNESS_SETTLE_INTERVAL_SECS_MAX,
         HARNESS_SETTLE_INTERVAL_SECS_MIN,
     };
-    let raw = std::env::var("SWFC_HARNESS_SETTLE_SECS")
+    let raw = std::env::var("ECAA_HARNESS_SETTLE_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(HARNESS_SETTLE_INTERVAL_SECS_DEFAULT);
@@ -592,14 +592,14 @@ fn stamp_dispatch_identity(
 ) {
     if let Some(dispatch) = dispatch {
         env.insert(
-            "SWFC_HARNESS_RUN_ID".into(),
+            "ECAA_HARNESS_RUN_ID".into(),
             dispatch.harness_run_id.clone(),
         );
-        env.insert("SWFC_DISPATCH_EPOCH".into(), dispatch.epoch.to_string());
+        env.insert("ECAA_DISPATCH_EPOCH".into(), dispatch.epoch.to_string());
     }
 }
 
-/// Stamp the literature-retrieval scope env vars from `SWFC_LIT_*` onto
+/// Stamp the literature-retrieval scope env vars from `ECAA_LIT_*` onto
 /// the per-task envelope. The agent helper
 /// (`scripts/agent_literature_fetch.py`) reads them at task-execution
 /// time to select source-scope tier, NCBI rate limit, evidence storage
@@ -612,11 +612,11 @@ fn stamp_literature_scope(env: &mut std::collections::BTreeMap<String, String>) 
 }
 
 /// Render the per-task `provisioning.json` and
-/// stamp `SWFC_PROVISIONING_POLICY` onto the envelope so the
+/// stamp `ECAA_PROVISIONING_POLICY` onto the envelope so the
 /// install-proxy shims (`runtime/install-proxy/*`) can read the policy
 /// at install time. Single seam shared by all executors (Local /
 /// SLURM / AWS / Mock) — no executor-specific bind-mount plumbing
-/// required: the agent script either honours `SWFC_PROVISIONING_POLICY`
+/// required: the agent script either honours `ECAA_PROVISIONING_POLICY`
 /// directly, or bind-mounts the rendered file into
 /// `/etc/scripps-workflow/provisioning.json` inside the container (the
 /// fallback path the shim consults when the env var is unset).
@@ -662,7 +662,7 @@ fn stamp_provisioning_policy(
     ) {
         Ok(()) => {
             env.insert(
-                "SWFC_PROVISIONING_POLICY".into(),
+                "ECAA_PROVISIONING_POLICY".into(),
                 policy_path.to_string_lossy().into_owned(),
             );
         }
@@ -677,7 +677,7 @@ fn stamp_provisioning_policy(
     }
 }
 
-/// R1.6 — stamp `SWFC_TASK_NETWORK` (none|bridge|host) onto the
+/// R1.6 — stamp `ECAA_TASK_NETWORK` (none|bridge|host) onto the
 /// per-task envelope so the agent script (local docker/podman wrap or
 /// the SLURM apptainer wrap) can append `--network=<value>`. Resolved
 /// from `task.safety.network`: deny-all (`NetworkPolicy::None`) maps
@@ -715,7 +715,7 @@ fn stamp_safety_network(
         (_, NetworkPolicy::None { .. }) => "none",
         (_, NetworkPolicy::Bridge) => "bridge",
     };
-    env.insert("SWFC_TASK_NETWORK".into(), value.into());
+    env.insert("ECAA_TASK_NETWORK".into(), value.into());
 }
 
 /// Load and bucket the package-level RuntimePrereqs into the
@@ -992,7 +992,7 @@ fn main() -> Result<()> {
     // wiring. The plan_only module loads WORKFLOW.json, validates the
     // DAG, prints a per-task summary, and returns the desired exit code.
     if args.plan_only {
-        let resolved_mode = std::env::var("SWFC_EXECUTOR_MODE").unwrap_or_else(|_| "local".into());
+        let resolved_mode = std::env::var("ECAA_EXECUTOR_MODE").unwrap_or_else(|_| "local".into());
         let code = ecaa_workflow_harness::plan_only::run(path, &resolved_mode)?;
         std::process::exit(code);
     }
@@ -1003,7 +1003,7 @@ fn main() -> Result<()> {
     // holding the same id (server-spawn + manual CLI race) discovers
     // the contention here and exits 2 instead of racing on
     // WORKFLOW.json / dispatch WAL / EC2 tags. Bypass via
-    // `SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1` for tests that
+    // `ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS=1` for tests that
     // deliberately spawn two harnesses. The guard is bound to a
     // local so its `Drop` runs when `main` returns (Ctrl+C, normal
     // exit, panic via the std panic-unwind path).
@@ -1024,14 +1024,14 @@ fn main() -> Result<()> {
     };
 
     // Opt-in LRU eviction for the per-session agent cache. Activated by
-    // `SWFC_AGENT_CACHE_MAX_GB=<int>`; the one-shot run executes after
+    // `ECAA_AGENT_CACHE_MAX_GB=<int>`; the one-shot run executes after
     // `SessionLock::acquire` so a peer harness can't race on the same
     // sweep. Failure logs a warning but never blocks harness startup —
     // cache eviction is best-effort disk-pressure relief, not a
     // correctness gate.
     //
     // After the startup sweep, a periodic background thread fires every
-    // `SWFC_CACHE_EVICTION_PERIOD_SECS` (default 600 s) to catch bursty
+    // `ECAA_CACHE_EVICTION_PERIOD_SECS` (default 600 s) to catch bursty
     // workloads that fill disk between harness restarts. The guard is
     // held until `run_loop` returns so the thread's lifetime matches the
     // harness's active window.
@@ -1051,7 +1051,7 @@ fn main() -> Result<()> {
     // pre-refactor behaviour exactly; "aws" returns a structured error
     // See
     // for the full matrix.
-    let mode = std::env::var("SWFC_EXECUTOR_MODE").unwrap_or_else(|_| "local".into());
+    let mode = std::env::var("ECAA_EXECUTOR_MODE").unwrap_or_else(|_| "local".into());
     let exec_args = ExecutorArgs {
         package: args.package.clone(),
         agent: args.agent.clone(),
@@ -1105,7 +1105,7 @@ fn main() -> Result<()> {
     // Ctrl+C before process exit.
     let executor: Arc<Mutex<Box<dyn Executor>>> = Arc::new(Mutex::new(executor));
 
-    // Lane-mode wave 4: when SWFC_HARNESS_VALIDATION_LANE=1 AND backend
+    // Lane-mode wave 4: when ECAA_HARNESS_VALIDATION_LANE=1 AND backend
     // is local, build a second LocalExecutor so the validation lane and
     // processing lane each get their own mutex. Two threads in
     // `thread::scope` then truly run in parallel — neither blocks on
@@ -1123,7 +1123,7 @@ fn main() -> Result<()> {
             }
             (true, other) => {
                 eprintln!(
-                    "[lane] SWFC_HARNESS_VALIDATION_LANE=1 with backend '{}' — \
+                    "[lane] ECAA_HARNESS_VALIDATION_LANE=1 with backend '{}' — \
                      lane picker still active, but parallel execution requires \
                      mode=local; validators will run serialised through the \
                      single backend handle.",
@@ -1135,24 +1135,24 @@ fn main() -> Result<()> {
         };
 
     // Operator-facing concurrency-vs-lane surprise: setting both
-    // SWFC_HARNESS_CONCURRENCY=1 and SWFC_HARNESS_VALIDATION_LANE=1
+    // ECAA_HARNESS_CONCURRENCY=1 and ECAA_HARNESS_VALIDATION_LANE=1
     // does NOT serialize agent dispatches — validation_lane reserves a
     // second slot regardless of the concurrency value. Operators
     // expecting a single-agent serialized run get two concurrent
     // agents instead. Surface this at startup so the divergence
     // between intent and behavior is visible.
-    let concurrency_override = std::env::var("SWFC_HARNESS_CONCURRENCY").ok();
+    let concurrency_override = std::env::var("ECAA_HARNESS_CONCURRENCY").ok();
     if lane_mode_from_env().is_some() && concurrency_override.as_deref().map(str::trim) == Some("1")
     {
         eprintln!(
-            "[lane] SWFC_HARNESS_CONCURRENCY=1 + SWFC_HARNESS_VALIDATION_LANE=1: \
+            "[lane] ECAA_HARNESS_CONCURRENCY=1 + ECAA_HARNESS_VALIDATION_LANE=1: \
              validation_lane reserves a separate slot for validators, so the \
              effective dispatch budget is 2 (1 processing + 1 validation), \
              not 1. To strictly serialize agent dispatches unset the lane \
-             flag (`unset SWFC_HARNESS_VALIDATION_LANE`)."
+             flag (`unset ECAA_HARNESS_VALIDATION_LANE`)."
         );
     }
-    // Sandbox vs atom-safety surprise: when SWFC_LOCAL_SANDBOX is unset
+    // Sandbox vs atom-safety surprise: when ECAA_LOCAL_SANDBOX is unset
     // (no bubblewrap), an atom's `safety.network = None{allowlist=[]}`
     // is interpreted as MIN-not-MAX semantics — the executor's
     // `NetworkPolicy::Bridge` satisfies the atom's "I need no hosts to
@@ -1160,17 +1160,17 @@ fn main() -> Result<()> {
     // is permitted. Operators expecting `safety.network=None` to enforce
     // an EGRESS DENY need bubblewrap sandboxing. Print once at startup
     // so the implicit semantics are observable.
-    if std::env::var("SWFC_LOCAL_SANDBOX")
+    if std::env::var("ECAA_LOCAL_SANDBOX")
         .ok()
         .map(|v| v.trim().is_empty() || v == "off")
         .unwrap_or(true)
         && mode == "local"
     {
         eprintln!(
-            "[safety] SWFC_LOCAL_SANDBOX unset/off + executor=local: \
+            "[safety] ECAA_LOCAL_SANDBOX unset/off + executor=local: \
              atom-level `safety.network=None` declarations are MIN-not-MAX \
              — they do NOT block host network egress. Set \
-             SWFC_LOCAL_SANDBOX=bubblewrap to enforce egress deny via \
+             ECAA_LOCAL_SANDBOX=bubblewrap to enforce egress deny via \
              `--unshare-net` on declared atoms."
         );
     }
@@ -1191,19 +1191,19 @@ fn main() -> Result<()> {
 
     // Security-remediation when the
     // server enforces bearer-token auth but the harness env did not
-    // export `SWFC_SERVER_AUTH_TOKEN`, every `POST /api/chat/*` would
+    // export `ECAA_SERVER_AUTH_TOKEN`, every `POST /api/chat/*` would
     // silently 401. Probe once at startup; bail with a clear error
     // message so the operator can fix the env. Skip the probe when
     // the harness isn't binding to a chat session (no `--session-id`).
     if args.session_id.is_some()
-        && std::env::var("SWFC_SERVER_AUTH_TOKEN")
+        && std::env::var("ECAA_SERVER_AUTH_TOKEN")
             .ok()
             .filter(|t| !t.is_empty())
             .is_none()
         && ProgressClient::probe_auth_required(&args.server_url)
     {
         anyhow::bail!(
-            "server at {} requires SWFC_SERVER_AUTH_TOKEN but the harness env does not set it",
+            "server at {} requires ECAA_SERVER_AUTH_TOKEN but the harness env does not set it",
             args.server_url
         );
     }
@@ -1309,7 +1309,7 @@ fn main() -> Result<()> {
         if !records.is_empty() {
             let mut dag_for_recovery = read_dag(path)?;
             // Liveness probe: heartbeat-mtime check unless
-            // SWFC_HEARTBEAT_LIVENESS_SECS=0 selects the legacy
+            // ECAA_HEARTBEAT_LIVENESS_SECS=0 selects the legacy
             // AlwaysDeadProbe (every Running task with a stale-deadline
             // prior-run dispatch gets flagged orphan). The
             // heartbeat probe is what suppresses the
@@ -1444,7 +1444,7 @@ fn main() -> Result<()> {
             }
         }
     } else if let Some(ref pc) = progress {
-        pc.sizing_pilot_skipped("pilot disabled (set SWFC_PILOT_ENABLED=1)");
+        pc.sizing_pilot_skipped("pilot disabled (set ECAA_PILOT_ENABLED=1)");
     }
 
     // Provision once before the loop (no-op for local; Phase B wires AWS).
@@ -1967,12 +1967,12 @@ fn run_loop(
         // Fail-CLOSED: when the dispatch-gate
         // GET fails (network blip, server restart, parse error)
         // treat the session as paused and sleep
-        // `SWFC_HARNESS_SETTLE_SECS` before re-iterating. The prior
+        // `ECAA_HARNESS_SETTLE_SECS` before re-iterating. The prior
         // fail-open behavior let the harness happily launch agents
         // against a paused session whenever the server was briefly
         // unreachable; now we wait. The sleep is bounded by
         // `settle_interval_secs()` so a typo can't freeze the
-        // harness for hours; `SWFC_HARNESS_SETTLE_SECS=0` (settle
+        // harness for hours; `ECAA_HARNESS_SETTLE_SECS=0` (settle
         // disabled) skips the sleep and falls back to immediate
         // re-iteration without dispatch.
         let session_pausing = match progress.as_ref() {
@@ -2138,7 +2138,7 @@ fn run_loop(
             }
         }
 
-        // Resolve budget from SWFC_HARNESS_CONCURRENCY against the
+        // Resolve budget from ECAA_HARNESS_CONCURRENCY against the
         // executor's declared capacity. Default is serial
         // (cpu_slots=1, gpu_slots=0), identical to the
         // pre-parallel pick-one-per-iteration contract.
@@ -2194,8 +2194,8 @@ fn run_loop(
         let (picks, picked_dispatches): (Vec<String>, Vec<PickedDispatch>) = {
             let mut dag_mut = read_dag(path)?;
             let mut picked_dispatches = Vec::new();
-            // Validation-lane mode (SWFC_HARNESS_VALIDATION_LANE=1)
-            // overrides SWFC_HARNESS_CONCURRENCY: one slot reserved
+            // Validation-lane mode (ECAA_HARNESS_VALIDATION_LANE=1)
+            // overrides ECAA_HARNESS_CONCURRENCY: one slot reserved
             // for validators, one for processing.
             let raw_picks = if let Some(lanes) = lane_mode_from_env() {
                 pick_ready_with_lanes(&dag_mut, lanes)
@@ -2579,12 +2579,12 @@ fn run_loop(
             // Dynamic per-task allocation: probe live host pressure,
             // resolve each pick's per-stage high-water requirement, and
             // split the usable budget proportionally. Each agent's
-            // SWFC_HW_VCPUS_AVAILABLE / SWFC_HW_MEMORY_GB now reflects
+            // ECAA_HW_VCPUS_AVAILABLE / ECAA_HW_MEMORY_GB now reflects
             // its allocated slice rather than the full host. Set
-            // SWFC_HW_DYNAMIC_ALLOCATION=0 to fall back to the legacy
+            // ECAA_HW_DYNAMIC_ALLOCATION=0 to fall back to the legacy
             // "full host" envelope (e.g. for byte-identical regression
             // baselines).
-            let dynamic = std::env::var("SWFC_HW_DYNAMIC_ALLOCATION").ok().as_deref() != Some("0");
+            let dynamic = std::env::var("ECAA_HW_DYNAMIC_ALLOCATION").ok().as_deref() != Some("0");
             // Load the package-level runtime
             // prereqs once and bucket by registry; each pick's
             // `provisioning.json` consumes the same map so the shim's
@@ -2797,7 +2797,7 @@ fn run_loop(
 
         // Aggregate output-directory size cap. Check each dispatched task
         // before merging its state.patch.json. Tasks whose output directory
-        // total exceeds SWFC_TASK_OUTPUT_MAX_MB are blocked immediately; their
+        // total exceeds ECAA_TASK_OUTPUT_MAX_MB are blocked immediately; their
         // patch is NOT merged so the completion state is never accepted.
         // Oversized tasks are removed from the dispatch list so
         // apply_pending_patches_strict ignores their patch files.
@@ -3204,7 +3204,7 @@ fn run_loop(
                     // all dispatches in a package. By the time we
                     // observe the Completed transition the agent
                     // subprocess has exited, so no concurrent reader
-                    // exists. Bypass via SWFC_SCRATCH_KEEP=1 for
+                    // exists. Bypass via ECAA_SCRATCH_KEEP=1 for
                     // forensic debugging.
                     cleanup_task_scratch(path, tid_str);
                 }
@@ -3398,7 +3398,7 @@ fn run_loop(
         // the legacy 3-iteration DAG-patch-empty heuristic. For every
         // Running task, compare the age of `.heartbeat` (falling back
         // to `started_at` when the file is absent) against
-        // `SWFC_TASK_HEARTBEAT_STALL_SECS` (default 900s). Stalled
+        // `ECAA_TASK_HEARTBEAT_STALL_SECS` (default 900s). Stalled
         // tasks flip to `Blocked { [heartbeat_stalled] }`; the server
         // promotes the marker to `BlockerKind::HeartbeatStalled` via
         // the blocker mapper.
@@ -3518,7 +3518,7 @@ fn run_loop(
         // §Layer-D — settle. When the iteration was a true no-op AND
         // there's at least one Running task with a fresh heartbeat
         // (compute is genuinely in flight), sleep
-        // `SWFC_HARNESS_SETTLE_SECS` (default 60s, range [5, 1800])
+        // `ECAA_HARNESS_SETTLE_SECS` (default 60s, range [5, 1800])
         // before re-iterating. Keeps the harness alive long enough
         // for the deterministic finalize probe at the top of the
         // NEXT iteration to catch a sentinel arrival, but bounded so
@@ -3561,7 +3561,7 @@ fn run_loop(
         // immediately re-polls. The `is_settle_iteration` path below
         // covers the "fresh_running non-empty" case; this branch
         // covers the "nothing dispatchable AND nothing running" case.
-        // Reuses SWFC_HARNESS_SETTLE_SECS so a single env knob bounds
+        // Reuses ECAA_HARNESS_SETTLE_SECS so a single env knob bounds
         // both windows.
         // When the dispatch_gate fail-closed this iteration, force the
         // idle branch so we sleep `settle_interval_secs()` here instead
@@ -3964,7 +3964,7 @@ fn block_agent_contract_violation(dag: &mut DAG, task_ids: &[String], detail: &s
         task.state = TaskState::Blocked {
             record: ecaa_workflow_core::dag::BlockedRecord {
                 reason: format!(
-                    "[agent_contract_violation] task={} {}; the harness restored WORKFLOW.json to the pre-dispatch snapshot. Agents must write runtime/outputs/{}/state.patch.json with matching SWFC_HARNESS_RUN_ID and SWFC_DISPATCH_EPOCH.",
+                    "[agent_contract_violation] task={} {}; the harness restored WORKFLOW.json to the pre-dispatch snapshot. Agents must write runtime/outputs/{}/state.patch.json with matching ECAA_HARNESS_RUN_ID and ECAA_DISPATCH_EPOCH.",
                     task_id, detail, task_id
                 ),
                 attempts: vec![],
@@ -5143,7 +5143,7 @@ mod read_dag_tests {
         let mut env: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
         stamp_safety_network(&mut env, &dag, "compute");
         assert_eq!(
-            env.get("SWFC_TASK_NETWORK").map(String::as_str),
+            env.get("ECAA_TASK_NETWORK").map(String::as_str),
             Some("bridge")
         );
     }
@@ -5162,7 +5162,7 @@ mod read_dag_tests {
         let mut env: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
         stamp_safety_network(&mut env, &dag, "compute");
         assert_eq!(
-            env.get("SWFC_TASK_NETWORK").map(String::as_str),
+            env.get("ECAA_TASK_NETWORK").map(String::as_str),
             Some("none")
         );
     }
@@ -5178,7 +5178,7 @@ mod read_dag_tests {
         let mut env: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
         stamp_safety_network(&mut env, &dag, "compute");
         assert_eq!(
-            env.get("SWFC_TASK_NETWORK").map(String::as_str),
+            env.get("ECAA_TASK_NETWORK").map(String::as_str),
             Some("none")
         );
     }
@@ -5191,7 +5191,7 @@ mod read_dag_tests {
         let mut env: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
         stamp_safety_network(&mut env, &dag, "compute");
         assert_eq!(
-            env.get("SWFC_TASK_NETWORK").map(String::as_str),
+            env.get("ECAA_TASK_NETWORK").map(String::as_str),
             Some("bridge")
         );
     }
@@ -5542,7 +5542,7 @@ mod read_dag_tests {
 mod settle_tests {
     //! Layer-D harness pump fix: when an iteration is a true no-op
     //! AND at least one Running task has a fresh heartbeat, the loop
-    //! sleeps `SWFC_HARNESS_SETTLE_SECS` instead of immediately
+    //! sleeps `ECAA_HARNESS_SETTLE_SECS` instead of immediately
     //! re-iterating. These tests cover the predicate + helpers; the
     //! full sleep wiring is exercised by the integration smoke runs.
     use super::*;
@@ -5676,15 +5676,15 @@ mod settle_tests {
 
     #[test]
     fn settle_interval_clamps_into_range() {
-        std::env::set_var("SWFC_HARNESS_SETTLE_SECS", "1");
+        std::env::set_var("ECAA_HARNESS_SETTLE_SECS", "1");
         assert_eq!(settle_interval_secs(), 5, "must clamp up to 5s");
-        std::env::set_var("SWFC_HARNESS_SETTLE_SECS", "9999");
+        std::env::set_var("ECAA_HARNESS_SETTLE_SECS", "9999");
         assert_eq!(settle_interval_secs(), 1800, "must clamp down to 1800s");
-        std::env::set_var("SWFC_HARNESS_SETTLE_SECS", "0");
+        std::env::set_var("ECAA_HARNESS_SETTLE_SECS", "0");
         assert_eq!(settle_interval_secs(), 0, "0 is the disable sentinel");
-        std::env::set_var("SWFC_HARNESS_SETTLE_SECS", "60");
+        std::env::set_var("ECAA_HARNESS_SETTLE_SECS", "60");
         assert_eq!(settle_interval_secs(), 60);
-        std::env::remove_var("SWFC_HARNESS_SETTLE_SECS");
+        std::env::remove_var("ECAA_HARNESS_SETTLE_SECS");
     }
 
     #[test]
@@ -5718,7 +5718,7 @@ mod settle_tests {
         // heartbeat ages past it but `fresh`'s is rewritten right
         // before we test. We use different paths so we can selectively
         // refresh.
-        std::env::set_var("SWFC_TASK_HEARTBEAT_STALL_SECS", "1");
+        std::env::set_var("ECAA_TASK_HEARTBEAT_STALL_SECS", "1");
         std::thread::sleep(std::time::Duration::from_secs(2));
         // Refresh `fresh`'s heartbeat right before the call.
         std::fs::write(
@@ -5727,7 +5727,7 @@ mod settle_tests {
         )
         .unwrap();
         let result = fresh_heartbeat_running_task_ids(pkg, &dag);
-        std::env::remove_var("SWFC_TASK_HEARTBEAT_STALL_SECS");
+        std::env::remove_var("ECAA_TASK_HEARTBEAT_STALL_SECS");
         assert_eq!(result, vec!["fresh".to_string()]);
     }
 }

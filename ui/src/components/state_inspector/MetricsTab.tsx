@@ -154,7 +154,7 @@ export function MetricsTable({
   }, [metrics])
 
   // §4.4 — session input / budget progress. Suppressed when the server
-  // side budget is null (SWFC_SESSION_TOKEN_BUDGET=0) or absent (legacy
+  // side budget is null (ECAA_SESSION_TOKEN_BUDGET=0) or absent (legacy
   // server build that doesn't emit the field yet). The Rust side's
   // read_session_token_budget() agrees with the tool-loop's
   // check_budget soft-block, so the bar position here reflects the

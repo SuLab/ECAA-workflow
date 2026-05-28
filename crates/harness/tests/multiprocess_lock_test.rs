@@ -14,7 +14,7 @@
 use ecaa_workflow_harness::multiprocess_lock::SessionLock;
 use std::sync::Mutex;
 
-// All tests mutate HOME + (in one case) SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS,
+// All tests mutate HOME + (in one case) ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS,
 // which is process-global. Serialize so parallel test threads don't
 // clobber each other's redirect before the assertions run.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -65,7 +65,7 @@ fn debug_env_var_bypasses_lock() {
     #[allow(unsafe_code)]
     unsafe {
         std::env::set_var("HOME", scratch.path());
-        std::env::set_var("SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS", "1");
+        std::env::set_var("ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS", "1");
     }
     let sid = format!("phase-20-1-bypass-{}", std::process::id());
     let first = SessionLock::acquire(&sid).expect("first acquire (bypass)");
@@ -75,6 +75,6 @@ fn debug_env_var_bypasses_lock() {
     drop(first);
     #[allow(unsafe_code)]
     unsafe {
-        std::env::remove_var("SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS");
+        std::env::remove_var("ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS");
     }
 }

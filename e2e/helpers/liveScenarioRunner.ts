@@ -22,7 +22,7 @@ import { waitForEmittedPackagePath, waitForSessionCreated } from './liveServer'
 import { loadScenario } from './scenarioRunner'
 import { sel } from './selectors'
 
-const BASE_URL = process.env.SWFC_PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3737'
+const BASE_URL = process.env.ECAA_PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3737'
 const TURN_TIMEOUT = 240_000
 const PACKAGE_TIMEOUT = 120_000
 const CONFIRMATION_FALLBACK_REPLY =
@@ -234,9 +234,9 @@ export async function runLiveScenario(
   let confirmedViaUi = false
   if (live.assertions.directConfirm) {
     // Default is to click the actual confirmation button so the run mirrors
-    // SME behaviour. SWFC_E2E_CONFIRM_VIA_FETCH=1 opts back into the
+    // SME behaviour. ECAA_E2E_CONFIRM_VIA_FETCH=1 opts back into the
     // historical raw-POST bypass (fast-feedback dev mode, not SME-realistic).
-    const confirmViaFetch = process.env.SWFC_E2E_CONFIRM_VIA_FETCH === '1'
+    const confirmViaFetch = process.env.ECAA_E2E_CONFIRM_VIA_FETCH === '1'
     if (!confirmViaFetch) {
       await chat.clickConfirm()
       confirmedViaUi = true
@@ -384,7 +384,7 @@ async function fetchState(page: Page, sessionId: string): Promise<string> {
 }
 
 function maxAdaptiveFollowups(): number {
-  const raw = process.env.SWFC_E2E_MAX_INTAKE_FOLLOWUPS ?? '4'
+  const raw = process.env.ECAA_E2E_MAX_INTAKE_FOLLOWUPS ?? '4'
   const parsed = Number.parseInt(raw, 10)
   if (!Number.isFinite(parsed) || parsed < 0) return 4
   return parsed

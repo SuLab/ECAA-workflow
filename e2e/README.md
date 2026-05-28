@@ -24,7 +24,7 @@ End-to-end tests for the natural-chat web UI under `ui/`. Two tiers:
 # From the repo root
 make e2e-playwright-install        # installs @playwright/test + browsers once
 make e2e-playwright                # tier 1 — full mocked suite
-make e2e-playwright-live           # tier 2 — full live suite (needs SWFC_ANTHROPIC_API_KEY)
+make e2e-playwright-live           # tier 2 — full live suite (needs ECAA_ANTHROPIC_API_KEY)
 ```
 
 From inside `e2e/`:
@@ -37,7 +37,7 @@ npm run test:chromium              # chromium only
 npm run test:mobile                # Pixel 5 viewport — responsive suite only
 npm run test:headed                # with visible browser windows
 npm run test:ui                    # Playwright UI mode (watch + time-travel)
-npm run test:live                  # live tier (requires SWFC_ANTHROPIC_API_KEY)
+npm run test:live                  # live tier (requires ECAA_ANTHROPIC_API_KEY)
 ```
 
 ## Layout
@@ -105,7 +105,7 @@ ensured every surface is addressable via semantic roles and labels.
 
 ## Environment variables
 
-- `SWFC_ANTHROPIC_API_KEY` — canonical key for the live tier. The legacy
+- `ECAA_ANTHROPIC_API_KEY` — canonical key for the live tier. The legacy
   `ANTHROPIC_API_KEY` name still works as a fallback (one-time stderr
   deprecation warning on first read), but new scripts and CI lanes
   should prefer the prefixed name so the chat-side key doesn't collide

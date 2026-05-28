@@ -81,7 +81,7 @@ source "amazon-ebs" "scripps-agent" {
 # Plan §S15.11 — runtime versions baked alongside WORKSPACE_SHA so the
 # AwsExecutor can refuse a dispatch when the AMI's container-runtime
 # version is older than what the task's `preferred_container` declares
-# (`SWFC_AMI_RUNTIME_STRICT=1`, default). Ranges are chosen to match
+# (`ECAA_AMI_RUNTIME_STRICT=1`, default). Ranges are chosen to match
 # the production targets the round-2 + round-4 research called out:
 #   - Apptainer 1.4.4 (Mar 2025) — preferred per Round-2 §3.10
 #   - Docker 25.0+ as the secondary container runtime
@@ -169,7 +169,7 @@ build {
       # and compares against the workspace's minimum-runtime policy
       # (config/compute-profiles/runtime-policy.yaml — pending S15.11
       # follow-up). Mismatch surfaces `BlockerKind::AmiRuntimeSkew` when
-      # `SWFC_AMI_RUNTIME_STRICT=1` (default); strict=0 downgrades to
+      # `ECAA_AMI_RUNTIME_STRICT=1` (default); strict=0 downgrades to
       # a stderr warning.
       "APPTAINER_INSTALLED=$(apptainer --version 2>/dev/null | awk '{print $NF}' | head -n1 || true)",
       "DOCKER_INSTALLED=$(docker --version 2>/dev/null | awk '{print $3}' | tr -d ',' | head -n1 || true)",

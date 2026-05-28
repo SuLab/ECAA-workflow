@@ -168,7 +168,7 @@ pub(super) fn write_validation_summary(output_dir: &Path) -> Result<()> {
 
     if schema_failed && validation_blocks_on_fail() {
         return Err(anyhow!(
-            "ECAA emit-time validation blocked: schema failure(s) and SWFC_VALIDATION_BLOCK_ON_FAIL=1"
+            "ECAA emit-time validation blocked: schema failure(s) and ECAA_VALIDATION_BLOCK_ON_FAIL=1"
         ));
     }
     Ok(())
@@ -233,7 +233,7 @@ fn render_dependency_proofs_jsonl(dag: &DAG) -> Result<String> {
 }
 
 fn read_validation_mode() -> ValidationMode {
-    match std::env::var("SWFC_VALIDATE_ON_EMIT")
+    match std::env::var("ECAA_VALIDATE_ON_EMIT")
         .unwrap_or_default()
         .as_str()
     {
@@ -246,7 +246,7 @@ fn read_validation_mode() -> ValidationMode {
 
 fn validation_blocks_on_fail() -> bool {
     matches!(
-        std::env::var("SWFC_VALIDATION_BLOCK_ON_FAIL")
+        std::env::var("ECAA_VALIDATION_BLOCK_ON_FAIL")
             .as_deref()
             .unwrap_or("0"),
         "1" | "true" | "yes" | "on"

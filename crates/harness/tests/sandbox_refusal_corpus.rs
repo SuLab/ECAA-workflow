@@ -56,13 +56,13 @@ struct ScenarioResult {
 /// these scripts".
 fn run_in_sandbox(script: &Path) -> ScenarioResult {
     // bwrap presence is a hard precondition; the test is gated on
-    // SWFC_LOCAL_SANDBOX=bubblewrap and runs only when the binary is
+    // ECAA_LOCAL_SANDBOX=bubblewrap and runs only when the binary is
     // present (see the early-return in `sandbox_refuses_all_30_scenarios`).
     let bwrap_path = PathBuf::from("/usr/bin/bwrap");
     let workdir = scenarios_dir();
     let runner = BubblewrapRunner::from_env_with_bwrap_path(bwrap_path, workdir)
         .expect("BubblewrapRunner::from_env_with_bwrap_path failed unexpectedly")
-        .expect("SWFC_LOCAL_SANDBOX must be 'bubblewrap' to dispatch the corpus");
+        .expect("ECAA_LOCAL_SANDBOX must be 'bubblewrap' to dispatch the corpus");
 
     let policy = SandboxPolicy::default_strict();
     // wrap() returns a fully-formed std::process::Command using the
@@ -105,10 +105,10 @@ const SANDBOX_CORPUS_SIZE: usize = 30;
 #[ignore = "requires bubblewrap; CI runs via make sandbox-refusal"]
 fn sandbox_refuses_all_30_scenarios() {
     // S5.32 — `unsafe` waiver scoped to env-mutation in test setup;
-    // SWFC_LOCAL_SANDBOX must be set for BubblewrapRunner to activate.
+    // ECAA_LOCAL_SANDBOX must be set for BubblewrapRunner to activate.
     #[allow(unsafe_code)]
     unsafe {
-        std::env::set_var("SWFC_LOCAL_SANDBOX", "bubblewrap");
+        std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap");
     }
 
     let mut total = 0;
@@ -131,7 +131,7 @@ fn sandbox_refuses_all_30_scenarios() {
 
     #[allow(unsafe_code)]
     unsafe {
-        std::env::remove_var("SWFC_LOCAL_SANDBOX");
+        std::env::remove_var("ECAA_LOCAL_SANDBOX");
     }
 
     assert_eq!(

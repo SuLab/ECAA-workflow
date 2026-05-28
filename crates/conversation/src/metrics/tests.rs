@@ -56,15 +56,15 @@ mod budget {
     struct EnvGuard(Option<String>);
     impl EnvGuard {
         fn capture() -> Self {
-            Self(std::env::var("SWFC_SESSION_TOKEN_BUDGET").ok())
+            Self(std::env::var("ECAA_SESSION_TOKEN_BUDGET").ok())
         }
     }
     impl Drop for EnvGuard {
         fn drop(&mut self) {
             // SAFETY: env access is serialized by ENV_LOCK above.
             match &self.0 {
-                Some(v) => unsafe { std::env::set_var("SWFC_SESSION_TOKEN_BUDGET", v) },
-                None => unsafe { std::env::remove_var("SWFC_SESSION_TOKEN_BUDGET") },
+                Some(v) => unsafe { std::env::set_var("ECAA_SESSION_TOKEN_BUDGET", v) },
+                None => unsafe { std::env::remove_var("ECAA_SESSION_TOKEN_BUDGET") },
             }
         }
     }
@@ -73,7 +73,7 @@ mod budget {
     fn defaults_to_500k_when_unset() {
         let _g = ENV_LOCK.lock().unwrap();
         let _restore = EnvGuard::capture();
-        unsafe { std::env::remove_var("SWFC_SESSION_TOKEN_BUDGET") };
+        unsafe { std::env::remove_var("ECAA_SESSION_TOKEN_BUDGET") };
         assert_eq!(read_session_token_budget(), Some(500_000));
     }
 
@@ -81,7 +81,7 @@ mod budget {
     fn explicit_value_wins() {
         let _g = ENV_LOCK.lock().unwrap();
         let _restore = EnvGuard::capture();
-        unsafe { std::env::set_var("SWFC_SESSION_TOKEN_BUDGET", "750000") };
+        unsafe { std::env::set_var("ECAA_SESSION_TOKEN_BUDGET", "750000") };
         assert_eq!(read_session_token_budget(), Some(750_000));
     }
 
@@ -89,7 +89,7 @@ mod budget {
     fn zero_disables_the_budget() {
         let _g = ENV_LOCK.lock().unwrap();
         let _restore = EnvGuard::capture();
-        unsafe { std::env::set_var("SWFC_SESSION_TOKEN_BUDGET", "0") };
+        unsafe { std::env::set_var("ECAA_SESSION_TOKEN_BUDGET", "0") };
         assert_eq!(read_session_token_budget(), None);
     }
 }

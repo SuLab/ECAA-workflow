@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 /// Read the Anthropic API key for the chat-side UX shim (server,
 /// chat-llm CLI, scorer, verify-cache-prefix test). The canonical
-/// env var is `SWFC_ANTHROPIC_API_KEY`. Legacy `ANTHROPIC_API_KEY` is
+/// env var is `ECAA_ANTHROPIC_API_KEY`. Legacy `ANTHROPIC_API_KEY` is
 /// accepted as a fallback with a one-time stderr deprecation note, so
 /// existing `.env` files keep working during the transition.
 ///
@@ -14,11 +14,11 @@ use std::sync::OnceLock;
 /// `ANTHROPIC_API_KEY` when deciding between API billing and the
 /// subscription at `~/.claude/.credentials.json`. The old var name
 /// leaked into every subprocess and forced API billing unconditionally.
-/// `SWFC_ANTHROPIC_API_KEY` is invisible to Claude Code, so the server
+/// `ECAA_ANTHROPIC_API_KEY` is invisible to Claude Code, so the server
 /// can keep a chat-side key set without affecting the per-task agent's
 /// billing path.
 pub fn anthropic_api_key() -> Option<String> {
-    if let Ok(v) = std::env::var("SWFC_ANTHROPIC_API_KEY") {
+    if let Ok(v) = std::env::var("ECAA_ANTHROPIC_API_KEY") {
         if !v.is_empty() {
             return Some(v);
         }
@@ -37,9 +37,9 @@ fn warn_legacy_api_key_once() {
     WARNED.get_or_init(|| {
         eprintln!(
             "[scripps-workflow] WARNING: ANTHROPIC_API_KEY is set but \
-             SWFC_ANTHROPIC_API_KEY is not. Using ANTHROPIC_API_KEY as a \
+             ECAA_ANTHROPIC_API_KEY is not. Using ANTHROPIC_API_KEY as a \
              legacy fallback. Please rename in your .env: \
-             `ANTHROPIC_API_KEY=…` -> `SWFC_ANTHROPIC_API_KEY=…`. \
+             `ANTHROPIC_API_KEY=…` -> `ECAA_ANTHROPIC_API_KEY=…`. \
              The old name conflicts with `npx @anthropic-ai/claude-code`'s \
              subscription-vs-API auth selection; leaving it set forces \
              per-task agent runs to bill the API instead of the subscription."
@@ -62,7 +62,7 @@ pub mod emit;
 pub mod errors;
 pub mod harness_batch;
 // Path-hint extractor (e2e #13): scans SME intake prose for
-// filesystem-shaped tokens that resolve under SWFC_INPUT_ROOTS, so a
+// filesystem-shaped tokens that resolve under ECAA_INPUT_ROOTS, so a
 // SME who types "the CSV is at /data/foo.csv" doesn't have to also
 // open the Inputs tab to register it manually.
 pub mod heuristic_batch;

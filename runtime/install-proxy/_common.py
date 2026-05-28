@@ -19,7 +19,7 @@ from pathlib import Path
 class Policy:
     """Per-task install-time policy. Read from
     /etc/scripps-workflow/provisioning.json by default (or wherever
-    SWFC_PROVISIONING_POLICY points)."""
+    ECAA_PROVISIONING_POLICY points)."""
 
     provisioning: str  # "sealed" | "declared_only" | "allowlisted"
     atom_id: str
@@ -43,11 +43,11 @@ EXIT_POLICY_MISSING = 74
 
 
 def _policy_path_default() -> str:
-    """Resolve the policy file location. SWFC_PROVISIONING_POLICY
+    """Resolve the policy file location. ECAA_PROVISIONING_POLICY
     overrides the default `/etc/scripps-workflow/provisioning.json`."""
 
     return os.environ.get(
-        "SWFC_PROVISIONING_POLICY",
+        "ECAA_PROVISIONING_POLICY",
         "/etc/scripps-workflow/provisioning.json",
     )
 
@@ -56,7 +56,7 @@ def load_policy(path: str | None = None) -> Policy:
     """Read the per-task policy. Raises FileNotFoundError if missing.
 
     Caller can pass `path` explicitly; otherwise honor the
-    SWFC_PROVISIONING_POLICY env override, falling back to the
+    ECAA_PROVISIONING_POLICY env override, falling back to the
     canonical /etc location.
     """
     resolved = path or _policy_path_default()
@@ -136,7 +136,7 @@ def fail_denied(decision: Decision) -> None:
 
 
 def bypass_enabled() -> bool:
-    """SWFC_PROVISIONING_DISABLE=1 bypasses the shim entirely
+    """ECAA_PROVISIONING_DISABLE=1 bypasses the shim entirely
     (testing / debugging only). When set, the shim invokes the real
     package manager directly with no policy check."""
-    return os.environ.get("SWFC_PROVISIONING_DISABLE") == "1"
+    return os.environ.get("ECAA_PROVISIONING_DISABLE") == "1"

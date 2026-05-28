@@ -171,7 +171,7 @@ pub struct Disposition {
     #[serde(default)]
     pub actions: Vec<Action>,
     /// Opt-in v2 escape hatch: when both this flag and the
-    /// `SWFC_AUTO_APPLY_DISPOSITIONS=1` env var are set, the server
+    /// `ECAA_AUTO_APPLY_DISPOSITIONS=1` env var are set, the server
     /// applies the disposition immediately on ingest without waiting
     /// for an SME click. See §5.4 of the plan.
     #[serde(default)]

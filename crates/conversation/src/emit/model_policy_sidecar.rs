@@ -29,12 +29,12 @@ pub(super) struct ModelPolicySidecar {
     pub escalation_reason: Option<String>,
     /// Anthropic beta headers active when the package emitted.
     /// Today: `["context-management-2025-06-27"]` when context editing
-    /// is on, empty when `SWFC_DISABLE_CONTEXT_EDITING=1`. Sidecar
+    /// is on, empty when `ECAA_DISABLE_CONTEXT_EDITING=1`. Sidecar
     /// review can spot a session that ran against a different beta surface.
     pub beta_headers: Vec<String>,
     /// Cache-control TTL pinned on the system prompt blocks.
     /// `"ephemeral_5m"` (default) or `"ephemeral_1h"` when the operator
-    /// opts in via `SWFC_ALLOW_1H_CACHE=1`. Reviewer-facing: 1h-tier writes
+    /// opts in via `ECAA_ALLOW_1H_CACHE=1`. Reviewer-facing: 1h-tier writes
     /// cost 2× base input vs 1.25× for 5m, so per-session tier surfacing
     /// is part of the cost-attribution audit.
     pub cache_ttl: String,
@@ -54,7 +54,7 @@ pub(super) fn build_for_session(session: &Session) -> ModelPolicySidecar {
     } else {
         Vec::new()
     };
-    let cache_ttl = if ecaa_workflow_core::env_helpers::env_bool("SWFC_ALLOW_1H_CACHE") {
+    let cache_ttl = if ecaa_workflow_core::env_helpers::env_bool("ECAA_ALLOW_1H_CACHE") {
         "ephemeral_1h".to_string()
     } else {
         "ephemeral_5m".to_string()
@@ -136,7 +136,7 @@ mod tests {
     }
 
     /// cache_ttl defaults to `ephemeral_5m` unless the operator
-    /// opts in to the 1h tier via `SWFC_ALLOW_1H_CACHE=1`.
+    /// opts in to the 1h tier via `ECAA_ALLOW_1H_CACHE=1`.
     #[test]
     fn cache_ttl_defaults_to_5m() {
         let session = Session::new(false);

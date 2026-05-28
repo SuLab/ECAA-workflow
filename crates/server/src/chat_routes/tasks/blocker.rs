@@ -41,7 +41,7 @@ const HIGH_STAKES_DISCOVER_AXES: &[&str] = &[
 ];
 
 /// Fallback allowlist used only when the on-disk atom registry can't be
-/// loaded (e.g. `SWFC_CONFIG_DIR` misconfigured, registry corrupted on
+/// loaded (e.g. `ECAA_CONFIG_DIR` misconfigured, registry corrupted on
 /// disk). Keeps the auto-approve checkbox useful in a degraded state
 /// instead of writing an empty file the agent will treat as "block
 /// everything." Kept tiny on purpose — the production path always goes

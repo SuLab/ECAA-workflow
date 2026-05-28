@@ -37,7 +37,7 @@ fn defaults_when_env_empty() {
     assert!(cfg.input_roots.is_empty());
     assert!(
         cfg.git_enabled,
-        "git enabled by default unless SWFC_GIT_ENABLED=0"
+        "git enabled by default unless ECAA_GIT_ENABLED=0"
     );
     assert_eq!(cfg.composer, "semantic");
 }
@@ -72,11 +72,11 @@ fn accepts_loopback_http_base_url() {
 fn rejects_cost_ceiling_nan_or_inf() {
     for bad in ["inf", "-inf", "Infinity", "NaN", "nan", "+inf"] {
         let mut env = empty();
-        env.insert("SWFC_AWS_COST_CEILING_USD", bad);
+        env.insert("ECAA_AWS_COST_CEILING_USD", bad);
         let result = Config::from_env_map(&env);
         assert!(
             result.is_err(),
-            "should reject SWFC_AWS_COST_CEILING_USD={bad}"
+            "should reject ECAA_AWS_COST_CEILING_USD={bad}"
         );
     }
 }
@@ -84,7 +84,7 @@ fn rejects_cost_ceiling_nan_or_inf() {
 #[test]
 fn rejects_cost_ceiling_negative() {
     let mut env = empty();
-    env.insert("SWFC_AWS_COST_CEILING_USD", "-0.01");
+    env.insert("ECAA_AWS_COST_CEILING_USD", "-0.01");
     let err = Config::from_env_map(&env)
         .expect_err("negative cost ceiling rejected")
         .to_string();
@@ -97,7 +97,7 @@ fn rejects_cost_ceiling_negative() {
 #[test]
 fn accepts_finite_cost_ceiling() {
     let mut env = empty();
-    env.insert("SWFC_AWS_COST_CEILING_USD", "250.50");
+    env.insert("ECAA_AWS_COST_CEILING_USD", "250.50");
     let cfg = Config::from_env_map(&env).expect("finite cost ceiling valid");
     assert_eq!(cfg.aws_cost_ceiling_usd, Some(250.50));
 }
@@ -106,10 +106,10 @@ fn accepts_finite_cost_ceiling() {
 fn rejects_region_mult_out_of_range() {
     for bad in ["0.1", "10", "-1", "0.4", "5.01"] {
         let mut env = empty();
-        env.insert("SWFC_AWS_PRICING_REGION_MULT", bad);
+        env.insert("ECAA_AWS_PRICING_REGION_MULT", bad);
         assert!(
             Config::from_env_map(&env).is_err(),
-            "should reject SWFC_AWS_PRICING_REGION_MULT={bad}"
+            "should reject ECAA_AWS_PRICING_REGION_MULT={bad}"
         );
     }
 }
@@ -118,7 +118,7 @@ fn rejects_region_mult_out_of_range() {
 fn accepts_region_mult_in_range() {
     for ok in ["0.5", "1.0", "1.10", "2.5", "5.0"] {
         let mut env = empty();
-        env.insert("SWFC_AWS_PRICING_REGION_MULT", ok);
+        env.insert("ECAA_AWS_PRICING_REGION_MULT", ok);
         let cfg = Config::from_env_map(&env).unwrap_or_else(|e| panic!("should accept {ok}: {e}"));
         assert_eq!(cfg.aws_pricing_region_mult, ok.parse::<f64>().unwrap());
     }
@@ -127,7 +127,7 @@ fn accepts_region_mult_in_range() {
 #[test]
 fn rejects_region_mult_nan() {
     let mut env = empty();
-    env.insert("SWFC_AWS_PRICING_REGION_MULT", "NaN");
+    env.insert("ECAA_AWS_PRICING_REGION_MULT", "NaN");
     assert!(Config::from_env_map(&env).is_err());
 }
 
@@ -142,7 +142,7 @@ fn parses_lit_source_scope_enum() {
         ),
     ] {
         let mut env = empty();
-        env.insert("SWFC_LIT_SOURCE_SCOPE", raw);
+        env.insert("ECAA_LIT_SOURCE_SCOPE", raw);
         let cfg = Config::from_env_map(&env).unwrap();
         assert_eq!(cfg.literature.source_scope, expected);
     }
@@ -151,7 +151,7 @@ fn parses_lit_source_scope_enum() {
 #[test]
 fn lit_source_scope_invalid_falls_back_to_default() {
     let mut env = empty();
-    env.insert("SWFC_LIT_SOURCE_SCOPE", "made_up_tier");
+    env.insert("ECAA_LIT_SOURCE_SCOPE", "made_up_tier");
     let cfg =
         Config::from_env_map(&env).expect("invalid lit scope warns + falls back, not fail-stop");
     assert_eq!(cfg.literature.source_scope, LitSourceScope::PmcOa);
@@ -160,7 +160,7 @@ fn lit_source_scope_invalid_falls_back_to_default() {
 #[test]
 fn parses_chat_mode_offline() {
     let mut env = empty();
-    env.insert("SWFC_CHAT_MODE", "offline");
+    env.insert("ECAA_CHAT_MODE", "offline");
     let cfg = Config::from_env_map(&env).unwrap();
     assert_eq!(cfg.chat_mode, ChatMode::Offline);
 }
@@ -169,7 +169,7 @@ fn parses_chat_mode_offline() {
 fn chat_mode_defaults_to_online_for_other_values() {
     for raw in ["online", "live", "", "no"] {
         let mut env = empty();
-        env.insert("SWFC_CHAT_MODE", raw);
+        env.insert("ECAA_CHAT_MODE", raw);
         let cfg = Config::from_env_map(&env).unwrap();
         assert_eq!(cfg.chat_mode, ChatMode::Online, "raw: {raw:?}");
     }
@@ -178,7 +178,7 @@ fn chat_mode_defaults_to_online_for_other_values() {
 #[test]
 fn rejects_harness_batch_window_above_max() {
     let mut env = empty();
-    env.insert("SWFC_HARNESS_BATCH_WINDOW_SECS", "9999");
+    env.insert("ECAA_HARNESS_BATCH_WINDOW_SECS", "9999");
     let err = Config::from_env_map(&env)
         .expect_err("9999 > 600 max")
         .to_string();
@@ -192,7 +192,7 @@ fn rejects_harness_batch_window_above_max() {
 fn harness_batch_window_accepts_zero_and_max() {
     for v in ["0", "600", "10"] {
         let mut env = empty();
-        env.insert("SWFC_HARNESS_BATCH_WINDOW_SECS", v);
+        env.insert("ECAA_HARNESS_BATCH_WINDOW_SECS", v);
         let cfg = Config::from_env_map(&env).unwrap_or_else(|e| panic!("should accept {v}: {e}"));
         assert_eq!(cfg.harness_batch_window_secs, v.parse::<u64>().unwrap());
     }
@@ -204,7 +204,7 @@ fn harness_batch_window_invalid_falls_back_to_default() {
     // default with a tracing warning"; "out-of-range" we intercept
     // *above* the cap, but non-numeric is warn-fall-back.
     let mut env = empty();
-    env.insert("SWFC_HARNESS_BATCH_WINDOW_SECS", "not-a-number");
+    env.insert("ECAA_HARNESS_BATCH_WINDOW_SECS", "not-a-number");
     let cfg = Config::from_env_map(&env).expect("non-numeric falls back to default");
     assert_eq!(cfg.harness_batch_window_secs, 10);
 }
@@ -212,7 +212,7 @@ fn harness_batch_window_invalid_falls_back_to_default() {
 #[test]
 fn rejects_port_out_of_u16_range() {
     let mut env = empty();
-    env.insert("SWFC_PORT", "70000");
+    env.insert("ECAA_PORT", "70000");
     assert!(Config::from_env_map(&env).is_err());
 }
 
@@ -226,15 +226,15 @@ fn git_enabled_default_true() {
 #[test]
 fn git_enabled_only_zero_disables() {
     let mut env = empty();
-    env.insert("SWFC_GIT_ENABLED", "0");
+    env.insert("ECAA_GIT_ENABLED", "0");
     let cfg = Config::from_env_map(&env).unwrap();
-    assert!(!cfg.git_enabled, "SWFC_GIT_ENABLED=0 must disable");
+    assert!(!cfg.git_enabled, "ECAA_GIT_ENABLED=0 must disable");
 
     // Per the docs: "Any other value (or absent) = config-driven".
     // From the Config struct's point of view that means "enabled".
     for other in ["1", "true", "no", "off", "yes"] {
         let mut env = empty();
-        env.insert("SWFC_GIT_ENABLED", other);
+        env.insert("ECAA_GIT_ENABLED", other);
         let cfg = Config::from_env_map(&env).unwrap();
         assert!(
             cfg.git_enabled,
@@ -246,7 +246,7 @@ fn git_enabled_only_zero_disables() {
 #[test]
 fn input_roots_split_on_colon_and_comma() {
     let mut env = empty();
-    env.insert("SWFC_INPUT_ROOTS", "/srv/a:/srv/b,/srv/c");
+    env.insert("ECAA_INPUT_ROOTS", "/srv/a:/srv/b,/srv/c");
     let cfg = Config::from_env_map(&env).unwrap();
     assert_eq!(
         cfg.input_roots,
@@ -261,7 +261,7 @@ fn input_roots_split_on_colon_and_comma() {
 #[test]
 fn input_roots_skips_empty_segments() {
     let mut env = empty();
-    env.insert("SWFC_INPUT_ROOTS", ":/srv/a::");
+    env.insert("ECAA_INPUT_ROOTS", ":/srv/a::");
     let cfg = Config::from_env_map(&env).unwrap();
     assert_eq!(cfg.input_roots, vec!["/srv/a".to_string()]);
 }
@@ -270,7 +270,7 @@ fn input_roots_skips_empty_segments() {
 fn pricing_overrides_inline_json() {
     let mut env = empty();
     env.insert(
-        "SWFC_AWS_PRICING_OVERRIDES_JSON",
+        "ECAA_AWS_PRICING_OVERRIDES_JSON",
         r#"{"m6i.large": 0.096, "r6i.xlarge": 0.252}"#,
     );
     let cfg = Config::from_env_map(&env).unwrap();
@@ -282,7 +282,7 @@ fn pricing_overrides_inline_json() {
 #[test]
 fn pricing_overrides_rejects_non_positive() {
     let mut env = empty();
-    env.insert("SWFC_AWS_PRICING_OVERRIDES_JSON", r#"{"m6i.large": -0.05}"#);
+    env.insert("ECAA_AWS_PRICING_OVERRIDES_JSON", r#"{"m6i.large": -0.05}"#);
     assert!(Config::from_env_map(&env).is_err());
 }
 
@@ -297,7 +297,7 @@ fn legacy_anthropic_api_key_fallback() {
 #[test]
 fn swfc_anthropic_api_key_takes_precedence_over_legacy() {
     let mut env = empty();
-    env.insert("SWFC_ANTHROPIC_API_KEY", "primary");
+    env.insert("ECAA_ANTHROPIC_API_KEY", "primary");
     env.insert("ANTHROPIC_API_KEY", "legacy");
     let cfg = Config::from_env_map(&env).unwrap();
     assert_eq!(cfg.anthropic_api_key, Some("primary".to_string()));
@@ -327,7 +327,7 @@ fn debug_redacts_api_keys() {
 #[test]
 fn debug_redacts_ncbi_api_key() {
     let mut env = empty();
-    env.insert("SWFC_LIT_NCBI_API_KEY", "ncbi-secret-ZZZZ");
+    env.insert("ECAA_LIT_NCBI_API_KEY", "ncbi-secret-ZZZZ");
     let cfg = Config::from_env_map(&env).unwrap();
     let dbg = format!("{cfg:?}");
     assert!(!dbg.contains("ncbi-secret"), "ncbi_api_key leaked: {dbg}");
@@ -360,12 +360,12 @@ fn builder_overrides_propagate() {
 #[test]
 fn empty_optional_strings_collapse_to_none() {
     // Defense against operator typos where an env var is set to ""
-    // (e.g. `SWFC_SERVER_AUTH_TOKEN=` in a stale .env). The loader
+    // (e.g. `ECAA_SERVER_AUTH_TOKEN=` in a stale .env). The loader
     // must treat that as unset, not as "auth token = empty string".
     let mut env = empty();
-    env.insert("SWFC_SERVER_AUTH_TOKEN", "");
-    env.insert("SWFC_LIT_NCBI_API_KEY", "");
-    env.insert("SWFC_UPLOAD_ROOT", "");
+    env.insert("ECAA_SERVER_AUTH_TOKEN", "");
+    env.insert("ECAA_LIT_NCBI_API_KEY", "");
+    env.insert("ECAA_UPLOAD_ROOT", "");
     let cfg = Config::from_env_map(&env).unwrap();
     assert!(cfg.server_auth_token.is_none());
     assert!(cfg.literature.ncbi_api_key.is_none());
@@ -383,7 +383,7 @@ fn modality_drift_mode_defaults_to_warn() {
 fn modality_drift_mode_fail_parses_case_insensitively() {
     for raw in ["fail", "Fail", "FAIL"] {
         let mut env = empty();
-        env.insert("SWFC_MODALITY_DRIFT_MODE", raw);
+        env.insert("ECAA_MODALITY_DRIFT_MODE", raw);
         let cfg = Config::from_env_map(&env).unwrap();
         assert_eq!(
             cfg.modality_drift_mode,
@@ -396,7 +396,7 @@ fn modality_drift_mode_fail_parses_case_insensitively() {
 #[test]
 fn modality_drift_mode_invalid_falls_back_to_warn() {
     let mut env = empty();
-    env.insert("SWFC_MODALITY_DRIFT_MODE", "panic-on-everything");
+    env.insert("ECAA_MODALITY_DRIFT_MODE", "panic-on-everything");
     let cfg = Config::from_env_map(&env).unwrap();
     assert_eq!(cfg.modality_drift_mode, ModalityDriftMode::Warn);
 }

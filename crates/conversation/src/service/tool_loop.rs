@@ -86,14 +86,14 @@ fn trim_for_beta(tool_exchange: &[serde_json::Value]) -> Vec<serde_json::Value> 
 /// §3.7 — default per-session input-token budget. The tool loop halts
 /// with a soft-block turn when the running total (input + cache_read +
 /// cache_creation summed across the session) exceeds this. Override
-/// with `SWFC_SESSION_TOKEN_BUDGET` for testing or power users. Set to
+/// with `ECAA_SESSION_TOKEN_BUDGET` for testing or power users. Set to
 /// 0 to disable. The default is generous enough for multi-branch lotz
 /// v1→v5 sessions (~300K tokens with caching) but flags a runaway tool
 /// loop before it accrues real cost.
 const DEFAULT_SESSION_TOKEN_BUDGET: u64 = 500_000;
 
 fn session_token_budget() -> u64 {
-    std::env::var("SWFC_SESSION_TOKEN_BUDGET")
+    std::env::var("ECAA_SESSION_TOKEN_BUDGET")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(DEFAULT_SESSION_TOKEN_BUDGET)
@@ -398,7 +398,7 @@ impl ConversationService {
             // send_turn that would push the session over its cap.
             //
             // Only fires when:
-            // 1. SWFC_BUDGET_HARD_STOP=1 is set (operator opt-in)
+            // 1. ECAA_BUDGET_HARD_STOP=1 is set (operator opt-in)
             // 2. budget != 0 (env didn't disable budgeting)
             // 3. We're past the warm-up — within 80% of the cap
             //
@@ -407,7 +407,7 @@ impl ConversationService {
             // ceiling. Backends that don't implement count_tokens
             // (mock, older clients) return None and the preflight
             // is a no-op.
-            if budget != 0 && ecaa_workflow_core::env_helpers::env_bool("SWFC_BUDGET_HARD_STOP")
+            if budget != 0 && ecaa_workflow_core::env_helpers::env_bool("ECAA_BUDGET_HARD_STOP")
             {
                 let warm_up_threshold = (budget as f64 * 0.8) as u64;
                 let prior_input = pre_turn_tokens + (accumulated_usage.input_tokens as u64);
@@ -417,7 +417,7 @@ impl ConversationService {
                         if projected > budget {
                             return Err(ServiceError::Backend(format!(
                                 "session token budget exceeded: prior={} + projected={} = {} > budget={}; \
-                                 SWFC_BUDGET_HARD_STOP=1 refused the turn pre-flight",
+                                 ECAA_BUDGET_HARD_STOP=1 refused the turn pre-flight",
                                 prior_input, this_turn_estimate, projected, budget
                             )));
                         }
@@ -857,7 +857,7 @@ mod tests {
     #[test]
     fn trim_for_beta_drops_oldest_to_match_keep_window() {
         let _guard = env_mutex().lock().unwrap_or_else(|p| p.into_inner());
-        unsafe { std::env::remove_var("SWFC_DISABLE_CONTEXT_EDITING") };
+        unsafe { std::env::remove_var("ECAA_DISABLE_CONTEXT_EDITING") };
 
         let exchanges = build_exchanges(10);
         assert_eq!(exchanges.len(), 20);
@@ -878,7 +878,7 @@ mod tests {
     #[test]
     fn trim_for_beta_is_noop_under_keep_window() {
         let _guard = env_mutex().lock().unwrap_or_else(|p| p.into_inner());
-        unsafe { std::env::remove_var("SWFC_DISABLE_CONTEXT_EDITING") };
+        unsafe { std::env::remove_var("ECAA_DISABLE_CONTEXT_EDITING") };
 
         let at_cap = build_exchanges(KEEP_TOOL_EXCHANGES);
         let trimmed = trim_for_beta(&at_cap);
@@ -897,7 +897,7 @@ mod tests {
     #[test]
     fn trim_for_beta_disabled_by_env_returns_input_unchanged() {
         let _guard = env_mutex().lock().unwrap_or_else(|p| p.into_inner());
-        unsafe { std::env::set_var("SWFC_DISABLE_CONTEXT_EDITING", "1") };
+        unsafe { std::env::set_var("ECAA_DISABLE_CONTEXT_EDITING", "1") };
 
         let exchanges = build_exchanges(10);
         let trimmed = trim_for_beta(&exchanges);
@@ -906,13 +906,13 @@ mod tests {
             assert_eq!(a, b);
         }
 
-        unsafe { std::env::remove_var("SWFC_DISABLE_CONTEXT_EDITING") };
+        unsafe { std::env::remove_var("ECAA_DISABLE_CONTEXT_EDITING") };
     }
 
     #[test]
     fn trim_for_beta_empty_vec_is_safe() {
         let _guard = env_mutex().lock().unwrap_or_else(|p| p.into_inner());
-        unsafe { std::env::remove_var("SWFC_DISABLE_CONTEXT_EDITING") };
+        unsafe { std::env::remove_var("ECAA_DISABLE_CONTEXT_EDITING") };
 
         let empty: Vec<serde_json::Value> = vec![];
         let trimmed = trim_for_beta(&empty);

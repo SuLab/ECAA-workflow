@@ -15,9 +15,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 import _common  # noqa: E402
 
 
-REAL = os.environ.get("SWFC_REAL_APT", "/usr/local/bin/.real/apt")
+REAL = os.environ.get("ECAA_REAL_APT", "/usr/local/bin/.real/apt")
 INSTALL_LOG = os.environ.get(
-    "SWFC_INSTALL_LOG", "/workspace/runtime/install-log.jsonl"
+    "ECAA_INSTALL_LOG", "/workspace/runtime/install-log.jsonl"
 )
 
 

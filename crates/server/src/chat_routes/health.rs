@@ -55,7 +55,7 @@ pub async fn readyz(State(state): State<Arc<ChatAppState>>) -> Response {
     let is_loopback = bind_host == "127.0.0.1" || bind_host == "::1" || bind_host == "localhost";
     if !is_loopback && cfg.server_auth_token.is_none() {
         failures.push(format!(
-            "non-loopback bind ({}) without SWFC_SERVER_AUTH_TOKEN — auth middleware will \
+            "non-loopback bind ({}) without ECAA_SERVER_AUTH_TOKEN — auth middleware will \
              reject every request",
             cfg.bind_addr
         ));
@@ -116,7 +116,7 @@ mod tests {
     fn probe_writable_fails_on_nonexistent_read_only_path() {
         // `/proc/1/fd` is an always-present unwritable path on Linux.
         // Skip if we happen to be running as root (probe would pass).
-        if std::env::var("SWFC_TEST_SKIP_READYZ_UNWRITABLE").is_ok() {
+        if std::env::var("ECAA_TEST_SKIP_READYZ_UNWRITABLE").is_ok() {
             return;
         }
         // Use a path under / that we can't write to.

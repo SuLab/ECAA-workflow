@@ -66,12 +66,12 @@ fn assistant(text: &str) -> TurnResponse {
 
 #[tokio::test]
 async fn rebuild_dag_writes_opaque_observation_with_real_session_id() {
-    // ARRANGE: point SWFC_CHAT_SESSIONS_DIR at a temp dir so the
+    // ARRANGE: point ECAA_CHAT_SESSIONS_DIR at a temp dir so the
     // aggregator path is predictable + isolated from other tests
     // running in the same process. `try_build_via_composer` reads
     // the env var on every call, so setting it here flows through.
     let aggregator_root = TempDir::new().unwrap();
-    std::env::set_var("SWFC_CHAT_SESSIONS_DIR", aggregator_root.path());
+    std::env::set_var("ECAA_CHAT_SESSIONS_DIR", aggregator_root.path());
 
     // SessionStore lives in its OWN temp dir — independent of the
     // aggregator path so the two surfaces don't tangle on disk.
@@ -107,7 +107,7 @@ async fn rebuild_dag_writes_opaque_observation_with_real_session_id() {
         .unwrap();
 
     // ASSERT: the aggregator file lives at
-    // <SWFC_CHAT_SESSIONS_DIR>/<session_id>/_opaque_registry.jsonl
+    // <ECAA_CHAT_SESSIONS_DIR>/<session_id>/_opaque_registry.jsonl
     // (matching `try_build_via_composer`'s construction). If the
     // composition never short-circuited on an Opaque port, the file
     // doesn't exist — pass vacuously. If it DOES exist, every entry

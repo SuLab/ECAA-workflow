@@ -81,7 +81,7 @@ fn progress_client_set_task_state_does_not_block_main_thread_on_server_outage() 
 ///
 /// Post-19.4 the method returns `Result<bool>`; the caller in
 /// `main.rs` treats `Err` as "paused" and sleeps
-/// `SWFC_HARNESS_SETTLE_SECS` before retrying. Here we exercise the
+/// `ECAA_HARNESS_SETTLE_SECS` before retrying. Here we exercise the
 /// underlying primitive: an unreachable server must produce an `Err`,
 /// not a silent `Ok(false)`.
 #[test]

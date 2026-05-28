@@ -67,7 +67,7 @@ pub fn env_bool_strict(key: &str) -> bool {
 
 /// W3.2 — strict literal-`"1"` env-bool parser. Several harness flags
 /// intentionally require the literal string `"1"` to opt in (e.g.
-/// `SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS`, `SWFC_DISABLE_ENV_CLEAR`)
+/// `ECAA_HARNESS_DEBUG_ALLOW_MULTI_PROCESS`, `ECAA_DISABLE_ENV_CLEAR`)
 /// because they are debug bypasses where a typo silently disabling
 /// safety would be worse than a typo silently NOT disabling it.
 ///
@@ -143,8 +143,8 @@ mod tests {
     #[serial]
     fn env_bool_false_when_unset() {
         with_env(|| {
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_BOOL_UNSET");
-            assert!(!env_bool("SWFC_TEST_ENV_HELPERS_BOOL_UNSET"));
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_BOOL_UNSET");
+            assert!(!env_bool("ECAA_TEST_ENV_HELPERS_BOOL_UNSET"));
         });
     }
 
@@ -152,13 +152,13 @@ mod tests {
     #[serial]
     fn env_bool_true_when_set_to_one() {
         with_env(|| {
-            std::env::set_var("SWFC_TEST_ENV_HELPERS_BOOL_ON", "1");
-            assert!(env_bool("SWFC_TEST_ENV_HELPERS_BOOL_ON"));
-            std::env::set_var("SWFC_TEST_ENV_HELPERS_BOOL_ON", "true");
-            assert!(env_bool("SWFC_TEST_ENV_HELPERS_BOOL_ON"));
-            std::env::set_var("SWFC_TEST_ENV_HELPERS_BOOL_ON", "0");
-            assert!(!env_bool("SWFC_TEST_ENV_HELPERS_BOOL_ON"));
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_BOOL_ON");
+            std::env::set_var("ECAA_TEST_ENV_HELPERS_BOOL_ON", "1");
+            assert!(env_bool("ECAA_TEST_ENV_HELPERS_BOOL_ON"));
+            std::env::set_var("ECAA_TEST_ENV_HELPERS_BOOL_ON", "true");
+            assert!(env_bool("ECAA_TEST_ENV_HELPERS_BOOL_ON"));
+            std::env::set_var("ECAA_TEST_ENV_HELPERS_BOOL_ON", "0");
+            assert!(!env_bool("ECAA_TEST_ENV_HELPERS_BOOL_ON"));
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_BOOL_ON");
         });
     }
 
@@ -166,12 +166,12 @@ mod tests {
     #[serial]
     fn env_bool_or_returns_default_when_unset() {
         with_env(|| {
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_BOOL_OR");
-            assert!(env_bool_or("SWFC_TEST_ENV_HELPERS_BOOL_OR", true));
-            assert!(!env_bool_or("SWFC_TEST_ENV_HELPERS_BOOL_OR", false));
-            std::env::set_var("SWFC_TEST_ENV_HELPERS_BOOL_OR", "no");
-            assert!(!env_bool_or("SWFC_TEST_ENV_HELPERS_BOOL_OR", true));
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_BOOL_OR");
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_BOOL_OR");
+            assert!(env_bool_or("ECAA_TEST_ENV_HELPERS_BOOL_OR", true));
+            assert!(!env_bool_or("ECAA_TEST_ENV_HELPERS_BOOL_OR", false));
+            std::env::set_var("ECAA_TEST_ENV_HELPERS_BOOL_OR", "no");
+            assert!(!env_bool_or("ECAA_TEST_ENV_HELPERS_BOOL_OR", true));
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_BOOL_OR");
         });
     }
 
@@ -179,12 +179,12 @@ mod tests {
     #[serial]
     fn env_parse_falls_back_on_parse_failure() {
         with_env(|| {
-            std::env::set_var("SWFC_TEST_ENV_HELPERS_PARSE", "not-a-number");
-            assert_eq!(env_parse::<u32>("SWFC_TEST_ENV_HELPERS_PARSE", 42), 42);
-            std::env::set_var("SWFC_TEST_ENV_HELPERS_PARSE", "7");
-            assert_eq!(env_parse::<u32>("SWFC_TEST_ENV_HELPERS_PARSE", 42), 7);
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_PARSE");
-            assert_eq!(env_parse::<u32>("SWFC_TEST_ENV_HELPERS_PARSE", 42), 42);
+            std::env::set_var("ECAA_TEST_ENV_HELPERS_PARSE", "not-a-number");
+            assert_eq!(env_parse::<u32>("ECAA_TEST_ENV_HELPERS_PARSE", 42), 42);
+            std::env::set_var("ECAA_TEST_ENV_HELPERS_PARSE", "7");
+            assert_eq!(env_parse::<u32>("ECAA_TEST_ENV_HELPERS_PARSE", 42), 7);
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_PARSE");
+            assert_eq!(env_parse::<u32>("ECAA_TEST_ENV_HELPERS_PARSE", 42), 42);
         });
     }
 
@@ -192,10 +192,10 @@ mod tests {
     #[serial]
     fn env_parse_clamped_below_min() {
         with_env(|| {
-            std::env::set_var("SWFC_TEST_ENV_HELPERS_CLAMP", "1");
-            let v = env_parse_clamped::<u32>("SWFC_TEST_ENV_HELPERS_CLAMP", 5, 10, 100);
+            std::env::set_var("ECAA_TEST_ENV_HELPERS_CLAMP", "1");
+            let v = env_parse_clamped::<u32>("ECAA_TEST_ENV_HELPERS_CLAMP", 5, 10, 100);
             assert_eq!(v, 10);
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_CLAMP");
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_CLAMP");
         });
     }
 
@@ -203,10 +203,10 @@ mod tests {
     #[serial]
     fn env_parse_clamped_above_max() {
         with_env(|| {
-            std::env::set_var("SWFC_TEST_ENV_HELPERS_CLAMP", "9999");
-            let v = env_parse_clamped::<u32>("SWFC_TEST_ENV_HELPERS_CLAMP", 50, 10, 100);
+            std::env::set_var("ECAA_TEST_ENV_HELPERS_CLAMP", "9999");
+            let v = env_parse_clamped::<u32>("ECAA_TEST_ENV_HELPERS_CLAMP", 50, 10, 100);
             assert_eq!(v, 100);
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_CLAMP");
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_CLAMP");
         });
     }
 
@@ -214,10 +214,10 @@ mod tests {
     #[serial]
     fn env_parse_clamped_within_range() {
         with_env(|| {
-            std::env::set_var("SWFC_TEST_ENV_HELPERS_CLAMP", "42");
-            let v = env_parse_clamped::<u32>("SWFC_TEST_ENV_HELPERS_CLAMP", 50, 10, 100);
+            std::env::set_var("ECAA_TEST_ENV_HELPERS_CLAMP", "42");
+            let v = env_parse_clamped::<u32>("ECAA_TEST_ENV_HELPERS_CLAMP", 50, 10, 100);
             assert_eq!(v, 42);
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_CLAMP");
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_CLAMP");
         });
     }
 
@@ -225,8 +225,8 @@ mod tests {
     #[serial]
     fn env_parse_clamped_falls_back_to_default_when_unset() {
         with_env(|| {
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_CLAMP_UNSET");
-            let v = env_parse_clamped::<u32>("SWFC_TEST_ENV_HELPERS_CLAMP_UNSET", 50, 10, 100);
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_CLAMP_UNSET");
+            let v = env_parse_clamped::<u32>("ECAA_TEST_ENV_HELPERS_CLAMP_UNSET", 50, 10, 100);
             assert_eq!(v, 50);
         });
     }
@@ -238,20 +238,20 @@ mod tests {
     fn env_bool_strict_recognises_canonical_spellings() {
         with_env(|| {
             for truthy in ["1", "true", "yes", "on", "t", "y", "TRUE", "Yes"] {
-                std::env::set_var("SWFC_TEST_ENV_HELPERS_STRICT", truthy);
+                std::env::set_var("ECAA_TEST_ENV_HELPERS_STRICT", truthy);
                 assert!(
-                    env_bool_strict("SWFC_TEST_ENV_HELPERS_STRICT"),
+                    env_bool_strict("ECAA_TEST_ENV_HELPERS_STRICT"),
                     "expected truthy: {truthy}"
                 );
             }
             for falsy in ["0", "false", "no", "off", "f", "n", ""] {
-                std::env::set_var("SWFC_TEST_ENV_HELPERS_STRICT", falsy);
+                std::env::set_var("ECAA_TEST_ENV_HELPERS_STRICT", falsy);
                 assert!(
-                    !env_bool_strict("SWFC_TEST_ENV_HELPERS_STRICT"),
+                    !env_bool_strict("ECAA_TEST_ENV_HELPERS_STRICT"),
                     "expected falsy: {falsy}"
                 );
             }
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_STRICT");
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_STRICT");
         });
     }
 
@@ -260,13 +260,13 @@ mod tests {
     fn env_bool_strict_unrecognised_falls_back_false() {
         with_env(|| {
             for bad in ["maybe", "2", "tru", "Y3s", "enabled"] {
-                std::env::set_var("SWFC_TEST_ENV_HELPERS_STRICT", bad);
+                std::env::set_var("ECAA_TEST_ENV_HELPERS_STRICT", bad);
                 assert!(
-                    !env_bool_strict("SWFC_TEST_ENV_HELPERS_STRICT"),
+                    !env_bool_strict("ECAA_TEST_ENV_HELPERS_STRICT"),
                     "unrecognised must fall back to false: {bad}"
                 );
             }
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_STRICT");
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_STRICT");
         });
     }
 
@@ -277,16 +277,16 @@ mod tests {
     #[serial]
     fn env_bool_literal_one_only_accepts_1() {
         with_env(|| {
-            std::env::set_var("SWFC_TEST_ENV_HELPERS_ONE", "1");
-            assert!(env_bool_literal_one("SWFC_TEST_ENV_HELPERS_ONE"));
+            std::env::set_var("ECAA_TEST_ENV_HELPERS_ONE", "1");
+            assert!(env_bool_literal_one("ECAA_TEST_ENV_HELPERS_ONE"));
             for not_one in ["0", "true", "yes", "y", "01", " 1", "", "on"] {
-                std::env::set_var("SWFC_TEST_ENV_HELPERS_ONE", not_one);
+                std::env::set_var("ECAA_TEST_ENV_HELPERS_ONE", not_one);
                 assert!(
-                    !env_bool_literal_one("SWFC_TEST_ENV_HELPERS_ONE"),
+                    !env_bool_literal_one("ECAA_TEST_ENV_HELPERS_ONE"),
                     "literal-1 helper must reject {not_one:?}"
                 );
             }
-            std::env::remove_var("SWFC_TEST_ENV_HELPERS_ONE");
+            std::env::remove_var("ECAA_TEST_ENV_HELPERS_ONE");
         });
     }
 }

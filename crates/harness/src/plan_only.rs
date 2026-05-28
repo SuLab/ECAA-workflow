@@ -162,7 +162,7 @@ fn normalize_mode(requested: &str) -> String {
     #[cfg(not(feature = "dry-run"))]
     if requested == "mock" {
         eprintln!(
-            "[plan-only] SWFC_EXECUTOR_MODE=mock is not supported by executor::build; falling back to 'local'"
+            "[plan-only] ECAA_EXECUTOR_MODE=mock is not supported by executor::build; falling back to 'local'"
         );
         return "local".to_string();
     }
@@ -335,12 +335,12 @@ mod tests {
         let dag = make_dag(tasks);
         write_package(dir.path(), &dag);
 
-        let prev = std::env::var("SWFC_LOCAL_SANDBOX").ok();
-        std::env::set_var("SWFC_LOCAL_SANDBOX", "off");
+        let prev = std::env::var("ECAA_LOCAL_SANDBOX").ok();
+        std::env::set_var("ECAA_LOCAL_SANDBOX", "off");
         let code = run(dir.path(), "local").expect("run must not error");
         match prev {
-            Some(v) => std::env::set_var("SWFC_LOCAL_SANDBOX", v),
-            None => std::env::remove_var("SWFC_LOCAL_SANDBOX"),
+            Some(v) => std::env::set_var("ECAA_LOCAL_SANDBOX", v),
+            None => std::env::remove_var("ECAA_LOCAL_SANDBOX"),
         }
         assert_eq!(
             code, 3,

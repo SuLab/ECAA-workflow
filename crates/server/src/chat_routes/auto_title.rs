@@ -5,7 +5,7 @@
 //! `crates/conversation/src/side_calls/generate_session_title`; this
 //! file is the HTTP seam that:
 //!
-//! 1. Gates the feature on `SWFC_AUTO_TITLE=1`
+//! 1. Gates the feature on `ECAA_AUTO_TITLE=1`
 //! 2. Enforces idempotence (a session that already has a title just
 //!    returns the cached value, no LLM billing)
 //! 3. Enforces the budget-overrun guard (don't burn side-call tokens on
@@ -21,7 +21,7 @@
 //! - 402 — session has already exceeded its token budget; don't add
 //!   side-call spend on top of a runaway session
 //! - 404 — unknown session id
-//! - 503 — feature flag is off (`SWFC_AUTO_TITLE` is unset or != "1")
+//! - 503 — feature flag is off (`ECAA_AUTO_TITLE` is unset or != "1")
 //!
 //! UI impact: `SessionTree` renders `session.title ?? session.id_short`,
 //! so sessions that haven't been auto-titled (or legacy persisted
@@ -57,7 +57,7 @@ pub(super) async fn auto_title(
     if !app.auto_title_enabled() {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            "auto-title disabled (set SWFC_AUTO_TITLE=1 to enable)",
+            "auto-title disabled (set ECAA_AUTO_TITLE=1 to enable)",
         )
             .into_response();
     }
@@ -196,7 +196,7 @@ pub(super) fn auto_title_min_turns() -> Option<usize> {
     // to the env-var read directly. Routes that DO have ChatAppState
     // use `ChatAppState::auto_title_enabled` which prefers the test
     // override + falls back to `config.auto_title`.
-    ecaa_workflow_core::env_helpers::env_bool("SWFC_AUTO_TITLE")
+    ecaa_workflow_core::env_helpers::env_bool("ECAA_AUTO_TITLE")
         .then_some(ecaa_workflow_conversation::side_calls::AUTO_TITLE_MIN_TURNS)
 }
 
@@ -240,21 +240,21 @@ mod tests {
     /// RAII env guard for the disabled-flag test. The enabled-flag
     /// tests went through `make_router_with_auto_title_enabled` so they
     /// no longer touch the process-wide env table; only the 503 test
-    /// still needs to ensure `SWFC_AUTO_TITLE` is unset.
+    /// still needs to ensure `ECAA_AUTO_TITLE` is unset.
     struct AutoTitleEnvGuard(Option<String>);
     impl AutoTitleEnvGuard {
         fn set_disabled() -> Self {
-            let prior = std::env::var("SWFC_AUTO_TITLE").ok();
+            let prior = std::env::var("ECAA_AUTO_TITLE").ok();
             // SAFETY: callers hold AUTO_TITLE_ENV_LOCK; single-writer.
-            unsafe { std::env::remove_var("SWFC_AUTO_TITLE") };
+            unsafe { std::env::remove_var("ECAA_AUTO_TITLE") };
             Self(prior)
         }
     }
     impl Drop for AutoTitleEnvGuard {
         fn drop(&mut self) {
             match &self.0 {
-                Some(v) => unsafe { std::env::set_var("SWFC_AUTO_TITLE", v) },
-                None => unsafe { std::env::remove_var("SWFC_AUTO_TITLE") },
+                Some(v) => unsafe { std::env::set_var("ECAA_AUTO_TITLE", v) },
+                None => unsafe { std::env::remove_var("ECAA_AUTO_TITLE") },
             }
         }
     }
@@ -336,7 +336,7 @@ mod tests {
     #[tokio::test]
     async fn returns_404_for_unknown_session() {
         // Auto-title pinned via `auto_title_override` rather than the
-        // `SWFC_AUTO_TITLE` env-var so parallel test runs can't race
+        // `ECAA_AUTO_TITLE` env-var so parallel test runs can't race
         // each other's env mutations.
         let (router, _app) = make_router_with_auto_title_enabled(vec![]).await;
         let fake = uuid::Uuid::new_v4();

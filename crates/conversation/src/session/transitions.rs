@@ -222,15 +222,15 @@ fn recovery_hint_for_blocker(kind: &BlockerKind) -> String {
              Controlled-access data cannot be forwarded to an LLM agent. \
              Options: (1) obtain an institutional data-sharing agreement and \
              re-emit with the controlled_access flag removed, or (2) switch \
-             to a host-mode executor (SWFC_EXECUTOR_MODE=local + \
-             SWFC_DISABLE_CONTAINERS=1) that does not invoke a cloud LLM."
+             to a host-mode executor (ECAA_EXECUTOR_MODE=local + \
+             ECAA_DISABLE_CONTAINERS=1) that does not invoke a cloud LLM."
         }
         // Aggregate output directory exceeded size cap — inspect + clean up + rerun.
         BlockerKind::OutputSizeExceeded { .. } => {
             "The task's runtime/outputs directory exceeded the aggregate size cap \
-             (SWFC_TASK_OUTPUT_MAX_MB). Inspect the directory for unexpectedly large \
+             (ECAA_TASK_OUTPUT_MAX_MB). Inspect the directory for unexpectedly large \
              intermediate files, clean up, then rerun. To raise the cap permanently \
-             set SWFC_TASK_OUTPUT_MAX_MB to a higher value in the operator env."
+             set ECAA_TASK_OUTPUT_MAX_MB to a higher value in the operator env."
         }
         // Malformed state.patch.json quarantined — operator inspects the
         // .rejected-* file and fixes the agent's output serializer.
@@ -245,12 +245,12 @@ fn recovery_hint_for_blocker(kind: &BlockerKind) -> String {
             "The harness clock differs from the server clock by more than the \
              allowed threshold. Synchronise the host or server clock via NTP \
              and restart the harness. If the skew is intentional (e.g. time-zone \
-             misconfiguration), raise SWFC_CLOCK_SKEW_THRESHOLD_SECS."
+             misconfiguration), raise ECAA_CLOCK_SKEW_THRESHOLD_SECS."
         }
         // Wall-clock watchdog fired: task has run longer than its budget.
         BlockerKind::WallClockExceeded { .. } => {
             "The wall-clock watchdog detected the task has exceeded its runtime \
-             budget (SWFC_WATCHDOG_MULTIPLIER × expected_wall_seconds). This \
+             budget (ECAA_WATCHDOG_MULTIPLIER × expected_wall_seconds). This \
              typically indicates a CPU-bound infinite loop. Abort the task, \
              inspect the agent's output for the loop, then rerun or amend the \
              stage method."

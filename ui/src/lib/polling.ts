@@ -48,7 +48,7 @@ export const STILL_THINKING_MS = 8_000
  * imminent or an Anthropic-side queue stall; >60s the SME should be
  * told to consider refreshing; >=90s the only reasonable next step is to
  * cancel and resubmit. The threshold ladder matches the server-side
- * `SWFC_ANTHROPIC_TIMEOUT_SECS=180` ceiling so a true backend timeout
+ * `ECAA_ANTHROPIC_TIMEOUT_SECS=180` ceiling so a true backend timeout
  * lands while the user is already in the cancelable stage. */
 export const SLOW_THINKING_MS = 30_000
 export const VERY_SLOW_THINKING_MS = 60_000

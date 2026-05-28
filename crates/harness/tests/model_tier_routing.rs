@@ -1,4 +1,4 @@
-//! Regression test for the SWFC_TASK_ID-based model tier selector.
+//! Regression test for the ECAA_TASK_ID-based model tier selector.
 //!
 //! `scripts/agent-claude.sh` routes the agent's `claude` invocation to
 //! Opus or Sonnet based on the task being dispatched:
@@ -8,7 +8,7 @@
 //! A peek-at-first-ready-task selector would mis-route a
 //! `validate_*` invocation to Sonnet when multiple tasks are
 //! concurrently dispatchable. The script must instead read
-//! SWFC_TASK_ID directly, which the harness sets to the specific
+//! ECAA_TASK_ID directly, which the harness sets to the specific
 //! task it's dispatching before each agent invocation. This test
 //! exercises the script's model-selection logic for the four
 //! cases the case statement covers.
@@ -31,10 +31,10 @@ fn workspace_root() -> PathBuf {
 fn pick_model(task_id: &str, tier_enabled: &str) -> String {
     let cmd = format!(
         r#"
-SWFC_AGENT_MODEL_TIER={tier} SWFC_TASK_ID='{tid}' bash -c '
+ECAA_AGENT_MODEL_TIER={tier} ECAA_TASK_ID='{tid}' bash -c '
 MODEL_FLAG_ARGS=()
-if [ "${{SWFC_AGENT_MODEL_TIER:-1}}" = "1" ] && [ -n "${{SWFC_TASK_ID:-}}" ]; then
-  case "$SWFC_TASK_ID" in
+if [ "${{ECAA_AGENT_MODEL_TIER:-1}}" = "1" ] && [ -n "${{ECAA_TASK_ID:-}}" ]; then
+  case "$ECAA_TASK_ID" in
     discover_*|validate_*)
       MODEL_FLAG_ARGS+=(--model claude-opus-4-7)
       ;;
@@ -116,7 +116,7 @@ fn analytical_compute_tasks_route_to_sonnet() {
 
 #[test]
 fn tier_disabled_emits_no_model_flag() {
-    // SWFC_AGENT_MODEL_TIER=0 reverts to the CLI default (Opus). The
+    // ECAA_AGENT_MODEL_TIER=0 reverts to the CLI default (Opus). The
     // script must emit no --model flag so Claude Code picks its own
     // default rather than being pinned by our routing.
     assert_eq!(
@@ -130,18 +130,18 @@ fn tier_disabled_emits_no_model_flag() {
 
 #[test]
 fn empty_task_id_is_a_noop() {
-    // Empty SWFC_TASK_ID means the harness hasn't actually dispatched
+    // Empty ECAA_TASK_ID means the harness hasn't actually dispatched
     // a task (e.g. a probe invocation before dispatch). The selector
     // must short-circuit cleanly without injecting a flag.
     assert_eq!(
         pick_model("", "1"),
         "NONE",
-        "empty SWFC_TASK_ID must emit zero model flags",
+        "empty ECAA_TASK_ID must emit zero model flags",
     );
 }
 
 /// Belt-and-braces: assert the production agent-claude.sh contains the
-/// SWFC_TASK_ID-based selector rather than the older peek-first heuristic.
+/// ECAA_TASK_ID-based selector rather than the older peek-first heuristic.
 /// This catches a regression where someone reverts to the broken
 /// peek-at-first-ready logic.
 #[test]
@@ -151,8 +151,8 @@ fn script_uses_task_id_not_peek() {
         .expect("agent-claude.sh must exist at workspace root");
 
     assert!(
-        body.contains(r#"case "$SWFC_TASK_ID" in"#),
-        "model selector must dispatch on SWFC_TASK_ID directly",
+        body.contains(r#"case "$ECAA_TASK_ID" in"#),
+        "model selector must dispatch on ECAA_TASK_ID directly",
     );
     // The old peek heuristic used PEEK_TID as the variable name; if it
     // creeps back into the selector block, fail.
@@ -165,7 +165,7 @@ fn script_uses_task_id_not_peek() {
         .expect("selector block must be bounded by Host-path memory cap comment");
     assert!(
         !selector_block.contains("PEEK_TID"),
-        "model selector must not peek at WORKFLOW.json — use SWFC_TASK_ID. \
+        "model selector must not peek at WORKFLOW.json — use ECAA_TASK_ID. \
          Found PEEK_TID in selector block.",
     );
 }

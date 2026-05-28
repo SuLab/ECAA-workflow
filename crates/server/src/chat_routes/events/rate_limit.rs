@@ -131,7 +131,7 @@ pub async fn post_progress(
     }
 
     // The harness emits an event with `kind == "high_water_exceeded"`
-    // when SWFC_AWS_HIGH_WATER_POLICY=resize bumps an instance
+    // when ECAA_AWS_HIGH_WATER_POLICY=resize bumps an instance
     // type above its sizing baseline. The metrics store already has
     // the counter field; this wire-up lets the SSE event increment it
     // without requiring another server change. The event has no

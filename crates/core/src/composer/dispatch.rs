@@ -210,7 +210,7 @@ pub fn compose(
 ///   backward-chain fallback. Same routing as `compose()`.
 /// - **3** (backward-chain forced): skip the archetype fast-path
 ///   entirely and route through `backward_chain_compose`. Honored
-///   when SWFC_COMPOSER=backward-chain is set at session creation
+///   when ECAA_COMPOSER=backward-chain is set at session creation
 ///   (read by `Session::new` at session-creation time and pinned
 ///   on `Session.composer_version` so amendments stay on the same
 ///   path through to re-emit).
@@ -325,7 +325,7 @@ pub fn compose_with_version_and_modality(
         .map(|out| out.composition);
     }
     // The v1
-    // *surface* (CLI `--taxonomy` flag, `SWFC_COMPOSER=legacy`
+    // *surface* (CLI `--taxonomy` flag, `ECAA_COMPOSER=legacy`
     // alias) is retired, but the v1 *routing* (archetype fast-path
     // with backward-chain fallback) stays alive here so persisted
     // sessions with `composer_version` pinned at 1 keep building
@@ -1126,7 +1126,7 @@ pub fn compose_with_version_and_modalities_full(
     // Bare callers (CLI `intake`, eval-baselines, tests) pass `None,
     // None` and preserve existing log-only behavior; the conversation
     // crate's `try_build_via_composer` constructs the concrete sink from
-    // `SWFC_CHAT_SESSIONS_DIR` and threads `session.id` through.
+    // `ECAA_CHAT_SESSIONS_DIR` and threads `session.id` through.
     opaque_sink: Option<
         std::sync::Arc<dyn crate::compatibility::engine::OpaqueObservationSink + Send + Sync>,
     >,

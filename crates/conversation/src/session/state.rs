@@ -464,7 +464,7 @@ pub struct Session {
     #[ts(optional)]
     pub budget_usd: Option<f64>,
     /// Who set the budget — SME username from the session envelope, or
-    /// "env-default" when populated from `SWFC_DEFAULT_SESSION_BUDGET_USD`.
+    /// "env-default" when populated from `ECAA_DEFAULT_SESSION_BUDGET_USD`.
     #[serde(default)]
     #[ts(optional)]
     pub budget_set_by: Option<String>,
@@ -490,11 +490,11 @@ pub struct Session {
     #[serde(default)]
     pub inputs: Vec<UserInput>,
     /// Filesystem paths the path-hint extractor pulled out of SME
-    /// intake prose that resolve under `SWFC_INPUT_ROOTS` but the SME
+    /// intake prose that resolve under `ECAA_INPUT_ROOTS` but the SME
     /// hasn't formally registered yet. The LLM sees these via
     /// `get_session_state` and the UI renders them as a "Detected
     /// inputs — register?" affordance. Auto-registered + cleared
-    /// during `append_intake_prose` when `SWFC_AUTO_REGISTER_PROSE_PATHS`
+    /// during `append_intake_prose` when `ECAA_AUTO_REGISTER_PROSE_PATHS`
     /// is enabled. Empty for sessions persisted before this field
     /// existed (`#[serde(default)]`).
     #[serde(default)]
@@ -827,9 +827,9 @@ fn default_owner_user() -> String {
 /// SME-registered data input. Two flavors today:
 ///
 /// - `local_path` — SME pointed at a directory already on the server
-///   filesystem (validated against `SWFC_INPUT_ROOTS` allowlist).
+///   filesystem (validated against `ECAA_INPUT_ROOTS` allowlist).
 /// - `uploaded_files` — SME uploaded files through the UI; they live
-///   under `<SWFC_UPLOAD_ROOT>/<session_id>/`.
+///   under `<ECAA_UPLOAD_ROOT>/<session_id>/`.
 ///
 /// In both cases the server walks the tree at registration time,
 /// computes per-file size + sha256, and stores a manifest here. The

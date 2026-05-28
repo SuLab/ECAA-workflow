@@ -18,12 +18,12 @@ def real_binary() -> str:
     """Pick the real binary based on which name we were invoked as."""
     invoked = Path(sys.argv[0]).name
     if invoked == "mamba":
-        return os.environ.get("SWFC_REAL_MAMBA", "/usr/local/bin/.real/mamba")
-    return os.environ.get("SWFC_REAL_CONDA", "/usr/local/bin/.real/conda")
+        return os.environ.get("ECAA_REAL_MAMBA", "/usr/local/bin/.real/mamba")
+    return os.environ.get("ECAA_REAL_CONDA", "/usr/local/bin/.real/conda")
 
 
 INSTALL_LOG = os.environ.get(
-    "SWFC_INSTALL_LOG", "/workspace/runtime/install-log.jsonl"
+    "ECAA_INSTALL_LOG", "/workspace/runtime/install-log.jsonl"
 )
 
 

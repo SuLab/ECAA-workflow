@@ -14,7 +14,7 @@
 
 // S5.32: workspace lint is `unsafe_code = "deny"`. This integration
 // file uses `unsafe { std::env::set_var / remove_var }` to control
-// SWFC_LOCAL_SANDBOX / SWFC_SLURM_NATIVE_CONTAINER vars (unsafe in
+// ECAA_LOCAL_SANDBOX / ECAA_SLURM_NATIVE_CONTAINER vars (unsafe in
 // Rust 2024 edition because the env table is not thread-safe). All
 // call sites grab the shared ENV_LOCK below; the bounded waiver is
 // scoped to this integration test target.
@@ -30,8 +30,8 @@ use ecaa_workflow_harness::executor::{
 };
 use std::sync::Mutex;
 
-/// Shared mutex so tests mutating SWFC_LOCAL_SANDBOX /
-/// SWFC_SLURM_NATIVE_CONTAINER env vars run one-at-a-time. `cargo
+/// Shared mutex so tests mutating ECAA_LOCAL_SANDBOX /
+/// ECAA_SLURM_NATIVE_CONTAINER env vars run one-at-a-time. `cargo
 /// test` schedules tests across multiple threads by default; each
 /// env-mutating test grabs this lock for its duration.
 static ENV_LOCK: Mutex<()> = Mutex::new(());
@@ -113,14 +113,14 @@ fn compute_atom_safety() -> SafetyPolicy {
 #[test]
 fn local_capabilities_default_no_sandbox_bridge_network() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    // Pin SWFC_LOCAL_SANDBOX=off so detect_default_sandbox()'s bwrap probe
+    // Pin ECAA_LOCAL_SANDBOX=off so detect_default_sandbox()'s bwrap probe
     // can't auto-detect a host-installed bwrap and override the assertion
     // — the test asserts the explicit opt-out default, not host
     // introspection.
-    unsafe { std::env::set_var("SWFC_LOCAL_SANDBOX", "off") };
+    unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "off") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
-    unsafe { std::env::remove_var("SWFC_LOCAL_SANDBOX") };
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
     assert_eq!(
         caps.sandbox,
         SandboxRequirement::None,
@@ -136,7 +136,7 @@ fn local_capabilities_default_no_sandbox_bridge_network() {
 #[test]
 fn local_capabilities_bubblewrap_upgrades_to_process_isolation() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    unsafe { std::env::set_var("SWFC_LOCAL_SANDBOX", "bubblewrap") };
+    unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
     assert_eq!(
@@ -144,21 +144,21 @@ fn local_capabilities_bubblewrap_upgrades_to_process_isolation() {
         SandboxRequirement::ProcessIsolation,
         "bubblewrap mode advertises ProcessIsolation to the gate"
     );
-    unsafe { std::env::remove_var("SWFC_LOCAL_SANDBOX") };
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
 }
 
 #[test]
 fn local_capabilities_unknown_sandbox_value_stays_none() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    unsafe { std::env::set_var("SWFC_LOCAL_SANDBOX", "garbage_value") };
+    unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "garbage_value") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
     assert_eq!(
         caps.sandbox,
         SandboxRequirement::None,
-        "an unknown SWFC_LOCAL_SANDBOX value must fall back to None"
+        "an unknown ECAA_LOCAL_SANDBOX value must fall back to None"
     );
-    unsafe { std::env::remove_var("SWFC_LOCAL_SANDBOX") };
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
 }
 
 // ── LocalExecutor × enforce_safety_policy ─────────────────────────
@@ -166,14 +166,14 @@ fn local_capabilities_unknown_sandbox_value_stays_none() {
 #[test]
 fn local_default_blocks_exec_atom_with_sandbox_required() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    // Pin SWFC_LOCAL_SANDBOX=off so detect_default_sandbox()'s bwrap probe
+    // Pin ECAA_LOCAL_SANDBOX=off so detect_default_sandbox()'s bwrap probe
     // can't auto-detect a host-installed bwrap and silently satisfy
     // ProcessIsolation — the test asserts the sandbox-unavailable →
     // SandboxRequired path, not host introspection.
-    unsafe { std::env::set_var("SWFC_LOCAL_SANDBOX", "off") };
+    unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "off") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
-    unsafe { std::env::remove_var("SWFC_LOCAL_SANDBOX") };
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
     let task = task_with_safety(exec_atom_safety(), "generated_code_atom");
     let blocker = enforce_safety_policy(&task, &caps);
     match blocker {
@@ -196,7 +196,7 @@ fn local_default_blocks_exec_atom_with_sandbox_required() {
 #[test]
 fn local_with_bubblewrap_passes_exec_atom() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    unsafe { std::env::set_var("SWFC_LOCAL_SANDBOX", "bubblewrap") };
+    unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
     let task = task_with_safety(exec_atom_safety(), "generated_code_atom");
@@ -204,13 +204,13 @@ fn local_with_bubblewrap_passes_exec_atom() {
         enforce_safety_policy(&task, &caps).is_none(),
         "bubblewrap-armed local must satisfy Exec atom's ProcessIsolation"
     );
-    unsafe { std::env::remove_var("SWFC_LOCAL_SANDBOX") };
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
 }
 
 #[test]
 fn local_passes_network_bridge_atom() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    unsafe { std::env::remove_var("SWFC_LOCAL_SANDBOX") };
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
     let task = task_with_safety(network_bridge_atom_safety(), "pubmed_fetch_atom");
@@ -223,7 +223,7 @@ fn local_passes_network_bridge_atom() {
 #[test]
 fn local_passes_compute_atom_anywhere() {
     let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-    unsafe { std::env::remove_var("SWFC_LOCAL_SANDBOX") };
+    unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
     let task = task_with_safety(compute_atom_safety(), "deseq2_atom");
@@ -294,7 +294,7 @@ mod slurm_safety {
     #[test]
     fn slurm_capabilities_default_no_sandbox_deny_egress() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        unsafe { std::env::remove_var("SWFC_SLURM_NATIVE_CONTAINER") };
+        unsafe { std::env::remove_var("ECAA_SLURM_NATIVE_CONTAINER") };
         let exec = slurm_for_test();
         let caps = exec.capabilities();
         assert_eq!(
@@ -314,21 +314,21 @@ mod slurm_safety {
     #[test]
     fn slurm_capabilities_native_container_upgrades_sandbox() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        unsafe { std::env::set_var("SWFC_SLURM_NATIVE_CONTAINER", "1") };
+        unsafe { std::env::set_var("ECAA_SLURM_NATIVE_CONTAINER", "1") };
         let exec = slurm_for_test();
         let caps = exec.capabilities();
         assert_eq!(
             caps.sandbox,
             SandboxRequirement::ProcessIsolation,
-            "SWFC_SLURM_NATIVE_CONTAINER=1 advertises ProcessIsolation"
+            "ECAA_SLURM_NATIVE_CONTAINER=1 advertises ProcessIsolation"
         );
-        unsafe { std::env::remove_var("SWFC_SLURM_NATIVE_CONTAINER") };
+        unsafe { std::env::remove_var("ECAA_SLURM_NATIVE_CONTAINER") };
     }
 
     #[test]
     fn slurm_default_blocks_bridge_network_atom() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        unsafe { std::env::remove_var("SWFC_SLURM_NATIVE_CONTAINER") };
+        unsafe { std::env::remove_var("ECAA_SLURM_NATIVE_CONTAINER") };
         let exec = slurm_for_test();
         let caps = exec.capabilities();
         let task = task_with_safety(network_bridge_atom_safety(), "pubmed_fetch_atom");
@@ -347,7 +347,7 @@ mod slurm_safety {
     #[test]
     fn slurm_default_blocks_exec_atom_with_sandbox_required() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        unsafe { std::env::remove_var("SWFC_SLURM_NATIVE_CONTAINER") };
+        unsafe { std::env::remove_var("ECAA_SLURM_NATIVE_CONTAINER") };
         let exec = slurm_for_test();
         let caps = exec.capabilities();
         let task = task_with_safety(exec_atom_safety(), "generated_code_atom");
@@ -362,7 +362,7 @@ mod slurm_safety {
     #[test]
     fn slurm_native_container_passes_exec_atom() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        unsafe { std::env::set_var("SWFC_SLURM_NATIVE_CONTAINER", "1") };
+        unsafe { std::env::set_var("ECAA_SLURM_NATIVE_CONTAINER", "1") };
         // SLURM's network stays deny-all even with native containers,
         // so we use a Compute-level safety profile (the bare Exec
         // safety wouldn't pass because the atom's network is
@@ -377,13 +377,13 @@ mod slurm_safety {
             enforce_safety_policy(&task, &caps).is_none(),
             "Exec atom with empty network allowlist passes on native-container SLURM"
         );
-        unsafe { std::env::remove_var("SWFC_SLURM_NATIVE_CONTAINER") };
+        unsafe { std::env::remove_var("ECAA_SLURM_NATIVE_CONTAINER") };
     }
 
     #[test]
     fn slurm_passes_compute_atom_unconditionally() {
         let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
-        unsafe { std::env::remove_var("SWFC_SLURM_NATIVE_CONTAINER") };
+        unsafe { std::env::remove_var("ECAA_SLURM_NATIVE_CONTAINER") };
         let exec = slurm_for_test();
         let caps = exec.capabilities();
         let task = task_with_safety(compute_atom_safety(), "deseq2_atom");
@@ -396,7 +396,7 @@ mod slurm_safety {
 
 // ── AwsExecutor capabilities ──────────────────────────────────────
 //
-// AwsExecutor::new is gated on SWFC_AWS_* env vars and constructs a
+// AwsExecutor::new is gated on ECAA_AWS_* env vars and constructs a
 // duct-based command pipeline. Rather than fully stub the AWS CLI
 // shell-out path here (covered by tests/executor.rs), we exercise the
 // capability shape by constructing an executor through the env-gated
@@ -406,27 +406,27 @@ mod aws_safety {
     use super::*;
     use ecaa_workflow_harness::executor::aws::AwsExecutor;
 
-    /// Populate every required SWFC_AWS_* env var so AwsExecutor::new
+    /// Populate every required ECAA_AWS_* env var so AwsExecutor::new
     /// succeeds. The values are placeholders — capabilities() doesn't
     /// shell out, so the AWS CLI never sees them.
     fn install_aws_env() {
         unsafe {
-            std::env::set_var("SWFC_AWS_REGION", "us-east-1");
-            std::env::set_var("SWFC_AWS_AMI_ID", "ami-test");
-            std::env::set_var("SWFC_AWS_SECURITY_GROUP", "sg-test");
-            std::env::set_var("SWFC_AWS_INSTANCE_PROFILE", "ip-test");
-            std::env::set_var("SWFC_AWS_SUBNET_IDS", "subnet-a,subnet-b");
+            std::env::set_var("ECAA_AWS_REGION", "us-east-1");
+            std::env::set_var("ECAA_AWS_AMI_ID", "ami-test");
+            std::env::set_var("ECAA_AWS_SECURITY_GROUP", "sg-test");
+            std::env::set_var("ECAA_AWS_INSTANCE_PROFILE", "ip-test");
+            std::env::set_var("ECAA_AWS_SUBNET_IDS", "subnet-a,subnet-b");
         }
     }
 
     fn clear_aws_env() {
         for k in [
-            "SWFC_AWS_REGION",
-            "SWFC_AWS_AMI_ID",
-            "SWFC_AWS_SECURITY_GROUP",
-            "SWFC_AWS_INSTANCE_PROFILE",
-            "SWFC_AWS_SUBNET_ID",
-            "SWFC_AWS_SUBNET_IDS",
+            "ECAA_AWS_REGION",
+            "ECAA_AWS_AMI_ID",
+            "ECAA_AWS_SECURITY_GROUP",
+            "ECAA_AWS_INSTANCE_PROFILE",
+            "ECAA_AWS_SUBNET_ID",
+            "ECAA_AWS_SUBNET_IDS",
         ] {
             unsafe { std::env::remove_var(k) };
         }

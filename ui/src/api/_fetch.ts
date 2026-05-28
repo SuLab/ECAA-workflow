@@ -71,13 +71,13 @@ function withShareToken(opts: RequestInit | undefined): RequestInit | undefined 
  * Bearer-token auth shim: when the page was bootstrapped with a
  * `<meta name="swfc-auth-token">` tag, the
  * inline script in `ui/index.html` copies the value to
- * `window.__SWFC_AUTH_TOKEN__`. We attach it on every API request as
+ * `window.__ECAA_AUTH_TOKEN__`. We attach it on every API request as
  * `Authorization: Bearer <token>` so the server-side
  * `auth_middleware` accepts the call.
  */
 function withAuthToken(opts: RequestInit | undefined): RequestInit | undefined {
   if (typeof window === 'undefined') return opts
-  const tok = (window as unknown as { __SWFC_AUTH_TOKEN__?: string }).__SWFC_AUTH_TOKEN__
+  const tok = (window as unknown as { __ECAA_AUTH_TOKEN__?: string }).__ECAA_AUTH_TOKEN__
   if (!tok) return opts
   const headers = new Headers(opts?.headers ?? {})
   headers.set('Authorization', `Bearer ${tok}`)

@@ -286,45 +286,45 @@ fn server_chat_route_count_matches_claim() {
 
 // ── Container env-var inventory ────────────────────────────────────────
 
-/// Every container-related `SWFC_*` env var listed
+/// Every container-related `ECAA_*` env var listed
 /// in plan §S15.20's inventory must appear in CLAUDE.md's env-var
 /// section. Doc-as-contract gate: when the agent scripts or
 /// container plumbing add a new env, this test forces a CLAUDE.md
 /// edit in the same PR. When code stops consuming an env, drop it
 /// from this list. The 18 envs cover the §S15.20 plan-row inventory
-/// plus the operator-level SWFC_DEFAULT_CONTAINER_IMAGE fallback
+/// plus the operator-level ECAA_DEFAULT_CONTAINER_IMAGE fallback
 /// consumed by scripts/agent-claude.sh and the §S15.x derived-image
-/// warm-up envs (SWFC_FORCE_IMAGE_REBUILD, SWFC_BUILDX_CACHE_DIR,
-/// SWFC_IMAGE_BUILD_TIMEOUT_SECS, SWFC_DERIVED_IMAGE_TAG_PREFIX,
-/// SWFC_IMAGE_BUILDER_PATH) consumed by scripts/build-derived-image.sh
+/// warm-up envs (ECAA_FORCE_IMAGE_REBUILD, ECAA_BUILDX_CACHE_DIR,
+/// ECAA_IMAGE_BUILD_TIMEOUT_SECS, ECAA_DERIVED_IMAGE_TAG_PREFIX,
+/// ECAA_IMAGE_BUILDER_PATH) consumed by scripts/build-derived-image.sh
 /// + crates/harness/src/executor/local.rs::warm_runtime_image.
 #[test]
 #[ignore = "CLAUDE.md not in OSS repo"]
 fn container_env_vars_documented_in_claude_md() {
     let claude = read_to_string(&repo_root().join("CLAUDE.md"));
     let required = [
-        "SWFC_CONTAINER_RUNTIME",
-        "SWFC_DEFAULT_CONTAINER_IMAGE",
-        "SWFC_AGENT_CACHE_DIR",
-        "SWFC_AGENT_CACHE_DISABLE",
-        "SWFC_AGENT_CACHE_MAX_GB",
-        "SWFC_AGENT_SCRATCH_DIR",
-        "SWFC_AGENT_CRED_REFRESH_SECS",
-        "SWFC_LOCAL_SANDBOX",
-        "SWFC_CONTAINER_REGISTRY_AUTH",
-        "SWFC_CONTAINER_NETWORK_DEFAULT",
-        "SWFC_CONTAINER_VERIFY",
-        "SWFC_SLURM_NATIVE_CONTAINER",
+        "ECAA_CONTAINER_RUNTIME",
+        "ECAA_DEFAULT_CONTAINER_IMAGE",
+        "ECAA_AGENT_CACHE_DIR",
+        "ECAA_AGENT_CACHE_DISABLE",
+        "ECAA_AGENT_CACHE_MAX_GB",
+        "ECAA_AGENT_SCRATCH_DIR",
+        "ECAA_AGENT_CRED_REFRESH_SECS",
+        "ECAA_LOCAL_SANDBOX",
+        "ECAA_CONTAINER_REGISTRY_AUTH",
+        "ECAA_CONTAINER_NETWORK_DEFAULT",
+        "ECAA_CONTAINER_VERIFY",
+        "ECAA_SLURM_NATIVE_CONTAINER",
         // Derived-image warm-up.
-        "SWFC_FORCE_IMAGE_REBUILD",
-        "SWFC_BUILDX_CACHE_DIR",
-        "SWFC_IMAGE_BUILD_TIMEOUT_SECS",
-        "SWFC_DERIVED_IMAGE_TAG_PREFIX",
-        "SWFC_IMAGE_BUILDER_PATH",
+        "ECAA_FORCE_IMAGE_REBUILD",
+        "ECAA_BUILDX_CACHE_DIR",
+        "ECAA_IMAGE_BUILD_TIMEOUT_SECS",
+        "ECAA_DERIVED_IMAGE_TAG_PREFIX",
+        "ECAA_IMAGE_BUILDER_PATH",
         // Per-atom-isolated images
         // soak gate. Read by `derived_image::per_task_images_enabled`
         // and the Local executor's `provision`.
-        "SWFC_PER_TASK_IMAGES",
+        "ECAA_PER_TASK_IMAGES",
     ];
     let missing: Vec<&str> = required
         .iter()
@@ -385,7 +385,7 @@ fn claude_md_does_not_hard_code_tool_count_integer() {
 
 // ── Harness-batcher window env var ─────────────────────────────────────
 
-/// The `SWFC_HARNESS_BATCH_WINDOW_SECS` env var promoted
+/// The `ECAA_HARNESS_BATCH_WINDOW_SECS` env var promoted
 /// from the §11 watchlist must appear in CLAUDE.md's env-var section
 /// as part of the doc-as-contract gate (matches §7.3 discipline). The
 /// constructor `BatcherConfig::from_env` reads this; the server
@@ -396,8 +396,8 @@ fn claude_md_does_not_hard_code_tool_count_integer() {
 fn harness_batch_window_env_var_documented_in_claude_md() {
     let claude = read_to_string(&repo_root().join("CLAUDE.md"));
     assert!(
-        claude.contains("SWFC_HARNESS_BATCH_WINDOW_SECS"),
-        "CLAUDE.md missing SWFC_HARNESS_BATCH_WINDOW_SECS. Add it to \
+        claude.contains("ECAA_HARNESS_BATCH_WINDOW_SECS"),
+        "CLAUDE.md missing ECAA_HARNESS_BATCH_WINDOW_SECS. Add it to \
          the env-var section, or drop this test if the consumer was \
          removed."
     );
@@ -405,7 +405,7 @@ fn harness_batch_window_env_var_documented_in_claude_md() {
 
 // ── Exhaustive env-var doc-gate ─────────────────────────────────────
 
-/// Doc-as-contract gate: every `SWFC_*` name that appears in the
+/// Doc-as-contract gate: every `ECAA_*` name that appears in the
 /// `crates/` source tree must be documented in `docs/env-vars-reference.md`
 /// (or in `CLAUDE.md`'s daily-contributor / container plumbing block).
 ///
@@ -423,13 +423,13 @@ fn harness_batch_window_env_var_documented_in_claude_md() {
 /// vars and are filtered here:
 ///
 /// * Names ending in `_` are sed-stripped prefixes from formatted
-///   references like `SWFC_AWS_*` or doc-comment lists; they have no
+///   references like `ECAA_AWS_*` or doc-comment lists; they have no
 ///   runtime meaning.
-/// * `SWFC_PER_TASK_IMAGE_ENV_LOCK` is a `cfg(test)` `Mutex<()>` static
+/// * `ECAA_PER_TASK_IMAGE_ENV_LOCK` is a `cfg(test)` `Mutex<()>` static
 ///   serializing other env-var-mutating tests, not a tunable.
-/// * `SWFC_TEST_MISSING_KEY_*` is a deliberately-synthetic missing-key
+/// * `ECAA_TEST_MISSING_KEY_*` is a deliberately-synthetic missing-key
 ///   name used by `eval-adapters/src/scorer.rs` tests.
-/// * `SWFC_DEFAULT_AGENT_PATH` / similar test-runner aliases that the
+/// * `ECAA_DEFAULT_AGENT_PATH` / similar test-runner aliases that the
 ///   doc folds into a single bullet via the wildcard form are tolerated
 ///   when the wildcard line covers them.
 #[test]
@@ -437,12 +437,12 @@ fn harness_batch_window_env_var_documented_in_claude_md() {
 fn every_swfc_env_var_documented() {
     use std::collections::BTreeSet;
 
-    // Walk crates/ collecting every SWFC_* identifier reference.
+    // Walk crates/ collecting every ECAA_* identifier reference.
     // Constraints: only inspect `.rs` files so the test isn't sensitive
     // to comment-format drift in TOML/YAML, and de-duplicate via BTreeSet
     // so the failure message is deterministic across runs.
     let crates_dir = repo_root().join("crates");
-    let re = regex::Regex::new(r"SWFC_[A-Z_][A-Z0-9_]*").expect("compile SWFC_* regex");
+    let re = regex::Regex::new(r"ECAA_[A-Z_][A-Z0-9_]*").expect("compile ECAA_* regex");
     let mut source_names: BTreeSet<String> = BTreeSet::new();
     for entry in walkdir::WalkDir::new(&crates_dir)
         .into_iter()
@@ -455,7 +455,7 @@ fn every_swfc_env_var_documented() {
         if path.extension().and_then(|e| e.to_str()) != Some("rs") {
             continue;
         }
-        // Skip the test file itself — every SWFC_* name we list as a
+        // Skip the test file itself — every ECAA_* name we list as a
         // false-positive filter would otherwise count as a "source"
         // reference and trip the gate.
         if path.ends_with("tests/documented_constants.rs") {
@@ -471,24 +471,24 @@ fn every_swfc_env_var_documented() {
 
     // Filter out the well-known false positives (see doc-comment above).
     let false_positives: BTreeSet<&str> = [
-        "SWFC_PER_TASK_IMAGE_ENV_LOCK", // cfg(test) Mutex<()>, not an env var
-        "SWFC_AWS_ENV_LOCK",            // cfg(test) Mutex<()>, not an env var
+        "ECAA_PER_TASK_IMAGE_ENV_LOCK", // cfg(test) Mutex<()>, not an env var
+        "ECAA_AWS_ENV_LOCK",            // cfg(test) Mutex<()>, not an env var
     ]
     .into_iter()
     .collect();
     source_names.retain(|n| !false_positives.contains(n.as_str()));
     // Drop name fragments stamped by tests that build env-var names via
-    // `format!("SWFC_TEST_MISSING_KEY_{...}")` etc.
-    source_names.retain(|n| !n.starts_with("SWFC_TEST_MISSING_KEY"));
+    // `format!("ECAA_TEST_MISSING_KEY_{...}")` etc.
+    source_names.retain(|n| !n.starts_with("ECAA_TEST_MISSING_KEY"));
     // Skip test-only env vars — fixtures, helpers, and tier-specific
     // probe ports that are not user-facing.
-    source_names.retain(|n| !n.starts_with("SWFC_TEST_") && !n.starts_with("SWFC_TIER_"));
+    source_names.retain(|n| !n.starts_with("ECAA_TEST_") && !n.starts_with("ECAA_TIER_"));
     // The sandbox-runner integration test (`crates/harness/tests/\
     // sandbox_runner_integration.rs`) builds synthetic secret-key names
-    // like `TEST_SWFC_C7_MY_API_KEY` and `TEST_SWFC_C14_FOO`. The
-    // regex captures the trailing `SWFC_C7_*` / `SWFC_C14_*` suffixes;
+    // like `TEST_ECAA_C7_MY_API_KEY` and `TEST_ECAA_C14_FOO`. The
+    // regex captures the trailing `ECAA_C7_*` / `ECAA_C14_*` suffixes;
     // they're not real env vars the operator sets. Filter by name shape.
-    source_names.retain(|n| !n.starts_with("SWFC_C7_") && !n.starts_with("SWFC_C14_"));
+    source_names.retain(|n| !n.starts_with("ECAA_C7_") && !n.starts_with("ECAA_C14_"));
 
     // Read both doc anchors. `docs/env-vars-reference.md` is the
     // primary; `CLAUDE.md` carries the daily-contributor short list +
@@ -498,7 +498,7 @@ fn every_swfc_env_var_documented() {
 
     // A name counts as documented if it appears as an exact substring
     // in either doc. This is intentionally generous — a wildcard
-    // like `SWFC_LIB_PIN_<NAME>` documents the whole family because
+    // like `ECAA_LIB_PIN_<NAME>` documents the whole family because
     // the suffix-name is variable.
     let missing: Vec<String> = source_names
         .iter()
@@ -508,7 +508,7 @@ fn every_swfc_env_var_documented() {
 
     assert!(
         missing.is_empty(),
-        "\nThe following SWFC_* env var names are referenced in crates/ \
+        "\nThe following ECAA_* env var names are referenced in crates/ \
          but not documented in docs/env-vars-reference.md or CLAUDE.md:\n\n  {}\n\n\
          Add an entry under the appropriate section in \
          docs/env-vars-reference.md (or extend an existing wildcard \

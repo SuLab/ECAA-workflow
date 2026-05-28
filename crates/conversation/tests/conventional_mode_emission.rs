@@ -1,4 +1,4 @@
-//! Integration tests for Arm B″ (`SWFC_ECAA_MODE=conventional`) emit.
+//! Integration tests for Arm B″ (`ECAA_ECAA_MODE=conventional`) emit.
 //!
 //! Boots a session through the same `Session::test_fixture_with_dag` +
 //! `AppendIntakeProse` path that `sidecar_emission.rs` uses, then asserts
@@ -45,12 +45,12 @@ async fn boot_session_with_dag() -> Session {
 async fn conventional_mode_emits_readme_and_ipynb_no_sidecars() {
     // Process-global env mutation: serial gate above prevents races with
     // the `Full`-mode sibling test below.
-    std::env::set_var("SWFC_ECAA_MODE", "conventional");
+    std::env::set_var("ECAA_ECAA_MODE", "conventional");
 
     let dir = tempdir().unwrap();
     let mut session = boot_session_with_dag().await;
     let emit_result = emit_with_conversation_log(&mut session, dir.path(), &config_dir()).await;
-    std::env::remove_var("SWFC_ECAA_MODE");
+    std::env::remove_var("ECAA_ECAA_MODE");
     emit_result.expect("conventional emit must succeed");
 
     let pkg = dir.path();
@@ -81,9 +81,9 @@ async fn conventional_mode_emits_readme_and_ipynb_no_sidecars() {
 #[tokio::test]
 #[serial]
 async fn full_mode_emits_decisions_log_as_before() {
-    // Sanity check: with SWFC_ECAA_MODE unset, the existing emit
+    // Sanity check: with ECAA_ECAA_MODE unset, the existing emit
     // pipeline runs and at least the decisions log lands.
-    std::env::remove_var("SWFC_ECAA_MODE");
+    std::env::remove_var("ECAA_ECAA_MODE");
 
     let dir = tempdir().unwrap();
     let mut session = boot_session_with_dag().await;

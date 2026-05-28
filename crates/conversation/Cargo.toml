@@ -66,7 +66,7 @@ csv.workspace = true
 # compiles a single copy of each crate.
 hex = "0.4"
 rand = "0.8"
-# Auto-register prose-path hints (SWFC_AUTO_REGISTER_PROSE_PATHS) walks
+# Auto-register prose-path hints (ECAA_AUTO_REGISTER_PROSE_PATHS) walks
 # user-cited input directories to build a per-file inventory inline.
 # Mirrors crates/server/src/chat_routes/inputs/list.rs::build_manifest.
 walkdir.workspace = true
@@ -94,8 +94,8 @@ insta = { workspace = true }
 # tree for tolerated `try_transition` calls that forgot to log failures.
 walkdir.workspace = true
 # Serialize env-mutating tests (e.g. `auto_title_inflight_gate` toggles
-# SWFC_AUTO_TITLE, `model_policy::registry` toggles
-# SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD) so they don't race under
+# ECAA_AUTO_TITLE, `model_policy::registry` toggles
+# ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD) so they don't race under
 # `cargo test`.
 serial_test = "3"
 # `heuristic_batch_proptest` fuzzes batches of `Tool` variants

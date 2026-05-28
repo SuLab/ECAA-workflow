@@ -161,9 +161,9 @@ async fn seed_auto_title_ready_session(svc: &ConversationService) -> SessionId {
 /// must produce AT MOST one Haiku call. Without the gate, both turns
 /// would race past `if session.title.is_some()` and both spawn.
 ///
-/// Serialized on `SWFC_AUTO_TITLE` so concurrent
+/// Serialized on `ECAA_AUTO_TITLE` so concurrent
 /// tests that read this same env var don't race the set/remove.
-#[serial_test::serial(SWFC_AUTO_TITLE)]
+#[serial_test::serial(ECAA_AUTO_TITLE)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_send_turn_spawns_only_one_haiku_auto_title_call() {
     // Set the feature flag for the duration of this test. Other
@@ -174,7 +174,7 @@ async fn concurrent_send_turn_spawns_only_one_haiku_auto_title_call() {
     // tests in this crate that set the same var are gated through a
     // dedicated lock, but auto-title's flag is read-only so a stale
     // set is harmless.
-    unsafe { std::env::set_var("SWFC_AUTO_TITLE", "1") };
+    unsafe { std::env::set_var("ECAA_AUTO_TITLE", "1") };
 
     // `_env` keeps the tempdir alive (RAII via Arc<TempDir>) until the
     // test function exits.
@@ -240,5 +240,5 @@ async fn concurrent_send_turn_spawns_only_one_haiku_auto_title_call() {
         "expected exactly 1 Haiku auto-title call; got {count}"
     );
 
-    unsafe { std::env::remove_var("SWFC_AUTO_TITLE") };
+    unsafe { std::env::remove_var("ECAA_AUTO_TITLE") };
 }

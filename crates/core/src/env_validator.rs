@@ -107,7 +107,7 @@ mod tests {
         assert!(is_valid_env_name("FOO"));
         assert!(is_valid_env_name("FOO_BAR_42"));
         assert!(is_valid_env_name("_PRIVATE"));
-        assert!(is_valid_env_name("SWFC_LIB_PIN_BLAS"));
+        assert!(is_valid_env_name("ECAA_LIB_PIN_BLAS"));
     }
 
     #[test]

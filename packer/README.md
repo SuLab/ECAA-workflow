@@ -30,7 +30,7 @@ packer build \
 ```
 
 Packer writes the resulting AMI id to `manifest.json` in the working
-directory. Record it as `SWFC_AWS_AMI_ID` in the operator's
+directory. Record it as `ECAA_AWS_AMI_ID` in the operator's
 `~/.scripps/config.env` (or pass via the harness's `--ami-id` flag).
 
 ## GPU variant
@@ -59,7 +59,7 @@ understand.
 
 ## Related components
 
-- `AwsExecutor::provision` — consumes `SWFC_AWS_AMI_ID`
+- `AwsExecutor::provision` — consumes `ECAA_AWS_AMI_ID`
 - `scripts/run-task-on-instance.sh` — SSM RunCommand wrapper baked into this AMI
-- spot launch + `CapacityRebalance` — consumes `SWFC_AWS_SPOT` via `executor::spot_policy`
-- multi-AZ failover — consumes `SWFC_AWS_SUBNET_IDS`
+- spot launch + `CapacityRebalance` — consumes `ECAA_AWS_SPOT` via `executor::spot_policy`
+- multi-AZ failover — consumes `ECAA_AWS_SUBNET_IDS`

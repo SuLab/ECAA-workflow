@@ -1,6 +1,6 @@
 //! Per-atom isolated derived images.
 //!
-//! When `SWFC_PER_TASK_IMAGES=1`, each task's atom gets its own image
+//! When `ECAA_PER_TASK_IMAGES=1`, each task's atom gets its own image
 //! built from JUST that atom's `runtime_packages`. The alternative
 //! union-build path (`LocalExecutor::warm_runtime_image`) bakes one
 //! image per session from every reachable atom's union.
@@ -12,7 +12,7 @@
 //!    to host mode or `atom.preferred_container.image`.
 //! 2. Hash the on-disk bytes via `derived_image::content_hash_from_file`
 //!    (matches the builder script's `sha256sum`); tag becomes
-//!    `<SWFC_DERIVED_IMAGE_TAG_PREFIX>:<hash>`.
+//!    `<ECAA_DERIVED_IMAGE_TAG_PREFIX>:<hash>`.
 //! 3. Stage a temp build dir at `~/.scripps-workflow/per-atom-builds/
 //! <hash>/` containing `policies/runtime-prereqs.json` (the
 //!    per-atom manifest under the legacy filename the builder script
@@ -35,7 +35,7 @@ use std::path::{Path, PathBuf};
 /// `~/.scripps-workflow/per-atom-builds/`. Falls back to `/tmp` when
 /// `HOME` is unset (CI containers occasionally).
 fn build_root() -> PathBuf {
-    if let Ok(v) = std::env::var("SWFC_PER_ATOM_BUILD_ROOT") {
+    if let Ok(v) = std::env::var("ECAA_PER_ATOM_BUILD_ROOT") {
         return PathBuf::from(v);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
@@ -47,7 +47,7 @@ fn build_root() -> PathBuf {
 /// behavior so operators see the same prefix in `docker images`
 /// regardless of which path produced the tag.
 fn tag_prefix() -> String {
-    std::env::var("SWFC_DERIVED_IMAGE_TAG_PREFIX").unwrap_or_else(|_| "scripps-derived".into())
+    std::env::var("ECAA_DERIVED_IMAGE_TAG_PREFIX").unwrap_or_else(|_| "scripps-derived".into())
 }
 
 /// Build (or cache-hit) the per-atom derived image for `atom_id`.
@@ -55,7 +55,7 @@ fn tag_prefix() -> String {
 /// Returns:
 /// - `Ok(Some(tag))` when an image exists or was built; caller stashes
 ///   the tag in `pending_envelope_additions[task.id]
-/// ["SWFC_DEFAULT_CONTAINER_IMAGE"]`.
+/// ["ECAA_DEFAULT_CONTAINER_IMAGE"]`.
 /// - `Ok(None)` when the atom has no install delta — no
 ///   `policies/atom-prereqs/<atom_id>.json`, or the manifest is
 ///   present but `is_buildable()` returns false. Caller falls back
@@ -149,16 +149,16 @@ pub fn warm_per_atom_image(package_dir: &Path, atom_id: &str) -> Result<Option<S
     // Invoke the builder. Honor the same env-var passthroughs the
     // session-wide `warm_runtime_image` does so operators don't need
     // a separate knob set for per-atom builds.
-    let builder = std::env::var("SWFC_IMAGE_BUILDER_PATH")
+    let builder = std::env::var("ECAA_IMAGE_BUILDER_PATH")
         .unwrap_or_else(|_| "scripts/build-derived-image.sh".into());
     let mut cmd = std::process::Command::new(&builder);
     cmd.arg(&build_dir);
     for var in [
-        "SWFC_FORCE_IMAGE_REBUILD",
-        "SWFC_IMAGE_BUILD_TIMEOUT_SECS",
-        "SWFC_BUILDX_CACHE_DIR",
-        "SWFC_DERIVED_IMAGE_TAG_PREFIX",
-        "SWFC_AGENT_CACHE_DIR",
+        "ECAA_FORCE_IMAGE_REBUILD",
+        "ECAA_IMAGE_BUILD_TIMEOUT_SECS",
+        "ECAA_BUILDX_CACHE_DIR",
+        "ECAA_DERIVED_IMAGE_TAG_PREFIX",
+        "ECAA_AGENT_CACHE_DIR",
     ] {
         if let Ok(v) = std::env::var(var) {
             cmd.env(var, v);
@@ -218,8 +218,8 @@ mod tests {
     // Shared with `local::tests`. Serializes tests that mutate the
     // per-atom-image env vars across both modules so parallel
     // `cargo test` runs can't observe a stale env var another test
-    // left briefly set. See `executor/mod.rs::SWFC_PER_TASK_IMAGE_ENV_LOCK`.
-    use crate::executor::SWFC_PER_TASK_IMAGE_ENV_LOCK as ENV_LOCK;
+    // left briefly set. See `executor/mod.rs::ECAA_PER_TASK_IMAGE_ENV_LOCK`.
+    use crate::executor::ECAA_PER_TASK_IMAGE_ENV_LOCK as ENV_LOCK;
 
     fn write_atom_manifest(dir: &Path, atom_id: &str, base: &str, apt: &[&str]) {
         let mut m = RuntimePrereqs::new();
@@ -322,11 +322,11 @@ exit {exit_code}
         let scripts_dir = tempfile::tempdir().unwrap();
         let script_path = write_mock_builder(scripts_dir.path(), 0, true);
 
-        std::env::set_var("SWFC_PER_ATOM_BUILD_ROOT", build_root.path());
-        std::env::set_var("SWFC_IMAGE_BUILDER_PATH", &script_path);
+        std::env::set_var("ECAA_PER_ATOM_BUILD_ROOT", build_root.path());
+        std::env::set_var("ECAA_IMAGE_BUILDER_PATH", &script_path);
         let res = warm_per_atom_image(pkg.path(), "atom_x");
-        std::env::remove_var("SWFC_PER_ATOM_BUILD_ROOT");
-        std::env::remove_var("SWFC_IMAGE_BUILDER_PATH");
+        std::env::remove_var("ECAA_PER_ATOM_BUILD_ROOT");
+        std::env::remove_var("ECAA_IMAGE_BUILDER_PATH");
 
         let tag = res.expect("builder should succeed").expect("Some(tag)");
         assert!(
@@ -354,16 +354,16 @@ exit {exit_code}
         let scripts_dir = tempfile::tempdir().unwrap();
         let script_path = write_mock_builder(scripts_dir.path(), 0, false);
 
-        std::env::set_var("SWFC_PER_ATOM_BUILD_ROOT", build_root.path());
-        std::env::set_var("SWFC_IMAGE_BUILDER_PATH", &script_path);
+        std::env::set_var("ECAA_PER_ATOM_BUILD_ROOT", build_root.path());
+        std::env::set_var("ECAA_IMAGE_BUILDER_PATH", &script_path);
         let tag_a = warm_per_atom_image(pkg.path(), "atom_a")
             .unwrap()
             .expect("atom_a tag");
         let tag_b = warm_per_atom_image(pkg.path(), "atom_b")
             .unwrap()
             .expect("atom_b tag");
-        std::env::remove_var("SWFC_PER_ATOM_BUILD_ROOT");
-        std::env::remove_var("SWFC_IMAGE_BUILDER_PATH");
+        std::env::remove_var("ECAA_PER_ATOM_BUILD_ROOT");
+        std::env::remove_var("ECAA_IMAGE_BUILDER_PATH");
 
         assert_eq!(
             tag_a, tag_b,

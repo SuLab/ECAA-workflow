@@ -9,7 +9,7 @@ SCRIPT_PATH="$(realpath "$0")"
 resolve_fixture_container_image() {
   local image=""
   local workflow_json="$PACKAGE/WORKFLOW.json"
-  local task_id="${SWFC_TASK_ID:-}"
+  local task_id="${ECAA_TASK_ID:-}"
 
   if [ -n "$task_id" ] && [ -f "$workflow_json" ] && command -v jq >/dev/null 2>&1; then
     image="$(jq -r --arg tid "$task_id" '
@@ -32,15 +32,15 @@ resolve_fixture_container_image() {
     image="$(jq -r '.image // empty' "$PACKAGE/policies/container.json" 2>/dev/null || true)"
   fi
 
-  if [ -z "$image" ] && [ -n "${SWFC_DEFAULT_CONTAINER_IMAGE:-}" ]; then
-    image="$SWFC_DEFAULT_CONTAINER_IMAGE"
+  if [ -z "$image" ] && [ -n "${ECAA_DEFAULT_CONTAINER_IMAGE:-}" ]; then
+    image="$ECAA_DEFAULT_CONTAINER_IMAGE"
   fi
 
   printf '%s\n' "$image"
 }
 
-if [ "${SWFC_FIXTURE_AGENT_CONTAINERIZED:-0}" != "1" ] \
-   && [ "${SWFC_DISABLE_CONTAINERS:-0}" != "1" ]; then
+if [ "${ECAA_FIXTURE_AGENT_CONTAINERIZED:-0}" != "1" ] \
+   && [ "${ECAA_DISABLE_CONTAINERS:-0}" != "1" ]; then
   CONTAINER_IMAGE="$(resolve_fixture_container_image)"
   if [ -n "$CONTAINER_IMAGE" ]; then
     if ! command -v docker >/dev/null 2>&1; then
@@ -61,12 +61,12 @@ if [ "${SWFC_FIXTURE_AGENT_CONTAINERIZED:-0}" != "1" ] \
     fi
 
     DOCKER_ENV_ARGS=(
-      -e SWFC_FIXTURE_AGENT_CONTAINERIZED=1
-      -e "SWFC_FIXTURE_CONTAINER_IMAGE=$CONTAINER_IMAGE"
-      -e "SWFC_TASK_ID=${SWFC_TASK_ID:-}"
-      -e "SWFC_HARNESS_RUN_ID=${SWFC_HARNESS_RUN_ID:-}"
-      -e "SWFC_DISPATCH_EPOCH=${SWFC_DISPATCH_EPOCH:-}"
-      -e "SWFC_CHAT_SESSION_ID=${SWFC_CHAT_SESSION_ID:-}"
+      -e ECAA_FIXTURE_AGENT_CONTAINERIZED=1
+      -e "ECAA_FIXTURE_CONTAINER_IMAGE=$CONTAINER_IMAGE"
+      -e "ECAA_TASK_ID=${ECAA_TASK_ID:-}"
+      -e "ECAA_HARNESS_RUN_ID=${ECAA_HARNESS_RUN_ID:-}"
+      -e "ECAA_DISPATCH_EPOCH=${ECAA_DISPATCH_EPOCH:-}"
+      -e "ECAA_CHAT_SESSION_ID=${ECAA_CHAT_SESSION_ID:-}"
       -e "OMP_NUM_THREADS=${OMP_NUM_THREADS:-1}"
       -e "OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-1}"
       -e "MKL_NUM_THREADS=${MKL_NUM_THREADS:-1}"
@@ -74,7 +74,7 @@ if [ "${SWFC_FIXTURE_AGENT_CONTAINERIZED:-0}" != "1" ] \
       -e MPLBACKEND=Agg
     )
 
-    echo "agent-fixture-plots.sh: running fixture task ${SWFC_TASK_ID:-<auto>} inside $CONTAINER_IMAGE" >&2
+    echo "agent-fixture-plots.sh: running fixture task ${ECAA_TASK_ID:-<auto>} inside $CONTAINER_IMAGE" >&2
     if ! docker image inspect "$CONTAINER_IMAGE" >/dev/null 2>&1; then
       docker pull "$CONTAINER_IMAGE" >/dev/null 2>&1 || true
     fi
@@ -97,16 +97,16 @@ if [ "${SWFC_FIXTURE_AGENT_CONTAINERIZED:-0}" != "1" ] \
     rc=$?
     set -e
 
-    if [ -n "${SWFC_TASK_ID:-}" ]; then
-      state_dir="$PACKAGE/runtime/outputs/$SWFC_TASK_ID"
+    if [ -n "${ECAA_TASK_ID:-}" ]; then
+      state_dir="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
       mkdir -p "$state_dir" 2>/dev/null || true
       cat > "$state_dir/.container-state.json" 2>/dev/null <<EOF || true
 {
   "exit_code": $rc,
   "image": "$CONTAINER_IMAGE",
   "runtime": "docker",
-  "session_id": "${SWFC_CHAT_SESSION_ID:-}",
-  "task_id": "${SWFC_TASK_ID}",
+  "session_id": "${ECAA_CHAT_SESSION_ID:-}",
+  "task_id": "${ECAA_TASK_ID}",
   "ended_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
@@ -114,8 +114,8 @@ EOF
     exit "$rc"
   fi
 
-  if [ "${SWFC_REQUIRE_CONTAINER_EXECUTION:-0}" = "1" ]; then
-    echo "agent-fixture-plots.sh: no container image resolved for ${SWFC_TASK_ID:-<auto>}" >&2
+  if [ "${ECAA_REQUIRE_CONTAINER_EXECUTION:-0}" = "1" ]; then
+    echo "agent-fixture-plots.sh: no container image resolved for ${ECAA_TASK_ID:-<auto>}" >&2
     exit 97
   fi
 fi
@@ -137,7 +137,7 @@ PACKAGE = Path(sys.argv[1]).resolve()
 WORKFLOW = PACKAGE / "WORKFLOW.json"
 RUNTIME = PACKAGE / "runtime"
 OUTPUTS = RUNTIME / "outputs"
-TASK_ID = os.environ.get("SWFC_TASK_ID", "")
+TASK_ID = os.environ.get("ECAA_TASK_ID", "")
 
 
 def now() -> str:
@@ -221,8 +221,8 @@ def state_patch(task_id: str, from_status: str, to_state: dict) -> None:
         "from": from_status,
         "to": to_state,
     }
-    run_id = os.environ.get("SWFC_HARNESS_RUN_ID")
-    epoch = os.environ.get("SWFC_DISPATCH_EPOCH")
+    run_id = os.environ.get("ECAA_HARNESS_RUN_ID")
+    epoch = os.environ.get("ECAA_DISPATCH_EPOCH")
     if run_id:
         patch["harness_run_id"] = run_id
     if epoch and epoch.isdigit():
@@ -281,7 +281,7 @@ def block(task_id: str, from_status: str, reason: str) -> None:
 
 
 def write_container_proof(task_id: str) -> None:
-    if os.environ.get("SWFC_FIXTURE_AGENT_CONTAINERIZED") != "1":
+    if os.environ.get("ECAA_FIXTURE_AGENT_CONTAINERIZED") != "1":
         return
     cgroup = ""
     try:
@@ -293,7 +293,7 @@ def write_container_proof(task_id: str) -> None:
         {
             "agent": "fixture-plots",
             "containerized": True,
-            "image": os.environ.get("SWFC_FIXTURE_CONTAINER_IMAGE", ""),
+            "image": os.environ.get("ECAA_FIXTURE_CONTAINER_IMAGE", ""),
             "runtime": "docker",
             "hostname": os.uname().nodename,
             "dockerenv": Path("/.dockerenv").exists(),

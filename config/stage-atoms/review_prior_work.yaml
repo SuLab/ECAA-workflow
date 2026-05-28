@@ -3,7 +3,7 @@ version: "1.0.0"
 role: operation
 description: |
   Retrieve prior literature (PMC OA full-text XML by default, broader via
-  SWFC_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +
+  ECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +
   modality. Emit a structured prior_claims_matrix.csv where every row is
   PMID-anchored with a substring-verified evidence_quote. No biological
   synthesis, no narrative review.
@@ -44,7 +44,7 @@ outputs:
     physical_format: { iri: "format:1196", label: "Markdown" }
     privacy_class: internal
 attributes:
-  source_scope_env: SWFC_LIT_SOURCE_SCOPE
+  source_scope_env: ECAA_LIT_SOURCE_SCOPE
   retrieval_tools:
     - pubmed_eutilities_esearch
     - pubmed_eutilities_efetch_pmc_xml

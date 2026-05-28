@@ -1,7 +1,7 @@
 //! Parallel task scheduler for the harness.
 //!
 //! Serial behavior (one Ready task per iteration) is preserved when
-//! `SWFC_HARNESS_CONCURRENCY=1` (the default). `auto` or an explicit
+//! `ECAA_HARNESS_CONCURRENCY=1` (the default). `auto` or an explicit
 //! integer opts in to bounded K-way dispatch where each picked task
 //! runs in its own thread via `std::thread::scope`. Tasks with
 //! `resource_class: Gpu` draw against `gpu_slots`; all others against
@@ -25,7 +25,7 @@ pub struct SchedulerBudget {
 }
 
 impl SchedulerBudget {
-    /// Serial-compatible default used when `SWFC_HARNESS_CONCURRENCY=1`.
+    /// Serial-compatible default used when `ECAA_HARNESS_CONCURRENCY=1`.
     /// Preserved for byte-identical behavior against the pre-parallel
     /// baseline.
     pub fn serial() -> Self {
@@ -36,7 +36,7 @@ impl SchedulerBudget {
     }
 }
 
-/// `SWFC_HARNESS_CONCURRENCY` resolution:
+/// `ECAA_HARNESS_CONCURRENCY` resolution:
 /// - `1` (default when unset) → serial behavior, one pick per iteration.
 /// - `auto` → use `executor.cpu_budget()` + `executor.gpu_budget()`.
 /// - an integer N → clamp cpu_slots to N (preserves the ability to dial
@@ -54,13 +54,13 @@ pub enum ConcurrencyMode {
 }
 
 impl ConcurrencyMode {
-    /// Reads `SWFC_HARNESS_CONCURRENCY` and returns the corresponding mode.
+    /// Reads `ECAA_HARNESS_CONCURRENCY` and returns the corresponding mode.
     pub fn from_env() -> Self {
-        let raw = std::env::var("SWFC_HARNESS_CONCURRENCY").unwrap_or_else(|_| "1".into());
+        let raw = std::env::var("ECAA_HARNESS_CONCURRENCY").unwrap_or_else(|_| "1".into());
         Self::parse(&raw)
     }
 
-    /// Parses a `SWFC_HARNESS_CONCURRENCY` value string.
+    /// Parses a `ECAA_HARNESS_CONCURRENCY` value string.
     pub fn parse(raw: &str) -> Self {
         let trimmed = raw.trim();
         if trimmed == "auto" {
@@ -72,7 +72,7 @@ impl ConcurrencyMode {
             Ok(n) => Self::Fixed(n),
             Err(_) => {
                 eprintln!(
-                    "[scheduler] SWFC_HARNESS_CONCURRENCY={} not recognized; using serial",
+                    "[scheduler] ECAA_HARNESS_CONCURRENCY={} not recognized; using serial",
                     raw
                 );
                 Self::Serial
@@ -155,7 +155,7 @@ pub struct LaneBudget {
 impl LaneBudget {
     /// The shape the user asked for: one primary executor advancing
     /// processing/analysis nodes, one secondary executor running
-    /// validators in parallel. Activated by `SWFC_HARNESS_VALIDATION_LANE=1`.
+    /// validators in parallel. Activated by `ECAA_HARNESS_VALIDATION_LANE=1`.
     pub fn one_plus_one() -> Self {
         Self {
             processing_slots: 1,
@@ -166,10 +166,10 @@ impl LaneBudget {
 }
 
 /// Resolve the validation-lane env opt-in. Returns `Some(LaneBudget)`
-/// when `SWFC_HARNESS_VALIDATION_LANE=1`, otherwise `None`. Any other
+/// when `ECAA_HARNESS_VALIDATION_LANE=1`, otherwise `None`. Any other
 /// value is treated as off — typos shouldn't accidentally enable it.
 pub fn lane_mode_from_env() -> Option<LaneBudget> {
-    match std::env::var("SWFC_HARNESS_VALIDATION_LANE")
+    match std::env::var("ECAA_HARNESS_VALIDATION_LANE")
         .ok()
         .as_deref()
     {
@@ -463,7 +463,7 @@ pub fn pause_dependent_tasks(
 }
 
 /// Count how many currently-Running tasks map to each `ResourceClass`
-/// string key. Used to populate `SWFC_HW_CONCURRENT_PEERS_BY_CLASS`
+/// string key. Used to populate `ECAA_HW_CONCURRENT_PEERS_BY_CLASS`
 /// in the Phase-2 envelope when the Phase-3 scheduler has dispatched
 /// multiple tasks concurrently.
 pub fn count_concurrent_peers_by_class(dag: &DAG) -> std::collections::BTreeMap<String, u32> {
@@ -908,13 +908,13 @@ mod tests {
         // Tests don't have a clean way to clear env atomically — we
         // just assert the off-by-default by inspecting the parser
         // for the value we'd actually set.
-        std::env::remove_var("SWFC_HARNESS_VALIDATION_LANE");
+        std::env::remove_var("ECAA_HARNESS_VALIDATION_LANE");
         assert_eq!(lane_mode_from_env(), None);
-        std::env::set_var("SWFC_HARNESS_VALIDATION_LANE", "0");
+        std::env::set_var("ECAA_HARNESS_VALIDATION_LANE", "0");
         assert_eq!(lane_mode_from_env(), None);
-        std::env::set_var("SWFC_HARNESS_VALIDATION_LANE", "1");
+        std::env::set_var("ECAA_HARNESS_VALIDATION_LANE", "1");
         assert_eq!(lane_mode_from_env(), Some(LaneBudget::one_plus_one()));
-        std::env::remove_var("SWFC_HARNESS_VALIDATION_LANE");
+        std::env::remove_var("ECAA_HARNESS_VALIDATION_LANE");
     }
 
     #[test]

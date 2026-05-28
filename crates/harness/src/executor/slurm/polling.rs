@@ -392,7 +392,7 @@ impl StaleCache {
     }
 
     /// Default 30-second TTL — matches the plan's recommended
-    /// `SWFC_SLURM_POLL_INTERVAL_SECS` upper bound so a stale-check
+    /// `ECAA_SLURM_POLL_INTERVAL_SECS` upper bound so a stale-check
     /// burst within one poll window costs one SSH round-trip.
     pub fn with_default_ttl() -> Self {
         Self::new(Duration::from_secs(30))

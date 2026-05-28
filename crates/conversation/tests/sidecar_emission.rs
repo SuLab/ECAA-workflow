@@ -84,7 +84,7 @@ async fn determinism_shim_sidecar_always_emitted() {
         body.get("temp_path_policy").is_some(),
         "missing temp_path_policy"
     );
-    // ablation_engaged is the SWFC_ABLATE_REEXECUTION_CLASS mirror; on
+    // ablation_engaged is the ECAA_ABLATE_REEXECUTION_CLASS mirror; on
     // an un-ablated test run it must be false. We do not unset the
     // env var here because the test would race with parallel tests
     // that may set it (the field is informational, not gated).

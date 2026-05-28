@@ -10,8 +10,8 @@
 # push) credentials configured.
 #
 # Cache strategy: this builder uses `docker buildx` with a bounded
-# local cache at $SWFC_BUILDX_CACHE_DIR (default
-# $SWFC_AGENT_CACHE_DIR/buildkit, else ~/.scripps-workflow/buildkit-cache).
+# local cache at $ECAA_BUILDX_CACHE_DIR (default
+# $ECAA_AGENT_CACHE_DIR/buildkit, else ~/.scripps-workflow/buildkit-cache).
 # Same cache root as scripts/build-derived-image.sh so per-atom + base
 # image builds share one bounded location instead of growing the
 # unbounded default Docker daemon cache. Without this, a failed build
@@ -29,7 +29,7 @@ LOCK_FILE="${REPO_ROOT}/crates/eval-adapters/versions.lock"
 # fronts the docker daemon layer cache for `--cache-from`/`--cache-to`
 # local artifacts; operators can rm -rf the directory to reclaim
 # space without breaking the daemon.
-CACHE_DIR="${SWFC_BUILDX_CACHE_DIR:-${SWFC_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}/buildkit}"
+CACHE_DIR="${ECAA_BUILDX_CACHE_DIR:-${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}/buildkit}"
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "[bio-min] docker not found; install Docker or use the apptainer fallback" >&2

@@ -35,7 +35,7 @@ Standard embargo: 90 days. Coordinated disclosure on reporter request.
 
 ## Generated-Code Execution Policy
 
-`scripps-workflow` executes LLM-generated code under sandbox isolation. The active sandbox profile, network policy, mounts, secret-redaction status, image digest, scan result, and exceptions are recorded per-package in `runtime/security-policy.json`.
+`ecaa-workflow` executes LLM-generated code under sandbox isolation. The active sandbox profile, network policy, mounts, secret-redaction status, image digest, scan result, and exceptions are recorded per-package in `runtime/security-policy.json`.
 
 Sandbox defaults: container isolation, default-deny egress, read-only inputs with explicit output directories, signed-image scanning, secrets isolation, per-atom `SafetyPolicy` enforcement at dispatch time.
 

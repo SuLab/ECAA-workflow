@@ -1,5 +1,5 @@
 //! Persistent `GitConfig` living at `~/.scripps-workflow/git-config.json`
-//! (override via `SWFC_GIT_CONFIG_PATH`). Atomic saves via `.tmp`
+//! (override via `ECAA_GIT_CONFIG_PATH`). Atomic saves via `.tmp`
 //! rename. Secrets policy: `ssh_key_path` is a path, never key
 //! contents.
 //!
@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GitConfig {
     /// Top-level kill switch. When false, no git subprocess runs
-    /// regardless of the per-trigger checkboxes below. `SWFC_GIT_
+    /// regardless of the per-trigger checkboxes below. `ECAA_GIT_
     /// ENABLED=0` as an env var forces this to false at read time.
     #[serde(default)]
     pub enabled: bool,
@@ -230,19 +230,19 @@ impl GitConfig {
         Ok(())
     }
 
-    /// Evaluated enabled flag taking `SWFC_GIT_ENABLED=0` into account.
+    /// Evaluated enabled flag taking `ECAA_GIT_ENABLED=0` into account.
     /// Handlers consult this when deciding whether to run the commit.
     pub fn effective_enabled(&self) -> bool {
-        if std::env::var("SWFC_GIT_ENABLED").ok().as_deref() == Some("0") {
+        if std::env::var("ECAA_GIT_ENABLED").ok().as_deref() == Some("0") {
             return false;
         }
         self.enabled
     }
 }
 
-/// Default config path. Respects `SWFC_GIT_CONFIG_PATH`.
+/// Default config path. Respects `ECAA_GIT_CONFIG_PATH`.
 pub fn git_config_path() -> PathBuf {
-    if let Ok(p) = std::env::var("SWFC_GIT_CONFIG_PATH") {
+    if let Ok(p) = std::env::var("ECAA_GIT_CONFIG_PATH") {
         return PathBuf::from(p);
     }
     let home = dirs_home().unwrap_or_else(|| PathBuf::from("."));
@@ -340,9 +340,9 @@ mod tests {
             enabled: true,
             ..Default::default()
         };
-        std::env::set_var("SWFC_GIT_ENABLED", "0");
+        std::env::set_var("ECAA_GIT_ENABLED", "0");
         assert!(!c.effective_enabled());
-        std::env::remove_var("SWFC_GIT_ENABLED");
+        std::env::remove_var("ECAA_GIT_ENABLED");
         assert!(c.effective_enabled());
     }
 

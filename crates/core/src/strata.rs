@@ -61,7 +61,7 @@ impl StrataRegistry {
     }
 
     /// Build from caller-supplied YAML bytes. Used in tests and for
-    /// operator-supplied overrides via `SWFC_STRATA_YAML`.
+    /// operator-supplied overrides via `ECAA_STRATA_YAML`.
     pub fn from_yaml(bytes: &[u8]) -> Result<Self> {
         let text = std::str::from_utf8(bytes).context("strata.yaml is not valid UTF-8")?;
         let file: StrataFile = serde_yml::from_str(text).context("parsing strata.yaml")?;

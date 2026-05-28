@@ -397,7 +397,7 @@ mod tests {
         // keeps the agent's original shape (no `status` field written
         // by the server at all). Confirms we didn't enter the apply
         // branch.
-        std::env::remove_var("SWFC_AUTO_APPLY_DISPOSITIONS");
+        std::env::remove_var("ECAA_AUTO_APPLY_DISPOSITIONS");
         let pkg = tempfile::tempdir().unwrap();
         let (_router, app) = make_router(vec![]).await;
         let id = seed_session_with_completed_task(
@@ -453,7 +453,7 @@ mod tests {
     // `..` component before we attempt the load.
     #[tokio::test]
     async fn ingest_disposition_rejects_traversal_rel_path() {
-        std::env::remove_var("SWFC_AUTO_APPLY_DISPOSITIONS");
+        std::env::remove_var("ECAA_AUTO_APPLY_DISPOSITIONS");
         let pkg = tempfile::tempdir().unwrap();
         let (_router, app) = make_router(vec![]).await;
         let id = seed_session_with_completed_task(

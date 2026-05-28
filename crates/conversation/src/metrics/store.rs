@@ -642,18 +642,18 @@ fn build_per_task_agent_snapshots(
     out
 }
 
-/// `SWFC_AGENT_BILLING` at metrics snapshot time. "subscription" is the
+/// `ECAA_AGENT_BILLING` at metrics snapshot time. "subscription" is the
 /// default; any other value (typically "api") indicates forwarded API
 /// key and real per-token charges for agent work. See
 /// `scripts/agent-claude.sh` for the complementary write-side logic.
 fn read_agent_billing_mode() -> String {
-    std::env::var("SWFC_AGENT_BILLING")
+    std::env::var("ECAA_AGENT_BILLING")
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "subscription".to_string())
 }
 
-/// §4.4 — resolve `SWFC_SESSION_TOKEN_BUDGET` into the optional budget
+/// §4.4 — resolve `ECAA_SESSION_TOKEN_BUDGET` into the optional budget
 /// surfaced on `SessionMetrics`. Semantics match `service/tool_loop.rs`'s
 /// `check_budget` helper so the UI progress bar agrees with the soft-
 /// block the tool loop actually enforces:
@@ -664,7 +664,7 @@ fn read_agent_billing_mode() -> String {
 ///   silently uncap the session
 pub(crate) fn read_session_token_budget() -> Option<u64> {
     const DEFAULT_BUDGET: u64 = 500_000;
-    let raw = std::env::var("SWFC_SESSION_TOKEN_BUDGET").ok();
+    let raw = std::env::var("ECAA_SESSION_TOKEN_BUDGET").ok();
     let parsed = raw
         .as_deref()
         .map(|s| s.parse::<u64>().unwrap_or(DEFAULT_BUDGET))

@@ -7,7 +7,7 @@
 //!
 //! ## Env overrides
 //!
-//! `SWFC_LLM_RATE_LIMIT_TURN`, `_SCORE`, `_EXPLAIN`, `_SUMMARY`,
+//! `ECAA_LLM_RATE_LIMIT_TURN`, `_SCORE`, `_EXPLAIN`, `_SUMMARY`,
 //! `_REMEDIATION`, `_START_EXEC`, `_BRANCH` — each accepts a non-negative
 //! integer (requests per minute per session). Unset = built-in default.
 
@@ -25,13 +25,13 @@ pub struct LlmEndpointRateLimits {
 impl LlmEndpointRateLimits {
     pub fn from_env() -> Self {
         Self {
-            turn: env_u32("SWFC_LLM_RATE_LIMIT_TURN", 30),
-            score: env_u32("SWFC_LLM_RATE_LIMIT_SCORE", 6),
-            explain: env_u32("SWFC_LLM_RATE_LIMIT_EXPLAIN", 30),
-            summary: env_u32("SWFC_LLM_RATE_LIMIT_SUMMARY", 6),
-            remediation: env_u32("SWFC_LLM_RATE_LIMIT_REMEDIATION", 6),
-            start_exec: env_u32("SWFC_LLM_RATE_LIMIT_START_EXEC", 12),
-            branch: env_u32("SWFC_LLM_RATE_LIMIT_BRANCH", 6),
+            turn: env_u32("ECAA_LLM_RATE_LIMIT_TURN", 30),
+            score: env_u32("ECAA_LLM_RATE_LIMIT_SCORE", 6),
+            explain: env_u32("ECAA_LLM_RATE_LIMIT_EXPLAIN", 30),
+            summary: env_u32("ECAA_LLM_RATE_LIMIT_SUMMARY", 6),
+            remediation: env_u32("ECAA_LLM_RATE_LIMIT_REMEDIATION", 6),
+            start_exec: env_u32("ECAA_LLM_RATE_LIMIT_START_EXEC", 12),
+            branch: env_u32("ECAA_LLM_RATE_LIMIT_BRANCH", 6),
         }
     }
 }
@@ -60,13 +60,13 @@ mod tests {
         let from_env = {
             // Ensure no env vars are set in test env.
             for k in [
-                "SWFC_LLM_RATE_LIMIT_TURN",
-                "SWFC_LLM_RATE_LIMIT_SCORE",
-                "SWFC_LLM_RATE_LIMIT_EXPLAIN",
-                "SWFC_LLM_RATE_LIMIT_SUMMARY",
-                "SWFC_LLM_RATE_LIMIT_REMEDIATION",
-                "SWFC_LLM_RATE_LIMIT_START_EXEC",
-                "SWFC_LLM_RATE_LIMIT_BRANCH",
+                "ECAA_LLM_RATE_LIMIT_TURN",
+                "ECAA_LLM_RATE_LIMIT_SCORE",
+                "ECAA_LLM_RATE_LIMIT_EXPLAIN",
+                "ECAA_LLM_RATE_LIMIT_SUMMARY",
+                "ECAA_LLM_RATE_LIMIT_REMEDIATION",
+                "ECAA_LLM_RATE_LIMIT_START_EXEC",
+                "ECAA_LLM_RATE_LIMIT_BRANCH",
             ] {
                 std::env::remove_var(k);
             }

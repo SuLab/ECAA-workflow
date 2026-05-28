@@ -171,7 +171,7 @@ pub(super) fn parse_harness_blocker_kind_with_file(
     };
     use ecaa_workflow_core::error_envelope::ToolErrorEnvelope;
 
-    // The TypedBlockers ablation (SWFC_ABLATE_TYPED_BLOCKERS) is
+    // The TypedBlockers ablation (ECAA_ABLATE_TYPED_BLOCKERS) is
     // emit-only: suppression happens in
     // `conversation::emit::sidecars::write_typed_blocker` so the
     // package's `runtime/typed-blocker.json` sidecar is absent on the

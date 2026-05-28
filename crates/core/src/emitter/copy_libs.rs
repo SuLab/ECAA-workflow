@@ -4,7 +4,7 @@
 //!
 //! Each `copy_*` function pairs with a `locate_*_src`
 //! sibling that walks up from CWD until it finds the source tree
-//! (or honors a `SWFC_*_LIB` env-var override). All three copy
+//! (or honors a `ECAA_*_LIB` env-var override). All three copy
 //! flows are idempotent — they remove any stale destination before
 //! re-copying so amendment re-emits overwrite cleanly. Each soft
 //! no-ops when its source tree isn't present so non-bio test
@@ -25,7 +25,7 @@ use std::path::Path;
 /// failing when they don't care about figures.
 ///
 /// The library is located by walking up from the binary's CWD (or the
-/// SWFC_PLOTTING_LIB override) until a `lib/plotting/core.py` is
+/// ECAA_PLOTTING_LIB override) until a `lib/plotting/core.py` is
 /// found. Stops at filesystem root.
 pub(super) fn copy_plotting_library(package_dir: &Path) -> Result<()> {
     let Some(src) = locate_plotting_library_src() else {
@@ -69,7 +69,7 @@ pub(super) fn copy_r_plotting_library(package_dir: &Path) -> Result<()> {
 }
 
 pub(super) fn locate_r_plotting_library_src() -> Option<std::path::PathBuf> {
-    if let Ok(override_path) = std::env::var("SWFC_PLOTTING_R_LIB") {
+    if let Ok(override_path) = std::env::var("ECAA_PLOTTING_R_LIB") {
         let p = std::path::PathBuf::from(override_path);
         if p.join("core.R").exists() {
             return Some(p);
@@ -92,7 +92,7 @@ pub(super) fn locate_r_plotting_library_src() -> Option<std::path::PathBuf> {
 /// `<package>/runtime/install-proxy/` so the derived-image build
 /// context has the shims when the Dockerfile `COPY`s them. Mirrors
 /// `copy_plotting_library`: located by walking up from CWD (or the
-/// `SWFC_INSTALL_PROXY_LIB` override) until `_common.py` is found.
+/// `ECAA_INSTALL_PROXY_LIB` override) until `_common.py` is found.
 /// Soft no-ops when the source tree isn't present (lets test packages
 /// emit without the shim tree on disk).
 ///
@@ -120,7 +120,7 @@ pub(super) fn copy_install_proxy(package_dir: &Path) -> Result<()> {
 }
 
 pub(super) fn locate_install_proxy_src() -> Option<std::path::PathBuf> {
-    if let Ok(override_path) = std::env::var("SWFC_INSTALL_PROXY_LIB") {
+    if let Ok(override_path) = std::env::var("ECAA_INSTALL_PROXY_LIB") {
         let p = std::path::PathBuf::from(override_path);
         if p.join("_common.py").exists() {
             return Some(p);
@@ -139,7 +139,7 @@ pub(super) fn locate_install_proxy_src() -> Option<std::path::PathBuf> {
 }
 
 fn locate_plotting_library_src() -> Option<std::path::PathBuf> {
-    if let Ok(override_path) = std::env::var("SWFC_PLOTTING_LIB") {
+    if let Ok(override_path) = std::env::var("ECAA_PLOTTING_LIB") {
         let p = std::path::PathBuf::from(override_path);
         if p.join("core.py").exists() {
             return Some(p);

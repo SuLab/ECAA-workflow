@@ -8,7 +8,7 @@
 #
 # Operator-facing template that works once the AMI + IAM are
 # provisioned per docs/remote-compute-operator-reference.md. The real
-# SWFC_AWS_INSTANCE_ID + SWFC_AWS_COMMAND_ID wrappers are handed
+# ECAA_AWS_INSTANCE_ID + ECAA_AWS_COMMAND_ID wrappers are handed
 # off via SSM RunCommand.
 #
 # IAM permissions required on the caller credentials:
@@ -18,7 +18,7 @@
 # Scope these to the session-tagged EC2 instances via a condition on
 # the Name tag: { "Condition": { "StringEquals": { "ec2:ResourceTag/scripps-session-id": "<session-id>" } } }
 # See docs/remote-compute-operator-reference.md#environment-variables
-# for the full list of SWFC_AWS_* env vars this script reads.
+# for the full list of ECAA_AWS_* env vars this script reads.
 
 set -euo pipefail
 
@@ -28,20 +28,20 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 source "$SCRIPT_DIR/agent-claude-common.sh"
 
 # Security remediation validate
-# SWFC_CHAT_SESSION_ID before it interpolates into per-session paths
+# ECAA_CHAT_SESSION_ID before it interpolates into per-session paths
 # and labels. `validate_uuid` lives in agent-claude-common.sh.
-if [ -n "${SWFC_CHAT_SESSION_ID:-}" ]; then
-    validate_uuid "$SWFC_CHAT_SESSION_ID"
+if [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
+    validate_uuid "$ECAA_CHAT_SESSION_ID"
 fi
 
-# Validate SWFC_TASK_ID before any per-task path or docker label
+# Validate ECAA_TASK_ID before any per-task path or docker label
 # interpolation. Same shape rule the local agent and the Rust
 # `_id_validator::is_safe_id` enforce on the harness side.
-if [ -n "${SWFC_TASK_ID:-}" ]; then
-    validate_task_id "$SWFC_TASK_ID"
+if [ -n "${ECAA_TASK_ID:-}" ]; then
+    validate_task_id "$ECAA_TASK_ID"
 fi
 
-# SWFC_AWS_REGION and SWFC_AWS_PROFILE interpolate into a JSON
+# ECAA_AWS_REGION and ECAA_AWS_PROFILE interpolate into a JSON
 # heredoc — a hostile value containing `","x":"y"` would inject
 # arbitrary keys into the MCP config and could pivot to RCE via a
 # forged mcpServers entry. Refuse anything outside the standard AWS
@@ -52,22 +52,22 @@ fi
 validate_aws_region() {
     local val="$1"
     if ! [[ "$val" =~ ^[a-z]{2}-[a-z]+-[0-9]+$ ]]; then
-        echo "agent-claude-aws.sh: refusing unsafe SWFC_AWS_REGION='$val'" >&2
+        echo "agent-claude-aws.sh: refusing unsafe ECAA_AWS_REGION='$val'" >&2
         exit 1
     fi
 }
 validate_aws_profile() {
     local val="$1"
     if ! [[ "$val" =~ ^[A-Za-z0-9_.-]+$ ]] || [ "${#val}" -gt 128 ]; then
-        echo "agent-claude-aws.sh: refusing unsafe SWFC_AWS_PROFILE='$val'" >&2
+        echo "agent-claude-aws.sh: refusing unsafe ECAA_AWS_PROFILE='$val'" >&2
         exit 1
     fi
 }
-if [ -n "${SWFC_AWS_REGION:-}" ]; then
-    validate_aws_region "$SWFC_AWS_REGION"
+if [ -n "${ECAA_AWS_REGION:-}" ]; then
+    validate_aws_region "$ECAA_AWS_REGION"
 fi
-if [ -n "${SWFC_AWS_PROFILE:-}" ]; then
-    validate_aws_profile "$SWFC_AWS_PROFILE"
+if [ -n "${ECAA_AWS_PROFILE:-}" ]; then
+    validate_aws_profile "$ECAA_AWS_PROFILE"
 fi
 if [ -n "${GITHUB_TOKEN:-}" ] && ! [[ "$GITHUB_TOKEN" =~ ^[A-Za-z0-9_.-]+$ ]]; then
     echo "agent-claude-aws.sh: refusing unsafe GITHUB_TOKEN" >&2
@@ -80,15 +80,15 @@ PACKAGE="$(realpath "$1")"
 
 __aws_remote_vcpus="$(nproc 2>/dev/null || true)"
 if [[ "$__aws_remote_vcpus" =~ ^[0-9]+$ ]] && [ "$__aws_remote_vcpus" -gt 0 ]; then
-  : "${SWFC_HW_NPROC_HINT:=$__aws_remote_vcpus}"
-  export SWFC_HW_NPROC_HINT
-  export SWFC_HW_VCPUS_AVAILABLE="$SWFC_HW_NPROC_HINT"
-  export SWFC_HW_RECOMMENDED_THREADS="$SWFC_HW_NPROC_HINT"
+  : "${ECAA_HW_NPROC_HINT:=$__aws_remote_vcpus}"
+  export ECAA_HW_NPROC_HINT
+  export ECAA_HW_VCPUS_AVAILABLE="$ECAA_HW_NPROC_HINT"
+  export ECAA_HW_RECOMMENDED_THREADS="$ECAA_HW_NPROC_HINT"
 fi
 unset __aws_remote_vcpus
 __aws_mem_kb="$(awk '/^MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || true)"
 if [[ "$__aws_mem_kb" =~ ^[0-9]+$ ]] && [ "$__aws_mem_kb" -gt 0 ]; then
-  export SWFC_HW_MEMORY_GB=$(((__aws_mem_kb + 1048575) / 1048576))
+  export ECAA_HW_MEMORY_GB=$(((__aws_mem_kb + 1048575) / 1048576))
 fi
 unset __aws_mem_kb
 
@@ -105,7 +105,7 @@ MCP_CONFIG="$(mktemp -t scripps-mcp-XXXXXX.json)"
 # (EXIT trap installed below alongside OUT_LOG cleanup so it captures both.)
 
 # Build the MCP config JSON via `jq -n` instead of string-interpolated
-# heredocs. The prior heredoc shape (`"AWS_REGION": "$SWFC_AWS_REGION",`)
+# heredocs. The prior heredoc shape (`"AWS_REGION": "$ECAA_AWS_REGION",`)
 # trusted upstream validation to never produce a value containing `","x":"y"`,
 # which would inject arbitrary keys (or worse, a forged `command`) into
 # the MCP config. `jq -n --arg <name> "<value>"` JSON-encodes every value
@@ -122,8 +122,8 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-__AWS_REGION_ARG="${SWFC_AWS_REGION:-}"
-__AWS_PROFILE_ARG="${SWFC_AWS_PROFILE:-default}"
+__AWS_REGION_ARG="${ECAA_AWS_REGION:-}"
+__AWS_PROFILE_ARG="${ECAA_AWS_PROFILE:-default}"
 __GITHUB_TOKEN_ARG="${GITHUB_TOKEN:-}"
 
 # Cloudwatch server env: include AWS_REGION only when the env var is set,
@@ -144,7 +144,7 @@ __MCP_JSON="$(jq -n \
     }
   }')"
 
-if [[ "${SWFC_MCP_BIO:-0}" = "1" ]]; then
+if [[ "${ECAA_MCP_BIO:-0}" = "1" ]]; then
   __MCP_JSON="$(printf '%s' "$__MCP_JSON" | jq '
     .mcpServers += {
       "bio-mcp": {
@@ -154,7 +154,7 @@ if [[ "${SWFC_MCP_BIO:-0}" = "1" ]]; then
     }')"
 fi
 
-if [[ "${SWFC_MCP_GITHUB:-0}" = "1" ]]; then
+if [[ "${ECAA_MCP_GITHUB:-0}" = "1" ]]; then
   __MCP_JSON="$(printf '%s' "$__MCP_JSON" | jq \
     --arg token "$__GITHUB_TOKEN_ARG" \
     '.mcpServers += {
@@ -166,7 +166,7 @@ if [[ "${SWFC_MCP_GITHUB:-0}" = "1" ]]; then
     }')"
 fi
 
-if [[ "${SWFC_MCP_AWS_AGENT_REGISTRY:-0}" = "1" ]]; then
+if [[ "${ECAA_MCP_AWS_AGENT_REGISTRY:-0}" = "1" ]]; then
   __MCP_JSON="$(printf '%s' "$__MCP_JSON" | jq \
     --arg region "$__AWS_REGION_ARG" \
     --arg profile "$__AWS_PROFILE_ARG" \
@@ -216,7 +216,7 @@ All paths are relative to: $PACKAGE
 This task runs on AWS EC2. Use the awslabs.cloudwatch-mcp-server
 MCP to query instance metrics when you need to understand whether a
 stage is I/O-, CPU-, or memory-bound. Metric queries should scope
-by the InstanceId dimension = \"${SWFC_AWS_INSTANCE_ID:-<unset>}\".
+by the InstanceId dimension = \"${ECAA_AWS_INSTANCE_ID:-<unset>}\".
 
 ${TASK_EXECUTION_BODY}"
 
@@ -227,10 +227,10 @@ ${TASK_EXECUTION_BODY}"
 # ANTHROPIC_API_KEY + AWS credentials flow through as env.
 CONTAINER_IMAGE=""
 WORKFLOW_JSON="$PACKAGE/WORKFLOW.json"
-if [ -n "${SWFC_TASK_ID:-}" ] \
+if [ -n "${ECAA_TASK_ID:-}" ] \
    && [ -f "$WORKFLOW_JSON" ] \
    && command -v jq >/dev/null 2>&1; then
-  TASK_CONTAINER="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_CONTAINER="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].container // empty | tojson' "$WORKFLOW_JSON" 2>/dev/null || true)"
   if [ -n "$TASK_CONTAINER" ] && [ "$TASK_CONTAINER" != "null" ]; then
     TC_IMAGE="$(printf '%s' "$TASK_CONTAINER" | jq -r '.image // empty')"
@@ -257,11 +257,11 @@ if [ -n "${SWFC_TASK_ID:-}" ] \
   # Single-source from WORKFLOW.json so docker `--gpus device=…`
   # honors the same atom-level resource_profile.gpu the SLURM /
   # local paths consume.
-  TASK_GPU_KIND="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_GPU_KIND="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].resource_profile.gpu.kind // empty' "$WORKFLOW_JSON" 2>/dev/null || true)"
-  TASK_GPU_COUNT="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_GPU_COUNT="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].resource_profile.gpu.count // 0' "$WORKFLOW_JSON" 2>/dev/null || true)"
-  TASK_GPU_MIG_PROFILE="$(jq -r --arg tid "$SWFC_TASK_ID" \
+  TASK_GPU_MIG_PROFILE="$(jq -r --arg tid "$ECAA_TASK_ID" \
     '.tasks[$tid].resource_profile.gpu.mig_profile // empty' "$WORKFLOW_JSON" 2>/dev/null || true)"
   export TASK_GPU_KIND
   export TASK_GPU_COUNT
@@ -282,18 +282,18 @@ fi
 OUT_LOG="$(mktemp -t agent-claude-aws.XXXXXX.log)"
 trap 'rm -f "$OUT_LOG" "$MCP_CONFIG"' EXIT
 
-if [ -n "${SWFC_TASK_ID:-}" ]; then
-  SCRATCH_BASE="${SWFC_AGENT_SCRATCH_DIR:-$PACKAGE/runtime/scratch}"
-  SCRATCH_DIR="$SCRATCH_BASE/$SWFC_TASK_ID"
+if [ -n "${ECAA_TASK_ID:-}" ]; then
+  SCRATCH_BASE="${ECAA_AGENT_SCRATCH_DIR:-$PACKAGE/runtime/scratch}"
+  SCRATCH_DIR="$SCRATCH_BASE/$ECAA_TASK_ID"
   mkdir -p "$SCRATCH_DIR" 2>/dev/null || true
-  export SWFC_TASK_SCRATCH_DIR="$SCRATCH_DIR"
+  export ECAA_TASK_SCRATCH_DIR="$SCRATCH_DIR"
 fi
 
-if [ "${SWFC_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${SWFC_CHAT_SESSION_ID:-}" ]; then
-  CACHE_BASE="${SWFC_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
-  CACHE_DIR="$CACHE_BASE/$SWFC_CHAT_SESSION_ID"
+if [ "${ECAA_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
+  CACHE_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
+  CACHE_DIR="$CACHE_BASE/$ECAA_CHAT_SESSION_ID"
   mkdir -p "$CACHE_DIR/pip" "$CACHE_DIR/conda" "$CACHE_DIR/apt" "$CACHE_DIR/R-libs" "$CACHE_DIR/python" 2>/dev/null || true
-  export SWFC_SESSION_CACHE_DIR="$CACHE_DIR"
+  export ECAA_SESSION_CACHE_DIR="$CACHE_DIR"
   export PIP_CACHE_DIR="$CACHE_DIR/pip"
   export CONDA_PKGS_DIRS="$CACHE_DIR/conda"
   export R_LIBS_USER="$CACHE_DIR/R-libs"
@@ -321,14 +321,14 @@ log_policy_opens() {
 # Agent billing: same semantics as scripts/agent-claude.sh. Default
 # "subscription" uses ~/.claude/.credentials.json mounted into the
 # container; "api" mode forwards the key.
-if [ "${SWFC_AGENT_BILLING:-subscription}" = "subscription" ]; then
+if [ "${ECAA_AGENT_BILLING:-subscription}" = "subscription" ]; then
   unset ANTHROPIC_API_KEY
-elif [ "${SWFC_AGENT_BILLING:-}" = "api" ]; then
-  if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -n "${SWFC_ANTHROPIC_API_KEY:-}" ]; then
+elif [ "${ECAA_AGENT_BILLING:-}" = "api" ]; then
+  if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -n "${ECAA_ANTHROPIC_API_KEY:-}" ]; then
     # Suppress xtrace around the secret expansion
     # so the literal key never lands in any active trace log.
     { set +x; } 2>/dev/null
-    export ANTHROPIC_API_KEY="$SWFC_ANTHROPIC_API_KEY"
+    export ANTHROPIC_API_KEY="$ECAA_ANTHROPIC_API_KEY"
     { set -x; } 2>/dev/null
   fi
 fi
@@ -340,25 +340,25 @@ fi
 AGENT_CMD_PREFIX=()
 DOCKER_MEMORY_ARGS=()
 AGENT_MEMORY_LIMIT_GB=""
-if [ -n "${SWFC_AGENT_MEMORY_CAP_GB:-}" ]; then
-  if ! [[ "$SWFC_AGENT_MEMORY_CAP_GB" =~ ^[0-9]+$ ]]; then
-    echo "agent-claude-aws.sh: SWFC_AGENT_MEMORY_CAP_GB must be a positive integer (got '$SWFC_AGENT_MEMORY_CAP_GB'); ignoring." >&2
+if [ -n "${ECAA_AGENT_MEMORY_CAP_GB:-}" ]; then
+  if ! [[ "$ECAA_AGENT_MEMORY_CAP_GB" =~ ^[0-9]+$ ]]; then
+    echo "agent-claude-aws.sh: ECAA_AGENT_MEMORY_CAP_GB must be a positive integer (got '$ECAA_AGENT_MEMORY_CAP_GB'); ignoring." >&2
   elif command -v systemd-run >/dev/null 2>&1 \
     && systemd-run --user --scope --quiet -p "MemoryMax=100M" /bin/true >/dev/null 2>&1; then
-    AGENT_MEMORY_LIMIT_GB="$SWFC_AGENT_MEMORY_CAP_GB"
+    AGENT_MEMORY_LIMIT_GB="$ECAA_AGENT_MEMORY_CAP_GB"
     # Pair MemoryMax with MemoryHigh = 0.85 * MemoryMax
     # so the cgroup throttles before OOM-kill (PostgreSQL pattern).
-    MEM_MAX_MB=$((SWFC_AGENT_MEMORY_CAP_GB * 1024))
-    MEM_HIGH_MB=$((MEM_MAX_MB * SWFC_AGENT_MEMORY_HIGH_WATER_PCT / 100))
+    MEM_MAX_MB=$((ECAA_AGENT_MEMORY_CAP_GB * 1024))
+    MEM_HIGH_MB=$((MEM_MAX_MB * ECAA_AGENT_MEMORY_HIGH_WATER_PCT / 100))
     AGENT_CMD_PREFIX=(systemd-run --user --scope --quiet \
-      -p "MemoryMax=${SWFC_AGENT_MEMORY_CAP_GB}G" \
+      -p "MemoryMax=${ECAA_AGENT_MEMORY_CAP_GB}G" \
       -p "MemoryHigh=${MEM_HIGH_MB}M")
   elif command -v prlimit >/dev/null 2>&1; then
-    AGENT_MEMORY_LIMIT_GB="$SWFC_AGENT_MEMORY_CAP_GB"
-    CAP_BYTES=$((SWFC_AGENT_MEMORY_CAP_GB * 1024 * 1024 * 1024))
+    AGENT_MEMORY_LIMIT_GB="$ECAA_AGENT_MEMORY_CAP_GB"
+    CAP_BYTES=$((ECAA_AGENT_MEMORY_CAP_GB * 1024 * 1024 * 1024))
     AGENT_CMD_PREFIX=(prlimit "--as=$CAP_BYTES")
   else
-    AGENT_MEMORY_LIMIT_GB="$SWFC_AGENT_MEMORY_CAP_GB"
+    AGENT_MEMORY_LIMIT_GB="$ECAA_AGENT_MEMORY_CAP_GB"
   fi
 fi
 if [ -n "$AGENT_MEMORY_LIMIT_GB" ]; then
@@ -375,7 +375,7 @@ AGENT_STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # `docker run` does NOT inherit env from the parent shell. Forward
-  # the BLAS thread vars + SWFC_HW_* envelope explicitly so Rscript /
+  # the BLAS thread vars + ECAA_HW_* envelope explicitly so Rscript /
   # python inside the container sees the same threading view the host
   # path does. _AGENT_ENV_FORWARD_PAIRS comes from the bootstrap.
 
@@ -388,7 +388,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # role, no creds) → log and skip; the docker pull may still succeed
   # on a public ECR or fall back to the union image.
   #
-  # Case 2: Non-ECR image with SWFC_CONTAINER_REGISTRY_AUTH set as
+  # Case 2: Non-ECR image with ECAA_CONTAINER_REGISTRY_AUTH set as
   # `registry|user|pass`. Login when the registry hostname matches
   # the image hostname.
   __agent_aws_img_no_scheme="${CONTAINER_IMAGE#docker://}"
@@ -411,9 +411,9 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
       echo "  [agent-aws] info: ECR image $__agent_aws_img_host but no AWS credentials (sts get-caller-identity failed); skipping login" >&2
     fi
     unset __agent_aws_region
-  elif [ -n "${SWFC_CONTAINER_REGISTRY_AUTH:-}" ] && [ -n "$__agent_aws_img_host" ]; then
-    __agent_aws_cfg_host="${SWFC_CONTAINER_REGISTRY_AUTH%%|*}"
-    __agent_aws_cfg_rest="${SWFC_CONTAINER_REGISTRY_AUTH#*|}"
+  elif [ -n "${ECAA_CONTAINER_REGISTRY_AUTH:-}" ] && [ -n "$__agent_aws_img_host" ]; then
+    __agent_aws_cfg_host="${ECAA_CONTAINER_REGISTRY_AUTH%%|*}"
+    __agent_aws_cfg_rest="${ECAA_CONTAINER_REGISTRY_AUTH#*|}"
     __agent_aws_cfg_user="${__agent_aws_cfg_rest%%|*}"
     __agent_aws_cfg_pass="${__agent_aws_cfg_rest#*|}"
     if [ -n "$__agent_aws_cfg_host" ] && [ -n "$__agent_aws_cfg_user" ] \
@@ -438,7 +438,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     DOCKER_ENV_ARGS+=(-e "$__agent_kv")
   done
   unset __agent_kv
-  if [ "${SWFC_AGENT_BILLING:-subscription}" = "api" ] \
+  if [ "${ECAA_AGENT_BILLING:-subscription}" = "api" ] \
      && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
     # Suppress xtrace around docker -e env-arg
     # composition so the literal key isn't echoed to any trace log.
@@ -464,34 +464,34 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   fi
 
   DOCKER_CPU_ARGS=()
-  __agent_container_cpus="${SWFC_HW_NPROC_HINT:-${SWFC_HW_VCPUS_AVAILABLE:-}}"
+  __agent_container_cpus="${ECAA_HW_NPROC_HINT:-${ECAA_HW_VCPUS_AVAILABLE:-}}"
   if [[ "$__agent_container_cpus" =~ ^[0-9]+$ ]] && [ "$__agent_container_cpus" -gt 0 ]; then
     DOCKER_CPU_ARGS+=(--cpus "$__agent_container_cpus")
   fi
   unset __agent_container_cpus
 
   DOCKER_CACHE_ARGS=()
-  if [ -n "${SWFC_SESSION_CACHE_DIR:-}" ]; then
+  if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
     DOCKER_CACHE_ARGS+=(
-      -v "$SWFC_SESSION_CACHE_DIR":"$SWFC_SESSION_CACHE_DIR":rw
-      -e "SWFC_SESSION_CACHE_DIR=$SWFC_SESSION_CACHE_DIR"
-      -e "R_LIBS_USER=$SWFC_SESSION_CACHE_DIR/R-libs"
-      -e "PIP_CACHE_DIR=$SWFC_SESSION_CACHE_DIR/pip"
-      -e "CONDA_PKGS_DIRS=$SWFC_SESSION_CACHE_DIR/conda"
-      -e "PYTHONUSERBASE=$SWFC_SESSION_CACHE_DIR/python"
+      -v "$ECAA_SESSION_CACHE_DIR":"$ECAA_SESSION_CACHE_DIR":rw
+      -e "ECAA_SESSION_CACHE_DIR=$ECAA_SESSION_CACHE_DIR"
+      -e "R_LIBS_USER=$ECAA_SESSION_CACHE_DIR/R-libs"
+      -e "PIP_CACHE_DIR=$ECAA_SESSION_CACHE_DIR/pip"
+      -e "CONDA_PKGS_DIRS=$ECAA_SESSION_CACHE_DIR/conda"
+      -e "PYTHONUSERBASE=$ECAA_SESSION_CACHE_DIR/python"
       -e "PIP_USER=1"
       -e "PIP_BREAK_SYSTEM_PACKAGES=1"
     )
   fi
 
   DOCKER_SCRATCH_ARGS=()
-  if [ -n "${SWFC_TASK_SCRATCH_DIR:-}" ]; then
-    mkdir -p "$SWFC_TASK_SCRATCH_DIR" 2>/dev/null || true
-    case "$SWFC_TASK_SCRATCH_DIR" in
+  if [ -n "${ECAA_TASK_SCRATCH_DIR:-}" ]; then
+    mkdir -p "$ECAA_TASK_SCRATCH_DIR" 2>/dev/null || true
+    case "$ECAA_TASK_SCRATCH_DIR" in
       "$PACKAGE"/*) ;;
-      *) DOCKER_SCRATCH_ARGS+=(-v "$SWFC_TASK_SCRATCH_DIR":"$SWFC_TASK_SCRATCH_DIR":rw) ;;
+      *) DOCKER_SCRATCH_ARGS+=(-v "$ECAA_TASK_SCRATCH_DIR":"$ECAA_TASK_SCRATCH_DIR":rw) ;;
     esac
-    DOCKER_SCRATCH_ARGS+=(-e "SWFC_TASK_SCRATCH_DIR=$SWFC_TASK_SCRATCH_DIR")
+    DOCKER_SCRATCH_ARGS+=(-e "ECAA_TASK_SCRATCH_DIR=$ECAA_TASK_SCRATCH_DIR")
   fi
 
   # Label the container so the AWS orphan reaper can
@@ -499,11 +499,11 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # instance via SSM RunShellScript and tell apart a live container
   # from a hung one (instance still alive but container exited).
   DOCKER_LABEL_ARGS=()
-  if [ -n "${SWFC_TASK_ID:-}" ]; then
-    DOCKER_LABEL_ARGS+=("--label" "swfc-task=${SWFC_TASK_ID}")
+  if [ -n "${ECAA_TASK_ID:-}" ]; then
+    DOCKER_LABEL_ARGS+=("--label" "swfc-task=${ECAA_TASK_ID}")
   fi
-  if [ -n "${SWFC_CHAT_SESSION_ID:-}" ]; then
-    DOCKER_LABEL_ARGS+=("--label" "swfc-session=${SWFC_CHAT_SESSION_ID}")
+  if [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
+    DOCKER_LABEL_ARGS+=("--label" "swfc-session=${ECAA_CHAT_SESSION_ID}")
   fi
 
   # Docker isolation hardening. The bind-mounted $PACKAGE stays
@@ -517,11 +517,11 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # inheriting any side effects of an exploited tool.
   docker run --rm \
     --read-only \
-    --tmpfs "/tmp:rw,size=$SWFC_DOCKER_TMPFS_TMP_SIZE,mode=1777" \
-    --tmpfs "/var/tmp:rw,size=$SWFC_DOCKER_TMPFS_VARTMP_SIZE,mode=1777" \
+    --tmpfs "/tmp:rw,size=$ECAA_DOCKER_TMPFS_TMP_SIZE,mode=1777" \
+    --tmpfs "/var/tmp:rw,size=$ECAA_DOCKER_TMPFS_VARTMP_SIZE,mode=1777" \
     --security-opt no-new-privileges \
     --cap-drop=ALL \
-    --pids-limit "$SWFC_DOCKER_PIDS_LIMIT" \
+    --pids-limit "$ECAA_DOCKER_PIDS_LIMIT" \
     --user "$(id -u):$(id -g)" \
     "${DOCKER_MEMORY_ARGS[@]}" \
     "${DOCKER_CPU_ARGS[@]}" \
@@ -534,9 +534,9 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     -v "$HOME/.claude":"$HOME/.claude":ro \
     -w "$PACKAGE" \
     -e "HOME=$HOME" \
-    -e AWS_REGION="${SWFC_AWS_REGION:-}" \
-    -e AWS_PROFILE="${SWFC_AWS_PROFILE:-default}" \
-    -e AWS_DEFAULT_REGION="${SWFC_AWS_REGION:-${AWS_DEFAULT_REGION:-}}" \
+    -e AWS_REGION="${ECAA_AWS_REGION:-}" \
+    -e AWS_PROFILE="${ECAA_AWS_PROFILE:-default}" \
+    -e AWS_DEFAULT_REGION="${ECAA_AWS_REGION:-${AWS_DEFAULT_REGION:-}}" \
     "${DOCKER_ENV_ARGS[@]}" \
     "$CONTAINER_IMAGE" \
     claude --dangerously-skip-permissions --output-format=json --mcp-config "$MCP_CONFIG" -p "$PROMPT" \
@@ -546,16 +546,16 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # Container-state sidecar so the AWS-side reaper
   # picks up the exit code even if the container has been removed by
   # `--rm` before the harness probes via SSM.
-  if [ -n "${SWFC_TASK_ID:-}" ]; then
-    CONTAINER_STATE_DIR="$PACKAGE/runtime/outputs/$SWFC_TASK_ID"
+  if [ -n "${ECAA_TASK_ID:-}" ]; then
+    CONTAINER_STATE_DIR="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
     mkdir -p "$CONTAINER_STATE_DIR" 2>/dev/null || true
     cat > "$CONTAINER_STATE_DIR/.container-state.json" 2>/dev/null <<EOF || true
 {
   "exit_code": $CLAUDE_EXIT,
   "image": "${CONTAINER_IMAGE:-}",
   "runtime": "docker",
-  "session_id": "${SWFC_CHAT_SESSION_ID:-}",
-  "task_id": "${SWFC_TASK_ID}",
+  "session_id": "${ECAA_CHAT_SESSION_ID:-}",
+  "task_id": "${ECAA_TASK_ID}",
   "backend": "aws",
   "ended_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
@@ -608,9 +608,9 @@ fi
 
 # Per-task agent-code.json sidecar (M1.2 — mirrors agent-claude.sh).
 # Placed before exit so AWS-executor runs also capture code artifacts.
-if [ -n "${SWFC_TASK_ID:-}" ] && command -v jq >/dev/null 2>&1; then
+if [ -n "${ECAA_TASK_ID:-}" ] && command -v jq >/dev/null 2>&1; then
   _AGENT_CODE_COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  _AGENT_CODE_OUT_DIR="$PACKAGE/runtime/outputs/$SWFC_TASK_ID"
+  _AGENT_CODE_OUT_DIR="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
   mkdir -p "$_AGENT_CODE_OUT_DIR" 2>/dev/null || true
   _EXECUTED_CODE=""
   if [ -f "$OUT_LOG" ]; then

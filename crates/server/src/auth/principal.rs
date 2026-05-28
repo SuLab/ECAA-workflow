@@ -183,7 +183,7 @@ pub fn extract_bearer(headers: &HeaderMap) -> Option<String> {
 /// Returns `None` when the env var is unset or empty — handlers using
 /// [`constant_time_verify_bearer`] will then fail closed.
 fn expected_bearer_from_env() -> Option<String> {
-    std::env::var("SWFC_SERVER_AUTH_TOKEN")
+    std::env::var("ECAA_SERVER_AUTH_TOKEN")
         .ok()
         .filter(|t| !t.is_empty())
 }

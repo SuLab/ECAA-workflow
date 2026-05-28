@@ -2,7 +2,7 @@
 //! migrations to on-disk session JSON in place.
 //!
 //! Walks the session directory (default
-//! `$SWFC_CHAT_SESSIONS_DIR` or `$HOME/.scripps-workflow/sessions`),
+//! `$ECAA_CHAT_SESSIONS_DIR` or `$HOME/.scripps-workflow/sessions`),
 //! detects each session's current `schema_version` shape, and applies
 //! the registered starter chain (`MigrationRegistry::with_starters()`)
 //! when an upgrade is needed. `--dry-run` reports counts without
@@ -17,7 +17,7 @@ use std::path::PathBuf;
 #[derive(Args, Debug)]
 pub(crate) struct MigrateSessionsArgs {
     /// Override the sessions directory. Default:
-    /// `$SWFC_CHAT_SESSIONS_DIR` or `$HOME/.scripps-workflow/sessions`.
+    /// `$ECAA_CHAT_SESSIONS_DIR` or `$HOME/.scripps-workflow/sessions`.
     #[arg(long)]
     pub dir: Option<PathBuf>,
     /// Walk + report counts only; do not write back.
@@ -129,7 +129,7 @@ fn detect_session_version(value: &serde_json::Value) -> Option<Version> {
 }
 
 fn default_sessions_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("SWFC_CHAT_SESSIONS_DIR") {
+    if let Ok(dir) = std::env::var("ECAA_CHAT_SESSIONS_DIR") {
         return PathBuf::from(dir);
     }
     let home = std::env::var("HOME").unwrap_or_default();

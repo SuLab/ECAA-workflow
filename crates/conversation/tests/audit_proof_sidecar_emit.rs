@@ -1,7 +1,7 @@
 //! D8 audit-proof sidecar emission tests — verifies that
 //! `emit_with_conversation_log` writes `runtime/audit-proof-report.json`
 //! with the expected schema_version + 6 verdicts, and that
-//! `SWFC_ABLATE_AUDIT_PROOF` suppresses the sidecar entirely.
+//! `ECAA_ABLATE_AUDIT_PROOF` suppresses the sidecar entirely.
 
 use ecaa_workflow_conversation::emit::emit_with_conversation_log;
 use ecaa_workflow_conversation::session::Session;
@@ -61,7 +61,7 @@ async fn emit_writes_audit_proof_sidecar() {
 #[tokio::test]
 #[serial]
 async fn audit_proof_suppressed_when_ablate_audit_proof_set() {
-    std::env::set_var("SWFC_ABLATE_AUDIT_PROOF", "1");
+    std::env::set_var("ECAA_ABLATE_AUDIT_PROOF", "1");
     let dir = tempdir().unwrap();
     let mut session = boot_session_with_dag().await;
     emit_with_conversation_log(&mut session, dir.path(), &config_dir())
@@ -69,7 +69,7 @@ async fn audit_proof_suppressed_when_ablate_audit_proof_set() {
         .unwrap();
     let sidecar = dir.path().join("runtime/audit-proof-report.json");
     let exists = sidecar.exists();
-    std::env::remove_var("SWFC_ABLATE_AUDIT_PROOF");
+    std::env::remove_var("ECAA_ABLATE_AUDIT_PROOF");
     assert!(
         !exists,
         "audit-proof-report.json should NOT be emitted under ablation"

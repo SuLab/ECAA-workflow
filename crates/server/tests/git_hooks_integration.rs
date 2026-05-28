@@ -5,7 +5,7 @@
 //! `/api/git/session/:id/{commit,push}`. These tests pin the
 //! `effective_enabled` gate through the new shape — a session-scoped
 //! commit/push on a session that has no emitted package returns 404, and
-//! the kill-switch (`SWFC_GIT_ENABLED=0`) returns 409 regardless.
+//! the kill-switch (`ECAA_GIT_ENABLED=0`) returns 409 regardless.
 //!
 //! The unit-test surface in
 //! `crates/server/src/git_routes/config.rs::tests::effective_enabled_respects_kill_switch`

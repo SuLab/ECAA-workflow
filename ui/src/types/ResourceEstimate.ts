@@ -34,7 +34,7 @@ total_core_hours: number,
 gpu_task_count: number, 
 /**
  * Optional dollar projection — left `None` here (pilot's
- * `estimate_cost_usd` populates it when SWFC_PILOT_ENABLED=1
+ * `estimate_cost_usd` populates it when ECAA_PILOT_ENABLED=1
  * surfaces the per-atom cost rate).
  */
 estimated_cost_usd?: number, };
