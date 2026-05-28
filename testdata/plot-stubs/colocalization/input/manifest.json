@@ -1,0 +1,6 @@
+{
+  "summary_stats": "summary_stats.tsv",
+  "coloc_table": "coloc_table.tsv",
+  "miami_top": "summary_stats.tsv",
+  "miami_bottom": "summary_stats.tsv"
+}

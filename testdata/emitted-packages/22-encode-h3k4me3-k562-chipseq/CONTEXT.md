@@ -1,0 +1,35 @@
+# Workflow Context
+
+**Modality:** chip_seq
+**Domain:** computational biology
+**Description:** ChIP-seq peak calling + peak-vs-input enrichment. Standard pipeline:
+raw QC, trim, align, call peaks against the matched input control, then
+report. Mirrors today's `config/modalities/chip-seq.yaml` + `config/archetypes/`.
+
+**EDAM topic:** topic:3169
+**EDAM operation:** operation:3222
+**Confidence:** high (100%)
+
+## Organisms
+- Homo sapiens (taxon:9606)
+
+## Methods mentioned in SME prose
+
+_Keyword-scraped from intake text; see SME discovery decisions above for authoritative values._
+
+- alignment: BWA-MEM
+- alignment: Bowtie2
+- peak_calling: MACS2
+
+## SME intake text
+
+We want to recreate the ENCODE H3K4me3 ChIP-seq experiment in K562 cells (ENCODE accession ENCSR000EWA). The experiment has two biological replicates of 36-bp single-end Illumina HiSeq 2000 reads with a matched input chromatin control. H3K4me3 is a sharp promoter-associated histone mark, so we want narrow-peak calling (not the broad-peak shape used for repressive marks). Reference genome is GRCh38 with the ENCODE pipeline reference TSV.
+
+Follow the ENCODE chip-seq-pipeline2 (github.com/ENCODE-DCC/chip-seq-pipeline2) histone-narrow conventions: FastQC for per-file QC, BWA aln + samse for alignment with ENCODE parameter set (-q 5 -l 32 -k 2) or Bowtie2 with default histone settings, Picard MarkDuplicates with duplicates removed, MAPQ >= 30 filter, ENCODE blacklist v2 (ENCFF356LFX) subtracted, phantompeakqualtools (run_spp.R) for cross-correlation NSC / RSC, MACS2 callpeak in narrow mode (-f BAM -g hs --nomodel --extsize <spp-derived-fraglen> -p 0.01 --keep-dup all --call-summits) per replicate against matched input, then IDR with --rank signal.value --soft-idr-threshold 0.05 on rep1-vs-rep2 plus pseudo-replicate IDR for self-consistency.
+
+Outputs: per-replicate narrow-peak BED files; IDR-replicated consensus peak BED; BigWig genome tracks per replicate (RPGC-normalized); standard ENCODE QC table: usable read count per replicate, NSC, RSC, NRF, PBC1, PBC2, FRiP. Annotate the consensus peak set against RefSeq TSS coordinates (HOMER annotatePeaks.pl or ChIPseeker): expected enrichment is heavily at promoters (within +/- 2 kb of any RefSeq TSS) for >= 90% of peaks. Compare the recreated IDR consensus set against the ENCODE-published default-analysis IDR peak file for ENCSR000EWA via bedtools jaccard.
+
+For motif sanity-check, run MEME-ChIP or HOMER findMotifsGenome.pl on the top 500 peaks by signalValue; H3K4me3 promoter peaks should not show a strong sequence-specific TF motif as the top de novo motif (in contrast to TF ChIP-seq); accept any GC-rich CpG-island-like motif as the top hit.
+
+Acceptance: consensus IDR-replicated peak count within +/-15% of ENCODE's released peak count for ENCSR000EWA; Jaccard overlap with ENCODE published IDR peak set >= 0.90; promoter overlap >= 90% of called peaks; NSC >= 1.05; RSC >= 0.8; FRiP >= 0.05; NRF >= 0.9.
+

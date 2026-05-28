@@ -1,0 +1,52 @@
+id: gwas_summary_harmonization
+version: "1.0.0"
+role: operation
+description: |
+  Harmonise GWAS summary statistics across studies: allele alignment to a
+  reference panel, strand-flip resolution, build liftover (hg19 ↔ hg38),
+  effect-allele orientation. swfc namespace per EDAM audit — operation:3196
+  (Genotyping) is the closest EDAM term but a poor semantic fit.
+edam_operation: "swfc:gwas_summary_harmonization"
+edam_data: "data:3498"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - data_acquisition
+attributes:
+  candidate_tools:
+    - mungesumstats
+    - gwas2vcf
+    - liftover
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Genome-build facets are tracked because liftover (hg19 ↔ hg38) is a
+# defining responsibility of this atom — the output port advertises the
+# harmonized build so colocalization downstream can refuse mismatched
+# inputs.
+inputs:
+  - name: raw_summary_stats
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0928"
+      label: "GWAS summary"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: harmonized_summary_stats
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0928"
+      label: "GWAS summary"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    genome_build: "GRCh38"
+    privacy_class: internal

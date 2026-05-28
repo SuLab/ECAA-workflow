@@ -1,0 +1,107 @@
+[package]
+name = "scripps-workflow-server"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/SuLab/ECAA-workflow"
+description = "Axum HTTP + SSE chat / git-provenance backend for the scripps-workflow web UI."
+
+[lib]
+name = "scripps_workflow_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "scripps-workflow-server"
+path = "src/main.rs"
+
+[dependencies]
+scripps-workflow-core = { version = "0.1", path = "../core" }
+scripps-workflow-conversation = { version = "0.1", path = "../conversation" }
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "limit", "timeout", "trace"] }
+tokio-stream = "0.1"
+tar = "0.4"
+flate2 = "1"
+serde.workspace = true
+serde_json.workspace = true
+serde_yml = { workspace = true }
+anyhow.workspace = true
+async-stream = "0.3"
+chrono.workspace = true
+uuid.workspace = true
+dotenvy = "0.15"
+regex.workspace = true
+ts-rs.workspace = true
+sha2.workspace = true
+hex = "0.4"
+walkdir.workspace = true
+libc = "0.2"
+shlex = "1"
+parking_lot = "0.12"
+dashmap = { workspace = true }
+# Security remediation 
+# `tower_governor` ships a per-IP GovernorLayer that we layer outside
+# the auth middleware so unauthenticated request floods are rate-
+# limited before the constant-time bearer compare runs. Pinned to 0.4
+# because 0.5+ require axum 0.8; we still ship axum 0.7.
+# `governor` (already a transitive dep of `tower_governor`) is pulled
+# in directly so `app_state::LlmRateBuckets` can use
+# `DefaultDirectRateLimiter` for per-session per-minute caps on
+# expensive LLM-firing endpoints (Task 6.4).
+tower_governor = "0.4"
+governor = "0.6"
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+thiserror.workspace = true
+# Security remediation constant-time comparison
+# of bearer tokens in `auth::auth_middleware`.
+subtle = "2"
+# NFC normalization of `X-Scripps-User` header values in
+# `auth::principal::normalize_owner_user` so casing + Unicode-form
+# variants of the same identity collapse to one stored owner_user.
+unicode-normalization = "0.1"
+# Cryptographic
+# RNG for 256-bit share-token generation in `chat_routes::share`.
+rand = { workspace = true }
+# Security remediation R3-S4 — drop-on-zero wipe for share-token
+# plaintext (`chat_routes::share`). The plaintext exists in memory only
+# from the moment `generate_token` runs through the response
+# serialization; wrapping it in `Zeroizing` ensures the heap allocation
+# that backed it is overwritten when the local goes out of scope,
+# narrowing the post-mortem-dump exposure window.
+zeroize = "1"
+# Security remediation URL parsing for
+# `redact_remote_url` in `git_routes::mod.rs` (strip userinfo from
+# https remotes before returning the config to the UI).
+url = "2"
+# `tokio_util::task::TaskTracker` + `CancellationToken`
+# back the BackgroundSupervisor in `server/src/state.rs`. `rt`
+# brings in TaskTracker; `time` is the existing dep tier from tokio.
+# `io` gives `ReaderStream` for `Body::from_stream` in the tail-log /
+# artifact-serve handlers so a multi-GB on-disk file streams to the
+# client without first allocating it into a `Vec<u8>`.
+tokio-util = { version = "0.7", features = ["rt", "io"] }
+# `tower::ServiceExt::oneshot` is used by the
+# `/api/v1/chat/*rest` catch-all in `chat_routes/mod.rs` to dispatch
+# rewritten URIs through the canonical router. Was dev-only when the
+# v1 mount lived in a `from_fn` middleware; that path turned out to
+# be ineffective because `Router::layer` only wraps matched-route
+# handlers — unmatched `/api/v1/chat/*` paths skipped the rewrite.
+tower = { version = "0.5", features = ["util"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+http-body-util = "0.1"
+tempfile.workspace = true
+# Proptest for the path_jail_fuzz integration test that
+# property-tests safe_segment_join against arbitrary string input to
+# guarantee a joined path never escapes the jail root.
+proptest = { workspace = true }
+# Serialize env-mutating tests (e.g. `bind_address.rs` toggles
+# SWFC_BIND_ADDR) so they don't race under `cargo test`. Aligned with
+# the workspace pin in `core` / `eval-adapters`.
+serial_test = "3"
+
+[lints]
+workspace = true

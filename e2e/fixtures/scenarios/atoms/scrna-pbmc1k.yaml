@@ -1,0 +1,98 @@
+# atoms/scrna-pbmc1k — atom-coverage spec
+#
+# Synthetic 10x Chromium PBMC dataset: 50 cells × 200 genes, 2 conditions
+# (PBMC_control vs PBMC_stimulated). Minimal tractable scRNA-seq for the
+# atoms/plots campaign — compact DAG, fast execution.
+
+name: Synthetic PBMC scRNA-seq clustering and DE
+modality: single_cell_rnaseq
+
+beats:
+  - user: >-
+      I want to run a single-cell RNA-seq analysis on PBMC data from a
+      stimulation experiment. I have a 10x Chromium filtered feature-barcode
+      matrix (200 genes × 50 cells) comparing PBMC_control versus
+      PBMC_stimulated conditions.
+    assistant:
+      content: >-
+        Got it — PBMC scRNA-seq, control vs stimulated. What clustering
+        resolution and cell-type annotation strategy should I plan for?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      Standard pipeline: QC filtering, normalization, dimensionality
+      reduction, clustering, cell-type annotation, and differential
+      expression between conditions. Internal use, synthetic public data.
+    assistant:
+      content: >-
+        Recorded — QC → normalization → DR → clustering → cell-type annotation
+        → DE between control and stimulated. Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **scRNA-seq DE — PBMC control vs stimulated**
+
+          - **Dataset:** Synthetic 10x PBMC (200 genes × 50 cells)
+          - **Contrast:** PBMC_control vs PBMC_stimulated
+          - **Pipeline:** QC → normalization → dimensionality reduction →
+            clustering → cell-type annotation → DE
+          - **Governance:** synthetic data, internal use
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I want to run a single-cell RNA-seq analysis on PBMC data from a
+    stimulation experiment. The dataset is a synthetic 10x Chromium filtered
+    feature-barcode matrix: 200 genes × 50 cells, comparing PBMC_control versus
+    PBMC_stimulated conditions (2 samples each). The files are barcodes.tsv.gz,
+    features.tsv.gz, and matrix.mtx.gz staged locally. I need QC filtering,
+    normalization, dimensionality reduction, clustering, cell-type annotation,
+    and differential expression between the two conditions. Internal use,
+    synthetic data — no PHI. Please build the plan and emit the package
+    once confirmed.
+  followups:
+    - trigger: "(?i)(contrast|comparison|condition|group|control|stimulat|vs)"
+      reply: >-
+        PBMC_control versus PBMC_stimulated. Two conditions, two replicates
+        each. No batch variables.
+    - trigger: "(?i)(organism|species|genome|human|mouse)"
+      reply: >-
+        Human (Homo sapiens). GRCh38 reference.
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use only, synthetic data, no PHI.
+    - trigger: "(?i)(file|format|path|matrix|input|data|10x|chromium)"
+      reply: >-
+        Files are staged at testdata/scenarios/atoms/scrna-pbmc1k/:
+        matrix.mtx.gz, barcodes.tsv.gz, features.tsv.gz, samples.csv.
+    - trigger: "(?i)(cluster|resolution|louvain|leiden)"
+      reply: >-
+        Default clustering resolution is fine. Let the agent choose at runtime.
+    - trigger: "(?i)(annotation|marker|cell.type)"
+      reply: >-
+        Standard marker-gene annotation is fine. No custom panel required.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+      - "Seurat"
+      - "Scanpy"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

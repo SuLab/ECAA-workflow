@@ -1,0 +1,125 @@
+{
+  "version": "1.0",
+  "workflow_id": "v4-clinical-trial",
+  "current_task": null,
+  "tasks": {
+    "data_import": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [],
+      "assignee": "agent",
+      "description": "Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
+      "resource_class": "cpu_heavy"
+    },
+    "differential_expression": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "qc_preprocessing"
+      ],
+      "assignee": "agent",
+      "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "resource_class": "cpu_heavy"
+    },
+    "final_reporting": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "reporting"
+      ],
+      "assignee": "agent",
+      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "resource_class": "cpu_heavy"
+    },
+    "qc_preprocessing": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_import"
+      ],
+      "assignee": "agent",
+      "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "resource_class": "cpu_heavy"
+    },
+    "reporting": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "resource_class": "cpu_heavy"
+    },
+    "validate_data_import": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_import"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
+      "resource_class": "cpu_heavy"
+    },
+    "validate_differential_expression": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "resource_class": "cpu_heavy"
+    },
+    "validate_final_reporting": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "final_reporting"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "resource_class": "cpu_heavy"
+    },
+    "validate_qc_preprocessing": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "qc_preprocessing"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "resource_class": "cpu_heavy"
+    },
+    "validate_reporting": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "reporting"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "resource_class": "cpu_heavy"
+    }
+  }
+}

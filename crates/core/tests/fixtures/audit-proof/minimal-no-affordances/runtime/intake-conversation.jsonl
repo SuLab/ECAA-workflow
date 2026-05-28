@@ -1,0 +1,2 @@
+{"role":"user","content":"Run differential expression on the airway dataset comparing dex vs control."}
+{"role":"assistant","content":"I'll classify and emit a bulk-rnaseq differential-expression package."}

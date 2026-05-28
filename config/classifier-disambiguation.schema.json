@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["schema_version", "pairs"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "pairs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "rivals", "trigger_when", "sme_prompt", "quick_replies"],
+        "properties": {
+          "id": { "type": "string" },
+          "rivals": { "type": "array", "items": { "type": "string" }, "minItems": 2 },
+          "trigger_when": { "type": "object" },
+          "sme_prompt": { "type": "string" },
+          "quick_replies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "label"],
+              "properties": {
+                "id": { "type": "string" },
+                "label": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

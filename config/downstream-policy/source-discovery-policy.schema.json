@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Source Discovery Policy",
+  "description": "Sidecar schema validating the top-level shape of source-discovery-policy.json. Describes default preferred access classes, disallowed justification classes, claim-support rules, provenance requirements, default dataset-registry and literature-index classes, official guidance classes, and workbook policy.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "defaultPreferredAccessClasses",
+    "disallowedJustificationClasses",
+    "claimSupportRules",
+    "provenanceRequirements",
+    "defaultDatasetRegistryClasses",
+    "defaultLiteratureIndexClasses",
+    "officialGuidanceClasses",
+    "workbookPolicy"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "defaultPreferredAccessClasses": { "type": "array" },
+    "disallowedJustificationClasses": { "type": "array" },
+    "claimSupportRules": { "type": "object" },
+    "provenanceRequirements": { "type": "object" },
+    "defaultDatasetRegistryClasses": { "type": "array" },
+    "defaultLiteratureIndexClasses": { "type": "array" },
+    "officialGuidanceClasses": { "type": "array" },
+    "workbookPolicy": { "type": "object" }
+  }
+}

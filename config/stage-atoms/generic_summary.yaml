@@ -1,0 +1,56 @@
+id: generic_summary
+version: "1.0.0"
+role: aggregator
+description: |
+  Universal catch-all summary atom paired with `raw_qc` for the
+  `generic_omics` archetype. Consumes the QC metrics table and emits a
+  per-sample summary table plus a high-level QC-flag JSON. Used as the
+  fallback pipeline when intake prose mentions omics data but carries
+  no specific modality or goal phrase; subsequent analysis steps
+  surface as SME-driven amendments rather than auto-emitted (Phase 6.1
+  B2 of the v3+v4 100-percent-closure plan).
+edam_operation: "operation:0337"
+edam_data: "data:0006"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - raw_qc
+expected_artifacts:
+  - summary_table.tsv
+  - qc_flags.json
+  - manifest.json
+  - result.json
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+# data:0006 ("Data") is the generic EDAM parent; no plot affordance is
+# meaningful for an undifferentiated catch-all output. The SME drives
+# subsequent analysis amendments which add typed downstream atoms with
+# their own plot affordances.
+figure_exempt:
+  reason: "Catch-all archetype output; SME amendments add typed downstream atoms with their own plot affordances."
+  category: non_plottable
+inputs:
+  - name: qc_metrics
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2914"
+      label: "Sequence metrics"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: summary_table
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0006"
+      label: "Data"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

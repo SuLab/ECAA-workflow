@@ -1,0 +1,83 @@
+[package]
+name = "scripps-workflow-harness"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/SuLab/ECAA-workflow"
+description = "Sync orchestrator that loops an agent subprocess against ready tasks in an emitted scripps-workflow package."
+
+[lib]
+name = "scripps_workflow_harness"
+path = "src/lib.rs"
+
+[[bin]]
+name = "scripps-workflow-harness"
+path = "src/main.rs"
+
+[dependencies]
+scripps-workflow-core = { version = "0.1", path = "../core" }
+clap = { workspace = true }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+duct = "0.13"
+wait-timeout = "0.2"
+json-patch = "2"
+rustyline = "14"
+colored = "2"
+anyhow.workspace = true
+thiserror = { workspace = true }
+csv.workspace = true
+regex.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+serde_yml = { workspace = true }
+chrono.workspace = true
+ureq = { version = "2", default-features = false, features = ["json"] }
+uuid.workspace = true
+ctrlc = "3.4"
+tempfile.workspace = true
+ts-rs.workspace = true
+jsonschema = { workspace = true }
+glob = "0.3"
+flate2 = "1"
+# v3 P7 — `DispatchRecord::schema_version` promoted to semver.
+# Workspace pin in the root `Cargo.toml`.
+semver = { workspace = true }
+# Host-level `flock(LOCK_EX | LOCK_NB)` on
+# `~/.scripps-workflow/locks/<session_id>.lock` so two harness
+# processes can never race on the same chat session. The `libc`
+# crate exposes the syscall directly; `nix` would be heavier and
+# the workspace already uses `libc` in `crates/server`.
+libc = "0.2"
+parking_lot = "0.12"
+# `resilient_sync::ResilientSyncClient` parses base URLs via `url::Url`
+# so the HTTPS-or-loopback scheme guard can match `host_str()`.
+url = "2"
+# Parallel directory-walk in `cache_eviction::enforce`. Per-session
+# cache size summation is embarrassingly parallel; rayon's work-stealing
+# pool fans the `dir_size` walks out across cores so the LRU sweep over
+# a hundred-session host doesn't serialize behind I/O latency.
+rayon = "1"
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+# tempfile is in [dependencies] (used by DeterminismRunner in src/)
+
+# Product/research split. SLURM goes research-tier per
+# (see docs/2026-05/product-research-decision.md): it needs a
+# real-cluster shakedown and is not on the IVD/product critical
+# path. The `slurm` feature gates the executor module + its live
+# integration test. Default product builds compile without it; the
+# eval-* and SLURM CI workflows turn it on explicitly.
+[features]
+default = []
+slurm = []
+# `dry-run` exposes the in-process `MockExecutor` to the release binary so
+# operators can smoke-test the scheduler / dispatch WAL / heartbeat /
+# orphan-reap loop against a real package without spawning agents or
+# running real compute. Off by default; the executor is otherwise
+# `#[cfg(test)]`-gated.
+dry-run = []
+
+[lints]
+workspace = true

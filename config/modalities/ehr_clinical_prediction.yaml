@@ -1,0 +1,44 @@
+schema_version: "0.1"
+id: ehr_clinical_prediction
+display_name: EHR Clinical Prediction
+keywords:
+  - mimic
+  - mimic-iv
+  - mimic-iii
+  - eicu
+  - eicu-crd
+  - ehr
+  - electronic health record
+  - electronic health records
+  - icu
+  - sepsis-3
+  - sepsis 3
+  - sepsis3
+  - clinical prediction
+  - early warning
+  - early-warning
+  - intensive care
+  - physionet
+  - dua
+  - credentialed access
+  - hirid
+  - aumcdb
+  - yaib
+  - mimic-extract
+  - mimic-code
+  - clinical machine learning
+edam_topic: "topic:3325"
+edam_operation: "operation:2945"
+archetype_id: ehr_clinical_prediction
+fixture_corpus_rows:
+  - 08-ehr-sepsis-mimic
+semantic_equivalence_bounds:
+  - metric: spearman_rho
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/tables/predictions_*.csv"
+    rationale: "Spearman correlation of predicted-risk scores ≥ 0.90 between runs on the same held-out split"
+  - metric: auroc_delta
+    operator: "<="
+    threshold: 0.01
+    rationale: "AUROC absolute difference ≤ 0.01 between runs (clinical prediction parity)"

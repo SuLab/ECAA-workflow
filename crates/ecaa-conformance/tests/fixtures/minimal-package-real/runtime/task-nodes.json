@@ -1,0 +1,2239 @@
+[
+  {
+    "id": "alignment",
+    "human_name": "alignment",
+    "machine_name": "alignment",
+    "status": "active",
+    "intent": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+    "inputs": [
+      {
+        "name": "reads",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2044",
+          "label": "Sequence reads",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:1930",
+          "label": "FASTQ"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "aligned_reads",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:0863",
+          "label": "Sequence alignment",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:2572",
+          "label": "BAM"
+        },
+        "coordinate_system": "1-based-inclusive",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/alignment.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "alignment",
+      "candidate_tools": [
+        "star",
+        "hisat2",
+        "bwa_mem2",
+        "bwa_mem",
+        "minimap2",
+        "bowtie2"
+      ],
+      "depends_on": [
+        "sequence_trimming"
+      ],
+      "resource_profile": {
+        "cpu": "heavy",
+        "memory": "large",
+        "runtime_class": "hours"
+      },
+      "role": "operation",
+      "stage_id": "alignment"
+    }
+  },
+  {
+    "id": "batch_correction",
+    "human_name": "batch_correction",
+    "machine_name": "batch_correction",
+    "status": "active",
+    "intent": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. swfc namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
+    "inputs": [
+      {
+        "name": "normalized_counts",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3917",
+          "label": "Count matrix",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "statistical_state": "normalized",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "corrected_counts",
+        "semantic_type": {
+          "kind": "local_extension",
+          "namespace": "swfc",
+          "id": "batch_corrected_embedding",
+          "proposed_parent_terms": [
+            "data:3917"
+          ],
+          "definition": "Batch-corrected embedding / count matrix with technical variance regressed out",
+          "maturity": {
+            "stage": "minted"
+          }
+        },
+        "physical_format": {
+          "iri": "format:3590",
+          "label": "HDF5"
+        },
+        "normalization_state": "batch_corrected",
+        "statistical_state": "normalized",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/batch_correction.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "batch_correction",
+      "candidate_tools": [
+        "harmony",
+        "scvi",
+        "bbknn",
+        "mnn_correct",
+        "combat",
+        "seurat_cca"
+      ],
+      "depends_on": [
+        "normalisation"
+      ],
+      "expected_artifacts": [
+        "integration_stats.json",
+        "corrected_embedding.tsv",
+        "manifest.json",
+        "result.json"
+      ],
+      "required_figures": [
+        "mixing_score_bar",
+        "umap_pre_post"
+      ],
+      "resource_profile": {
+        "cpu": "heavy",
+        "memory": "large",
+        "runtime_class": "hours"
+      },
+      "role": "operation",
+      "stage_id": "batch_correction"
+    }
+  },
+  {
+    "id": "cell_type_annotation",
+    "human_name": "cell_type_annotation",
+    "machine_name": "cell_type_annotation",
+    "status": "active",
+    "intent": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+    "inputs": [
+      {
+        "name": "clustered_cells",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3768",
+          "label": "Clustered expression profiles",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "modality": "single_cell_rnaseq",
+        "statistical_state": "normalized",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "celltype_assignments",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3736",
+          "label": "Ontology mapping",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "modality": "single_cell_rnaseq",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/cell_type_annotation.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "cell_type_annotation",
+      "candidate_tools": [
+        "celltypist",
+        "singler",
+        "azimuth",
+        "sctype",
+        "marker_panel"
+      ],
+      "claim_boundary": "Cell-type calls are statistical assignments, not pathology. Report the\nreference / panel / marker set used alongside every label. Do not infer\nfunctional state from identity alone.\n",
+      "depends_on": [
+        "clustering"
+      ],
+      "expected_artifacts": [
+        "celltype_assignments.tsv",
+        "marker_panel_audit.json",
+        "manifest.json",
+        "result.json"
+      ],
+      "required_figures": [
+        "umap_by_celltype",
+        "celltype_size_bar"
+      ],
+      "resource_profile": {
+        "cpu": "moderate",
+        "memory": "medium",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "cell_type_annotation"
+    }
+  },
+  {
+    "id": "clustering",
+    "human_name": "clustering",
+    "machine_name": "clustering",
+    "status": "active",
+    "intent": "Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
+    "inputs": [
+      {
+        "name": "embedding",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3917",
+          "label": "Count matrix",
+          "ontology_version": "EDAM-1.25"
+        },
+        "modality": "single_cell_rnaseq",
+        "statistical_state": "normalized",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "cluster_assignments",
+        "semantic_type": {
+          "kind": "local_extension",
+          "namespace": "swfc",
+          "id": "cluster_assignments",
+          "proposed_parent_terms": [
+            "data:3917"
+          ],
+          "definition": "Per-cell cluster id assignments",
+          "maturity": {
+            "stage": "minted"
+          }
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "modality": "single_cell_rnaseq",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/clustering.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "clustering",
+      "candidate_tools": [
+        "leiden",
+        "louvain",
+        "kmeans",
+        "hierarchical"
+      ],
+      "depends_on": [
+        "dimensionality_reduction"
+      ],
+      "expected_artifacts": [
+        "cluster_assignments.tsv",
+        "resolution_sweep.json",
+        "manifest.json",
+        "result.json"
+      ],
+      "required_figures": [
+        "umap_clusters",
+        "cluster_size_bar"
+      ],
+      "resource_profile": {
+        "cpu": "moderate",
+        "memory": "medium",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "clustering"
+    }
+  },
+  {
+    "id": "data_acquisition",
+    "human_name": "data_acquisition",
+    "machine_name": "data_acquisition",
+    "status": "active",
+    "intent": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+    "inputs": [
+      {
+        "name": "accession_descriptors",
+        "semantic_type": {
+          "kind": "local_extension",
+          "namespace": "swfc",
+          "id": "accession_descriptor",
+          "proposed_parent_terms": [
+            "data:2531"
+          ],
+          "definition": "SME-declared repository accession or file path (SRA, GEO, ENA, PRIDE, dbGaP, EGA, SME-provided)",
+          "maturity": {
+            "stage": "minted"
+          }
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "cohort_manifest",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2531",
+          "label": "Experiment annotation",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      },
+      {
+        "name": "raw_reads",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2044",
+          "label": "Sequence reads",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:1930",
+          "label": "FASTQ"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/data_acquisition.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "data_acquisition",
+      "data_sources": [
+        "sra",
+        "geo",
+        "arrayexpress",
+        "ena",
+        "pride",
+        "synapse",
+        "dbgap",
+        "egastudy",
+        "sme_provided"
+      ],
+      "expected_artifacts": [
+        "cohort_manifest.tsv",
+        "per_accession_summary.json",
+        "matrices_index.json",
+        "manifest.json",
+        "result.json"
+      ],
+      "required_figures": [
+        "samples_per_study"
+      ],
+      "resource_profile": {
+        "cpu": "moderate",
+        "memory": "medium",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "data_acquisition"
+    }
+  },
+  {
+    "id": "differential_expression",
+    "human_name": "differential_expression",
+    "machine_name": "differential_expression",
+    "status": "active",
+    "intent": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+    "inputs": [
+      {
+        "name": "normalized_counts",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3917",
+          "label": "Count matrix",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "statistical_state": "normalized",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      },
+      {
+        "name": "experimental_design",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "topic:3678",
+          "label": "Experimental design and studies",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3464",
+          "label": "JSON"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "de_results",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3134",
+          "label": "Gene expression data",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "units": "log2 fold change",
+        "statistical_state": "de_tested",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/differential_expression.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "differential_expression",
+      "candidate_tools": [
+        "deseq2",
+        "edger",
+        "limma_voom",
+        "mast",
+        "wilcoxon"
+      ],
+      "claim_boundary": "Differential expression is statistical association, not biological causation.\nReport effect-size + adjusted p-value + the reference factor level for every\ncontrast. Avoid mechanistic language; prefer \"associated with\" / \"enriched in\"\nover \"drives\" / \"causes\".\n",
+      "depends_on": [
+        "normalisation"
+      ],
+      "expected_artifacts": [
+        "de_results.tsv",
+        "de_summary.json",
+        "manifest.json",
+        "result.json"
+      ],
+      "required_figures": [
+        "volcano",
+        "top_features_heatmap"
+      ],
+      "resource_profile": {
+        "cpu": "moderate",
+        "memory": "medium",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "differential_expression"
+    }
+  },
+  {
+    "id": "dimensionality_reduction",
+    "human_name": "dimensionality_reduction",
+    "machine_name": "dimensionality_reduction",
+    "status": "active",
+    "intent": "Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
+    "inputs": [
+      {
+        "name": "normalized_counts",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3917",
+          "label": "Count matrix",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "statistical_state": "normalized",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "embedding",
+        "semantic_type": {
+          "kind": "local_extension",
+          "namespace": "swfc",
+          "id": "embedding",
+          "proposed_parent_terms": [
+            "data:3917"
+          ],
+          "definition": "Low-dimensional embedding (PCA / UMAP / t-SNE / PHATE coordinates)",
+          "maturity": {
+            "stage": "minted"
+          }
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "statistical_state": "normalized",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/dimensionality_reduction.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "dimensionality_reduction",
+      "candidate_tools": [
+        "pca",
+        "umap",
+        "tsne",
+        "phate"
+      ],
+      "depends_on": [
+        "normalisation"
+      ],
+      "expected_artifacts": [
+        "pca_loadings.tsv",
+        "umap_coords.tsv",
+        "manifest.json",
+        "result.json"
+      ],
+      "required_figures": [
+        "variance_explained_elbow",
+        "embedding_scatter"
+      ],
+      "resource_profile": {
+        "cpu": "moderate",
+        "memory": "medium",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "dimensionality_reduction"
+    }
+  },
+  {
+    "id": "discover_alignment",
+    "human_name": "discover_alignment",
+    "machine_name": "discover_alignment",
+    "status": "active",
+    "intent": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "discover_companion_of": "alignment",
+      "method_axis": "alignment",
+      "method_options": [
+        "star",
+        "hisat2",
+        "bwa_mem2",
+        "bwa_mem",
+        "minimap2",
+        "bowtie2"
+      ],
+      "role": "discovery"
+    }
+  },
+  {
+    "id": "discover_batch_correction",
+    "human_name": "discover_batch_correction",
+    "machine_name": "discover_batch_correction",
+    "status": "active",
+    "intent": "Discover method for batch_correction (options: harmony, scvi, bbknn, mnn_correct, combat, seurat_cca). Surface set_intake_method.",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "discover_companion_of": "batch_correction",
+      "method_axis": "batch_correction",
+      "method_options": [
+        "harmony",
+        "scvi",
+        "bbknn",
+        "mnn_correct",
+        "combat",
+        "seurat_cca"
+      ],
+      "role": "discovery"
+    }
+  },
+  {
+    "id": "discover_cell_type_annotation",
+    "human_name": "discover_cell_type_annotation",
+    "machine_name": "discover_cell_type_annotation",
+    "status": "active",
+    "intent": "Discover method for cell_type_annotation (options: celltypist, singler, azimuth, sctype, marker_panel). Surface set_intake_method.",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "discover_companion_of": "cell_type_annotation",
+      "method_axis": "cell_type_annotation",
+      "method_options": [
+        "celltypist",
+        "singler",
+        "azimuth",
+        "sctype",
+        "marker_panel"
+      ],
+      "role": "discovery"
+    }
+  },
+  {
+    "id": "discover_clustering",
+    "human_name": "discover_clustering",
+    "machine_name": "discover_clustering",
+    "status": "active",
+    "intent": "Discover method for clustering (options: leiden, louvain, kmeans, hierarchical). Surface set_intake_method.",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "discover_companion_of": "clustering",
+      "method_axis": "clustering",
+      "method_options": [
+        "leiden",
+        "louvain",
+        "kmeans",
+        "hierarchical"
+      ],
+      "role": "discovery"
+    }
+  },
+  {
+    "id": "discover_differential_expression",
+    "human_name": "discover_differential_expression",
+    "machine_name": "discover_differential_expression",
+    "status": "active",
+    "intent": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "discover_companion_of": "differential_expression",
+      "method_axis": "differential_expression",
+      "method_options": [
+        "deseq2",
+        "edger",
+        "limma_voom",
+        "mast",
+        "wilcoxon"
+      ],
+      "role": "discovery"
+    }
+  },
+  {
+    "id": "discover_dimensionality_reduction",
+    "human_name": "discover_dimensionality_reduction",
+    "machine_name": "discover_dimensionality_reduction",
+    "status": "active",
+    "intent": "Discover method for dimensionality_reduction (options: pca, umap, tsne, phate). Surface set_intake_method.",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "discover_companion_of": "dimensionality_reduction",
+      "method_axis": "dimensionality_reduction",
+      "method_options": [
+        "pca",
+        "umap",
+        "tsne",
+        "phate"
+      ],
+      "role": "discovery"
+    }
+  },
+  {
+    "id": "discover_normalisation",
+    "human_name": "discover_normalisation",
+    "machine_name": "discover_normalisation",
+    "status": "active",
+    "intent": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "discover_companion_of": "normalisation",
+      "method_axis": "normalisation",
+      "method_options": [
+        "deseq2_vst",
+        "edger_tmm",
+        "scran",
+        "seurat_lognormalize",
+        "sctransform"
+      ],
+      "role": "discovery"
+    }
+  },
+  {
+    "id": "discover_pathway_enrichment",
+    "human_name": "discover_pathway_enrichment",
+    "machine_name": "discover_pathway_enrichment",
+    "status": "active",
+    "intent": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "discover_companion_of": "pathway_enrichment",
+      "method_axis": "pathway_enrichment",
+      "method_options": [
+        "fgsea",
+        "clusterprofiler",
+        "gsea",
+        "enrichr"
+      ],
+      "role": "discovery"
+    }
+  },
+  {
+    "id": "discover_quantification",
+    "human_name": "discover_quantification",
+    "machine_name": "discover_quantification",
+    "status": "active",
+    "intent": "Discover method for quantification (options: salmon, kallisto, featurecounts, htseq, rsem). Surface set_intake_method.",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "discover_companion_of": "quantification",
+      "method_axis": "quantification",
+      "method_options": [
+        "salmon",
+        "kallisto",
+        "featurecounts",
+        "htseq",
+        "rsem"
+      ],
+      "role": "discovery"
+    }
+  },
+  {
+    "id": "discover_sequence_trimming",
+    "human_name": "discover_sequence_trimming",
+    "machine_name": "discover_sequence_trimming",
+    "status": "active",
+    "intent": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "discover_companion_of": "sequence_trimming",
+      "method_axis": "sequence_trimming",
+      "method_options": [
+        "trimmomatic",
+        "cutadapt",
+        "fastp",
+        "trim_galore"
+      ],
+      "role": "discovery"
+    }
+  },
+  {
+    "id": "final_reporting",
+    "human_name": "final_reporting",
+    "machine_name": "final_reporting",
+    "status": "active",
+    "intent": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+    "inputs": [
+      {
+        "name": "analysis_bundle",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2048",
+          "label": "Report",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3464",
+          "label": "JSON"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "final_report_html",
+        "semantic_type": {
+          "kind": "local_extension",
+          "namespace": "swfc",
+          "id": "final_report",
+          "proposed_parent_terms": [
+            "data:2048"
+          ],
+          "definition": "Project-level final report: cross-stage narrative, dashboard index, key figures, methods + caveats",
+          "maturity": {
+            "stage": "minted"
+          }
+        },
+        "physical_format": {
+          "iri": "format:2331",
+          "label": "HTML"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      },
+      {
+        "name": "final_report_pdf",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2048",
+          "label": "Report",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3508",
+          "label": "PDF"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/final_reporting.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "final_reporting",
+      "claim_boundary": "The final report restates findings exactly as produced by upstream\nvalidated tasks. Do not introduce claims that aren't backed by an\nemitted artifact; do not soften / strengthen effect-size language.\n",
+      "depends_on": [
+        "reporting"
+      ],
+      "expected_artifacts": [
+        "final_report.md",
+        "dashboard_index.json",
+        "manifest.json",
+        "result.json"
+      ],
+      "required_figures": [
+        "summary_dashboard"
+      ],
+      "resource_profile": {
+        "cpu": "light",
+        "memory": "small",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "final_reporting"
+    }
+  },
+  {
+    "id": "integration",
+    "human_name": "integration",
+    "machine_name": "integration",
+    "status": "active",
+    "intent": "Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
+    "inputs": [
+      {
+        "name": "corrected_matrices",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3917",
+          "label": "Count matrix",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "statistical_state": "normalized",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "many"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "integrated_matrix",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3917",
+          "label": "Count matrix",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "statistical_state": "normalized",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/integration.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "integration",
+      "depends_on": [
+        "batch_correction"
+      ],
+      "resource_profile": {
+        "cpu": "moderate",
+        "memory": "medium",
+        "runtime_class": "minutes"
+      },
+      "role": "aggregator",
+      "stage_id": "integration"
+    }
+  },
+  {
+    "id": "normalisation",
+    "human_name": "normalisation",
+    "machine_name": "normalisation",
+    "status": "active",
+    "intent": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+    "inputs": [
+      {
+        "name": "count_matrix",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3917",
+          "label": "Count matrix",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "statistical_state": "raw_counts",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "normalized_counts",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3917",
+          "label": "Count matrix",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "normalization_state": "normalized",
+        "statistical_state": "normalized",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/normalisation.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "normalisation",
+      "candidate_tools": [
+        "deseq2_vst",
+        "edger_tmm",
+        "scran",
+        "seurat_lognormalize",
+        "sctransform"
+      ],
+      "depends_on": [
+        "qc_preprocessing"
+      ],
+      "expected_artifacts": [
+        "normalized_counts_index.json",
+        "hvg_list.tsv",
+        "manifest.json",
+        "result.json"
+      ],
+      "plot_stage_id": "normalization",
+      "required_figures": [
+        "mean_variance",
+        "hvg_count_bar"
+      ],
+      "resource_profile": {
+        "cpu": "moderate",
+        "memory": "medium",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "normalisation"
+    }
+  },
+  {
+    "id": "pathway_enrichment",
+    "human_name": "pathway_enrichment",
+    "machine_name": "pathway_enrichment",
+    "status": "active",
+    "intent": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+    "inputs": [
+      {
+        "name": "ranked_de_results",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:0951",
+          "label": "Statistical estimate score",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "statistical_state": "de_tested",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "pathway_results",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:0960",
+          "label": "Pathway",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "statistical_state": "multiple_testing_corrected",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/pathway_enrichment.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "pathway_enrichment",
+      "candidate_databases": [
+        "kegg",
+        "reactome",
+        "go_bp",
+        "go_mf",
+        "go_cc",
+        "msigdb_hallmark"
+      ],
+      "candidate_tools": [
+        "fgsea",
+        "clusterprofiler",
+        "gsea",
+        "enrichr"
+      ],
+      "claim_boundary": "Enrichment is a statistical signal that a gene set is over-represented at\nthe top / bottom of a ranked list. It does not establish that the pathway\nis biologically activated or repressed in the experimental system.\n",
+      "depends_on": [
+        "differential_expression"
+      ],
+      "expected_artifacts": [
+        "pathway_results.tsv",
+        "pathway_summary.json",
+        "manifest.json",
+        "result.json"
+      ],
+      "plot_stage_id": "biological_interpretation",
+      "required_figures": [
+        "top_enriched_terms"
+      ],
+      "resource_profile": {
+        "cpu": "light",
+        "memory": "small",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "pathway_enrichment"
+    }
+  },
+  {
+    "id": "qc_preprocessing",
+    "human_name": "qc_preprocessing",
+    "machine_name": "qc_preprocessing",
+    "status": "active",
+    "intent": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+    "inputs": [
+      {
+        "name": "count_matrix",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3917",
+          "label": "Count matrix",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "statistical_state": "raw_counts",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "filtered_count_matrix",
+        "semantic_type": {
+          "kind": "local_extension",
+          "namespace": "swfc",
+          "id": "qc_metrics",
+          "proposed_parent_terms": [
+            "data:3917"
+          ],
+          "definition": "Per-sample / per-cell QC metrics with cell-filter index from count-matrix-level QC",
+          "maturity": {
+            "stage": "minted"
+          }
+        },
+        "physical_format": {
+          "iri": "format:3590",
+          "label": "HDF5"
+        },
+        "statistical_state": "raw_counts",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/qc_preprocessing.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "qc_preprocessing",
+      "depends_on": [
+        "quantification"
+      ],
+      "expected_artifacts": [
+        "qc_summary.json",
+        "filtered_cells_index.json",
+        "manifest.json",
+        "result.json"
+      ],
+      "plot_stage_id": "quality_control",
+      "required_figures": [
+        "per_sample_metric_violin",
+        "per_sample_metric_bar",
+        "qc_summary_bar"
+      ],
+      "resource_profile": {
+        "cpu": "moderate",
+        "memory": "medium",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "qc_preprocessing"
+    }
+  },
+  {
+    "id": "quantification",
+    "human_name": "quantification",
+    "machine_name": "quantification",
+    "status": "active",
+    "intent": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+    "inputs": [
+      {
+        "name": "aligned_reads",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:0863",
+          "label": "Sequence alignment",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:2572",
+          "label": "BAM"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "count_matrix",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:3917",
+          "label": "Count matrix",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "statistical_state": "raw_counts",
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/quantification.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "quantification",
+      "candidate_tools": [
+        "salmon",
+        "kallisto",
+        "featurecounts",
+        "htseq",
+        "rsem"
+      ],
+      "depends_on": [
+        "alignment"
+      ],
+      "resource_profile": {
+        "cpu": "heavy",
+        "memory": "large",
+        "runtime_class": "hours"
+      },
+      "role": "operation",
+      "stage_id": "quantification"
+    }
+  },
+  {
+    "id": "raw_qc",
+    "human_name": "raw_qc",
+    "machine_name": "raw_qc",
+    "status": "active",
+    "intent": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+    "inputs": [
+      {
+        "name": "raw_reads",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2044",
+          "label": "Sequence reads",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:1930",
+          "label": "FASTQ"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "qc_metrics",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2914",
+          "label": "Sequence metrics",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3475",
+          "label": "Tabular text"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/raw_qc.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "raw_qc",
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "expected_artifacts": [
+        "qc_metrics.tsv",
+        "qc_summary.json",
+        "manifest.json",
+        "result.json"
+      ],
+      "plot_stage_id": "quality_control",
+      "required_figures": [
+        "per_sample_metric_violin",
+        "per_sample_metric_bar",
+        "qc_summary_bar"
+      ],
+      "resource_profile": {
+        "cpu": "moderate",
+        "memory": "medium",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "raw_qc"
+    }
+  },
+  {
+    "id": "reporting",
+    "human_name": "reporting",
+    "machine_name": "reporting",
+    "status": "active",
+    "intent": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+    "inputs": [
+      {
+        "name": "aggregated_results",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2048",
+          "label": "Report",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3464",
+          "label": "JSON"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "report_html",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2048",
+          "label": "Report",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:2331",
+          "label": "HTML"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      },
+      {
+        "name": "report_pdf",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2048",
+          "label": "Report",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:3508",
+          "label": "PDF"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/reporting.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "reporting",
+      "depends_on": [
+        "differential_expression"
+      ],
+      "expected_artifacts": [
+        "report.md",
+        "manifest.json",
+        "result.json"
+      ],
+      "required_figures": [
+        "concordance_heatmap",
+        "pathway_overlap_bar"
+      ],
+      "resource_profile": {
+        "cpu": "light",
+        "memory": "small",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "reporting"
+    }
+  },
+  {
+    "id": "sequence_trimming",
+    "human_name": "sequence_trimming",
+    "machine_name": "sequence_trimming",
+    "status": "active",
+    "intent": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+    "inputs": [
+      {
+        "name": "raw_reads",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2044",
+          "label": "Sequence reads",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:1930",
+          "label": "FASTQ"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "trimmed_reads",
+        "semantic_type": {
+          "kind": "ontology_term",
+          "iri": "data:2044",
+          "label": "Sequence reads",
+          "ontology_version": "EDAM-1.25"
+        },
+        "physical_format": {
+          "iri": "format:1930",
+          "label": "FASTQ"
+        },
+        "privacy_class": "internal",
+        "cardinality": {
+          "kind": "one"
+        }
+      }
+    ],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "provenance": {
+      "source": "config/stage-atoms/sequence_trimming.yaml"
+    },
+    "version": {
+      "major": 1,
+      "minor": 0,
+      "patch": 0
+    },
+    "lifecycle_state": "contracted",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "atom_id": "sequence_trimming",
+      "candidate_tools": [
+        "trimmomatic",
+        "cutadapt",
+        "fastp",
+        "trim_galore"
+      ],
+      "depends_on": [
+        "raw_qc"
+      ],
+      "expected_artifacts": [
+        "retention_summary.json",
+        "manifest.json",
+        "result.json"
+      ],
+      "plot_stage_id": "preprocessing",
+      "required_figures": [
+        "retention_bar"
+      ],
+      "resource_profile": {
+        "cpu": "moderate",
+        "memory": "medium",
+        "runtime_class": "minutes"
+      },
+      "role": "operation",
+      "stage_id": "sequence_trimming"
+    }
+  },
+  {
+    "id": "validate_alignment",
+    "human_name": "validate_alignment",
+    "machine_name": "validate_alignment",
+    "status": "active",
+    "intent": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "alignment"
+    }
+  },
+  {
+    "id": "validate_batch_correction",
+    "human_name": "validate_batch_correction",
+    "machine_name": "validate_batch_correction",
+    "status": "active",
+    "intent": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. swfc namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "batch_correction"
+    }
+  },
+  {
+    "id": "validate_cell_type_annotation",
+    "human_name": "validate_cell_type_annotation",
+    "machine_name": "validate_cell_type_annotation",
+    "status": "active",
+    "intent": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "cell_type_annotation"
+    }
+  },
+  {
+    "id": "validate_clustering",
+    "human_name": "validate_clustering",
+    "machine_name": "validate_clustering",
+    "status": "active",
+    "intent": "Validate outputs of: Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "clustering"
+    }
+  },
+  {
+    "id": "validate_data_acquisition",
+    "human_name": "validate_data_acquisition",
+    "machine_name": "validate_data_acquisition",
+    "status": "active",
+    "intent": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "data_acquisition"
+    }
+  },
+  {
+    "id": "validate_differential_expression",
+    "human_name": "validate_differential_expression",
+    "machine_name": "validate_differential_expression",
+    "status": "active",
+    "intent": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "differential_expression"
+    }
+  },
+  {
+    "id": "validate_dimensionality_reduction",
+    "human_name": "validate_dimensionality_reduction",
+    "machine_name": "validate_dimensionality_reduction",
+    "status": "active",
+    "intent": "Validate outputs of: Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "dimensionality_reduction"
+    }
+  },
+  {
+    "id": "validate_final_reporting",
+    "human_name": "validate_final_reporting",
+    "machine_name": "validate_final_reporting",
+    "status": "active",
+    "intent": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "final_reporting"
+    }
+  },
+  {
+    "id": "validate_integration",
+    "human_name": "validate_integration",
+    "machine_name": "validate_integration",
+    "status": "active",
+    "intent": "Validate outputs of: Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "integration"
+    }
+  },
+  {
+    "id": "validate_normalisation",
+    "human_name": "validate_normalisation",
+    "machine_name": "validate_normalisation",
+    "status": "active",
+    "intent": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "normalisation"
+    }
+  },
+  {
+    "id": "validate_pathway_enrichment",
+    "human_name": "validate_pathway_enrichment",
+    "machine_name": "validate_pathway_enrichment",
+    "status": "active",
+    "intent": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "pathway_enrichment"
+    }
+  },
+  {
+    "id": "validate_qc_preprocessing",
+    "human_name": "validate_qc_preprocessing",
+    "machine_name": "validate_qc_preprocessing",
+    "status": "active",
+    "intent": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "qc_preprocessing"
+    }
+  },
+  {
+    "id": "validate_quantification",
+    "human_name": "validate_quantification",
+    "machine_name": "validate_quantification",
+    "status": "active",
+    "intent": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "quantification"
+    }
+  },
+  {
+    "id": "validate_raw_qc",
+    "human_name": "validate_raw_qc",
+    "machine_name": "validate_raw_qc",
+    "status": "active",
+    "intent": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "raw_qc"
+    }
+  },
+  {
+    "id": "validate_reporting",
+    "human_name": "validate_reporting",
+    "machine_name": "validate_reporting",
+    "status": "active",
+    "intent": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "reporting"
+    }
+  },
+  {
+    "id": "validate_sequence_trimming",
+    "human_name": "validate_sequence_trimming",
+    "machine_name": "validate_sequence_trimming",
+    "status": "active",
+    "intent": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+    "inputs": [],
+    "outputs": [],
+    "implementation": {
+      "kind": "unimplemented"
+    },
+    "risk": "negligible",
+    "version": {
+      "major": 0,
+      "minor": 1,
+      "patch": 0
+    },
+    "lifecycle_state": "production",
+    "trust_level": "unverified",
+    "attributes": {
+      "assignee": "agent",
+      "role": "validation",
+      "validate_target": "sequence_trimming"
+    }
+  }
+]

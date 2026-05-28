@@ -1,0 +1,98 @@
+# cargo-nextest configuration.
+#
+# nextest is process-per-test (vs cargo-test's process-per-binary). On
+# this workspace it's the difference between waiting for slow integration
+# tests to finish before fast unit tests can run, and just running them
+# all concurrently. CI already uses nextest; this file pins the
+# behavior so local runs match.
+#
+# Reference: https://nexte.st/book/configuration.html
+
+[store]
+# Per-run state lives under `target/nextest/`. The default is
+# `target/nextest/<profile>/`; we keep it.
+
+[profile.default]
+# Don't bail on first failure — surface every failing test in one
+# run. The pre-push gate is `make all`; a partial-failure run leaves
+# the developer chasing a moving target. Setting `fail-fast = false`
+# at config level (rather than `--no-fail-fast` per-invocation)
+# means every nextest invocation gets it.
+fail-fast = false
+
+# Tests slower than `slow-timeout` get a [SLOW] tag in the report;
+# tests exceeding `terminate-after` slow-timeouts are killed. Keeps
+# accidental infinite-loops from holding the whole suite hostage.
+# `period` triggers a SLOW marker; `terminate-after = 5` means
+# 5×period before SIGKILL (5×60s = 5 min hard cap — matches the
+# presubmission-batch's per-anchor wall-clock budget).
+slow-timeout = { period = "60s", terminate-after = 5 }
+
+# Default retries to 0 locally — flakes should be diagnosed, not
+# papered over. CI profile below sets 1 retry for transient
+# infrastructure-induced flakes (CI runner CPU contention, network).
+retries = 0
+
+# Concurrency. nextest defaults to `num-cpus`. On this workspace
+# (3,730 unit + ~600 integration subtests) that means saturated CPUs
+# for the test run. Override only if the runs become memory-bound;
+# default is intentional.
+# test-threads = "num-cpus"
+
+[profile.ci]
+# CI profile selected via `cargo nextest run --profile ci`. The CI
+# workflow uses default today; bumping retries here without changing
+# the workflow is a no-op. When we flip the workflow to
+# `--profile ci`, the retry policy kicks in.
+fail-fast = false
+slow-timeout = { period = "120s", terminate-after = 4 }
+retries = { backoff = "exponential", count = 2, delay = "2s", jitter = true }
+# nextest can split the test run across partitions for sharding —
+# usable as `cargo nextest run --profile ci --partition count:1/2`,
+# `2/2`, etc. across parallel CI jobs.
+
+[profile.fast]
+# `cargo nextest run --profile fast` for the inner loop. Hides any
+# test slower than 5s with a [SLOW] tag and bails immediately on the
+# first failure so a regression in one test doesn't make you wait for
+# 3000 others. Pair with `make test-fast` for sub-2s feedback.
+fail-fast = true
+slow-timeout = { period = "5s", terminate-after = 2 }
+retries = 0
+status-level = "fail"
+final-status-level = "flaky"
+
+# Test groups. Use groups to cap concurrency for resource-heavy suites
+# without slowing down the rest. Currently the only suite that
+# benefits is the harness executor tests (Docker / SSH / SLURM mocks
+# spawn child processes); cap their parallelism so they don't fight
+# for FDs.
+[[profile.default.overrides]]
+filter = "test(/executor/) | test(/dispatch_wal/) | test(/aws::/)"
+test-group = "harness-exec"
+# One retry on the process-spawning suites — these can flake on
+# contention (TCP port reuse, transient FD pressure, child SIGTERM
+# races) without indicating a real regression. Keep the rest of the
+# workspace at zero retries so genuine flakes still surface loudly.
+retries = 1
+
+# per_atom_plot_smoke exercises every registered plot atom (~92 stages)
+# in one test by spawning matplotlib/seaborn renderers across the full
+# affordance catalog. Wall-clock varies with the renderer count: ~6–12
+# minutes on a warm cargo cache, longer on cold. The default 5-min hard
+# cap (`60s × 5`) is too tight; give this single test 15 minutes
+# (`60s × 15`).
+[[profile.default.overrides]]
+filter = "test(=per_atom_plot_smoke)"
+slow-timeout = { period = "60s", terminate-after = 15 }
+
+[[profile.ci.overrides]]
+filter = "test(/executor/) | test(/dispatch_wal/) | test(/aws::/)"
+test-group = "harness-exec"
+
+[[profile.ci.overrides]]
+filter = "test(=per_atom_plot_smoke)"
+slow-timeout = { period = "120s", terminate-after = 8 }
+
+[test-groups]
+harness-exec = { max-threads = 2 }

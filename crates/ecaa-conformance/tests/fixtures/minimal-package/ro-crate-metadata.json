@@ -1,0 +1,77 @@
+{
+  "@context": "https://w3id.org/ro/crate/1.1/context",
+  "@graph": [
+    {
+      "@id": "ro-crate-metadata.json",
+      "@type": "CreativeWork",
+      "about": {"@id": "./"},
+      "conformsTo": [
+        {"@id": "https://w3id.org/ro/crate/1.1"}
+      ]
+    },
+    {
+      "@id": "./",
+      "@type": "Dataset",
+      "conformsTo": [
+        {"@id": "https://w3id.org/ro/crate/1.1"},
+        {"@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"},
+        {"@id": "https://w3id.org/ro/wfrun/process/0.5"},
+        {"@id": "https://w3id.org/ro/wfrun/workflow/0.5"},
+        {"@id": "https://w3id.org/ro/wfrun/provenance/0.5"},
+        {"@id": "https://w3id.org/ecaa/v0.1"}
+      ],
+      "hasPart": [
+        {"@id": "runtime/intake-conversation.jsonl"},
+        {"@id": "runtime/decisions.jsonl"},
+        {"@id": "runtime/validation-reports.jsonl"},
+        {"@id": "runtime/proofs.jsonl"},
+        {"@id": "runtime/claim-verification.json"},
+        {"@id": "runtime/verifier-decisions.jsonl"},
+        {"@id": "runtime/assumptions.jsonl"},
+        {"@id": "runtime/audit-proof-report.json"}
+      ]
+    },
+    {
+      "@id": "runtime/intake-conversation.jsonl",
+      "@type": "CreativeWork"
+    },
+    {
+      "@id": "runtime/decisions.jsonl",
+      "@type": "CreativeWork"
+    },
+    {
+      "@id": "runtime/validation-reports.jsonl",
+      "@type": "CreativeWork"
+    },
+    {
+      "@id": "runtime/proofs.jsonl",
+      "@type": "CreativeWork"
+    },
+    {
+      "@id": "runtime/claim-verification.json",
+      "@type": "CreativeWork"
+    },
+    {
+      "@id": "runtime/verifier-decisions.jsonl",
+      "@type": "CreativeWork"
+    },
+    {
+      "@id": "runtime/assumptions.jsonl",
+      "@type": "CreativeWork"
+    },
+    {
+      "@id": "runtime/audit-proof-report.json",
+      "@type": "CreativeWork"
+    },
+    {
+      "@id": "#param-conn-1",
+      "@type": ["wfprov:ParameterConnection"],
+      "wfprov:source": {"@id": "data/input.fastq.gz"},
+      "wfprov:sink": {"@id": "#task_qc_001"}
+    },
+    {
+      "@id": "#plan-1",
+      "@type": ["p-plan:Plan"]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+schema_version: "0.1"
+id: bulk_rnaseq
+display_name: Bulk RNA-seq
+keywords: [rnaseq, rna-seq, "differential expression", "bulk rna", "rna seq", transcriptomics, "gene expression", "gene expression analysis", "expression analysis", "gene expression and proteomics", deseq2, edger, limma, salmon, kallisto, star, hisat2, featurecounts, htseq]
+edam_topic: "topic:3308"
+edam_operation: "operation:3223"
+taxonomy_path: stage-taxonomies/rnaseq-de.yaml
+archetype_id: bulk_rnaseq_de
+semantic_equivalence_bounds:
+  - metric: log2fc_abs_delta
+    operator: "<="
+    threshold: 0.01
+    applies_to: "results/tables/de_*.csv"
+    rationale: "Grant §G2 bulk-RNA DE bound: |log2FC_A − log2FC_B| ≤ 0.01 across all DE genes"
+  - metric: pvalue_relative_delta
+    operator: "<="
+    threshold: 0.05
+    rationale: "Grant §G2 p-value relative tolerance: |(p_A − p_B)| / max(p_A, p_B) ≤ 0.05"

@@ -1,0 +1,65 @@
+id: validate_sample_alignment_n_way
+version: "1.0.0"
+role: validation
+description: |
+  Plan §B.M7 — joint precondition for N-way cross-omics analyses. Verifies
+  that all N modality branches share a sample-ID universe before the
+  integration / thematic-comparison stage runs. The agent reads the
+  per-branch sample manifest, computes the intersection (or
+  per-modality missingness against a configurable threshold), and writes
+  an alignment-quality report plus a filtered sample manifest the
+  downstream integrator atom (`integrate_multi_omics_*` per B.M8) or
+  thematic-comparison reporter consumes.
+
+  Without this validator the SME would only discover sample mismatch at
+  integration time, where the failure mode is opaque (matrices have
+  different shapes, NaN propagation, etc.). Surfacing it as a typed
+  validation atom upstream lets the typed `BlockerKind::ValidationFailure`
+  recovery path apply.
+edam_operation: "swfc:cross_omics_sample_alignment"
+edam_data: "data:1278"
+edam_format: "format:3464"
+assignee: agent
+depends_on: []
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: seconds
+claim_boundary: |
+  This validator does NOT impute missing samples; it only reports the
+  alignment shape and filters to the intersection (or to per-modality
+  thresholds when configured). Upstream branches retain their unfiltered
+  results; only the downstream integrator consumes the filtered manifest.
+# Explicit rich ports.
+# Validation atom: consumes the multi-modal sample manifest (per
+# branch sample-id list), emits an alignment-quality report + a
+# filtered manifest the downstream integrator consumes.
+inputs:
+  - name: multi_modal_sample_sheet
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "multi_modal_sample_sheet"
+      proposed_parent_terms:
+        - "data:1278"
+      definition: "Per-modality sample-ID manifest used to compute the cross-omics intersection"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal
+    cardinality:
+      kind: many
+outputs:
+  - name: alignment_report
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "sample_alignment_report"
+      proposed_parent_terms:
+        - "data:1278"
+      definition: "N-way sample-alignment report: intersection size, per-modality missingness, filtered sample manifest"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal

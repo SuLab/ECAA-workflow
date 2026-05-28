@@ -1,0 +1,54 @@
+id: 60_heuristic_method_named_unprompted
+category: non_scripted_tool_selection
+description: |
+  R5.19 Phase 2 — neutrality contract carve-out. The role spec
+  (`prompt_role.txt:487-507`) forbids the assistant from recommending
+  methodological choices BUT explicitly allows `set_intake_method`
+  when the SME names a tool unprompted. This fixture drives the
+  `HeuristicMockBackend` with prose that names STAR + DESeq2 directly;
+  the heuristic's Phase 2 arm must detect the pinning context ("using
+  STAR for alignment") and dispatch `set_intake_method`.
+
+  The SME-signal gate at `tools::intake::set_intake_method` refuses
+  the call until the UI flips `sme_method_signals.named[stage]`, so
+  the dispatch lands with `is_error=true` — but the call appears in
+  `tool_call_log` either way. The fixture asserts on the dispatch,
+  not on the success status, because the heuristic's neutrality-arm
+  decision is what's under test.
+
+  Companion fixture: 61 (recommendation request → refusal).
+
+mock_backend: heuristic
+
+flow:
+  - kind: user
+    text: |
+      I want bulk RNA-seq differential expression using STAR for
+      alignment and DESeq2 for the stats. The data are from public
+      GEO accessions GSE189916 and GSE205535, case-vs-control, three
+      replicates per group.
+
+# mock_responses omitted — HeuristicMockBackend picks tools from
+# session state + SME prose, not a recorded tape.
+
+expected_final_state:
+  # set_intake_method (refused or accepted) is followed by the
+  # heuristic's rule 4 → propose_summary_confirmation, which moves
+  # the session into PendingConfirmation. The fixture asserts on
+  # the dispatch order, not on whether the summary card was
+  # ultimately accepted.
+  state_kind: pending_confirmation
+  user_confirmed: false
+  tool_calls_observed:
+    - classify_intake
+    - append_intake_prose
+    - set_intake_method
+    - propose_summary_confirmation
+
+rubric_notes: |
+  Watch for: heuristic recognized the pinning preposition ("using
+  STAR for alignment") and emitted `set_intake_method` — the
+  prompt_role.txt carve-out. A regression that drops the
+  detect_method_mention pinning rule would surface here as the
+  heuristic falling through to `propose_summary_confirmation`
+  without ever attempting to pin the named methods.

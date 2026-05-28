@@ -1,0 +1,9 @@
+{
+  "runs": [
+    {
+      "id": "run",
+      "mean_variance_path": "run/mean_variance.tsv",
+      "n_hvg": 20
+    }
+  ]
+}

@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "1.1",
+  "targetStages": [
+    "discover_interpretation",
+    "biological_interpretation",
+    "validate_interpretation",
+    "ptm_analysis",
+    "pathway_enrichment"
+  ],
+  "claimBoundary": {
+    "associativeOnly": [
+      "Report PTM site enrichment as statistical associations only",
+      "Treat protein-disease overlays as suggestive, never diagnostic",
+      "PTM stoichiometry is not localization confidence — keep them distinct in narrative"
+    ],
+    "requiresEvidence": [
+      "PTM site claims must cite localization probability (e.g. PhosphoRS, ptmRS, A-score) AND search-engine FDR",
+      "Protein quantification claims must cite the quantification method (LFQ, TMT, iBAQ) and the quantitation FDR",
+      "Pathway-enrichment claims on proteins must cite the pathway database version + the enrichment method (e.g. fgsea, gprofiler)"
+    ]
+  },
+  "verifiableEntities": {
+    "enabled": true,
+    "entityNamePatterns": [
+      "[A-Z][A-Z0-9]{1,}",
+      "[OPQA][0-9][A-Z0-9]{3}[0-9]",
+      "[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}",
+      "PXD\\d{6,}",
+      "PRD\\d{6,}",
+      "MSV\\d{9}",
+      "GO:\\d{7}",
+      "R-HSA-\\d+",
+      "K\\d{5}"
+    ],
+    "entityNameExcludePatterns": [
+      "^USA$", "^WHO$", "^CDC$", "^BBC$", "^EU$", "^US$", "^UK$",
+      "^PCR$", "^QPCR$", "^DNA$", "^RNA$", "^ATP$", "^ADP$", "^AMP$",
+      "^NGS$", "^ELISA$", "^SDS$", "^PAGE$", "^BSA$", "^HRP$",
+      "^FDA$", "^EMA$", "^ISO$", "^GMP$",
+      "^MS$", "^MS2$", "^MS3$",
+      "^IVD$", "^IVT$"
+    ],
+    "directionVocab": {
+      "up": [
+        "upregulated",
+        "up-regulated",
+        "increased",
+        "elevated",
+        "enriched",
+        "induced",
+        "higher",
+        "hyperphosphorylated",
+        "hyperacetylated",
+        "stabilized",
+        "ubiquitinated",
+        "activated"
+      ],
+      "down": [
+        "downregulated",
+        "down-regulated",
+        "decreased",
+        "reduced",
+        "depleted",
+        "suppressed",
+        "lower",
+        "hypophosphorylated",
+        "hypoacetylated",
+        "destabilized",
+        "deubiquitinated",
+        "repressed",
+        "inhibited"
+      ]
+    },
+    "effectSizeColumns": [
+      "log2FC",
+      "logFC",
+      "logFoldChange",
+      "log2_ratio",
+      "ratio",
+      "abundance_ratio",
+      "tmt_log2_ratio",
+      "lfq_log2_ratio",
+      "ibaq_log2_ratio",
+      "effect_size",
+      "estimate"
+    ],
+    "entityColumns": [
+      "gene",
+      "gene_name",
+      "protein",
+      "uniprot_id",
+      "uniprot",
+      "accession",
+      "majority_protein_ids",
+      "leading_proteins",
+      "site",
+      "modification_site",
+      "ptm_site"
+    ],
+    "pvalueColumns": [
+      "pvalue",
+      "p_value",
+      "pval",
+      "padj",
+      "adj.P.Val",
+      "FDR",
+      "q_value",
+      "localization_fdr",
+      "site_fdr"
+    ],
+    "tolerance": {
+      "log2FcAbsoluteDelta": 0.05,
+      "pvalueRelativeDelta": 0.1
+    }
+  },
+  "validationContract": {
+    "requiredOutputs": [],
+    "metrics": []
+  },
+  "evidenceRules": [
+    {
+      "id": "ptm_localization_required",
+      "description": "PTM site assignments must cite a localization-probability column (PhosphoRS, ptmRS, A-score, ascore_localization). Sites without a localization confidence are flagged as ambiguous and downgraded from positional to peptide-level claims.",
+      "appliesTo": ["phosphorylation", "acetylation", "ubiquitination", "methylation", "ptm_site_change"],
+      "severity": "blocking"
+    },
+    {
+      "id": "quantification_method_required",
+      "description": "Protein abundance claims must cite the quantification method (LFQ / TMT / iBAQ / SILAC) AND the quantitation FDR. A bare 'protein X was elevated' without method+FDR is treated as associative-only.",
+      "appliesTo": ["upregulated", "downregulated", "elevated", "decreased"],
+      "severity": "blocking"
+    },
+    {
+      "id": "ptm_stoichiometry_distinct_from_localization",
+      "description": "Narratives must keep PTM-site stoichiometry (the fraction of a peptide that is modified) distinct from PTM-site localization confidence. Confusing the two is a reproducibility hazard the verifier surfaces as a ClaimVerificationReport mismatch.",
+      "appliesTo": ["ptm_stoichiometry", "ptm_localization"],
+      "severity": "warning"
+    }
+  ],
+  "note": "Proteomics overlay (S3.16). UniProt accession patterns ([OPQA][0-9][A-Z0-9]{3}[0-9] for canonical 6-char IDs, [A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2} for 10-char IDs). PRIDE/MASSIVE accession patterns (PXD/PRD/MSV). PTM-aware direction vocab (hyperphosphorylated etc.). LFQ/TMT/iBAQ effect-size columns plus standard logFC. evidenceRules require localization probability for PTM sites and quantification method for abundance claims. Merged on top of interpretation-policy.json at load time."
+}

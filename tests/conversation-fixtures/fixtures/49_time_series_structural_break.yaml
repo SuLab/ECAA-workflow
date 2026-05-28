@@ -1,0 +1,60 @@
+id: 49_time_series_structural_break
+category: wave8_time_series_forecast
+description: |
+  Plan §8.H.2 fixture 36 equivalent: time-series SME calls out a known
+  structural break. The assistant must capture the break as intake prose
+  (sensitivity-analysis stage consumes it) without choosing between
+  "ignore the break" vs "segment the series" — that's the SME's call.
+
+flow:
+  - kind: user
+    text: |
+      Monthly retail sales forecast over 5 years. There's a known
+      structural break at month 24 (new product-line launch). I want
+      SARIMA on the post-break series plus a sensitivity analysis that
+      fits on the full series to see whether the break matters.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        Monthly retail sales, 5-year history, known structural break at
+        month 24 (product-line launch). Primary: SARIMA on post-break
+        series. Sensitivity: SARIMA on full series to assess break impact.
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Time-series forecast with a known structural-break sensitivity.
+        Primary fits post-break; sensitivity fits the full series.
+  - kind: text
+    text: |
+      Accept when it looks right.
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      Package emitted. The agent will run both SARIMA fits and the
+      sensitivity_analysis stage will report concordance vs the primary.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - policies/container.json
+
+rubric_notes: |
+  The assistant records the break + sensitivity plan as stated — it does
+  not recommend whether breaks are real, nor pick SARIMA orders. Method
+  neutrality rule per project_class_prompts/time_series_forecast.txt.

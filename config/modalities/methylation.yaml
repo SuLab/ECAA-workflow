@@ -1,0 +1,51 @@
+schema_version: "0.1"
+id: methylation
+display_name: DNA methylation
+keywords:
+- bisulfite
+- bisulfite sequencing
+- wgbs
+- rrbs
+- em-seq
+- em seq
+- enzymatic methyl
+- enzymatic methyl-seq
+- dna methylation
+- methylation analysis
+- methylation array
+- methylation epic
+- methylationepic
+- 450k methylation
+- 850k methylation
+- infinium methylation
+- bismark
+- methylkit
+- bwa-meth
+- methylpy
+- oxbs
+- dmrseq
+- dmr
+- dmp
+- methylseq
+- cpg island
+- differentially methylated
+edam_topic: topic:3940
+edam_operation: operation:3204
+archetype_id: methylation_de
+taxonomy_path: stage-taxonomies/rnaseq-de.yaml
+semantic_equivalence_bounds:
+  - metric: per_cpg_rho
+    operator: ">"
+    threshold: 0.99
+    applies_to: "results/tables/cpg_methylation_*.csv"
+    rationale: "Grant §G2 methylation: per-CpG beta-value Spearman ρ > 0.99 between runs"
+  - metric: dmr_overlap
+    operator: ">="
+    threshold: 0.95
+    applies_to: "results/tables/dmr_*.csv"
+    rationale: "Grant §G2 methylation: DMR reciprocal overlap ≥ 0.95 (genomic interval Jaccard at 50% reciprocal threshold)"
+  - metric: uxm_overlap
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/tables/uxm_*.csv"
+    rationale: "Grant §G2 methylation: UXM fragment-class overlap ≥ 0.90 between WGBS runs"

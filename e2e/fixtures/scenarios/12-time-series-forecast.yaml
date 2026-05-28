@@ -1,0 +1,85 @@
+# 12 — Mock SARIMA monthly forecast
+#
+# Playwright coverage for the time-series-forecast class — proves it
+# loads the right taxonomy + container through the same SSE flow the
+# bio scenarios use.
+
+name: Mock SARIMA monthly forecast
+modality: time_series_forecast
+
+beats:
+  - user: |
+      I need a time-series forecast of monthly hospital admissions for
+      the next 12 months. Eight years of history, SARIMA with seasonal
+      period 12.
+    assistant:
+      content: |
+        Monthly hospital admissions, SARIMA with period 12 — got it.
+        What's the forecast horizon and how much holdout for backtesting?
+    state: intake
+    expect:
+      stateBadge: intake
+      visibleText:
+        - "monthly"
+        - "SARIMA"
+      forbiddenText:
+        - "DAG"
+
+  - user: |
+      12-month horizon. Holdout the last 24 months for backtesting.
+      Report MAPE and RMSE. Run ADF stationarity diagnostics and
+      Ljung-Box on residuals.
+    assistant:
+      content: |
+        Here's the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **Monthly hospital-admissions SARIMA forecast**
+
+          - **History:** 8 years monthly
+          - **Model:** SARIMA, period 12
+          - **Horizon:** 12 months
+          - **Holdout:** 24 months, MAPE + RMSE
+          - **Diagnostics:** ADF stationarity, Ljung-Box residuals
+          - **Container:** `scripps/time-series:1.0`
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "SARIMA"
+        - "MAPE"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: |
+          Package emitted — time-series container will execute.
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I need a time-series forecast of monthly hospital admissions for the next
+    12 months. Eight years of monthly history. SARIMA with seasonal period 12.
+    Holdout the last 24 months for backtesting. Report MAPE and RMSE. Run
+    ADF stationarity diagnostics and Ljung-Box on residuals. Emit the package
+    to {pkgDir}.
+  followups:
+    - trigger: "(?i)(horizon|backtest|holdout)"
+      reply: "12-month forecast horizon, 24-month holdout for backtesting."
+    - trigger: "(?i)(diagnostic|residual|stationarity)"
+      reply: "ADF stationarity + Ljung-Box residual checks."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "recommend"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

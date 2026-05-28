@@ -1,0 +1,54 @@
+id: raw_qc
+version: "1.0.0"
+role: operation
+description: |
+  Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric
+  table and aggregated report; downstream `sequence_trimming` reads the trim-needed
+  flag.
+edam_operation: "operation:3218"
+edam_data: "data:1234"
+edam_format: "format:3464"
+assignee: agent
+depends_on:
+  - data_acquisition
+plot_stage_id: quality_control
+expected_artifacts:
+  - qc_metrics.tsv
+  - qc_summary.json
+  - manifest.json
+  - result.json
+required_figures:
+  - per_sample_metric_violin
+  - per_sample_metric_bar
+  - qc_summary_bar
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# FASTQ raw reads input — paired-end / single-end / read-length /
+# strandedness facets are populated by the data_profiler at intake
+# time when not declared up-front.
+inputs:
+  - name: raw_reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2044"
+      label: "Sequence reads"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:1930"
+      label: "FASTQ"
+    privacy_class: internal
+outputs:
+  - name: qc_metrics
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2914"
+      label: "Sequence metrics"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

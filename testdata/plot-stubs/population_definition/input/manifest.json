@@ -1,0 +1,12 @@
+{
+  "population_flow": {
+    "enrolled": 500,
+    "enrolled_excluded": "Ineligible (n=50)",
+    "randomized": 450,
+    "allocated": 450,
+    "allocated_excluded": "Withdrew (n=10)",
+    "followed_up": 440,
+    "followed_up_excluded": "Lost to follow-up (n=5)",
+    "analyzed": 435
+  }
+}

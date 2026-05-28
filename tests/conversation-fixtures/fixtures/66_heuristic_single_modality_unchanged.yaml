@@ -1,0 +1,57 @@
+id: 66_heuristic_single_modality_unchanged
+category: non_scripted_tool_selection
+description: |
+  R5.19 Phase 5 — regression guard for the cross-omics gate.
+  Two modality keywords appear in the SME prose (RNA-seq, proteomics)
+  but they describe two SEPARATE analyses (one current, one a future
+  comparison), not a single joint cross-omics analysis. The heuristic
+  must NOT detect a cross-omics signal and must NOT route through
+  `propose_quick_replies` before `classify_intake`.
+
+  Pairs with fixture 65 (positive case). The pair verifies the
+  cross-omics path is gated on the conjunction signal (joint /
+  integrate / paired / combined), not on plain modality keyword
+  count.
+
+
+mock_backend: heuristic
+
+flow:
+  - kind: user
+    text: |
+      bulk RNA-seq differential expression from human PBMCs. We also
+      have proteomics from a different study we want to compare later.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+# mock_responses omitted — heuristic backend ignores it.
+
+expected_final_state:
+  # Two-modality semicolon prose lands in mid-band (~0.5 confidence)
+  # and routes through classify → evidence → clarifying-ask terminator;
+  # the SME's `confirm` click then transitions IntakeFollowup → ReadyToEmit.
+  # The fixture's load-bearing claim is the NEGATIVE — `propose_quick_replies`
+  # MUST NOT appear before `classify_intake`. Asserting that via
+  # `tool_calls_excluded` + the ordered `tool_calls_observed` head is more
+  # stable than coupling to terminal-state arithmetic that the missing
+  # `ConfirmationToken` on the `Intake → ReadyToEmit` shortcut prevents
+  # from ever reaching `Emitted`.
+  state_kind: ready_to_emit
+  user_confirmed: true
+  tool_calls_observed:
+    - classify_intake
+    - get_classification_evidence
+  tool_calls_excluded:
+    - propose_quick_replies
+
+rubric_notes: |
+  The load-bearing assertion is the NEGATIVE — `propose_quick_replies`
+  MUST NOT precede `classify_intake`. If a `propose_quick_replies` tool
+  call appears at all on a semicolon-separated dual-modality prose, the
+  cross-omics gate has false-positively fired (it should ONLY fire on
+  the "joint analysis of X and Y" conjunction template; see fixture 65
+  for the positive case). The `tool_calls_excluded` primitive captures
+  this directly. Terminal-state assertion (`ready_to_emit`) reflects
+  the mid-band terminator path + confirm-from-IntakeFollowup transition;
+  it is not the regression this fixture guards against.

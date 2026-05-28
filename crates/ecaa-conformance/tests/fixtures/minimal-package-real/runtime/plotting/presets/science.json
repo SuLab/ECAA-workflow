@@ -1,0 +1,29 @@
+{
+  "_preset_name": "science",
+  "_description": "Science / AAAS style. Single-column 56mm, double-column 121mm. Helvetica/Arial, 6pt minimum text, 300dpi PNG / vector EPS or PDF.",
+  "_reference": "https://www.science.org/content/page/instructions-preparing-initial-manuscript",
+  "fonts": {
+    "family": "sans-serif",
+    "stack": ["Helvetica", "Arial", "DejaVu Sans"],
+    "body_pt": 7,
+    "title_pt": 8,
+    "tick_pt": 6,
+    "legend_pt": 6,
+    "footer_pt": 5
+  },
+  "axes": {
+    "linewidth": 0.5,
+    "spines_top": false,
+    "spines_right": false,
+    "constrained_layout": true
+  },
+  "output": {
+    "png_dpi": 300,
+    "formats": ["png", "pdf"],
+    "pdf_fonttype": 42,
+    "svg_fonttype": "none",
+    "rasterize_threshold_n": 50000,
+    "single_column_mm": 56,
+    "double_column_mm": 121
+  }
+}

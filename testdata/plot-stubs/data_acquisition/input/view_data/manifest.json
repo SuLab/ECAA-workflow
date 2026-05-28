@@ -1,0 +1,8 @@
+{
+  "errors": {},
+  "skipped": {},
+  "stage_id": "data_acquisition",
+  "written": {
+    "acquisition_summary": "acquisition_summary.json"
+  }
+}

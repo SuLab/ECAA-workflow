@@ -1,0 +1,546 @@
+{
+  "current_task": null,
+  "meta": {
+    "modality_stratum": "single_cell",
+    "run_id": "a87f5f41-1dea-b6c3-438c-2001cf6eca31"
+  },
+  "run_id": "a87f5f41-1dea-b6c3-438c-2001cf6eca31",
+  "tasks": {
+    "alignment": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_alignment",
+        "sequence_trimming"
+      ],
+      "description": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "kind": "computation",
+      "resource_class": "memory_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "batch_correction": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_batch_correction",
+        "normalisation"
+      ],
+      "description": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. swfc namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
+      "kind": "computation",
+      "resource_class": "memory_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "cell_type_annotation": {
+      "assignee": "agent",
+      "depends_on": [
+        "clustering",
+        "discover_cell_type_annotation"
+      ],
+      "description": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "clustering": {
+      "assignee": "agent",
+      "depends_on": [
+        "dimensionality_reduction",
+        "discover_clustering"
+      ],
+      "description": "Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "differential_expression": {
+      "assignee": "agent",
+      "depends_on": [
+        "cell_type_annotation",
+        "discover_differential_expression"
+      ],
+      "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "dimensionality_reduction": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_dimensionality_reduction",
+        "integration",
+        "normalisation"
+      ],
+      "description": "Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_alignment": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_batch_correction": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for batch_correction (options: harmony, scvi, bbknn, mnn_correct, combat, seurat_cca). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_cell_type_annotation": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for cell_type_annotation (options: celltypist, singler, azimuth, sctype, marker_panel). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_clustering": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for clustering (options: leiden, louvain, kmeans, hierarchical). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_differential_expression": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_dimensionality_reduction": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for dimensionality_reduction (options: pca, umap, tsne, phate). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_normalisation": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_pathway_enrichment": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_quantification": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for quantification (options: salmon, kallisto, featurecounts, htseq, rsem). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_sequence_trimming": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "integration": {
+      "assignee": "agent",
+      "depends_on": [
+        "batch_correction"
+      ],
+      "description": "Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
+      "kind": "gate",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "normalisation": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_normalisation",
+        "qc_preprocessing"
+      ],
+      "description": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "pathway_enrichment": {
+      "assignee": "agent",
+      "depends_on": [
+        "differential_expression",
+        "discover_pathway_enrichment"
+      ],
+      "description": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "qc_preprocessing": {
+      "assignee": "agent",
+      "depends_on": [
+        "quantification"
+      ],
+      "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "quantification": {
+      "assignee": "agent",
+      "depends_on": [
+        "alignment",
+        "discover_quantification"
+      ],
+      "description": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "kind": "computation",
+      "resource_class": "memory_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "raw_qc": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "differential_expression",
+        "pathway_enrichment"
+      ],
+      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "sequence_trimming": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_sequence_trimming",
+        "raw_qc"
+      ],
+      "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_alignment": {
+      "assignee": "agent",
+      "depends_on": [
+        "alignment"
+      ],
+      "description": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_batch_correction": {
+      "assignee": "agent",
+      "depends_on": [
+        "batch_correction"
+      ],
+      "description": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. swfc namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_cell_type_annotation": {
+      "assignee": "agent",
+      "depends_on": [
+        "cell_type_annotation"
+      ],
+      "description": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_clustering": {
+      "assignee": "agent",
+      "depends_on": [
+        "clustering"
+      ],
+      "description": "Validate outputs of: Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_differential_expression": {
+      "assignee": "agent",
+      "depends_on": [
+        "differential_expression"
+      ],
+      "description": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_dimensionality_reduction": {
+      "assignee": "agent",
+      "depends_on": [
+        "dimensionality_reduction"
+      ],
+      "description": "Validate outputs of: Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "final_reporting"
+      ],
+      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_integration": {
+      "assignee": "agent",
+      "depends_on": [
+        "integration"
+      ],
+      "description": "Validate outputs of: Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_normalisation": {
+      "assignee": "agent",
+      "depends_on": [
+        "normalisation"
+      ],
+      "description": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_pathway_enrichment": {
+      "assignee": "agent",
+      "depends_on": [
+        "pathway_enrichment"
+      ],
+      "description": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_qc_preprocessing": {
+      "assignee": "agent",
+      "depends_on": [
+        "qc_preprocessing"
+      ],
+      "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_quantification": {
+      "assignee": "agent",
+      "depends_on": [
+        "quantification"
+      ],
+      "description": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_raw_qc": {
+      "assignee": "agent",
+      "depends_on": [
+        "raw_qc"
+      ],
+      "description": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_sequence_trimming": {
+      "assignee": "agent",
+      "depends_on": [
+        "sequence_trimming"
+      ],
+      "description": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    }
+  },
+  "version": "1.0",
+  "workflow_id": "workflow-8f9227814342"
+}

@@ -1,0 +1,11 @@
+{
+  "modality": "variant_calling",
+  "project_class": "bioinformatics",
+  "organism_taxon_id": 9606,
+  "organism_name": "Homo sapiens",
+  "methods": [
+    "GATK HaplotypeCaller",
+    "DeepVariant"
+  ],
+  "literature_review_requested": false
+}

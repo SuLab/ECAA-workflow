@@ -1,0 +1,16 @@
+{
+  "fused_matrix_path": "fused_matrix.tsv",
+  "clusters_path": "clusters.tsv",
+  "modality_concordance_matrix": [
+    [1.0, 0.62, 0.48],
+    [0.62, 1.0, 0.55],
+    [0.48, 0.55, 1.0]
+  ],
+  "row_labels": ["RNA", "Protein", "ATAC"],
+  "col_labels": ["RNA", "Protein", "ATAC"],
+  "factor_variance": [
+    {"factor": "f1", "variance": 0.31},
+    {"factor": "f2", "variance": 0.24},
+    {"factor": "f3", "variance": 0.17}
+  ]
+}

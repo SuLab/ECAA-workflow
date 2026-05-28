@@ -1,0 +1,4 @@
+Bulk RNA-seq differential expression with sensitivity comparison across two DE
+methods: DESeq2 and edgeR. Run both in parallel on the same count matrix, produce
+a per-method DE result, and surface a comparison table showing concordance + the
+top-discordant genes for SME review and selection.

@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "05-depmap-ccle-rnaseq"
+claims:
+  - id: "05-depmap-ccle-rnaseq-claim-001"
+    text: "Cell-line molecular characterization panel: 1,001"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: 1001
+    tolerance: 0.1
+  - id: "05-depmap-ccle-rnaseq-claim-002"
+    text: "Cell lines screened for drug response: 990 (median 878 / drug, range 366–935)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: 990
+    tolerance: 0.1
+  - id: "05-depmap-ccle-rnaseq-claim-003"
+    text: "Drug response curves: 212,774"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: 212774
+    tolerance: 0.1
+  - id: "05-depmap-ccle-rnaseq-claim-004"
+    text: "Pan-cancer CFE count: 1,273"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: 1273
+    tolerance: 0.1
+  - id: "05-depmap-ccle-rnaseq-claim-005"
+    text: "Significant CFE-drug interactions (FDR<25%, p<10⁻³): 688 (540 pan-cancer + 174 cancer-specific + overlap)"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/drug_response.csv"
+    expected_value: 688
+    tolerance: 0.1
+  - id: "05-depmap-ccle-rnaseq-claim-006"
+    text: "Large-effect interactions (Glass Δ > 1): 262"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: 262
+    tolerance: 0.1
+  - id: "05-depmap-ccle-rnaseq-claim-007"
+    text: "Predictive LOBICO models (cancer-specific): 208 / 265 (78%)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: 208
+    tolerance: 0.1
+  - id: "05-depmap-ccle-rnaseq-claim-008"
+    text: "Predictive LOBICO models (pan-cancer): 182 / 265 (69%)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: 182
+    tolerance: 0.1
+  - id: "05-depmap-ccle-rnaseq-claim-009"
+    text: "Independent CTRP v2 validation rate: ≥ 53% (19/36 sensitivity associations)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: 0.53
+    tolerance: 0.05
+  - id: "05-depmap-ccle-rnaseq-claim-010"
+    text: "Tissue-of-origin nearest-neighbor concordance: 71% (1-NN), 81% (2-NN), 92% (5-NN)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: 0.71
+    tolerance: 0.05
+  - id: "05-depmap-ccle-rnaseq-claim-011"
+    text: "Pathway alteration matrix: 13 canonical pathways, median R = 0.75 between cell lines and tumors"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: 13
+    tolerance: 0.1
+  - id: "05-depmap-ccle-rnaseq-claim-012"
+    text: "Established interactions recovered: EGFR / Gefitinib & Afatinib in LUAD; BRAF / Vemurafenib & Dabrafenib in SKCM; ABL1-BCR / Imatinib in CML; ERBB2 / Lapatinib in BRCA"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: "EGFR / Gefitinib & Afatinib in LUAD; BRAF / Vemurafenib & Dabrafenib in SKCM; ABL1-BCR / Imatinib in CML; ERBB2 / Lapati"
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null
+  - id: "05-depmap-ccle-rnaseq-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 05-depmap-ccle-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/drug_response.csv"
+    expected_value: null
+    tolerance: null

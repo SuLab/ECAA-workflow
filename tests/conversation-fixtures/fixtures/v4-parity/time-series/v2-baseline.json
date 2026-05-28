@@ -1,0 +1,373 @@
+{
+  "version": "1.0",
+  "workflow_id": "v2-time-series",
+  "current_task": null,
+  "tasks": {
+    "data_acquisition": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Acquire raw data and associated metadata from repositories or local storage",
+      "spec": {
+        "edam_operation": "operation:2422",
+        "expected_artifacts": [
+          "cohort_manifest.tsv",
+          "per_accession_summary.json",
+          "matrices_index.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "samples_per_study"
+        ],
+        "spec_preferred_methods": {
+          "geoparse_python_processed_matrices": "GEO-only Python fallback (geoparse). Select only when every SME-named accession is a GSE and CNGB/NGDC/EGA sources are absent from the cohort. If a non-GEO accession is present, this method SHOULD NOT be top-ranked alone — it forces silent cohort truncation. Pair with a CNGB/NGDC helper or escalate to multi_repo_processed_matrices_python.",
+          "geoquery_r_processed_matrices": "GEO-only R fallback (GEOquery / Bioconductor). Same scope caveat as geoparse_python_processed_matrices. Requires r_seurat=true or equivalent Bioconductor capability at runtime.",
+          "multi_repo_processed_matrices_python": "Preferred: dispatch per-accession by prefix. GEO (GSE*) → GEOparse; SRA (SRP*/PRJNA*) → pysradb + prefetch; CNGB CNSA (CNP*) → HTTPS to ftp.cngb.org/pub/CNSA + scripts/helpers/cngb_fetch.py; NGDC GSA (CRA*/HRA* public) → ngdc.cncb.ac.cn download API. Union of processed matrices written to a single manifest. Keeps the \"use published matrices, do not reprocess FASTQ\" commitment while covering non-GEO public repos.",
+          "multi_repo_processed_matrices_r": "R/Bioconductor equivalent — GEO via GEOquery, SRA via SRAdb, CNGB/NGDC via httr + a shared URL-resolver helper. Use only when env_capability shows r_seurat=true; otherwise prefer the Python multi_repo method.",
+          "sme_provided_direct_urls": "SME supplies a TSV of {accession, direct_url, sha256} when repository APIs are unavailable or when a specific mirror is preferred. Agent downloads via curl/wget and verifies checksums."
+        },
+        "stage_class": "data_acquisition"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/samples_per_study.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/samples_per_study.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "discover_analysis_method": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "preprocessing"
+      ],
+      "assignee": "agent",
+      "description": "Discover appropriate analysis method for this workflow type",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:2945",
+        "stage_class": "analysis"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_data_acquisition": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "ready"
+      },
+      "depends_on": [],
+      "assignee": "agent",
+      "description": "Discover best-practice method for: Acquire raw data and associated metadata from repositories or local storage",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:2422",
+        "stage_class": "data_acquisition"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_preprocessing": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Discover appropriate preprocessing steps for this data type",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3192",
+        "stage_class": "preprocessing_qc"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_reporting": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "validate_analysis"
+      ],
+      "assignee": "agent",
+      "description": "Discover appropriate output formats and reporting standards for this domain",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:0337",
+        "stage_class": "reporting"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "preprocessing": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_preprocessing",
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Preprocess data according to discovered strategy",
+      "spec": {
+        "edam_operation": "operation:3192",
+        "required_figures": [
+          "retention_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/retention_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/retention_bar.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "primary_analysis": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_analysis_method",
+        "preprocessing"
+      ],
+      "assignee": "agent",
+      "description": "Execute primary computational analysis using discovered method",
+      "spec": {
+        "edam_operation": "operation:2945",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "quality_control": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Assess raw data quality and flag samples requiring attention",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/per_sample_metric_violin.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_violin.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_bar.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/qc_summary_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/qc_summary_bar.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "results_reporting": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_reporting",
+        "validate_analysis"
+      ],
+      "assignee": "agent",
+      "description": "Generate summary reports and output files in standard formats",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "stage_class": "reporting"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "results_review": {
+      "kind": "review",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "results_reporting"
+      ],
+      "assignee": "sme",
+      "description": "SME reviews analysis results and approves outputs for downstream use",
+      "spec": {
+        "stage_class": "review"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_analysis": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "primary_analysis"
+      ],
+      "assignee": "agent",
+      "description": "Validate analysis outputs for quality, completeness, and biological plausibility",
+      "spec": {
+        "edam_operation": "operation:2424",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_preprocessing": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "preprocessing"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Preprocess data according to discovered strategy",
+      "spec": {
+        "edam_operation": "operation:3192",
+        "required_figures": [
+          "retention_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_primary_analysis": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "primary_analysis"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Execute primary computational analysis using discovered method",
+      "spec": {
+        "edam_operation": "operation:2945",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_quality_control": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Assess raw data quality and flag samples requiring attention",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_results_reporting": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "results_reporting"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Generate summary reports and output files in standard formats",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "stage_class": "reporting"
+      },
+      "resource_class": "cpu_heavy"
+    }
+  }
+}

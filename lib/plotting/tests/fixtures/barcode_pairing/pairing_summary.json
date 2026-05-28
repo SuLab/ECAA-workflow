@@ -1,0 +1,9 @@
+{
+  "flows": [
+    {"source": "RNA_only", "target": "paired", "n": 12000},
+    {"source": "RNA_only", "target": "RNA_orphan", "n": 800},
+    {"source": "ATAC_only", "target": "paired", "n": 11500},
+    {"source": "ATAC_only", "target": "ATAC_orphan", "n": 1200},
+    {"source": "barcode_mismatch", "target": "discard", "n": 300}
+  ]
+}

@@ -1,0 +1,274 @@
+{
+  "enrichments": [
+    {
+      "id": "term_0",
+      "term": "GO:0000000",
+      "p_value": 1.5e-07,
+      "adj_p_value": 0.01735336,
+      "n_overlap": 16,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_1",
+      "term": "GO:0000001",
+      "p_value": 1.5e-07,
+      "adj_p_value": 3.18e-06,
+      "n_overlap": 40,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_2",
+      "term": "GO:0000002",
+      "p_value": 3.45e-06,
+      "adj_p_value": 0.21532001,
+      "n_overlap": 49,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_3",
+      "term": "GO:0000003",
+      "p_value": 0.00048808,
+      "adj_p_value": 2.13e-06,
+      "n_overlap": 42,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_4",
+      "term": "GO:0000004",
+      "p_value": 1.4e-07,
+      "adj_p_value": 0.00089113,
+      "n_overlap": 7,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_5",
+      "term": "GO:0000005",
+      "p_value": 9e-08,
+      "adj_p_value": 1.904e-05,
+      "n_overlap": 36,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_6",
+      "term": "GO:0000006",
+      "p_value": 0.00820755,
+      "adj_p_value": 0.01451565,
+      "n_overlap": 29,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_7",
+      "term": "GO:0000007",
+      "p_value": 0.0031544,
+      "adj_p_value": 1.31e-06,
+      "n_overlap": 25,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_8",
+      "term": "GO:0000008",
+      "p_value": 4.86e-06,
+      "adj_p_value": 5.51e-06,
+      "n_overlap": 3,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_9",
+      "term": "GO:0000009",
+      "p_value": 4.363e-05,
+      "adj_p_value": 0.00025483,
+      "n_overlap": 19,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_10",
+      "term": "GO:0000010",
+      "p_value": 0.00011763,
+      "adj_p_value": 0.00049603,
+      "n_overlap": 37,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_11",
+      "term": "GO:0000011",
+      "p_value": 2.5e-07,
+      "adj_p_value": 8.169e-05,
+      "n_overlap": 47,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_12",
+      "term": "GO:0000012",
+      "p_value": 3.258e-05,
+      "adj_p_value": 0.05917525,
+      "n_overlap": 39,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_13",
+      "term": "GO:0000013",
+      "p_value": 0.07220296,
+      "adj_p_value": 0.00112166,
+      "n_overlap": 5,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_14",
+      "term": "GO:0000014",
+      "p_value": 9.628e-05,
+      "adj_p_value": 0.00029622,
+      "n_overlap": 17,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_15",
+      "term": "GO:0000015",
+      "p_value": 0.00011536,
+      "adj_p_value": 0.00031437,
+      "n_overlap": 50,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_16",
+      "term": "GO:0000016",
+      "p_value": 0.00060981,
+      "adj_p_value": 0.00012155,
+      "n_overlap": 12,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_17",
+      "term": "GO:0000017",
+      "p_value": 0.04187866,
+      "adj_p_value": 0.00256177,
+      "n_overlap": 24,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_18",
+      "term": "GO:0000018",
+      "p_value": 0.00660883,
+      "adj_p_value": 2.057e-05,
+      "n_overlap": 47,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_19",
+      "term": "GO:0000019",
+      "p_value": 3e-08,
+      "adj_p_value": 0.2086399,
+      "n_overlap": 25,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_20",
+      "term": "GO:0000020",
+      "p_value": 2.7e-07,
+      "adj_p_value": 0.00572444,
+      "n_overlap": 50,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_21",
+      "term": "GO:0000021",
+      "p_value": 0.00013678,
+      "adj_p_value": 0.00235351,
+      "n_overlap": 21,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_22",
+      "term": "GO:0000022",
+      "p_value": 1.184e-05,
+      "adj_p_value": 5.904e-05,
+      "n_overlap": 7,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_23",
+      "term": "GO:0000023",
+      "p_value": 8.395e-05,
+      "adj_p_value": 2.33e-06,
+      "n_overlap": 9,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_24",
+      "term": "GO:0000024",
+      "p_value": 2.2e-07,
+      "adj_p_value": 1.49e-06,
+      "n_overlap": 7,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_25",
+      "term": "GO:0000025",
+      "p_value": 4.368e-05,
+      "adj_p_value": 3.49e-06,
+      "n_overlap": 37,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_26",
+      "term": "GO:0000026",
+      "p_value": 0.00065034,
+      "adj_p_value": 0.00013718,
+      "n_overlap": 32,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_27",
+      "term": "GO:0000027",
+      "p_value": 8.783e-05,
+      "adj_p_value": 0.00719825,
+      "n_overlap": 17,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_28",
+      "term": "GO:0000028",
+      "p_value": 2e-08,
+      "adj_p_value": 1.637e-05,
+      "n_overlap": 46,
+      "n_set": 100,
+      "n_universe": 20000
+    },
+    {
+      "id": "term_29",
+      "term": "GO:0000029",
+      "p_value": 3e-08,
+      "adj_p_value": 0.13066543,
+      "n_overlap": 14,
+      "n_set": 100,
+      "n_universe": 20000
+    }
+  ]
+}

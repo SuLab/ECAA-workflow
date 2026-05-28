@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "01-encode-ctcf-k562"
+claims:
+  - id: "01-encode-ctcf-k562-claim-001"
+    text: "Mapped reads per replicate (post-filter): ≥ 20M usable fragments"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: "≥ 20M usable fragments"
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-002"
+    text: "NSC (rep1, rep2): ≥ 1.05"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 1.05
+    tolerance: 0.1
+  - id: "01-encode-ctcf-k562-claim-003"
+    text: "RSC (rep1, rep2): ≥ 0.8"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.8
+    tolerance: 0.05
+  - id: "01-encode-ctcf-k562-claim-004"
+    text: "FRiP: ≥ 0.05"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.05
+    tolerance: 0.05
+  - id: "01-encode-ctcf-k562-claim-005"
+    text: "NRF: ≥ 0.9"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.9
+    tolerance: 0.05
+  - id: "01-encode-ctcf-k562-claim-006"
+    text: "IDR-thresholded peak count (idr<0.05): within ±15% of ENCFF843VHC (GRCh38 default) or ENCFF002DDJ (hg19 default) released peak count (~40k–50k peaks)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.15
+    tolerance: 0.15
+  - id: "01-encode-ctcf-k562-claim-007"
+    text: "Peak overlap with released peak set: Jaccard ≥ 0.85"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.85
+    tolerance: 0.05
+  - id: "01-encode-ctcf-k562-claim-008"
+    text: "Top de novo motif: JASPAR MA0139.1 (CTCF) E < 1e-100"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 100
+    tolerance: 0.1
+  - id: "01-encode-ctcf-k562-claim-009"
+    text: "Genomic distribution: enriched in introns + intergenic, ~5% promoter"
+    contract: group_comparison
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.05
+    tolerance: 0.05
+  - id: "01-encode-ctcf-k562-claim-010"
+    text: "Emitted workflow contains stage 'data_acquisition': pull ENCSR000DWE's two FASTQ replicates +"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "data_acquisition"
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-011"
+    text: "Emitted workflow contains stage 'quality_control': FastQC (per file) + MultiQC summary"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "quality_control"
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-012"
+    text: "Emitted workflow contains stage 'discover_alignment': BWA (single-end) against GRCh38 with"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_alignment"
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null
+  - id: "01-encode-ctcf-k562-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 01-encode-ctcf-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: null
+    tolerance: null

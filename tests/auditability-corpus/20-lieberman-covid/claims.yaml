@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "20-lieberman-covid"
+claims:
+  - id: "20-lieberman-covid-claim-001"
+    text: "Cohort size (Lieberman 2020 PLOS Biology, GSE161731): 154 subjects (88 COVID-positive, 66 negative/other-respiratory)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 154
+    tolerance: 0.0
+  - id: "20-lieberman-covid-claim-002"
+    text: "Differentially expressed gene count at FDR<0.05 within ±20% of paper's ~2,400 DEGs"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/de_results.csv"
+    expected_value: 2400
+    tolerance: 0.2
+  - id: "20-lieberman-covid-claim-003"
+    text: "Top-50 interferon-response GO/Hallmark hits overlap ≥ 70% with paper's reported pathway list"
+    contract: rank_top_n
+    source_table: "results/tables/enrichment.csv"
+    expected_value: 0.70
+    tolerance: 0.1
+  - id: "20-lieberman-covid-claim-004"
+    text: "Sex-effect log2FC for XIST positive control |log2FC| > 5 in expected direction"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: 5
+    tolerance: 0.2
+  - id: "20-lieberman-covid-claim-005"
+    text: "STAR or HISAT2 alignment rate to GRCh38: ≥ 85% (clinical bulk RNA-seq typical)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.85
+    tolerance: 0.05
+  - id: "20-lieberman-covid-claim-006"
+    text: "Hallmark INTERFERON_ALPHA_RESPONSE enrichment NES > 0 at FDR<0.05"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/enrichment.csv"
+    expected_value: "INTERFERON_ALPHA_RESPONSE"
+    tolerance: null
+  - id: "20-lieberman-covid-claim-007"
+    text: "Hallmark INTERFERON_GAMMA_RESPONSE enrichment NES > 0 at FDR<0.05"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/enrichment.csv"
+    expected_value: "INTERFERON_GAMMA_RESPONSE"
+    tolerance: null
+  - id: "20-lieberman-covid-claim-008"
+    text: "Y-linked gene RPS4Y1 |log2FC| > 5 in male-vs-female contrast (positive control)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: 5
+    tolerance: 0.2
+  - id: "20-lieberman-covid-claim-009"
+    text: "Canonical ISG IFI27 upregulated in COVID-positive arm"
+    contract: categorical
+    source_table: "results/tables/de_results.csv"
+    expected_value: "IFI27"
+    tolerance: null
+  - id: "20-lieberman-covid-claim-010"
+    text: "PCA PC1 explained-variance attributable to COVID status: ≥ 0.20"
+    contract: numeric_table_lookup
+    source_table: "results/tables/pca.csv"
+    expected_value: 0.20
+    tolerance: 0.1
+  - id: "20-lieberman-covid-claim-011"
+    text: "Emitted workflow contains stage 'discover_differential_expression': DESeq2/edgeR adjusted for age and sex"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_differential_expression"
+    tolerance: null
+  - id: "20-lieberman-covid-claim-012"
+    text: "Emitted workflow contains stage 'discover_enrichment': GSEA Hallmark with interferon-response signature focus"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_enrichment"
+    tolerance: null
+  - id: "20-lieberman-covid-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "20-lieberman-covid-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 20-lieberman-covid"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null

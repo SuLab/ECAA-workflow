@@ -1,0 +1,5 @@
+{
+  "peptides_path": "peptides.tsv",
+  "binders_path": "binders.tsv",
+  "neoantigens_path": "neoantigens.tsv"
+}

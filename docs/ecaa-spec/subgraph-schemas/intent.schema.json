@@ -1,0 +1,324 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AssistantIntent": {
+      "description": "Coarse intent classification attached to assistant turns. Used by the UI to choose the appropriate rendering style (e.g. `SummaryConfirm` → show the confirm card; `Blocker` → show the blocker card).",
+      "oneOf": [
+        {
+          "description": "Opening turn of a new session.",
+          "enum": [
+            "greeting"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Acknowledgement of SME input with no structural change.",
+          "enum": [
+            "acknowledge"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Asking the SME to clarify an ambiguous aspect of the intake.",
+          "enum": [
+            "clarify"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Presenting the plan summary card for SME confirmation.",
+          "enum": [
+            "summary_confirm"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Sharing an intermediate recommendation or question.",
+          "enum": [
+            "recommend"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Follow-up turn after a successful emission.",
+          "enum": [
+            "post_emission"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Surfacing a blocker that requires SME action.",
+          "enum": [
+            "blocker"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ConfirmationCard": {
+      "description": "Plan-summary card rendered by `propose_summary_confirmation`. Persisted on the turn so the UI can re-render after page reload.",
+      "properties": {
+        "resource_estimate": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ResourceEstimate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Coarse resource estimate aggregated from each atom's `resource_profile`. Rendered inline so the SME sees a \"≈ N core-hours, peak M GB\" cost preview before clicking Accept. None for legacy / non-composer paths."
+        },
+        "summary_hash": {
+          "default": "",
+          "description": "SHA-256 hex digest of `summary_markdown` at the moment the card was raised. The UI renders the leading 12 hex chars as a \"summary fingerprint\" so the SME can verify the durable audit record references the exact text they saw. The `/confirm` endpoint attaches the same hash to the `DecisionType::Confirm` audit record, so a later replayer can match the recorded fingerprint to the text in `intake-conversation.jsonl` and detect tampering / drift between the displayed card and the confirmed text.\n\n`#[serde(default)]` so existing on-disk sessions whose cards pre-date this field deserialize cleanly with an empty hash — the legacy records carry no fingerprint, which is fine because they also pre-date the matching audit-record field.",
+          "type": "string"
+        },
+        "summary_markdown": {
+          "description": "Markdown summary of the current plan presented to the SME for approval.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary_markdown"
+      ],
+      "type": "object"
+    },
+    "ResourceEstimate": {
+      "description": "Aggregated resource estimate for a composition. Coarse numeric form so the SME sees ballpark numbers instead of opaque \"moderate/large\" buckets. Pilot sizing replaces these projections with measured numbers at execution time; this is the pre-approval preview.\n\nBucket → number table (intentionally conservative; tuned to over-estimate slightly so the SME isn't surprised): - `cpu`: light → 2, moderate → 8, heavy → 32, very_heavy → 64 cores - `memory`: small → 4, medium → 16, large → 64, xl → 256 GB - `runtime_class`: seconds → 0.01, minutes → 0.5, hours → 4 hr",
+      "properties": {
+        "estimated_cost_usd": {
+          "description": "Optional dollar projection — left `None` here (pilot's `estimate_cost_usd` populates it when SWFC_PILOT_ENABLED=1 surfaces the per-atom cost rate).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "gpu_task_count": {
+          "description": "Count of atoms whose `resource_profile.gpu` is true.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "peak_memory_gb": {
+          "description": "Largest single-atom `memory` bucket midpoint, in GB. Bounds the worst-case instance footprint.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "total_core_hours": {
+          "description": "Sum across atoms of `cpu_cores × runtime_hours`. Coarse rollup; the SME-facing card renders this as \"≈ N core-hours\".",
+          "format": "double",
+          "type": "number"
+        },
+        "total_memory_gb": {
+          "description": "Sum of per-atom `memory` bucket midpoints, in GB.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "gpu_task_count",
+        "peak_memory_gb",
+        "total_core_hours",
+        "total_memory_gb"
+      ],
+      "type": "object"
+    },
+    "ToolCallRecord": {
+      "description": "Audit record for a single tool call made during a turn.",
+      "properties": {
+        "args": {
+          "description": "Arguments the LLM passed to the tool."
+        },
+        "is_error": {
+          "description": "True when the dispatcher returned a `ToolError`.",
+          "type": "boolean"
+        },
+        "model": {
+          "description": "Anthropic model id that produced this tool call.",
+          "type": "string"
+        },
+        "result": {
+          "description": "Serialized `ToolResult` returned by the dispatcher."
+        },
+        "timestamp": {
+          "description": "UTC timestamp when the tool was dispatched.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "tool_name": {
+          "description": "Canonical snake_case name of the tool (matches `Tool::name()`).",
+          "type": "string"
+        },
+        "turn_id": {
+          "description": "Turn this tool call belongs to.",
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "args",
+        "is_error",
+        "model",
+        "result",
+        "timestamp",
+        "tool_name",
+        "turn_id"
+      ],
+      "type": "object"
+    },
+    "TurnRole": {
+      "description": "Authorship role of a conversation turn.",
+      "oneOf": [
+        {
+          "description": "Message authored by the SME (user).",
+          "enum": [
+            "user"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Message authored by the LLM on behalf of the assistant.",
+          "enum": [
+            "assistant"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Injected system message (not shown in the SME-facing chat pane).",
+          "enum": [
+            "system"
+          ],
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "items": {
+    "oneOf": [
+      {
+        "description": "One conversation turn (user, assistant, or system message).",
+        "properties": {
+          "confirmation_card": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/ConfirmationCard"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Confirmation card rendered for this turn, if the assistant called `propose_summary_confirmation`."
+          },
+          "content": {
+            "description": "Text content of the turn.",
+            "type": "string"
+          },
+          "intent": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/AssistantIntent"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Coarse intent classification for assistant turns (used by the UI to pick a rendering style)."
+          },
+          "quick_replies": {
+            "default": [],
+            "description": "Quick-reply chips the assistant suggested at the end of this turn.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "role": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/TurnRole"
+              }
+            ],
+            "description": "Who authored this turn."
+          },
+          "timestamp": {
+            "description": "UTC timestamp when this turn was created.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "tool_calls": {
+            "default": [],
+            "description": "Tool calls the assistant made during this turn.",
+            "items": {
+              "$ref": "#/definitions/ToolCallRecord"
+            },
+            "type": "array"
+          },
+          "turn_id": {
+            "description": "Stable identifier for this turn (UUID v4).",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content",
+          "role",
+          "timestamp",
+          "turn_id"
+        ],
+        "title": "Turn",
+        "type": "object"
+      },
+      {
+        "description": "Audit record for a single tool call made during a turn.",
+        "properties": {
+          "args": {
+            "description": "Arguments the LLM passed to the tool."
+          },
+          "is_error": {
+            "description": "True when the dispatcher returned a `ToolError`.",
+            "type": "boolean"
+          },
+          "model": {
+            "description": "Anthropic model id that produced this tool call.",
+            "type": "string"
+          },
+          "result": {
+            "description": "Serialized `ToolResult` returned by the dispatcher."
+          },
+          "timestamp": {
+            "description": "UTC timestamp when the tool was dispatched.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "tool_name": {
+            "description": "Canonical snake_case name of the tool (matches `Tool::name()`).",
+            "type": "string"
+          },
+          "turn_id": {
+            "description": "Turn this tool call belongs to.",
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "args",
+          "is_error",
+          "model",
+          "result",
+          "timestamp",
+          "tool_name",
+          "turn_id"
+        ],
+        "title": "ToolCallRecord",
+        "type": "object"
+      }
+    ]
+  },
+  "type": "array"
+}

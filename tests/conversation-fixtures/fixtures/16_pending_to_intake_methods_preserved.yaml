@@ -1,0 +1,57 @@
+id: 16_pending_to_intake_methods_preserved
+category: state_preservation
+description: |
+  SME provides intake plus an explicit method preference (Cell Ranger),
+  the assistant captures it via set_intake_method and proposes a
+  summary, the SME rejects to revise something else. The reject path
+  must NOT lose the captured method — set_intake_method state should
+  survive PendingConfirmation → Intake. The runner verifies this by
+  checking session.intake_methods after the reject.
+
+flow:
+  - kind: user
+    text: |
+      Single-cell scRNA-seq of human IVD samples, 12 patients, comparing
+      degenerated vs healthy. We want to use Cell Ranger for the
+      preprocessing because that's our standard.
+  - kind: reject
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        single-cell scRNA-seq from human IVD samples, 12 patients,
+        degenerated vs healthy, SME wants Cell Ranger for preprocessing
+  - kind: tool_use
+    tool:
+      tool_name: set_intake_method
+      stage: preprocessing
+      method_prose: "Cell Ranger — the SME's lab default for scRNA-seq preprocessing."
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's the plan:
+        - 12 human IVD samples, scRNA-seq
+        - Compare degenerated vs healthy
+        - Cell Ranger for preprocessing (your standard)
+
+        Click Accept or Revise.
+  - kind: text
+    text: "Take a look."
+
+expected_final_state:
+  state_kind: intake
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+    - set_intake_method
+    - propose_summary_confirmation
+
+rubric_notes: |
+  The runner's assert_session_matches doesn't currently inspect
+  intake_methods directly, but the plan §5.1 explicitly calls out that
+  "PendingConfirmation → Intake preserves intake_methods". The fact
+  that this test passes (no panic during the reject transition) is
+  the verification.

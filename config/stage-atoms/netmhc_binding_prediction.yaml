@@ -1,0 +1,72 @@
+id: netmhc_binding_prediction
+version: "1.0.0"
+role: operation
+description: |
+  HLA / MHC binding-affinity prediction for identified peptides.
+  NetMHCpan / MHCflurry / MixMHCpred at runtime; predicts the
+  binding rank per (peptide, HLA-allele) pair so a sample's
+  presented peptidome can be filtered to strong binders (rank
+  ≤0.5%) versus weak binders (rank ≤2%). Requires per-sample HLA
+  typing (HLA*LA or OptiType from matched WES) as an input.
+edam_operation: "operation:0250"
+edam_data: "data:2976"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - hla_peptide_search
+expected_artifacts:
+  - hla_binding_predictions.tsv
+  - binding_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: hla_peptidomics
+required_figures:
+  - binder_rank_histogram
+  - allele_presentation_heatmap
+attributes:
+  candidate_tools:
+    - netmhcpan
+    - mhcflurry
+    - mixmhcpred
+resource_profile:
+  cpu: moderate
+  memory: small
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  HLA binding ranks are predictions from a trained model — they
+  approximate measured binding affinity but do not guarantee
+  presentation. Report the model + version + threshold strategy
+  alongside the binder list. Cross-validate top binders with
+  orthogonal evidence (NetMHCstabpan, mass-spec validation)
+  before downstream claims.
+inputs:
+  - name: hla_peptide_hits
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: hla_peptide_table
+      proposed_parent_terms:
+        - "data:2976"
+      definition: "HLA-restricted peptide identifications"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: binding_predictions
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: hla_binding_table
+      proposed_parent_terms:
+        - "data:2976"
+      definition: "Per-peptide HLA binding-affinity predictions"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

@@ -1,0 +1,40 @@
+schema_version: "0.1"
+id: starr_seq
+display_name: STARR-seq / MPRA
+keywords:
+- starr-seq
+- starrseq
+- starr seq
+- mpra
+- massively parallel reporter
+- massively parallel reporter assay
+- enhancer activity assay
+- enhancer activity
+- enhancer reporter
+- self transcribing
+- self-transcribing
+- reporter assay
+- atac-starr
+- cre-seq
+- lentiMPRA
+- lenti-mpra
+- library reporter
+- candidate enhancer screen
+- cis-regulatory activity
+- functional enhancer
+- enhancer screening
+edam_topic: topic:3169
+edam_operation: operation:3222
+archetype_id: starr_seq
+taxonomy_path: stage-taxonomies/chip-seq.yaml
+semantic_equivalence_bounds:
+  - metric: enhancer_activity_spearman_rho
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/tables/activity_*.csv"
+    rationale: "Spearman correlation of per-element enhancer activity scores ≥ 0.90 between STARR-seq runs"
+  - metric: active_element_jaccard
+    operator: ">="
+    threshold: 0.85
+    applies_to: "results/tables/active_elements_*.csv"
+    rationale: "Jaccard of active-element call sets ≥ 0.85 at matched FDR threshold"

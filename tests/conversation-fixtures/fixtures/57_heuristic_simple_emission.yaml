@@ -1,0 +1,52 @@
+id: 57_heuristic_simple_emission
+category: non_scripted_tool_selection
+description: |
+  R5.19 — first fixture driving the `HeuristicMockBackend` instead of
+  the scripted-tape `MockLlmBackend`. Tool selection is computed from
+  session state + user prose rather than replayed from a recorded
+  vec, which exercises the dispatcher's alone-in-turn enforcement and
+  state-machine reactions on the *picked* tool, not a pre-baked tape.
+
+  This fixture is the minimum viable smoke; subsequent phases add the
+  confidence model, ambiguity detection, refusal heuristics, batch
+  logic, and error-injection passes.
+
+mock_backend: heuristic
+
+flow:
+  - kind: user
+    text: |
+      We have a single-cell RNA-seq meta-analysis of public intervertebral
+      disc datasets — about 47 libraries from human IVD tissue across 7
+      GEO/PubMed studies. Goal is to compare degenerated vs healthy across
+      NP and AF compartments. Datasets include GSE251686, GSE189916,
+      GSE205535, GSE233666, GSE255768, PMID35265617, PMID38403470. Public
+      data only, internal analysis.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+# mock_responses omitted intentionally — the HeuristicMockBackend
+# picks tools from session state, not a recorded tape.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - classify_intake
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: heuristic walks the canonical happy-path tool sequence
+  (classify → mutate → propose → emit) without being told the order
+  ahead of time. The session reaches the same Emitted terminal state
+  the scripted fixtures land on, so the deterministic compiler path
+  is unchanged — only the backend choosing each next tool is different.

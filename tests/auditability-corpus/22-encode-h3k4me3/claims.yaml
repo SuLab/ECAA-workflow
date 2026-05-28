@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "22-encode-h3k4me3"
+claims:
+  - id: "22-encode-h3k4me3-claim-001"
+    text: "Consensus peak count within ±15% of ENCODE's published peak count (~30,000-40,000 promoter peaks)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: 35000
+    tolerance: 0.15
+  - id: "22-encode-h3k4me3-claim-002"
+    text: "IDR-replicated peak Jaccard vs ENCODE published peak set: ≥ 0.90"
+    contract: group_comparison
+    source_table: "results/tables/peaks.csv"
+    expected_value: 0.90
+    tolerance: 0.05
+  - id: "22-encode-h3k4me3-claim-003"
+    text: "Promoter overlap (within ±2 kb of any RefSeq TSS): ≥ 90% of called peaks"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peak_annotation.csv"
+    expected_value: 0.90
+    tolerance: 0.05
+  - id: "22-encode-h3k4me3-claim-004"
+    text: "Mapping rate (BWA or Bowtie2 vs GRCh38, 36-bp SE reads): ≥ 80%"
+    contract: group_comparison
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.80
+    tolerance: 0.05
+  - id: "22-encode-h3k4me3-claim-005"
+    text: "NSC (normalized strand cross-correlation) per replicate: ≥ 1.05 (ENCODE histone mark norm)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 1.05
+    tolerance: 0.05
+  - id: "22-encode-h3k4me3-claim-006"
+    text: "RSC (relative strand cross-correlation) per replicate: ≥ 0.8"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.8
+    tolerance: 0.05
+  - id: "22-encode-h3k4me3-claim-007"
+    text: "FRiP (fraction of reads in peaks): ≥ 0.20 (narrow-peak histone mark)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.20
+    tolerance: 0.05
+  - id: "22-encode-h3k4me3-claim-008"
+    text: "Library complexity NRF: ≥ 0.9"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.9
+    tolerance: 0.05
+  - id: "22-encode-h3k4me3-claim-009"
+    text: "MACS2 called in narrow-peak mode (H3K4me3 forms sharp promoter peaks)"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "narrow"
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-010"
+    text: "Peaks per replicate after MACS2 narrow-peak: within ±20% of 50,000 (per-rep, pre-IDR)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: 50000
+    tolerance: 0.2
+  - id: "22-encode-h3k4me3-claim-011"
+    text: "Emitted workflow contains stage 'discover_peak_calling': MACS2 narrow-peak on K562 H3K4me3"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_peak_calling"
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-012"
+    text: "Emitted workflow contains stage 'idr_replication': IDR between the two biological replicates"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "idr_replication"
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "22-encode-h3k4me3-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 22-encode-h3k4me3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null

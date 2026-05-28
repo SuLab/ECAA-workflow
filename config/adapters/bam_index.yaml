@@ -1,0 +1,11 @@
+id: bam_index
+name: Index BAM (BAI)
+class: index_generation
+safety: lossless
+from_format: "format:2572"
+to_format: "format:2572"
+from_semantic_type: "data:0863"
+to_semantic_type: "data:0863"
+rationale: "Generate BAI; original BAM unchanged"
+validators:
+  - id: bam_index_consistency

@@ -1,0 +1,18 @@
+schema_version: "0.1"
+id: atac_seq
+display_name: ATAC-seq
+keywords: ["atac-seq", atacseq, atac, "omni-atac", tn5, "chromatin accessibility", "accessible chromatin", nucleosome, "tss enrichment", hmmratac]
+edam_topic: "topic:3179"
+edam_operation: "operation:3222"
+taxonomy_path: stage-taxonomies/atac-seq.yaml
+archetype_id: atac_seq_peaks
+semantic_equivalence_bounds:
+  - metric: peak_jaccard
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/peaks/*.narrowPeak"
+    rationale: "Grant §G2 ATAC-seq consensus-peak Jaccard ≥ 0.90 between runs"
+  - metric: tss_enrichment_delta
+    operator: "<="
+    threshold: 0.50
+    rationale: "TSS enrichment score absolute difference ≤ 0.5 between runs (QC parity)"

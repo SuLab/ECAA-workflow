@@ -1,0 +1,9 @@
+{
+  "modality": "single_cell_rnaseq",
+  "project_class": "bioinformatics",
+  "methods": [
+    "Seurat",
+    "scanpy"
+  ],
+  "literature_review_requested": false
+}

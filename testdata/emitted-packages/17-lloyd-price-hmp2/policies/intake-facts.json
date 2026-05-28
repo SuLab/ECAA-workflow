@@ -1,0 +1,10 @@
+{
+  "modality": "metagenomics",
+  "project_class": "bioinformatics",
+  "organism_taxon_id": 9606,
+  "organism_name": "Homo sapiens",
+  "methods": [
+    "MetaPhlAn"
+  ],
+  "literature_review_requested": false
+}

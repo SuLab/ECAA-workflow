@@ -1,0 +1,91 @@
+# atoms/methylation-roadmap-chr22 — atom-coverage spec
+#
+# Synthetic WGBS methylation dataset: 4 samples (2 fetal brain, 2 monocyte),
+# chr22 CpGs only. Simulates a Roadmap Epigenomics-style DMR analysis.
+
+name: Synthetic chr22 WGBS methylation DMR analysis
+modality: methylation
+
+beats:
+  - user: >-
+      I want to run a differential methylation analysis on WGBS data from
+      chr22. I have 4 samples — 2 fetal brain and 2 monocyte — and want to
+      find differentially methylated regions between these cell types.
+    assistant:
+      content: >-
+        WGBS DMR analysis, chr22, fetal brain vs monocyte. What alignment
+        strategy and DMR caller should I plan for?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      Standard pipeline: bisulfite alignment, per-CpG methylation extraction,
+      DMR calling, and pathway enrichment on DMR-associated genes.
+      Internal use, synthetic data inspired by Roadmap Epigenomics.
+    assistant:
+      content: >-
+        Recorded — bisulfite alignment → CpG extraction → DMR calling →
+        pathway enrichment. Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **WGBS methylation DMR — fetal brain vs monocyte**
+
+          - **Dataset:** Synthetic chr22 CpG methylation (4 samples)
+          - **Contrast:** fetal brain vs monocyte
+          - **Pipeline:** bisulfite alignment → CpG extraction → DMR calling → enrichment
+          - **Governance:** synthetic data, internal use
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I want to run a differential methylation analysis comparing fetal brain
+    and monocyte samples using whole-genome bisulfite sequencing data from
+    chromosome 22. I have 4 samples (2 fetal brain: E003_brain, E008_brain;
+    2 monocyte: E029_monocyte, E032_monocyte) with pre-computed per-CpG
+    methylation percentages staged locally in cpg_methylation_chr22.tsv.
+    The pipeline should cover: bisulfite alignment (or import from per-CpG
+    table), DMR calling between fetal_brain and monocyte, and pathway
+    enrichment on DMR-associated genes. Internal use, synthetic data
+    inspired by Roadmap Epigenomics. Please build the plan and emit once
+    confirmed.
+  followups:
+    - trigger: "(?i)(alignment|bismark|bwa.meth|trim|bisulfite)"
+      reply: >-
+        The per-CpG methylation table is pre-computed — skip alignment.
+        Import directly from cpg_methylation_chr22.tsv.
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use, synthetic data inspired by Roadmap Epigenomics, no PHI.
+    - trigger: "(?i)(file|format|path|input|data|cpg|methylation)"
+      reply: >-
+        Files staged at testdata/scenarios/atoms/methylation-roadmap-chr22/.
+        Per-CpG table: cpg_methylation_chr22.tsv. Sample metadata: samples.csv.
+    - trigger: "(?i)(contrast|comparison|condition|group|brain|monocyte)"
+      reply: >-
+        fetal_brain (E003, E008) vs monocyte (E029, E032). Two-condition design.
+    - trigger: "(?i)(dmr|caller|methylkit|dmrseq|minfi)"
+      reply: >-
+        Let the agent choose the DMR caller at runtime.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

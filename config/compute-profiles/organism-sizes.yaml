@@ -1,0 +1,30 @@
+---
+# Approximate haploid genome size in GB. Used by scaling_factors keyed on
+# genome_size. Lookup prefers taxon_id (matches ClassificationResult
+# organisms[].taxon_id) with a name fallback for organisms the classifier
+# missed.
+
+by_taxon_id:
+  9606: { name: "Homo sapiens", genome_size_gb: 3.10 }
+  10090: { name: "Mus musculus", genome_size_gb: 2.73 }
+  10116: { name: "Rattus norvegicus", genome_size_gb: 2.87 }
+  7227: { name: "Drosophila melanogaster", genome_size_gb: 0.14 }
+  6239: { name: "Caenorhabditis elegans", genome_size_gb: 0.10 }
+  4932: { name: "Saccharomyces cerevisiae", genome_size_gb: 0.012 }
+  3702: { name: "Arabidopsis thaliana", genome_size_gb: 0.135 }
+  7955: { name: "Danio rerio", genome_size_gb: 1.40 }
+  9913: { name: "Bos taurus", genome_size_gb: 2.71 }
+  9823: { name: "Sus scrofa", genome_size_gb: 2.50 }
+  9031: { name: "Gallus gallus", genome_size_gb: 1.05 }
+  9544: { name: "Macaca mulatta", genome_size_gb: 2.95 }
+
+by_name_lower:
+  human: 3.10
+  mouse: 2.73
+  rat: 2.87
+  fly: 0.14
+
+# When the organism is unknown, the high-water resolver assumes human
+# (mammalian-conservative default used by alignment_quantification and
+# variant_calling threshold_gb: 3 comparisons).
+default_genome_size_gb: 3.10

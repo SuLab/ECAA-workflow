@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ClaimsEvidenceMatrixRow",
+  "description": "Row schema for claims_evidence_matrix.csv emitted by contextualize_findings_with_literature. Each row maps one upstream analysis finding to PMID-anchored prior literature with a deterministic concordance flag.",
+  "type": "object",
+  "required": ["finding_id", "entity", "entity_kind", "prior_pmids", "concordance_flag",
+               "evidence_quote", "evidence_quote_offset", "source_kind", "source_hash",
+               "retrieval_ts", "redistributable", "verified"],
+  "additionalProperties": false,
+  "properties": {
+    "finding_id": { "type": "string", "minLength": 1 },
+    "entity": { "type": "string", "minLength": 1 },
+    "entity_kind": { "type": "string", "enum": ["gene", "region", "variant"] },
+    "prior_pmids": { "type": "array", "items": { "type": "string", "pattern": "^[1-9][0-9]{6,8}$" }, "uniqueItems": true },
+    "concordance_flag": { "type": "string",
+                          "enum": ["same_direction", "opposite_direction", "no_prior_finding", "unverifiable"] },
+    "evidence_quote": { "type": "string" },
+    "evidence_quote_offset": { "type": "integer", "minimum": 0 },
+    "source_kind": { "type": "string", "enum": ["pmc_oa_full_text", "abstract_only", "external_pdf_local_only", "none"] },
+    "source_hash": { "type": "string", "pattern": "^(sha256:[0-9a-f]{64}|none)$" },
+    "retrieval_ts": { "type": "string" },
+    "redistributable": { "type": "boolean" },
+    "verified": { "type": "boolean" }
+  }
+}

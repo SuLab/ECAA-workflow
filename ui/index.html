@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <!--
+      Security remediation Phase 1 (2026-05-14). When the server binds
+      non-loopback (or SWFC_SERVER_AUTH_TOKEN is set), it serves an
+      `<meta name="swfc-auth-token">` tag here. The inline script below
+      copies the value to `window.__SWFC_AUTH_TOKEN__`, which the
+      `_fetch.ts` helpers attach as `Authorization: Bearer …` on every
+      `/api/*` request. For local dev with `SWFC_BIND_ADDR=127.0.0.1`
+      and no token configured, the meta tag stays empty and the UI
+      works unauthenticated.
+    -->
+    <meta name="swfc-auth-token" content="" />
+    <title>Scripps Workflow Planner</title>
+    <script>
+      // Auth-token bootstrap. Pulled from the meta tag set by the
+      // server (or hand-edited for local LAN testing).
+      (function () {
+        var meta = document.querySelector('meta[name="swfc-auth-token"]');
+        if (meta && meta.content) {
+          window.__SWFC_AUTH_TOKEN__ = meta.content;
+        }
+      })();
+    </script>
+    <script>
+      // FOUC guard. Sets data-theme on <html> before any CSS or React
+      // loads so the first painted pixel matches the user's preference.
+      // Mirrors the resolution order in useTheme(): stored preference
+      // wins; otherwise fall back to the OS preference.
+      (function () {
+        try {
+          var p = window.localStorage.getItem('swfc.theme');
+          var mode;
+          if (p === 'light' || p === 'dark') {
+            mode = p;
+          } else {
+            mode = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+              ? 'dark'
+              : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', mode);
+        } catch (e) { /* fail silently */ }
+      })();
+    </script>
+    <style>
+      /* Reset */
+      *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body, #root { height: 100%; font-family: system-ui, -apple-system, sans-serif; }
+
+      /* a11y: font scale is applied as a <html> CSS variable by
+         AccessibilitySettings (see ui/src/lib/a11y.ts). Default 1.0. */
+      html { --a11y-font-scale: 1; font-size: calc(16px * var(--a11y-font-scale)); }
+
+      /* Initial-paint colors — duplicate the two most critical variable
+         values so we don't flash the wrong background before tokens.css
+         loads. tokens.css overrides these for the full variable set. */
+      html { background: #f8fafc; color: #0f172a; }
+      html[data-theme="dark"] { background: #0b1220; color: #f1f5f9; }
+
+      @keyframes scrippsPulse {
+        0%, 100% { opacity: 0.4; }
+        50% { opacity: 1; }
+      }
+      :focus-visible {
+        outline: 2px solid var(--color-focus-ring, #2563eb);
+        outline-offset: 2px;
+      }
+      /* Honour the OS reduced-motion preference — pulse animations on
+         ToolCallStatusPill and StillThinkingIndicator must not run for
+         users who request reduced motion. */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.001ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.001ms !important;
+        }
+      }
+      /* Explicit opt-in via the a11y settings panel, regardless of OS pref. */
+      html[data-a11y-reduced-motion="1"] *, html[data-a11y-reduced-motion="1"] *::before, html[data-a11y-reduced-motion="1"] *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+      }
+      /* High-contrast mode: boost borders + text against surface. Uses
+         the existing CSS custom-property set. */
+      html[data-a11y-high-contrast="1"] {
+        --color-text-primary: #000;
+        --color-text-secondary: #0f172a;
+        --color-text-muted: #334155;
+        --color-border-default: #000;
+      }
+      html[data-theme="dark"][data-a11y-high-contrast="1"] {
+        --color-text-primary: #fff;
+        --color-text-secondary: #e2e8f0;
+        --color-text-muted: #cbd5e1;
+        --color-border-default: #fff;
+      }
+      /* Color-blind-safe palette: swap status accents from red/green to
+         orange/blue so the seven status chip variants stay
+         distinguishable under red-green deficiency. */
+      html[data-a11y-color-safe="1"] {
+        --color-success-accent: #2563eb;
+        --color-danger-accent: #ea580c;
+        --color-warning-accent: #d97706;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

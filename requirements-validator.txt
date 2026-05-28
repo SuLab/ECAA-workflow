@@ -1,0 +1,4 @@
+# Pinned for grant v19 G1 WRROC v0.5 conformance validation.
+# runcrate ≥ 0.5.0 supports WRROC Tier-3 schema validation.
+runcrate>=0.5.0
+rocrate>=0.13.0

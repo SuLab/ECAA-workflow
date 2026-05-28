@@ -1,0 +1,3 @@
+Time-series forecasting on monthly demand data using Prophet. Produce a 12-month
+forecast horizon with confidence intervals and decompose into trend and seasonal
+components for downstream business reporting.

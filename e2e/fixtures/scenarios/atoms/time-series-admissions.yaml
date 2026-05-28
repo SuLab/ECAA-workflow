@@ -1,0 +1,91 @@
+# atoms/time-series-admissions — atom-coverage spec
+#
+# Synthetic 96-month hospital admissions time series (2017-01 to 2024-12).
+# Reuses data from testdata/scenarios/12-time-series-forecast/.
+# Tests the time_series_forecast archetype end-to-end.
+
+name: Synthetic monthly hospital admissions SARIMA forecast
+modality: time_series_forecast
+
+beats:
+  - user: >-
+      I want to forecast monthly hospital admissions using a time series
+      model. I have 96 months of synthetic admission data (2017-01 to 2024-12)
+      and want to forecast the next 12 months.
+    assistant:
+      content: >-
+        Monthly admissions forecast, 96-month series, 12-month horizon.
+        What model family and holdout strategy?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      SARIMA model family. Use the last 12 months as holdout for validation.
+      Report MAPE, RMSE, and 95% prediction intervals. Internal use,
+      synthetic data.
+    assistant:
+      content: >-
+        Recorded — decomposition → SARIMA fit with 12-month holdout →
+        forecast evaluation (MAPE, RMSE, PI). Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **Monthly admissions SARIMA forecast**
+
+          - **Dataset:** Synthetic 96-month admissions series
+          - **Model:** SARIMA
+          - **Horizon:** 12 months
+          - **Holdout:** last 12 months
+          - **Metrics:** MAPE, RMSE, 95% prediction intervals
+          - **Governance:** synthetic data, internal use
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I want to build a SARIMA forecast for monthly hospital admissions.
+    The dataset is a synthetic 96-month time series (January 2017 through
+    December 2024) of monthly admission counts per ICD-10 chapter, staged
+    locally as monthly_admissions.csv. The analysis should cover: ADF
+    stationarity testing, time-series decomposition, SARIMA model fitting
+    with automatic order selection, backtest evaluation against a 12-month
+    holdout window (2024-01 to 2024-12), and a 12-month forecast horizon.
+    Report MAPE, RMSE, and 95% prediction intervals. Internal use,
+    synthetic data. Please build the plan and emit once confirmed.
+  followups:
+    - trigger: "(?i)(model|sarima|arima|arma|order|aic|bic)"
+      reply: >-
+        SARIMA with automatic order selection (AIC). Seasonal period is 12 months.
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use, fully synthetic data, no PHI.
+    - trigger: "(?i)(file|format|path|csv|input|data)"
+      reply: >-
+        Time series file staged at testdata/scenarios/atoms/time-series-admissions/monthly_admissions.csv.
+    - trigger: "(?i)(holdout|backtest|validation|test.set)"
+      reply: >-
+        Last 12 months as holdout (2024-01 to 2024-12). Rest is training.
+    - trigger: "(?i)(horizon|forecast|period)"
+      reply: >-
+        12-month forecast horizon after the end of the series.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

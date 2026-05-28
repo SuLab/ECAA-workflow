@@ -1,0 +1,37 @@
+# 22 — CODEX spatial proteomics: niche modality NOT in archetype catalog.
+# Should route to generic_omics and exercise propose_hypothesized_node
+# for codex-specific atoms (spatial_neighborhood_analysis,
+# multiplexed_image_segmentation).
+
+name: CODEX spatial proteomics (atom-proposal path)
+modality: generic_omics
+
+beats:
+  - user: "I have CODEX multiplex imaging of tumor microenvironment — 50 markers, four patient FFPE blocks. I need cell segmentation, phenotyping, and spatial-neighborhood analysis."
+    assistant:
+      content: "Acknowledged — I have the modality + key parameters; will ask for any missing details before locking the plan."
+    expect:
+      visibleText: ["CODEX", "spatial"]
+
+live:
+  intake_prose: |
+    CODEX (CO-Detection by indEXing) multiplex tissue imaging with 50
+    antibody markers across four formalin-fixed paraffin-embedded tumor
+    sections. I need single-cell segmentation from the multiplexed image
+    stack, marker-based cell-type phenotyping, spatial-neighborhood
+    enrichment analysis, and a final report on which cell-cell adjacencies
+    differ between responder and non-responder tumors. The pipeline isn't
+    standard scRNA-seq or proteomics — please plan accordingly.
+  followups:
+    - trigger: "(?i)(segmentation|nucleus)"
+      reply: "DNA-based nuclear seed plus membrane-marker expansion. Pick the segmentation tool the agent prefers."
+    - trigger: "(?i)(phenotyp|cluster|cell.type)"
+      reply: "Marker-based phenotyping into immune, stromal, tumor subtypes."
+    - trigger: "(?i)(neighborhood|niche|spatial)"
+      reply: "Neighborhood enrichment between phenotypes — responders vs non-responders."
+  assertions:
+    stateNotGreeting: true
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

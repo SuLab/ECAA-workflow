@@ -1,0 +1,78 @@
+id: clinical_endpoint_analysis
+version: "1.0.0"
+role: operation
+description: |
+  Run the prespecified primary + secondary endpoint analyses against
+  the imported CDISC ADaM / SDTM trial dataset. Method-neutral over the
+  SAP-named contrast family: logistic regression for binary endpoints
+  (e.g., ACR20 response, stratified on baseline covariates with odds-
+  ratio + 95% CI), MMRM / ANCOVA for continuous longitudinal endpoints
+  (e.g., DAS28-CRP change-from-baseline, HAQ-DI), Cox proportional-
+  hazards for time-to-event endpoints. The concrete model family is
+  named in the frozen Statistical Analysis Plan; deviation is post-hoc
+  and must be flagged. Emits a per-endpoint effect-size table with
+  point estimate, 95% CI, p-value, contrast definition, and
+  multiplicity-adjustment annotation.
+edam_operation: "operation:3659"
+edam_data: "data:0951"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - data_import
+expected_artifacts:
+  - endpoint_results.tsv
+  - endpoint_summary.json
+  - manifest.json
+  - result.json
+figure_exempt:
+  reason: "Per-endpoint effect-size table is a structured intermediate consumed by clinical_subgroup_analysis / clinical_sensitivity_analysis / reporting; forest-plot + per-endpoint visuals are emitted by the downstream subgroup + reporting atoms."
+  category: intermediate
+attributes:
+  candidate_tools:
+    - r_glm_logistic
+    - r_mmrm
+    - sas_proc_mixed
+    - sas_proc_genmod
+    - python_statsmodels_ancova
+    - r_survival_coxph
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Endpoint effects are statistical contrasts produced by the SAP-named
+  model on the SAP-named analysis population. Report effect size, 95%
+  CI, p-value, contrast definition, and multiplicity-adjustment
+  annotation. Do not assert clinical efficacy, regulatory significance,
+  or benefit-risk conclusions beyond what the SAP already specifies;
+  flag any model deviation from the SAP as post-hoc.
+# Explicit rich ports.
+# Input is the imported CDISC ADaM / SDTM tabular dataset produced by
+# `data_import`. Output is the per-endpoint effect-size table consumed
+# by downstream sensitivity / subgroup / reporting atoms.
+inputs:
+  - name: imported_trial_dataset
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2531"
+      label: "Experiment annotation"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: endpoint_results
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "clinical_endpoint_results"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-endpoint effect-size table (point estimate, 95% CI, p-value, contrast definition, multiplicity-adjustment annotation) for primary + secondary SAP endpoints."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "endpoint_tested"
+    privacy_class: internal

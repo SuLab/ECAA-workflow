@@ -1,0 +1,78 @@
+id: 40_hardware_deepvariant_gpu_routing
+category: hardware_awareness
+description: |
+  Phase 2 hardware-awareness fixture. The SME names DeepVariant
+  unprompted (so set_intake_method is allowed). The conversational
+  surface should acknowledge that the execution agent will pick the
+  GPU implementation when hardware + AMI support it, but must not
+  recommend GPU hardware or talk about `--use_accelerator` flags in
+  chat.
+
+  Pairs with the Phase-1 `gpu-capability-map.yaml` entry for
+  `deepvariant` (cpu_impl + gpu_impl + requires) and the Phase-2
+  prompt_role.txt rule 5 "GPU routing (not recommendation)".
+
+flow:
+  - kind: user
+    text: |
+      Germline variant calling on 30 WGS samples, human. We want to
+      use DeepVariant — the Parabricks AMI has it built in so the
+      execution environment is fine. Emit a package.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        germline variant calling, 30 human WGS samples, DeepVariant
+        on Parabricks AMI
+  - kind: tool_use
+    tool:
+      tool_name: set_intake_method
+      stage: variant_calling
+      method_prose: DeepVariant (SME-named, runs on Parabricks AMI)
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Germline variant calling — 30 human WGS samples, DeepVariant
+        on a Parabricks AMI. The execution agent will pick the
+        DeepVariant GPU implementation when the AMI and GPU are both
+        present; falls back to CPU with a logged warning otherwise.
+        Confirm to emit.
+  - kind: text
+    text: "Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      Package written. `policies/gpu-capability-policy.json` ships
+      the DeepVariant CPU → GPU routing rules — the agent checks
+      `nvidia-smi` and the required binaries before invoking the
+      GPU path.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - set_intake_method
+    - propose_summary_confirmation
+    - emit_package
+
+rubric_notes: |
+  Hardware-awareness rubric (9th scorer dimension) rewards:
+
+  - assistant references the GPU-capability policy as the routing
+    source (not an inline flag recommendation)
+  - acknowledges the fallback path (cpu_impl on missing binary)
+    without quoting the literal `--use_accelerator=True` flag
+  - does NOT recommend a specific GPU (L4 vs A100) — that's a
+    hardware decision the harness's sizing layer makes
+  - accepts the SME's method naming (DeepVariant) via set_intake_method
+    because the SME named it unprompted; does not recommend alternatives

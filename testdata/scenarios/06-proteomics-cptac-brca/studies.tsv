@@ -1,0 +1,7 @@
+dataset	first_author	year	journal	pmid	accession	platform	n_samples	data_type	portal	notes
+CPTAC_BRCA_prospective_proteome	Krug	2020	Cell	33212010	PDC000120	TMT-11 LC-MS/MS (Orbitrap)	122 tumors	global proteome RAW + processed	Proteomic Data Commons	prospective CPTAC-BRCA confirmatory cohort
+CPTAC_BRCA_prospective_phospho	Krug	2020	Cell	33212010	PDC000121	TMT-11 LC-MS/MS (Orbitrap)	122 tumors	phosphoproteome RAW + processed	Proteomic Data Commons	same 122 tumors as PDC000120
+CPTAC_BRCA_retrospective_TCGA	Mertins	2016	Nature	27251275	PDC legacy TCGA_Breast_Cancer_Proteome	TMT LC-MS/MS	77 (of 105 TCGA) tumors	global proteome and phosphoproteome	Proteomic Data Commons	retrospective TCGA-based validation cohort
+CPTAC_3_BRCA_WES	CPTAC Consortium	2018-2021	n/a	n/a	CPTAC-3 (GDC)	Illumina HiSeq / NovaSeq WES	122 tumor+normal pairs	WES somatic mutation calls	Genomic Data Commons	paired with PDC000120/PDC000121
+CPTAC_3_BRCA_WGS	CPTAC Consortium	2018-2021	n/a	n/a	CPTAC-3 (GDC)	Illumina WGS	partial	WGS somatic mutations and structural variants	Genomic Data Commons	not all tumors WGS-profiled
+CPTAC_3_BRCA_RNAseq	CPTAC Consortium	2018-2021	n/a	n/a	CPTAC-3 (GDC)	Illumina HiSeq / NovaSeq stranded polyA RNA-seq	122 tumors	gene-level counts and TPM	Genomic Data Commons	used for PAM50 assignment and protein-RNA discordance

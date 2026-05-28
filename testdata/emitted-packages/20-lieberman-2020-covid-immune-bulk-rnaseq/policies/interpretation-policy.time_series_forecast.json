@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "1.1",
+  "targetStages": [
+    "exploratory_analysis",
+    "feature_engineering",
+    "model_specification",
+    "model_fitting_diagnostics",
+    "forecasting_inference",
+    "sensitivity_analysis",
+    "reporting"
+  ],
+  "claimBoundary": {
+    "associativeOnly": [
+      "Coefficients and forecast deltas are descriptive; do not make causal claims",
+      "Report goodness-of-fit as in-sample / out-of-sample metrics, not as a claim of predictive validity on new regimes"
+    ],
+    "requiresEvidence": [
+      "Coefficient and forecast values must cite the model-output table and the holdout period",
+      "Accuracy metrics (RMSE, MAPE, MAE, coverage) must cite the evaluation-window table"
+    ]
+  },
+  "verifiableEntities": {
+    "enabled": true,
+    "entityNamePatterns": [
+      "(?i)\\b(lag|ar|ma|ar\\d+|ma\\d+|seasonal|trend|intercept|const|level|slope)\\b",
+      "(?i)\\b(holdout|backtest|forecast[_ ]?horizon)\\b",
+      "(?i)\\b[A-Za-z][A-Za-z0-9_]*_(coef|beta|effect)\\b"
+    ],
+    "directionVocab": {
+      "up": [
+        "increasing",
+        "positive",
+        "upward"
+      ],
+      "down": [
+        "decreasing",
+        "negative",
+        "downward",
+        "stationary",
+        "no-trend"
+      ]
+    },
+    "effectSizeColumns": [
+      "coefficient",
+      "coef",
+      "beta",
+      "estimate",
+      "forecast_mean",
+      "forecast",
+      "rmse",
+      "RMSE",
+      "mape",
+      "MAPE",
+      "mae",
+      "MAE"
+    ],
+    "entityColumns": [
+      "variable",
+      "term",
+      "period",
+      "feature",
+      "lag",
+      "component"
+    ],
+    "pvalueColumns": [
+      "pvalue",
+      "p_value",
+      "p_val"
+    ],
+    "tolerance": {
+      "log2FcAbsoluteDelta": 0.05,
+      "pvalueRelativeDelta": 0.1
+    }
+  },
+  "validationContract": {
+    "requiredOutputs": [],
+    "metrics": []
+  },
+  "evidenceRules": [],
+  "note": "Time-series overlay: model-term/lag entity patterns, forecast/coefficient/RMSE effect-size columns, variable/term/period entity columns."
+}

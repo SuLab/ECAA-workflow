@@ -1,0 +1,59 @@
+id: variant_annotation
+version: "1.0.0"
+role: operation
+description: |
+  Annotate filtered variants with gene impact, consequence, population
+  frequency, and clinical significance. VEP / ANNOVAR / SnpEff against
+  Ensembl / RefSeq / gnomAD / ClinVar selected at runtime.
+edam_operation: "operation:3672"
+edam_data: "data:3498"
+edam_format: "format:3016"
+assignee: agent
+depends_on:
+  - variant_filtering
+attributes:
+  candidate_tools:
+    - vep
+    - annovar
+    - snpeff
+  candidate_databases:
+    - ensembl
+    - refseq
+    - gnomad
+    - clinvar
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Variant annotations are computational predictions. ClinVar pathogenicity is
+  curator-assigned and may lag literature. Do not assert clinical interpretation
+  beyond the cited annotation source.
+# Explicit rich ports.
+# The output is still a VCF; the consequence / gene-impact / population-frequency
+# / clinical-significance overlay rides as additional INFO fields, so the
+# physical format does not change. Annotation provenance is captured via
+# attributes.candidate_databases above, not on the port.
+inputs:
+  - name: filtered_variants
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3498"
+      label: "Sequence variations"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3016"
+      label: "VCF"
+    privacy_class: internal
+outputs:
+  - name: annotated_variants
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3498"
+      label: "Sequence variations"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3016"
+      label: "VCF"
+    privacy_class: internal

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ecaa-workflow.org/swfc/view-data-v1.json",
+  "title": "view_data/<id>.json schema",
+  "description": "Structured plot-ready data emitted alongside every figure. Frozen schema_version=1. Consumed by the dashboard tab to render interactive views client-side, by snapshot tests to compare across renderers, and by author-overlay scripts that want to re-render a figure with hand-tuned styling without re-running the full analysis.",
+  "type": "object",
+  "required": ["stage_id", "view_id", "schema_version", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "stage_id": {
+      "type": "string",
+      "description": "DAG stage that owns this view. Matches FigureContext.stage_id and the parent runtime/outputs/<stage_id>/ directory."
+    },
+    "view_id": {
+      "type": "string",
+      "description": "Figure id this view backs. View ids are scoped per-stage; the same id can mean different things in different stages."
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Hard-pinned at 1. Bumping requires a coordinated dashboard + snapshot-test migration."
+    },
+    "data": {
+      "type": "object",
+      "description": "View-specific payload. Shape is owned by the stage module — every figure type defines its own canonical schema (e.g. clustering.umap_by_cluster carries `runs[].{x,y,cluster}`; differential_expression.volcano carries `points[].{log_fc,neg_log10_p,feature,sig}`). The viewer is permissive — fields it doesn't recognize are passed through to the dashboard renderer or ignored by the snapshot test."
+    }
+  }
+}

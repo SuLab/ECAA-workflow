@@ -1,0 +1,7 @@
+{
+  "workflow_intent": "1.0.0",
+  "session": "1.0.0",
+  "workflow_dag": "1.0.0",
+  "session_lineage": "1.0.0",
+  "dispatch_wal": "1.0.0"
+}

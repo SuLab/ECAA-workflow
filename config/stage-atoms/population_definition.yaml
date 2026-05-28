@@ -1,0 +1,56 @@
+id: population_definition
+version: "1.0.0"
+role: operation
+description: |
+  Construct the trial's analysis populations from SDTM tables: ITT, mITT,
+  per-protocol, safety set. The output is one row per subject × population
+  with explicit inclusion / exclusion attributions citing the SAP. Downstream
+  endpoint stages join against this to filter their analysis sets.
+  swfc:trial_population_definition because population definition is
+  trial-specific and EDAM doesn't model it.
+edam_operation: "swfc:trial_population_definition"
+edam_data: "swfc:trial_analysis_set"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - cdisc_mapping
+expected_artifacts:
+  - population_assignments.tsv
+  - manifest.json
+  - result.json
+required_figures:
+  - consort_diagram
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Clinical-trial population construction: consumes the SDTM-mapped
+# enrolled cohort; emits ITT / mITT / per-protocol / safety
+# population assignments. Subject-level identifiers propagate as
+# PHI.
+inputs:
+  - name: enrolled_cohort
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2531"
+      label: "Patient data"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: phi
+outputs:
+  - name: population_assignments
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "trial_analysis_set"
+      proposed_parent_terms:
+        - "data:2531"
+      definition: "Per-subject × population (ITT / mITT / per-protocol / safety) assignment with SAP-cited inclusion/exclusion attributions"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: phi

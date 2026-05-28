@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "AdapterSpec",
+  "description": "Phase 5 of the DAG composer alignment plan — declarative adapter specification. Validated at config load time; the in-memory AdapterRegistry pre-registers the starter set hardcoded in adapter_registry.rs and merges any YAML-declared adapters from this directory on top.",
+  "type": "object",
+  "required": ["id", "name", "class", "safety"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Stable id (snake_case). Used as the cache key for adapter dispatch."
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable label rendered in adapter-warning UI cards."
+    },
+    "class": {
+      "type": "string",
+      "enum": [
+        "format_conversion",
+        "compression",
+        "index_generation",
+        "sorting",
+        "filtering",
+        "normalization",
+        "identifier_mapping",
+        "coordinate_liftover",
+        "metadata_join",
+        "sample_sheet_generation",
+        "container_wrapping",
+        "schema_conversion",
+        "reference_download",
+        "qc_gate"
+      ],
+      "description": "What kind of work the adapter does. Drives composer-side dispatch."
+    },
+    "safety": {
+      "type": "string",
+      "enum": [
+        "lossless",
+        "lossy_declared",
+        "scientifically_risky",
+        "policy_restricted"
+      ],
+      "description": "Safety class. Lossless can be auto-inserted; LossyDeclared requires assumption-ledger entry; ScientificallyRisky requires explicit SME confirmation; PolicyRestricted is refused outside approved pipelines."
+    },
+    "from_format": {
+      "type": "string",
+      "pattern": "^(format|data|operation|topic):[0-9]+$",
+      "description": "Optional source format / data EDAM IRI. Omit for wildcard."
+    },
+    "to_format": {
+      "type": "string",
+      "pattern": "^(format|data|operation|topic):[0-9]+$",
+      "description": "Optional destination format / data EDAM IRI. Omit for wildcard."
+    },
+    "from_semantic_type": {
+      "type": "string",
+      "description": "Optional source semantic type stable id."
+    },
+    "to_semantic_type": {
+      "type": "string",
+      "description": "Optional destination semantic type stable id."
+    },
+    "rationale": {
+      "type": "string",
+      "description": "Free-text rationale rendered in CompatibilityProof.rationale when this adapter is inserted. Should explain what the adapter does + what could go wrong."
+    },
+    "validators": {
+      "type": "array",
+      "description": "v3 alignment Phase 3 (F10) — validators auto-attached to every consumer port connected via this adapter. Every Lossless adapter MUST carry at least one validator so the contracted output shape is checked rather than trusted.",
+      "items": {
+        "type": "object",
+        "required": ["id"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "version": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object"
+          }
+        }
+      }
+    }
+  }
+}

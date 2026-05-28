@@ -1,0 +1,34 @@
+schema_version: "0.1"
+
+# Machine-readable rubric for Aim 3A HCI evaluation.
+# Human-readable anchors and procedure: docs/eval-prereg/PR-Aim-3A-rubric.md
+# Release-gate script: scripts/compute_kappa.py
+
+dimensions:
+  - id: claim_auditability
+    scale: [0, 1, 2, 3, 4]
+    description: "Auditor can trace claim X to cell/table within time budget"
+
+  - id: recovery_from_failure
+    scale: [0, 1, 2, 3, 4]
+    description: "Failure/blocker has typed BlockerKind, remediation suggestion, and evidence of resolution"
+
+  - id: scientific_adequacy
+    scale: [0, 1, 2, 3, 4]
+    description: "Analysis plan addresses the stated biological question with appropriate method and QC"
+
+  - id: blocked_reproducibility
+    scale: [0, 1, 2, 3, 4]
+    description: "Independent team could reproduce analysis from artifact alone (container digest, params, WORKFLOW.json)"
+
+  - id: format_conformance
+    scale: [0, 1, 2, 3, 4]
+    description: "Artifact conforms to RO-Crate package structure and file naming conventions"
+
+release_gate:
+  inter_rater_kappa_min: 0.75
+  bootstrap_n: 1000
+  method_2_raters: cohen
+  method_3plus_raters: fleiss
+  # Gate must pass per-dimension before arm unblinding.
+  # Run: python scripts/compute_kappa.py --input rater_scores_<dim>.csv --bootstrap-n 1000

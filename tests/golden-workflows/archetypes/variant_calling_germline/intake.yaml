@@ -1,0 +1,2 @@
+Germline variant calling on whole-genome sequencing data using DeepVariant. Identify
+SNVs and small indels and produce a VCF output for downstream annotation.

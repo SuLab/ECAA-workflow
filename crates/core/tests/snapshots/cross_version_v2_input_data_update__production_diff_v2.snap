@@ -1,0 +1,61 @@
+---
+source: crates/core/tests/cross_version_v2_input_data_update.rs
+assertion_line: 106
+expression: report
+---
+{
+  "parent_package": "[parent-package-path]",
+  "child_package": "[child-package-path]",
+  "tables": [
+    {
+      "table_name": "de.tsv",
+      "n_rows_parent": 3,
+      "n_rows_child": 3,
+      "n_overlap": 3,
+      "n_robust": 3,
+      "n_concordant": 0,
+      "n_discordant": 0,
+      "n_entity_missing": 0,
+      "n_numerics_incomplete": 0,
+      "pearson_r": 0.9999967441120319,
+      "spearman_rho": 1.0,
+      "rows": [
+        {
+          "entity": "ANK1",
+          "classification": "robust",
+          "parent_effect": 2.0,
+          "child_effect": 2.1,
+          "parent_pvalue_raw": null,
+          "parent_pvalue_adjusted": 0.0002,
+          "child_pvalue_raw": null,
+          "child_pvalue_adjusted": 0.0001,
+          "effect_correlation_contribution": 0.20644500002754843
+        },
+        {
+          "entity": "GATA1",
+          "classification": "robust",
+          "parent_effect": 1.6,
+          "child_effect": 1.7,
+          "parent_pvalue_raw": null,
+          "parent_pvalue_adjusted": 0.001,
+          "child_pvalue_raw": null,
+          "child_pvalue_adjusted": 0.0009,
+          "effect_correlation_contribution": 0.1298338314178605
+        },
+        {
+          "entity": "HBB",
+          "classification": "robust",
+          "parent_effect": -3.3,
+          "child_effect": -3.4,
+          "parent_pvalue_raw": null,
+          "parent_pvalue_adjusted": 0.00003,
+          "child_pvalue_raw": null,
+          "child_pvalue_adjusted": 0.00002,
+          "effect_correlation_contribution": 0.6637179126666231
+        }
+      ]
+    }
+  ],
+  "overall_concordance": 1.0,
+  "anchor_kind": "package-pair"
+}

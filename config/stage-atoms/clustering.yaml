@@ -1,0 +1,60 @@
+id: clustering
+version: "1.0.0"
+role: operation
+description: |
+  Group cells / samples by transcriptional similarity in the reduced embedding.
+  Leiden / Louvain / k-means / hierarchical methods selected at runtime.
+  Resolution sweep is part of the emitted artifact so downstream review can
+  re-pick without recomputation.
+edam_operation: "operation:3432"
+edam_data: "data:3917"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - dimensionality_reduction
+expected_artifacts:
+  - cluster_assignments.tsv
+  - resolution_sweep.json
+  - manifest.json
+  - result.json
+required_figures:
+  - umap_clusters
+  - cluster_size_bar
+attributes:
+  candidate_tools:
+    - leiden
+    - louvain
+    - kmeans
+    - hierarchical
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Single-cell port shape: count matrix tagged with modality so the
+# compatibility engine refuses bulk count matrices.
+inputs:
+  - name: embedding
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    modality: "single_cell_rnaseq"
+    statistical_state: "normalized"
+    privacy_class: internal
+outputs:
+  - name: cluster_assignments
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "cluster_assignments"
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Per-cell cluster id assignments"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "single_cell_rnaseq"
+    privacy_class: internal

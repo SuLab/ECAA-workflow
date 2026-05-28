@@ -1,0 +1,4 @@
+Differential expression analysis on bulk RNA-seq from human liver samples comparing
+treated versus control conditions. Use DESeq2 to identify upregulated and downregulated
+genes between the two groups. Follow with pathway enrichment via GSEA on the ranked
+DE result.

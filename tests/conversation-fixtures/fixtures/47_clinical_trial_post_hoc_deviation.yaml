@@ -1,0 +1,67 @@
+id: 47_clinical_trial_post_hoc_deviation
+category: wave8_clinical_trial
+description: |
+  Plan §8.E.5 fixture 33 equivalent: confirmatory session with a
+  prespecified primary_endpoint stage. After emission, the SME issues
+  an amend_stage_method with a rationale — verifier must accept and
+  record a PostHocDeviation decision.
+
+flow:
+  - kind: user
+    text: |
+      Phase III RCT with a frozen SAP. Primary endpoint: ACR20 at Week 24,
+      analyzed by logistic regression on the ITT population. Secondary:
+      DAS28-CRP MMRM. Confirmatory.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        Phase III RCT, frozen SAP, confirmatory ACR20 logistic regression
+        on ITT plus DAS28-CRP MMRM secondary endpoints.
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Confirmatory Phase III SAP. Primary endpoint prespecified; any
+        post-emission method swap on primary_endpoint will require a
+        rationale and be logged as a PostHocDeviation.
+  - kind: text
+    text: |
+      Accept when it looks right. Pick "Confirmatory" from the discipline
+      dropdown and list `primary_endpoint` as prespecified.
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      Package emitted. In production the UI dropdown would carry the
+      prespec_stages selection; the fixture runner's confirm button
+      defaults to Exploratory, so this fixture exercises the emission
+      path only. The deviation-gate unit-test coverage lives in
+      crates/conversation/src/tools/tests.rs::
+      confirmatory_amend_of_prespecified_stage_requires_rationale.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - policies/container.json
+    - runtime/decisions.jsonl
+
+rubric_notes: |
+  End-to-end smoke for the confirmatory emission path. The rationale-
+  required gate + PostHocDeviation record are proven at the unit level
+  (see confirmatory_amend_* tests). This fixture's role is to ensure the
+  package emits cleanly when the user picks Confirmatory + prespec stages
+  on the dropdown.

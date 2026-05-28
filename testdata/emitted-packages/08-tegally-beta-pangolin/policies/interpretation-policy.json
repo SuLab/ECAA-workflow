@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.1",
+  "targetStages": [
+    "discover_interpretation",
+    "biological_interpretation",
+    "validate_interpretation"
+  ],
+  "claimBoundary": {
+    "associativeOnly": [
+      "Report pathway/gene-set enrichment as statistical associations only",
+      "Treat disease-gene overlays as suggestive, never diagnostic"
+    ],
+    "requiresEvidence": [
+      "Any claim of pathway involvement must cite the enrichment method, database version, and FDR-adjusted p-value",
+      "Disease-relevance language must cite the disease-gene panel source"
+    ]
+  },
+  "verifiableEntities": {
+    "enabled": true,
+    "entityNamePatterns": [
+      "[A-Z][A-Z0-9]{1,}",
+      "GO:\\d{7}",
+      "R-HSA-\\d+",
+      "R-MMU-\\d+",
+      "R-RNO-\\d+",
+      "R-DRE-\\d+",
+      "(?:hsa|mmu|rno|dre|cel|sce|dme|ath)\\d{5}",
+      "K\\d{5}",
+      "WP\\d+",
+      "MP:\\d{7}",
+      "DOID:\\d+",
+      "EFO_\\d+",
+      "HP:\\d{7}",
+      "REACTOME:R-[A-Z]{3}-\\d+"
+    ],
+    "directionVocab": {
+      "up": [
+        "upregulated",
+        "up-regulated",
+        "increased",
+        "elevated",
+        "enriched",
+        "induced",
+        "higher"
+      ],
+      "down": [
+        "downregulated",
+        "down-regulated",
+        "decreased",
+        "reduced",
+        "depleted",
+        "suppressed",
+        "lower"
+      ]
+    },
+    "effectSizeColumns": [
+      "log2FC",
+      "logFC",
+      "logFoldChange",
+      "effect_size",
+      "estimate"
+    ],
+    "entityColumns": [
+      "gene",
+      "gene_name",
+      "symbol",
+      "feature",
+      "entity",
+      "name"
+    ],
+    "pvalueColumns": [
+      "pvalue",
+      "p_value",
+      "pval",
+      "padj",
+      "adj.P.Val",
+      "FDR",
+      "q_value"
+    ],
+    "tolerance": {
+      "log2FcAbsoluteDelta": 0.05,
+      "pvalueRelativeDelta": 0.1
+    }
+  },
+  "validationContract": {
+    "requiredOutputs": [],
+    "metrics": []
+  },
+  "evidenceRules": [
+    {
+      "id": "adjusted_p_value_required",
+      "description": "Any significance claim about a gene/feature must cite an FDR-adjusted p-value column (padj, FDR, q_value, adj.P.Val). Raw p-values without multiple-testing correction are not sufficient for differential-expression assertions.",
+      "appliesTo": ["differentially_expressed", "upregulated", "downregulated", "enriched", "depleted"],
+      "severity": "blocking"
+    },
+    {
+      "id": "effect_size_sign_consistency",
+      "description": "When a narrative declares an entity 'upregulated' / 'increased' / 'higher', the cited effect-size column (log2FC, logFC, effect_size) must be positive on the row matching the entity. The mirror rule applies for downregulation. Sign mismatches surface as ClaimVerificationReport mismatches.",
+      "appliesTo": ["upregulated", "downregulated", "increased", "decreased", "elevated", "reduced"],
+      "severity": "blocking"
+    },
+    {
+      "id": "direction_vocab_match",
+      "description": "Direction-language vocabulary in narrative prose must match one of the configured directionVocab terms (up / down sets). Free-form synonyms outside the vocab are flagged so the SME can either extend the vocab or rephrase the claim.",
+      "appliesTo": ["all_directional_claims"],
+      "severity": "warning"
+    },
+    {
+      "id": "pathway_claim_requires_method_and_db_version",
+      "description": "Pathway / gene-set enrichment claims must cite the enrichment method (e.g. fgsea, gprofiler, gseapy) and the database version (e.g. Reactome 2025-09, GO 2025-Q3). The claimBoundary.requiresEvidence rule drives this — narrative without method+version cite is downgraded to an associative-only restatement.",
+      "appliesTo": ["pathway_enriched", "pathway_depleted", "gene_set_enriched"],
+      "severity": "blocking"
+    }
+  ],
+  "note": "schemaVersion 1.1 adds verifiableEntities: a policy block consumed by the crates/core claim verifier to check that narrative reports cite values matching the committed result tables. See crates/core/src/claim_extractor.rs + claim_verifier.rs."
+}

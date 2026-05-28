@@ -1,0 +1,4 @@
+Bulk RNA-seq differential expression analysis with per-sample alignment and
+quantification fan-out. Process 12 paired-end samples through STAR alignment in
+parallel (one task per sample), aggregate counts, then run DESeq2 on the merged
+matrix. Each per-sample alignment task should be independently retryable.

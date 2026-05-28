@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "swfc:local-extension-graduation",
+  "type": "object",
+  "required": ["version", "graduation", "duplicate_detection"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "graduation": {
+      "type": "object",
+      "required": ["min_usage_count", "min_unique_sessions", "min_success_rate"],
+      "additionalProperties": false,
+      "properties": {
+        "min_usage_count": { "type": "integer", "minimum": 1 },
+        "min_unique_sessions": { "type": "integer", "minimum": 1 },
+        "min_success_rate": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+      }
+    },
+    "duplicate_detection": {
+      "type": "object",
+      "required": ["jaccard_near_duplicate_threshold", "jaccard_candidate_match_threshold"],
+      "additionalProperties": false,
+      "properties": {
+        "jaccard_near_duplicate_threshold": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "jaccard_candidate_match_threshold": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+      }
+    }
+  }
+}

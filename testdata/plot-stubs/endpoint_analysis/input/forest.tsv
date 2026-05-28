@@ -1,0 +1,6 @@
+label	effect	ci_lo	ci_hi	weight
+Overall	0.72	0.55	0.94	100
+Age <65	0.68	0.49	0.95	45
+Age >=65	0.81	0.58	1.12	55
+Female	0.74	0.52	1.04	48
+Male	0.7	0.51	0.97	52

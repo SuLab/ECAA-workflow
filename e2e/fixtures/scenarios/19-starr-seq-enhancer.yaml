@@ -1,0 +1,29 @@
+name: STARR-seq enhancer activity
+modality: starr_seq
+
+beats:
+  - user: "STARR-seq in human cells to score regulatory-element activity from a synthesized library."
+    assistant:
+      content: "Acknowledged — I have the modality + key parameters; will ask for any missing details before locking the plan."
+    expect:
+      visibleText: ["STARR", "enhancer"]
+
+live:
+  intake_prose: |
+    Whole-human-genome STARR-seq in HepG2, two biological replicates each
+    of input DNA and RNA output, paired-end Illumina, hg38. I want input
+    vs. output abundance calling per element, enhancer activity scoring
+    with a per-element fold-change and FDR, motif enrichment over the
+    active set, and peak-to-gene annotation by nearest TSS. Public data,
+    internal use.
+  followups:
+    - trigger: "(?i)(reference|genome|hg38)"
+      reply: "hg38, paired-end."
+    - trigger: "(?i)(input|output|RNA)"
+      reply: "Standard input/output pairing — RNA over input per element."
+  assertions:
+    stateNotGreeting: true
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

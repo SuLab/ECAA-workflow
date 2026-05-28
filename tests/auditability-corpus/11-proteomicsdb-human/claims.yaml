@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "11-proteomicsdb-human"
+claims:
+  - id: "11-proteomicsdb-human-claim-001"
+    text: "Proteins quantified per LC-MS run (≥2 peptides, 1% FDR): ≥ 3,500"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/proteins.csv"
+    expected_value: 3500
+    tolerance: 0.1
+  - id: "11-proteomicsdb-human-claim-002"
+    text: "Yeast log2(B/A) median: within ±0.32 of designed -1.0 (i.e. observed -1.32 to -0.68)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: 0.32
+    tolerance: 0.32
+  - id: "11-proteomicsdb-human-claim-003"
+    text: "E. coli log2(B/A) median: within ±0.32 of designed +2.0 (i.e. observed +1.68 to +2.32)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: 0.32
+    tolerance: 0.32
+  - id: "11-proteomicsdb-human-claim-004"
+    text: "Human log2(B/A) median: within ±0.10 of designed 0.0 (constant background)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: 0.1
+    tolerance: 0.1
+  - id: "11-proteomicsdb-human-claim-005"
+    text: "Per-protein CV on human background (technical replicates): < 20% median"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: 0.2
+    tolerance: 0.05
+  - id: "11-proteomicsdb-human-claim-006"
+    text: "Peptide-level FDR: ≤ 1%"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/proteins.csv"
+    expected_value: 1
+    tolerance: 0.1
+  - id: "11-proteomicsdb-human-claim-007"
+    text: "Protein-group FDR: ≤ 1%"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/proteins.csv"
+    expected_value: 1
+    tolerance: 0.1
+  - id: "11-proteomicsdb-human-claim-008"
+    text: "Peak-group / precursor q-value: ≤ 1%"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/proteins.csv"
+    expected_value: 1
+    tolerance: 0.1
+  - id: "11-proteomicsdb-human-claim-009"
+    text: "RT-alignment median residual across instruments: ≤ 30 s on a 60-min gradient"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: 30
+    tolerance: 0.1
+  - id: "11-proteomicsdb-human-claim-010"
+    text: "iRT regression R²: ≥ 0.99"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: 0.99
+    tolerance: 0.05
+  - id: "11-proteomicsdb-human-claim-011"
+    text: "Fig 2 (per-species CV violin): violin or boxplot of per-protein CV split by species across replicate injections"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: "violin or boxplot of per-protein CV split by species across replicate injections"
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-012"
+    text: "Fig 3 (fold-change accuracy scatter): log2(B/A) observed vs designed for human / yeast / E. coli; three reference lines at 0 / -1 / +2"
+    contract: group_comparison
+    source_table: "results/tables/proteins.csv"
+    expected_value: 0
+    tolerance: 0.1
+  - id: "11-proteomicsdb-human-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "11-proteomicsdb-human-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 11-proteomicsdb-human"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null

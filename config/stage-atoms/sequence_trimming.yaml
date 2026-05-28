@@ -1,0 +1,58 @@
+id: sequence_trimming
+version: "1.0.0"
+role: operation
+description: |
+  Trim adapters and low-quality bases from raw reads. Conditional in legacy
+  taxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits
+  trimmed FASTQ regardless of whether it altered the inputs (idempotent on
+  already-clean data).
+edam_operation: "operation:3192"
+edam_data: "data:1234"
+edam_format: "format:1930"
+assignee: agent
+depends_on:
+  - raw_qc
+plot_stage_id: preprocessing
+expected_artifacts:
+  - retention_summary.json
+  - manifest.json
+  - result.json
+required_figures:
+  - retention_bar
+attributes:
+  candidate_tools:
+    - trimmomatic
+    - cutadapt
+    - fastp
+    - trim_galore
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Input is raw FASTQ from data_acquisition (via raw_qc); output is
+# the trimmed FASTQ consumed by alignment. Idempotent on already-clean
+# inputs.
+inputs:
+  - name: raw_reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2044"
+      label: "Sequence reads"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:1930"
+      label: "FASTQ"
+    privacy_class: internal
+outputs:
+  - name: trimmed_reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2044"
+      label: "Sequence reads"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:1930"
+      label: "FASTQ"
+    privacy_class: internal

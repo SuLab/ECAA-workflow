@@ -1,0 +1,72 @@
+id: data_acquisition
+version: "1.0.0"
+role: operation
+description: |
+  Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,
+  ENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,
+  per-accession provenance summary, and an index pointing at the materialized
+  artifacts. Downstream atoms consume the manifest, not the raw bytes directly.
+edam_operation: "operation:2422"
+edam_data: "data:2531"
+edam_format: "format:3915"
+assignee: agent
+expected_artifacts:
+  - cohort_manifest.tsv
+  - per_accession_summary.json
+  - matrices_index.json
+  - manifest.json
+  - result.json
+required_figures:
+  - samples_per_study
+attributes:
+  data_sources:
+    - sra
+    - geo
+    - arrayexpress
+    - ena
+    - pride
+    - synapse
+    - dbgap
+    - egastudy
+    - sme_provided
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Inputs are SME-declared accessions / paths from intake (modeled as a
+# swfc:accession_descriptor local extension since EDAM lacks a clean
+# term for "SRA accession descriptor"). The primary output is raw
+# FASTQ; richer modalities may add per-sample metadata.
+inputs:
+  - name: accession_descriptors
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "accession_descriptor"
+      proposed_parent_terms:
+        - "data:2531"
+      definition: "SME-declared repository accession or file path (SRA, GEO, ENA, PRIDE, dbGaP, EGA, SME-provided)"
+    privacy_class: internal
+outputs:
+  - name: cohort_manifest
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2531"
+      label: "Experiment annotation"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+  - name: raw_reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2044"
+      label: "Sequence reads"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:1930"
+      label: "FASTQ"
+    privacy_class: internal

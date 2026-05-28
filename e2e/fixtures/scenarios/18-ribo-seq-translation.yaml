@@ -1,0 +1,28 @@
+name: Ribo-seq translation efficiency
+modality: ribo_seq
+
+beats:
+  - user: "Ribosome profiling paired with bulk RNA-seq. I need per-ORF translation efficiency and condition-specific changes."
+    assistant:
+      content: "Acknowledged — I have the modality + key parameters; will ask for any missing details before locking the plan."
+    expect:
+      visibleText: ["Ribo-seq", "translation"]
+
+live:
+  intake_prose: |
+    Paired Ribo-seq + bulk RNA-seq from two human cell-line conditions
+    (control vs. integrated-stress-response inducer), three biological
+    replicates per arm. I want per-ORF ribosome footprint quantification,
+    matched RNA-seq quantification, translation-efficiency (TE) calculation
+    per ORF, and differential TE between conditions. Public-data, internal.
+  followups:
+    - trigger: "(?i)(reference|genome|annotation)"
+      reply: "hg38 with GENCODE primary protein-coding annotation. Single-end footprints, paired-end RNA-seq."
+    - trigger: "(?i)(ORF|uORF)"
+      reply: "Standard annotated CDS only — no uORF discovery in this pass."
+  assertions:
+    stateNotGreeting: true
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

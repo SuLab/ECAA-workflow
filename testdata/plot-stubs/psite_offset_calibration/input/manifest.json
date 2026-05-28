@@ -1,0 +1,5 @@
+{
+  "psite_offset_path": "psite_offset.tsv",
+  "frame_counts_path": "frame_counts.tsv",
+  "te_results_path": "te_results.tsv"
+}

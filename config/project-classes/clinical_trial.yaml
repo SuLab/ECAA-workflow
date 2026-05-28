@@ -1,0 +1,6 @@
+id: clinical_trial
+display_name: Clinical Trial
+prompt_addendum_path: crates/conversation/src/project_class_prompts/clinical_trial.txt
+taxonomy_pattern: "clinical-trial-*.yaml"
+requires_container: true
+auto_bco: true

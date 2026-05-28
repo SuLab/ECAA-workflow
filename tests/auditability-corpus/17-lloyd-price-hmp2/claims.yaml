@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "17-lloyd-price-hmp2"
+claims:
+  - id: "17-lloyd-price-hmp2-claim-001"
+    text: "Host-read fraction filtered out per sample (KneadData QC): 0.5%-30%"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.15
+    tolerance: 0.3
+  - id: "17-lloyd-price-hmp2-claim-002"
+    text: "Microbial reads retained per sample (post-filter, Lloyd-Price 2019 Methods): ≥ 1,000,000 paired"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 1000000
+    tolerance: 0.1
+  - id: "17-lloyd-price-hmp2-claim-003"
+    text: "Species-level Spearman ρ vs IBDMDB reference (pooled across intersection, Beghini 2021 eLife): ≥ 0.90"
+    contract: group_comparison
+    source_table: "results/tables/abundance.csv"
+    expected_value: 0.90
+    tolerance: 0.05
+  - id: "17-lloyd-price-hmp2-claim-004"
+    text: "Per-sample species detected by MetaPhlAn (Lloyd-Price 2019 Fig 1): 50-250"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: 150
+    tolerance: 0.5
+  - id: "17-lloyd-price-hmp2-claim-005"
+    text: "HUMAnN3 EC concordance vs HUMAnN2 (Beghini 2021 eLife): ≥ 64%"
+    contract: group_comparison
+    source_table: "results/tables/pathways.csv"
+    expected_value: 0.64
+    tolerance: 0.1
+  - id: "17-lloyd-price-hmp2-claim-006"
+    text: "MAG completeness (CheckM, optional assembly arm): ≥ 80% on ≥50% of MAGs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/mags.csv"
+    expected_value: 0.80
+    tolerance: 0.05
+  - id: "17-lloyd-price-hmp2-claim-007"
+    text: "Top-15 species prevalence agreement vs IBDMDB list: ≥ 12 of 15 shared"
+    contract: rank_top_n
+    source_table: "results/tables/abundance.csv"
+    expected_value: 12
+    tolerance: 0.0
+  - id: "17-lloyd-price-hmp2-claim-008"
+    text: "Bacteroides fragilis prevalence: detected in ≥ 50% of healthy-control samples"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: 0.50
+    tolerance: 0.1
+  - id: "17-lloyd-price-hmp2-claim-009"
+    text: "Shannon alpha diversity (CD vs nonIBD): CD lower than nonIBD by ≥ 0.5 nats median"
+    contract: group_comparison
+    source_table: "results/tables/diversity.csv"
+    expected_value: 0.5
+    tolerance: 0.2
+  - id: "17-lloyd-price-hmp2-claim-010"
+    text: "Bray-Curtis PCoA: per-subject clustering tighter than between-subject (PERMANOVA R² ≥ 0.3)"
+    contract: categorical
+    source_table: "results/tables/diversity.csv"
+    expected_value: 0.3
+    tolerance: 0.1
+  - id: "17-lloyd-price-hmp2-claim-011"
+    text: "Emitted workflow contains stage 'discover_taxonomic_profiling': MetaPhlAn4 species-level profiles across all samples"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_taxonomic_profiling"
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-012"
+    text: "Emitted workflow contains stage 'discover_functional_profiling': HUMAnN3 EC pathway abundance per sample"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_functional_profiling"
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "17-lloyd-price-hmp2-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 17-lloyd-price-hmp2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null

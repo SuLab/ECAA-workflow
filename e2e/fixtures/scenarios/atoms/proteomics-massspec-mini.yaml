@@ -1,0 +1,90 @@
+# atoms/proteomics-massspec-mini — atom-coverage spec
+#
+# Synthetic DDA LC-MS/MS proteomics: 100 proteins × 4 samples
+# (2 control, 2 treatment). MaxQuant-style proteinGroups.txt.
+# Tests the proteomics_dda archetype.
+
+name: Synthetic DDA proteomics label-free quantification
+modality: proteomics
+
+beats:
+  - user: >-
+      I want to run a label-free quantification proteomics analysis on
+      a small synthetic DDA mass-spec dataset: 100 proteins across 4 samples
+      (2 control, 2 treatment). I already have MaxQuant protein group output.
+    assistant:
+      content: >-
+        DDA label-free proteomics, 100 proteins, control vs treatment. What
+        normalization and differential abundance test?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      Standard pipeline: protein quantification from MaxQuant output,
+      differential abundance testing between control and treatment,
+      and pathway enrichment. Internal use, synthetic data.
+    assistant:
+      content: >-
+        Recorded — MaxQuant import → protein quantification → differential
+        abundance → pathway enrichment → reporting. Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **DDA label-free proteomics — control vs treatment**
+
+          - **Dataset:** Synthetic MaxQuant proteinGroups.txt (100 proteins, 4 samples)
+          - **Contrast:** control vs treatment
+          - **Pipeline:** quantification → DA testing → pathway enrichment
+          - **Governance:** synthetic data, internal use
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I want to run a label-free quantification proteomics analysis comparing
+    control and treatment conditions. The dataset is a synthetic DDA LC-MS/MS
+    experiment: 100 proteins quantified across 4 samples (S1_rep1, S1_rep2
+    as control; S2_rep1, S2_rep2 as treatment), output as a MaxQuant-style
+    proteinGroups.txt file staged locally. The pipeline should cover: protein
+    quantification from the MaxQuant output, differential abundance testing
+    (control vs treatment), and pathway enrichment on significant proteins.
+    Internal use, synthetic data, no PHI. Please build the plan and emit
+    once confirmed.
+  followups:
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use, fully synthetic data, no PHI.
+    - trigger: "(?i)(file|format|path|maxquant|protein|input|data)"
+      reply: >-
+        Files staged at testdata/scenarios/atoms/proteomics-massspec-mini/.
+        proteinGroups.txt (MaxQuant output), samples.csv.
+    - trigger: "(?i)(normalization|imputation|missing|lft|intensity)"
+      reply: >-
+        Standard MaxLFQ normalization. Let the agent choose imputation at runtime.
+    - trigger: "(?i)(contrast|comparison|condition|group|treatment|control)"
+      reply: >-
+        Control (S1_rep1, S1_rep2) vs treatment (S2_rep1, S2_rep2). Two-group comparison.
+    - trigger: "(?i)(enrichment|pathway|kegg|go|gsea)"
+      reply: >-
+        Standard pathway enrichment on significant proteins. Let the agent choose the database.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

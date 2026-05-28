@@ -1,0 +1,999 @@
+{
+  "version": "1.0",
+  "workflow_id": "golden-single_cell_de",
+  "current_task": null,
+  "tasks": {
+    "batch_correction": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_batch_correction",
+        "dimensionality_reduction",
+        "metadata_harmonization"
+      ],
+      "assignee": "agent",
+      "description": "Apply batch correction (conditional on batch effect assessment)",
+      "spec": {
+        "condition": "discover_batch_correction.result.batch_correction_required == true",
+        "edam_operation": "operation:3435",
+        "required_figures": [
+          "mixing_score_bar",
+          "umap_pre_post"
+        ],
+        "spec_preferred_methods": {
+          "seurat_v5_cca_integratelayers": "Lotz specs/05_INTEGRATION.md: Seurat v5 CCA via IntegrateLayers (label-free; strongest batch mixing on IVD tissue). SME-pinned; do not substitute a scvi-tools family fallback silently."
+        },
+        "stage_class": "batch_correction"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "biological_interpretation": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_interpretation",
+        "validate_differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Run pathway/gene-set enrichment and overlay disease-gene panels on DE results",
+      "spec": {
+        "edam_operation": "operation:2436",
+        "expected_artifacts": [
+          "pathway_results.tsv",
+          "pathway_summary.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "top_enriched_terms",
+          "pathway_dotplot",
+          "enrichment_heatmap"
+        ],
+        "spec_preferred_methods": {
+          "decoupler_plus_scenic_plus_pain_panel": "Lotz specs/09_INTERPRETATION.md: decoupler (ORA+GSEA) + pySCENIC regulons + pain-gene panel (10 canonical + 1,037 pain-pathway)"
+        },
+        "stage_class": "interpretation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "cell_cell_communication": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_cell_communication",
+        "cell_type_annotation",
+        "metadata_harmonization"
+      ],
+      "assignee": "agent",
+      "description": "Infer ligand-receptor interactions between annotated cell populations",
+      "spec": {
+        "edam_operation": "operation:2436",
+        "expected_artifacts": [
+          "signaling_interactions.tsv",
+          "communication_summary.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "signaling_heatmap",
+          "top_pathways"
+        ],
+        "spec_preferred_methods": {
+          "liana_rank_aggregate_with_cellchat": "Lotz specs/11_COMMUNICATION.md: LIANA+ rank aggregate with CellChat+CellPhoneDB+NATMI+SingleCellSignalR consensus; differential liana.multi.test between conditions"
+        },
+        "stage_class": "cell_communication"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "cell_type_annotation": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_annotation",
+        "validate_clustering",
+        "metadata_harmonization"
+      ],
+      "assignee": "agent",
+      "description": "Annotate cell type identities using markers or reference datasets",
+      "spec": {
+        "edam_operation": "operation:0361",
+        "expected_artifacts": [
+          "celltype_assignments.tsv",
+          "marker_panel_audit.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "umap_by_celltype",
+          "celltype_size_bar"
+        ],
+        "spec_preferred_methods": {
+          "two_stage_denovo_with_fibrochondrocyte_pericyte": "Lotz specs/07_POST_ANNOTATION.md: 2-stage de novo annotation with fibrochondrocyte + pericyte/SMC + M1/M2 + CD4/CD8 subtype labels"
+        },
+        "stage_class": "cell_type_annotation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "clustering": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_clustering",
+        "dimensionality_reduction",
+        "batch_correction"
+      ],
+      "assignee": "agent",
+      "description": "Cluster cells into discrete populations",
+      "spec": {
+        "edam_operation": "operation:3432",
+        "expected_artifacts": [
+          "cluster_assignments.tsv",
+          "resolution_sweep.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "umap_clusters",
+          "cluster_size_bar"
+        ],
+        "spec_preferred_methods": {
+          "leiden_with_clustree_sweep": "Lotz specs/06_CLUSTERING.md: leiden sweep 0.1-2.0 step 0.1, silhouette+modularity+clustree"
+        },
+        "stage_class": "clustering"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "compare_integration": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "batch_correction"
+      ],
+      "assignee": "agent",
+      "description": "Sensitivity comparison of batch-integration methods (harmony, scanorama, bbknn). The harness runs each variant; the SME selects the winner via select_sensitivity_winner before downstream clustering consumes the integrated embeddings.\n",
+      "spec": {
+        "condition": "discover_batch_correction.result.batch_correction_required == true",
+        "stage_class": "sensitivity_comparison"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "data_acquisition": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Acquire raw FASTQ files or processed count matrices from repositories",
+      "spec": {
+        "edam_operation": "operation:2422",
+        "expected_artifacts": [
+          "cohort_manifest.tsv",
+          "per_accession_summary.json",
+          "matrices_index.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "samples_per_study"
+        ],
+        "spec_preferred_methods": {
+          "geoparse_python_processed_matrices": "GEO-only Python fallback (geoparse). Select only when every SME-named accession is a GSE and CNGB/NGDC/EGA sources are absent from the cohort. If a non-GEO accession is present, this method SHOULD NOT be top-ranked alone — it forces silent cohort truncation. Pair with a CNGB/NGDC helper or escalate to multi_repo_processed_matrices_python.",
+          "geoquery_r_processed_matrices": "GEO-only R fallback (GEOquery / Bioconductor). Same scope caveat as geoparse_python_processed_matrices. Requires r_seurat=true or equivalent Bioconductor capability at runtime.",
+          "multi_repo_processed_matrices_python": "Preferred: dispatch per-accession by prefix. GEO (GSE*) → GEOparse; SRA (SRP*/PRJNA*) → pysradb + prefetch; CNGB CNSA (CNP*) → HTTPS to ftp.cngb.org/pub/CNSA + scripts/helpers/cngb_fetch.py; NGDC GSA (CRA*/HRA* public) → ngdc.cncb.ac.cn download API. Union of processed matrices written to a single manifest. Keeps the \"use published matrices, do not reprocess FASTQ\" commitment while covering non-GEO public repos.",
+          "multi_repo_processed_matrices_r": "R/Bioconductor equivalent — GEO via GEOquery, SRA via SRAdb, CNGB/NGDC via httr + a shared URL-resolver helper. Use only when env_capability shows r_seurat=true; otherwise prefer the Python multi_repo method.",
+          "sme_provided_direct_urls": "SME supplies a TSV of {accession, direct_url, sha256} when repository APIs are unavailable or when a specific mirror is preferred. Agent downloads via curl/wget and verifies checksums."
+        },
+        "stage_class": "data_acquisition"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "differential_expression": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_differential_expression",
+        "cell_type_annotation",
+        "metadata_harmonization"
+      ],
+      "assignee": "agent",
+      "description": "Identify marker genes and condition-specific DE per cell type",
+      "spec": {
+        "edam_operation": "operation:3223",
+        "expected_artifacts": [
+          "de_results.tsv",
+          "de_summary.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "volcano",
+          "top_features_heatmap",
+          "positive_control_panel",
+          "pain_gene_recovery_bar"
+        ],
+        "spec_preferred_methods": {
+          "pseudobulk_deseq2_with_ivd_score": "Lotz specs/08_DIFFERENTIAL.md: pseudobulk DESeq2 design ~condition + study + ivd_score, min 10 cells/donor/cluster, within-study DE then random-effects meta-analysis"
+        },
+        "stage_class": "differential_expression"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "dimensionality_reduction": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "normalization"
+      ],
+      "assignee": "agent",
+      "description": "PCA, then non-linear reduction (UMAP/tSNE) for visualization",
+      "spec": {
+        "edam_operation": "operation:3935",
+        "expected_artifacts": [
+          "pca_loadings.tsv",
+          "umap_coords.tsv",
+          "result.json"
+        ],
+        "required_figures": [
+          "variance_explained_elbow",
+          "embedding_scatter"
+        ],
+        "stage_class": "dimensionality_reduction"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_annotation": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "clustering"
+      ],
+      "assignee": "agent",
+      "description": "Discover cell type annotation approach (marker-based, reference mapping, sctype)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:0361",
+        "stage_class": "cell_type_annotation"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_batch_correction": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Assess batch effects and discover correction method (Harmony, scVI, BBKNN)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3435",
+        "stage_class": "batch_correction"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_cell_communication": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "cell_type_annotation"
+      ],
+      "assignee": "agent",
+      "description": "Discover cell-cell communication method (CellChat, CellPhoneDB, NicheNet, LIANA)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:2436",
+        "stage_class": "cell_communication"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_clustering": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "dimensionality_reduction"
+      ],
+      "assignee": "agent",
+      "description": "Discover clustering algorithm and resolution (Leiden default, scanpy ≥ 1.12 / anndata ≥ 0.10; k-means or Louvain only when SME-pinned for legacy reproducibility)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3432",
+        "stage_class": "clustering"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_data_acquisition": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "ready"
+      },
+      "depends_on": [],
+      "assignee": "agent",
+      "description": "Discover best-practice method for: Acquire raw FASTQ files or processed count matrices from repositories",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:2422",
+        "stage_class": "data_acquisition"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_differential_expression": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "cell_type_annotation"
+      ],
+      "assignee": "agent",
+      "description": "Discover single-cell DE method (FindMarkers, MAST, pseudobulk DESeq2)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3223",
+        "stage_class": "differential_expression"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_interpretation": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "validate_differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Discover interpretation approach (pathway enrichment, gene-set analysis, disease-gene overlays)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:2436",
+        "stage_class": "interpretation"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_normalization": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Discover normalization strategy (scran, Seurat LogNormalize, scnorm)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3435",
+        "stage_class": "normalization"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_preprocessing": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition",
+        "metadata_harmonization"
+      ],
+      "assignee": "agent",
+      "description": "Discover preprocessing pipeline (Cell Ranger, STARsolo, kallisto|bustools)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3192",
+        "stage_class": "preprocessing_qc"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_trajectory": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "cell_type_annotation"
+      ],
+      "assignee": "agent",
+      "description": "Discover trajectory inference method (Monocle3, Slingshot, PAGA, scVelo)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3435",
+        "stage_class": "trajectory"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "final_reporting": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "validate_interpretation",
+        "validate_trajectory",
+        "validate_cell_communication"
+      ],
+      "assignee": "agent",
+      "description": "Assemble final analysis report integrating interpretation, trajectory, and communication findings",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "expected_artifacts": [
+          "final_report.md",
+          "dashboard_index.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "summary_dashboard"
+        ],
+        "spec_preferred_methods": {
+          "html_report_with_frozen_requirements": "Lotz specs/12_REPORTING.md: HTML report + requirements_frozen.txt + publication-grade 300dpi figures"
+        },
+        "stage_class": "reporting"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "metadata_harmonization": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Harmonize per-sample metadata across studies (condition, age, grade, compartment, ivd_score)",
+      "spec": {
+        "expected_artifacts": [
+          "metadata_canonical.tsv",
+          "metadata_audit.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "metadata_attribute_heatmap"
+        ],
+        "spec_preferred_methods": {
+          "geo_soft_scrape": "Lotz specs/02_METADATA.md: scrape characteristics_ch1 per GSE to populate condition/age/grade",
+          "published_splits_per_study": "Use published manuscript table groupings per study where available",
+          "sme_provided_tsv": "Lotz specs/02_METADATA.md: SME may provide per-sample TSV directly"
+        },
+        "stage_class": "metadata_harmonization"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "normalization": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_normalization",
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Normalize counts and select highly variable genes",
+      "spec": {
+        "edam_operation": "operation:3435",
+        "expected_artifacts": [
+          "normalized_counts_index.json",
+          "hvg_list.tsv",
+          "result.json"
+        ],
+        "required_figures": [
+          "mean_variance",
+          "hvg_count_bar"
+        ],
+        "stage_class": "normalization"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "preprocessing": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_preprocessing",
+        "data_acquisition",
+        "metadata_harmonization"
+      ],
+      "assignee": "agent",
+      "description": "Generate cell-by-gene count matrices from raw reads",
+      "spec": {
+        "edam_operation": "operation:3192",
+        "expected_artifacts": [
+          "counts_matrix_index.json",
+          "doublet_scores.tsv",
+          "retention_summary.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "retention_bar"
+        ],
+        "spec_preferred_methods": {
+          "cellranger_7x_include_introns": "Lotz specs/03_PREPROCESSING.md: Cell Ranger 7.x against GRCh38-2020-A with --include-introns (IVD tissue is fibrotic/low-cell-count)",
+          "scrublet_per_sample": "Lotz specs/03_PREPROCESSING.md: Scrublet doublet detection per sample, drop >0.25"
+        },
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "quality_control": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "preprocessing"
+      ],
+      "assignee": "agent",
+      "description": "Filter cells by QC metrics (nGenes, nCounts, mitochondrial fraction)",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "expected_artifacts": [
+          "qc_summary.json",
+          "filtered_cells_index.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "results_review": {
+      "kind": "review",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "validate_differential_expression"
+      ],
+      "assignee": "sme",
+      "description": "SME reviews cell type annotations, DE results, and biological interpretation",
+      "spec": {
+        "stage_class": "review"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "trajectory_analysis": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_trajectory",
+        "cell_type_annotation"
+      ],
+      "assignee": "agent",
+      "description": "Infer pseudotime or developmental trajectory over annotated cell populations",
+      "spec": {
+        "edam_operation": "operation:3435",
+        "expected_artifacts": [
+          "pseudotime_coords.tsv",
+          "trajectory_summary.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "pseudotime_umap"
+        ],
+        "stage_class": "trajectory"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_batch_correction": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "batch_correction"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Apply batch correction (conditional on batch effect assessment)",
+      "spec": {
+        "edam_operation": "operation:3435",
+        "required_figures": [
+          "mixing_score_bar",
+          "umap_pre_post"
+        ],
+        "stage_class": "batch_correction"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_biological_interpretation": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "biological_interpretation"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Run pathway/gene-set enrichment and overlay disease-gene panels on DE results",
+      "spec": {
+        "edam_operation": "operation:2436",
+        "required_figures": [
+          "top_enriched_terms",
+          "pathway_dotplot",
+          "enrichment_heatmap"
+        ],
+        "stage_class": "interpretation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_cell_cell_communication": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "cell_cell_communication"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Infer ligand-receptor interactions between annotated cell populations",
+      "spec": {
+        "edam_operation": "operation:2436",
+        "required_figures": [
+          "signaling_heatmap",
+          "top_pathways"
+        ],
+        "stage_class": "cell_communication"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_cell_communication": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "cell_cell_communication"
+      ],
+      "assignee": "agent",
+      "description": "Validate communication edges against literature-supported ligand-receptor pairs",
+      "spec": {
+        "edam_operation": "operation:2424",
+        "stage_class": "cell_communication"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_cell_type_annotation": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "cell_type_annotation"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Annotate cell type identities using markers or reference datasets",
+      "spec": {
+        "edam_operation": "operation:0361",
+        "required_figures": [
+          "umap_by_celltype",
+          "celltype_size_bar"
+        ],
+        "stage_class": "cell_type_annotation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_clustering": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "clustering"
+      ],
+      "assignee": "agent",
+      "description": "Validate cluster stability and biological coherence (silhouette, marker genes)",
+      "spec": {
+        "edam_operation": "operation:2424",
+        "stage_class": "clustering"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_compare_integration": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "compare_integration"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Sensitivity comparison of batch-integration methods (harmony, scanorama, bbknn). The harness runs each variant; the SME selects the winner via select_sensitivity_winner before downstream clustering consumes the integrated embeddings.\n",
+      "spec": {
+        "stage_class": "sensitivity_comparison"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_differential_expression": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Validate DE results and visualize (dotplot, heatmap, violin plots)",
+      "spec": {
+        "edam_operation": "operation:2424",
+        "stage_class": "differential_expression"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_dimensionality_reduction": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "dimensionality_reduction"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: PCA, then non-linear reduction (UMAP/tSNE) for visualization",
+      "spec": {
+        "edam_operation": "operation:3935",
+        "required_figures": [
+          "variance_explained_elbow",
+          "embedding_scatter"
+        ],
+        "stage_class": "dimensionality_reduction"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_final_reporting": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "final_reporting"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Assemble final analysis report integrating interpretation, trajectory, and communication findings",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "required_figures": [
+          "summary_dashboard"
+        ],
+        "stage_class": "reporting"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_interpretation": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "biological_interpretation"
+      ],
+      "assignee": "agent",
+      "description": "Validate enrichment results (positive-control pathways, effect-size sanity checks)",
+      "spec": {
+        "edam_operation": "operation:2424",
+        "stage_class": "interpretation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_metadata_harmonization": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "metadata_harmonization"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Harmonize per-sample metadata across studies (condition, age, grade, compartment, ivd_score)",
+      "spec": {
+        "required_figures": [
+          "metadata_attribute_heatmap"
+        ],
+        "stage_class": "metadata_harmonization"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_normalization": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "normalization"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Normalize counts and select highly variable genes",
+      "spec": {
+        "edam_operation": "operation:3435",
+        "required_figures": [
+          "mean_variance",
+          "hvg_count_bar"
+        ],
+        "stage_class": "normalization"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_preprocessing": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "preprocessing"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Generate cell-by-gene count matrices from raw reads",
+      "spec": {
+        "edam_operation": "operation:3192",
+        "required_figures": [
+          "retention_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_quality_control": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Filter cells by QC metrics (nGenes, nCounts, mitochondrial fraction)",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_trajectory": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "trajectory_analysis"
+      ],
+      "assignee": "agent",
+      "description": "Validate trajectory by known marker progressions and bootstrap stability",
+      "spec": {
+        "edam_operation": "operation:2424",
+        "stage_class": "trajectory"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_trajectory_analysis": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "trajectory_analysis"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Infer pseudotime or developmental trajectory over annotated cell populations",
+      "spec": {
+        "edam_operation": "operation:3435",
+        "required_figures": [
+          "pseudotime_umap"
+        ],
+        "stage_class": "trajectory"
+      },
+      "resource_class": "cpu_heavy"
+    }
+  }
+}

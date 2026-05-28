@@ -1,0 +1,9 @@
+cell_line	tissue_of_origin	direct_RNA	direct_cDNA	pcr_cDNA	illumina_short_read	pacbio_isoseq	accession	spike_in	notes
+A549	lung adenocarcinoma	yes	yes	yes	yes	yes	PRJEB44348	sequins + SIRV	core SG-NEx benchmark
+HCT116	colon carcinoma	yes	yes	yes	yes	yes	PRJEB44348	sequins + SIRV	core SG-NEx benchmark
+HepG2	hepatoblastoma	yes	yes	yes	yes	yes	PRJEB44348	sequins + SIRV	core SG-NEx benchmark
+K562	chronic myeloid leukemia	yes	yes	yes	yes	yes	PRJEB44348	sequins + SIRV	core SG-NEx benchmark; ENCODE tier-1 cell line
+MCF7	breast adenocarcinoma	yes	yes	yes	yes	yes	PRJEB44348	sequins + SIRV	core SG-NEx benchmark
+HEYA8	ovarian carcinoma	yes	yes	yes	yes	yes	PRJEB44348	sequins + SIRV	core SG-NEx benchmark
+H9	embryonic stem cell	yes	yes	yes	yes	yes	PRJEB44348	sequins + SIRV	core SG-NEx benchmark; hESC reference
+SG-NEx_extended	multiple cell lines	variable	variable	variable	variable	variable	AWS Open Data sgnex	sequins + SIRV	extended SG-NEx release; out of scope for primary benchmark

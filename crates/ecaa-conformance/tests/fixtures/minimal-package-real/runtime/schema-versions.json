@@ -1,0 +1,12 @@
+{
+  "workflow_intent": "1.0.0",
+  "session": "1.0.0",
+  "workflow_dag": "1.0.0",
+  "session_lineage": "1.0.0",
+  "dispatch_wal": "1.0.0",
+  "state_patch": "0.1.0",
+  "dag": "0.1.0",
+  "harness_progress_event": "0.1.0",
+  "orphan_reap_wire": "0.1.0",
+  "decision_record": "0.1.0"
+}

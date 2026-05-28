@@ -1,0 +1,312 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scripps-workflow/config/archetypes/_archetype.schema.json",
+  "title": "ArchetypeDefinition",
+  "description": "Schema for `config/archetypes/<id>.yaml`. Plan §S6.7 / §S6.8 — validates ArchetypeDefinition shape before deserialization (`include_str!` schema-validate-before-deserialize discipline). Mirrors the `crates/core/src/archetype.rs::ArchetypeDefinition` Rust type. An archetype is a thin composition file: it names atoms by id and wires them into a typed scaffold. Method-selection logic stays in the atom layer's `discovery_*` runtime selection — archetypes pre-select which atoms participate; atoms defer their concrete tool choice. Per plan modularity invariant: archetypes hold scaffold + slot mappings only; no method-selection logic. The version field is bumped on additive changes (new optional slot, new atom in the scaffold) so existing sessions don't silently re-route to a refined archetype mid-amendment ([DEC QX.5]).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "description",
+    "sme_summary",
+    "goal_data",
+    "atoms",
+    "project_class"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1",
+      "description": "Schema-layout version for this archetype manifest. Distinct from `version`: `schema_version` tracks the YAML manifest shape (loader contract), while `version` tracks the archetype's authored content semver per [DEC QX.5]. Registered in `crates/core/src/migration` so an emitted package referencing an older archetype schema surfaces `BlockerKind::SchemaVersionMismatch` at load time. Bump on breaking layout changes; additive optional fields stay on the same version."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+      "description": "Stable archetype id (e.g. `single_cell_de`, `bulk_rnaseq_de`). Lowercase + underscores. The composer uses this as the cache key for the matched-archetype fast path."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[A-Za-z0-9.]+)?$",
+      "description": "Semver. [DEC QX.5] — bump on additive changes so existing sessions don't silently re-route to a refined archetype mid-amendment. The `archetype_snapshot` field on Session pins the version a session committed to (S6.9 Cargo.lock-style pinning)."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Free-form English description. Used for the `propose_summary_confirmation` card and contributor-facing docs."
+    },
+    "sme_summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One-sentence hook used in the SME-facing classifier (per [DEC Q2.4] score-based ranking with 5% tie-surfacing). When the classifier surfaces an archetype tie to the SME, this is the prose the dual-option card renders."
+    },
+    "goal_data": {
+      "type": "string",
+      "pattern": "^((operation|data|format|topic):\\d+|swfc:[a-z][a-z0-9_]*[a-z0-9])$",
+      "description": "EDAM data class IRI of the GoalSpec this archetype produces (per [GoalSpec §S6.1]). Composer matches a goal's `edam_data` against this field for fast-path lookup before falling through to backward-chaining."
+    },
+    "goal_format": {
+      "type": "string",
+      "pattern": "^((operation|data|format|topic):\\d+|swfc:[a-z][a-z0-9_]*[a-z0-9])$",
+      "description": "Optional EDAM format IRI for the goal's primary committed artifact. When present, the composer narrows fast-path matches to archetypes that produce the exact format."
+    },
+    "atoms": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Atoms the archetype's scaffold uses. Order is the canonical composition order; the composer's deterministic ordering rule preserves it across runs.",
+      "items": {
+        "type": "object",
+        "required": ["atom_id"],
+        "additionalProperties": false,
+        "properties": {
+          "atom_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+            "description": "Atom id (must exist in the AtomRegistry at composer time). The loader validates that referenced atoms resolve inside `config/stage-atoms/`."
+          },
+          "alias": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+            "description": "Optional alias used as the stage-id in the composed DAG. Without an alias the atom_id is the stage id; alias-distinct allows the same atom to appear twice in one composition (e.g. a discovery atom paired with its operation atom)."
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
+            },
+            "description": "Per-call dependency overrides the composer respects. References either atom_id or alias of an earlier entry in `atoms`."
+          },
+          "required": {
+            "type": "boolean",
+            "default": true,
+            "description": "Whether this atom is required or optional. When `optional`, the composer skips it if the SME's intake doesn't supply the inputs the atom needs."
+          },
+          "required_figures": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" },
+            "uniqueItems": true,
+            "description": "Per-call override for the referenced atom's required_figures."
+          },
+          "plot_stage_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+            "description": "Per-call plotting module override."
+          },
+          "expected_artifacts": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" }
+            },
+            "uniqueItems": true,
+            "description": "Per-call override for expected output artifact paths."
+          },
+          "required_artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["path"],
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "minLength": 1,
+                  "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" }
+                },
+                "min_size_bytes": { "type": "integer", "minimum": 0 },
+                "schema_ref": {
+                  "type": "string",
+                  "pattern": "^[^/][^\\n]*\\.schema\\.json$",
+                  "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" }
+                }
+              }
+            },
+            "description": "Per-call override for required output artifact paths."
+          }
+        }
+      }
+    },
+    "slot_mappings": {
+      "type": "object",
+      "description": "Slot mappings: `intake_field` → composer slot reference. Phase 2 wires this through `intake_port_mapper` (S4.7) so the SME-named samples / contrast / organism fields fan into the right atom inputs without per-archetype custom code.",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "compose": {
+      "type": "array",
+      "description": "Plan §B.M6 — cross-archetype inheritance. Each entry pulls the named archetype's atom list into THIS archetype, optionally namespacing stage IDs via `id_prefix` and substituting individual atoms via `replace_atoms`. The composer's `resolve_inheritance` flattens the chain (depth cap 4, cycle detection) before validation runs. Cross-omics archetypes use this to inherit two single-modality pipelines without duplicating the atom lists.",
+      "items": {
+        "type": "object",
+        "required": ["archetype_id", "position"],
+        "additionalProperties": false,
+        "properties": {
+          "archetype_id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+            "description": "Other archetype id whose atoms are embedded."
+          },
+          "position": {
+            "type": "string",
+            "enum": ["prefix", "suffix", "replace_atoms"],
+            "description": "Position to embed at: `prefix` (run before this archetype's atoms), `suffix` (after), or `replace_atoms` (use the named atoms only, ignore this archetype's own atom list)."
+          },
+          "id_prefix": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*_$",
+            "description": "Plan §B.M6 — stage-id prefix applied to every atom inherited from the named archetype. The prefix is rewritten over inherited `depends_on` references so the inherited DAG stays internally consistent. Conventional shape ends with an underscore (e.g. `rnaseq_`, `proteomics_`)."
+          },
+          "replace_atoms": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
+            },
+            "description": "Plan §B.M6 — per-atom substitutions applied to the inherited archetype's atom list. Keys are atom_ids in the inherited archetype; values are atom_ids in THIS archetype's AtomRegistry. Lets a derived archetype swap one atom (e.g. `differential_expression` → `mofa_factor_decomposition`) without forking the rest of the inherited pipeline."
+          }
+        }
+      }
+    },
+    "cross_dependencies": {
+      "type": "array",
+      "description": "Cross-dependency hints. The atoms field gives the composer the set of nodes; this gives the explicit edges the composer wouldn't infer from `depends_on` alone (e.g. when an aggregator must run after a discovery even though it doesn't consume the discovery's output directly).",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Free-form rationale carried into the composition rationale log so reviewers can see why the edge exists."
+          }
+        }
+      }
+    },
+    "claim_boundary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "claim_boundary directive carried into the emitted package's interpretation policy. Mirrors the field on AtomDefinition but at the archetype level the boundary is the union of every atom's boundary plus the archetype-level addendum."
+    },
+    "project_class": {
+      "type": "string",
+      "enum": ["bioinformatics", "clinical_trial", "time_series_forecast"],
+      "description": "Project class this archetype targets. Constrains classifier-driven matching: a clinical-trial archetype only matches sessions where `project_class == ClinicalTrial`. Closed enum mirrors `crates/core/src/project_class.rs::ProjectClass`."
+    },
+    "modality_hint": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+      "description": "Plan §S6.10 — modality hint to disambiguate goal-shape ties. Multiple archetypes can produce the same goal_data/goal_format triple (e.g. `data:0951 / format:3475` is the goal of bulk_rnaseq_de + long_read_rnaseq + metagenomics_taxonomic, all scoring 6 on goal+format+class alone). When the classifier identifies an input modality, `score_archetype` adds +2 for an exact match on this field, breaking the tie. Mirrors `modality-keywords.yaml::modalities[].id` (e.g. `bulk_rnaseq`, `long_read_rnaseq`, `metagenomics`, `single_cell_rnaseq`). Optional: archetypes that genuinely span multiple modalities leave it unset and remain tied (composer surfaces `TieRequiresSmeDecision`)."
+    },
+    "goal_kind_hint": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+      "description": "Plan §S6.10 follow-on — sub-modality disambiguator via the goal pattern's `modifiers.kind`. When the classifier matched a `goal_pattern` whose `modifiers.kind` matches this hint, `score_archetype` adds +2. Resolves the proteomics DDA-vs-DIA tie where both archetypes share `modality_hint: proteomics` + `goal_data: data:2976` and tie at score 8 without this. Mirrors `modality-keywords.yaml::goal_patterns[].modifiers.kind` (e.g. `proteomics_dda`, `proteomics_dia`)."
+    },
+    "preferred_container": {
+      "type": "object",
+      "description": "Plan §S15.1 — archetype-level container default. Composer (S15.2) precedence is `atom > archetype > profile > package > host`. `clinical_trial` archetypes typically pin a hardened image + `NetworkPolicy::None { allowlist }` per ADR 0028 / D-R14. Schema mirrors `crates/core/src/atom.rs::ContainerSpec` — keep field constraints aligned with `_atom.schema.json`.",
+      "additionalProperties": false,
+      "required": ["image", "tag"],
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "not": { "pattern": "\\.\\." }
+        },
+        "tag": { "type": "string", "minLength": 1 },
+        "digest": {
+          "type": "string",
+          "description": "SHA-256 digest, populated at emit time per ADR 0025. Empty string accepted at archetype-load time; the emitter rewrites it once digest resolution has run.",
+          "anyOf": [
+            { "type": "string", "maxLength": 0 },
+            { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+          ]
+        },
+        "arch": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["amd64", "arm64"] },
+          "default": ["amd64"]
+        },
+        "gpu_required": { "type": "boolean", "default": false },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "type": "string", "enum": ["bridge", "none"] },
+            "allowlist": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "type": "string", "enum": ["image", "conda", "host"] },
+            "conda_packages": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "items": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "cross_omics_modalities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
+      },
+      "uniqueItems": true,
+      "minItems": 2,
+      "description": "Plan §multi-modality M2 — modalities this archetype is authored to span when the SME asks for cross-omics. Empty (default) for single-modality archetypes; ≥2 entries for cross-omics archetypes (e.g. ['bulk_rnaseq', 'proteomics']). The composer's find_match_cross_omics (M3) reads this set as an order-insensitive match against ClassificationResult.{modality, additional_modalities}. Distinct from modality_hint, which is the single-modality disambiguator for goal-shape ties."
+    },
+    "runtime_baseline": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Plan §S15.x derived-image warm-up — modality-level baseline of system + language packages every atom in this archetype implicitly inherits, plus the base_image to derive from. The emitter aggregates this baseline + every reachable atom's runtime_packages into policies/runtime-prereqs.json. Empty default keeps every legacy archetype unaffected.",
+      "properties": {
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "modality": { "type": "string", "minLength": 1 },
+        "base_image": { "type": "string", "minLength": 1 },
+        "system_packages": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "apt": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+            "dnf": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+          }
+        },
+        "language_packages": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "r": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+            "python": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+            "conda": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+          }
+        },
+        "system_check": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      }
+    }
+  }
+}

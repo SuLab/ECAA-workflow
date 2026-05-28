@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "09-geo-gse117872-scrnaseq"
+claims:
+  - id: "09-geo-gse117872-scrnaseq-claim-001"
+    text: "Fig 3A-B (HEK/3T3 organism specificity): clear human-only / mouse-only / mixed clusters"
+    contract: categorical
+    source_table: "results/tables/clusters.csv"
+    expected_value: "clear human-only / mouse-only / mixed clusters"
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-002"
+    text: "Fig 3C-D (counts): HEK: 44,295 transcripts from 6,722 genes; 3T3: 26,044 transcripts from 5,663 genes"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 44295
+    tolerance: 0.1
+  - id: "09-geo-gse117872-scrnaseq-claim-003"
+    text: "Fig 3E (Drop-seq vs in-solution): r = 0.94"
+    contract: group_comparison
+    source_table: "results/tables/clusters.csv"
+    expected_value: 0.94
+    tolerance: 0.05
+  - id: "09-geo-gse117872-scrnaseq-claim-004"
+    text: "Fig 3F (Drop-seq vs bulk): r = 0.90"
+    contract: group_comparison
+    source_table: "results/tables/clusters.csv"
+    expected_value: 0.9
+    tolerance: 0.05
+  - id: "09-geo-gse117872-scrnaseq-claim-005"
+    text: "Fig 3G (capture rate): 12.8% (Drop-seq) vs 10.7% (ddPCR)"
+    contract: group_comparison
+    source_table: "results/tables/clusters.csv"
+    expected_value: 0.128
+    tolerance: 0.05
+  - id: "09-geo-gse117872-scrnaseq-claim-006"
+    text: "Fig 4A-C (cell cycle): 544 human + 668 mouse genes at FDR 5%; 200 orthologous pairs at p < 1e-65"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/clusters.csv"
+    expected_value: 544
+    tolerance: 0.1
+  - id: "09-geo-gse117872-scrnaseq-claim-007"
+    text: "Fig 5A (retina classes): 5 neuronal classes + non-neuronal layers"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 5
+    tolerance: 0.1
+  - id: "09-geo-gse117872-scrnaseq-claim-008"
+    text: "Fig 5B (retina t-SNE): clear 39-cluster topology"
+    contract: categorical
+    source_table: "results/tables/clusters.csv"
+    expected_value: 39
+    tolerance: 0.1
+  - id: "09-geo-gse117872-scrnaseq-claim-009"
+    text: "Fig 5C (cluster size distribution): 50 to 29,400 cells"
+    contract: categorical
+    source_table: "results/tables/clusters.csv"
+    expected_value: 50
+    tolerance: 0.1
+  - id: "09-geo-gse117872-scrnaseq-claim-010"
+    text: "Fig 5D (dendrogram): matches paper dendrogram"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 39
+    tolerance: 0.1
+  - id: "09-geo-gse117872-scrnaseq-claim-011"
+    text: "Fig 5E-F (rare populations): rare amacrine subtypes resolve only at full size"
+    contract: categorical
+    source_table: "results/tables/clusters.csv"
+    expected_value: 500
+    tolerance: 0.1
+  - id: "09-geo-gse117872-scrnaseq-claim-012"
+    text: "Fig 6A-B (amacrine markers): 12 GABAergic, 5 glycinergic, 1 excitatory, 3 nGnG (clusters 4, 20, 21)"
+    contract: categorical
+    source_table: "results/tables/clusters.csv"
+    expected_value: 12
+    tolerance: 0.1
+  - id: "09-geo-gse117872-scrnaseq-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "09-geo-gse117872-scrnaseq-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 09-geo-gse117872-scrnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null

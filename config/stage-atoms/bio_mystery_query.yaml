@@ -1,0 +1,66 @@
+id: bio_mystery_query
+version: "1.0.0"
+role: operation
+description: |
+  Answer one BioMysteryBench task. Each task supplies a structured
+  rubric (`answer_rubric` field on the original HF dataset) the
+  agent's response must satisfy. The eval-adapter scorer applies
+  the rubric after the agent returns, with LlmJudge fallback for
+  ambiguous rubric cases. Reliability bimodality across 5 trials
+  is computed by the same adapter.
+edam_operation: "swfc:bio_mystery_query"
+assignee: agent
+preferred_container:
+  image: "ghcr.io/scripps/bio-min"
+  tag: "v0.1.0-eval"
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+safety:
+  level: network
+  network:
+    kind: bridge
+# Explicit rich ports.
+figure_exempt:
+  reason: "Benchmark evaluation atom; structured eval score output does not map to a visual figure type."
+  category: non_plottable
+inputs:
+  - name: query
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "llm_query"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "BioMysteryBench task prompt + structured answer rubric."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public
+outputs:
+  - name: response
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "llm_response"
+      proposed_parent_terms:
+        - "data:2526"
+      definition: "Agent response to the BioMysteryBench query."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public
+  - name: score
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "eval_score"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Rubric-applied score (LlmJudge fallback for ambiguous rubric cases)."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public

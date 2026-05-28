@@ -1,0 +1,14 @@
+{
+  "schema_version": "1",
+  "active_model_id": "Sonnet46",
+  "api_version": "2023-06-01",
+  "system_prompt_sha256": "0be3a511d7635d4d597b1359d144b5d3b506a7c179e2a6eb3e0e616964302e7d",
+  "tool_schema_version": 1,
+  "tool_count": 22,
+  "provider_id": "anthropic",
+  "escalation_reason": null,
+  "beta_headers": [
+    "context-management-2025-06-27"
+  ],
+  "cache_ttl": "ephemeral_5m"
+}

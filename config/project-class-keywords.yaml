@@ -1,0 +1,130 @@
+# Parallel to config/modality-keywords.yaml but decides
+# the ProjectClass enum. Conservative defaults: Bioinformatics wins ties
+# (D7). Non-bio hits must be unambiguous (frozen SAP vocabulary, forecast
+# vocabulary).
+#
+# Match semantics follow config/modality-keywords.yaml: a keyword is a
+# whole-word match when alphanumeric-only, or a substring match when it
+# contains whitespace or punctuation.
+
+classes:
+  - id: clinical_trial
+    keywords:
+      - "statistical analysis plan"
+      - sap
+      - saps
+      # Bare "prespecified" / "pre-specified" / "pre specified" removed
+      # False-positives on bio-domain prose like
+      # "QC fails a prespecified floor", "prespecified gene panel",
+      # "prespecified contrast" trip every paper-recreation prompt
+      # into clinical_trial routing. The v4 composer then prefers
+      # the clinical_trial_analysis archetype (CDISC ADaM inputs),
+      # port-match fails on FASTQ-vs-CDISC mismatch, throws
+      # GoalUnreachable, and emits a 0-task DAG. The narrower
+      # multi-word forms below preserve real clinical-trial-SAP
+      # intake. Mirrors the bare-"arms" / bare-"endpoint" removals
+      # already documented below.
+      - "prespecified analysis plan"
+      - "prespecified statistical analysis plan"
+      - "prespecified sap"
+      - "prespecified primary endpoint"
+      - "prespecified secondary endpoint"
+      - "prespecified clinical endpoint"
+      - "prespecified inclusion criteria"
+      - "prespecified exclusion criteria"
+      - "pre-specified analysis plan"
+      - "pre-specified statistical analysis plan"
+      - "pre-specified sap"
+      - "pre-specified primary endpoint"
+      - "pre-specified secondary endpoint"
+      # Bare "arms" is excluded: it false-positives on bio-domain
+      # prose (e.g., "albuterol and dex+albuterol arms across four
+      # donors" in bulk-RNA-seq intake gets misrouted to
+      # clinical_trial). The multi-word clinical-trial keywords
+      # below cover real SAP intake without tripping on generic
+      # experimental-design prose; narrower "treatment arm" /
+      # "trial arm" tokens can be added if the catalog needs them.
+      # Bare "endpoint" / "endpoints" are excluded too — they
+      # false-positive on "CNGB HTTPS endpoint", "REST API
+      # endpoints", "dataset endpoint URL", etc. The multi-word
+      # forms below cover real clinical-trial intake and don't
+      # trip acquisition-stage URL vocabulary.
+      #
+      # Bare "primary endpoint" / "secondary endpoint" are
+      # excluded: they false-positive on bio-domain statistical
+      # prose like "AUROC is not a valid primary endpoint for a
+      # generalization claim". The narrower trial-context forms
+      # below cover real SAP intake. Co-occurring clinical signals
+      # (sap, itt, per-protocol, cdisc, adam, randomized controlled
+      # trial, rct, hazard/odds ratio) still classify real
+      # clinical-trial prose unambiguously.
+      - "co-primary endpoint"
+      - "co-primary endpoints"
+      - "trial primary endpoint"
+      - "trial secondary endpoint"
+      - "study primary endpoint"
+      - "study secondary endpoint"
+      - "protocol primary endpoint"
+      - "protocol secondary endpoint"
+      - "endpoint analysis"
+      - "endpoint adjudication"
+      - "intent to treat"
+      - "intent-to-treat"
+      - itt
+      - "per-protocol"
+      - "per protocol"
+      - cdisc
+      - adam
+      - sdtm
+      - "hazard ratio"
+      - "odds ratio"
+      - "randomized controlled trial"
+      - rct
+      # Bare "phase N" / "phase i/ii/iii" patterns are excluded:
+      # they false-positive on genomics references like
+      # "1000 Genomes" reference-panel descriptors (GWAS
+      # paper-recreation prose). The narrower trial-context forms
+      # below cover real clinical-trial intake via either the
+      # multi-word forms here or co-occurring `rct` /
+      # `randomized controlled trial` tokens.
+      - "phase iii trial"
+      - "phase iii clinical trial"
+      - "phase iii randomized"
+      - "phase iii study"
+      - "phase iii rct"
+      - "phase 3 trial"
+      - "phase 3 clinical trial"
+      - "phase 3 randomized"
+      - "phase 3 study"
+      - "phase 3 rct"
+      - "phase ii trial"
+      - "phase ii clinical trial"
+      - "phase ii randomized"
+      - "phase ii study"
+      - "phase ii rct"
+      - "phase 2 trial"
+      - "phase 2 clinical trial"
+      - "phase 2 randomized"
+      - "phase 2 study"
+      - "phase 2 rct"
+
+  - id: time_series_forecast
+    keywords:
+      - "time series"
+      - "time-series"
+      - forecast
+      - forecasting
+      - arima
+      - arma
+      - sarima
+      - seasonality
+      - seasonal
+      - stationarity
+      - autocorrelation
+      - "rolling window"
+      - "forecast horizon"
+      - rmse
+      - mape
+      - "ljung-box"
+      - "state space"
+      - "structural break"

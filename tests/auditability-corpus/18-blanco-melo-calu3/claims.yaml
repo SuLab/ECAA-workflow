@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "18-blanco-melo-calu3"
+claims:
+  - id: "18-blanco-melo-calu3-claim-001"
+    text: "Total raw reads per sample (GSE147507 metadata): 25-60 million"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 40000000
+    tolerance: 0.5
+  - id: "18-blanco-melo-calu3-claim-002"
+    text: "STAR alignment rate to GRCh38 (lower than typical; viral RNA in infected arm): ≥ 70%"
+    contract: group_comparison
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.70
+    tolerance: 0.1
+  - id: "18-blanco-melo-calu3-claim-003"
+    text: "Viral-read fraction (infected arm, derived): 5-35% reads unaligned to host"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.20
+    tolerance: 0.5
+  - id: "18-blanco-melo-calu3-claim-004"
+    text: "DEGs at FDR<0.05 AND |log2FC|>2 (DESeq2 LRT, stringent primary floor): ≥ 460"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/de_results.csv"
+    expected_value: 460
+    tolerance: 0.2
+  - id: "18-blanco-melo-calu3-claim-005"
+    text: "DEGs at FDR<0.05 only (no FC gate, secondary): ≥ 1,000"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/de_results.csv"
+    expected_value: 1000
+    tolerance: 0.2
+  - id: "18-blanco-melo-calu3-claim-006"
+    text: "MSigDB Jaccard vs BLANCO_MELO_COVID19_SARS_COV_2_INFECTION_CALU3_CELLS_UP (up-set): ≥ 0.80"
+    contract: group_comparison
+    source_table: "results/tables/enrichment.csv"
+    expected_value: 0.80
+    tolerance: 0.05
+  - id: "18-blanco-melo-calu3-claim-007"
+    text: "Canonical ISG ISG15 in top up-set (Blanco-Melo Fig 1G)"
+    contract: categorical
+    source_table: "results/tables/de_results.csv"
+    expected_value: "ISG15"
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-008"
+    text: "Canonical ISG IFIT1 in top up-set (Blanco-Melo Fig 1G)"
+    contract: categorical
+    source_table: "results/tables/de_results.csv"
+    expected_value: "IFIT1"
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-009"
+    text: "Canonical ISG OAS1 in top up-set (Blanco-Melo Fig 1G)"
+    contract: categorical
+    source_table: "results/tables/de_results.csv"
+    expected_value: "OAS1"
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-010"
+    text: "GSEA Hallmark hit INTERFERON_ALPHA_RESPONSE (NES>0, FDR<0.05) per Fig 1H"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/enrichment.csv"
+    expected_value: "INTERFERON_ALPHA_RESPONSE"
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-011"
+    text: "Emitted workflow contains stage 'discover_differential_expression': DESeq2 LRT on mock vs SARS-CoV-2-infected Calu-3"
+    contract: group_comparison
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_differential_expression"
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-012"
+    text: "Emitted workflow contains stage 'discover_enrichment': GSEA Hallmark + MSigDB Calu-3 up-set comparison"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_enrichment"
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null
+  - id: "18-blanco-melo-calu3-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 18-blanco-melo-calu3"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de_results.csv"
+    expected_value: null
+    tolerance: null

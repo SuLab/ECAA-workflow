@@ -1,0 +1,63 @@
+id: dimensionality_reduction
+version: "1.0.0"
+role: operation
+description: |
+  Project the (normalised, batch-corrected) feature matrix to a low-dimensional
+  embedding for visualization and clustering. PCA followed by UMAP or t-SNE is
+  the default; method choice deferred to runtime.
+edam_operation: "operation:3935"
+edam_data: "data:3917"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - normalisation
+expected_artifacts:
+  - pca_loadings.tsv
+  - umap_coords.tsv
+  - manifest.json
+  - result.json
+required_figures:
+  - variance_explained_elbow
+  - embedding_scatter
+attributes:
+  candidate_tools:
+    - pca
+    - umap
+    - tsne
+    - phate
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Output is a low-dimensional embedding; modeled as a swfc:embedding
+# local extension because EDAM doesn't carry a dedicated "low-dim
+# embedding matrix" term distinct from the input count matrix
+# (data:3917).
+inputs:
+  - name: normalized_counts
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "normalized"
+    privacy_class: internal
+outputs:
+  - name: embedding
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "embedding"
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Low-dimensional embedding (PCA / UMAP / t-SNE / PHATE coordinates)"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "normalized"
+    privacy_class: internal

@@ -1,0 +1,67 @@
+id: time_series_model_fitting
+version: "1.0.0"
+role: operation
+description: |
+  Fit a time-series forecasting model (ARIMA, ETS, Prophet, NeuralProphet,
+  TimesNet, …). Method choice deferred to the discover_* runtime selector
+  via attributes.candidate_tools. Emits the fit object + diagnostics
+  (Ljung-Box residual whitening test, AIC, BIC). The forecasting atom
+  consumes the fit object to project point + interval predictions.
+  swfc:time_series_model_fitting.
+edam_operation: "swfc:time_series_model_fitting"
+edam_data: "data:3768"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - time_series_feature_engineering
+attributes:
+  candidate_tools: [arima, ets, prophet, neural_prophet, timesnet]
+method_choice:
+  deferred_to: discover_time_series_method
+resource_profile:
+  cpu: heavy
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+figure_exempt:
+  category: intermediate
+  reason: "Intermediate artifact (feature matrix / fitted-model binary) consumed by downstream forecasting atoms; no SME-facing figure at this stage."
+inputs:
+  - name: feature_table
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "time_series_features"
+      proposed_parent_terms:
+        - "data:3754"
+      definition: "Wide-format augmented feature table: lags, rolling stats, calendar, exogenous regressors."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+  - name: history
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "time_series_data"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "Numeric time-indexed observations (uni- or multi-variate)."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: fitted_model
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "fitted_model"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "Serialized fit object (ARIMA / ETS / Prophet / NeuralProphet / TimesNet) plus residual diagnostics (Ljung-Box, AIC, BIC)."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal

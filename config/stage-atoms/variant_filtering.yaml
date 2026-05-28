@@ -1,0 +1,59 @@
+id: variant_filtering
+version: "1.0.0"
+role: operation
+description: |
+  Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.
+  swfc namespace per EDAM audit — operation:3225 (variant classification) is
+  semantic creep for filtering.
+edam_operation: "swfc:variant_filtering"
+edam_data: "data:3498"
+edam_format: "format:3016"
+assignee: agent
+depends_on:
+  - variant_calling
+expected_artifacts:
+  - filtered_variants.vcf
+  - summary_stats.tsv
+  - manifest.json
+  - result.json
+required_figures:
+  - manhattan
+  - qq
+attributes:
+  candidate_tools:
+    - vqsr
+    - gatk_hard_filter
+    - deepvariant_cnn
+    - bcftools_filter
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Input is the raw VCF emitted by variant_calling; output is the same shape
+# minus the variants that fail the chosen filter set. Filter labels are
+# preserved in the FILTER column so the producer/consumer can still
+# round-trip the rejection reason without changing the physical format.
+inputs:
+  - name: raw_variants
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3498"
+      label: "Sequence variations"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3016"
+      label: "VCF"
+    privacy_class: internal
+outputs:
+  - name: filtered_variants
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3498"
+      label: "Sequence variations"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3016"
+      label: "VCF"
+    privacy_class: internal

@@ -1,0 +1,42 @@
+# `ModelRoutingTable` seed.
+#
+# Predicate DSL:
+#  - `careful_mode` → session.careful_mode == true
+#  - `state == blocked` → session.state == Blocked AND first turn of the episode
+#  - `confidence < 0.3` → session.classification.confidence < 0.3
+#  - `side_call_kind == <id>` → side-call ctx with kind id (e.g. auto_title, remediation)
+#  - `always` → unconditional fallback (must be last rule)
+#
+# Rules evaluate in order; the first matching rule wins. The `reason`
+# field maps onto `EscalationReason`; omit it (or set null) for the
+# Sonnet fallback rule — `choose_with_reason` returns `None` when the
+# matching rule has no `reason`, preserving the legacy contract that
+# Sonnet selections don't count as escalations in metrics rollups.
+#
+# `one_shot_per_episode: true` on the `state == blocked` rule honors
+# the existing `Session::blocked_opus_escalation_consumed` guard so a
+# Blocked episode pays Opus for exactly one turn.
+rules:
+  - predicate: "careful_mode"
+    model: opus_4_7
+    reason: careful_mode
+  - predicate: "state == blocked"
+    model: opus_4_7
+    reason: blocked
+    one_shot_per_episode: true
+  # Below this confidence, the classifier routes the next turn to Opus 4.7 for
+  # careful_mode. Lowering increases Opus usage (and cost); raising lets more
+  # uncertain decisions go to Sonnet (cheaper, less reliable on hard cases).
+  # Override at runtime: SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD=0.4 (must be
+  # in [0, 1]).
+  - predicate: "confidence < 0.3"
+    model: opus_4_7
+    reason: low_confidence
+  - predicate: "side_call_kind == auto_title"
+    model: haiku_4_5
+    reason: side_call
+  - predicate: "side_call_kind == remediation"
+    model: opus_4_7
+    reason: side_call
+  - predicate: "always"
+    model: sonnet_4_6

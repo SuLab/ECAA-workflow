@@ -1,0 +1,46 @@
+id: 17_infra_error_api_unreachable
+category: infra
+description: |
+  Anthropic API becomes unreachable mid-conversation. The fixture sends
+  an intake turn (which flows through the LLM tool loop normally), then
+  injects an InfraError that fires StateTrigger::InfraError. The state
+  machine table maps the trigger from any state to Blocked with the
+  reason payload preserved, so the SME's UI gets the BlockerCard with
+  a meaningful "what went wrong" message.
+
+  Verifies:
+    - inject_infra_error advances the session to Blocked from any state
+    - the reason string survives the state transition (so the
+      BlockerCard's text is the operator's diagnosis, not a generic
+      "something went wrong")
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq DE for IBD vs healthy controls, 30 samples, human, hg38.
+      Standard pipeline.
+  - kind: inject_infra_error
+    reason: "anthropic API unreachable: connection refused after 3 retries (HTTP 503 from upstream)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk RNA-seq DE, 30 samples IBD vs healthy controls, human hg38,
+        standard pipeline
+  - kind: text
+    text: "Got it — bulk DE study. Pulling together the plan now."
+
+expected_final_state:
+  state_kind: blocked
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+  blocked_reason_contains: "anthropic API unreachable"
+
+rubric_notes: |
+  The infra error must surface a BlockerCard in the UI with the operator's
+  reason verbatim — generic "something went wrong" copy is a regression.
+  The session is recoverable via inject_unblock (StateTrigger::OperatorUnblock)
+  which sends the session back to Intake; fixture 18 covers that path.

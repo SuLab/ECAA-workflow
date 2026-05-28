@@ -1,0 +1,49 @@
+schema_version: "0.1"
+id: proteomics_dia
+version: "1.0.0"
+description: |
+  Data-independent acquisition (DIA) LC-MS/MS proteomics. Standard pipeline:
+  acquire raw spectra, search peptides (DIA-NN / Spectronaut), quantify
+  proteins (directLFQ), test for differential abundance, then enrichment.
+
+sme_summary: |
+  Identify and quantify proteins from a DIA mass-spec experiment, then
+  test which proteins differ between conditions.
+goal_data: "data:2976"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: proteomics
+goal_kind_hint: proteomics_dia
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: peptide_search
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: protein_quantification
+    required: true
+    depends_on: [peptide_search]
+  - atom_id: differential_expression
+    required: true
+    depends_on: [protein_quantification]
+  - atom_id: pathway_enrichment
+    required: false
+    depends_on: [differential_expression]
+  - atom_id: reporting
+    required: true
+    # Consume pathway_enrichment alongside DE so it doesn't
+    # dangle as an orphan in the lowered DAG.
+    depends_on: [differential_expression, pathway_enrichment]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  contrast: differential_expression.inputs.contrast
+  reference_level: differential_expression.inputs.reference_level
+  spectral_library: peptide_search.inputs.spectral_library
+  protein_database: peptide_search.inputs.protein_database
+  samples: data_acquisition.inputs.samples
+claim_boundary: |
+  Differential protein abundance is a statistical association between the
+  SME-named conditions, not a mechanistic claim. Report effect size, FDR,
+  and the spectral library / search engine alongside every protein.

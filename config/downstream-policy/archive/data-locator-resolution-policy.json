@@ -1,0 +1,139 @@
+{
+  "schemaVersion": "2.0",
+  "resolutionMode": "hints_with_fallback",
+  "accessionPatterns": [
+    {
+      "prefix": "GSE",
+      "repository": "NCBI GEO",
+      "urlTemplate": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={accession}",
+      "ftpSupplementaryTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/suppl/",
+      "ftpMatrixTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/matrix/",
+      "artifactFtpTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/suppl/",
+      "bucketRule": "GEO",
+      "sraStudyFromAccession": false
+    },
+    {
+      "prefix": "GSM",
+      "repository": "NCBI GEO",
+      "urlTemplate": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={accession}",
+      "ftpSupplementaryTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/suppl/",
+      "ftpMatrixTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/matrix/",
+      "artifactFtpTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/matrix/",
+      "bucketRule": "GEO",
+      "sraStudyFromAccession": false
+    },
+    {
+      "prefix": "GPL",
+      "repository": "NCBI GEO",
+      "urlTemplate": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={accession}",
+      "ftpSupplementaryTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/suppl/",
+      "ftpMatrixTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/matrix/",
+      "artifactFtpTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/suppl/",
+      "bucketRule": "GEO",
+      "sraStudyFromAccession": false
+    },
+    {
+      "prefix": "GDS",
+      "repository": "NCBI GEO",
+      "urlTemplate": "https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc={accession}",
+      "ftpSupplementaryTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/suppl/",
+      "ftpMatrixTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/matrix/",
+      "artifactFtpTemplate": "ftp://ftp.ncbi.nlm.nih.gov/geo/series/{bucket}/{accession}/suppl/",
+      "bucketRule": "GEO",
+      "sraStudyFromAccession": false
+    },
+    {
+      "prefix": "SRP",
+      "repository": "NCBI SRA",
+      "urlTemplate": "https://www.ncbi.nlm.nih.gov/sra?term={accession}",
+      "ftpSupplementaryTemplate": "",
+      "ftpMatrixTemplate": "",
+      "artifactFtpTemplate": "",
+      "bucketRule": null,
+      "sraStudyFromAccession": true
+    },
+    {
+      "prefix": "SRA",
+      "repository": "NCBI SRA",
+      "urlTemplate": "https://www.ncbi.nlm.nih.gov/sra?term={accession}",
+      "ftpSupplementaryTemplate": "",
+      "ftpMatrixTemplate": "",
+      "artifactFtpTemplate": "",
+      "bucketRule": null,
+      "sraStudyFromAccession": true
+    },
+    {
+      "prefix": "SRX",
+      "repository": "NCBI SRA",
+      "urlTemplate": "https://www.ncbi.nlm.nih.gov/sra?term={accession}",
+      "ftpSupplementaryTemplate": "",
+      "ftpMatrixTemplate": "",
+      "artifactFtpTemplate": "",
+      "bucketRule": null,
+      "sraStudyFromAccession": true
+    },
+    {
+      "prefix": "SRS",
+      "repository": "NCBI SRA",
+      "urlTemplate": "https://www.ncbi.nlm.nih.gov/sra?term={accession}",
+      "ftpSupplementaryTemplate": "",
+      "ftpMatrixTemplate": "",
+      "artifactFtpTemplate": "",
+      "bucketRule": null,
+      "sraStudyFromAccession": true
+    },
+    {
+      "prefix": "ERP",
+      "repository": "NCBI SRA",
+      "urlTemplate": "https://www.ncbi.nlm.nih.gov/sra?term={accession}",
+      "ftpSupplementaryTemplate": "",
+      "ftpMatrixTemplate": "",
+      "artifactFtpTemplate": "",
+      "bucketRule": null,
+      "sraStudyFromAccession": true
+    },
+    {
+      "prefix": "DRP",
+      "repository": "NCBI SRA",
+      "urlTemplate": "https://www.ncbi.nlm.nih.gov/sra?term={accession}",
+      "ftpSupplementaryTemplate": "",
+      "ftpMatrixTemplate": "",
+      "artifactFtpTemplate": "",
+      "bucketRule": null,
+      "sraStudyFromAccession": true
+    },
+    {
+      "prefix": "E-",
+      "repository": "ArrayExpress",
+      "urlTemplate": "https://www.ebi.ac.uk/biostudies/arrayexpress/studies/{accession}",
+      "ftpSupplementaryTemplate": "",
+      "ftpMatrixTemplate": "",
+      "artifactFtpTemplate": "",
+      "bucketRule": null,
+      "sraStudyFromAccession": false
+    }
+  ],
+  "bucketingRules": [
+    {
+      "id": "GEO",
+      "description": "Take the accession prefix and all digit characters except the last three, then append 'nnn'.",
+      "algorithm": "prefix + digits[0..length-3] + 'nnn'",
+      "exampleInput": "GSE12345",
+      "exampleBucket": "GSE12nnn"
+    }
+  ],
+  "verificationPolicy": "resolve_and_confirm_http_200",
+  "resolutionMethod": "hints_with_runtime_fallback",
+  "fallbackResolutionPolicy": {
+    "enabled": true,
+    "strategies": [
+      "repository_api_query",
+      "pubmed_associated_data_lookup",
+      "data_availability_statement_parsing",
+      "cross_reference_registry_lookup"
+    ],
+    "log_target": "runtime_logs/SOURCE_DISCOVERY_LOG.jsonl",
+    "event_type": "locator_resolution_fallback"
+  },
+  "verificationNote": "Accession patterns are resolution hints, not deterministic lookups. The executor should use these patterns as a starting point. If a pattern fails to resolve (non-200 response or missing data), the executor should fall back to alternative resolution strategies: repository API queries, PubMed metadata lookups, and data availability statement parsing. All resolution attempts and results must be logged in SOURCE_DISCOVERY_LOG.jsonl."
+}

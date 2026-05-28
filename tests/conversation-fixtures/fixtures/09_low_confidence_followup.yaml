@@ -1,0 +1,43 @@
+id: 09_low_confidence_followup
+category: classification_intake_followup
+description: |
+  SME provides minimal detail on the first turn — the keyword classifier
+  returns low confidence. The assistant restates what was understood and
+  asks for one piece of additional context before proposing a plan. Tests
+  the Intake → IntakeFollowup path. Stops in Intake (no emission).
+
+flow:
+  - kind: user
+    text: |
+      We have proteomics data from a clinical study, looking for biomarkers.
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: proteomics from a clinical study, biomarker discovery
+  - kind: tool_use
+    tool:
+      tool_name: get_classification_evidence
+  - kind: text
+    text: |
+      Got the gist — proteomics data with a biomarker focus. Before I sketch
+      out the plan, two practical questions help: roughly how many samples
+      do you have, and is this DDA or DIA mass spec? (If you're not sure,
+      "I don't know" is a fine answer — I can ask different questions.)
+
+expected_final_state:
+  # See fixture 08 for the IntakeFollowup explanation. The proteomics
+  # taxonomy carries discover_* stages so the rebuild fires the
+  # follow-up trigger.
+  state_kind: intake_followup
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+    - get_classification_evidence
+
+rubric_notes: |
+  Watch for: assistant uses get_classification_evidence to reflect what
+  was understood, asks at most one clarifying topic per turn (the two
+  questions here are tightly linked context-setting, not separate threads),
+  doesn't lecture about DDA vs DIA tradeoffs.

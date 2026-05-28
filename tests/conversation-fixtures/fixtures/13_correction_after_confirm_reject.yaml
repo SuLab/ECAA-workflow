@@ -1,0 +1,51 @@
+id: 13_correction_after_confirm_reject
+category: correction_post_reject
+description: |
+  Two-stage correction: SME confirms the summary, then immediately
+  rejects via the Make-corrections button when they realise they want
+  a different scope. The session returns to Intake and the assistant
+  acknowledges the correction. Tests that the reject path works AFTER
+  the user has already clicked Confirm in a prior turn (state machine:
+  Intake → PendingConfirmation → ReadyToEmit → reject? actually reject
+  only valid from PendingConfirmation, so this test exercises the more
+  realistic "user starts a new summary, rejects mid-confirm" path).
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq DE for IBD vs controls, 24 ileal biopsies. Standard
+      pipeline.
+  - kind: reject
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk RNA-seq DE for IBD vs controls, 24 ileal biopsies, standard
+        pipeline
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's what I have for your bulk DE study:
+        - 24 IBD ileal biopsies
+        - Standard differential expression pipeline
+        - Reports gene-level associations between disease state and expression
+
+        Click Accept if this matches, or Revise to revise.
+  - kind: text
+    text: "Take a look — Confirm or correct?"
+
+expected_final_state:
+  state_kind: intake
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+
+rubric_notes: |
+  Tests the PendingConfirmation → Intake reject path AFTER an explicit
+  summary had been proposed. Verifies user_confirmed stays false and
+  the assistant isn't tempted to re-emit before the user explicitly
+  re-confirms.

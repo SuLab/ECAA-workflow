@@ -1,0 +1,71 @@
+id: calibration_audit
+version: "1.0.0"
+role: validation
+description: |
+  Audit the calibration of a fitted predictive model on the internal
+  validation predictions. Emits the Brier score, the reliability curve
+  (binned predicted vs observed), expected and maximum calibration
+  error (ECE / MCE), and a SME-facing pass/fail per a configured
+  Brier threshold (e.g., Brier ≤ 0.10 for binary clinical prediction).
+  Recommends a calibration method (Platt / isotonic / temperature
+  scaling) only when the audit fails the threshold; recommendation
+  is advisory — calibration retraining is gated by SME approval.
+edam_operation: "operation:3659"
+edam_data: "data:0951"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - predictive_model_fit
+expected_artifacts:
+  - calibration_report.json
+  - reliability_curve.tsv
+  - manifest.json
+  - result.json
+figure_exempt:
+  reason: "Calibration audit emits a structured JSON report + reliability-curve table consumed by the downstream reporting atom; the audit stage itself does not commit an SME-facing figure."
+  category: non_plottable
+attributes:
+  candidate_tools:
+    - sklearn_calibration_curve
+    - netcal
+    - custom_platt
+    - custom_isotonic
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Report calibration metrics (Brier, ECE, MCE) and reliability-curve
+  data verbatim. A calibration recommendation is advisory; do not
+  re-train the model without an explicit SME decision.
+# Explicit rich ports.
+# Input is the per-row predicted probabilities from
+# predictive_model_fit. Output is the calibration report + reliability
+# curve table.
+inputs:
+  - name: internal_predictions
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "predicted_probabilities"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-row predicted probabilities on the internal validation split."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: calibration_report
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "calibration_report"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Calibration audit report: Brier score, reliability curve, ECE, MCE, pass/fail vs configured threshold."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal

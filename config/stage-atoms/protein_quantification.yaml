@@ -1,0 +1,69 @@
+id: protein_quantification
+version: "1.0.0"
+role: operation
+description: |
+  Quantify protein abundance from peptide-spectrum matches. LFQ / TMT / SILAC /
+  iBAQ strategies; MaxLFQ / IRS-corrected TMT / Spectronaut directLFQ
+  selected at runtime by labeling chemistry.
+edam_operation: "operation:3630"
+edam_data: "data:2976"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - peptide_search
+plot_stage_id: quantification
+expected_artifacts:
+  - protein_abundance.tsv
+  - peptide_coverage.tsv
+  - manifest.json
+  - result.json
+required_figures:
+  - peptide_coverage
+  - ridgeline
+attributes:
+  candidate_strategies:
+    - lfq
+    - tmt
+    - silac
+    - ibaq
+  candidate_tools:
+    - maxlfq
+    - irs_normalization
+    - spectronaut_directlfq
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Input is the peptide identification + per-PSM intensity table emitted
+# by peptide_search. Output is a protein × sample abundance matrix; we
+# reuse data:3917 (Count matrix) as the closest EDAM term — labelling
+# strategy (LFQ / TMT / SILAC / iBAQ) is captured via attributes above.
+# normalization_state stays unset because it depends on the runtime-
+# chosen strategy (e.g. MaxLFQ vs IRS-corrected TMT).
+inputs:
+  - name: peptide_identifications
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0945"
+      label: "Peptide identification"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: protein_abundance
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "protein_abundance_matrix"
+      proposed_parent_terms:
+        - "data:2976"
+      definition: "Protein × sample abundance matrix from LFQ / TMT / SILAC / iBAQ quantification"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "proteomics"
+    privacy_class: internal

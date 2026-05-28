@@ -1,0 +1,65 @@
+id: final_reporting
+version: "1.0.0"
+role: operation
+description: |
+  Assemble the project-level final report: cross-stage narrative, dashboard
+  index, key figures, methods + caveats. Final node before SME review.
+edam_operation: "operation:0337"
+edam_data: "data:2048"
+edam_format: "format:2331"
+assignee: agent
+depends_on:
+  - reporting
+expected_artifacts:
+  - final_report.md
+  - dashboard_index.json
+  - manifest.json
+  - result.json
+required_figures:
+  - summary_dashboard
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  The final report restates findings exactly as produced by upstream
+  validated tasks. Do not introduce claims that aren't backed by an
+  emitted artifact; do not soften / strengthen effect-size language.
+# Explicit rich ports.
+# Consumes the full upstream analysis bundle; emits the final
+# narrative report (HTML primary + PDF companion).
+inputs:
+  - name: analysis_bundle
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2048"
+      label: "Report"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal
+outputs:
+  - name: final_report_html
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "final_report"
+      proposed_parent_terms:
+        - "data:2048"
+      definition: "Project-level final report: cross-stage narrative, dashboard index, key figures, methods + caveats"
+    physical_format:
+      iri: "format:2331"
+      label: "HTML"
+    privacy_class: internal
+  - name: final_report_pdf
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2048"
+      label: "Report"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3508"
+      label: "PDF"
+    privacy_class: internal

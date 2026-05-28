@@ -1,0 +1,102 @@
+id: 43_slurm_backend_badge_in_progress_turn
+category: harness_progress
+description: |
+  S-6 fixture for the SLURM remote backend. Verifies that a harness
+  progress event carrying `remote = { backend: "slurm", instance_id:
+  "<job_id>", instance_type: "<partition>:<nodelist>" }` round-trips
+  through the HarnessBatcher and surfaces the `[slurm · <partition>:<node>]`
+  backend tag in the synthetic assistant turn.
+
+  The same shape the AWS executor uses for its `[aws · r6i.4xlarge]`
+  badge — SLURM just populates `backend: "slurm"` and
+  `instance_type: "<partition>:<nodelist>"`. No UI code changes were
+  needed in S-6 because the JobsTab.tsx renderer already reads
+  `e.remote.backend` directly.
+
+  Verifies:
+    - `HarnessBatcher::enqueue` accepts an event with `remote`
+      populated via the fixture runner's backend/instance_type
+      extension (round-8 addition for the SLURM plan).
+    - The batcher's `format_single`/`format_event_bullet` path appends
+      a `[<backend> · <instance_type>]` tag.
+    - The synthetic turn text contains the literal "slurm" and the
+      partition:node combo so the SLURM plan's §10 claim ("SLURM shows
+      up as `[slurm · normal:compute-07]` without code changes") is a
+      verified contract, not an aspiration.
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq DE for a 50-sample colon-cancer cohort, human, hg38,
+      DESeq2.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+  # Two SLURM-backed events: one started, one completed on a specific node.
+  - kind: enqueue_harness_event
+    event_kind: task_started
+    task_id: deseq2_analysis
+    detail: "Submitted to normal partition"
+    backend: slurm
+    instance_id: "90210"
+    instance_type: "normal:compute-07"
+  - kind: enqueue_harness_event
+    event_kind: task_completed
+    task_id: deseq2_analysis
+    detail: "DESeq2 finished, 1420 DE genes at FDR<0.05"
+    backend: slurm
+    instance_id: "90210"
+    instance_type: "normal:compute-07"
+  - kind: wait
+    ms: 200
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk RNA-seq DE, 50-sample colon cancer cohort, human hg38, DESeq2
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Plan: 50-sample bulk DE on colon cancer, hg38, DESeq2.
+        Reports gene-level statistical associations. Confirm or correct.
+  - kind: text
+    text: "Confirm or correct."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: "Package ready. SLURM executor takes over now."
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+  harness_events_count: 2
+  last_assistant_contains: "slurm"
+
+rubric_notes: |
+  The multi-event flush path (2 events in one window) renders each
+  event on its own bullet line via `format_event_bullet`, which calls
+  `append_remote_tag` to append `[slurm · normal:compute-07]` at the
+  end of each bullet. The `last_assistant_contains: slurm` assertion
+  guards the backend tag surviving the batcher's format path.
+
+  No SLURM-specific UI or server code is exercised here — the point is
+  to lock the RemoteExecutionInfo contract between the harness and
+  the conversation/UI layers. The SLURM executor in
+  `crates/harness/src/executor/slurm/` populates the same struct shape
+  the MockLlmBackend does here, so this fixture stands in for a real
+  cluster round-trip without needing SSH.

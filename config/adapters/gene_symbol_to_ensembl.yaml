@@ -1,0 +1,5 @@
+id: gene_symbol_to_ensembl
+name: "Gene symbol -> Ensembl ID mapping"
+class: identifier_mapping
+safety: lossy_declared
+rationale: "Symbol -> Ensembl is many-to-one and not bijective; ambiguous symbols become missing values"

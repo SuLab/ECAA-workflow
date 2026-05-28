@@ -1,0 +1,68 @@
+schema_version: "0.1"
+id: chip_seq_peaks
+version: "1.0.0"
+description: |
+  ChIP-seq peak calling + peak-vs-input enrichment. Standard pipeline:
+  raw QC, trim, align, call peaks against the matched input control, then
+  report.
+sme_summary: |
+  Identify regions of significant read enrichment in a ChIP-seq experiment
+  and annotate them against the genome.
+goal_data: "data:1255"
+goal_format: "format:3003"
+project_class: bioinformatics
+modality_hint: chip_seq
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: false
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: review_prior_work
+    required: false
+    # Literature-review atom. Gated by intake.literature_review_requested
+    # via compose_with_intake; when the SME hasn't opted in, this atom +
+    # contextualize_findings_with_literature are filtered out before
+    # slot-fill so the emitted DAG is byte-identical to a pre-literature
+    # DAG.
+  - atom_id: peak_calling
+    required: true
+    depends_on: [alignment]
+  - atom_id: peak_annotation
+    required: false
+    depends_on: [peak_calling]
+  - atom_id: motif_enrichment
+    required: false
+    depends_on: [peak_calling]
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [peak_calling, review_prior_work]
+  - atom_id: reporting
+    required: true
+    # reporting must also consume contextualize_findings_with_literature when
+    # present so it doesn't dangle as an orphan operation node in the
+    # lowered DAG (audit-dag.py OPERATION_ORPHANS check).
+    depends_on:
+      - peak_calling
+      - peak_annotation
+      - motif_enrichment
+      - contextualize_findings_with_literature
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  organism: alignment.inputs.organism
+  samples: data_acquisition.inputs.samples
+  antibody_target: peak_calling.inputs.target
+  input_control: peak_calling.inputs.input_control
+claim_boundary: |
+  Peaks are regions of statistical enrichment vs the input control. Do not
+  claim direct binding without orthogonal validation; report the called
+  caller, mark type (narrow / broad), and FDR threshold alongside every
+  peak set.

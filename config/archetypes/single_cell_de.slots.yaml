@@ -1,0 +1,27 @@
+slot_name: protocol
+slot_kind: closed_enum
+default: generic
+values:
+  - id: perturb_seq
+    keywords:
+      - "perturb-seq"
+      - "perturb seq"
+      - perturbseq
+      - "cas9 knockout screen"
+      - "crispri screen"
+      - "crispra screen"
+      - "feature barcoding"
+      - "feature-barcoding"
+      - "sgrna library"
+      - "guide library"
+      - "guide barcode"
+      - "single-cell crispr"
+    extra_atoms:
+      - { atom_id: sgrna_assignment,
+          depends_on: [quantification], required: true }
+      - { atom_id: differential_expression,
+          alias: per_perturbation_pseudobulk_de,
+          depends_on: [sgrna_assignment, normalisation], required: true }
+  - id: generic
+    keywords: []
+    extra_atoms: []

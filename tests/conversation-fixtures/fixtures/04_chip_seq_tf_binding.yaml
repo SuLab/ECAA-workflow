@@ -1,0 +1,68 @@
+id: 04_chip_seq_tf_binding
+category: happy_path_chip_seq
+description: |
+  ChIP-seq for a transcription factor in primary T cells. Happy path —
+  classifier should land on `chip_seq`, the assistant restates the plan,
+  the SME confirms, the package is emitted.
+
+flow:
+  - kind: user
+    text: |
+      ChIP-seq for the FOXP3 transcription factor in human primary regulatory
+      T cells. 6 biological replicates plus matched IgG controls. Aligned to
+      hg38. Goal is to identify FOXP3 binding peaks and motif enrichment.
+      We have MACS2 and would like to use it for peak calling.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        chip-seq for FOXP3 transcription factor in human Treg cells,
+        6 biological replicates, IgG controls, hg38, MACS2 peak calling
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's the plan I have for your FOXP3 ChIP-seq analysis:
+        - 6 biological replicates plus matched IgG controls
+        - Human regulatory T cells, hg38
+        - Identify FOXP3 binding peaks and motif enrichment
+        - You've named MACS2 — the execution agent will use it for peaks
+
+        This kind of analysis reports binding sites and enrichment scores;
+        functional consequences are interpretation downstream and not part
+        of what the package will output.
+
+        Click Accept if this matches, or Revise to revise.
+  - kind: text
+    text: "Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The package is ready. The execution agent will pick alignment and
+      filtering parameters based on the data when it runs.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: classifier hits the chip_seq taxonomy, SME-named MACS2
+  acknowledged, no methodological comparison of peak callers.

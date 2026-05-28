@@ -1,0 +1,785 @@
+{
+  "@context": [
+    "https://w3id.org/ro/crate/1.1/context",
+    "https://w3id.org/ro/terms/workflow-run"
+  ],
+  "@graph": [
+    {
+      "@id": "ro-crate-metadata.json",
+      "@type": "CreativeWork",
+      "about": {
+        "@id": "./"
+      },
+      "conformsTo": [
+        {
+          "@id": "https://w3id.org/ro/crate/1.1"
+        },
+        {
+          "@id": "https://w3id.org/ro/wfrun/process/0.5"
+        },
+        {
+          "@id": "https://w3id.org/ro/wfrun/workflow/0.5"
+        },
+        {
+          "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
+        }
+      ]
+    },
+    {
+      "@id": "./",
+      "@type": "Dataset",
+      "dateCreated": "2030-07-28T07:05:35+00:00",
+      "description": "We have a public bulk RNA-seq dataset on primary human airway smooth muscle cells from Himes et al. 2014 in PLOS ONE, GEO accession GSE52778. The dataset has sixteen SRA runs total (untreated, dex, albuterol, and dex+albuterol arms across four donors), but the PLOS ONE analysis we want to recreate is the dex-vs-untreated contrast: eight paired-end RNA-seq samples -- four anonymous Caucasian male donors, each profiled in two conditions (18-hour 1 uM dexamethasone treatment versus vehicle control). The objective is a paired-donor differential-expression analysis to identify the glucocorticoid-responsive transcriptome of airway smooth muscle.\n\nThe design is paired by donor -- donor must be a blocking factor in the differential model, and pooling across donors before fitting is incorrect. Standard QC: FastQC plus the ERCC spike-in dose response as a calibration on the technical noise floor. Reads are 75 bp paired-end Illumina.\n\nThe published headline result is 316 differentially expressed genes at Benjamini-Hochberg FDR < 0.05, including well-known glucocorticoid-response genes (DUSP1, KLF15, PER1, FKBP5, TSC22D3) plus the novel candidate the paper highlights, CRISPLD2. We want our DEG count within +/-5% of 316 and the canonical seven upregulated genes present in our top hits with the published direction of effect.\n\nReference genome is hg19 with the RefSeq annotation. Gene-set enrichment on the GO Biological Process universe should recover the functional categories from the paper (extracellular matrix, vasculature, circulatory system, response to hormone stimulus). No claims beyond descriptive differential expression and pathway enrichment -- this is a clean baseline-fit smoke test.\n\nCompute is single-workstation. No cluster needed.\n",
+      "hasPart": [
+        {
+          "@id": "WORKFLOW.json"
+        },
+        {
+          "@id": "PROMPT.md"
+        },
+        {
+          "@id": "CONTEXT.md"
+        },
+        {
+          "@id": "policies/"
+        }
+      ],
+      "license": "https://www.apache.org/licenses/LICENSE-2.0",
+      "mainEntity": {
+        "@id": "WORKFLOW.json"
+      },
+      "name": "computational biology — Bulk RNA-seq differential expression analysis. Standard pipeline: raw QC,\ntrim, align, quantify, normalise, test for DE between conditions, then\npathway enrichment on the ranked DE result. Mirrors today's\n`config/stage-taxonomies/rnaseq-de.yaml`.\n"
+    },
+    {
+      "@id": "WORKFLOW.json",
+      "@type": [
+        "File",
+        "ComputationalWorkflow"
+      ],
+      "applicationSubCategory": {
+        "@id": "https://edamontology.org/topic:3308"
+      },
+      "conformsTo": {
+        "@id": "https://bioschemas.org/profiles/ComputationalWorkflow/1.0-RELEASE"
+      },
+      "encodingFormat": "application/json",
+      "featureList": {
+        "@id": "https://edamontology.org/operation:3223"
+      },
+      "name": "workflow-fa87f4651f0f DAG",
+      "programmingLanguage": {
+        "@id": "#scripps-workflow-dag"
+      },
+      "sdPublisher": {
+        "@id": "#ecaa-workflow"
+      },
+      "step": [
+        {
+          "@id": "#step-review_prior_work"
+        },
+        {
+          "@id": "#step-validate_review_prior_work"
+        },
+        {
+          "@id": "#step-discover_sequence_trimming"
+        },
+        {
+          "@id": "#step-discover_quantification"
+        },
+        {
+          "@id": "#step-discover_pathway_enrichment"
+        },
+        {
+          "@id": "#step-discover_normalisation"
+        },
+        {
+          "@id": "#step-discover_differential_expression"
+        },
+        {
+          "@id": "#step-discover_alignment"
+        },
+        {
+          "@id": "#step-data_acquisition"
+        },
+        {
+          "@id": "#step-validate_data_acquisition"
+        },
+        {
+          "@id": "#step-raw_qc"
+        },
+        {
+          "@id": "#step-validate_raw_qc"
+        },
+        {
+          "@id": "#step-sequence_trimming"
+        },
+        {
+          "@id": "#step-validate_sequence_trimming"
+        },
+        {
+          "@id": "#step-alignment"
+        },
+        {
+          "@id": "#step-validate_alignment"
+        },
+        {
+          "@id": "#step-quantification"
+        },
+        {
+          "@id": "#step-validate_quantification"
+        },
+        {
+          "@id": "#step-qc_preprocessing"
+        },
+        {
+          "@id": "#step-validate_qc_preprocessing"
+        },
+        {
+          "@id": "#step-normalisation"
+        },
+        {
+          "@id": "#step-validate_normalisation"
+        },
+        {
+          "@id": "#step-differential_expression"
+        },
+        {
+          "@id": "#step-validate_differential_expression"
+        },
+        {
+          "@id": "#step-pathway_enrichment"
+        },
+        {
+          "@id": "#step-validate_pathway_enrichment"
+        },
+        {
+          "@id": "#step-contextualize_findings_with_literature"
+        },
+        {
+          "@id": "#step-validate_contextualize_findings_with_literature"
+        },
+        {
+          "@id": "#step-reporting"
+        },
+        {
+          "@id": "#step-validate_reporting"
+        },
+        {
+          "@id": "#step-final_reporting"
+        },
+        {
+          "@id": "#step-validate_final_reporting"
+        }
+      ]
+    },
+    {
+      "@id": "#scripps-workflow-dag",
+      "@type": "ComputerLanguage",
+      "name": "Scripps Workflow DAG",
+      "version": "1.0"
+    },
+    {
+      "@id": "#ecaa-workflow",
+      "@type": "Organization",
+      "name": "ecaa-workflow"
+    },
+    {
+      "@id": "#sme",
+      "@type": "Role",
+      "description": "The domain expert who resolved discovery decisions during intake chat, prior to agent execution.",
+      "name": "Subject Matter Expert (intake)"
+    },
+    {
+      "@id": "PROMPT.md",
+      "@type": "File",
+      "encodingFormat": "text/markdown",
+      "name": "Agent Instructions"
+    },
+    {
+      "@id": "CONTEXT.md",
+      "@type": "File",
+      "encodingFormat": "text/markdown",
+      "name": "Workflow Context"
+    },
+    {
+      "@id": "policies/",
+      "@type": "Dataset",
+      "name": "Discovery and scoring policies"
+    },
+    {
+      "@id": "runtime/LOG.jsonl",
+      "@type": "File",
+      "encodingFormat": "application/jsonl",
+      "name": "Execution provenance log"
+    },
+    {
+      "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",
+      "@type": "Taxon",
+      "identifier": 9606,
+      "name": "Homo sapiens"
+    },
+    {
+      "@id": "#step-review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nSWFC_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "position": 1
+    },
+    {
+      "@id": "#step-validate_review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nSWFC_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "position": 2
+    },
+    {
+      "@id": "#step-discover_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "position": 3
+    },
+    {
+      "@id": "#step-discover_quantification",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for quantification (options: salmon, kallisto, featurecounts, htseq, rsem). Surface set_intake_method.",
+      "position": 4
+    },
+    {
+      "@id": "#step-discover_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+      "position": 5
+    },
+    {
+      "@id": "#step-discover_normalisation",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
+      "position": 6
+    },
+    {
+      "@id": "#step-discover_differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+      "position": 7
+    },
+    {
+      "@id": "#step-discover_alignment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "position": 8
+    },
+    {
+      "@id": "#step-data_acquisition",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "position": 9
+    },
+    {
+      "@id": "#step-validate_data_acquisition",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "position": 10
+    },
+    {
+      "@id": "#step-raw_qc",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "position": 11
+    },
+    {
+      "@id": "#step-validate_raw_qc",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "position": 12
+    },
+    {
+      "@id": "#step-sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "position": 13
+    },
+    {
+      "@id": "#step-validate_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "position": 14
+    },
+    {
+      "@id": "#step-alignment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "position": 15
+    },
+    {
+      "@id": "#step-validate_alignment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "position": 16
+    },
+    {
+      "@id": "#step-quantification",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "position": 17
+    },
+    {
+      "@id": "#step-validate_quantification",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "position": 18
+    },
+    {
+      "@id": "#step-qc_preprocessing",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "position": 19
+    },
+    {
+      "@id": "#step-validate_qc_preprocessing",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "position": 20
+    },
+    {
+      "@id": "#step-normalisation",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "position": 21
+    },
+    {
+      "@id": "#step-validate_normalisation",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "position": 22
+    },
+    {
+      "@id": "#step-differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "position": 23
+    },
+    {
+      "@id": "#step-validate_differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "position": 24
+    },
+    {
+      "@id": "#step-pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 25
+    },
+    {
+      "@id": "#step-validate_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 26
+    },
+    {
+      "@id": "#step-contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 27
+    },
+    {
+      "@id": "#step-validate_contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 28
+    },
+    {
+      "@id": "#step-reporting",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 29
+    },
+    {
+      "@id": "#step-validate_reporting",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 30
+    },
+    {
+      "@id": "#step-final_reporting",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "position": 31
+    },
+    {
+      "@id": "#step-validate_final_reporting",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "position": 32
+    },
+    {
+      "@id": "#p-plan/workflow-fa87f4651f0f",
+      "@type": [
+        "Plan",
+        "p-plan:Plan"
+      ],
+      "matchedArchetype": "bulk_rnaseq_de",
+      "rationale": "Composed for modality `bulk_rnaseq` (domain `computational biology`)."
+    },
+    {
+      "@id": "#parameter-connection/discover_alignment__to__alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/sequence_trimming__to__alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/differential_expression__to__contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/review_prior_work__to__contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_differential_expression__to__differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/normalisation__to__differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-normalisation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/reporting__to__final_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-final_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_normalisation__to__normalisation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_normalisation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-normalisation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/qc_preprocessing__to__normalisation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-qc_preprocessing#output"
+      },
+      "targetParameter": {
+        "@id": "#step-normalisation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/differential_expression__to__pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_pathway_enrichment__to__pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/quantification__to__qc_preprocessing",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-quantification#output"
+      },
+      "targetParameter": {
+        "@id": "#step-qc_preprocessing#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/alignment__to__quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-quantification#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_quantification__to__quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_quantification#output"
+      },
+      "targetParameter": {
+        "@id": "#step-quantification#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/data_acquisition__to__raw_qc",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-raw_qc#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/contextualize_findings_with_literature__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/differential_expression__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/pathway_enrichment__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_sequence_trimming__to__sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/raw_qc__to__sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/alignment__to__validate_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/contextualize_findings_with_literature__to__validate_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/data_acquisition__to__validate_data_acquisition",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_data_acquisition#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/differential_expression__to__validate_differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/final_reporting__to__validate_final_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-final_reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_final_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/normalisation__to__validate_normalisation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-normalisation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_normalisation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/pathway_enrichment__to__validate_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/qc_preprocessing__to__validate_qc_preprocessing",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-qc_preprocessing#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_qc_preprocessing#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/quantification__to__validate_quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-quantification#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_quantification#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/raw_qc__to__validate_raw_qc",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_raw_qc#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/reporting__to__validate_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/review_prior_work__to__validate_review_prior_work",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_review_prior_work#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/sequence_trimming__to__validate_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_sequence_trimming#input"
+      }
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "flows": [
+    {
+      "source": "Raw barcodes",
+      "target": "Demultiplexed",
+      "n": 8000
+    },
+    {
+      "source": "Demultiplexed",
+      "target": "Paired",
+      "n": 7200
+    },
+    {
+      "source": "Demultiplexed",
+      "target": "Unpaired",
+      "n": 800
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RepairStrategiesCatalog",
+  "description": "v4 P5 (D5 / F20) — operator-visible inventory of every repair strategy registered by `RepairRegistry::with_builtin()`. Sidecar to `config/repair-strategies.yaml`. The catalog is documentation: the in-code strategies remain the source of truth for `RepairProposal`s. Changes to the catalog must be paired with matching Rust strategy files under `crates/core/src/repair/strategies/`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "strategies"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "SemVer. Bumped when the catalog gains/loses an entry."
+    },
+    "strategies": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/StrategyEntry" }
+    }
+  },
+  "$defs": {
+    "StrategyEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "risk_class", "applicable_to", "rationale"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Stable snake_case identifier — MUST match `RepairStrategy::id()` for the corresponding Rust strategy. Referenced from `UnblockPath::AttemptRepair { strategy_id, .. }`."
+        },
+        "risk_class": {
+          "type": "string",
+          "enum": [
+            "low_auto_attempt",
+            "medium_user_gated",
+            "high_credentialed_review"
+          ]
+        },
+        "applicable_to": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": [
+              "missing_producer",
+              "missing_metadata",
+              "ambiguous_match",
+              "version_mismatch",
+              "reference_mismatch",
+              "annotation_mismatch",
+              "contract_gap"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "required_credentials": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Credential classes the SME must present at accept time. References `config/credential-classes.yaml` (Phase 4 / D6 / F21)."
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable explanation surfaced in the SME-facing repair card."
+        }
+      }
+    }
+  }
+}

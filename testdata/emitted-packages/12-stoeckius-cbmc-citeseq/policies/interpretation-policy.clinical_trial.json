@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.1",
+  "targetStages": [
+    "primary_endpoint",
+    "secondary_endpoints",
+    "sensitivity_analyses",
+    "subgroup_analyses",
+    "safety_analysis",
+    "reporting"
+  ],
+  "claimBoundary": {
+    "associativeOnly": [
+      "Report endpoint effects as pre-specified analyses only; deviations are post-hoc",
+      "Safety claims are descriptive; do not make regulatory or actionability claims"
+    ],
+    "requiresEvidence": [
+      "Effect sizes (HR, OR, RR, mean difference) must cite the SAP-named primary/secondary table and its CI",
+      "Population denominators must cite the ADSL-derived analysis-set summary"
+    ]
+  },
+  "verifiableEntities": {
+    "enabled": true,
+    "entityNamePatterns": [
+      "(?i)\\b(arm|treatment|placebo|ITT|mITT|per[- ]protocol)\\b",
+      "(?i)\\b(primary|secondary|exploratory)\\s+endpoint\\b",
+      "(?i)\\bsubgroup\\s+\\w+\\b"
+    ],
+    "directionVocab": {
+      "up": [
+        "improved",
+        "superior",
+        "non-inferior",
+        "increased"
+      ],
+      "down": [
+        "worsened",
+        "inferior",
+        "reduced",
+        "no-difference",
+        "no difference"
+      ]
+    },
+    "effectSizeColumns": [
+      "hazard_ratio",
+      "HR",
+      "odds_ratio",
+      "OR",
+      "risk_difference",
+      "RD",
+      "relative_risk",
+      "RR",
+      "mean_difference",
+      "MD",
+      "nnt",
+      "NNT"
+    ],
+    "entityColumns": [
+      "arm",
+      "subgroup",
+      "endpoint",
+      "population",
+      "analysis_set"
+    ],
+    "pvalueColumns": [
+      "pvalue",
+      "p_value",
+      "p_val",
+      "p.value"
+    ],
+    "tolerance": {
+      "log2FcAbsoluteDelta": 0.05,
+      "pvalueRelativeDelta": 0.1
+    }
+  },
+  "validationContract": {
+    "requiredOutputs": [
+      "subgroup_summary.json",
+      "consort_ai_checklist.json"
+    ],
+    "metrics": [
+      "consort_ai_completion_pct"
+    ]
+  },
+  "evidenceRules": [
+    {
+      "id": "subgroup_fairness_breakdown_required",
+      "description": "Plan §S5.57 — every claim about a clinical endpoint must be accompanied by a subgroup_summary.json that breaks the analysis-set sample count by ethnicity, sex, age, and any pre-specified additional axes. Missing breakdown blocks the claim. Required columns: subgroup, n, ethnicity, sex, age_band. Minimum n per subgroup: 5. Variance thresholds must be pre-specified.",
+      "appliesTo": ["primary_endpoint", "secondary_endpoints", "subgroup_analyses"],
+      "severity": "blocking"
+    },
+    {
+      "id": "consort_ai_14_item_checklist",
+      "description": "Plan §S5.57 — agent must emit consort_ai_checklist.json with all 14 CONSORT-AI 2020 extension items addressed (AI-system identity, intended-use population, training-data lineage, performance bounds, fairness audit, blinding, statistical methods, demographics, error-handling, outcomes, harms, generalisability, interpretation, funding). 100% completion required. Closes the CONSORT 2025 gap flagged in Lancet 2025.",
+      "appliesTo": ["reporting"],
+      "severity": "blocking"
+    }
+  ],
+  "note": "Clinical-trial overlay: SAP-style entity patterns, endpoint/arm/subgroup vocabulary, hazard/odds/risk effect-size columns. Plan §S5.57 — subgroup-fairness rule + CONSORT-AI 14-item checklist (Round-4 §22.18 PCCP-friendly posture; closes Lancet 2025 CONSORT gap). Merged on top of interpretation-policy.json at load time; overlay values replace base values field-by-field."
+}

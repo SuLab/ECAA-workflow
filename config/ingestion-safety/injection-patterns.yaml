@@ -1,0 +1,27 @@
+version: "1.0.0"
+patterns:
+  - id: ignore-previous-instructions
+    category: instruction_injection
+    pattern: "(?i)ignore (all )?previous (instructions|directives|prompts)"
+    severity: high
+    default_action: quarantine
+  - id: fake-edam-term
+    category: fake_ontology_term
+    pattern: "edamontology\\.org/data_99\\d{3}"
+    severity: medium
+    default_action: annotate
+  - id: dependency-confusion-typo
+    category: dependency_confusion
+    pattern: "(?i)(samtoolss?|bcftol|bwa-?mem3)"
+    severity: high
+    default_action: quarantine
+  - id: hidden-html-comment
+    category: hidden_html_comment
+    pattern: "<!--[\\s\\S]*?(prompt|instruction|system).{0,200}?-->"
+    severity: critical
+    default_action: refuse
+  - id: aws-access-key-id
+    category: credential
+    pattern: "AKIA[0-9A-Z]{16}"
+    severity: critical
+    default_action: refuse

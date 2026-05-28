@@ -1,0 +1,70 @@
+schema_version: "0.1"
+id: cross_omics_rnaseq_atac_chip
+version: "1.0.0"
+description: |
+  Plan §B.M7 — ternary (N=3) cross-omics analysis covering the chromatin-
+  RNA triad: bulk RNA-seq differential expression, ATAC-seq peak calling,
+  and ChIP-seq peak calling. Three parallel evidence streams converging
+  on a sample-alignment validator + thematic-comparison reporter that
+  surfaces concordant + discordant signals across transcription, open
+  chromatin, and protein-DNA binding.
+
+  Authored as the exemplar for the N-way path: classifier returns three
+  modalities (Oxford-comma list "rnaseq, atac, and chip"), composer's
+  set-equality matcher dispatches THIS archetype, and the inheritance
+  flattener (Plan §B.M6) pulls each branch's atom list in via
+  `compose:` rather than duplicating them inline.
+sme_summary: |
+  Run RNA-seq differential expression, ATAC-seq peak calling, and
+  ChIP-seq peak calling in parallel. Verify the three modalities share a
+  sample universe, then surface concordant and discordant signals across
+  expression, chromatin accessibility, and TF/histone binding.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: cross_omics_rnaseq_atac_chip
+cross_omics_modalities:
+  - bulk_rnaseq
+  - atac_seq
+  - chip_seq
+compose:
+  - archetype_id: bulk_rnaseq_de
+    position: prefix
+    id_prefix: rnaseq_
+  - archetype_id: atac_seq_peaks
+    position: prefix
+    id_prefix: atac_
+  - archetype_id: chip_seq_peaks
+    position: prefix
+    id_prefix: chip_
+atoms:
+  - atom_id: validate_sample_alignment_n_way
+    alias: cross_omics_alignment_check
+    depends_on:
+      - rnaseq_quantification
+      - atac_peak_calling
+      - chip_peak_calling
+    required: true
+  - atom_id: reporting
+    alias: cross_omics_thematic_comparison
+    depends_on:
+      - cross_omics_alignment_check
+    required: true
+  - atom_id: final_reporting
+    alias: cross_omics_final_reporting
+    depends_on:
+      - cross_omics_thematic_comparison
+    required: true
+slot_mappings:
+  contrast: rnaseq_differential_expression.inputs.contrast
+  organism: rnaseq_alignment.inputs.organism
+  rnaseq_samples: rnaseq_data_acquisition.inputs.samples
+  atac_samples: atac_data_acquisition.inputs.samples
+  chip_samples: chip_data_acquisition.inputs.samples
+claim_boundary: |
+  Three-way cross-omics concordance is a descriptive comparison of three
+  independent statistical association sets — DE genes, accessible peaks,
+  binding peaks. Concordance does NOT imply mechanistic regulation;
+  reviewers should treat surfaced overlaps as hypothesis-generating
+  signals, not validated regulatory programs. Per-branch effect sizes +
+  adjusted p-values stay independent.

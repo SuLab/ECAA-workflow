@@ -1,0 +1,5 @@
+id: liftover_grch37_grch38
+name: "Genome liftover GRCh37 -> GRCh38"
+class: coordinate_liftover
+safety: scientifically_risky
+rationale: "UCSC liftover changes coordinates; ~99% of regions map cleanly, ~1% require manual review or are dropped"

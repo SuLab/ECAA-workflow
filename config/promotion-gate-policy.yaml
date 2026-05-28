@@ -1,0 +1,70 @@
+version: "1.0.0"
+# Validation × lifecycle promotion grid. See `docs/dag_design_v4.md` §7.5.
+#
+# Each row: minimum validation evidence required to enter the named state.
+# `required` = at least one passing validator of that class.
+# `optional` = not gating, but recorded if present.
+# `{ min_count: N }` = at least N passing validators of that class.
+#
+# Loaded into `PlanningContext.promotion_gate` at composition time and
+# consulted by `composer_v4::policy_gate::consult_promotion_gate` at
+# every promotion attempt. F19 forbids ad-hoc promotion logic in code;
+# every decision goes through this table.
+states:
+  hypothesized:
+    contract: optional
+    golden: optional
+    metamorphic: optional
+    biological_invariant: optional
+    statistical_sanity: optional
+    reproducibility: optional
+    notes: "Hypothesized nodes carry no execution permission; no validators required."
+  contracted:
+    contract: required
+    golden: optional
+    metamorphic: optional
+    biological_invariant: optional
+    statistical_sanity: optional
+    reproducibility: optional
+    notes: "Contracted nodes have a complete contract but no implementation; contract tests author-time only."
+  implemented:
+    contract: required
+    golden: optional
+    metamorphic: optional
+    biological_invariant: optional
+    statistical_sanity: optional
+    reproducibility: optional
+    notes: "Implementation exists; contract tests must pass at compose time."
+  locally_validated:
+    contract: required
+    golden: required
+    metamorphic:
+      min_count: 1
+    biological_invariant:
+      min_count: 1
+    statistical_sanity: optional
+    reproducibility: optional
+    notes: "Local validation: golden + at least one metamorphic + at least one biological-invariant."
+  benchmark_validated:
+    contract: required
+    golden: required
+    metamorphic:
+      min_count: 2
+    biological_invariant:
+      min_count: 1
+    statistical_sanity: required
+    reproducibility: required
+    notes: "Benchmark validation adds statistical-sanity + reproducibility on declared benchmark datasets."
+  production:
+    contract: required
+    golden: required
+    metamorphic:
+      min_count: 2
+    biological_invariant:
+      min_count: 2
+    statistical_sanity: required
+    reproducibility: required
+    notes: "All classes passing; required-credential-class approval recorded."
+    required_approvals:
+      - approval_class: domain_expert
+      - approval_class: validation_engineer

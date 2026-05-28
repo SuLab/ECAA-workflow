@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "search_research_sources",
+      "description": "Search approved live or staged retrieval targets for current evidence, repository endpoints, standards, or datasets.",
+      "requiredPathsFloor": [
+        "MANIFEST.json",
+        "SOURCE_DISCOVERY_POLICY.json",
+        "SEARCH_STRATEGY.md",
+        "NETWORK_AND_REPOSITORY_ALLOWLIST.yaml",
+        "DATA_ACCESS_AND_SECRET_POLICY.md",
+        "LITERATURE_GROUNDING_POLICY.json",
+        "STANDARDS_AND_REPOSITORY_POLICY.json",
+        "DISCOVERY_VALIDATION_CONTRACT.json"
+      ]
+    },
+    {
+      "name": "fetch_research_source",
+      "description": "Fetch a previously approved source or repository page to inspect exact text, metadata, or version details before downstream promotion.",
+      "requiredPathsFloor": [
+        "SOURCE_DISCOVERY_POLICY.json",
+        "SEARCH_STRATEGY.md",
+        "NETWORK_AND_REPOSITORY_ALLOWLIST.yaml",
+        "DATA_ACCESS_AND_SECRET_POLICY.md",
+        "DISCOVERY_VALIDATION_CONTRACT.json"
+      ]
+    },
+    {
+      "name": "resolve_data_locator",
+      "description": "Resolve an accession, dataset identifier, or manifest locator into an approved repository endpoint and verification target before dataset admission.",
+      "requiredPathsFloor": [
+        "DATA_LOCATOR_RESOLUTION_POLICY.json",
+        "NETWORK_AND_REPOSITORY_ALLOWLIST.yaml",
+        "DATA_ACCESS_AND_SECRET_POLICY.md",
+        "DISCOVERY_VALIDATION_CONTRACT.json"
+      ]
+    }
+  ],
+  "budgetLimits": {
+    "maxSearchCalls": 48,
+    "maxFetchCalls": 48,
+    "maxLocatorResolutionCalls": 24,
+    "maxTotalToolSteps": 128
+  }
+}

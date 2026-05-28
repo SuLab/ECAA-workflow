@@ -1,0 +1,28 @@
+name: HiChIP enhancer connectome
+modality: hi_chip
+
+beats:
+  - user: "HiChIP for H3K27ac in primary T-cell subsets. I need loops, peak-anchored contacts, and differential loop analysis across conditions."
+    assistant:
+      content: "Acknowledged — I have the modality + key parameters; will ask for any missing details before locking the plan."
+    expect:
+      visibleText: ["HiChIP", "loop"]
+
+live:
+  intake_prose: |
+    H3K27ac HiChIP across four primary human T-cell subsets (Naive, Th17,
+    Treg, Tfh), three donors each. I want chromatin contact calling,
+    H3K27ac peak calling, loop calling anchored on peaks, differential
+    loop analysis between subsets, and final reporting on subset-specific
+    enhancer-promoter contacts. Public data, internal use.
+  followups:
+    - trigger: "(?i)(reference|genome|hg38|GRCh38)"
+      reply: "hg38, paired-end. Standard processing."
+    - trigger: "(?i)(loop|anchor|contact)"
+      reply: "Loops anchored on H3K27ac peaks. Differential loop analysis between subsets, not against a reference."
+  assertions:
+    stateNotGreeting: true
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

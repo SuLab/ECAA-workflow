@@ -1,0 +1,60 @@
+id: 53_cross_class_deviation_preserves_bio
+category: wave8_cross_class
+description: |
+  Plan §3 matrix fixture 38 equivalent: cross-class interaction smoke.
+  Starting a bio session, the SME later pastes prose dominated by
+  clinical vocabulary — the classifier should remain conservative (bio
+  wins on ties per D7). Proves the fixture-runner path doesn't acquire
+  a stale clinical-trial taxonomy when only a single clinical keyword
+  is mentioned.
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq differential expression in mouse intestine. Standard
+      DESeq2 pipeline. (I mentioned "endpoints" in passing but this is
+      a bio study, not a clinical trial.)
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        Bulk RNA-seq differential expression, mouse intestine, DESeq2.
+        Study-level endpoints are counts + log fold changes.
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Bio-side DESeq2 plan.
+  - kind: text
+    text: |
+      Accept when ready.
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      Package emitted.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - policies/container.json
+
+rubric_notes: |
+  The classifier sees one clinical keyword ("endpoints") alongside many
+  bio keywords (bulk, RNA-seq, DESeq2, differential expression). Bio
+  wins by strict hit-count, not by the D7 tie-breaker. If this fixture
+  ever starts classifying as ClinicalTrial, the classifier's hit-count
+  logic or keyword list has drifted.

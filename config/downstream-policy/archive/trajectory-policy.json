@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0",
+  "targetStages": [
+    "discover_trajectory",
+    "trajectory_analysis",
+    "validate_trajectory"
+  ],
+  "claimBoundary": {
+    "associativeOnly": [
+      "Pseudotime ordering is a statistical construct, not a time-resolved developmental claim",
+      "Branch points represent transcriptomic bifurcations, not fate commitments"
+    ],
+    "requiresEvidence": [
+      "Any lineage claim must cite the trajectory tool, root-selection criterion, and bootstrap stability metric",
+      "Cross-condition trajectory comparisons must cite the integration method used upstream"
+    ]
+  },
+  "validationContract": {
+    "requiredOutputs": [],
+    "metrics": []
+  },
+  "evidenceRules": [],
+  "note": "TODO(lotz-SME-review): fill required outputs, metrics, and evidence rules"
+}

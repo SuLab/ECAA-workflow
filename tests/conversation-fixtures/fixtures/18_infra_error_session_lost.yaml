@@ -1,0 +1,44 @@
+id: 18_infra_error_session_lost
+category: infra
+description: |
+  Session-lost variant of fixture 17. Tests the full Blocked → Unblock
+  recovery cycle: inject an InfraError, observe the session lands in
+  Blocked, then the operator clicks "I've addressed this — continue"
+  (the BlockerCard's recovery button) which fires
+  StateTrigger::OperatorUnblock, taking the session back to Intake.
+
+  Verifies:
+    - The recovery path through Blocked → Intake works end-to-end
+    - The user_confirmed flag stays false across the round trip
+    - intake_methods (if any had been captured) survive the round trip
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq DE comparing IBD vs healthy, 30 samples.
+  - kind: inject_infra_error
+    reason: "session_lost: SessionStore could not find session id after server restart"
+  - kind: unblock
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: bulk RNA-seq DE, 30 samples IBD vs healthy
+  - kind: text
+    text: "Working on it — pulling the plan together."
+
+expected_final_state:
+  state_kind: intake
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+
+rubric_notes: |
+  After unblock the session lands in plain Intake (not IntakeFollowup)
+  because the OperatorUnblock trigger from Blocked maps to Intake
+  directly per the §5.1 table — there's no rebuild_dag in that path so
+  the DagBuiltWithUnresolvedDiscovery trigger doesn't fire on the way
+  back. A subsequent user prose would re-rebuild and could land in
+  IntakeFollowup again; this fixture stops at Intake to verify the
+  recovery transition itself.

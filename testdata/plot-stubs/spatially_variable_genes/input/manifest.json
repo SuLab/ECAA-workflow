@@ -1,0 +1,5 @@
+{
+  "coords_table": "coords.tsv",
+  "morans_i_table": "morans_i.tsv",
+  "neighborhood_table": "neighborhood.tsv"
+}

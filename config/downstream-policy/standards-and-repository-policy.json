@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "1.0",
+  "assayPolicies": [
+    {
+      "assay": "AssayClinicalPrediction",
+      "standard": "TRIPOD+AI / PROBAST+AI",
+      "scope": "reporting and bias review",
+      "depositionTargets": ["repository target review"]
+    },
+    {
+      "assay": "AssayGWAS",
+      "standard": "STREGA / PRS-RS",
+      "scope": "reporting and ancestry or replication checks",
+      "depositionTargets": ["GWAS Catalog", "dbGaP", "EGA"]
+    },
+    {
+      "assay": "AssayBulkRNASeq",
+      "standard": "MINSEQE",
+      "scope": "RNA-seq reporting",
+      "depositionTargets": ["GEO", "SRA", "CNGB CNSA", "NGDC GSA", "ENA"]
+    },
+    {
+      "assay": "AssaySingleCellRNASeq",
+      "standard": "HCA Tier-1 metadata schema + scRNA-seq reporting matrix",
+      "scope": "donor-level inference checks",
+      "depositionTargets": ["GEO", "SRA", "CNGB CNSA", "NGDC GSA", "ENA"]
+    },
+    {
+      "assay": "AssaySpatialTranscriptomics",
+      "standard": "spatial transcriptomics reporting",
+      "scope": "image provenance checks",
+      "depositionTargets": ["GEO", "SRA", "CNGB CNSA", "NGDC GSA", "ENA", "spatial companion repository"]
+    },
+    {
+      "assay": "AssayMicrobiome",
+      "standard": "MIxS / STREAMS",
+      "scope": "reporting and contamination controls",
+      "depositionTargets": ["repository target review"]
+    },
+    {
+      "assay": "AssayImagingOrPathology",
+      "standard": "CLAIM / STARD-AI",
+      "scope": "diagnostic accuracy reporting",
+      "depositionTargets": ["repository target review"]
+    },
+    {
+      "assay": "AssayProteomics",
+      "standard": "MIAPE",
+      "scope": "proteomics reporting",
+      "depositionTargets": ["PRIDE"]
+    },
+    {
+      "assay": "AssayMetabolomics",
+      "standard": "MetaboLights reporting expectations",
+      "scope": "metabolomics reporting",
+      "depositionTargets": ["MetaboLights"]
+    },
+    {
+      "assay": "AssayWGSOrWES",
+      "standard": "project-specific reporting matrix",
+      "scope": "as determined by project profile",
+      "depositionTargets": ["dbGaP", "EGA", "SRA"]
+    }
+  ],
+  "defaultPolicy": {
+    "assay": "default",
+    "standard": "project-specific reporting matrix",
+    "scope": "as determined by project profile",
+    "depositionTargets": ["repository target review"]
+  },
+  "outstandingRequirements": [
+    {
+      "id": "repository_accession_prerequisites",
+      "text": "Confirm repository accession prerequisites and metadata package completeness.",
+      "whenPublicationScopeExternal": true,
+      "whenBoundedEvidenceSeeking": false,
+      "whenOpenEndedBrowsingDefault": false
+    }
+  ],
+  "acceptedReadRepositories": {
+    "description": "Repositories the pipeline is permitted to read FROM for raw data acquisition (distinct from depositionTargets, which governs publishing). Agents must NOT drop SME-named accessions solely because a tool only speaks GEO — route by accession prefix to the correct reader.",
+    "repositories": [
+      {
+        "id": "GEO",
+        "name": "NCBI Gene Expression Omnibus",
+        "accession_prefixes": ["GSE", "GSM", "GDS", "GPL"],
+        "preferred_readers": ["GEOparse (Python)", "GEOquery (R/Bioconductor)"],
+        "base_url": "https://www.ncbi.nlm.nih.gov/geo/"
+      },
+      {
+        "id": "SRA",
+        "name": "NCBI Sequence Read Archive",
+        "accession_prefixes": ["SRP", "SRX", "SRR", "PRJNA", "SAMN"],
+        "preferred_readers": ["pysradb", "sra-toolkit prefetch"],
+        "base_url": "https://www.ncbi.nlm.nih.gov/sra"
+      },
+      {
+        "id": "ENA",
+        "name": "European Nucleotide Archive",
+        "accession_prefixes": ["ERP", "ERR", "ERX", "PRJEB"],
+        "preferred_readers": ["enaBrowserTools", "requests (ENA REST)"],
+        "base_url": "https://www.ebi.ac.uk/ena/"
+      },
+      {
+        "id": "CNGB_CNSA",
+        "name": "China National GeneBank — CNSA (CNGB Sequence Archive)",
+        "accession_prefixes": ["CNP", "CNS", "CNX", "CNR"],
+        "preferred_readers": ["HTTPS fetch from ftp.cngb.org/pub/CNSA"],
+        "base_url": "https://db.cngb.org/",
+        "notes": "CNGB CNSA hosts a substantial fraction of Chinese-authored scRNA-seq IVD and cancer atlases. Always included in the candidate pool for human-tissue scRNA-seq projects — dropping a CNGB-only study reduces cohort coverage without governance justification."
+      },
+      {
+        "id": "NGDC_GSA",
+        "name": "National Genomics Data Center (China) — Genome Sequence Archive",
+        "accession_prefixes": ["CRA", "HRA", "PRJCA", "GSA"],
+        "preferred_readers": ["requests (NGDC download API)", "ngdc_fetch helper"],
+        "base_url": "https://ngdc.cncb.ac.cn/gsa/",
+        "notes": "NGDC GSA public-access partition. Use HRA (Human Restricted Access) only with DUA; the CRA + open GSA partitions are unrestricted."
+      },
+      {
+        "id": "EGA",
+        "name": "European Genome-phenome Archive",
+        "accession_prefixes": ["EGAS", "EGAD"],
+        "preferred_readers": ["pyega3"],
+        "base_url": "https://ega-archive.org/",
+        "notes": "EGA is controlled-access by default — only read from EGA when explicit DUA is in the package manifest. Out of scope for public-data-only runs."
+      }
+    ],
+    "acquisitionRoutingRule": "When the SME-named cohort includes accessions from multiple repositories, the data_acquisition candidate method MUST dispatch per-accession-prefix and MUST NOT silently truncate the cohort. Dropping a study because the selected tool can't reach its repository is never a terminal action — surface a structured decision point with options {wait_for_repo_client | defer_to_later_pass | pull_via_alternative_repo_helper}."
+  }
+}

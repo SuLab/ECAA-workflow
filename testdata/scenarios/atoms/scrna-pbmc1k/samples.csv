@@ -1,0 +1,5 @@
+sample_id,condition,batch
+pbmc_sample_1,PBMC_control,batch_1
+pbmc_sample_2,PBMC_stimulated,batch_1
+pbmc_sample_3,PBMC_control,batch_2
+pbmc_sample_4,PBMC_stimulated,batch_2

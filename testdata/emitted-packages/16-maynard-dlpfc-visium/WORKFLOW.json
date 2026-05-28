@@ -1,0 +1,145 @@
+{
+  "current_task": null,
+  "meta": {
+    "modality_stratum": "spatial",
+    "run_id": "c60d4048-ccb1-c22f-c5e9-777583ff5b47"
+  },
+  "run_id": "c60d4048-ccb1-c22f-c5e9-777583ff5b47",
+  "tasks": {
+    "final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "time_series_forecast_evaluate"
+      ],
+      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "time_series_decompose": {
+      "assignee": "agent",
+      "container": {
+        "digest": "sha256:78cb94ce2db23aaaf7b546450fcf70b5a3f2ace5a9b5fa1f87217da329211312",
+        "image": "rocker/r-ver",
+        "tag": "4.4.1"
+      },
+      "depends_on": [],
+      "description": "Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "time_series_forecast_evaluate": {
+      "assignee": "agent",
+      "container": {
+        "digest": "sha256:78cb94ce2db23aaaf7b546450fcf70b5a3f2ace5a9b5fa1f87217da329211312",
+        "image": "rocker/r-ver",
+        "tag": "4.4.1"
+      },
+      "depends_on": [
+        "time_series_model_fit"
+      ],
+      "description": "Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "time_series_model_fit": {
+      "assignee": "agent",
+      "container": {
+        "digest": "sha256:78cb94ce2db23aaaf7b546450fcf70b5a3f2ace5a9b5fa1f87217da329211312",
+        "image": "rocker/r-ver",
+        "tag": "4.4.1"
+      },
+      "depends_on": [
+        "time_series_decompose"
+      ],
+      "description": "Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "final_reporting"
+      ],
+      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_time_series_decompose": {
+      "assignee": "agent",
+      "depends_on": [
+        "time_series_decompose"
+      ],
+      "description": "Validate outputs of: Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_time_series_forecast_evaluate": {
+      "assignee": "agent",
+      "depends_on": [
+        "time_series_forecast_evaluate"
+      ],
+      "description": "Validate outputs of: Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_time_series_model_fit": {
+      "assignee": "agent",
+      "depends_on": [
+        "time_series_model_fit"
+      ],
+      "description": "Validate outputs of: Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    }
+  },
+  "version": "1.0",
+  "workflow_id": "workflow-0a939b95a12f"
+}

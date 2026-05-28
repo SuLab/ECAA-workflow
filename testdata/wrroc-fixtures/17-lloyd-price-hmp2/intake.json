@@ -1,0 +1,16 @@
+{
+  "study_id": "17-lloyd-price-hmp2",
+  "intake_prose": "We want to recreate the multi-omic inflammatory bowel disease (IBD) gut microbiome analysis from Lloyd-Price et al. 2019 Nature (the IBDMDB / HMP2 study), SRA BioProject PRJNA398089. The study longitudinally profiled the gut microbiome and host transcriptome in 132 subjects (CD, UC, and healthy controls) over ~1 year, with stool samples collected every two weeks and colon biopsies at colonoscopy. We focus on the shotgun metagenomics + metatranscriptomics arms.\n\nThe metagenomics pipeline follows the HMP2 protocol. Process raw paired-end Illumina reads with KneadData v0.7+ for host (hg38) read removal and quality trimming. Run MetaPhlAn4 for taxonomic profiling (species-level relative abundances). Run HUMAnN3 for functional profiling (UniRef90 gene family abundances and MetaCyc pathway coverage). Normalize functional profiles by total sum scaling (TSS) for relative abundance and by reads-per-kilobase (RPK) for gene family counts.\n\nFor taxonomic analysis, reproduce the dysbiosis index: compute per-sample Bray-Curtis dissimilarity from MetaPhlAn species profiles. Active IBD flare samples (fecal calprotectin > 200 ug/g) should show higher Bray-Curtis distance from the healthy-cohort centroid than remission samples (p < 0.01 by Wilcoxon). Key dysbiosis species: Bacteroides fragilis, Ruminococcus gnavus enriched in IBD vs healthy; Roseburia intestinalis, Akkermansia muciniphila depleted. At least 4 of these 4 expected species must show the correct direction of effect at FDR < 0.1.\n\nFor longitudinal stability analysis, compute intra-individual vs inter-individual Bray-Curtis distances. Intra-individual should be lower than inter-individual for healthy subjects (p < 0.001). Model dysbiosis episodes using a hidden Markov model with 2 states (stable/dysbiotic) per subject time series; CD and UC subjects should show more state transitions per year than healthy (p < 0.05).\n\nRun ANCOM-BC2 for differential abundance testing between disease groups at the species level. Run Maaslin2 for multivariable association of species abundance with antibiotic exposure, host genetics (IBD risk alleles from the metadata), and inflammation markers.\n\nAcceptance: MetaPhlAn4 profiling of at least 800/1,595 stool samples; dysbiosis species directional effects reproduced for 4/4 listed species at FDR < 0.1; intra-individual stability lower than inter-individual in healthy cohort (p < 0.001).",
+  "expected_modality": "metagenomics",
+  "expected_archetype_id": "metagenomics_taxonomic",
+  "modality_hint": "metagenomics",
+  "data_sources": ["PRJNA398089", "IBDMDB"],
+  "expected_outputs": [
+    "MetaPhlAn4 taxonomic profiles per sample",
+    "HUMAnN3 gene family and pathway abundance tables",
+    "Dysbiosis index (Bray-Curtis vs healthy centroid) per sample",
+    "Longitudinal HMM dysbiosis state calls per subject",
+    "ANCOM-BC2 differential abundance results (CD/UC vs healthy)",
+    "Maaslin2 multivariable association results"
+  ]
+}

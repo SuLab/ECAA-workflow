@@ -1,0 +1,57 @@
+schema_version: "0.1"
+id: chip_exo_peaks
+version: "1.0.0"
+description: |
+  ChIP-exo (exonuclease-trimmed ChIP-seq) near-base-pair-resolution
+  TF binding analysis. Same atom inventory as chip_seq_peaks but
+  `goal_kind_hint: chip_exo` so the agent picks the ChIP-exo-native
+  peak caller (peakzilla / MACE / ChExMix) rather than MACS2, which
+  over-broadens the very narrow ChIP-exo peaks.
+sme_summary: |
+  Call TF binding peaks from a ChIP-exo experiment with a
+  ChIP-exo-native peak caller, footprint the protein-DNA contact at
+  ~5 bp resolution, and run motif discovery centered on the
+  footprint.
+goal_data: "data:1255"
+goal_format: "format:3003"
+project_class: bioinformatics
+modality_hint: chip_exo
+goal_kind_hint: chip_exo
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: true
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: peak_calling
+    required: true
+    depends_on: [alignment]
+  # DE atom for differential binding between conditions;
+  # also satisfies classifier-inferred goal=data:0951.
+  - atom_id: differential_expression
+    required: false
+    depends_on: [peak_calling]
+  - atom_id: pathway_enrichment
+    required: false
+    depends_on: [differential_expression]
+  - atom_id: reporting
+    required: true
+    depends_on: [peak_calling, differential_expression, pathway_enrichment]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  organism: alignment.inputs.organism
+  samples: data_acquisition.inputs.samples
+claim_boundary: |
+  ChIP-exo peaks are regions of statistical enrichment with
+  ~5 bp resolution of the protein-DNA contact. Footprint
+  centers identify TF binding positions but do not directly
+  prove the bound TF — motif validation under the
+  consensus binding center is supportive evidence only.

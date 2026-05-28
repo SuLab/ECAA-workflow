@@ -1,0 +1,8 @@
+{
+  "comparisons": [
+    {
+      "id": "comparison_1",
+      "table_path": "comparison_1/de_table.tsv"
+    }
+  ]
+}

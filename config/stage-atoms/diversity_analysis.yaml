@@ -1,0 +1,71 @@
+id: diversity_analysis
+version: "1.0.0"
+role: operation
+description: |
+  Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /
+  weighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus
+  ordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /
+  ANOSIM). swfc namespace per EDAM audit — operation:2238 (statistical
+  calculation) is over-broad.
+edam_operation: "swfc:diversity_analysis"
+edam_data: "data:0951"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - taxonomic_classification
+plot_stage_id: taxonomic_profiling
+expected_artifacts:
+  - diversity_metrics.tsv
+  - manifest.json
+  - result.json
+required_figures:
+  - diversity_violin
+attributes:
+  candidate_alpha_metrics:
+    - shannon
+    - simpson
+    - chao1
+    - faith_pd
+  candidate_beta_metrics:
+    - bray_curtis
+    - weighted_unifrac
+    - jaccard
+  candidate_tests:
+    - permanova
+    - anosim
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Microbiome-domain count matrix (taxonomic profile) in; alpha + beta
+# diversity metric tables out (with p-values from PERMANOVA / ANOSIM).
+inputs:
+  - name: taxonomic_profile
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0951"
+      label: "Statistical estimate score"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "metagenomics"
+    statistical_state: "raw_counts"
+    privacy_class: internal
+outputs:
+  - name: diversity_metrics
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "diversity_metrics"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Alpha (Shannon/Simpson/Chao1/Faith PD) and beta (Bray-Curtis/weighted-UniFrac/Jaccard) diversity metrics with PERMANOVA/ANOSIM p-values"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "metagenomics"
+    statistical_state: "multiple_testing_corrected"
+    privacy_class: internal

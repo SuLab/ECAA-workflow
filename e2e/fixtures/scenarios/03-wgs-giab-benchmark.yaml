@@ -1,0 +1,139 @@
+# 03 — GIAB HG002 germline short-variant calling benchmark
+#
+# Exercises the "reference benchmark" pattern where the SME wants to
+# reproduce a community-standard precision/recall study. The assistant
+# should pin versions and restate the out-of-scope long-read guard.
+
+name: Public GIAB germline variant calling benchmark
+modality: variant_calling
+
+beats:
+  - user: "I want to benchmark germline short-variant callers on GIAB HG002."
+    assistant:
+      content: |
+        Germline short-variant calling benchmark on GIAB HG002 —
+        got it. Which caller(s) are we comparing and which truth
+        set version?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+      visibleText:
+        - "GIAB"
+        - "HG002"
+      forbiddenText:
+        - "DAG"
+
+  - user: "GATK4 HaplotypeCaller and DeepVariant, pinned to truth v4.2.1."
+    assistant:
+      content: |
+        GATK4 HC and DeepVariant in parallel, truth set v4.2.1 pinned.
+        Stratification BEDs need to match the truth set version —
+        I'll pin stratifications v3.x to match v4.2.1 too, and fail
+        closed if either is mismatched.
+    expect:
+      visibleText:
+        - "DeepVariant"
+        - "v4.2.1"
+      forbiddenText:
+        - "BWA"
+        - "I recommend"
+
+  - user: "30x Illumina NovaSeq, GRCh38-no-alt-analysis-set as the reference."
+    assistant:
+      content: |
+        30x Illumina NovaSeq, GRCh38-no-alt pinned. Should I also plan
+        for the HG002/HG003/HG004 trio with Mendelian consistency
+        reporting, or just the singleton?
+    expect:
+      visibleText:
+        - "GRCh38"
+        - "Illumina"
+
+  - user: "Just HG002 as the primary, but include the trio for Mendelian consistency."
+    assistant:
+      content: |
+        Recorded — HG002 singleton benchmark plus HG002/HG003/HG004
+        trio for Mendelian consistency check. Per-region stratification
+        will cover segmental duplications, homopolymers, GC extremes,
+        tandem repeats, and low-mappability regions.
+    expect:
+      visibleText:
+        - "Mendelian"
+        - "segmental duplications"
+
+  - user: |
+      Good. Long-read (PacBio HiFi, ONT) is explicitly out of scope —
+      don't add it. Internal use only.
+    assistant:
+      content: |
+        Long-read explicitly excluded — the package will refuse to
+        add PacBio or ONT without re-issuing this request. Here's
+        the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **GIAB germline short-variant calling benchmark**
+
+          - **Sample:** HG002 singleton + HG002/HG003/HG004 trio
+          - **Reference:** GRCh38-no-alt-analysis-set, pinned
+          - **Truth:** GIAB v4.2.1 (truth VCF + high-confidence BED
+            + stratifications v3.x matched)
+          - **Callers:** GATK4 HaplotypeCaller and DeepVariant in
+            parallel; hap.py + vcfeval for comparison
+          - **Stratification:** segmental duplications, homopolymers,
+            GC extremes, tandem repeats, low-mappability
+          - **Out-of-scope guard:** long-read (PacBio HiFi, ONT) is
+            explicitly excluded; package fails closed if added
+          - **Governance:** fully public, no credentialed access,
+            internal use
+          - **Claim boundary:** descriptive caller precision/recall
+            on a reference benchmark only. No clinical-performance,
+            diagnostic-suitability, or cross-technology extrapolation
+            claims.
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "Claim boundary"
+        - "v4.2.1"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: "Package emitted — benchmark run ready for execution."
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I want to benchmark germline short-variant callers on GIAB HG002 using
+    GATK4 HaplotypeCaller and DeepVariant in parallel, pinned to truth set
+    v4.2.1 with matched stratification BEDs. The input is 30x Illumina NovaSeq
+    aligned to GRCh38-no-alt-analysis-set. HG002 is the primary singleton
+    benchmark, but also include the HG002/HG003/HG004 trio for Mendelian
+    consistency reporting. Per-region stratification should cover segmental
+    duplications, homopolymers, GC extremes, tandem repeats, and low-mappability
+    regions. Long-read callers (PacBio HiFi, ONT) are explicitly out of scope —
+    do not add them. Fully public data, internal use only. Once we agree on the
+    plan, emit the package to {pkgDir}.
+  followups:
+    - trigger: "(?i)(truth|version|stratif)"
+      reply: "Truth set v4.2.1 pinned, stratification BEDs v3.x matched to the truth set version."
+    - trigger: "(?i)(trio|Mendelian|HG003|HG004)"
+      reply: "HG002 singleton is primary; HG002/HG003/HG004 trio for Mendelian consistency only."
+    - trigger: "(?i)(long.read|PacBio|ONT|HiFi)"
+      reply: "Long-read is explicitly out of scope. The package should refuse to add it."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "BWA"
+      - "I recommend"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 4

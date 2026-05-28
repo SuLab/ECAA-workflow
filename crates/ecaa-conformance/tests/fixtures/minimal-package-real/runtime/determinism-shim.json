@@ -1,0 +1,20 @@
+{
+  "schema_version": "1",
+  "env_capture": {
+    "captured_env_vars": [
+      "LANG"
+    ],
+    "redacted_env_vars": []
+  },
+  "seed_policy": {
+    "random_seed": null,
+    "seed_source": "process-default"
+  },
+  "temp_path_policy": {
+    "strategy": "stable-by-task-id",
+    "root": "/tmp"
+  },
+  "locale": "en_US.UTF-8",
+  "timezone": "UTC",
+  "ablation_engaged": false
+}

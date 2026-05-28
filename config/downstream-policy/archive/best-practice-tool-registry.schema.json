@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Best Practice Tool Registry",
+  "description": "Sidecar schema validating the top-level shape of best-practice-tool-registry.json. Describes the list of best-practice agent tools and the associated budget limits.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "tools",
+    "budgetLimits"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "tools": { "type": "array" },
+    "budgetLimits": { "type": "object" }
+  }
+}

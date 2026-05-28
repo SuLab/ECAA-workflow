@@ -1,0 +1,24 @@
+{
+  "per_sample_metrics": {
+    "sample_00": {
+      "n_genes": 2886,
+      "pct_mito": 0.0954
+    },
+    "sample_01": {
+      "n_genes": 1859,
+      "pct_mito": 0.1738
+    },
+    "sample_02": {
+      "n_genes": 2665,
+      "pct_mito": 0.1452
+    },
+    "sample_03": {
+      "n_genes": 1440,
+      "pct_mito": 0.1237
+    },
+    "sample_04": {
+      "n_genes": 2726,
+      "pct_mito": 0.0721
+    }
+  }
+}

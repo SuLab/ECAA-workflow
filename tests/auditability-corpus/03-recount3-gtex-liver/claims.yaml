@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "03-recount3-gtex-liver"
+claims:
+  - id: "03-recount3-gtex-liver-claim-001"
+    text: "Total raw reads per sample: 44–71M"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 44
+    tolerance: 0.1
+  - id: "03-recount3-gtex-liver-claim-002"
+    text: "Alignment rate: ≥ 80%"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 0.8
+    tolerance: 0.05
+  - id: "03-recount3-gtex-liver-claim-003"
+    text: "Junction-spanning reads: ≥ 25%"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 0.25
+    tolerance: 0.05
+  - id: "03-recount3-gtex-liver-claim-004"
+    text: "Differentially expressed genes (BH FDR<0.05): 316 (exact integer)"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/de.csv"
+    expected_value: 316
+    tolerance: 0.1
+  - id: "03-recount3-gtex-liver-claim-005"
+    text: "Top genes (Q<1e-10) include: DUSP1, KLF15, PER1, FKBP5, TSC22D3, CRISPLD2, C7, CCDC69, SERPINA3, GPX3, MAOA, SAMHD1, SPARCL1, C13orf15, KCTD12, ERRFI1 (Q≈1.3e-11; STEAP4 at Q≈5.3e-10 sits just outside this threshold)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 11
+    tolerance: 0.1
+  - id: "03-recount3-gtex-liver-claim-006"
+    text: "Direction agreement on top genes: up: DUSP1, KLF15, PER1, FKBP5, TSC22D3, CRISPLD2; down: KCTD12"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: "up: DUSP1, KLF15, PER1, FKBP5, TSC22D3, CRISPLD2; down: KCTD12"
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-007"
+    text: "Functional clusters (top 6, NIH DAVID): glycoprotein/extracellular matrix; vasculature; circulatory; response to nutrients; thrombospondin type-1; response to hormone stimulus"
+    contract: rank_top_n
+    source_table: "results/tables/de.csv"
+    expected_value: 1
+    tolerance: 0.1
+  - id: "03-recount3-gtex-liver-claim-008"
+    text: "Fig 1A (volcano): -log10(p) vs log2(fold-change) scatter; 316 DEGs at FDR<0.05 highlighted; canonical hits labelled"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/de.csv"
+    expected_value: 316
+    tolerance: 0.1
+  - id: "03-recount3-gtex-liver-claim-009"
+    text: "Table 1 (top 16 GC-responsive genes, Q < 1e-10): DESeq2/limma-voom rank-ordered table of top genes with fold-change and Q-value"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/de.csv"
+    expected_value: "DESeq2/limma-voom rank-ordered table of top genes with fold-change and Q-value"
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-010"
+    text: "Suppl S4 (DAVID functional clusters): top-6 functional clusters by enrichment score with member genes per cluster"
+    contract: rank_top_n
+    source_table: "results/tables/de.csv"
+    expected_value: 6
+    tolerance: 0.1
+  - id: "03-recount3-gtex-liver-claim-011"
+    text: "(added) Heatmap of top 30–50 DEGs: row-Z-scored expression matrix; samples on columns clustered by donor + condition; genes on rows clustered by direction"
+    contract: rank_top_n
+    source_table: "results/tables/de.csv"
+    expected_value: "row-Z-scored expression matrix; samples on columns clustered by donor + condition; genes on rows clustered by direction"
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-012"
+    text: "Emitted workflow contains stage 'data_acquisition': pull GSE52778 via SRA"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "data_acquisition"
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "03-recount3-gtex-liver-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 03-recount3-gtex-liver"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null

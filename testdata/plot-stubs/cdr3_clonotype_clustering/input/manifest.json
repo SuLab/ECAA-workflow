@@ -1,0 +1,5 @@
+{
+  "vdj_per_cell_path": "vdj_per_cell.tsv",
+  "clonotype_table_path": "clonotype_table.tsv",
+  "diversity_table_path": "diversity_table.tsv"
+}

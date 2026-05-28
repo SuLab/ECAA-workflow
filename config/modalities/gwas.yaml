@@ -1,0 +1,60 @@
+schema_version: "0.1"
+id: gwas
+display_name: GWAS Summary-Statistics Analysis
+keywords:
+  - gwas
+  - "genome-wide association"
+  - "summary statistics"
+  - "summary stats"
+  - coloc
+  - "colocalization"
+  - "colocalisation"
+  - "coloc.abf"
+  - "coloc.susie"
+  - susie
+  - "fine-mapping"
+  - "fine mapping"
+  - "ld score"
+  - "ld-score"
+  - "ld score regression"
+  - ldsc
+  - "stratified ldsc"
+  - "s-ldsc"
+  - magma
+  - twas
+  - smr
+  - trubetskoy
+  - pgc
+  - pgc3
+  - gtex
+  - "cis-eqtl"
+  - eqtl
+  - sqtl
+  - mqtl
+  - qtl
+  - "locus prioritization"
+  - "locus prioritisation"
+  - polygenic
+  - prs
+  - "z-score"
+  - manhattan
+# operation:2238 ("Statistical calculation") is the closest EDAM root operation
+# that's already registered in `crates/core/src/edam.rs`. GWAS / coloc /
+# summary-statistics workflows are statistical-inference workloads against
+# pre-computed effect-size tables, not pathway/network analyses.
+edam_topic: "topic:3517"
+edam_operation: "operation:2238"
+taxonomy_path: stage-taxonomies/gwas-coloc.yaml
+archetype_id: gwas_coloc
+fixture_corpus_rows:
+  - 04-gwas-scz-coloc
+semantic_equivalence_bounds:
+  - metric: spearman_rho
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/tables/coloc_*.csv"
+    rationale: "Spearman correlation of PP.H4 colocalization posteriors ≥ 0.90 between runs"
+  - metric: pvalue_relative_delta
+    operator: "<="
+    threshold: 0.05
+    rationale: "Relative p-value delta ≤ 0.05 for top loci (LDSC / MAGMA gene-set enrichment)"

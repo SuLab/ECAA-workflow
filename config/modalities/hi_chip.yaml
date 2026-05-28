@@ -1,0 +1,38 @@
+schema_version: "0.1"
+id: hi_chip
+display_name: HiChIP
+keywords:
+- hichip
+- hi-chip
+- hichip-seq
+- fithichip
+- hichipper
+- chip-loops
+- chia-pet
+- proximity ligation chip
+- promoter-enhancer loops
+- chromatin loops
+- cohesin loops
+- cohesin chip loops
+- enhancer-promoter loops
+- enhancer promoter contacts
+- chromatin contact loops
+- mango loops
+- ctcf-mediated loops
+- h3k27ac loops
+- chromatin connectome
+edam_topic: topic:3169
+edam_operation: operation:3222
+archetype_id: hi_chip
+taxonomy_path: stage-taxonomies/chip-seq.yaml
+semantic_equivalence_bounds:
+  - metric: loop_jaccard
+    operator: ">="
+    threshold: 0.85
+    applies_to: "results/loops/*.bedpe"
+    rationale: "Promoter-enhancer loop Jaccard ≥ 0.85 between FitHiChIP runs"
+  - metric: peak_jaccard
+    operator: ">="
+    threshold: 0.85
+    applies_to: "results/peaks/*.bed"
+    rationale: "Anchor-peak Jaccard ≥ 0.85 (shared with chromatin-peak baseline)"

@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scripps-workflow/config/compute-profiles/profiles.schema.json",
+  "title": "Compute Profiles",
+  "description": "Per-stage compute profile schema. The AWS executor maps these cloud-agnostic shapes into concrete EC2 instance types. Plan §S15.23 — `default_container` is the optional profile-level container fallback in the composer's resolver chain (atom > archetype > profile > package > host). Schema-validated by `make schemas`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profiles"],
+  "properties": {
+    "profiles": {
+      "type": "object",
+      "description": "Map of profile id to profile body. Profile ids are the stage-class identifiers consumed by the harness sizing layer.",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "$ref": "#/$defs/profile"
+        }
+      },
+      "additionalProperties": false
+    },
+    "default": {
+      "$ref": "#/$defs/profile",
+      "description": "Conservative default for stage classes not listed in `profiles`."
+    },
+    "method_overrides": {
+      "type": "object",
+      "description": "Method-driven sizing overrides. The high-water resolver merges these into the stage profile when a method matches.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["requires"],
+        "properties": {
+          "applies_to": {
+            "type": "array",
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "requires": { "type": "object", "additionalProperties": true },
+          "notes": { "type": "string" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["description", "requirements"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "requirements": {
+          "oneOf": [
+            { "$ref": "#/$defs/requirements" },
+            { "type": "null", "description": "Human-only stages (e.g. SME review) carry `requirements: null`." }
+          ]
+        },
+        "scaling_factors": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "notes": {
+          "type": "string"
+        },
+        "tool_thread_curves": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 1 }
+        },
+        "env_overrides_template": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "phase_thread_counts": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "ssm_timeout_secs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "default_container": {
+          "$ref": "#/$defs/container_spec"
+        }
+      }
+    },
+    "requirements": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["vcpus", "memory_gb"],
+      "properties": {
+        "vcpus": { "type": "integer", "minimum": 1 },
+        "memory_gb": { "type": "integer", "minimum": 1 },
+        "storage_gb": { "type": "integer", "minimum": 1 },
+        "gpus": {
+          "oneOf": [
+            { "type": "integer", "minimum": 0 },
+            {
+              "type": "object",
+              "additionalProperties": true,
+              "required": ["count"],
+              "properties": {
+                "count": { "type": "integer", "minimum": 0 },
+                "type": { "type": "string", "minLength": 1 }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "container_spec": {
+      "type": "object",
+      "description": "Plan §S15.23 — profile-level container default. Mirrors the `preferred_container` shape on AtomDefinition / ArchetypeDefinition (atom.rs::ContainerSpec). Composer's resolver chain falls through to this when neither atom nor archetype declares one. `image` + `tag` are required; `digest` is populated at emit time per ADR 0025.",
+      "required": ["image", "tag"],
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "not": { "pattern": "\\.\\." }
+        },
+        "tag": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string" },
+        "arch": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["amd64", "arm64"] }
+        },
+        "gpu_required": { "type": "boolean" },
+        "network": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind"],
+              "additionalProperties": false,
+              "properties": { "kind": { "const": "bridge" } }
+            },
+            {
+              "type": "object",
+              "required": ["kind"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "const": "none" },
+                "allowlist": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          ]
+        },
+        "source": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind"],
+              "additionalProperties": false,
+              "properties": { "kind": { "const": "image" } }
+            },
+            {
+              "type": "object",
+              "required": ["kind"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "const": "conda" },
+                "conda_packages": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["kind"],
+              "additionalProperties": false,
+              "properties": { "kind": { "const": "host" } }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

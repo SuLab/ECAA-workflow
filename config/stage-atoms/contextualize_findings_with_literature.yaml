@@ -1,0 +1,107 @@
+id: contextualize_findings_with_literature
+version: "1.0.0"
+role: operation
+description: |
+  Map each row of the upstream findings table (DE genes / called peaks /
+  called variants) to PMID-anchored prior-work rows. Emit
+  claims_evidence_matrix.csv with deterministic concordance flags
+  (same_direction / opposite_direction / no_prior_finding / unverifiable).
+  No synthesis; no narrative.
+edam_operation: "operation:0305"
+assignee: agent
+depends_on:
+  - review_prior_work
+inputs:
+  - name: analysis_findings
+    # Now uses SemanticType::Union to route across three
+    # archetype claim shapes (DE results / peak calls / variant calls).
+    # See claim_shape_branch attribute for agent prompt selection.
+    semantic_type:
+      kind: union
+      members:
+        - kind: ontology_term
+          iri: "data:0951"
+          label: "Statistical estimate score"
+          ontology_version: "EDAM-1.25"
+        - kind: ontology_term
+          iri: "data:3002"
+          label: "Annotation track"
+          ontology_version: "EDAM-1.25"
+        - kind: ontology_term
+          iri: "data:3498"
+          label: "Sequence variations"
+          ontology_version: "EDAM-1.25"
+    physical_format: { iri: "format:3475", label: "Tabular text" }
+    statistical_state: any_tested
+    privacy_class: internal
+  - name: prior_claims_matrix
+    semantic_type:
+      kind: ontology_term
+      iri: "swfc:literature_claims_matrix"
+      label: "Literature claims matrix"
+      ontology_version: "swfc-1"
+    physical_format: { iri: "format:3752", label: "CSV" }
+    privacy_class: internal
+outputs:
+  - name: claims_evidence_matrix
+    semantic_type:
+      kind: ontology_term
+      iri: "swfc:claims_evidence_matrix"
+      label: "Claims-evidence matrix"
+      ontology_version: "swfc-1"
+    physical_format: { iri: "format:3752", label: "CSV" }
+    privacy_class: internal
+  - name: literature_search_protocol
+    semantic_type:
+      kind: ontology_term
+      iri: "swfc:literature_search_protocol"
+      label: "Literature search protocol"
+      ontology_version: "swfc-1"
+    physical_format: { iri: "format:1196", label: "Markdown" }
+    privacy_class: internal
+  - name: citation_verification_report
+    semantic_type:
+      kind: ontology_term
+      iri: "swfc:citation_verification_report"
+      label: "Citation verification report"
+      ontology_version: "swfc-1"
+    physical_format: { iri: "format:1196", label: "Markdown" }
+    privacy_class: internal
+attributes:
+  claim_shape_branch:
+    selector: input.analysis_findings.semantic_type.iri
+    cases:
+      "data:0951": gene
+      "data:3002": region
+      "data:3498": variant
+expected_artifacts:
+  - claims_evidence_matrix.csv
+  - literature_search_protocol.md
+  - citation_verification_report.md
+  - evidence/manifest.json
+  - result.json
+required_artifacts:
+  - path: claims_evidence_matrix.csv
+    schema_ref: schemas/claims_evidence_matrix.schema.json
+  - path: evidence/manifest.json
+    schema_ref: schemas/literature_evidence_manifest.schema.json
+validators:
+  - pmid_resolves
+  - evidence_quote_substring_match
+  - redistributable_or_marked
+  - claim_row_has_finding_id
+  - concordance_flag_in_closed_set
+figure_exempt:
+  reason: "Structured-text outputs only."
+  category: non_plottable
+resource_profile: { cpu: light, memory: small, gpu: false, runtime_class: minutes }
+claim_boundary: |
+  This atom emits row-level concordance flags ONLY. Each row references one
+  upstream finding (finding_id), zero or more prior PMIDs, and a closed-set
+  concordance flag whose semantics are: same_direction iff the prior's effect
+  direction matches the analysis effect direction AND both effect-size
+  magnitudes are >0; opposite_direction iff signs differ; no_prior_finding
+  iff zero prior rows for this entity in this tissue; unverifiable iff prior
+  rows exist but their evidence_quote does not specify a direction. Do NOT
+  introduce composite or narrative claims. Do NOT generate paragraphs that
+  the upstream atom did not also generate row-wise.

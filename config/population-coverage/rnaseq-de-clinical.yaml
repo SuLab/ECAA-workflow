@@ -1,0 +1,26 @@
+# Population-coverage statement for the rnaseq-de-clinical archetype.
+#
+# Sources: GTEx v8 normal-tissue release (adult, bulk tissue) and TCGA
+# pan-cancer (adult, solid tumor) are the two validation cohorts that
+# the clinical RNA-seq DE workflow has been evaluated against.
+# Pediatric solid tumor cohorts are explicitly flagged untested so the
+# UI surfaces the gap even when the SME's sample cohort overlaps an
+# untested envelope rather than landing entirely outside coverage.
+workflow_id: rnaseq-de-clinical
+validated_cohorts:
+  - label: "GTEx v8 normal tissue"
+    population_code: "gtex_v8_eur"
+    age_band: adult
+    sample_type: bulk_tissue
+    n: 17382
+  - label: "TCGA pan-cancer"
+    population_code: "tcga_panchort_v15"
+    age_band: adult
+    sample_type: solid_tumor
+    n: 11315
+explicitly_untested:
+  - label: "Pediatric solid tumor"
+    age_band: pediatric
+    sample_type: solid_tumor
+citations:
+  - "doi:10.1038/s41467-019-12873-4"

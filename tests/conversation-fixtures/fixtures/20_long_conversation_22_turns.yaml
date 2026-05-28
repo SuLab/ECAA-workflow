@@ -1,0 +1,160 @@
+id: 20_long_conversation_22_turns
+category: long_conversation
+description: |
+  Long conversation that exceeds the 20-turn ModelPolicy threshold so
+  Sonnet escalates to Opus. The fixture sends 22 short user turns plus
+  the corresponding assistant text replies, verifying that:
+
+  1. ConversationService.send_turn handles a long history without OOM
+     or pathological slowdown.
+  2. The model policy switch from Sonnet to Opus happens silently —
+     the metrics module's sonnet_turns vs opus_turns split should
+     reflect the transition (not asserted here directly, but the
+     test exercises the path that the metrics module records).
+  3. The session state stays in Intake throughout (no premature
+     emission, no spurious tool calls between the short turns).
+
+flow:
+  - kind: user
+    text: "We have RNA-seq data from a clinical trial."
+  - kind: user
+    text: "It's bulk RNA-seq, not single-cell."
+  - kind: user
+    text: "There are 60 patients total."
+  - kind: user
+    text: "Half got the treatment, half got placebo."
+  - kind: user
+    text: "Tissue is liver biopsies."
+  - kind: user
+    text: "Human samples, hg38."
+  - kind: user
+    text: "Goal is finding genes that respond to the treatment."
+  - kind: user
+    text: "Internal data, not public."
+  - kind: user
+    text: "We have Illumina paired-end 150bp reads."
+  - kind: user
+    text: "The samples were sequenced at our core facility."
+  - kind: user
+    text: "We expect maybe a thousand genes to be differentially expressed."
+  - kind: user
+    text: "We don't have a method preference yet."
+  - kind: user
+    text: "Should we worry about confounders?"
+  - kind: user
+    text: "What about batch effects from sequencing runs?"
+  - kind: user
+    text: "Our biostat lead suggested DESeq2 but we're flexible."
+  - kind: user
+    text: "How long does this kind of analysis usually take?"
+  - kind: user
+    text: "When can we start?"
+  - kind: user
+    text: "Are there any public datasets we should compare against?"
+  - kind: user
+    text: "What about pathway enrichment afterwards?"
+  - kind: user
+    text: "Can we get a list of genes ranked by significance?"
+  - kind: user
+    text: "Anything else I should know before we lock this in?"
+  - kind: user
+    text: "OK, let's go ahead."
+
+mock_responses:
+  # Turn 1
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: bulk RNA-seq from a clinical trial
+  - kind: text
+    text: "Got it — what are we comparing?"
+  # Turn 2
+  - kind: text
+    text: "OK, bulk it is. How many patients?"
+  # Turn 3
+  - kind: text
+    text: "60 — and what's the split?"
+  # Turn 4
+  - kind: text
+    text: "Treatment vs placebo, got it. What tissue?"
+  # Turn 5
+  - kind: text
+    text: "Liver biopsies. Human?"
+  # Turn 6
+  - kind: text
+    text: "Human, hg38. What are you looking for?"
+  # Turn 7
+  - kind: text
+    text: "Treatment-responsive genes. Internal or public data?"
+  # Turn 8
+  - kind: text
+    text: "Internal. What sequencing setup?"
+  # Turn 9
+  - kind: text
+    text: "Illumina paired-end 150bp. Where was it sequenced?"
+  # Turn 10
+  - kind: text
+    text: "Core facility, noted. Any methods preference?"
+  # Turn 11
+  - kind: text
+    text: "Roughly a thousand DEGs expected — useful prior. Anything specific on methods?"
+  # Turn 12
+  - kind: text
+    text: "No preference noted — the execution agent will pick based on the data."
+  # Turn 13
+  - kind: text
+    text: "Confounders are worth thinking about — what do you know about batches and demographics?"
+  # Turn 14
+  - kind: text
+    text: "Sequencing runs as a batch covariate is something the agent can handle at runtime."
+  # Turn 15
+  - kind: tool_use
+    tool:
+      tool_name: set_intake_method
+      stage: differential_expression
+      method_prose: "DESeq2 — biostat lead's suggestion, SME flexible on this."
+  - kind: text
+    text: "Captured DESeq2 as the suggested DE method."
+  # Turn 16
+  - kind: text
+    text: "Hard to say without seeing the data, but the package is ready as soon as you confirm."
+  # Turn 17
+  - kind: text
+    text: "Right after you confirm — the agent picks up the package and runs."
+  # Turn 18
+  - kind: text
+    text: "The agent will check public references at runtime if it finds related GEO entries."
+  # Turn 19
+  - kind: text
+    text: "Pathway enrichment is a downstream step the agent runs after the DE call."
+  # Turn 20
+  - kind: text
+    text: "Yes, the standard output includes a ranked gene list."
+  # Turn 21 — at this point conversation.len() > 20, model policy escalates to Opus.
+  - kind: text
+    text: "Anything else? Or should I summarize what we have?"
+  # Turn 22
+  - kind: text
+    text: "Got it. I'll put together a summary now."
+
+expected_final_state:
+  # set_intake_method on turn 15 fires the IntakeFollowup transition;
+  # nothing thereafter rebuilds the DAG, so the session ends in
+  # IntakeFollowup. See fixture 08.
+  state_kind: intake_followup
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+    - set_intake_method
+
+rubric_notes: |
+  Long-conversation path. Historically escalated to Opus at turn ~21 via
+  the `conversation.len() > 20` trigger; that trigger was removed
+  2026-04-20 (§3.3 of the token-burn remediation plan) — long sessions
+  now stay on Sonnet. The current Opus escalation target is Opus 4.7
+  when `careful_mode`, a `Blocked` state, or classification confidence
+  < 0.3 fires. This fixture exercises the no-escalation path: 22 turns
+  with decent confidence should record exclusively in `sonnet_turns`.
+  Also tests that a long conversation doesn't accidentally drift into
+  PendingConfirmation or emit_package without an explicit
+  propose_summary_confirmation.

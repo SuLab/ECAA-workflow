@@ -1,0 +1,301 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Claim": {
+      "description": "One extracted narrative claim. Fields beyond `entity` and `excerpt` are optional — if the narrative omits an effect size, the claim still records the direction and the source table reference, and the verifier falls back to verifying only what was provided.",
+      "properties": {
+        "contract": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ClaimContract"
+            }
+          ],
+          "default": "numeric_table_lookup",
+          "description": "Contract class assigned by heuristic during extraction. Defaults to `NumericTableLookup` for backwards compatibility with claims serialized before this field was introduced."
+        },
+        "direction": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Direction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Direction word captured in the same sentence, if any."
+        },
+        "effect_size": {
+          "description": "Numeric effect size captured from a log2FC / effect_size mention.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "entity": {
+          "description": "The entity name matched by one of the policy's entity patterns.",
+          "type": "string"
+        },
+        "excerpt": {
+          "description": "The sentence the claim originates from, for operator review of mismatches.",
+          "type": "string"
+        },
+        "pvalue": {
+          "description": "Numeric p-value / FDR captured from the sentence.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "source_table": {
+          "description": "Source-table reference captured from a \"Table S1\" / \"(Table 2)\" style mention in the sentence. Populated as a free string so the verifier can fuzzy-match against the package's `results/tables/*` index.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "entity",
+        "excerpt"
+      ],
+      "type": "object"
+    },
+    "ClaimContract": {
+      "description": "ClaimContract discriminant.",
+      "oneOf": [
+        {
+          "description": "Direct table-cell numeric lookup (e.g., \"316 DEGs in Himes\")",
+          "enum": [
+            "numeric_table_lookup"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Thresholded differential-expression / enrichment (\"FDR<0.05, log2FC>1\")",
+          "enum": [
+            "thresholded_de_or_enrichment"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Rank or top-N membership (\"TP53 in top-10 hits\")",
+          "enum": [
+            "rank_top_n"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Group-comparison summary (\"treated > control by 2.3-fold\")",
+          "enum": [
+            "group_comparison"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Categorical-label claim (\"cluster 5 identified as cardiomyocytes\")",
+          "enum": [
+            "categorical"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Time-series or clinical-trial summary (\"peak at day 14, n=42 enrolled\")",
+          "enum": [
+            "time_series_summary"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ClaimStatus": {
+      "description": "Per-claim verdict.",
+      "oneOf": [
+        {
+          "description": "The cited table row was found and every mentioned slot matches within the configured tolerance.",
+          "properties": {
+            "status": {
+              "enum": [
+                "verified"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A specific slot disagreed. `detail` describes which and how.",
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "mismatch"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "detail",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The claim could not be cross-checked (no table cited, table missing, entity not in any configured entity column, etc.).",
+          "properties": {
+            "reason": {
+              "type": "string"
+            },
+            "status": {
+              "enum": [
+                "unverifiable"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "reason",
+            "status"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ClaimStrength": {
+      "description": "Claim-strength classification for confirmatory-mode demotion. Exploratory sessions emit `Exploratory` for every claim and demotion is a no-op; confirmatory sessions walk the `PostHocDeviation` log to pick `Prespecified` vs `PostHoc`.",
+      "oneOf": [
+        {
+          "description": "Prespecified variant.",
+          "enum": [
+            "prespecified"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "PostHoc variant.",
+          "enum": [
+            "post_hoc"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Exploratory variant.",
+          "enum": [
+            "exploratory"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ClaimVerdict": {
+      "description": "Per-claim verdict plus the source claim itself (so callers can render the excerpt alongside the status without re-zipping).",
+      "properties": {
+        "claim": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Claim"
+            }
+          ],
+          "description": "Claim."
+        },
+        "status": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ClaimStatus"
+            }
+          ],
+          "description": "Status."
+        },
+        "strength": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ClaimStrength"
+            }
+          ],
+          "default": "exploratory",
+          "description": "Confirmatory-mode classification of the claim's analytical discipline. `Prespecified` when the claim's supporting stage has no `PostHocDeviation` record; `PostHoc` when at least one deviation record covers the stage lineage; `Exploratory` when the session was never confirmatory. The UI surfaces a red flag when a `Prespecified` claim's lineage turns out to contain deviations."
+        }
+      },
+      "required": [
+        "claim",
+        "status"
+      ],
+      "type": "object"
+    },
+    "Direction": {
+      "description": "Direction a claim asserts.",
+      "oneOf": [
+        {
+          "description": "Up variant.",
+          "enum": [
+            "up"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Down variant.",
+          "enum": [
+            "down"
+          ],
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "description": "Rollup of every claim in one narrative artifact.",
+  "properties": {
+    "n_checked": {
+      "description": "N checked.",
+      "format": "uint",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "n_mismatch": {
+      "description": "N mismatch.",
+      "format": "uint",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "n_unverifiable": {
+      "description": "N unverifiable.",
+      "format": "uint",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "n_verified": {
+      "description": "N verified.",
+      "format": "uint",
+      "minimum": 0.0,
+      "type": "integer"
+    },
+    "runtime_decision_log_path": {
+      "description": "Dual-channel audit cross-reference. Path (relative to the emitted package root) of the task's agent-runtime decision log, when present. The UI links it from the verification badge so reviewers can cross-check SME-visible `decisions.jsonl` deviations against the runtime decisions the agent recorded while executing the stage. `None` when the agent did not write a runtime log (older packages / non-instrumented agents).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "verdicts": {
+      "description": "Verdicts.",
+      "items": {
+        "$ref": "#/definitions/ClaimVerdict"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "n_checked",
+    "n_mismatch",
+    "n_unverifiable",
+    "n_verified",
+    "verdicts"
+  ],
+  "title": "ClaimVerificationReport",
+  "type": "object"
+}

@@ -1,0 +1,39 @@
+id: 50_time_series_vocabulary_boundary
+category: wave8_time_series_forecast
+description: |
+  Plan §8.H.2 fixture 37 equivalent: SME asks "what ARIMA order
+  should I use?" — assistant must deflect without recommending.
+
+flow:
+  - kind: user
+    text: |
+      I have a daily time series of API request volume with clear weekly
+      seasonality. What ARIMA order should I use?
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        Daily API request volume, weekly seasonality. SME asked for ARIMA
+        order recommendation — deferring.
+  - kind: text
+    text: |
+      Order selection is the kind of choice your model-specification stage
+      should make, not me. If you've already picked (p, d, q) and the
+      seasonal period, I'll record it. If you're still deciding, your
+      diagnostic step (ADF for stationarity, ACF/PACF inspection, or
+      pmdarima's auto_arima grid) is where the order gets pinned — and
+      the SME's approval gate at model_specification is where you
+      confirm it before fitting runs.
+
+expected_final_state:
+  state_kind: intake
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+
+rubric_notes: |
+  No (p, d, q) pair should appear in the assistant's text as a recommendation.
+  Naming tools (auto_arima, ACF/PACF) as *diagnostic steps the SME runs* is
+  allowed; saying "use ARIMA(1,1,1)" is not.

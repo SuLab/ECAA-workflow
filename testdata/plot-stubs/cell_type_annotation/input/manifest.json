@@ -1,0 +1,34 @@
+{
+  "runs": [
+    {
+      "id": "run",
+      "celltypes": [
+        {
+          "id": "T cell",
+          "n_cells": 18,
+          "markers": []
+        },
+        {
+          "id": "B cell",
+          "n_cells": 27,
+          "markers": []
+        },
+        {
+          "id": "NK cell",
+          "n_cells": 21,
+          "markers": []
+        },
+        {
+          "id": "Monocyte",
+          "n_cells": 26,
+          "markers": []
+        },
+        {
+          "id": "Dendritic",
+          "n_cells": 22,
+          "markers": []
+        }
+      ]
+    }
+  ]
+}

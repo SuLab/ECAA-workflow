@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scripps-workflow/_policy-skeleton.schema.json",
+  "title": "Claim-boundary policy skeleton",
+  "description": "Shared schema factor used by the claim-boundary policies (interpretation + per-class overlays). Each policy's sidecar layers domain-specific additions on top; the loader validates against the skeleton in addition to the sidecar when the policy shape matches (has `targetStages` + `claimBoundary`). Plan §S2.3 — additionalProperties:false on every nested object so a policy file can't carry stray fields the loader silently ignores.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "targetStages",
+    "claimBoundary",
+    "validationContract",
+    "evidenceRules"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string", "minLength": 1 },
+    "targetStages": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "claimBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["associativeOnly", "requiresEvidence"],
+      "properties": {
+        "associativeOnly": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "requiresEvidence": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "validationContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requiredOutputs", "metrics"],
+      "properties": {
+        "requiredOutputs": { "type": "array" },
+        "metrics": { "type": "array" }
+      }
+    },
+    "evidenceRules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "description", "appliesTo", "severity"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1, "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" },
+          "description": { "type": "string", "minLength": 1 },
+          "appliesTo": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "severity": { "type": "string", "enum": ["blocking", "warning", "info"] }
+        }
+      }
+    },
+    "note": { "type": "string" },
+    "verifiableEntities": {
+      "comment": "Allowed at this level so the skeleton can be the only schema validating an interpretation policy without a separate sidecar; the per-class sidecar files override the inner shape with stricter typing.",
+      "type": "object"
+    }
+  }
+}

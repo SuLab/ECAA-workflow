@@ -1,0 +1,37 @@
+id: pain_pathway_canonical
+description: |
+  Canonical pain-pathway gene panel (subset of the 1,047-gene pain-gene
+  registry referenced in specs/09_INTERPRETATION.md). One gene symbol per
+  entry. Override by setting `SWFC_PAIN_GENE_PANEL` to an alternate path.
+source: Lotz lab IVD reference + curated nociception literature.
+genes:
+  - SCN9A
+  - SCN10A
+  - SCN11A
+  - TRPV1
+  - TRPA1
+  - TRPM8
+  - NTRK1
+  - P2RX3
+  - P2RX7
+  - CALCA
+  - NGF
+  - BDNF
+  - TAC1
+  - TACR1
+  - IL6
+  - IL1B
+  - TNF
+  - PTGS2
+  - CX3CL1
+  - CX3CR1
+  - NLRP3
+  - CASP1
+  - TLR4
+  - MMP9
+  - TIMP1
+  - BDKRB1
+  - BDKRB2
+  - PIEZO1
+  - PIEZO2
+  - NTRK2

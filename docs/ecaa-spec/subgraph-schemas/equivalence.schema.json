@@ -1,0 +1,1130 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AttemptKind": {
+      "description": "V3+v4 residuals origin discriminator for a `VerifierDecision::RepairAccepted` event. `Auto` rows are emitted by the planner's auto-application path for `LowAutoAttempt` proposals (mutation happens during composition); `Manual` rows are emitted by the `/api/chat/session/:id/repair/:proposal_id/accept` server route after the SME presents the appropriate credentials.\n\n`Default` is `Manual` so historical substrate files (which only ever carried SME-accept rows) deserialize into the variant whose invariant they actually satisfy. The auto-apply path always sets `Auto` explicitly.",
+      "oneOf": [
+        {
+          "description": "Planner auto-applied a `LowAutoAttempt` proposal during composition. The substrate row carries the exact `DagModification` payload in `applied_modification`.",
+          "enum": [
+            "auto"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "SME accepted via the `accept` endpoint. The DAG mutation happens when the planner re-runs with the proposal applied; `applied_modification` is `None` on this branch.",
+          "enum": [
+            "manual"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "IncompatibilityReason": {
+      "description": "Why a compatibility unification failed. Mirrors the variants of `crate::compatibility::reports::IncompatibilityReason` but lives in the substrate's own type so the substrate file is decoupled from the engine's exact field layout (substrate consumers should not have to reach into the engine module). Each variant carries the minimum fields needed to reconstruct the failure intent.\n\n`ts-rs` renames the export to `SubstrateIncompatibilityReason` so the binding file doesn't collide with the engine's same-named type.",
+      "oneOf": [
+        {
+          "description": "SemanticTypeMismatch variant.",
+          "properties": {
+            "consumer": {
+              "description": "Consumer.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "semantic_type_mismatch"
+              ],
+              "type": "string"
+            },
+            "producer": {
+              "description": "Producer.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "consumer",
+            "kind",
+            "producer"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "FacetMismatch variant.",
+          "properties": {
+            "consumer": {
+              "description": "Consumer.",
+              "type": "string"
+            },
+            "facet": {
+              "description": "Facet.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "facet_mismatch"
+              ],
+              "type": "string"
+            },
+            "producer": {
+              "description": "Producer.",
+              "type": "string"
+            },
+            "rationale": {
+              "description": "Rationale.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "consumer",
+            "facet",
+            "kind",
+            "producer",
+            "rationale"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "PrivacyClassWidening variant.",
+          "properties": {
+            "consumer": {
+              "description": "Consumer.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "privacy_class_widening"
+              ],
+              "type": "string"
+            },
+            "producer": {
+              "description": "Producer.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "consumer",
+            "kind",
+            "producer"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "CardinalityMismatch variant.",
+          "properties": {
+            "consumer": {
+              "description": "Consumer.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "cardinality_mismatch"
+              ],
+              "type": "string"
+            },
+            "producer": {
+              "description": "Producer.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "consumer",
+            "kind",
+            "producer"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "PolicyViolation variant.",
+          "properties": {
+            "bundle_id": {
+              "description": "Bundle id.",
+              "type": "string"
+            },
+            "check_kind": {
+              "description": "Check kind.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "policy_violation"
+              ],
+              "type": "string"
+            },
+            "statement": {
+              "description": "Statement.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "bundle_id",
+            "check_kind",
+            "kind",
+            "statement"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Other variant.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "other"
+              ],
+              "type": "string"
+            },
+            "statement": {
+              "description": "Statement.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "statement"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProposalKind": {
+      "description": "The five proposal shapes the composer accepts. Each maps to a specific mutation on the in-flight DAG.",
+      "oneOf": [
+        {
+          "description": "NodeAddition variant.",
+          "enum": [
+            "node_addition"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "EdgeAddition variant.",
+          "enum": [
+            "edge_addition"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "NodeReplacement variant.",
+          "enum": [
+            "node_replacement"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "ContractMutation variant.",
+          "enum": [
+            "contract_mutation"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "AssumptionResolution variant.",
+          "enum": [
+            "assumption_resolution"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "ProposalSource": {
+      "description": "Who proposed a mutation. The four variants cover the LLM mediation surface plus the three deterministic proposer sources inside the composer.",
+      "oneOf": [
+        {
+          "description": "LlmToolCall variant.",
+          "enum": [
+            "llm_tool_call"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "CompatibilityCandidate variant.",
+          "enum": [
+            "compatibility_candidate"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "PlannerSeed variant.",
+          "enum": [
+            "planner_seed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "RepairStrategy variant.",
+          "enum": [
+            "repair_strategy"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "RejectingComponent": {
+      "description": "Which component issued the rejection. The six variants partition the verifier surface so post-hoc filtering can attribute refusals to a single subsystem.",
+      "oneOf": [
+        {
+          "description": "CompatibilityEngine variant.",
+          "enum": [
+            "compatibility_engine"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "PolicyGate variant.",
+          "enum": [
+            "policy_gate"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "PromotionGate variant.",
+          "enum": [
+            "promotion_gate"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Planner variant.",
+          "enum": [
+            "planner"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "SchemaValidator variant.",
+          "enum": [
+            "schema_validator"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "SiteLocal variant.",
+          "enum": [
+            "site_local"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "RejectionReason": {
+      "description": "Typed rejection reasons. Free-text fits inside `Other` so the typed vocabulary stays stable while the substrate keeps every refusal recoverable.",
+      "oneOf": [
+        {
+          "description": "The proposal would create a cycle (F1).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "cycle_introduction"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The proposal would leave a required input unsatisfied (F2/F3).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "required_input_unsatisfied"
+              ],
+              "type": "string"
+            },
+            "port": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "port"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The proposal failed semantic-type or facet compatibility on the compatibility engine.",
+          "properties": {
+            "consumer": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "incompatible_semantic_type"
+              ],
+              "type": "string"
+            },
+            "producer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "consumer",
+            "kind",
+            "producer"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The proposal was refused by an active policy bundle (F15).",
+          "properties": {
+            "bundle_id": {
+              "description": "Bundle id.",
+              "type": "string"
+            },
+            "check_kind": {
+              "description": "Check kind.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "policy_violation"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "bundle_id",
+            "check_kind",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The proposal failed the per-node policy gate (validated-nodes, pinned containers, etc.).",
+          "properties": {
+            "check_kind": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "per_node_policy"
+              ],
+              "type": "string"
+            },
+            "node_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "check_kind",
+            "kind",
+            "node_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The proposal failed schema validation (F14).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "schema_invalid"
+              ],
+              "type": "string"
+            },
+            "statement": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "statement"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Catch-all for site-local or future reasons.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "other"
+              ],
+              "type": "string"
+            },
+            "statement": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "statement"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "items": {
+    "description": "One typed verifier decision. The enum is `serde(tag = \"kind\")` so the on-disk JSONL format reads as `{\"kind\":\"unification_attempted\",...}` rows that filter cleanly in `jq`, `grep`, or the UI table.\n\nNew variants are append-only; never reorder or remove existing variants — historical substrate files must continue to round-trip.",
+    "oneOf": [
+      {
+        "description": "The compatibility engine entered `prove()` for an edge. Emitted at function entry so every prove call has at least one substrate row.",
+        "properties": {
+          "consumer_port": {
+            "description": "Consumer port.",
+            "type": "string"
+          },
+          "ctx_hash": {
+            "description": "Ctx hash.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "unification_attempted"
+            ],
+            "type": "string"
+          },
+          "producer_port": {
+            "description": "Producer port.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "consumer_port",
+          "ctx_hash",
+          "id",
+          "kind",
+          "producer_port",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "`prove()` returned an incompatibility report. `reason` carries the first incompatibility — full report is recoverable from the proof sidecar if more detail is needed.",
+        "properties": {
+          "consumer_port": {
+            "description": "Consumer port.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "unification_failed"
+            ],
+            "type": "string"
+          },
+          "producer_port": {
+            "description": "Producer port.",
+            "type": "string"
+          },
+          "reason": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/IncompatibilityReason"
+              }
+            ],
+            "description": "Reason."
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "consumer_port",
+          "id",
+          "kind",
+          "producer_port",
+          "reason",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "`prove()` returned `Compatible` or `CompatibleWithAdapters`. `adapters_inserted` is empty for the plain `Compatible` case.",
+        "properties": {
+          "adapters_inserted": {
+            "description": "Adapters inserted.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "consumer_port": {
+            "description": "Consumer port.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "unification_succeeded"
+            ],
+            "type": "string"
+          },
+          "producer_port": {
+            "description": "Producer port.",
+            "type": "string"
+          },
+          "proof_id": {
+            "description": "Proof id.",
+            "type": "string"
+          },
+          "residual_assumptions": {
+            "description": "Residual assumptions.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "adapters_inserted",
+          "consumer_port",
+          "id",
+          "kind",
+          "producer_port",
+          "proof_id",
+          "residual_assumptions",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "One alternative DAG was sorted into the ranked slate by the planner. `rank` is zero-based; lower is better. `source` is `\"archetype\"` or `\"search\"` today (future planners may add).",
+        "properties": {
+          "dag_id": {
+            "description": "Dag id.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "alternative_ranked"
+            ],
+            "type": "string"
+          },
+          "rank": {
+            "description": "Rank.",
+            "format": "uint32",
+            "minimum": 0.0,
+            "type": "integer"
+          },
+          "score_summary": {
+            "description": "Score summary.",
+            "type": "string"
+          },
+          "source": {
+            "description": "Source.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dag_id",
+          "id",
+          "kind",
+          "rank",
+          "score_summary",
+          "source",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "An adapter was inserted into the composition. `safety` is one of `lossless` / `lossy_declared` / `scientifically_risky` / `policy_restricted`. `rationale` mirrors the proof's facet rationale string.",
+        "properties": {
+          "adapter_class": {
+            "description": "Adapter class.",
+            "type": "string"
+          },
+          "consumer_node": {
+            "description": "Consumer node.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "adapter_inserted"
+            ],
+            "type": "string"
+          },
+          "producer_node": {
+            "description": "Producer node.",
+            "type": "string"
+          },
+          "rationale": {
+            "description": "Rationale.",
+            "type": "string"
+          },
+          "safety": {
+            "description": "Safety.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "adapter_class",
+          "consumer_node",
+          "id",
+          "kind",
+          "producer_node",
+          "rationale",
+          "safety",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "The assumption-policy table was consulted at the v3-Phase-2 labelled section in `classify_outcome_with_policy`. One row per `(defect_class × privacy_class)` lookup.",
+        "properties": {
+          "defect_class": {
+            "description": "Defect class.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "assumption_policy_consulted"
+            ],
+            "type": "string"
+          },
+          "privacy_class": {
+            "description": "Privacy class.",
+            "type": "string"
+          },
+          "resolution": {
+            "description": "Resolution.",
+            "type": "string"
+          },
+          "rule_id": {
+            "description": "Rule id.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "defect_class",
+          "id",
+          "kind",
+          "privacy_class",
+          "resolution",
+          "rule_id",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "The promotion gate (v4 P3) ran for a candidate node transition. `result` is one of `passed` / `refused`. `missing_classes` lists the validation classes the node lacks for the target state.",
+        "properties": {
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "promotion_gate_consulted"
+            ],
+            "type": "string"
+          },
+          "missing_classes": {
+            "description": "Missing classes.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "node_id": {
+            "description": "Node id.",
+            "type": "string"
+          },
+          "passing_classes": {
+            "description": "Passing classes.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "required_classes": {
+            "description": "Required classes.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "result": {
+            "description": "Result.",
+            "type": "string"
+          },
+          "target_state": {
+            "description": "Target state.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "missing_classes",
+          "node_id",
+          "passing_classes",
+          "required_classes",
+          "result",
+          "target_state",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "A proposal was rejected. Supersedes v3 P6's `RejectedProposal`. `source` identifies who proposed it (LLM tool call, planner seed, repair strategy, compatibility candidate); `proposal_kind` is the proposed mutation shape (named with the `proposal_` prefix to avoid collision with the enum's `kind` serde tag); `rejected_by` is the component that turned it down.",
+        "properties": {
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "proposal_rejected"
+            ],
+            "type": "string"
+          },
+          "proposal_kind": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/ProposalKind"
+              }
+            ],
+            "description": "Proposal kind."
+          },
+          "reason": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/RejectionReason"
+              }
+            ],
+            "description": "Reason."
+          },
+          "rejected_by": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/RejectingComponent"
+              }
+            ],
+            "description": "Rejected by."
+          },
+          "source": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/ProposalSource"
+              }
+            ],
+            "description": "Source."
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "proposal_kind",
+          "reason",
+          "rejected_by",
+          "source",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "A repair proposal was emitted by v4 P5's repair-strategy module. `proposal_payload` is the serialized strategy-specific payload (kept as opaque string so payload schema changes don't churn the substrate types).",
+        "properties": {
+          "gap_id": {
+            "description": "Gap id.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "repair_proposed"
+            ],
+            "type": "string"
+          },
+          "proposal_payload": {
+            "description": "Proposal payload.",
+            "type": "string"
+          },
+          "risk_class": {
+            "description": "Risk class.",
+            "type": "string"
+          },
+          "strategy": {
+            "description": "Strategy.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "gap_id",
+          "id",
+          "kind",
+          "proposal_payload",
+          "risk_class",
+          "strategy",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "A repair proposal was accepted (SME, auto-accept under policy, or the planner's auto-application path for `LowAutoAttempt` proposals). `credentials` records the authority chain for waived risky-adapter decisions.\n\n`attempt_kind` discriminates the two acceptance origins: `Auto` means the planner auto-applied a `LowAutoAttempt` proposal during composition; `Manual` means the SME accepted via the `/repair/:proposal_id/accept` endpoint. The field is `#[serde(default)]` for backward compatibility with historical substrate files emitted before the field existed.\n\n`applied_modification` carries the exact `DagModification` payload that was spliced into the DAG at apply time — `None` for manual accepts where mutation happens out-of-band, `Some` for auto-applied repairs so the substrate captures the literal mutation. Stored as a JSON string so adding new `DagModification` variants doesn't churn the substrate schema.",
+        "properties": {
+          "acceptor": {
+            "description": "Acceptor.",
+            "type": "string"
+          },
+          "applied_modification": {
+            "description": "V3+v4 residuals exact mutation applied to the DAG when `attempt_kind == Auto`. JSON-encoded `DagModification` kept opaque so payload-schema churn doesn't break this variant's wire shape. `None` for `Manual` accepts where the DAG mutation happens via the planner re-run after the SME accept endpoint.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attempt_kind": {
+            "allOf": [
+              {
+                "$ref": "#/definitions/AttemptKind"
+              }
+            ],
+            "default": "manual",
+            "description": "V3+v4 residuals `Auto` vs `Manual` acceptance origin. Defaults to `Manual` for historical session replay (older sessions only saw the SME accept path, so `Manual` is the correct historical default)."
+          },
+          "credentials": {
+            "description": "Credentials.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "repair_accepted"
+            ],
+            "type": "string"
+          },
+          "proposal_id": {
+            "description": "Proposal id.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "acceptor",
+          "credentials",
+          "id",
+          "kind",
+          "proposal_id",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "A repair proposal was rejected.",
+        "properties": {
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "repair_rejected"
+            ],
+            "type": "string"
+          },
+          "proposal_id": {
+            "description": "Proposal id.",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Reason.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "proposal_id",
+          "reason",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "The modality-ontology coverage matrix (v4 P1) was consulted at the LocalExtension parent-term scope check site in `compatibility/engine.rs::prove`. `result` is one of `in_primary` / `in_secondary` / `forbidden` / `out_of_scope`.",
+        "properties": {
+          "candidate_iri": {
+            "description": "Candidate iri.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "ontology_scope_checked"
+            ],
+            "type": "string"
+          },
+          "modality": {
+            "description": "Modality.",
+            "type": "string"
+          },
+          "result": {
+            "description": "Result.",
+            "type": "string"
+          },
+          "rule_id": {
+            "description": "Rule id.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "candidate_iri",
+          "id",
+          "kind",
+          "modality",
+          "result",
+          "rule_id",
+          "timestamp"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "v3 P8 follow-up — a non-monotonic lifecycle edge from `crate::lifecycle_adversarial::LifecycleTransition` was detected by `detect_lifecycle_adversarial_edges` (or one of its sub-detectors). The substrate carries the same payload as the decision-log + adjudication-queue write so replay can reconstruct the lifecycle drama without joining three sidecars.\n\n`transition_kind` is the snake_case discriminator returned by `LifecycleTransition::kind()` (e.g. `\"same_user_contradiction\"`, `\"production_node_revocation\"`); `affected_node_id` carries the primary node/assumption id from the transition payload (so a `grep` of the substrate file finds every event touching a given node); `rationale` is a short narrative the UI's `LifecycleAdjudicationCard` can render without unpacking the full payload.",
+        "properties": {
+          "affected_node_id": {
+            "description": "Affected node id.",
+            "type": "string"
+          },
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "lifecycle_adversarial_edge_detected"
+            ],
+            "type": "string"
+          },
+          "rationale": {
+            "description": "Rationale.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          },
+          "transition_kind": {
+            "description": "Transition kind.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "affected_node_id",
+          "id",
+          "kind",
+          "rationale",
+          "timestamp",
+          "transition_kind"
+        ],
+        "type": "object"
+      },
+      {
+        "description": "v3 P8 follow-up — an `AdjudicationQueueEntry` was appended to `Session::adjudication_queue` by `enqueue_adjudication`. Paired one-to-one with a prior `LifecycleAdversarialEdgeDetected` row (same `transition_kind`) so the F18 substrate-completeness property test can assert `queue_writes == substrate_enqueues`.",
+        "properties": {
+          "id": {
+            "description": "Id.",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "adjudication_enqueued"
+            ],
+            "type": "string"
+          },
+          "queue_entry_id": {
+            "description": "Queue entry id.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "Timestamp.",
+            "type": "string"
+          },
+          "transition_kind": {
+            "description": "Transition kind.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "queue_entry_id",
+          "timestamp",
+          "transition_kind"
+        ],
+        "type": "object"
+      }
+    ],
+    "title": "VerifierDecision"
+  },
+  "type": "array"
+}

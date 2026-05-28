@@ -1,0 +1,41 @@
+# Closed list of (rival, rival) pairs that require an SME single-shot
+# disambiguation question rather than a guess. Calibration data:
+# corpus failures from passes 4-8 grouped by archetype tie pattern.
+schema_version: "0.1"
+pairs:
+  - id: diablo_vs_mofa
+    rivals: [diablo, mofa]
+    trigger_when:
+      slot_name: integrator
+      candidate_values: [diablo, mofa]
+      max_confidence_below: 0.7
+    sme_prompt: >
+      Are you looking for **supervised biomarker discovery**
+      (DIABLO-style; uses class labels) or **unsupervised factor
+      structure** (MOFA-style; latent axes of variation)?
+    quick_replies:
+      - { id: diablo, label: "Supervised biomarker (DIABLO)" }
+      - { id: mofa,   label: "Unsupervised factor structure (MOFA)" }
+  - id: mr_vs_coloc
+    rivals: [mendelian_randomization, gwas_coloc]
+    trigger_when:
+      classified_modality: gwas
+      prose_contains_any: [mendelian, "instrumental variable", "two-sample mr", "mr-egger"]
+    sme_prompt: >
+      Is this a **Mendelian-randomization** analysis (testing
+      causality from instrument SNPs) or **GWAS colocalization**
+      (testing shared causal variants across two GWAS)?
+    quick_replies:
+      - { id: mr,         label: "Mendelian randomization" }
+      - { id: gwas_coloc, label: "GWAS colocalization" }
+  - id: chip_vs_atac_when_tied
+    rivals: [chip_seq, atac_seq]
+    trigger_when:
+      tied_modalities: [chip_seq, atac_seq]
+      max_confidence_below: 0.75
+    sme_prompt: >
+      Are you mapping **histone-mark / TF ChIP-seq** peaks or
+      **chromatin accessibility** (ATAC-seq)?
+    quick_replies:
+      - { id: chip_seq, label: "ChIP-seq (TF/histone)" }
+      - { id: atac_seq, label: "ATAC-seq (accessibility)" }

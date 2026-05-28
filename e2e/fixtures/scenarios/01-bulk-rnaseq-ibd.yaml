@@ -1,0 +1,160 @@
+# 01 — Public IBD bulk transcriptomics, treatment-response meta-analysis
+#
+# Source prose: testdata/scenarios/01-bulk-rnaseq-ibd/request.md
+#
+# Beats chunk the prose the way an SME would actually type it, not the
+# wall-of-text markdown in the request file. The forbidden-text guard
+# enforces method neutrality (no ComBat-Seq, limma, DESeq2 coming from
+# the assistant unprompted).
+
+name: Public IBD bulk transcriptomics meta-analysis
+modality: bulk_rnaseq
+
+beats:
+  - user: "I want to do a bulk RNA-seq meta-analysis of public IBD datasets."
+    assistant:
+      content: |
+        Bulk RNA-seq meta-analysis of IBD — got it. What specifically
+        are you trying to find, and do you have cohort accessions in
+        mind?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+      visibleText:
+        - "Bulk RNA-seq"
+        - "IBD"
+      forbiddenText:
+        - "DAG"
+        - "task graph"
+
+  - user: |
+      I want a treatment-response signature for anti-TNF and anti-integrin
+      biologics in UC and Crohn's disease.
+    assistant:
+      content: |
+        Responder vs non-responder to anti-TNF (infliximab) and
+        anti-α4β7 (vedolizumab), recorded. Which cohorts are we
+        starting from?
+    expect:
+      visibleText:
+        - "anti-TNF"
+      forbiddenText:
+        - "ComBat"
+        - "limma"
+        - "DESeq2"
+
+  - user: "Five GEO cohorts: GSE16879, GSE73661, GSE75214, GSE38713, GSE57945."
+    assistant:
+      content: |
+        Got it — five GEO cohorts staged: GSE16879 (Arijs 2009, IFX),
+        GSE73661 (Arijs 2018, VDZ), GSE75214, GSE38713, and GSE57945
+        (Haberman RISK). Mixed platforms across those — HG-U133 Plus
+        2.0, HuGene 1.0 ST, and Illumina RNA-seq.
+    expect:
+      visibleText:
+        - "GSE16879"
+        - "GSE57945"
+        - "five"
+
+  - user: |
+      Yes — the platforms are mixed. This needs platform-aware
+      normalization, not a naive merge.
+    assistant:
+      content: |
+        Noted — no gene-level concatenation. Platform-aware
+        normalization and a cross-platform meta-analytic backbone.
+        How should we handle the drug-class dimension? I want to
+        make sure we don't pool anti-TNF with anti-integrin responses.
+    expect:
+      visibleText:
+        - "platform-aware"
+
+  - user: |
+      Drug-class stratified meta-analysis is mandatory. Anti-TNF and
+      anti-integrin must not be pooled. Also stratify by anatomical
+      segment — colon vs ileum.
+    assistant:
+      content: |
+        Recorded — drug-class stratification (anti-TNF vs anti-α4β7)
+        is a hard constraint, and we'll also stratify by colon vs
+        ileal biopsy site. Leave-one-cohort-out sensitivity expected
+        on any consolidated signature?
+    expect:
+      visibleText:
+        - "stratif"
+        - "leave-one-cohort-out"
+
+  - user: "Yes — LOCO sensitivity is required. Internal use only, public data."
+    assistant:
+      content: |
+        Here's the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **Public IBD bulk RNA-seq / microarray meta-analysis**
+
+          - **Cohorts:** GSE16879, GSE73661, GSE75214, GSE38713, GSE57945
+          - **Platforms:** mixed — platform-aware normalization required
+          - **Contrast:** responder vs non-responder to biologic therapy
+          - **Stratification:** drug class (anti-TNF vs anti-α4β7) and
+            disease segment (colon vs ileum)
+          - **Sensitivity:** leave-one-cohort-out required for any
+            consolidated signature
+          - **Governance:** public release data only, internal use
+          - **Claim boundary:** descriptive differential expression,
+            pathway-level hypotheses, and heterogeneity diagnostics only.
+            No diagnostic, prognostic, or clinical-utility claims unless
+            validated on a held-out cohort under a prespecified AUROC
+            floor.
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "Claim boundary"
+        - "leave-one-cohort-out"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: |
+          Package emitted — ready for execution by the harness.
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I need a bulk RNA-seq meta-analysis of public IBD datasets to find a
+    treatment-response signature for anti-TNF and anti-integrin biologics in
+    UC and Crohn's disease. Five GEO cohorts: GSE16879 (Arijs 2009, IFX),
+    GSE73661 (Arijs 2018, VDZ), GSE75214, GSE38713, and GSE57945 (Haberman
+    RISK). The platforms are mixed — HG-U133 Plus 2.0, HuGene 1.0 ST, and
+    Illumina RNA-seq — so platform-aware normalization is mandatory, no naive
+    gene-level concatenation. Drug-class stratified meta-analysis is a hard
+    constraint: anti-TNF and anti-integrin must never be pooled. Also stratify
+    by colon versus ileum. Leave-one-cohort-out sensitivity analysis is required
+    for any consolidated signature. Internal use only, public data. Once we
+    agree on the plan, emit the package to {pkgDir}.
+  followups:
+    - trigger: "(?i)(platform|normalization|mixed)"
+      reply: "Platform-aware normalization is mandatory — no naive gene-level merge across arrays and RNA-seq."
+    - trigger: "(?i)(drug.class|stratif|pool)"
+      reply: "Anti-TNF and anti-integrin must be stratified, never pooled. Also stratify by colon vs ileum."
+    - trigger: "(?i)(sensitivity|LOCO|leave.one)"
+      reply: "Yes, leave-one-cohort-out sensitivity is required on any consolidated signature."
+    - trigger: "(?i)(governance|access|internal)"
+      reply: "Internal use only, all public GEO data."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "ComBat"
+      - "limma"
+      - "DESeq2"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 4

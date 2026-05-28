@@ -1,0 +1,46 @@
+schema_version: "0.1"
+id: metagenomics_taxonomic
+version: "1.0.0"
+description: |
+  Shotgun metagenomics or 16S amplicon taxonomic profiling. Standard
+  pipeline: raw QC, trim, classify reads against a reference database
+  (Kraken2 / MetaPhlAn / QIIME2-DADA2), then alpha + beta diversity
+  with group-comparison statistics.
+sme_summary: |
+  Profile microbial communities from shotgun or 16S sequencing and compare
+  alpha + beta diversity across sample groups.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: metagenomics
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: true
+    depends_on: [raw_qc]
+  - atom_id: taxonomic_classification
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: diversity_analysis
+    required: true
+    depends_on: [taxonomic_classification]
+  - atom_id: reporting
+    required: true
+    depends_on: [diversity_analysis]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  modality: taxonomic_classification.inputs.modality
+  reference_database: taxonomic_classification.inputs.reference_database
+  samples: data_acquisition.inputs.samples
+  group_variable: diversity_analysis.inputs.group_variable
+claim_boundary: |
+  Taxonomic abundance is database-relative and varies with classifier choice
+  and reference completeness. Diversity statistics are sample-level
+  associations, not causal effects. Report the classifier, reference DB
+  build, and read depth alongside every diversity statistic.

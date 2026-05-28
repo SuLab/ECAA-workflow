@@ -1,0 +1,46 @@
+schema_version: "0.1"
+id: single_cell_vdj
+version: "1.0.0"
+description: |
+  Single-cell V(D)J immune repertoire profiling (TCR and/or BCR).
+  Pipeline: V(D)J library data acquisition, per-cell receptor-chain
+  reconstruction via Cell Ranger V(D)J or equivalent, productive
+  pair filtering, per-donor repertoire-diversity summary, and
+  cross-donor CDR3-clonotype clustering for public-clonotype
+  detection.
+sme_summary: |
+  Reconstruct per-cell T-cell-receptor / B-cell-receptor chain pairs,
+  summarize per-donor repertoire diversity, and cluster CDR3s
+  across donors to identify public clonotypes.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: single_cell_vdj
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: vdj_reconstruction
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: repertoire_diversity
+    required: true
+    depends_on: [vdj_reconstruction]
+  - atom_id: cdr3_clonotype_clustering
+    required: false
+    depends_on: [vdj_reconstruction]
+  - atom_id: reporting
+    required: true
+    depends_on: [repertoire_diversity, cdr3_clonotype_clustering]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  receptor_type: vdj_reconstruction.inputs.receptor_type
+  organism: vdj_reconstruction.inputs.organism
+  samples: data_acquisition.inputs.samples
+claim_boundary: |
+  Repertoire findings are descriptive statistics of sequenced
+  receptor chains. Clonotype clusters are statistical similarity
+  groupings, not antigen-specificity assignments. Report sampling
+  depth + per-cell recovery + clustering parameters alongside every
+  diversity / clonotype output.

@@ -1,0 +1,58 @@
+id: data_import
+version: "1.0.0"
+role: operation
+description: |
+  Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series
+  panels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`
+  but for the clinical-trial and time-series-forecast project classes where inputs
+  are files-on-disk rather than repository accessions.
+edam_operation: "operation:2422"
+edam_data: "data:2531"
+edam_format: "format:3475"
+assignee: agent
+plot_stage_id: data_acquisition
+expected_artifacts:
+  - imported_data_manifest.json
+  - manifest.json
+  - result.json
+required_figures:
+  - samples_per_study
+attributes:
+  accepts_formats:
+    - csv
+    - tsv
+    - parquet
+    - sas7bdat
+    - xpt
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Source ports are SME-supplied file descriptors (heterogeneous: CDISC
+# ADaM/SDTM, time-series panels, pre-computed count matrices). Modeled
+# as a swfc:dataset_descriptor local extension since EDAM lacks a
+# clean term for "SME-declared input file pointer". Output is a
+# materialised tabular table.
+inputs:
+  - name: dataset_descriptors
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "dataset_descriptor"
+      proposed_parent_terms:
+        - "data:2531"
+      definition: "SME-declared input file descriptor (path, format, label)"
+    privacy_class: internal
+outputs:
+  - name: imported_dataset
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2531"
+      label: "Experiment annotation"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

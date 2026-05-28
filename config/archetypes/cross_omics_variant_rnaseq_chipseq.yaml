@@ -1,0 +1,64 @@
+schema_version: "0.1"
+id: cross_omics_variant_rnaseq_chipseq
+version: "1.0.0"
+description: |
+  Three-way cross-omics integrating WGS variant calls + bulk RNA-seq
+  expression + ChIP-seq active-chromatin marks on the same cohort
+  (typically ENCODE-style cell-line panels). Aliased namespaces
+  per branch (variant_*, rnaseq_*, chipseq_*) so the parallel
+  pipelines stay separated until convergence at the cis-regulatory
+  variant scoring step.
+sme_summary: |
+  Call variants, expression, and active-chromatin marks per cell
+  line; intersect variants in enhancer regions with gene-expression
+  associations to identify candidate regulatory variants.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: cross_omics_variant_rnaseq_chipseq
+cross_omics_modalities:
+  - variant_calling
+  - bulk_rnaseq
+  - chip_seq
+atoms:
+  # ── variant_* branch (WGS short-variant calling)
+  - { atom_id: data_acquisition,        alias: variant_data_acquisition,        required: true }
+  - { atom_id: raw_qc,                  alias: variant_raw_qc,                  depends_on: [variant_data_acquisition], required: true }
+  - { atom_id: sequence_trimming,       alias: variant_sequence_trimming,       depends_on: [variant_raw_qc], required: true }
+  - { atom_id: alignment,               alias: variant_alignment,               depends_on: [variant_sequence_trimming], required: true }
+  - { atom_id: variant_calling,         alias: variant_variant_calling,         depends_on: [variant_alignment], required: true }
+  - { atom_id: variant_filtering,       alias: variant_variant_filtering,       depends_on: [variant_variant_calling], required: true }
+  - { atom_id: variant_annotation,      alias: variant_variant_annotation,      depends_on: [variant_variant_filtering], required: false }
+  # ── rnaseq_* branch
+  - { atom_id: data_acquisition,        alias: rnaseq_data_acquisition,         required: true }
+  - { atom_id: raw_qc,                  alias: rnaseq_raw_qc,                   depends_on: [rnaseq_data_acquisition], required: true }
+  - { atom_id: sequence_trimming,       alias: rnaseq_sequence_trimming,        depends_on: [rnaseq_raw_qc], required: true }
+  - { atom_id: alignment,               alias: rnaseq_alignment,                depends_on: [rnaseq_sequence_trimming], required: true }
+  - { atom_id: quantification,          alias: rnaseq_quantification,           depends_on: [rnaseq_alignment], required: true }
+  - { atom_id: qc_preprocessing,        alias: rnaseq_qc_preprocessing,         depends_on: [rnaseq_quantification], required: true }
+  - { atom_id: normalisation,           alias: rnaseq_normalisation,            depends_on: [rnaseq_qc_preprocessing], required: true }
+  # ── chipseq_* branch
+  - { atom_id: data_acquisition,        alias: chipseq_data_acquisition,        required: true }
+  - { atom_id: raw_qc,                  alias: chipseq_raw_qc,                  depends_on: [chipseq_data_acquisition], required: true }
+  - { atom_id: sequence_trimming,       alias: chipseq_sequence_trimming,       depends_on: [chipseq_raw_qc], required: true }
+  - { atom_id: alignment,               alias: chipseq_alignment,               depends_on: [chipseq_sequence_trimming], required: true }
+  - { atom_id: peak_calling,            alias: chipseq_peak_calling,            depends_on: [chipseq_alignment], required: true }
+  # ── 3-way convergence
+  - atom_id: cis_regulatory_variant_scoring
+    required: true
+    depends_on: [variant_variant_annotation, rnaseq_normalisation, chipseq_peak_calling]
+  - atom_id: reporting
+    required: true
+    depends_on: [cis_regulatory_variant_scoring, variant_variant_annotation, rnaseq_normalisation, chipseq_peak_calling]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  organism: variant_alignment.inputs.organism
+  samples: variant_data_acquisition.inputs.samples
+claim_boundary: |
+  Candidate cis-regulatory variants are statistical associations
+  across genotype + chromatin + expression. They do not directly
+  demonstrate functional regulation. Cross-validation with reporter
+  assays / TF-binding disruption predictions / population eQTL
+  replication is required before any regulatory-mechanism claim.

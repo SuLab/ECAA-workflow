@@ -1,0 +1,8 @@
+{
+  "stage_id": "differential_expression",
+  "written": {
+    "volcano": "volcano.png"
+  },
+  "skipped": {},
+  "errors": {}
+}

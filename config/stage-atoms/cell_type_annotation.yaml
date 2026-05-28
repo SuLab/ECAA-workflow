@@ -1,0 +1,67 @@
+id: cell_type_annotation
+version: "1.0.0"
+role: operation
+description: |
+  Label each cluster with a cell-identity from marker-gene panels or reference
+  mapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the
+  EDAM audit — operation:0361 (sequence annotation) is a semantic mismatch
+  for cell-identity calling on count matrices.
+edam_operation: "swfc:cell_type_annotation"
+edam_data: "data:3917"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - clustering
+expected_artifacts:
+  - celltype_assignments.tsv
+  - marker_panel_audit.json
+  - manifest.json
+  - result.json
+required_figures:
+  - umap_by_celltype
+  - celltype_size_bar
+attributes:
+  candidate_tools:
+    - celltypist
+    - singler
+    - azimuth
+    - sctype
+    - marker_panel
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Cell-type calls are statistical assignments, not pathology. Report the
+  reference / panel / marker set used alongside every label. Do not infer
+  functional state from identity alone.
+# Explicit rich ports.
+# Single-cell port shape: clustered count matrix in, cell ontology
+# label assignments out. The `modality` facet keeps bulk count
+# matrices from satisfying this consumer.
+inputs:
+  - name: clustered_cells
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3768"
+      label: "Clustered expression profiles"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "single_cell_rnaseq"
+    statistical_state: "normalized"
+    privacy_class: internal
+outputs:
+  - name: celltype_assignments
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3736"
+      label: "Ontology mapping"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "single_cell_rnaseq"
+    privacy_class: internal

@@ -1,0 +1,90 @@
+id: cis_regulatory_variant_scoring
+version: "1.0.0"
+role: operation
+description: |
+  Integrate per-line variant calls + gene expression + active-
+  chromatin peaks (H3K27ac / H3K4me3) to identify candidate
+  cis-regulatory variants. For each variant within an enhancer
+  region (intersected with the cell-line's H3K27ac peaks), test
+  whether the variant's genotype across cell lines associates
+  with the nearest gene's expression. FastQTL / matrix-eQTL /
+  rasqual at runtime.
+edam_operation: "operation:0282"
+edam_data: "swfc:cis_regulatory_scores"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - alignment
+expected_artifacts:
+  - cis_regulatory_variants.tsv
+  - variant_scoring_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: regulatory_variants
+required_figures:
+  - cis_effect_volcano
+  - variant_peak_overlap_bar
+attributes:
+  candidate_tools:
+    - matrix_eqtl
+    - fastqtl
+    - rasqual
+    - tensorqtl
+resource_profile:
+  cpu: moderate
+  memory: large
+  gpu: false
+  runtime_class: hours
+claim_boundary: |
+  Candidate regulatory variants are statistical associations
+  between genotype + chromatin accessibility + expression. They
+  do not directly demonstrate functional regulation —
+  cross-validation with reporter assays / TF-binding disruption
+  predictions / population-eQTL replication is required.
+inputs:
+  - name: per_line_variants
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3498"
+      label: "Sequence variations"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3016"
+      label: "VCF"
+    privacy_class: internal
+  - name: per_line_expression
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+  - name: active_chromatin_peaks
+    semantic_type:
+      kind: ontology_term
+      iri: "data:1255"
+      label: "Feature record"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3003"
+      label: "BED"
+    privacy_class: internal
+outputs:
+  - name: cis_regulatory_variants
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: cis_regulatory_scores
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-variant cis-regulatory association scores: genotype vs expression within active chromatin peaks"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "de_tested"
+    privacy_class: internal

@@ -1,0 +1,61 @@
+id: multiome_arc_demultiplex
+version: "1.0.0"
+role: operation
+description: |
+  Demultiplex 10x Multiome ARC libraries — joint RNA + ATAC capture
+  on the same nuclei via the 10x ARC v1 chemistry. Produces per-
+  nucleus paired (rna_counts, atac_fragments) keyed on a shared
+  cell barcode. Cell Ranger ARC at runtime.
+edam_operation: "operation:3185"
+edam_data: "data:3917"
+edam_format: "format:3590"
+assignee: agent
+depends_on:
+  - data_acquisition
+expected_artifacts:
+  - rna_counts.h5
+  - atac_fragments.tsv.gz
+  - paired_barcode_table.tsv
+  - manifest.json
+  - result.json
+plot_stage_id: barcode_pairing
+required_figures:
+  - paired_capture_summary
+attributes:
+  candidate_tools:
+    - cellranger_arc
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: false
+  runtime_class: hours
+claim_boundary: |
+  Per-nucleus pairing depends on the 10x ARC v1 barcode chemistry
+  and droplet capture efficiency. Doublets must be detected on
+  BOTH modalities (RNA + ATAC) before downstream analyses.
+inputs:
+  - name: arc_library_reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2044"
+      label: "Sequence"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:1930"
+      label: "FASTQ"
+    privacy_class: internal
+outputs:
+  - name: paired_rna_atac_per_nucleus
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: multiome_paired_per_nucleus
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Per-nucleus paired RNA + ATAC barcode-aligned tables"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
+    privacy_class: internal

@@ -1,0 +1,143 @@
+# 07 — Replogle 2022 genome-scale Perturb-seq reanalysis
+#
+# No single GEO accession — data spans SRA BioProject, figshare, and
+# the gwps.wi.mit.edu portal. Tests the multi-access-path pattern.
+
+name: Replogle Perturb-seq reanalysis
+modality: perturb_seq
+
+beats:
+  - user: |
+      I want to reanalyze the Replogle 2022 genome-scale Perturb-seq
+      data to recover target-level transcriptomic-response modules.
+    assistant:
+      content: |
+        Replogle 2022 Perturb-seq — the K562 genome-wide and RPE1
+        essentialome CRISPRi datasets. There's no single GEO
+        accession for these, just so you're aware — access is
+        through SRA, figshare, and the gwps.wi.mit.edu portal.
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+      visibleText:
+        - "Replogle"
+        - "gwps.wi.mit.edu"
+      forbiddenText:
+        - "I recommend"
+
+  - user: |
+      Yes, I know about the multi-access pattern. Use the scPerturb
+      harmonized release as the preferred access path.
+    assistant:
+      content: |
+        scPerturb (Peidli 2024) harmonized release preferred.
+        I'll keep SRA PRJNA831566 + figshare 20029387 as fallback
+        access paths. The K562 gwps experiment is ~1.97 M cells —
+        out-of-core backed AnnData handling is mandatory.
+    expect:
+      visibleText:
+        - "scPerturb"
+        - "out-of-core"
+
+  - user: |
+      Right. Enforce a knockdown floor of 50% relative to NTC before
+      downstream analysis, and flag essential gene targets separately.
+    assistant:
+      content: |
+        Per-guide knockdown floor at 50% vs NTC, essential gene targets
+        flagged and handled separately from non-essentials — essential
+        knockdowns cause cell dropout which biases pseudo-bulk.
+    expect:
+      visibleText:
+        - "50%"
+        - "essential"
+
+  - user: |
+      Good. Use target-level aggregation not guide-level, and run
+      Mixscape to classify escaping cells.
+    assistant:
+      content: |
+        Target-level aggregation with Mixscape escape-cell classification.
+        Module recovery benchmarked against Replogle 2022 published
+        modules with a prespecified ARI floor — fail closed below that.
+    expect:
+      visibleText:
+        - "Mixscape"
+        - "ARI"
+
+  - user: "Perfect. Internal use, public data only."
+    assistant:
+      content: |
+        Here's the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **Replogle 2022 genome-scale Perturb-seq reanalysis**
+
+          - **Datasets:** K562 gwps (9866 genes, ~1.97 M cells),
+            K562 essentialome (~0.6 M cells), RPE1 essentialome
+            (~0.3 M cells)
+          - **Access:** scPerturb harmonized release preferred;
+            SRA PRJNA831566 + figshare 20029387 fallback
+          - **Handling:** out-of-core backed AnnData (mandatory
+            for K562 gwps scale)
+          - **QC:** per-guide knockdown floor 50% vs NTC; essential
+            gene targets flagged and handled separately
+          - **Aggregation:** target-level, not guide-level
+          - **Escape classification:** Mixscape
+          - **Module benchmark:** ARI vs Replogle 2022 published
+            modules with fail-closed floor
+          - **Claim boundary:** descriptive transcriptomic-response
+            modules and GRN hypothesis generation only. No claims
+            about therapeutic target relevance, essentiality
+            generalization, or in vivo phenotype.
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "Claim boundary"
+        - "ARI"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: "Package emitted — Perturb-seq reanalysis ready for execution."
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I want to reanalyze the Replogle 2022 genome-scale Perturb-seq data to
+    recover target-level transcriptomic-response modules. The K562 genome-wide
+    experiment is about 1.97 million cells plus the K562 and RPE1 essentialome
+    datasets. Use the scPerturb harmonized release (Peidli 2024) as the
+    preferred access path, with SRA PRJNA831566 and figshare 20029387 as
+    fallbacks. Out-of-core backed AnnData is mandatory at this scale. Enforce a
+    per-guide knockdown floor of 50 percent relative to NTC before downstream
+    analysis, and flag essential gene targets separately since their dropout
+    biases pseudo-bulk. Target-level aggregation, not guide-level. Run Mixscape
+    to classify escaping cells. Benchmark module recovery against Replogle 2022
+    published modules with an ARI floor — fail closed below it. Internal use,
+    public data only. Once we agree on the plan, emit the package to {pkgDir}.
+  followups:
+    - trigger: "(?i)(access|scPerturb|SRA|figshare)"
+      reply: "scPerturb harmonized release preferred; SRA and figshare as fallback."
+    - trigger: "(?i)(knockdown|floor|NTC|50)"
+      reply: "50 percent knockdown floor versus NTC. Essential gene targets flagged and handled separately."
+    - trigger: "(?i)(aggregat|guide.level|target.level)"
+      reply: "Target-level aggregation only, not guide-level."
+    - trigger: "(?i)(escape|Mixscape)"
+      reply: "Mixscape for escape-cell classification."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 4

@@ -1,0 +1,80 @@
+id: clinical_subgroup_analysis
+version: "1.0.0"
+role: operation
+description: |
+  Run prespecified subgroup analyses against the primary + secondary
+  endpoint results, producing a forest-plot table indexed by subgroup
+  level (age band, sex, prior treatment, baseline severity, etc.).
+  Reads the per-endpoint effect-size table from
+  `clinical_endpoint_analysis` and the subgroup metadata from the
+  imported CDISC ADaM dataset. Method-neutral over the subgroup-
+  interaction framing — typical implementations use the SAP-named
+  model fitted within each subgroup level (treatment × subgroup
+  interaction term) and emit a per-subgroup point estimate + CI.
+  Subgroup analyses are descriptive / hypothesis-generating; the SAP
+  multiplicity strategy applies only to the primary + secondary
+  endpoint family, not the subgroup branch.
+edam_operation: "operation:3659"
+edam_data: "data:0951"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - clinical_endpoint_analysis
+expected_artifacts:
+  - subgroup_forest_table.tsv
+  - subgroup_summary.json
+  - manifest.json
+  - result.json
+figure_exempt:
+  reason: "Subgroup forest-plot table is a structured intermediate consumed by reporting. The SME-facing forest-plot visual is assembled in the downstream reporting atom alongside the endpoint + safety sections."
+  category: intermediate
+attributes:
+  candidate_tools:
+    - r_glm_logistic_interaction
+    - r_mmrm_interaction
+    - sas_proc_mixed_interaction
+    - python_statsmodels_interaction
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Subgroup effects are descriptive contrasts produced inside each
+  prespecified subgroup level; they are hypothesis-generating and do
+  not support efficacy claims in any single subgroup. Report the
+  treatment × subgroup interaction p-value alongside the per-subgroup
+  effect estimate + CI; flag post-hoc subgroup selections as
+  exploratory.
+# Explicit rich ports.
+# Input is the per-endpoint effect-size table from
+# `clinical_endpoint_analysis` (a swfc:clinical_endpoint_results
+# tabular artifact parented at data:0951). Output is a forest-plot
+# table indexed by subgroup level.
+inputs:
+  - name: endpoint_results
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "clinical_endpoint_results"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-endpoint effect-size table from clinical_endpoint_analysis."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: subgroup_forest_table
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "clinical_subgroup_forest"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Forest-plot table of per-subgroup effect estimates + CIs with treatment × subgroup interaction p-values."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "endpoint_tested"
+    privacy_class: internal

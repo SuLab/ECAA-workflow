@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "swfc:opaque-registry",
+  "description": "One row of <sessions_dir>/_opaque_registry.jsonl. Cross-session aggregator for `SemanticType::Opaque` observations; mirrors the LocalExtension graduation aggregator at config/local-extension-graduation/_local-extension-graduation.schema.json. Authored by crates/conversation/src/session/opaque_aggregator.rs.",
+  "type": "object",
+  "required": [
+    "opaque_hash",
+    "first_seen",
+    "last_seen",
+    "occurrence_count",
+    "session_ids",
+    "ports"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "opaque_hash": {
+      "type": "string",
+      "description": "Stable hash of the opaque type's description (typically `blake3:<hex>`). Distinct hashes are distinct registry entries."
+    },
+    "first_seen": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC3339 timestamp of the first observation."
+    },
+    "last_seen": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC3339 timestamp of the most recent observation."
+    },
+    "occurrence_count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Cumulative number of observations across all sessions."
+    },
+    "session_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Distinct sessions that observed this opaque type. Counted against the registry-improvement session threshold."
+    },
+    "ports": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/OpaquePortRef" },
+      "minItems": 1,
+      "description": "Distinct (node, port) call sites that produced the opaque type."
+    }
+  },
+  "$defs": {
+    "OpaquePortRef": {
+      "type": "object",
+      "required": ["node", "port"],
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "type": "string",
+          "description": "Task / atom node id."
+        },
+        "port": {
+          "type": "string",
+          "description": "Port name within that node."
+        }
+      }
+    }
+  }
+}

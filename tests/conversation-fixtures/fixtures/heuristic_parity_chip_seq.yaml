@@ -1,0 +1,42 @@
+id: heuristic_parity_chip_seq
+category: heuristic_parity
+description: |
+  R5.19 acceptance #2 partial — heuristic-path parity fixture for
+  the ChIP-seq modality. Scripted counterpart:
+  `04_chip_seq_tf_binding.yaml`. Both fixtures emit a package; only
+  the tool-selection driver differs.
+
+
+mock_backend: heuristic
+
+flow:
+  - kind: user
+    text: |
+      ChIP-seq transcription factor binding analysis for FOXP3 in human
+      regulatory T cells. 3 biological replicates with matched input
+      controls, Illumina single-end 50bp reads, Homo sapiens. Goal is
+      to identify FOXP3 binding sites and motif enrichment in the bound
+      regions. Public data from ENCODE.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - classify_intake
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: ChIP-seq prose with input controls + motif-discovery
+  intent routes through the heuristic to `Emitted` with the same
+  artifact set the scripted fixture 04 produces.

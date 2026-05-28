@@ -1,0 +1,89 @@
+# atoms/scatac-encode-chr22 — atom-coverage spec
+#
+# Synthetic scATAC-seq dataset: 50 cells, chr22 fragments only.
+# Simulates an ENCODE-style bulk ATAC-seq peak-calling experiment
+# condensed to chr22 for tractable execution.
+
+name: Synthetic chr22 scATAC-seq peak calling
+modality: atac_seq
+
+beats:
+  - user: >-
+      I want to call accessible chromatin peaks from a small ATAC-seq
+      dataset — it's synthetic chr22 fragment data (50 cells) from an
+      immune cell experiment comparing T cells vs B cells.
+    assistant:
+      content: >-
+        ATAC-seq peak calling, chr22, T cell vs B cell. What peak caller
+        and downstream analysis are you planning?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      Standard ATAC-seq pipeline: QC, alignment, MACS3 peak calling,
+      TSS enrichment validation, and motif enrichment on accessible regions.
+      Internal use, synthetic data.
+    assistant:
+      content: >-
+        Recorded — QC → alignment → MACS3 peaks → TSS enrichment → motif
+        enrichment. Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **ATAC-seq peak calling — chr22 T cell vs B cell**
+
+          - **Dataset:** Synthetic chr22 fragments (50 cells)
+          - **Contrast:** T cells vs B cells
+          - **Pipeline:** QC → alignment → MACS3 peaks → TSS enrichment → motif enrichment
+          - **Governance:** synthetic data, internal use
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I want to call accessible chromatin peaks from a synthetic ATAC-seq
+    dataset. The data is chr22-only fragment data representing 50 cells
+    from an immune cell experiment — T cells vs B cells. Files are
+    fragments.tsv.gz and peaks.bed staged locally. I need the standard
+    ATAC-seq pipeline: raw QC, alignment, MACS3 peak calling with
+    TSS-enrichment validation, and motif enrichment on accessible-region
+    centers. Internal use, synthetic data, no PHI. Please build the plan
+    and emit once confirmed.
+  followups:
+    - trigger: "(?i)(genome|reference|organism|human|mouse|assembly)"
+      reply: >-
+        Human (Homo sapiens), GRCh38. chr22 only for this analysis.
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use, synthetic data, no PHI.
+    - trigger: "(?i)(file|format|path|fragment|bam|input|data)"
+      reply: >-
+        Fragment file at testdata/scenarios/atoms/scatac-encode-chr22/fragments.tsv.gz.
+        Peak BED at testdata/scenarios/atoms/scatac-encode-chr22/peaks.bed.
+    - trigger: "(?i)(peak.caller|macs|hmmratac|seacr)"
+      reply: >-
+        MACS3 is fine. Default parameters.
+    - trigger: "(?i)(contrast|comparison|condition|group|cell.type)"
+      reply: >-
+        T cells versus B cells. Two cell types from the same experiment.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

@@ -1,0 +1,42 @@
+id: heuristic_parity_scrna_seq
+category: heuristic_parity
+description: |
+  R5.19 acceptance #2 partial — heuristic-path parity fixture for
+  the single-cell RNA-seq modality. Scripted counterpart:
+  `01_single_cell_rnaseq_ivd_baseline.yaml`. Both fixtures land at
+  `Emitted` with the same artifacts.
+
+
+mock_backend: heuristic
+
+flow:
+  - kind: user
+    text: |
+      Single-cell RNA-seq analysis of human peripheral blood mononuclear
+      cells from 8 lupus patients and 8 healthy controls. 10x Genomics
+      Chromium 3' chemistry, ~5000 cells per sample, Homo sapiens. Goal
+      is to identify cell-type-specific transcriptional differences
+      between lupus and healthy PBMCs. Internal cohort.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - classify_intake
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: scRNA-seq prose with 10x chemistry detail routes
+  through the heuristic to `Emitted`. Pairs with fixture 01 as the
+  canonical happy-path single-cell parity check.

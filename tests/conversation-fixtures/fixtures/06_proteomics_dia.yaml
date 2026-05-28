@@ -1,0 +1,70 @@
+id: 06_proteomics_dia
+category: happy_path_proteomics
+description: |
+  DIA mass spectrometry proteomics on plasma samples. Happy path —
+  classifier should land on `proteomics`, the assistant restates the plan,
+  the SME confirms, the package is emitted.
+
+flow:
+  - kind: user
+    text: |
+      DIA mass spectrometry proteomics on 30 plasma samples — 15 patients
+      with severe COVID-19 and 15 healthy controls. Looking for differentially
+      abundant proteins. Internal data. We have FragPipe and Spectronaut
+      available for the search step.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        DIA mass spec proteomics on 30 plasma samples, 15 severe COVID-19
+        vs 15 healthy controls, differential protein abundance,
+        FragPipe and Spectronaut
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's the plan I have for your DIA proteomics study:
+        - 30 plasma samples (15 severe COVID-19, 15 healthy controls)
+        - Looking for differentially abundant proteins between groups
+        - You've named FragPipe and Spectronaut — the execution agent
+          will use them for the search step
+
+        This kind of analysis reports protein-level abundance differences
+        with statistical confidence — biological mechanism is interpretation
+        downstream and not part of what the package outputs.
+
+        Click Accept if this matches, or Revise to revise.
+  - kind: text
+    text: "Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The package is ready. The execution agent will pick FDR thresholds
+      and normalization based on the data when it runs.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: classifier hits proteomics taxonomy, SME-named search tools
+  captured, no methodological recommendation between FragPipe and
+  Spectronaut (the agent picks based on data properties at runtime).

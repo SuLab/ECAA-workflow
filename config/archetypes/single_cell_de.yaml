@@ -1,0 +1,81 @@
+schema_version: "0.1"
+id: single_cell_de
+version: "1.0.0"
+description: |
+  scRNA-seq clustering + differential expression. Standard pipeline:
+  preprocess, cell-level QC, normalise, optional batch correction +
+  integration sweep, dimensionality reduction, cluster, annotate cell
+  types, test cluster-vs-rest or cross-condition DE, then pathway
+  enrichment.
+sme_summary: |
+  Cluster cells from a single-cell RNA-seq experiment, label each cluster
+  with a cell type, then test for differential expression.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: single_cell_rnaseq
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: false
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: quantification
+    required: true
+    depends_on: [alignment]
+  - atom_id: qc_preprocessing
+    required: true
+    depends_on: [quantification]
+  - atom_id: normalisation
+    required: true
+    depends_on: [qc_preprocessing]
+  - atom_id: batch_correction
+    required: false
+    depends_on: [normalisation]
+  - atom_id: integration
+    required: false
+    depends_on: [batch_correction]
+  - atom_id: dimensionality_reduction
+    required: true
+    # Feed integration's output forward when present so
+    # integration isn't an orphan operation node. depends_on cascades
+    # honor the typed-port lowering; the lowered DAG drops nonexistent
+    # entries cleanly when the upstream atom is `required: false`.
+    depends_on: [normalisation, integration]
+  - atom_id: clustering
+    required: true
+    depends_on: [dimensionality_reduction]
+  - atom_id: cell_type_annotation
+    required: true
+    depends_on: [clustering]
+  - atom_id: differential_expression
+    required: true
+    depends_on: [cell_type_annotation]
+  - atom_id: pathway_enrichment
+    required: false
+    depends_on: [differential_expression]
+  - atom_id: reporting
+    required: true
+    # Consume pathway_enrichment alongside DE so it
+    # doesn't dangle as an orphan when present.
+    depends_on: [differential_expression, pathway_enrichment]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  contrast: differential_expression.inputs.contrast
+  reference_level: differential_expression.inputs.reference_level
+  organism: alignment.inputs.organism
+  samples: data_acquisition.inputs.samples
+  marker_panel: cell_type_annotation.inputs.marker_panel
+claim_boundary: |
+  Cell-type calls are statistical assignments, not pathology. Report the
+  reference / panel / marker set used alongside every label. Differential
+  expression is statistical association across cells of the same called
+  type; do not infer mechanism.

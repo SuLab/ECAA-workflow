@@ -1,0 +1,442 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scripps-workflow/config/stage-atoms/_atom.schema.json",
+  "title": "AtomDefinition",
+  "description": "Schema for `config/stage-atoms/<id>.yaml`. Plan §S4.3 — validates AtomDefinition shape before deserialization (`include_str!` schema-validate-before-deserialize discipline). Mirrors the `crates/core/src/atom.rs::AtomDefinition` Rust type. Per plan §S4.3: role==discovery requires discovery_kind, no `..` in paths, assignee enum, EDAM IRI regex constrains the operation/data/format namespaces.",
+  "type": "object",
+  "required": [
+    "id",
+    "version",
+    "role",
+    "description",
+    "edam_operation",
+    "assignee"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "network_policy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "bridge" }
+          },
+          "required": ["kind"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "const": "none" },
+            "allowlist": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            }
+          },
+          "required": ["kind"]
+        }
+      ]
+    }
+  },
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+      "description": "Stable atom id. Lowercase + underscores; convention is verb_noun."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[A-Za-z0-9.]+)?(?:\\+[A-Za-z0-9.]+)?$",
+      "description": "Semver. Phase 1 records the field; Phase 3 enforces uniqueness across the registry."
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "operation",
+        "discovery",
+        "validation",
+        "aggregator",
+        "sizing",
+        "selection",
+        "calibration",
+        "pilot",
+        "adversarial",
+        "monitor"
+      ],
+      "description": "Drives builder-side expansion semantics. Plan §A.S1 — `selection` lifts the legacy `select_*` filename prefix into a typed role; `calibration`/`pilot`/`adversarial`/`monitor` are speculative variants that default to `operation`-equivalent behavior at consumer sites until specialized."
+    },
+    "discovery_kind": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Required when role == discovery. Names the kind of decision the agent makes (method, threshold, panel, etc.)."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Free-form English description; surfaces in CONTEXT.md + agent prompts."
+    },
+    "edam_operation": {
+      "type": "string",
+      "pattern": "^((operation|data|format|topic):\\d+|swfc:[a-z][a-z0-9_]*[a-z0-9])$",
+      "description": "EDAM operation IRI or `swfc:` extension per ADR 0004."
+    },
+    "edam_data": {
+      "type": "string",
+      "pattern": "^((operation|data|format|topic):\\d+|swfc:[a-z][a-z0-9_]*[a-z0-9])$",
+      "description": "EDAM data class IRI for primary input. **DEPRECATED in Phase 16 of the DAG composer alignment plan** — superseded by the typed `inputs:` array. Retained for migration / synthesis fallback only; new atoms should declare `inputs:` and `outputs:` directly. The synthesis fallback in `crates/core/src/workflow_contracts/from_atom.rs::synthesize_inputs` still consumes this field when `inputs:` is absent."
+    },
+    "edam_format": {
+      "type": "string",
+      "pattern": "^((operation|data|format|topic):\\d+|swfc:[a-z][a-z0-9_]*[a-z0-9])$",
+      "description": "EDAM format IRI for primary committed artifact. **DEPRECATED in Phase 16 of the DAG composer alignment plan** — superseded by `outputs:` array entries' `physical_format` field. See `edam_data` deprecation note."
+    },
+    "assignee": {
+      "type": "string",
+      "enum": ["agent", "sme"],
+      "description": "Whoever runs this atom. Closed enum."
+    },
+    "depends_on": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" },
+      "description": "Atom ids this atom requires output from."
+    },
+    "excludes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "anyOf": [
+          { "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" },
+          { "pattern": "^cel:.+$" }
+        ]
+      },
+      "description": "Mutually-exclusive atoms. Atom-id form (lowercase snake_case) maps to a literal id reference; `cel:<expression>` form (Phase 3 / S7.3) compiles the CEL at registry load (`AtomRegistry::validate_consistency`) and the composer evaluates it against the (intake, <task_id>.result, self) context at compose time."
+    },
+    "attributes": {
+      "type": "object",
+      "description": "Free-form attribute map; the discover_* runtime selector reads compatible subsets.",
+      "additionalProperties": true
+    },
+    "joint_with": {
+      "type": "array",
+      "description": "Plan §S7.10 — multi-modal joint-source constraints. Each entry pairs two upstream atom ids that must share `attributes.source_atom`. Used by integration atoms (e.g. multi-modal scRNA-seq + CITE-seq).",
+      "items": {
+        "type": "object",
+        "required": ["lhs", "rhs"],
+        "additionalProperties": false,
+        "properties": {
+          "lhs": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" },
+          "rhs": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" }
+        }
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "description": "Phase 2 of the DAG composer alignment plan — explicit rich PortContract input ports. Optional and additive: when absent, the compatibility::engine synthesizes coarse ports from edam_data / edam_format. Each entry mirrors crates/core/src/workflow_contracts/port.rs::PortContract.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "description": "Phase 2 of the DAG composer alignment plan — explicit rich PortContract output ports. See `inputs` for the migration story.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "method_choice": {
+      "type": "object",
+      "required": ["deferred_to"],
+      "additionalProperties": false,
+      "properties": {
+        "deferred_to": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+          "description": "Atom id of the discovery step that produces the choice."
+        }
+      }
+    },
+    "resource_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cpu": { "type": "string", "minLength": 1 },
+        "memory": { "type": "string", "minLength": 1 },
+        "gpu": { "type": "boolean" },
+        "runtime_class": { "type": "string", "minLength": 1 }
+      }
+    },
+    "preferred_container": {
+      "type": "object",
+      "required": ["image", "tag"],
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OCI image reference. No `..` segments allowed (defense in depth against path-style attacks).",
+          "not": { "pattern": "\\.\\." }
+        },
+        "tag": { "type": "string", "minLength": 1 },
+        "digest": {
+          "type": "string",
+          "description": "SHA-256 digest. Empty in atom YAML; emitter populates per ADR 0025."
+        },
+        "arch": {
+          "type": "array",
+          "items": { "type": "string", "enum": ["amd64", "arm64"] }
+        },
+        "gpu_required": { "type": "boolean" },
+        "network": {
+          "description": "Plan §S15.1/§S15.9 — typed NetworkPolicy. `{kind: bridge}` (default) or `{kind: none, allowlist: [...]}`. Pre-S15.1 string shorthand (\"bridge\"|\"none\") is rejected; rewrite atom YAMLs.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind"],
+              "additionalProperties": false,
+              "properties": { "kind": { "const": "bridge" } }
+            },
+            {
+              "type": "object",
+              "required": ["kind"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "const": "none" },
+                "allowlist": {
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          ]
+        },
+        "source": {
+          "description": "Plan §S15.1/§S15.13 — typed ContainerSource. Default `{kind: image}`. `{kind: conda, conda_packages}` routes through Wave/Seqera (S15.13); `{kind: host}` opts back to bare-host execution.",
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind"],
+              "additionalProperties": false,
+              "properties": { "kind": { "const": "image" } }
+            },
+            {
+              "type": "object",
+              "required": ["kind"],
+              "additionalProperties": false,
+              "properties": {
+                "kind": { "const": "conda" },
+                "conda_packages": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["kind"],
+              "additionalProperties": false,
+              "properties": { "kind": { "const": "host" } }
+            }
+          ]
+        }
+      }
+    },
+    "claim_boundary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "claim_boundary directive carried into emitted package's interpretation policy."
+    },
+    "condition": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Plan §S7.3 follow-on — atom-level CEL gate. Threaded onto StageSpec::condition by the composer adapter; builder's propagate_readiness evaluates against upstream results at runtime. Returning false short-circuits the task to TaskState::Skipped. Example: 'discover_batch_correction.result.batch_correction_required == true'."
+    },
+    "required_figures": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" },
+      "uniqueItems": true,
+      "description": "Figure ids the atom must produce under runtime/outputs/<stage_id>/figures/. Composer threads this to Task.spec.required_figures."
+    },
+    "figure_exempt": {
+      "type": "object",
+      "required": ["reason"],
+      "additionalProperties": false,
+      "description": "Phase 4 figure-obligation lint — marks this atom as explicitly exempt from the obligation that every DataProduct output resolve to a non-Deferred PlotAffordance. Required when an atom produces data that has no registered affordance and either (a) is a benchmark/eval atom, (b) is a discovery-only atom, or (c) is pending Phase 10 affordance migration.",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable justification for the exemption."
+        },
+        "category": {
+          "type": "string",
+          "enum": ["adapter", "intermediate", "non_plottable", "pending_affordance_migration"],
+          "description": "Optional category for triage tooling."
+        }
+      }
+    },
+    "plot_stage_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+      "description": "Optional shared plotting module id when the emitted stage id is an alias or spelling variant."
+    },
+    "expected_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" }
+      },
+      "uniqueItems": true,
+      "description": "Headline artifacts expected under runtime/outputs/<stage_id>/."
+    },
+    "required_artifacts": {
+      "type": "array",
+      "description": "Artifacts the harness must verify before accepting task completion. Paths are relative to runtime/outputs/<stage_id>/.",
+      "items": {
+        "type": "object",
+        "required": ["path"],
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" }
+          },
+          "min_size_bytes": { "type": "integer", "minimum": 0 },
+          "schema_ref": {
+            "type": "string",
+            "pattern": "^[^/][^\\n]*\\.schema\\.json$",
+            "not": { "pattern": "(^/|(^|/)\\.\\.(/|$))" }
+          }
+        }
+      }
+    },
+    "validators": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$"
+      },
+      "uniqueItems": true,
+      "description": "Phase 13/16 — Validation-obligation ids the harness runs against this atom's emitted artifacts after task completion. Each id resolves against the runner registry (ValidatorRegistry); typical values: p_value_in_unit_interval, gene_id_in_annotation, coordinate_in_contig, barcode_matrix_dim_consistency, no_train_test_leakage, deterministic_or_bounded_variance. Threaded through to RequiredArtifact.validation_obligations by both the v4 lowering pass and the legacy build_dag_from_composition path. Empty default — atoms without obligations pass through unchanged."
+    },
+    "runtime_packages": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Plan §S15.x derived-image warm-up — system + language packages this atom requires at runtime. The emitter aggregates the union of every reachable atom's declarations into policies/runtime-prereqs.json. At the atom level only system_packages, language_packages, and system_check are meaningful — base_image and modality belong on the archetype/taxonomy and are ignored here.",
+      "properties": {
+        "schema_version": { "type": "integer", "minimum": 1 },
+        "modality": { "type": "string", "minLength": 1 },
+        "base_image": { "type": "string", "minLength": 1 },
+        "system_packages": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "apt": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+            "dnf": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+          }
+        },
+        "language_packages": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "r": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+            "python": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+            "conda": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+          }
+        },
+        "system_check": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Plan §A.S6 — atom safety classification.",
+      "properties": {
+        "level":           { "type": "string", "enum": ["safe", "network", "compute", "exec"] },
+        "network":         { "$ref": "#/definitions/network_policy" },
+        "code_execution":  { "type": "string", "enum": ["none", "vetted", "generated_by_agent"] },
+        "sandbox":         { "type": "string", "enum": ["none", "process_isolation", "hardware_enclave"] },
+        "provisioning":    { "type": "string", "enum": ["sealed", "declared_only", "allowlisted"] }
+      }
+    },
+    "iterate": {
+      "type": "object",
+      "description": "Plan §S10.1 — iterate-until block. Required when the atom's compiled stage carries Cardinality::IterateUntil; the builder emits a 4-template-task scaffold (iterate_gate / placeholder / iterate_check / validate) and the agent fans out a linear chain of <id>_iter_N tasks until convergence.",
+      "additionalProperties": false,
+      "required": ["max_iterations", "convergence"],
+      "properties": {
+        "max_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Hard ceiling. Reached without convergence → BlockerKind::IterationDidNotConverge."
+        },
+        "min_iterations": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Lower bound; default 1. Schema rejects min > max via the at-load-time validator (the JSON Schema can't compare two siblings, so the cross-check lives in atom_registry::validate_consistency)."
+        },
+        "convergence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["metric_source", "operator", "threshold"],
+          "properties": {
+            "metric_source": {
+              "type": "string",
+              "minLength": 1,
+              "description": "CEL expression naming the metric field on result.json (e.g. `result.silhouette`, `result.gradient_norm`). Compiled by the agent at iteration time, not by the composer."
+            },
+            "operator": {
+              "type": "string",
+              "enum": ["lt", "lt_eq", "gt", "gt_eq"],
+              "description": "Comparison operator. lt for loss-decreasing, gt for silhouette-rising, etc."
+            },
+            "threshold": {
+              "type": "number",
+              "description": "Numeric threshold the metric is compared against."
+            },
+            "consecutive_iterations": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 2,
+              "description": "How many consecutive iterations must satisfy the rule before declaring convergence. Default 2 — one stable pass rules out a stochastic dip."
+            }
+          }
+        },
+        "on_max_iterations": {
+          "type": "string",
+          "enum": ["block", "accept_best", "abort"],
+          "default": "block",
+          "description": "What the harness does when max_iterations hits without convergence. Default block surfaces BlockerKind::IterationDidNotConverge so the SME picks (raise / accept / abort)."
+        },
+        "best_selector": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional CEL field-path the agent uses to pick the 'best' iteration when on_max_iterations == accept_best. Without it, the last iteration is the default."
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "comment": "Plan §S4.3 — role == discovery REQUIRES discovery_kind.",
+      "if": {
+        "properties": { "role": { "const": "discovery" } },
+        "required": ["role"]
+      },
+      "then": {
+        "required": ["discovery_kind"]
+      }
+    },
+    {
+      "comment": "Plan §S4.3 — no `..` segments in any string-valued field. Defense-in-depth against atom yaml that tries to escape its directory via `description` or `image`. JSON Schema can't do recursive negative pattern, so this is enforced on the path-bearing fields above (image) and at load time by the registry."
+    }
+  ]
+}

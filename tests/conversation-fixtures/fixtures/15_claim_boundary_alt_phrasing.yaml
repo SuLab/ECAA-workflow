@@ -1,0 +1,81 @@
+id: 15_claim_boundary_alt_phrasing
+category: claim_boundary_surfacing
+description: |
+  Variant of fixture 14 with a different SME context. Single-cell scRNA-seq
+  from human pancreatic islets comparing T2D donors and healthy controls.
+  The assistant must paraphrase the claim_boundary in this specific
+  context (cell-state shifts vs disease causation) so the Phase 4.2b
+  scorer has a second example to grade against. Drives through emission.
+
+flow:
+  - kind: user
+    text: |
+      Single-cell scRNA-seq from 18 human pancreatic islet donors —
+      9 with type 2 diabetes and 9 healthy controls. Looking at how the
+      proportions and states of beta cells, alpha cells, and other islet
+      cell types differ between disease and control. Public data from
+      HPAP. We want to know what's changed in the islet ecosystem.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        single-cell scRNA-seq from human pancreatic islets, 18 donors
+        (9 T2D + 9 healthy), comparing cell-type proportions and states
+        between disease and control, HPAP public data
+  - kind: tool_use
+    tool:
+      tool_name: get_taxonomy_info
+      modality_id: single_cell_rnaseq
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's the plan for your T2D islet study:
+        - 18 human islet donors (9 T2D, 9 healthy controls)
+        - Compare cell-type proportions and within-cell-type states
+          between disease and control
+        - Public HPAP data, looking for ecosystem-level shifts
+
+        One important framing: this kind of analysis describes which
+        cell types are over- or under-represented in T2D islets, and
+        which gene programs change within each cell type. It does
+        not establish that those changes drive T2D — that's a causal
+        claim the data alone can't support. The summary will say
+        "associated with T2D status" rather than "caused by T2D".
+
+        Click Accept if this matches, or Revise to revise.
+  - kind: text
+    text: "Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The package is ready. The execution agent will pick clustering and
+      cell-type annotation parameters based on what it sees in the data.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - get_taxonomy_info
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Pair fixture with 14_claim_boundary_paraphrase. Both should score
+  CLAIM_BOUNDARY = 2 because the boundary text is restated in the
+  SME's context (T2D islets, beta cells), not as a generic disclaimer.

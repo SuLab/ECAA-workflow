@@ -1,0 +1,51 @@
+id: 61_heuristic_method_recommendation_refused
+category: non_scripted_tool_selection
+description: |
+  R5.19 Phase 2 — neutrality contract refusal path. The role spec
+  (`prompt_role.txt:487-507`) forbids the assistant from recommending
+  aligners / normalization / batch-correction / statistical-test
+  choices; "If the SME asks 'should I use scVI or Harmony?', respond
+  with: the execution agent will pick based on what it finds in the
+  data, and will check back if it encounters anything unusual."
+
+  This fixture drives the `HeuristicMockBackend` with prose that
+  asks the assistant to choose between two aligners. The heuristic's
+  Phase 2 arm must detect the recommendation-request pattern ("which
+  aligner should I use") and emit an assistant-text refusal that
+  defers to the runtime execution agent — without dispatching
+  `set_intake_method`.
+
+  Companion fixture: 60 (SME-named carve-out → set_intake_method).
+
+mock_backend: heuristic
+
+flow:
+  - kind: user
+    text: |
+      I have RNA-seq from human PBMCs, healthy vs degenerated samples.
+      Which aligner should I use — STAR or HISAT2? And what stats
+      package should I run for differential expression? What do you
+      recommend?
+
+# mock_responses omitted — HeuristicMockBackend picks tools from
+# session state + SME prose, not a recorded tape.
+
+expected_final_state:
+  state_kind: intake_followup
+  user_confirmed: false
+  tool_calls_observed:
+    - classify_intake
+    - append_intake_prose
+  tool_calls_excluded:
+    - set_intake_method
+  last_assistant_contains: "the execution agent"
+
+rubric_notes: |
+  Watch for: heuristic refused to recommend even though the prose
+  names STAR/HISAT2 — the recommendation-request phrase ("which
+  aligner should I use") wins precedence over the pinning tokens.
+  The asserted phrase "the execution agent" anchors the refusal to
+  the role-spec language. A regression that ranks pinning above
+  recommendation would surface here as `set_intake_method`
+  appearing in the tool log (refused or not) and the refusal text
+  going missing.

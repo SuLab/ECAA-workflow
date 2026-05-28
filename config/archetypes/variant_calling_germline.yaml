@@ -1,0 +1,67 @@
+schema_version: "0.1"
+id: variant_calling_germline
+version: "1.0.0"
+description: |
+  Germline short-variant (SNV / indel) calling from WGS or WES. Standard
+  pipeline: raw QC, trim, align, call variants, filter, annotate. Somatic
+  / tumor-normal variants are out of scope; a separate archetype will
+  cover that workload.
+sme_summary: |
+  Call and annotate germline SNVs and indels from whole-genome or
+  whole-exome sequencing data.
+goal_data: "data:3498"
+goal_format: "format:3016"
+project_class: bioinformatics
+modality_hint: variant_calling
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: false
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: variant_calling
+    required: true
+    depends_on: [alignment]
+  - atom_id: variant_filtering
+    required: true
+    depends_on: [variant_calling]
+  - atom_id: variant_annotation
+    required: true
+    depends_on: [variant_filtering]
+  - atom_id: review_prior_work
+    required: false
+    # Literature-review atom. Gated by intake.literature_review_requested
+    # via compose_with_intake; when the SME hasn't opted in, this atom +
+    # contextualize_findings_with_literature are filtered out before
+    # slot-fill so the emitted DAG is byte-identical to a pre-literature
+    # DAG.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [variant_annotation, review_prior_work]
+  - atom_id: reporting
+    required: true
+    # reporting must also consume contextualize_findings_with_literature when
+    # present so it doesn't dangle as an orphan operation node in the
+    # lowered DAG (audit-dag.py OPERATION_ORPHANS check).
+    depends_on:
+      - variant_annotation
+      - contextualize_findings_with_literature
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  organism: alignment.inputs.organism
+  reference_build: alignment.inputs.reference_build
+  samples: data_acquisition.inputs.samples
+  capture_kit: alignment.inputs.capture_kit
+claim_boundary: |
+  Variant calls are computational predictions; annotation pathogenicity is
+  curator-assigned and may lag literature. Report the caller, filter
+  strategy, and annotation source for every variant. Do not assert
+  clinical interpretation beyond what the cited annotation source supports.

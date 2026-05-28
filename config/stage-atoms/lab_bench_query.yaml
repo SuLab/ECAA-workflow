@@ -1,0 +1,64 @@
+id: lab_bench_query
+version: "1.0.0"
+role: operation
+description: |
+  Answer one LAB-Bench (FutureHouse `futurehouse/lab-bench`) DbQA or
+  SeqQA question. ExactMatch case-insensitive scoring is handled by the
+  eval-adapter side after the agent returns. The agent reads the
+  question from `intake.txt` and writes its answer to `answer.txt`.
+edam_operation: "swfc:lab_bench_query"
+assignee: agent
+preferred_container:
+  image: "ghcr.io/scripps/bio-min"
+  tag: "v0.1.0-eval"
+resource_profile:
+  cpu: low
+  memory: small
+  gpu: false
+  runtime_class: seconds
+safety:
+  level: network
+  network:
+    kind: bridge
+# Explicit rich ports.
+figure_exempt:
+  reason: "Benchmark evaluation atom; structured eval score output does not map to a visual figure type."
+  category: non_plottable
+inputs:
+  - name: query
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "llm_query"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "LAB-Bench DbQA / SeqQA question (futurehouse/lab-bench)."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public
+outputs:
+  - name: response
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "llm_response"
+      proposed_parent_terms:
+        - "data:2526"
+      definition: "Agent answer (answer.txt)."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public
+  - name: score
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "eval_score"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "ExactMatch case-insensitive score."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public

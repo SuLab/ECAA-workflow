@@ -1,0 +1,77 @@
+# Modality-to-stratum mapping for grant stratification and corpus balancing.
+#
+# Each stratum groups related sequencing / measurement modalities into a
+# coherent analysis family. The eight strata cover the 21 keyword-routable
+# modalities and are injected into WORKFLOW.json::meta.modality_stratum at
+# emit time so downstream consumers (scorer, cross-version diff, eval harness)
+# can partition results without re-reading the modality manifest.
+#
+# Adding a modality: add its id to the appropriate stratum list. A modality
+# that genuinely spans two strata should be placed in the more specific one
+# (e.g. crispr_screen_scrnaseq lives in single_cell, not epigenomics, because
+# the primary read-out is single-cell expression).
+#
+# Stratum ids must be stable snake_case strings; they appear in
+# WORKFLOW.json, the scorer rubric, and eval-baseline tags.
+
+strata:
+  transcriptomics:
+    display_name: "Transcriptomics"
+    description: "Bulk and long-read RNA quantification and differential expression"
+    modalities:
+      - bulk_rnaseq
+      - long_read_rnaseq
+      - ribo_seq
+
+  single_cell:
+    display_name: "Single-Cell"
+    description: "Single-cell expression, clonotype, and CRISPR-screen modalities"
+    modalities:
+      - single_cell_rnaseq
+      - single_cell_vdj
+      - crispr_screen_scrnaseq
+
+  epigenomics:
+    display_name: "Epigenomics"
+    description: "Chromatin accessibility, histone modification, and DNA methylation"
+    modalities:
+      - chip_seq
+      - chip_exo
+      - cut_tag
+      - hi_chip
+      - atac_seq
+      - starr_seq
+      - methylation
+
+  genomics:
+    display_name: "Genomics"
+    description: "Germline and somatic variant discovery and association"
+    modalities:
+      - variant_calling
+      - gwas
+
+  spatial:
+    display_name: "Spatial Transcriptomics"
+    description: "Spatially-resolved gene expression"
+    modalities:
+      - spatial_transcriptomics
+
+  proteomics:
+    display_name: "Proteomics"
+    description: "Protein abundance and immunopeptidomics"
+    modalities:
+      - proteomics
+      - immunopeptidomics
+
+  metagenomics:
+    display_name: "Metagenomics"
+    description: "Microbial community composition and functional profiling"
+    modalities:
+      - metagenomics
+
+  clinical:
+    display_name: "Clinical Prediction"
+    description: "EHR-based prediction and generic multi-omic integration"
+    modalities:
+      - ehr_clinical_prediction
+      - generic_omics

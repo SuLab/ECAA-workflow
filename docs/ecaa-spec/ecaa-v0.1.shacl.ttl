@@ -1,0 +1,60 @@
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix ecaa: <https://w3id.org/ecaa/ns/0.1#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+
+#######################################################################
+# SHACL shapes for ECAA v0.1 audit-proof invariants 2, 4, 6.
+# Invariants 1, 3, 5 are encoded in ecaa-v0.1.ttl as OWL DL restrictions.
+#######################################################################
+
+# Invariant 2: decision-justification
+# Every MethodChoice has either ≥1 cites edge OR rationale string ≥30 chars.
+
+ecaa:DecisionJustificationShape a sh:NodeShape ;
+    sh:targetClass ecaa:MethodChoice ;
+    sh:or (
+        [ sh:path ecaa:cites ; sh:minCount 1 ]
+        [ sh:path ecaa:rationale ; sh:datatype xsd:string ; sh:minLength 30 ]
+    ) ;
+    sh:message "Invariant 2 (decision-justification): MethodChoice must have ≥1 cites edge OR rationale ≥30 chars" .
+
+ecaa:rationale a rdfs:Property ;
+    rdfs:label "rationale"@en .
+
+# Invariant 4: equivalence-failure
+# Every RerunOutcome with class `failed` or `non-deterministic`
+# has a corresponding F Blocker of kind `UnprovableEdge` or `PolicyException`.
+
+ecaa:EquivalenceFailureShape a sh:NodeShape ;
+    sh:targetClass ecaa:RerunOutcome ;
+    sh:sparql [
+        sh:select """
+            PREFIX ecaa: <https://w3id.org/ecaa/ns/0.1#>
+            SELECT $this WHERE {
+                $this ecaa:class ?class .
+                FILTER (?class IN (ecaa:failed, ecaa:nonDeterministic))
+                FILTER NOT EXISTS {
+                    ?blocker a ecaa:Blocker ;
+                             ecaa:kind ?kind ;
+                             ecaa:refs $this .
+                    FILTER (?kind IN ("UnprovableEdge", "PolicyException"))
+                }
+            }
+        """ ;
+        sh:message "Invariant 4 (equivalence-failure): RerunOutcome with class failed/non-deterministic must have a Blocker of kind UnprovableEdge or PolicyException"
+    ] .
+
+# Invariant 6: substrate-validity
+# Structural: the package descriptor must declare the 6 required profile IRIs.
+# (The `runcrate validate` external-tool check is performed by the Python
+# conformance harness, not by SHACL — this shape catches the trivially
+# verifiable structural prerequisites.)
+
+ecaa:SubstrateValidityShape a sh:NodeShape ;
+    sh:targetClass ecaa:Package ;
+    sh:property [
+        sh:path <http://purl.org/dc/terms/conformsTo> ;
+        sh:minCount 6 ;
+        sh:message "Invariant 6 (substrate-validity): package must declare ≥6 conformsTo profile IRIs (RO-Crate 1.1 + WRROC Tier-3 Process/Workflow/Provenance + ECAA v0.1)"
+    ] .

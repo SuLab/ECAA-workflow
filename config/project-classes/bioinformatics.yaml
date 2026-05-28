@@ -1,0 +1,8 @@
+id: bioinformatics
+display_name: Bioinformatics
+# No prompt_addendum_path: bio is the default; `prompt_role.txt` is
+# already bio-framed and emitting an empty class block would burn a
+# cache breakpoint for zero model-visible gain.
+taxonomy_pattern: "*.yaml"
+requires_container: false
+auto_bco: false

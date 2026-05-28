@@ -1,0 +1,92 @@
+id: 64_heuristic_tool_failure_remediation
+category: non_scripted_tool_failure_injection
+description: |
+  R5.19 Phase 4 — first non-scripted fixture exercising the failure-
+  injection path on top of HeuristicMockBackend. The injection makes
+  the next dispatch of the named tool return a hard
+  ToolError::ValidationFailure (the dispatcher rejects a synthetic
+  payload with an invented stage id), which stands in for the
+  BlockerKind::ToolError envelope a real harness would surface from a
+  task crash.
+
+  In production that error envelope is what fires the
+  remediation_proposer side-call (Opus 4.7 one-shot, ranked
+  RemediationSuggestion list, MAX_REMEDIATION_ATTEMPTS = 5). The
+  conversation tool-loop does NOT auto-fire the proposer itself —
+  the side-call lives behind the server route at
+  POST /api/chat/session/:id/task/:task_id/remediation-suggestions —
+  so this fixture's `side_call_count: 0` assertion is the
+  "no real LLM call from the runner" guard. A future fixture that
+  spins up the server (or a phase-5 follow-up that wires the
+  side-call into the tool-loop itself) will flip this to `>= 1`.
+
+
+mock_backend: heuristic
+heuristic_failure:
+  # `tool_name` is the TRIGGER — what the heuristic was about to
+  # dispatch when the one-shot injection fires. The heuristic's first
+  # mutation call is `append_intake_prose` (Rule 3 of `decide`), so
+  # `append_intake_prose` is the right trigger; the previous
+  # `set_intake_field` spelling matched no heuristic decision and the
+  # injection never fired. `FailureInjection::synthetic_failing_tool_call`
+  # then emits a fixed synthetic `SetIntakeField` with an invented
+  # stage id — that's the call the dispatcher rejects and the entry
+  # the rubric expects to find in `tool_call_log` with `is_error=true`.
+  tool_name: append_intake_prose
+  reason: simulated dispatcher failure
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq differential expression on PBMC samples from a small
+      pilot — 12 libraries, human, comparing two treatment arms head
+      to head. Public reference genome; we have the FASTQs locally.
+
+# mock_responses omitted — HeuristicMockBackend ignores the tape.
+
+expected_final_state:
+  # Heuristic continues past the failed dispatch within the same turn:
+  # `is_error=true` on the rejected `append_intake_prose` does NOT
+  # transition the session to `Blocked` (that envelope comes from the
+  # harness path, not intake validation), and the heuristic's Rule 4
+  # then dispatches `propose_summary_confirmation` which auto-advances
+  # the state machine to `PendingConfirmation`. The load-bearing claim
+  # is that the failing call (a) hit the dispatcher with `is_error=true`
+  # and (b) did NOT short-circuit the rest of the heuristic decision
+  # table — the session keeps moving rather than getting stranded.
+  state_kind: pending_confirmation
+  user_confirmed: false
+  tool_calls_observed:
+    - classify_intake
+    # The synthetic failing call is always `set_intake_field`
+    # (see `FailureInjection::synthetic_failing_tool_call`); it has
+    # `is_error=true` in the dispatcher log because the invented
+    # stage id fails validation. That entry IS the load-bearing
+    # evidence that the injection fired.
+    - set_intake_field
+    - propose_summary_confirmation
+  # Side-call count assertion — see description block. The
+  # conversation crate doesn't auto-fire the proposer today; this
+  # is the contract the Phase 5 wiring (or a server-backed fixture)
+  # will flip to a positive value.
+  side_call_count: 0
+
+rubric_notes: |
+  Watch for:
+    - the first tool_call_log entry whose tool_name is
+      `set_intake_field` MUST have `is_error: true`. That's the
+      dispatcher rejecting the synthetic invalid-stage payload.
+    - the heuristic's normal happy path (`classify_intake` → mutation
+      → propose → emit) is not gated by the failed mutation; the
+      session continues to receive new tool calls on subsequent
+      turns. The fixture stops after the first user prose, so the
+      final state is `intake` rather than `emitted`.
+    - no real LLM call hits the wire (the metrics' side_call_count
+      stays at zero); the failure injection is a pure dispatcher-side
+      simulation.
+
+  When `SWFC_REMEDIATION_LIVE=1` is set (operator-driven, never in
+  CI), the server route `POST /api/chat/session/:id/task/:task_id/
+  remediation-suggestions` is the path that bills `side_call_cost_usd`
+  with a real Opus 4.7 call. That route is exercised by the
+  Playwright live tier; this fixture stays a unit test.

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "1.0",
+  "accessClassRules": [
+    {
+      "accessClass": "PublicOpen",
+      "approvalRequired": false,
+      "credentialRequired": false,
+      "description": "Publicly accessible data with no registration or approval gates."
+    },
+    {
+      "accessClass": "PublicRegistered",
+      "approvalRequired": false,
+      "credentialRequired": true,
+      "description": "Publicly listed data requiring registration or account creation before download."
+    },
+    {
+      "accessClass": "InternalApproved",
+      "approvalRequired": true,
+      "credentialRequired": true,
+      "description": "Organization-internal data requiring institutional approval and credentialed access."
+    },
+    {
+      "accessClass": "Controlled",
+      "approvalRequired": true,
+      "credentialRequired": true,
+      "description": "Controlled-access data requiring data access committee approval (e.g., dbGaP, EGA)."
+    },
+    {
+      "accessClass": "SecretBacked",
+      "approvalRequired": true,
+      "credentialRequired": true,
+      "description": "Secret-backed data requiring runtime credential injection and explicit host approval."
+    }
+  ],
+  "governanceMismatchRules": [
+    {
+      "rule": "open_governance_no_controlled_sources",
+      "description": "Open-governance discovery packages must not silently carry controlled or secret-backed discovery sources.",
+      "triggerGovernanceProfile": "GovernanceProfileOpen",
+      "blockedAccessClasses": [
+        "Controlled",
+        "SecretBacked"
+      ],
+      "action": "validation_error"
+    }
+  ],
+  "routeReachabilityCheck": true,
+  "approvalGateEnforcement": true
+}

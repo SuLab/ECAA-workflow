@@ -1,0 +1,457 @@
+{
+  "version": "1.0",
+  "workflow_id": "golden-bulk_rnaseq_de",
+  "current_task": null,
+  "tasks": {
+    "alignment": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_alignment",
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Align reads to reference genome using selected tool",
+      "spec": {
+        "edam_operation": "operation:0292",
+        "stage_class": "alignment_quantification"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "data_acquisition": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Acquire raw FASTQ files and associated metadata from data repositories",
+      "spec": {
+        "edam_operation": "operation:2422",
+        "expected_artifacts": [
+          "cohort_manifest.tsv",
+          "per_accession_summary.json",
+          "matrices_index.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "samples_per_study"
+        ],
+        "spec_preferred_methods": {
+          "geoparse_python_processed_matrices": "GEO-only Python fallback (geoparse). Select only when every SME-named accession is a GSE and CNGB/NGDC/EGA sources are absent from the cohort. If a non-GEO accession is present, this method SHOULD NOT be top-ranked alone — it forces silent cohort truncation. Pair with a CNGB/NGDC helper or escalate to multi_repo_processed_matrices_python.",
+          "geoquery_r_processed_matrices": "GEO-only R fallback (GEOquery / Bioconductor). Same scope caveat as geoparse_python_processed_matrices. Requires r_seurat=true or equivalent Bioconductor capability at runtime.",
+          "multi_repo_processed_matrices_python": "Preferred: dispatch per-accession by prefix. GEO (GSE*) → GEOparse; SRA (SRP*/PRJNA*) → pysradb + prefetch; CNGB CNSA (CNP*) → HTTPS to ftp.cngb.org/pub/CNSA + scripts/helpers/cngb_fetch.py; NGDC GSA (CRA*/HRA* public) → ngdc.cncb.ac.cn download API. Union of processed matrices written to a single manifest. Keeps the \"use published matrices, do not reprocess FASTQ\" commitment while covering non-GEO public repos.",
+          "multi_repo_processed_matrices_r": "R/Bioconductor equivalent — GEO via GEOquery, SRA via SRAdb, CNGB/NGDC via httr + a shared URL-resolver helper. Use only when env_capability shows r_seurat=true; otherwise prefer the Python multi_repo method.",
+          "sme_provided_direct_urls": "SME supplies a TSV of {accession, direct_url, sha256} when repository APIs are unavailable or when a specific mirror is preferred. Agent downloads via curl/wget and verifies checksums."
+        },
+        "stage_class": "data_acquisition"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "differential_expression": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_differential_expression",
+        "normalization"
+      ],
+      "assignee": "agent",
+      "description": "Run differential expression analysis with selected method and contrasts",
+      "spec": {
+        "edam_operation": "operation:3223",
+        "required_figures": [
+          "volcano",
+          "top_features_heatmap"
+        ],
+        "stage_class": "differential_expression"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_alignment": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Discover best-practice alignment tool (STAR, HISAT2, or equivalent)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:0292",
+        "stage_class": "alignment_quantification"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_data_acquisition": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "ready"
+      },
+      "depends_on": [],
+      "assignee": "agent",
+      "description": "Discover best-practice method for: Acquire raw FASTQ files and associated metadata from data repositories",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:2422",
+        "stage_class": "data_acquisition"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_differential_expression": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quantification"
+      ],
+      "assignee": "agent",
+      "description": "Discover DE method (DESeq2, edgeR, limma-voom) and contrast design",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3223",
+        "stage_class": "differential_expression"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_enrichment": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Discover pathway enrichment method (clusterProfiler, GSEA, fgsea)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:2436",
+        "stage_class": "pathway_enrichment"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_normalization": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quantification"
+      ],
+      "assignee": "agent",
+      "description": "Discover appropriate normalization strategy (DESeq2 VST, TMM, etc.)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3435",
+        "stage_class": "normalization"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_quantification": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Discover quantification method (Salmon, kallisto, featureCounts)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3800",
+        "stage_class": "alignment_quantification"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "enrichment_analysis": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_enrichment",
+        "validate_differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Run gene set enrichment and pathway analysis",
+      "spec": {
+        "edam_operation": "operation:2436",
+        "stage_class": "pathway_enrichment"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "normalization": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_normalization",
+        "quantification"
+      ],
+      "assignee": "agent",
+      "description": "Normalize count data using selected method",
+      "spec": {
+        "edam_operation": "operation:3435",
+        "required_figures": [
+          "mean_variance",
+          "hvg_count_bar"
+        ],
+        "stage_class": "normalization"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "quality_control": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Run FastQC/MultiQC quality metrics on raw reads",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "quantification": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_quantification",
+        "alignment"
+      ],
+      "assignee": "agent",
+      "description": "Quantify gene/transcript expression levels",
+      "spec": {
+        "edam_operation": "operation:3800",
+        "stage_class": "alignment_quantification"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "results_review": {
+      "kind": "review",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "enrichment_analysis"
+      ],
+      "assignee": "sme",
+      "description": "SME reviews DE results, pathway analysis, and biological interpretation",
+      "spec": {
+        "stage_class": "review"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "trimming": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Trim adapter sequences and low-quality bases (conditional on QC)",
+      "spec": {
+        "condition": "quality_control.result.needs_trimming == true",
+        "edam_operation": "operation:3192",
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_alignment": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "alignment"
+      ],
+      "assignee": "agent",
+      "description": "Validate alignment quality (mapping rate, duplication, insert size)",
+      "spec": {
+        "edam_operation": "operation:3180",
+        "stage_class": "alignment_quantification"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_differential_expression": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Validate DE results (p-value distribution, MA plot, volcano plot)",
+      "spec": {
+        "edam_operation": "operation:2424",
+        "required_figures": [
+          "ma_plot"
+        ],
+        "stage_class": "differential_expression"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_enrichment_analysis": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "enrichment_analysis"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Run gene set enrichment and pathway analysis",
+      "spec": {
+        "edam_operation": "operation:2436",
+        "stage_class": "pathway_enrichment"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_normalization": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "normalization"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Normalize count data using selected method",
+      "spec": {
+        "edam_operation": "operation:3435",
+        "required_figures": [
+          "mean_variance",
+          "hvg_count_bar"
+        ],
+        "stage_class": "normalization"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_quality_control": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Run FastQC/MultiQC quality metrics on raw reads",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_quantification": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quantification"
+      ],
+      "assignee": "agent",
+      "description": "Validate count matrix (sample correlation, library size distribution)",
+      "spec": {
+        "edam_operation": "operation:2424",
+        "stage_class": "alignment_quantification"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_trimming": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "trimming"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Trim adapter sequences and low-quality bases (conditional on QC)",
+      "spec": {
+        "edam_operation": "operation:3192",
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    }
+  }
+}

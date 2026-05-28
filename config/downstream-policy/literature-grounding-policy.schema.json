@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Literature Grounding Policy",
+  "description": "Sidecar schema validating the top-level shape of literature-grounding-policy.json. Describes the target-files floor and outstanding requirements for literature grounding under each evidence-seeking authority.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "targetFilesFloor",
+    "outstandingRequirements"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "targetFilesFloor": { "type": "array" },
+    "outstandingRequirements": { "type": "array" }
+  }
+}

@@ -1,0 +1,37 @@
+# 13 — Bulk ATAC-seq on sorted hematopoietic populations (modality: atac_seq).
+# Tests that bulk ATAC routes to atac_seq_peaks archetype with peak calling +
+# differential accessibility + motif enrichment + peak annotation.
+
+name: Bulk ATAC sorted hematopoietic populations
+modality: atac_seq
+
+beats:
+  - user: "I have bulk ATAC-seq on a dozen sorted human hematopoietic populations and want differential accessibility + motif enrichment."
+    assistant:
+      content: "Acknowledged — I have the modality + key parameters; will ask for any missing details before locking the plan."
+    expect:
+      visibleText: ["ATAC", "accessibility"]
+      forbiddenText: ["DAG", "task graph"]
+
+live:
+  intake_prose: |
+    Bulk ATAC-seq FASTQs from twelve sorted primary human hematopoietic
+    populations (HSC, MPP, CMP, GMP, MEP, CLP, plus mature myeloid/erythroid/
+    lymphoid lineages), 2-3 donors per population, hg38. I want per-population
+    accessibility profiles, a union peak set, differential accessibility
+    between early progenitors and lineage-committed pools, motif enrichment
+    in differentially-accessible regions, and peak-to-gene annotation by
+    nearest TSS. Public-data only.
+  followups:
+    - trigger: "(?i)(reference|genome|hg38|GRCh38)"
+      reply: "hg38 / GRCh38, paired-end. Standard ENCODE-style processing is fine."
+    - trigger: "(?i)(motif|TF)"
+      reply: "JASPAR vertebrate non-redundant. Pick the standard tool the agent prefers."
+    - trigger: "(?i)(governance|access|controlled)"
+      reply: "Internal use only, all public data, no controlled-access."
+  assertions:
+    stateNotGreeting: true
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

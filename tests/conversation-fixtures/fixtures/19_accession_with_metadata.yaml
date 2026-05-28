@@ -1,0 +1,111 @@
+id: 19_accession_with_metadata
+category: structured_capture
+description: |
+  SME provides a list of public study accessions with per-study metadata
+  (sample counts, library strategies, conditions). The plan §2.1 calls
+  out this case as the canonical use of StructuredCaptureTurnCard, but
+  the runner doesn't render UI components — what matters at the
+  fixture level is that the LLM can capture the structured data via
+  set_intake_field calls (one per study) without losing context. Drives
+  through emission to verify the field captures land in the package's
+  CONTEXT.md / RO-Crate metadata.
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq meta-analysis pulling these 4 GEO studies. I'll list the
+      sample counts and conditions per study so we can keep the per-study
+      design intact:
+      - GSE12345: 12 samples, 6 IBD vs 6 control, ileal biopsies
+      - GSE23456: 18 samples, 9 IBD vs 9 control, colonic biopsies
+      - GSE34567: 24 samples, 12 IBD vs 12 control, mixed tissue
+      - GSE45678: 16 samples, 8 IBD vs 8 control, ileal biopsies
+      Total 70 samples, all human, hg38, paired-end Illumina.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk RNA-seq meta-analysis of 4 GEO studies (GSE12345, GSE23456,
+        GSE34567, GSE45678), 70 human samples total, IBD vs control,
+        ileal/colonic/mixed tissue, hg38, paired-end Illumina
+  - kind: tool_use
+    tool:
+      tool_name: set_intake_field
+      stage: data_acquisition
+      field: study_accessions
+      value:
+        - accession: GSE12345
+          n: 12
+          ibd: 6
+          control: 6
+          tissue: ileal
+        - accession: GSE23456
+          n: 18
+          ibd: 9
+          control: 9
+          tissue: colonic
+        - accession: GSE34567
+          n: 24
+          ibd: 12
+          control: 12
+          tissue: mixed
+        - accession: GSE45678
+          n: 16
+          ibd: 8
+          control: 8
+          tissue: ileal
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's the plan for your 4-study IBD bulk RNA-seq meta-analysis:
+        - 70 total human samples across GSE12345, GSE23456, GSE34567, GSE45678
+        - 35 IBD vs 35 controls
+        - Mix of ileal, colonic, and mixed-tissue studies — the per-study
+          design is preserved in the structured intake fields, so the
+          execution agent can stratify or pool as appropriate
+        - hg38, paired-end Illumina
+
+        This kind of analysis reports gene-level associations between
+        disease state and expression with study identity available as a
+        covariate; it does not establish causation.
+
+        Click Accept or Revise.
+  - kind: text
+    text: "Take a look — Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The package is ready. The execution agent will pick the meta-analysis
+      strategy (pooled vs stratified) based on per-study sample sizes and
+      between-study heterogeneity.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - set_intake_field
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for the assistant capturing per-study metadata as a single
+  set_intake_field call with a structured value (a list of objects),
+  not as four separate set_intake_field calls. Per-study granularity
+  matters because the execution agent needs to stratify; losing it
+  would silently drop information.

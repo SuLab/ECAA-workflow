@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Data Locator Resolution Policy",
+  "description": "Sidecar schema validating the top-level shape of data-locator-resolution-policy.json. Describes accession-pattern hints, bucketing rules, verification policy, resolution method, fallback strategies, and verification notes for repository locator resolution.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "resolutionMode",
+    "accessionPatterns",
+    "bucketingRules",
+    "verificationPolicy",
+    "resolutionMethod",
+    "fallbackResolutionPolicy",
+    "verificationNote"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "resolutionMode": { "type": "string" },
+    "accessionPatterns": { "type": "array" },
+    "bucketingRules": { "type": "array" },
+    "verificationPolicy": { "type": "string" },
+    "resolutionMethod": { "type": "string" },
+    "fallbackResolutionPolicy": { "type": "object" },
+    "verificationNote": { "type": "string" }
+  }
+}

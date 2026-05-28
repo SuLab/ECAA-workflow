@@ -1,0 +1,95 @@
+id: 24_harness_progress_batched_turns
+category: harness_progress
+description: |
+  After the package is emitted, the harness starts running and emits
+  task progress events at the conversation server. The HarnessBatcher
+  collects events for 10 seconds (50 ms in this test) and then collapses
+  them into a single synthetic assistant turn appended to the session.
+  This fixture exercises that path end-to-end via the new round-7
+  EnqueueHarnessEvent + Wait flow steps.
+
+  Verifies:
+    - `HarnessBatcher::enqueue` accepts events from any thread
+    - The batch flushes after the configured window
+    - `session.harness_events` records every event that arrived
+    - A single synthetic assistant turn is appended (not one per event —
+      that's the whole point of batching)
+    - The synthetic turn's content uses the deterministic prose template
+      from `harness_batch::format_events`
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq DE for IBD vs control, 30 samples, human, hg38.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+  # Burst of 4 progress events that should all collapse into one turn
+  - kind: enqueue_harness_event
+    event_kind: task_started
+    task_id: data_acquisition
+    detail: "Fetching reference genome and annotation"
+  - kind: enqueue_harness_event
+    event_kind: task_completed
+    task_id: data_acquisition
+    detail: "Reference genome ready"
+  - kind: enqueue_harness_event
+    event_kind: task_started
+    task_id: alignment
+    detail: "Aligning reads to hg38"
+  - kind: enqueue_harness_event
+    event_kind: task_completed
+    task_id: alignment
+    detail: "Alignment finished, 92% mapped"
+  - kind: wait
+    ms: 200
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk RNA-seq DE, 30 samples IBD vs control, human hg38
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Plan: 30-sample bulk DE, IBD vs control, hg38. Reports gene-level
+        statistical associations between disease state and expression.
+        Click Accept or correct.
+  - kind: text
+    text: "Confirm or correct."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: "The package is ready. The execution agent will run now."
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+  harness_events_count: 4
+  last_assistant_contains: "Quick update"
+
+rubric_notes: |
+  The batched assistant turn uses the deterministic prose template from
+  crates/conversation/src/harness_batch.rs::format_events — single-event
+  flushes use a per-kind sentence ("Started: ..."), multi-event flushes
+  prepend "Quick update on the running analysis:". The fixture asserts
+  the multi-event prose because it pushes 4 events at once.
+
+  The plan §3.2 risk register notes "LLM cost explosion from batched
+  progress turns" — the deterministic format chosen here keeps the
+  per-event cost zero (no LLM call), only the eventual end-of-batch
+  summary turn is plain prose.

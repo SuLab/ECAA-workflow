@@ -1,0 +1,53 @@
+schema_version: "0.1"
+id: single_cell_vdj
+display_name: Single-cell V(D)J
+keywords:
+- tcr repertoire
+- bcr repertoire
+- t-cell repertoire
+- b-cell repertoire
+- t cell repertoire
+- b cell repertoire
+- tcrseq
+- tcr-seq
+- bcrseq
+- bcr-seq
+- vdj sequencing
+- vdj-seq
+- v(d)j sequencing
+- vdj enrichment
+- vdj enrichment library
+- cdr3
+- cdr3 region
+- clonotype
+- clonotypes
+- clonal expansion
+- immunoseq
+- immcantation
+- mixcr
+- igblast
+- cellranger vdj
+- 10x vdj
+- 10x v(d)j
+- v(d)j
+- tcrdist
+- gliph2
+- shazam
+- alpha beta tcr
+- igh igl repertoire
+- isotype switching
+- somatic hypermutation
+edam_topic: topic:3308
+edam_operation: operation:3432
+archetype_id: single_cell_vdj
+taxonomy_path: stage-taxonomies/single-cell.yaml
+semantic_equivalence_bounds:
+  - metric: cluster_ari
+    operator: ">="
+    threshold: 0.85
+    rationale: "V(D)J clonotype cluster ARI ≥ 0.85 between runs (immcantation / MiXCR)"
+  - metric: cdr3_jaccard
+    operator: ">="
+    threshold: 0.85
+    applies_to: "results/tables/clonotypes_*.csv"
+    rationale: "CDR3 clonotype Jaccard ≥ 0.85 between runs at matched minimum-count threshold"

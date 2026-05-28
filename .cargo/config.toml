@@ -1,0 +1,69 @@
+# Local-build parity with CI's reproducibility flags.
+#
+# The `.github/workflows/rust.yml` workspace job sets:
+#  RUSTFLAGS=--remap-path-prefix=$GITHUB_WORKSPACE=.
+#  SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+#
+# Locally, contributors checking out the repo to /home/<user>/<path>
+# would otherwise produce binaries whose debug info encodes
+# /home/<user>/<path>/.cargo/registry/... — different from CI's
+# /home/runner/.cargo/registry/... — and the `verify-reproducibility`
+# Make target's SHA-compare would fail when comparing a local emit
+# against a CI-generated one.
+#
+# This config gives every local cargo invocation the same
+# remap-path-prefix CI uses, with `$CARGO_MANIFEST_DIR` providing the
+# workspace-relative anchor regardless of clone location. SOURCE_DATE_
+# EPOCH stays per-shell because it's git-history-dependent — local
+# devs running `make verify-reproducibility` should set it explicitly
+# (the make target documents the SOURCE_DATE_EPOCH=$(git log -1
+# --format=%ct) form in its preamble).
+#
+# Pinned `rust-toolchain.toml` is the third leg of the stool the plan
+# §S5.20 calls out; not added in this commit since adopting it would
+# require workspace-level toolchain decisions (1.x version pin) that
+# need a separate review pass.
+
+[build]
+rustflags = ["--remap-path-prefix=/home/runner/work/scripps-workflow/scripps-workflow=."]
+
+# Local mold linker (matches CI's rui314/setup-mold step in
+# .github/workflows/rust.yml). With 169 integration-test binaries
+# linking against the workspace, mold cuts incremental rebuild walltime
+# by 30-60% locally. mold produces byte-identical binaries to ld/lld,
+# so the byte-reproducibility baseline stays intact.
+#
+# Prerequisite: `mold` on PATH (apt install mold). When absent, the
+# build will fail with `cannot find mold` — `make doctor` surfaces this
+# explicitly so a new contributor sees the requirement up front.
+#
+# CRITICAL: cargo does NOT merge `[build].rustflags` with
+# `[target.<host>].rustflags` — the target-specific value wins
+# wholesale. That means we must REPEAT the CI-parity remap-path-prefix
+# flag inside the target stanza or we silently drop reproducibility.
+# Keep this in sync with `[build].rustflags` above.
+#
+# Uses the default `cc` linker driver (which `-fuse-ld=mold` is wired
+# through). gcc 12+ and clang 11+ both accept `-fuse-ld=mold`. No
+# explicit `linker = "..."` here so we inherit cargo's default and
+# avoid hard-coding clang for contributors who only have gcc.
+[target.x86_64-unknown-linux-gnu]
+rustflags = [
+    "--remap-path-prefix=/home/runner/work/scripps-workflow/scripps-workflow=.",
+    "-C", "link-arg=-fuse-ld=mold",
+]
+
+[term]
+verbose = true
+
+# When a contributor's clone path differs from the CI runner's, set
+# CARGO_BUILD_RUSTFLAGS at invocation time, e.g.:
+#
+#  CARGO_BUILD_RUSTFLAGS="--remap-path-prefix=$PWD=." \
+#  cargo build --release --workspace
+#
+# This `[build].rustflags` value is the CI runner's path so cached
+# binaries from CI artifacts continue to verify byte-identically when
+# downloaded locally. For pure local dev where reproducibility doesn't
+# matter, the flag is harmless (the source path simply gets remapped
+# to a synthetic `.` regardless of where cargo found it).

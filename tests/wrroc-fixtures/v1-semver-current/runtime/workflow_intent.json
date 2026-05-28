@@ -1,0 +1,7 @@
+{
+  "id": "intent_semver_current",
+  "schema_version": "1.0.0",
+  "goal": "Identify differentially expressed genes between treated and control",
+  "modality": "bulk_rnaseq",
+  "project_class": "research"
+}

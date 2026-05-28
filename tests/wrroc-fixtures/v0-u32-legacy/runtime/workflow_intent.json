@@ -1,0 +1,7 @@
+{
+  "id": "intent_legacy_u32",
+  "schema_version": 3,
+  "goal": "Identify differentially expressed genes between treated and control",
+  "modality": "bulk_rnaseq",
+  "project_class": "research"
+}

@@ -1,0 +1,76 @@
+id: 44_clinical_trial_confirmatory
+category: wave8_clinical_trial
+description: |
+  Wave 8.E acceptance: SME describes a Phase III SAP-frozen primary +
+  secondary analysis. Classifier must route to ProjectClass::ClinicalTrial,
+  the clinical-trial-analysis taxonomy loads, and emission writes a
+  package with the clinical-trial container declared.
+
+flow:
+  - kind: user
+    text: |
+      Phase III randomized controlled trial of Drug X vs placebo in moderate-
+      to-severe RA. SAP is frozen. Primary endpoint: ACR20 at Week 24 in ITT
+      analyzed by logistic regression; secondary endpoints: DAS28-CRP change
+      and HAQ-DI change via MMRM with hierarchical multiplicity testing.
+      Sensitivity: per-protocol and tipping-point.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  # First user turn: capture prose + propose confirmation.
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        Phase III RCT of Drug X vs placebo in moderate-to-severe rheumatoid
+        arthritis; frozen SAP; primary endpoint ACR20 at Week 24 analyzed by
+        logistic regression on the ITT population; secondary endpoints
+        DAS28-CRP change and HAQ-DI change via MMRM with hierarchical
+        multiplicity testing; sensitivity analyses are per-protocol ACR20
+        and tipping-point.
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Confirming the Phase III SAP analysis: Drug X vs placebo, ITT-primary
+        ACR20 logistic regression, MMRM secondary endpoints with hierarchical
+        multiplicity, per-protocol + tipping-point sensitivity. Nine stages
+        from CDISC mapping through reporting, all SME-reviewed.
+  - kind: text
+    text: |
+      Ready for you to confirm. Use the Accept button when the plan looks
+      right, or Revise to adjust SAP details.
+  # Second user turn (after confirm click): emit + end turn.
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The clinical-trial package is ready. The execution agent runs inside
+      the scripps/clinical-trial:1.0 container so the SAP-prescribed R +
+      Python toolchain is available without additional host setup.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - policies/container.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  The confirmation card for a ClinicalTrial session shows an
+  "Analysis discipline" dropdown with no default — the SME must
+  pick Exploratory or Confirmatory before Confirm activates (plan
+  §8.C.2 / D8). This fixture exercises the Exploratory path; a sibling
+  fixture (42) covers the Confirmatory + PostHocDeviation gate.

@@ -1,0 +1,25 @@
+slot_name: protocol
+slot_kind: closed_enum
+default: generic
+values:
+  - id: multiome_arc
+    keywords:
+      - "multiome arc"
+      - multiome
+      - "10x multiome"
+      - "cell ranger arc"
+    extra_atoms:
+      - { atom_id: multiome_arc_demultiplex,
+          depends_on: [data_acquisition], required: true }
+  - id: share_seq
+    keywords:
+      - "share-seq"
+      - "share seq"
+      - shareseq
+      - "share-seq2"
+    extra_atoms:
+      - { atom_id: share_seq_barcode_match,
+          depends_on: [data_acquisition], required: true }
+  - id: generic
+    keywords: []
+    extra_atoms: []

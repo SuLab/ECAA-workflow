@@ -1,0 +1,5 @@
+{
+  "profile_table": "profile.tsv",
+  "coverage_table": "coverage.tsv",
+  "saturation_table": "saturation.tsv"
+}

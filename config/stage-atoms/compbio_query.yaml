@@ -1,0 +1,66 @@
+id: compbio_query
+version: "1.0.0"
+role: operation
+description: |
+  Answer one CompBioBench question. The agent receives the
+  intake-encoded question payload via `intake.txt`, writes its answer
+  to `answer.txt` (or `state.patch.json::answer`), and the
+  eval-adapter scorer (paper grader OR LlmJudge fallback) consumes
+  it after the agent returns. This atom only wraps a single agent
+  invocation; scoring + reliability aggregation lives in the adapter.
+edam_operation: "swfc:compbio_query"
+assignee: agent
+preferred_container:
+  image: "ghcr.io/scripps/bio-min"
+  tag: "v0.1.0-eval"
+resource_profile:
+  cpu: low
+  memory: small
+  gpu: false
+  runtime_class: minutes
+safety:
+  level: network
+  network:
+    kind: bridge
+# Explicit rich ports.
+figure_exempt:
+  reason: "Benchmark evaluation atom; structured eval score output does not map to a visual figure type."
+  category: non_plottable
+inputs:
+  - name: query
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "llm_query"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "CompBioBench question payload (intake-encoded)."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public
+outputs:
+  - name: response
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "llm_response"
+      proposed_parent_terms:
+        - "data:2526"
+      definition: "Agent answer to the CompBioBench query."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public
+  - name: score
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "eval_score"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Paper-grader / LlmJudge fallback score."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public

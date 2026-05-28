@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scripps.example/gene-panel.schema.json",
+  "title": "GenePanel",
+  "description": "Schema for `config/gene-panels/<id>.yaml`. Plan §S16.6 (a) — validates `GenePanel` shape before deserialization (`include_str!` schema-validate-before-deserialize discipline matching `_atom.schema.json`). A panel is either a flat `genes:` list or a `contrasts:` map of named directional buckets — never both. Composer / discover_* consumers pick the format their stage needs.",
+  "type": "object",
+  "required": ["id"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Stable panel id; must match the filename stem so directory listings stay byte-deterministic."
+    },
+    "description": {
+      "type": "string"
+    },
+    "source": {
+      "type": "string",
+      "description": "Citation / provenance line. Free-form; used only in SME-facing docs and prompts."
+    },
+    "genes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+      },
+      "description": "Flat list of gene symbols. Use this when the panel has no directional contrast."
+    },
+    "contrasts": {
+      "type": "object",
+      "patternProperties": {
+        "^[a-z][a-z0-9_]*$": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["symbol"],
+            "additionalProperties": false,
+            "properties": {
+              "symbol": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
+              "rationale": { "type": "string" }
+            }
+          }
+        }
+      },
+      "additionalProperties": false,
+      "description": "Map of directional bucket → entries. Bucket names follow snake_case. Use this for panels split by contrast (e.g. `up_in_degeneration` / `up_in_healthy`)."
+    }
+  },
+  "oneOf": [
+    {
+      "required": ["genes"],
+      "not": { "required": ["contrasts"] }
+    },
+    {
+      "required": ["contrasts"],
+      "not": { "required": ["genes"] }
+    }
+  ]
+}

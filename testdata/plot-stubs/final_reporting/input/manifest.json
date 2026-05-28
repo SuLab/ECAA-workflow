@@ -1,0 +1,14 @@
+{
+  "upstream": [
+    {
+      "stage_id": "differential_expression",
+      "figures": [
+        {
+          "id": "volcano",
+          "path": "volcano.png",
+          "title": "Volcano plot"
+        }
+      ]
+    }
+  ]
+}

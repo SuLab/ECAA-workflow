@@ -1,0 +1,31 @@
+{
+  "title": "Evidence-Carrying Analysis Artifact (ECAA) — Specification v0.1",
+  "version": "0.1.0",
+  "description": "Normative specification for the Evidence-Carrying Analysis Artifact (ECAA), a portable machine-checkable conformance contract for AI-generated bioinformatic analyses over a WRROC v0.5 Tier-3 substrate. Defines 8 typed sub-graphs (Intent, Decision, Execution, Evidence, Claim, Equivalence, Failure, Audit-proof), 4 validity-preserving operations (compose, amend, re-execute, ablate), 6 machine-checkable audit-proof invariants, and a 5-bar conformance suite. Apache-2.0.",
+  "upload_type": "publication",
+  "publication_type": "preprint",
+  "access_right": "open",
+  "license": "Apache-2.0",
+  "language": "eng",
+  "keywords": [
+    "bioinformatics",
+    "provenance",
+    "RO-Crate",
+    "WRROC",
+    "FAIR",
+    "machine-checkable",
+    "AI",
+    "reproducibility",
+    "conformance contract"
+  ],
+  "communities": [
+    {"identifier": "workflowhub"}
+  ],
+  "creators": [
+    {"name": "Huebschen, Alan", "affiliation": "The Scripps Research Institute"}
+  ],
+  "related_identifiers": [
+    {"identifier": "https://github.com/scripps-workflow/awa-workflow", "relation": "isSupplementedBy", "resource_type": "software"},
+    {"identifier": "https://w3id.org/ecaa/v0.1", "relation": "isIdenticalTo", "resource_type": "publication-other"}
+  ]
+}

@@ -1,0 +1,2 @@
+{"decision_id":"d-001","kind":"method_choice","actor":"sme","rationale":"Selected DESeq2 per protocol-anchored downstream policy; rationale meets 30-char minimum.","cites":["doi:10.1186/s13059-014-0550-8"],"timestamp":"deterministic","stage_id":"differential_expression"}
+{"decision_id":"d-002","kind":"confirm","actor":"sme","rationale":"User confirmed the package via UI button.","cites":[],"timestamp":"deterministic","stage_id":null}

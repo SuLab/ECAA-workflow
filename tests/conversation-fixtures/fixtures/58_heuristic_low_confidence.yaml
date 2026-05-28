@@ -1,0 +1,38 @@
+id: 58_heuristic_low_confidence
+category: non_scripted_tool_selection
+description: |
+  R5.19 Phase 1 — sub-0.3 confidence band. The SME prose carries no
+  modality signal at all, only the canned meta-plea phrasing ("some
+  data, please analyze"). The HeuristicMockBackend's confidence
+  estimator scores this at 0.1, which routes the decision table to
+  `propose_quick_replies` instead of `classify_intake`.
+
+  The session must NOT emit — the heuristic stays in `Intake` until the
+  SME picks a modality from the quick-replies card. This fixture asserts
+  that no `emit_package` call fires and that `propose_quick_replies`
+  appears in the tool log.
+
+  Phase-2 / Phase-3 / Phase-4 / Phase-5 fixtures (60..65) drive the
+  remaining bands and the refusal / batching / error-injection passes.
+
+mock_backend: heuristic
+
+flow:
+  - kind: user
+    text: |
+      we have some data, please analyze
+
+expected_final_state:
+  state_kind: intake
+  user_confirmed: false
+  tool_calls_observed:
+    - propose_quick_replies
+
+rubric_notes: |
+  Watch for: the heuristic recognizes the meta-plea phrasing and fires
+  the quick-replies card instead of running the classifier on
+  signal-free prose. No `classify_intake` should fire in this turn (the
+  loop guard on `already_proposed_quick_replies` ensures the heuristic
+  stops asking once the card is out). The session sits in `Intake`
+  waiting for the SME's selection — the deterministic compiler path is
+  unchanged; only the LLM-shim's tool-pick differs.

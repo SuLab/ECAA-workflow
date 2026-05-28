@@ -1,0 +1,6 @@
+id: time_series_forecast
+display_name: Time Series Forecast
+prompt_addendum_path: crates/conversation/src/project_class_prompts/time_series_forecast.txt
+taxonomy_pattern: "time-series-*.yaml"
+requires_container: true
+auto_bco: false

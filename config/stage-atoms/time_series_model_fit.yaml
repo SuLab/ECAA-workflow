@@ -1,0 +1,52 @@
+id: time_series_model_fit
+version: "1.0.0"
+role: operation
+description: |
+  Fit a forecasting model family (ARIMA / state-space / exponential
+  smoothing / Prophet) to the decomposed panel. Method-neutral: the
+  concrete model family is chosen at runtime by the agent based on
+  the SME-named model and series characteristics; the atom emits a
+  fitted-model artifact consumed by the downstream forecast-evaluate
+  atom. Closes Phase 6.1 B.1 of the
+  dag-design-v3-v4-100-percent-closure plan.
+edam_operation: "operation:3659"
+edam_data: "data:3134"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - time_series_decompose
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Figure-obligation exemption — the fitted-model artifact is a
+# binary/RDS object consumed by forecast_evaluate. No SME-facing
+# figure is produced at this stage; diagnostics (ACF/PACF, residual
+# plots) belong to the upstream decompose stage or downstream
+# forecast-evaluate stage.
+figure_exempt:
+  reason: "Fitted-model artifact is a binary intermediate consumed by forecast_evaluate; no SME-facing figure at this stage."
+  category: intermediate
+inputs:
+  - name: decomposed_components
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3134"
+      label: "Gene expression matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: fitted_model
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3134"
+      label: "Gene expression matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

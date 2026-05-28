@@ -1,0 +1,32 @@
+[tool.ruff]
+# Relax line length to 100; the default of 79 yields hundreds of
+# E501 hits across the production scope without buying readability.
+line-length = 100
+target-version = "py310"
+
+# Production scope. Exclude generated/snapshot trees.
+extend-exclude = [
+    "crates/ecaa-conformance/tests/fixtures/",
+    "crates/eval-adapters/",
+    "runtime/",
+    "target/",
+    "node_modules/",
+    "ui/node_modules/",
+    # Test-data corpus runners: hold long literal workflow-JSON fixtures
+    # (e.g. dict comprehensions and inline schemas that exceed line-length
+    # by design). Functional lints (F, N) don't typically apply here; the
+    # corpus is verified by its own check harnesses, not by ruff.
+    "testdata/paper-recreation-blinded/",
+]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "N"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+# DFS coloring sentinels (WHITE/GRAY/BLACK) and matrix variables (X,
+# X_centered) follow standard CS / linear-algebra conventions where
+# uppercase names carry semantic weight; N806 (snake_case) would obscure
+# the convention without improving readability.
+"scripts/audit_dag.py" = ["N806"]
+"lib/plotting/stages/normalization.py" = ["N806"]

@@ -1,0 +1,146 @@
+# 04 — Schizophrenia GWAS colocalization with GTEx cis-eQTL
+#
+# Key test: the assistant MUST surface the public-vs-DAC-restricted
+# PGC3 tier boundary as an access-tier guard, and MUST NOT propose
+# using dbGaP-gated GTEx individual-level data.
+
+name: Schizophrenia GWAS colocalization
+modality: gwas_coloc
+
+beats:
+  - user: "I want to run a GWAS colocalization study for schizophrenia."
+    assistant:
+      content: |
+        SCZ GWAS coloc — got it. Which GWAS summary statistics and
+        which eQTL reference?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+      visibleText:
+        - "GWAS"
+        - "SCZ"
+
+  - user: "PGC3 wave-3 and GTEx v8 cis-eQTL."
+    assistant:
+      content: |
+        PGC3 wave-3 has a hybrid access tier — a public file and a
+        DAC-restricted full-sample-overlap file. I'll plan for the
+        PUBLIC file only, and the package will fail closed if the
+        restricted file is referenced. GTEx v8 cis-eQTL is
+        open-access; individual-level GTEx is dbGaP-gated and
+        explicitly out of scope.
+    expect:
+      visibleText:
+        - "public"
+        - "fail closed"
+      forbiddenText:
+        - "I recommend"
+
+  - user: |
+      Right — public tier only. 13 brain tissues as primary, non-brain
+      secondary. 1000 Genomes Phase 3 EUR as the LD reference.
+    assistant:
+      content: |
+        Recorded — 13 brain tissues primary, non-brain secondary,
+        1000G Phase 3 EUR LD reference. Coloc priors — defaults
+        (p1 = p2 = 1e-4, p12 = 1e-5) or something more conservative?
+    expect:
+      visibleText:
+        - "13 brain tissues"
+        - "1000"
+
+  - user: "Defaults are fine. Use coloc.abf as primary and coloc.susie for multi-signal loci."
+    assistant:
+      content: |
+        coloc.abf primary, coloc.susie at multi-signal. I'll add
+        MAGMA gene-level and S-LDSC tissue enrichment as triangulation
+        methods. Should the output be benchmarked against the
+        Trubetskoy 2022 published 120-gene list?
+    expect:
+      visibleText:
+        - "coloc.abf"
+        - "coloc.susie"
+
+  - user: |
+      Yes — Jaccard and rank-concordance against Trubetskoy 2022.
+      European-ancestry only, trans-ancestry is out of scope.
+    assistant:
+      content: |
+        Here's the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **Schizophrenia GWAS colocalization — PGC3 × GTEx v8**
+
+          - **GWAS:** PGC3 wave-3 public file only (DAC-restricted
+            and dbGaP-gated tiers blocked)
+          - **eQTL:** GTEx v8 cis-eQTL allpairs (open)
+          - **LD reference:** 1000G Phase 3 EUR
+          - **Tissues:** 13 brain primary, non-brain secondary
+          - **Methods:** coloc.abf primary, coloc.susie multi-signal,
+            MAGMA, S-LDSC triangulation
+          - **Benchmark:** Jaccard and rank-concordance against
+            Trubetskoy 2022 published 120-gene list
+          - **Out-of-scope guards:** trans-ancestry fine-mapping,
+            DAC-gated PGC3 file, dbGaP individual-level GTEx
+          - **Claim boundary:** descriptive gene-tissue colocalization
+            and pathway hypothesis generation only. No causal,
+            clinical, diagnostic, therapeutic, or genotype-to-
+            phenotype-mechanism claims.
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "Claim boundary"
+        - "DAC"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: "Package emitted — coloc run ready for execution."
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I want to run a GWAS colocalization study for schizophrenia using PGC3
+    wave-3 public summary statistics and GTEx v8 cis-eQTL. Only the public PGC3
+    file — the DAC-restricted full-sample-overlap file is out of scope, and
+    individual-level GTEx from dbGaP is also excluded. Thirteen brain tissues as
+    the primary analysis, non-brain as secondary, with 1000 Genomes Phase 3 EUR
+    as the LD reference. Use coloc.abf as the primary method and coloc.susie for
+    multi-signal loci, plus MAGMA gene-level and S-LDSC tissue enrichment for
+    triangulation. Benchmark the output against the Trubetskoy 2022 published
+    120-gene list using Jaccard and rank-concordance. European-ancestry only,
+    trans-ancestry is out of scope. Internal use. Once we agree on the plan,
+    emit the package to {pkgDir}.
+  followups:
+    - trigger: "(?i)(access|DAC|restricted|dbGaP)"
+      reply: "Public PGC3 file only. DAC-restricted PGC3 and dbGaP individual-level GTEx are both excluded."
+    - trigger: "(?i)(tissue|brain)"
+      reply: "13 brain tissues primary, non-brain secondary."
+    - trigger: "(?i)(prior|p12|default)"
+      reply: "Default coloc priors are fine: p1 = p2 = 1e-4, p12 = 1e-5."
+    - trigger: "(?i)(ancestry|trans.ancestry|population)"
+      reply: "European-ancestry only. Trans-ancestry fine-mapping is out of scope."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+    # gwas is now a keyword-routable modality (config/modalities/gwas.yaml
+    # — keywords incl. PGC3, GTEx, coloc, colocalization, susie, ldsc).
+    # gwas_coloc archetype carries `modality_hint: gwas`, so the
+    # v4 planner routes here correctly instead of mis-matching the
+    # data:2048 clinical-trial bucket. Expected behavior is full emission
+    # through the gwas_coloc DAG (data_acquisition →
+    # gwas_summary_harmonization → colocalization → reporting →
+    # final_reporting).
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 4

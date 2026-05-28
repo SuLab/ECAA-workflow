@@ -1,0 +1,23 @@
+schema_version: "0.1"
+id: proteomics
+display_name: Proteomics
+keywords: [proteom, proteomics, "proteomics analysis", "gene expression and proteomics", "protein abundance", "protein expression", "mass spec", "ms/ms", "lc-ms", tmt, itraq, maxquant, fragpipe, msfragger, spectronaut]
+edam_topic: "topic:0121"
+edam_operation: "operation:3767"
+taxonomy_path: stage-taxonomies/proteomics.yaml
+archetype_id: proteomics_dda
+semantic_equivalence_bounds:
+  - metric: spike_in_delta
+    operator: "<="
+    threshold: 0.20
+    applies_to: "results/tables/quant_*.csv"
+    rationale: "Grant §G2 proteomics: spike-in recovery delta ≤ 20% between runs"
+  - metric: cv_max
+    operator: "<"
+    threshold: 0.20
+    applies_to: "results/tables/quant_*.csv"
+    rationale: "Grant §G2 proteomics: max CV across technical replicates < 20%"
+  - metric: protein_group_jaccard
+    operator: ">="
+    threshold: 0.90
+    rationale: "Jaccard of identified protein-group sets ≥ 0.90 between runs"

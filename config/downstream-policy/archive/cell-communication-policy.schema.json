@@ -1,0 +1,6 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Cell-Cell Communication Policy (domain overrides)",
+  "description": "this sidecar now carries only cell-communication-specific overrides. The shared claim-boundary shape (schemaVersion, targetStages, claimBoundary, validationContract, evidenceRules) is validated against `_policy-skeleton.schema.json` by the loader.",
+  "type": "object"
+}

@@ -1,0 +1,339 @@
+{
+  "version": "1.0",
+  "workflow_id": "golden-proteomics_dda",
+  "current_task": null,
+  "tasks": {
+    "data_acquisition": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Acquire raw mass spectrometry data files (mzML, RAW, wiff) and sample metadata",
+      "spec": {
+        "edam_operation": "operation:2422",
+        "expected_artifacts": [
+          "cohort_manifest.tsv",
+          "per_accession_summary.json",
+          "matrices_index.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "samples_per_study"
+        ],
+        "spec_preferred_methods": {
+          "geoparse_python_processed_matrices": "GEO-only Python fallback (geoparse). Select only when every SME-named accession is a GSE and CNGB/NGDC/EGA sources are absent from the cohort. If a non-GEO accession is present, this method SHOULD NOT be top-ranked alone — it forces silent cohort truncation. Pair with a CNGB/NGDC helper or escalate to multi_repo_processed_matrices_python.",
+          "geoquery_r_processed_matrices": "GEO-only R fallback (GEOquery / Bioconductor). Same scope caveat as geoparse_python_processed_matrices. Requires r_seurat=true or equivalent Bioconductor capability at runtime.",
+          "multi_repo_processed_matrices_python": "Preferred: dispatch per-accession by prefix. GEO (GSE*) → GEOparse; SRA (SRP*/PRJNA*) → pysradb + prefetch; CNGB CNSA (CNP*) → HTTPS to ftp.cngb.org/pub/CNSA + scripts/helpers/cngb_fetch.py; NGDC GSA (CRA*/HRA* public) → ngdc.cncb.ac.cn download API. Union of processed matrices written to a single manifest. Keeps the \"use published matrices, do not reprocess FASTQ\" commitment while covering non-GEO public repos.",
+          "multi_repo_processed_matrices_r": "R/Bioconductor equivalent — GEO via GEOquery, SRA via SRAdb, CNGB/NGDC via httr + a shared URL-resolver helper. Use only when env_capability shows r_seurat=true; otherwise prefer the Python multi_repo method.",
+          "sme_provided_direct_urls": "SME supplies a TSV of {accession, direct_url, sha256} when repository APIs are unavailable or when a specific mirror is preferred. Agent downloads via curl/wget and verifies checksums."
+        },
+        "stage_class": "data_acquisition"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_data_acquisition": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "ready"
+      },
+      "depends_on": [],
+      "assignee": "agent",
+      "description": "Discover best-practice method for: Acquire raw mass spectrometry data files (mzML, RAW, wiff) and sample metadata",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:2422",
+        "stage_class": "data_acquisition"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_protein_database": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Select reference proteome database (UniProt, RefSeq) appropriate for organism and study design",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:2422",
+        "stage_class": "analysis"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_quantification_strategy": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "protein_identification"
+      ],
+      "assignee": "agent",
+      "description": "Determine quantification approach (label-free LFQ, TMT/iTRAQ, SILAC) from experiment design",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3630",
+        "stage_class": "analysis"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_search_engine": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Discover appropriate database search engine for experiment type (DIA-NN + FragPipe-DIA preferred for DIA acquisitions; FragPipe / MSFragger for DDA; MaxQuant retained as DDA legacy path; Spectronaut as commercial alternative)",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3767",
+        "stage_class": "analysis"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "protein_identification": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_search_engine",
+        "discover_protein_database",
+        "raw_file_processing"
+      ],
+      "assignee": "agent",
+      "description": "Search MS/MS spectra against reference database to identify peptides and proteins",
+      "spec": {
+        "edam_operation": "operation:3767",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "quantification": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_quantification_strategy",
+        "protein_identification"
+      ],
+      "assignee": "agent",
+      "description": "Quantify protein abundance across samples using discovered strategy",
+      "spec": {
+        "edam_operation": "operation:3630",
+        "required_figures": [
+          "peptide_coverage",
+          "ridgeline"
+        ],
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "raw_file_processing": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Convert vendor raw files to open formats and assess instrument performance metrics",
+      "spec": {
+        "edam_operation": "operation:3715",
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "results_reporting": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "validate_results"
+      ],
+      "assignee": "agent",
+      "description": "Generate proteomics report with volcano plots, protein lists, and pathway enrichment",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "stage_class": "reporting"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "results_review": {
+      "kind": "review",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "results_reporting"
+      ],
+      "assignee": "sme",
+      "description": "SME reviews identified proteins and differential abundance findings",
+      "spec": {
+        "stage_class": "review"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "statistical_analysis": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quantification"
+      ],
+      "assignee": "agent",
+      "description": "Perform differential abundance analysis and multiple testing correction",
+      "spec": {
+        "edam_operation": "operation:2238",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_protein_identification": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "protein_identification"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Search MS/MS spectra against reference database to identify peptides and proteins",
+      "spec": {
+        "edam_operation": "operation:3767",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_quantification": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quantification"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Quantify protein abundance across samples using discovered strategy",
+      "spec": {
+        "edam_operation": "operation:3630",
+        "required_figures": [
+          "peptide_coverage",
+          "ridgeline"
+        ],
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_raw_file_processing": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "raw_file_processing"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Convert vendor raw files to open formats and assess instrument performance metrics",
+      "spec": {
+        "edam_operation": "operation:3715",
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_results": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "statistical_analysis"
+      ],
+      "assignee": "agent",
+      "description": "Validate protein identifications (FDR, missed cleavages) and quantification reproducibility",
+      "spec": {
+        "edam_operation": "operation:2424",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_results_reporting": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "results_reporting"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Generate proteomics report with volcano plots, protein lists, and pathway enrichment",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "stage_class": "reporting"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_statistical_analysis": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "statistical_analysis"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Perform differential abundance analysis and multiple testing correction",
+      "spec": {
+        "edam_operation": "operation:2238",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    }
+  }
+}

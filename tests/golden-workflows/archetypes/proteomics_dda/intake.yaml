@@ -1,0 +1,3 @@
+DDA proteomics analysis with TMT labeling. Use FragPipe for peptide identification
+and produce protein abundance quantification across samples for downstream
+differential abundance analysis.

@@ -1,0 +1,82 @@
+id: review_prior_work
+version: "1.0.0"
+role: operation
+description: |
+  Retrieve prior literature (PMC OA full-text XML by default, broader via
+  SWFC_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +
+  modality. Emit a structured prior_claims_matrix.csv where every row is
+  PMID-anchored with a substring-verified evidence_quote. No biological
+  synthesis, no narrative review.
+edam_operation: "operation:0305"
+assignee: agent
+inputs:
+  - name: intake_facts
+    semantic_type:
+      kind: ontology_term
+      iri: "topic:3678"
+      label: "Experimental design and studies"
+      ontology_version: "EDAM-1.25"
+    physical_format: { iri: "format:3464", label: "JSON" }
+    privacy_class: internal
+outputs:
+  - name: prior_claims_matrix
+    semantic_type:
+      kind: ontology_term
+      iri: "swfc:literature_claims_matrix"
+      label: "Literature claims matrix"
+      ontology_version: "swfc-1"
+    physical_format: { iri: "format:3752", label: "CSV" }
+    privacy_class: internal
+  - name: literature_search_protocol
+    semantic_type:
+      kind: ontology_term
+      iri: "swfc:literature_search_protocol"
+      label: "Literature search protocol"
+      ontology_version: "swfc-1"
+    physical_format: { iri: "format:1196", label: "Markdown" }
+    privacy_class: internal
+  - name: citation_verification_report
+    semantic_type:
+      kind: ontology_term
+      iri: "swfc:citation_verification_report"
+      label: "Citation verification report"
+      ontology_version: "swfc-1"
+    physical_format: { iri: "format:1196", label: "Markdown" }
+    privacy_class: internal
+attributes:
+  source_scope_env: SWFC_LIT_SOURCE_SCOPE
+  retrieval_tools:
+    - pubmed_eutilities_esearch
+    - pubmed_eutilities_efetch_pmc_xml
+    - pubmed_eutilities_efetch_abstract
+expected_artifacts:
+  - prior_claims_matrix.csv
+  - literature_search_protocol.md
+  - citation_verification_report.md
+  - evidence/manifest.json
+  - result.json
+required_artifacts:
+  - path: prior_claims_matrix.csv
+    schema_ref: schemas/literature_claims_matrix.schema.json
+  - path: evidence/manifest.json
+    schema_ref: schemas/literature_evidence_manifest.schema.json
+  - path: citation_verification_report.md
+    min_size_bytes: 1
+validators:
+  - pmid_resolves
+  - evidence_quote_substring_match
+  - redistributable_or_marked
+figure_exempt:
+  reason: "Structured-text outputs only; no canonical plot affordance."
+  category: non_plottable
+resource_profile: { cpu: light, memory: small, gpu: false, runtime_class: minutes }
+claim_boundary: |
+  Every row in prior_claims_matrix.csv is a verbatim quote from one PMID's
+  available source text (PMC OA full-text XML, abstract, or — under explicit
+  scope — a locally-fetched PDF). Do NOT paraphrase, summarize, or synthesize
+  across PMIDs. Do NOT assert biological fact, mechanism, or causation. Do NOT
+  assert whether the prior work agrees or disagrees with anything — that is
+  the downstream contextualization atom's role, and even there it is row-wise
+  mechanical, not narrative. Rows whose evidence_quote does not exactly
+  substring-match the retrieved source are emitted with verified=false and
+  surface as BlockerKind::ValidationFailed { LiteratureClaim }.

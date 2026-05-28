@@ -1,0 +1,69 @@
+id: 05_metagenomics_shotgun
+category: happy_path_metagenomics
+description: |
+  Shotgun metagenomic sequencing of stool samples comparing CRC cases to
+  controls. Happy path — classifier should land on `metagenomics`, the
+  assistant restates the plan, the SME confirms, the package is emitted.
+
+flow:
+  - kind: user
+    text: |
+      Shotgun metagenomic sequencing of 100 stool samples — 50 colorectal
+      cancer cases and 50 healthy controls. Looking at taxonomic composition
+      and differential abundance between groups. Public dataset. We have
+      MetaPhlAn and Kraken available for taxonomic profiling.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        shotgun metagenomic sequencing of 100 stool samples, 50 CRC cases
+        vs 50 controls, taxonomic composition + differential abundance,
+        MetaPhlAn and Kraken
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's the plan I have for your shotgun metagenomics study:
+        - 100 stool samples (50 CRC cases, 50 controls)
+        - Taxonomic composition + differential abundance between groups
+        - You've named MetaPhlAn and Kraken — the execution agent will
+          use them for taxonomic profiling
+
+        This kind of analysis reports taxon-level associations between
+        disease state and abundance, not causality. The package will
+        surface differentially abundant taxa with statistical confidence.
+
+        Click Accept if this matches, or Revise to revise.
+  - kind: text
+    text: "Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The package is ready. The execution agent will pick filtering and
+      normalization parameters based on the data when it runs.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: classifier hits metagenomics taxonomy, claim boundary phrased
+  as "associations not causality", SME-named tools captured.

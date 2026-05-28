@@ -1,0 +1,51 @@
+id: peptide_search
+version: "1.0.0"
+role: operation
+description: |
+  Match MS/MS spectra against a protein database to identify peptides.
+  MaxQuant / FragPipe / Spectronaut / DIA-NN selected at runtime by
+  acquisition mode (DDA / DIA).
+edam_operation: "operation:3767"
+edam_data: "data:2531"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - data_acquisition
+attributes:
+  candidate_tools:
+    - maxquant
+    - fragpipe
+    - spectronaut
+    - dia_nn
+    - msfragger
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: false
+  runtime_class: hours
+# Explicit rich ports.
+# Input semantic type is EDAM data:2531 (Mass spectrometry data); the
+# physical format is left opaque at the port level because acquisition
+# Vendors emit a heterogeneous family (mzML / mzXML / Thermo.raw /
+# Bruker.d) — the runtime selector handles the conversion. Output is
+# data:0945 (Peptide identification) — a tabular psm/peptide result
+# table downstream protein_quantification can consume.
+inputs:
+  - name: spectra
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2531"
+      label: "Mass spectrometry data"
+      ontology_version: "EDAM-1.25"
+    privacy_class: internal
+outputs:
+  - name: peptide_identifications
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0945"
+      label: "Peptide identification"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

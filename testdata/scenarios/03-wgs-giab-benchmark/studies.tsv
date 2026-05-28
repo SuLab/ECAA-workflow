@@ -1,0 +1,6 @@
+sample	alias	relation	coriell_id	source	truth_set_version	reference_build	high_conf_bed	sequencing_platform	coverage	access_url
+HG001	NA12878	CEPH Utah founder	NA12878	NIST GIAB	v4.2.1	GRCh38	HG001_GRCh38_1_22_v4.2.1_benchmark.bed	Illumina NovaSeq 6000 and HiSeq X	30x available	ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/NA12878_HG001/
+HG002	NA24385	Ashkenazi son	NA24385	NIST GIAB	v4.2.1	GRCh38	HG002_GRCh38_1_22_v4.2.1_benchmark.bed	Illumina NovaSeq 6000	30x and 300x available	ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/
+HG003	NA24149	Ashkenazi father	NA24149	NIST GIAB	v4.2.1	GRCh38	HG003_GRCh38_1_22_v4.2.1_benchmark.bed	Illumina NovaSeq 6000	30x available	ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG003_NA24149_father/
+HG004	NA24143	Ashkenazi mother	NA24143	NIST GIAB	v4.2.1	GRCh38	HG004_GRCh38_1_22_v4.2.1_benchmark.bed	Illumina NovaSeq 6000	30x available	ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG004_NA24143_mother/
+1000G_HG00096	HG00096	GBR	HG00096	NYGC 1000 Genomes 30x	n/a (no GIAB truth)	GRCh38	n/a	Illumina NovaSeq 6000	30x	1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/

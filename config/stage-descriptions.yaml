@@ -1,0 +1,222 @@
+# SME-facing stage descriptions.
+#
+# Keyed by `stage_class` (as set on the task spec). The UI's
+# TaskDetailDrawer reads these via GET /api/chat/stage-descriptions and
+# uses them in the "What this step does" section — plain English, no
+# DAG / computational terminology leaking through.
+#
+# Every entry:
+#  sme_friendly_name: the noun the UI shows in titles (e.g. "Quality filtering")
+#  Short: one-sentence summary. Renders next to the task card on hover.
+#  Long: 2-4 sentences. Explains what's happening and why it matters
+#  scientifically. No tool names unless they're unavoidable.
+#  Example_inputs: optional — what this stage expects to receive
+#  example_outputs: optional — what this stage produces
+#
+# When an SME opens the drawer for a task whose stage_class has no entry
+# here, the drawer falls back to the task's `description` field from the
+# compiled DAG.
+
+version: 1
+
+stages:
+  data_acquisition:
+    sme_friendly_name: "Data acquisition"
+    short: "Pulls raw or processed count matrices from public repositories and verifies checksums."
+    long: |
+      This step downloads the expression data for every study in your
+      cohort. For each accession it connects to the repository
+      (GEO / SRA / CNGB / NGDC / EGA), fetches the per-library count
+      matrix, records an SHA-256 checksum, and writes a manifest listing
+      every file so later steps know where everything is. No
+      re-alignment happens here unless your intake explicitly asked for
+      it — the default is to use each study's published processed
+      matrices.
+    example_outputs: "A manifest file + per-study directories of count matrices"
+
+  metadata_harmonization:
+    sme_friendly_name: "Metadata harmonisation"
+    short: "Builds a unified per-sample metadata table that reconciles mixed labelling schemes across studies."
+    long: |
+      Each study reports sample metadata in a different format —
+      Pfirrmann grades, Thompson grades, binary healthy/degenerated
+      labels, donor ages in different units. This step pulls every
+      available field, maps them onto a single descriptive axis (for
+      IVD work: the combined aging/degeneration `ivd_score`), and
+      writes one row per library. Samples with ambiguous or missing
+      metadata are flagged so they can be excluded from comparisons
+      that depend on that field.
+    example_outputs: "sample_metadata.tsv with one row per library + a study-level summary"
+
+  preprocessing_qc:
+    sme_friendly_name: "Preprocessing and doublet removal"
+    short: "Reads each count matrix and removes doublets — two cells captured by the same droplet."
+    long: |
+      Before any biological analysis, droplet-based data needs cleanup.
+      This step loads each library into memory, runs a doublet detector
+      (typically Scrublet at a 0.25 confidence threshold), and drops
+      cells flagged as likely doublets. The output is one file per
+      library with clean cell barcodes, ready for QC filtering.
+    example_outputs: "Per-library h5ad files with doublet annotations"
+
+  quality_control:
+    sme_friendly_name: "Quality filtering"
+    short: "Drops low-quality cells using per-cell metrics — total counts, detected genes, mitochondrial content."
+    long: |
+      Filters cells by quality thresholds. Default cutoffs drop cells
+      with fewer than 500 total counts, fewer than 200 detected genes,
+      or more than 20% of their counts coming from mitochondrial genes
+      — markers of dying cells or ambient RNA contamination. Produces
+      QC summary figures so you can see how many cells each library
+      retained and flag libraries that dropped suspiciously hard.
+    example_outputs: "Filtered cell matrices + retention bar charts + violin plots"
+
+  normalization:
+    sme_friendly_name: "Normalisation"
+    short: "Scales counts so cells are comparable across sequencing depth and library-prep variation."
+    long: |
+      Without normalisation, a cell with 20 000 counts will appear to
+      "express more of everything" than a cell with 2 000 counts,
+      because sequencing depth varies. This step applies a
+      normalisation method (SCTransform v2 is the modern default for
+      Seurat-based pipelines; LogNormalize is a faster but coarser
+      alternative) and selects the most variable genes per
+      compartment for downstream integration.
+    example_outputs: "Per-compartment normalised Seurat v5 objects + highly-variable-gene lists"
+
+  batch_correction:
+    sme_friendly_name: "Batch correction / integration"
+    short: "Removes technical differences between studies so biological signal dominates the shared embedding."
+    long: |
+      Cells from different studies cluster together by study-of-origin
+      before correction is applied — an artifact that would make
+      cross-study comparisons meaningless. This step applies a
+      batch-correction method (Seurat v5 CCA IntegrateLayers preserves
+      rare cell-type structure best for heterogeneous tissues; Harmony
+      and scVI are faster but can over-correct). After integration,
+      cells should cluster by biology rather than by study.
+    example_outputs: "Integrated per-compartment embeddings + mixing-score metrics"
+
+  sensitivity_comparison:
+    sme_friendly_name: "Integration sensitivity comparison"
+    short: "Runs multiple integration methods side-by-side so you can pick the one that works best for your data."
+    long: |
+      Integration methods differ in how aggressively they mix cells.
+      This step runs several variants (typically Harmony + Scanorama +
+      BBKNN) and builds a side-by-side comparison — mixing scores,
+      before/after UMAPs, cluster agreement — so you can pick the
+      winner based on domain knowledge rather than a single method's
+      defaults. The sensitivity winner feeds the downstream clustering.
+    example_outputs: "Per-method integration outputs + a comparison dashboard"
+
+  dimensionality_reduction:
+    sme_friendly_name: "Dimensionality reduction"
+    short: "Projects thousands of gene dimensions into a 2-D view cells can be plotted in."
+    long: |
+      Each cell is a point in a space with tens of thousands of
+      dimensions (one per gene). To visualise and cluster them, this
+      step runs PCA to compress to ~50 dimensions, then UMAP to get a
+      2-D scatter plot. These lower-dimensional embeddings feed
+      clustering and every UMAP figure you'll see downstream.
+    example_outputs: "Per-compartment PCA + UMAP coordinates"
+
+  clustering:
+    sme_friendly_name: "Clustering"
+    short: "Groups transcriptionally-similar cells into clusters you can later label as cell types."
+    long: |
+      This step runs a community-detection algorithm (usually Leiden)
+      on the cell–cell similarity graph. Resolution is the main knob:
+      low resolution yields broad clusters (chondrocyte vs fibroblast
+      vs immune), high resolution splits those into fine subtypes. A
+      sweep across resolutions + a stability score tells you which
+      resolution is most defensible. Cluster IDs are not yet labelled
+      with cell types — that happens next.
+    example_outputs: "Per-compartment cluster labels + resolution sweep tables"
+
+  cell_type_annotation:
+    sme_friendly_name: "Cell-type annotation"
+    short: "Attaches a biological label — chondrocyte, fibroblast, T cell, etc. — to every cluster."
+    long: |
+      Clusters are just numbered groups until someone maps each number
+      to a cell type. This step does that mapping, typically via
+      marker-panel voting (e.g. ACAN/COL2A1/SOX9 = chondrocyte,
+      CD163/MRC1 = M2 macrophage) with a rescue rule for cells where
+      marker expression is weaker than the threshold. The two-stage
+      variant adds a fine within-group step that resolves subtypes
+      (fibrochondrocyte vs fibroblast, M1 vs M2 macrophage). Label
+      choice sets every downstream figure title and DE comparison.
+    example_outputs: "celltype_labels.tsv.gz per compartment + UMAP-by-celltype figures"
+
+  differential_expression:
+    sme_friendly_name: "Differential expression"
+    short: "Finds genes whose expression differs between conditions — e.g. young vs aged — within each cell type."
+    long: |
+      This is the core statistical comparison. For each cell type in
+      each compartment, pseudobulk pools the per-cell counts into
+      per-library totals, then fits a negative-binomial generalised
+      linear model (DESeq2 with an apeglm shrinkage prior). The model
+      design includes condition + study + the continuous axis you
+      specified (e.g. `ivd_score`). MAST is optionally run as a
+      single-cell-level sensitivity check. Outputs volcano plots, a
+      top-features heatmap, and positive-control panels to catch
+      batch-confounded false positives.
+    example_outputs: "Per-celltype DE tables + volcano + heatmap + positive-control panels"
+
+  cell_communication:
+    sme_friendly_name: "Cell-cell communication"
+    short: "Infers ligand-receptor signalling between cell types using methods like CellChat or LIANA."
+    long: |
+      This step scores likely intercellular signalling pairs by
+      checking whether both partners in a known ligand-receptor pair
+      are expressed above threshold in neighbouring cell populations.
+      Results are descriptive only — they identify plausible signalling
+      rather than prove causation. If your intake excluded this step,
+      it's skipped here.
+    example_outputs: "Ligand-receptor score tables + sender-receiver heatmaps"
+
+  trajectory:
+    sme_friendly_name: "Trajectory / pseudotime"
+    short: "Orders cells along a transcriptomic gradient — not real time, but a state continuum."
+    long: |
+      When cells sit on a continuous state gradient (e.g. healthy
+      chondrocytes transitioning to a degenerated state), trajectory
+      methods (Monocle3 / Slingshot) assign each cell a pseudotime
+      value. The root is the least-shifted population; cells further
+      along are transcriptionally more distant from root. This is not
+      biological time — it's a state ordering. Use it to identify
+      transition-associated genes, not to claim rates or mechanisms.
+    example_outputs: "Pseudotime values per cell + pseudotime-coloured UMAP"
+
+  interpretation:
+    sme_friendly_name: "Biological interpretation"
+    short: "Runs pathway enrichment and literature comparison to contextualise the DE results."
+    long: |
+      Differential-expression tables list genes, but what an SME wants
+      is a story — "which biological pathways are shifted?". This step
+      runs gene-set enrichment (typically GSEA on Hallmark / Reactome
+      collections) against the ranked DE gene lists, and optionally
+      cross-checks against a curated list of genes known to be involved
+      in the disease / process of interest.
+    example_outputs: "Enrichment tables + pathway bar charts + top-hit summaries"
+
+  reporting:
+    sme_friendly_name: "Final report"
+    short: "Assembles all prior results into a narrative document with figures + tables."
+    long: |
+      The final step collates everything above into a single report —
+      methods summary, per-stage figures, DE tables, pathway findings,
+      caveats. The report respects your claim boundary: findings are
+      phrased as associations rather than causal claims, and every
+      figure carries the method notes needed to reproduce it.
+    example_outputs: "A human-readable report document + linked figures"
+
+  review:
+    sme_friendly_name: "Results review"
+    short: "You check whether each upstream step produced what was expected before anything ships."
+    long: |
+      This is the human-in-the-loop review gate. You (the SME) scan
+      each completed step's outputs, confirm the numbers look
+      reasonable, and either accept or amend upstream choices. Nothing
+      is final until this step passes — if a figure looks wrong,
+      amending the stage here invalidates the forward-dependent steps
+      and reruns them with the new choice.

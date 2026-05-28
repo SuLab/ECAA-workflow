@@ -1,0 +1,66 @@
+id: psite_offset_calibration
+version: "1.0.0"
+role: operation
+description: |
+  Calibrate the ribosome P-site offset per read length for Ribo-seq
+  footprint-protected fragments. The P-site offset is the position
+  within an RPF where the ribosome's P-site sits — it's
+  read-length-dependent and library-specific. riboWaltz / Plastid /
+  Ribotaper at runtime. Required upstream of CDS-restricted RPF
+  quantification.
+edam_operation: "operation:3208"
+edam_data: "data:0863"
+edam_format: "format:2572"
+assignee: agent
+depends_on:
+  - alignment
+expected_artifacts:
+  - psite_offsets.tsv
+  - psite_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: ribo_seq
+required_figures:
+  - psite_offset_per_length
+  - frame_periodicity
+attributes:
+  candidate_tools:
+    - ribowaltz
+    - plastid
+    - ribotaper
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  P-site offsets are library-specific calibration constants — they
+  reflect how reverse-transcribed RPF reads map to the ribosome's
+  catalytic site. Report the per-length offsets + 3-nt-periodicity
+  diagnostics alongside every quantification result.
+inputs:
+  - name: aligned_rpfs
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0863"
+      label: "Sequence alignment"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:2572"
+      label: "BAM"
+    privacy_class: internal
+outputs:
+  - name: psite_offset_table
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: psite_offset_table
+      proposed_parent_terms:
+        - "data:0863"
+      definition: "Per-read-length P-site offset calibration table"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

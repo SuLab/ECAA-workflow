@@ -1,0 +1,4 @@
+# LD reference: 1000 Genomes Phase 3 EUR
+# Chromosome: 22
+# Variants: 5000
+# Source: https://www.internationalgenome.org/

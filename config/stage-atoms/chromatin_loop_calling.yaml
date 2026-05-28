@@ -1,0 +1,72 @@
+id: chromatin_loop_calling
+version: "1.0.0"
+role: operation
+description: |
+  Call statistically-significant chromatin loops from a contact
+  matrix (HiChIP / Hi-C / Micro-C). HiChIP loops are typically
+  anchored on a ChIP-seq peak set for the same mark (so this atom
+  accepts an optional anchor input). FitHiChIP / hichipper / HOMER
+  loop / Mustache / chromosight at runtime.
+edam_operation: "operation:3222"
+edam_data: "data:1255"
+edam_format: "format:3003"
+assignee: agent
+depends_on:
+  - chromatin_contact_calling
+expected_artifacts:
+  - loops.bedpe
+  - loop_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: chromatin_loops
+required_figures:
+  - loop_count_bar
+  - loop_size_distribution
+attributes:
+  candidate_tools:
+    - fithichip
+    - hichipper
+    - hiccups
+    - mustache
+    - chromosight
+resource_profile:
+  cpu: moderate
+  memory: large
+  gpu: false
+  runtime_class: hours
+claim_boundary: |
+  Chromatin loops are statistical contact enrichments at FDR; they
+  do not directly demonstrate functional gene regulation. Anchor
+  annotations + integration with expression / TF binding evidence
+  is needed for regulatory inferences.
+inputs:
+  - name: contact_matrix
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: chromatin_contact_matrix
+      proposed_parent_terms:
+        - "data:0863"
+      definition: "Multi-resolution chromatin contact matrix"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
+    privacy_class: internal
+outputs:
+  - name: chromatin_loops
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: chromatin_loop_table
+      proposed_parent_terms:
+        - "data:1255"
+      definition: "Per-condition chromatin loop call table (BEDPE)"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3003"
+      label: "BED"
+    coordinate_system: "0-based-half-open"
+    privacy_class: internal

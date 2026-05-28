@@ -1,0 +1,317 @@
+//! HTTP surface for `UnblockPath` dispatch.
+//!
+//! Two endpoints:
+//!
+//! - `GET /api/chat/session/:id/refusal/:refusal_id/unblock-paths` —
+//!   list every `UnblockPath` the v4 planner synthesized for the
+//!   refusal. Read-only; the UI calls this to populate the recovery
+//!   card.
+//! - `POST /api/chat/session/:id/refusal/:refusal_id/dispatch` — the
+//!   SME picked a path; route it to the deterministic server-side
+//!   handler. Wires `AttemptRepair`, `SupplyMissingMetadata`, and
+//!   `EscalateToReviewer`. `ResolveAssumption` and `Waiver` return
+//!   `400 BAD_REQUEST` with a `not_implemented` error code — the
+//!   planner still synthesizes the variants (the UI lists them via the
+//!   GET endpoint) but the dispatch surface refuses them rather than
+//!   silently succeeding on a tracing-only stub. The variants will be
+//!   wired when the assumption-ledger + credential-class registries
+//!   land.
+//!
+//! The refusal is looked up against the session's cached
+//! `compose_outcome` (populated by the v4 planner's most recent run).
+//! When the cached outcome isn't a `Refusal`, or the refusal id
+//! doesn't match, the endpoint returns 404 — the UI is expected to
+//! re-render in that case.
+
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use scripps_workflow_core::workflow_contracts::outcome::{ComposeOutcome, RefusalReport};
+use scripps_workflow_core::workflow_contracts::unblock_path::UnblockPath;
+
+use super::{BoundedJson, ChatAppState};
+
+/// JSON body for `POST.../dispatch`. `path_index` indexes into
+/// `refusal.unblock_paths`; `payload` is the per-variant data the
+/// dispatch handler consumes (assumption resolution value, credential
+/// IDs, metadata value, etc.).
+#[derive(Debug, Deserialize)]
+pub(super) struct DispatchRequest {
+    #[serde(default)]
+    pub path_index: usize,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub payload: serde_json::Value,
+}
+
+/// Stub response body for `POST.../dispatch`. Returns an
+/// acknowledgement carrying the dispatched path kind so the UI can
+/// surface a per-kind toast. Richer state (new `session.state`,
+/// mutated assumption ids, etc.) will be added when stubs are wired.
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct DispatchResponse {
+    pub session_id: Uuid,
+    pub refusal_id: String,
+    pub dispatched_path_kind: String,
+}
+
+/// Locate the active refusal report on the session's cached compose
+/// outcome. Returns `None` when the cached outcome isn't a refusal or
+/// the refusal id doesn't match.
+async fn lookup_refusal(
+    app: &ChatAppState,
+    session_id: Uuid,
+    refusal_id: &str,
+) -> Option<RefusalReport> {
+    let session = app.conversation.get_session(session_id).await?;
+    let outcome = session.compose_outcome.as_ref()?;
+    let ComposeOutcome::Refusal { report } = outcome else {
+        return None;
+    };
+    if report.id != refusal_id {
+        return None;
+    }
+    Some(report.clone())
+}
+
+/// `GET /api/chat/session/:id/refusal/:refusal_id/unblock-paths` —
+/// list every synthesized unblock path on the active refusal.
+///
+/// 200 → JSON array of `UnblockPath`.
+/// 404 → session or refusal not found (or cached outcome isn't a
+/// refusal).
+pub(super) async fn list_unblock_paths(
+    State(app): State<ChatAppState>,
+    Path((session_id, refusal_id)): Path<(Uuid, String)>,
+) -> impl IntoResponse {
+    match lookup_refusal(&app, session_id, &refusal_id).await {
+        Some(report) => Json(report.unblock_paths).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// `POST /api/chat/session/:id/refusal/:refusal_id/dispatch` — route
+/// the SME's chosen path to the deterministic server-side handler.
+///
+/// 200 → dispatched; body carries `DispatchResponse`.
+/// 400 → `path_index` out of range, or the chosen variant
+///         (`ResolveAssumption` / `Waiver`) is not yet implemented
+///         (`{"error":"not_implemented","kind":"...","detail":"..."}`).
+/// 404 → session/refusal not found.
+pub(super) async fn dispatch_unblock_path(
+    State(app): State<ChatAppState>,
+    Path((session_id, refusal_id)): Path<(Uuid, String)>,
+    BoundedJson(req): BoundedJson<DispatchRequest>,
+) -> impl IntoResponse {
+    let Some(report) = lookup_refusal(&app, session_id, &refusal_id).await else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Some(path) = report.unblock_paths.get(req.path_index) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+
+    // Each variant lands in its dedicated handler so the dispatch is
+    // a closed switch over the typed taxonomy. `ResolveAssumption` and
+    // `Waiver` are not yet wired (assumption-ledger + credential-class
+    // registry land later); they return a typed `not_implemented` 400
+    // so the UI surfaces the gap explicitly instead of receiving an
+    // acknowledgement for an op the server didn't actually perform.
+    let dispatched_kind = match path {
+        UnblockPath::ResolveAssumption { assumption_id, .. } => {
+            tracing::warn!(
+                target: "unblock_paths",
+                session_id = %session_id,
+                refusal_id = %refusal_id,
+                assumption_id = %assumption_id,
+                "ResolveAssumption dispatch refused: handler not yet implemented"
+            );
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "not_implemented",
+                    "kind": "resolve_assumption",
+                    "detail": "ResolveAssumption dispatch is not yet implemented in this version; the assumption-ledger wiring is deferred. Pick a different unblock path."
+                })),
+            )
+                .into_response();
+        }
+        UnblockPath::Waiver {
+            rule_id,
+            required_credentials,
+            ..
+        } => {
+            tracing::warn!(
+                target: "unblock_paths",
+                session_id = %session_id,
+                refusal_id = %refusal_id,
+                rule_id = %rule_id,
+                required_credentials = ?required_credentials,
+                "Waiver dispatch refused: handler not yet implemented"
+            );
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "not_implemented",
+                    "kind": "waiver",
+                    "detail": "Waiver dispatch is not yet implemented in this version; credential-class verification is deferred. Pick a different unblock path."
+                })),
+            )
+                .into_response();
+        }
+        UnblockPath::AttemptRepair {
+            strategy_id,
+            gap_id,
+            ..
+        } => {
+            // The repair-strategy registry is wired. The endpoint
+            // routes `AttemptRepair` dispatches at
+            // `POST /api/chat/session/:id/refusal/:refusal_id/dispatch`
+            // to the substrate-backed repair surface:
+            // `/repair/pending` / `/repair/:proposal_id/accept` /
+            // `/repair/:proposal_id/reject` are the canonical
+            // user-facing endpoints. The dispatch ack here records the
+            // intent into substrate so the UI's optimistic update has
+            // a stable shape; the SME then drives accept/reject via
+            // the dedicated repair endpoints (which require the
+            // proposal id, not the gap id).
+            tracing::info!(
+                target: "unblock_paths",
+                session_id = %session_id,
+                refusal_id = %refusal_id,
+                strategy_id = %strategy_id,
+                gap_id = %gap_id,
+                "AttemptRepair dispatch routed to repair-proposals service (v4 P5)"
+            );
+            // Emit a substrate breadcrumb so the audit trail captures
+            // the SME's explicit "attempt repair" intent. The repair
+            // endpoint's accept/reject calls record the load-bearing
+            // RepairAccepted / RepairRejected rows.
+            scripps_workflow_core::decision_substrate::record(
+                scripps_workflow_core::decision_substrate::VerifierDecision::RepairProposed {
+                    id: scripps_workflow_core::decision_substrate::stable_id(
+                        "repair_dispatch_intent",
+                        strategy_id,
+                        gap_id,
+                    ),
+                    timestamp: scripps_workflow_core::decision_substrate::timestamp(),
+                    gap_id: gap_id.clone(),
+                    strategy: strategy_id.clone(),
+                    risk_class: String::from("dispatched"),
+                    proposal_payload: format!(
+                        "{{\"dispatch_intent\":true,\"strategy_id\":\"{}\",\"gap_id\":\"{}\"}}",
+                        strategy_id, gap_id
+                    ),
+                },
+            );
+            "attempt_repair"
+        }
+        UnblockPath::SupplyMissingMetadata { field, .. } => {
+            // Route to the per-field intake mutation
+            // (set_intake_field / set_intake_method). The handler is
+            // currently stubbed so the dispatch ack roundtrips.
+            tracing::info!(
+                target: "unblock_paths",
+                session_id = %session_id,
+                refusal_id = %refusal_id,
+                field = %field,
+                "SupplyMissingMetadata dispatch (phase 4 stub; phase 5 mutates intake)"
+            );
+            "supply_missing_metadata"
+        }
+        UnblockPath::EscalateToReviewer {
+            reviewer_class,
+            required_artifacts,
+            ..
+        } => {
+            // Create a typed escalation entry on the session's decision
+            // log + open an out-of-band reviewer request. Currently
+            // captures the request via tracing only.
+            tracing::info!(
+                target: "unblock_paths",
+                session_id = %session_id,
+                refusal_id = %refusal_id,
+                reviewer_class = %reviewer_class,
+                required_artifacts = ?required_artifacts,
+                "EscalateToReviewer dispatch (phase 4 stub; phase 5 opens escalation)"
+            );
+            "escalate_to_reviewer"
+        }
+    };
+
+    Json(DispatchResponse {
+        session_id,
+        refusal_id,
+        dispatched_path_kind: dispatched_kind.to_string(),
+    })
+    .into_response()
+}
+
+/// Route inventory for `mod.rs::ALL_ROUTES`.
+pub(super) const ROUTES: &[(&str, &str)] = &[
+    (
+        "GET",
+        "/api/chat/session/:id/refusal/:refusal_id/unblock-paths",
+    ),
+    ("POST", "/api/chat/session/:id/refusal/:refusal_id/dispatch"),
+];
+
+/// Per-domain `routes()` builder. Merged by `mod.rs::router`.
+pub(super) fn routes() -> axum::Router<ChatAppState> {
+    axum::Router::new()
+        .route(
+            "/api/chat/session/:id/refusal/:refusal_id/unblock-paths",
+            axum::routing::get(list_unblock_paths),
+        )
+        .route(
+            "/api/chat/session/:id/refusal/:refusal_id/dispatch",
+            axum::routing::post(dispatch_unblock_path),
+        )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chat_routes::test_support::make_router;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::util::ServiceExt;
+
+    /// Smoke test: GET on an unknown session returns 404. Exercising
+    /// the route table is the load-bearing assertion here — the
+    /// dispatch logic itself is tested below.
+    #[tokio::test]
+    async fn list_returns_404_on_unknown_session() {
+        let (router, _app) = make_router(vec![]).await;
+        let fake = Uuid::new_v4();
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!(
+                "/api/chat/session/{}/refusal/r1/unblock-paths",
+                fake
+            ))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn dispatch_returns_404_on_unknown_session() {
+        let (router, _app) = make_router(vec![]).await;
+        let fake = Uuid::new_v4();
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/chat/session/{}/refusal/r1/dispatch", fake))
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"path_index": 0, "payload": {}}"#))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+}

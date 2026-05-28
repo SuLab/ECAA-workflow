@@ -1,0 +1,78 @@
+id: 21_post_emission_question
+category: post_emission_followup
+description: |
+  After the package is emitted, the SME asks a follow-up question
+  ("what happens next?"). The plan §3.4 says the assistant should
+  produce a follow-up turn explaining what the harness will do and
+  offering to start it. The session should stay in Emitted (per §5.1
+  the Emitted state absorbs subsequent triggers — the conversation
+  doesn't roll back to Intake just because the user typed something).
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq DE study, 20 samples, IBD vs control, human, hg38.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+  - kind: user
+    text: "Now what? What does the agent actually do next?"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk RNA-seq DE, 20 samples, IBD vs control, human, hg38
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's the plan:
+        - 20 human samples (IBD vs control)
+        - hg38, standard bulk DE pipeline
+
+        Reports gene-level statistical associations between disease state
+        and expression. Click Accept or correct.
+  - kind: text
+    text: "Confirm or correct when ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The package is written. The execution agent will run alignment,
+      quantification, normalization, and DE in sequence — the package
+      tells it which decisions are pinned (none in this case) and which
+      to make from the data. I'll let you know if it hits anything that
+      needs your input. Want me to start it now or wait?
+  # Post-emission turn — SME asks "now what?"
+  - kind: text
+    text: |
+      Once you say go, the agent runs the package end to end. Any
+      blockers it hits — for example, batch effects it can't auto-resolve
+      — get routed back here so you can decide. The first results
+      typically land within a few minutes of starting; the full pipeline
+      may take longer depending on read counts and reference indexes.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: the assistant doesn't try to call propose_summary_confirmation
+  or emit_package again after emission (the Emitted state absorbs new
+  prose but doesn't roll back). The "what does the agent actually do?"
+  follow-up should get a concrete, plain-language explanation of the
+  pipeline phases without re-emitting or re-summarizing the plan.

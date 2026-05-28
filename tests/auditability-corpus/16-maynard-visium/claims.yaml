@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "16-maynard-visium"
+claims:
+  - id: "16-maynard-visium-claim-001"
+    text: "Spots loaded (spatialLIBD SPE header): 47,681"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 47681
+    tolerance: 0.01
+  - id: "16-maynard-visium-claim-002"
+    text: "Annotated spots (layer_guess_reordered): ≥ 47,329 (99.26%)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 47329
+    tolerance: 0.01
+  - id: "16-maynard-visium-claim-003"
+    text: "Sections / donors (Maynard 2021 Methods): 12 / 3 (Br5292, Br5595, Br8100)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 12
+    tolerance: 0.0
+  - id: "16-maynard-visium-claim-004"
+    text: "ARI on section 151673: ≥ 0.45 (SpaGCN/STAGATE/BayesSpace/PRECAST benchmark range 0.45-0.68)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 0.45
+    tolerance: 0.1
+  - id: "16-maynard-visium-claim-005"
+    text: "Mean ARI across 12 sections: ≥ 0.40 (benchmark mean 0.40-0.55)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 0.40
+    tolerance: 0.1
+  - id: "16-maynard-visium-claim-006"
+    text: "Moran's I on L1-L6 laminar markers (gray matter): ≥ 0.6"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: 0.6
+    tolerance: 0.1
+  - id: "16-maynard-visium-claim-007"
+    text: "Cluster count k for primary ARI: 7 (6 layers + WM, canonical)"
+    contract: categorical
+    source_table: "results/tables/clusters.csv"
+    expected_value: 7
+    tolerance: 0.0
+  - id: "16-maynard-visium-claim-008"
+    text: "SVGs recovered (nnSVG / SPARK-X): ≥ 2,000"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: 2000
+    tolerance: 0.1
+  - id: "16-maynard-visium-claim-009"
+    text: "Top laminar markers recovered: MOBP and MBP (WM)"
+    contract: categorical
+    source_table: "results/tables/svg.csv"
+    expected_value: "MOBP"
+    tolerance: null
+  - id: "16-maynard-visium-claim-010"
+    text: "Top laminar markers recovered: PCP4 (L5) and RORB (L4)"
+    contract: categorical
+    source_table: "results/tables/svg.csv"
+    expected_value: "PCP4"
+    tolerance: null
+  - id: "16-maynard-visium-claim-011"
+    text: "Emitted workflow contains stage 'discover_clustering': BayesSpace/SpaGCN spatial clustering at k=7"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_clustering"
+    tolerance: null
+  - id: "16-maynard-visium-claim-012"
+    text: "Emitted workflow contains stage 'compute_morans_i': spatial autocorrelation per gene on laminar marker set"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "compute_morans_i"
+    tolerance: null
+  - id: "16-maynard-visium-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null
+  - id: "16-maynard-visium-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 16-maynard-visium"
+    contract: numeric_table_lookup
+    source_table: "results/tables/svg.csv"
+    expected_value: null
+    tolerance: null

@@ -1,0 +1,93 @@
+id: clinical_sensitivity_analysis
+version: "1.0.0"
+role: operation
+description: |
+  Run prespecified sensitivity analyses against the primary endpoint
+  result: per-protocol (PP) population rerun, tipping-point missing-
+  data sensitivity (varying the assumed treatment effect on
+  withdrawals / dropouts until significance is overturned), and any
+  additional SAP-named robustness checks. Reads the per-endpoint
+  effect-size table from `clinical_endpoint_analysis` plus the
+  imported CDISC ADaM dataset (to recompute against alternative
+  analysis populations). Emits a structured sensitivity-report table
+  with the primary result, each sensitivity rerun result, and the
+  tipping-point parameter. Method-neutral over the imputation
+  framework — typical implementations use multiple imputation
+  (`mice`, SAS `proc mi`), pattern-mixture / control-based imputation,
+  or jump-to-reference (`J2R`).
+edam_operation: "operation:3659"
+edam_data: "data:0951"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - clinical_endpoint_analysis
+expected_artifacts:
+  - sensitivity_report.tsv
+  - tipping_point_summary.json
+  - manifest.json
+  - result.json
+figure_exempt:
+  reason: "Sensitivity-report + tipping-point parameter table is a structured intermediate consumed by reporting. The SME-facing tipping-point curve is assembled in the downstream reporting atom alongside the endpoint + safety + subgroup sections."
+  category: intermediate
+attributes:
+  candidate_tools:
+    - r_mice
+    - sas_proc_mi
+    - r_rbmi
+    - python_statsmodels_mice
+    - control_based_imputation
+    - jump_to_reference
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Sensitivity results are descriptive robustness checks against the
+  prespecified primary analysis. Report each sensitivity rerun's
+  effect estimate + CI alongside the primary result + tipping-point
+  parameter. Sensitivity reruns do not replace the primary endpoint
+  conclusion; flag any divergence between primary and sensitivity as
+  a robustness signal requiring SME interpretation.
+# Explicit rich ports.
+# Inputs are the per-endpoint effect-size table from
+# `clinical_endpoint_analysis` AND the imported CDISC ADaM dataset
+# (for alternative-population reruns + missing-data imputation).
+# Output is a sensitivity-report table.
+inputs:
+  - name: endpoint_results
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "clinical_endpoint_results"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-endpoint effect-size table from clinical_endpoint_analysis."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+  - name: imported_trial_dataset
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2531"
+      label: "Experiment annotation"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: sensitivity_report
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "clinical_sensitivity_report"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Sensitivity-report table aggregating per-protocol + tipping-point + alternative-imputation reruns of the SAP primary endpoint."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "endpoint_tested"
+    privacy_class: internal

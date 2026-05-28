@@ -1,0 +1,53 @@
+schema_version: "0.1"
+id: ehr_clinical_prediction
+version: "1.0.0"
+description: |
+  EHR clinical-prediction analysis: derive labels from raw EHR tables
+  (e.g., Sepsis-3 onset via the mimic-code derived table), extract
+  windowed vital-sign / lab features with a mandatory leakage audit,
+  fit one or more model families (gradient-boosted trees plus a
+  sequence model), then audit calibration, fairness, and external
+  generalization on a separate holdout cohort. The archetype models
+  the canonical YAIB-style EHR-prediction pipeline (van de Water 2024
+  ICLR); concrete model and label choices stay method-neutral.
+sme_summary: |
+  Train and externally validate a clinical-prediction model against
+  windowed EHR features, with mandatory leakage, calibration, fairness,
+  and external-cohort audits.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: ehr_clinical_prediction
+claim_boundary: |
+  Report descriptive prediction performance, calibration, subgroup
+  fairness, and external-cohort generalization metrics. No
+  clinical-deployment, clinical-decision-support, or bedside-triage
+  claims. Any actionable interpretation is hypothesis-generating and
+  must be labeled as such.
+atoms:
+  - atom_id: data_import
+    required: true
+  - atom_id: clinical_label_derivation
+    required: true
+    depends_on: [data_import]
+  - atom_id: clinical_feature_extraction
+    required: true
+    depends_on: [clinical_label_derivation]
+  - atom_id: predictive_model_fit
+    required: true
+    depends_on: [clinical_feature_extraction]
+  - atom_id: calibration_audit
+    required: true
+    depends_on: [predictive_model_fit]
+  - atom_id: fairness_audit
+    required: true
+    depends_on: [predictive_model_fit]
+  - atom_id: external_validation
+    required: true
+    depends_on: [predictive_model_fit]
+  - atom_id: reporting
+    required: true
+    depends_on: [calibration_audit, fairness_audit, external_validation]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]

@@ -1,0 +1,9 @@
+{
+  "compartments": [
+    {
+      "id": "batch1",
+      "mixing_pre": 0.35,
+      "mixing_post": 0.75
+    }
+  ]
+}

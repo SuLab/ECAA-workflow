@@ -1,0 +1,8 @@
+{
+  "modality": "methylation",
+  "project_class": "bioinformatics",
+  "organism_taxon_id": 9606,
+  "organism_name": "Homo sapiens",
+  "methods": [],
+  "literature_review_requested": false
+}

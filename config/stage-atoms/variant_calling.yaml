@@ -1,0 +1,48 @@
+id: variant_calling
+version: "1.0.0"
+role: operation
+description: |
+  Call germline or somatic SNVs / indels from aligned reads. HaplotypeCaller /
+  DeepVariant / Mutect2 / Strelka2 selected at runtime by experimental design
+  (germline cohort vs tumor-normal pair vs tumor-only).
+edam_operation: "operation:3227"
+edam_data: "data:0863"
+edam_format: "format:3016"
+assignee: agent
+depends_on:
+  - alignment
+attributes:
+  candidate_tools:
+    - haplotypecaller
+    - deepvariant
+    - mutect2
+    - strelka2
+    - dragen
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: false
+  runtime_class: hours
+# Explicit rich ports.
+inputs:
+  - name: aligned_reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0863"
+      label: "Sequence alignment"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:2572"
+      label: "BAM"
+    privacy_class: internal
+outputs:
+  - name: variants
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3498"
+      label: "Sequence variations"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3016"
+      label: "VCF"
+    privacy_class: internal

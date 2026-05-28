@@ -1,0 +1,55 @@
+id: 65_heuristic_multi_modality_routed
+category: non_scripted_tool_selection
+description: |
+  R5.19 Phase 5 — cross-omics conjunction routing. The
+  `HeuristicMockBackend` must detect the "joint analysis of X and Y"
+  signal in the SME prose and dispatch `propose_quick_replies` BEFORE
+  `classify_intake` runs, mirroring the live LLM's expected behavior
+  under §S6.4. After the SME's confirmation turn, the heuristic walks
+  the rest of the canonical happy-path (classify → mutate → propose
+  summary → emit).
+
+  Pairs with fixture 66 (single-modality regression guard): together
+  they verify the cross-omics path is gated on the conjunction signal,
+  not on plain modality keyword count.
+
+
+mock_backend: heuristic_auto_confirm
+
+flow:
+  - kind: user
+    text: |
+      joint analysis of bulk RNA-seq and ATAC-seq from human PBMCs to
+      identify cis-regulatory programs across treatment conditions.
+  - kind: user
+    text: "Yes, joint cross-omics analysis"
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+# mock_responses omitted — heuristic backend ignores it.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - propose_quick_replies
+    - classify_intake
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  The key assertion is ordering: `propose_quick_replies` MUST appear
+  in the tool log BEFORE `classify_intake`. This is the cross-omics
+  conjunction-detection gate landing — without it, the heuristic
+  would skip directly to `classify_intake` on the first SME prose
+  turn and the multi-modality fan-out would never be confirmed by
+  the SME. Regression guard: if `propose_quick_replies` slips after
+  `classify_intake`, the fixture-runner's order-preserving
+  `tool_calls_observed` assertion fails.

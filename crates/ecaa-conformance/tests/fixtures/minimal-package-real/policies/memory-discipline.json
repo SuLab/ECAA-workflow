@@ -1,0 +1,29 @@
+{
+  "guidance": [
+    "Never materialize a dense cell×gene matrix larger than max_dense_matrix_gb; switch to an on_disk_library_hints entry instead.",
+    "For cohorts above large_cohort_cell_threshold_k total cells, prefer per-compartment or per-batch merges over a single global merge.",
+    "Seurat v5: use BPCells::write_matrix_dir + open_matrix_dir as the assay backing for SCTransform v2 on large cohorts.",
+    "anndata: pass backed='r' when reading and use concat(...) with on-disk writes instead of loading every file into RAM.",
+    "If an upstream stage produced per-compartment artifacts and a later stage requests a global merge, verify the global merge is actually consumed downstream before materializing it — a redundant merge has caused production OOMs in the past."
+  ],
+  "large_cohort_cell_threshold_k": 100,
+  "max_dense_matrix_gb": 20,
+  "on_disk_library_hints": {
+    "R": [
+      "BPCells",
+      "DelayedArray",
+      "HDF5Array"
+    ],
+    "python": [
+      "anndata (backed='r')",
+      "zarr",
+      "h5py"
+    ]
+  },
+  "references": [
+    "https://bnprks.github.io/BPCells/",
+    "https://anndata.readthedocs.io/en/stable/generated/anndata.AnnData.html#anndata.AnnData",
+    "https://satijalab.org/seurat/articles/seurat5_bpcells_interaction_vignette"
+  ],
+  "schema_version": 1
+}

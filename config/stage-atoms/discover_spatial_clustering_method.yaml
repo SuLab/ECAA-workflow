@@ -1,0 +1,52 @@
+id: discover_spatial_clustering_method
+version: "1.0.0"
+role: discovery
+discovery_kind: tool_selection
+description: |
+  Runtime tool selection for spatial_domain_segmentation
+  (BANKSY / BayesSpace / Squidpy-neighbors / GraphST). Reads
+  the spot-level expression matrix + spatial coordinates,
+  picks the clustering method based on resolution + smoothing.
+edam_operation: "swfc:method_discovery"
+assignee: agent
+depends_on:
+  - qc_preprocessing
+attributes:
+  axis: spatial_clustering_method
+  candidates: [banksy, bayesspace, squidpy_neighbors, graphst]
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: seconds
+figure_exempt:
+  reason: "Discovery atom: selects spatial clustering method at runtime; the downstream spatial_domain_segmentation atom carries the figure obligation."
+  category: non_plottable
+inputs:
+  - name: spatial_expression
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "spatial_transcriptomics"
+    statistical_state: "normalised"
+    privacy_class: internal
+outputs:
+  - name: method_choice
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "method_choice"
+      proposed_parent_terms:
+        - "data:2080"
+      definition: "Selected spatial clustering method + rationale"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    modality: "spatial_transcriptomics"
+    statistical_state: "selected"
+    privacy_class: internal

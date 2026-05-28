@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0",
+  "targetStages": [
+    "discover_cell_communication",
+    "cell_cell_communication",
+    "validate_cell_communication"
+  ],
+  "claimBoundary": {
+    "associativeOnly": [
+      "Ligand-receptor inferences are co-expression signals, not observed physical interactions",
+      "Predicted signaling direction is a tool-derived score, not a mechanistic claim"
+    ],
+    "requiresEvidence": [
+      "Any communication edge claim must cite the tool, L-R database version, permutation count, and significance threshold",
+      "Cross-condition communication shifts must cite the donor-level aggregation and multiple-testing correction used"
+    ]
+  },
+  "validationContract": {
+    "requiredOutputs": [],
+    "metrics": []
+  },
+  "evidenceRules": [],
+  "note": "TODO(lotz-SME-review): fill required outputs, metrics, and evidence rules"
+}

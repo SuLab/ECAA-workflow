@@ -1,0 +1,3 @@
+ChIP-seq peak calling for transcription factor binding sites in human cell lines.
+Use MACS3 to call narrow peaks and produce a BED file output of binding regions for
+downstream motif analysis.

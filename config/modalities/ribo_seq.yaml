@@ -1,0 +1,37 @@
+schema_version: "0.1"
+id: ribo_seq
+display_name: Ribo-seq
+keywords:
+- ribo-seq
+- riboseq
+- ribo seq
+- ribosome profiling
+- ribosome-profiling
+- riboprofile
+- ribosome-protected
+- ribosome protected
+- rpf
+- rpfs
+- translation efficiency
+- translational regulation
+- ribowaltz
+- anota2seq
+- xtail
+- psite
+- p-site
+- translatome
+edam_topic: topic:3308
+edam_operation: operation:3223
+archetype_id: ribo_seq_translation
+taxonomy_path: stage-taxonomies/rnaseq-de.yaml
+semantic_equivalence_bounds:
+  - metric: translation_efficiency_spearman_rho
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/tables/te_*.csv"
+    rationale: "Spearman correlation of per-gene translation efficiency scores ≥ 0.90 between runs"
+  - metric: log2fc_abs_delta
+    operator: "<="
+    threshold: 0.05
+    applies_to: "results/tables/de_*.csv"
+    rationale: "DE log2FC delta ≤ 0.05 for translational-efficiency contrasts (looser than bulk due to RPF count sparsity)"

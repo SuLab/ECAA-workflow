@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "06-tcga-brca-rnaseq"
+claims:
+  - id: "06-tcga-brca-rnaseq-claim-001"
+    text: "Fig 1B (peak distribution by region): counts in same proportions as paper"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: "counts in same proportions as paper"
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-002"
+    text: "Fig 1B (peak count): 27,156 / 39,207 active enhancers; 9,896 / 10,663 active promoters"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 27156
+    tolerance: 0.1
+  - id: "06-tcga-brca-rnaseq-claim-003"
+    text: "Fig 1C (saturation): 80% saturation < 40 samples; 90% at ~50 samples (paper text)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 0.8
+    tolerance: 0.05
+  - id: "06-tcga-brca-rnaseq-claim-004"
+    text: "Fig 1D (volcano): 2,226 up / 1,979 down at |log2FC|>1, padj<1e-5"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/de.csv"
+    expected_value: 2226
+    tolerance: 0.1
+  - id: "06-tcga-brca-rnaseq-claim-005"
+    text: "Fig 1F (overlap): 18,477 unique to ours / 24,652 shared / 11,796 unique to Cohen"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 18477
+    tolerance: 0.1
+  - id: "06-tcga-brca-rnaseq-claim-006"
+    text: "Fig 2A (heatmap): 5,590 gain / 1,100 lost VELs (= 6,690 total significant VELs at recurrence ≥14 / ≥19)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 5590
+    tolerance: 0.1
+  - id: "06-tcga-brca-rnaseq-claim-007"
+    text: "Fig 2B (recurrence curve): hits 95% at recurrence ≥14 (gain) and ≥19 (lost)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 0.95
+    tolerance: 0.05
+  - id: "06-tcga-brca-rnaseq-claim-008"
+    text: "Fig 2D (GREAT): colon adenocarcinoma, large intestine adenocarcinoma, gastrointestinal neoplasm at top"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: "colon adenocarcinoma, large intestine adenocarcinoma, gastrointestinal neoplasm at top"
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-009"
+    text: "Fig 2E-G (PCA): tumor and native clusters separate on PC1 in 2E and 2F (gene exp + enhancer); in 2G (H3K4me3 promoter) they overlap"
+    contract: categorical
+    source_table: "results/tables/de.csv"
+    expected_value: "tumor and native clusters separate on PC1 in 2E and 2F (gene exp + enhancer); in 2G (H3K4me3 promoter) they overlap"
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-010"
+    text: "Fig 3A-B (CMS heatmap): CMS1=10, CMS2=16, CMS3=13, CMS4=15, none=7 of 61"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 10
+    tolerance: 0.1
+  - id: "06-tcga-brca-rnaseq-claim-011"
+    text: "Fig 3E (CMS-specific gain VELs): CMS2 = 5,826 (highest), CMS1 = 1,139, CMS3 = 587, CMS4 = 31"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 5826
+    tolerance: 0.1
+  - id: "06-tcga-brca-rnaseq-claim-012"
+    text: "Fig 3G (CMS-specific): CMS1 = 80, CMS2 = 838, CMS3 = 5, CMS4 = 0"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: 80
+    tolerance: 0.1
+  - id: "06-tcga-brca-rnaseq-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null
+  - id: "06-tcga-brca-rnaseq-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 06-tcga-brca-rnaseq"
+    contract: numeric_table_lookup
+    source_table: "results/tables/de.csv"
+    expected_value: null
+    tolerance: null

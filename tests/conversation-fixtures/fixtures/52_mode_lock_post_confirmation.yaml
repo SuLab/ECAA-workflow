@@ -1,0 +1,58 @@
+id: 52_mode_lock_post_confirmation
+category: wave8_mode_lock
+description: |
+  Plan §3 matrix fixture 40 equivalent: once the SME clicks Confirm,
+  `session.mode_locked` flips true and subsequent confirms cannot change
+  the discipline. This fixture runs through one confirmation, then
+  follows up with an SME-initiated amendment — the mode stays what it
+  was at confirm time.
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq meta-analysis across 3 GEO studies. Standard
+      differential expression pipeline.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        Bulk RNA-seq meta-analysis; 3 GEO studies; DESeq2 differential
+        expression per study and pooled model.
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Bulk RNA-seq meta-analysis plan.
+  - kind: text
+    text: |
+      Accept when ready.
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      Package emitted. Mode is now locked at Exploratory (bio default);
+      any future amend_stage_method on a non-prespecified stage runs
+      without a rationale gate.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - policies/container.json
+
+rubric_notes: |
+  Validates the end-to-end emission for a default Exploratory session.
+  Mode-lock semantics are covered at the unit level by
+  `confirm_with_modes` tests in service/transitions.rs.

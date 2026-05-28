@@ -1,0 +1,19 @@
+schema_version: "0.1"
+id: metagenomics
+display_name: Metagenomics
+keywords: [metagenom, "16s", amplicon, microbiome, "shotgun metagen", metaphlan, kraken, bracken, humann, qiime]
+edam_topic: "topic:3174"
+edam_operation: "operation:3460"
+taxonomy_path: stage-taxonomies/metagenomics.yaml
+archetype_id: metagenomics_taxonomic
+semantic_equivalence_bounds:
+  - metric: spearman_rho
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/tables/taxonomy_*.csv"
+    rationale: "Grant §G2 metagenomics: Spearman correlation of relative-abundance profiles ≥ 0.90"
+  - metric: humann3_ec_concordance
+    operator: ">="
+    threshold: 0.64
+    applies_to: "results/tables/humann3_*.tsv"
+    rationale: "Grant §G2 metagenomics: HUMAnN3 EC-level pathway concordance ≥ 0.64 (recreation plan baseline)"

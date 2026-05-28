@@ -1,0 +1,146 @@
+# 10 — DNA methylation epigenetic aging clock reanalysis
+#
+# Horvath + Hannum clock re-derivation on 450k IDAT with age-EWAS
+# on an independent calibration cohort.
+
+name: DNA methylation epigenetic aging clock
+modality: methylation
+
+beats:
+  - user: |
+      I want to re-derive the Horvath 2013 and Hannum 2013 epigenetic
+      aging clocks on public 450k methylation data.
+    assistant:
+      content: |
+        Horvath + Hannum clock re-derivation — got it. Which cohorts?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+      visibleText:
+        - "Horvath"
+        - "Hannum"
+      forbiddenText:
+        - "DAG"
+
+  - user: |
+      GSE40279 (Hannum's own training cohort) and GSE87571 (Johansson,
+      an independent calibration cohort).
+    assistant:
+      content: |
+        GSE40279 Hannum training (656 whole blood, ages 19–101) and
+        GSE87571 Johansson calibration (729 whole blood, ages 14–94).
+        Both are 450k; I'll start from raw IDAT.
+    expect:
+      visibleText:
+        - "GSE40279"
+        - "GSE87571"
+      forbiddenText:
+        - "methylKit"
+        - "I recommend"
+
+  - user: |
+      SeSAMe as the primary preprocessing pipeline, with minfi as a
+      cross-validation check. funnorm normalization.
+    assistant:
+      content: |
+        SeSAMe primary, minfi cross-validation, funnorm normalization.
+        Cross-pipeline MAE reported as a sanity check — preprocessing
+        choice materially affects clock MAE by 0.5–2 years.
+    expect:
+      visibleText:
+        - "SeSAMe"
+        - "minfi"
+
+  - user: |
+      Right. Cell-composition adjustment with IDOL for the EWAS,
+      robust linear model with cell-composition covariates.
+    assistant:
+      content: |
+        IDOL deconvolution, robust linear EWAS with cell-composition
+        covariates, DMRcate as the primary DMR tool with bumphunter
+        as sensitivity. Top CpGs ranked against the Horvath, Hannum,
+        and Levine PhenoAge clock CpG lists.
+    expect:
+      visibleText:
+        - "IDOL"
+        - "DMRcate"
+
+  - user: |
+      Fail closed if Horvath MAE on GSE87571 exceeds 4 years or if
+      Horvath CpG coverage on 450k drops below the completeness floor.
+    assistant:
+      content: |
+        Here's the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **DNA methylation aging clock — Horvath + Hannum re-derivation**
+
+          - **Training cohort:** GSE40279 Hannum (656 whole blood)
+          - **Calibration cohort:** GSE87571 Johansson (729 whole blood)
+          - **Array:** 450k IDAT
+          - **Preprocessing:** SeSAMe primary, minfi cross-validation;
+            funnorm normalization; cross-pipeline MAE reported
+          - **Clocks:** Horvath 2013 + Hannum 2013 primary, Levine
+            PhenoAge and Lu GrimAge optional
+          - **Cell composition:** IDOL deconvolution (mandatory for EWAS)
+          - **EWAS:** robust linear with cell-comp covariates,
+            DMRcate primary, bumphunter sensitivity
+          - **Fail-closed:** Horvath MAE > 4 years on GSE87571
+            OR Horvath CpG coverage below 450k completeness floor
+          - **Claim boundary:** descriptive epigenetic age prediction
+            and age-EWAS association only. No claims about biological
+            age, healthspan, mortality risk, lifespan prediction, or
+            intervention efficacy. "Age acceleration" interpretations
+            are correlative, not causal, and hypothesis-generating.
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "Claim boundary"
+        - "hypothesis-generating"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: "Package emitted — aging clock reanalysis ready for execution."
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I want to re-derive the Horvath 2013 and Hannum 2013 epigenetic aging
+    clocks on public 450k methylation data. Two cohorts: GSE40279 (Hannum's own
+    training cohort, 656 whole blood samples ages 19-101) and GSE87571
+    (Johansson independent calibration, 729 whole blood ages 14-94). Start from
+    raw IDAT. SeSAMe as the primary preprocessing pipeline with minfi as a
+    cross-validation check, funnorm normalization. Cell-composition adjustment
+    with IDOL deconvolution for the EWAS, robust linear model with
+    cell-composition covariates. DMRcate as the primary DMR tool with bumphunter
+    as sensitivity. Fail closed if Horvath MAE on GSE87571 exceeds 4 years or
+    if Horvath CpG coverage on 450k drops below the completeness floor. Internal
+    use, public data only. Once we agree on the plan, emit the package to
+    {pkgDir}.
+  followups:
+    - trigger: "(?i)(preprocessing|pipeline|SeSAMe|minfi)"
+      reply: "SeSAMe primary, minfi cross-validation, funnorm normalization. Cross-pipeline MAE reported."
+    - trigger: "(?i)(cell.comp|IDOL|deconvolution)"
+      reply: "IDOL deconvolution is mandatory for the EWAS. Robust linear model with cell-composition covariates."
+    - trigger: "(?i)(MAE|fail.closed|threshold|floor)"
+      reply: "Fail closed if Horvath MAE exceeds 4 years on GSE87571 or CpG coverage drops below the completeness floor."
+    - trigger: "(?i)(clock|Horvath|Hannum|PhenoAge|GrimAge)"
+      reply: "Horvath 2013 and Hannum 2013 are primary. Levine PhenoAge and Lu GrimAge are optional."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "methylKit"
+      - "I recommend"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 4

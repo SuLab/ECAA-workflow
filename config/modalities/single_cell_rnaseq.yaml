@@ -1,0 +1,54 @@
+schema_version: "0.1"
+id: single_cell_rnaseq
+display_name: Single-cell RNA-seq
+keywords:
+  - "single cell"
+  - "single-cell"
+  - "single nucleus"
+  - "single-nucleus"
+  - "scrna-seq"
+  - "scrnaseq"
+  - "sn rna-seq"
+  - "snrna-seq"
+  - "snrnaseq"
+  - "10x"
+  - "chromium"
+  - "dropseq"
+  - "drop-seq"
+  - "cellranger"
+  - "cell ranger"
+  - "filtered feature bc matrix"
+  - "filtered_feature_bc_matrix"
+  - "raw feature bc matrix"
+  - "seurat"
+  - "scanpy"
+  - "sc-rna"
+  - "scRNA"
+  - "single-cell rna"
+  - "single-cell transcriptomics"
+  - "harmony"
+  - "scvi"
+  - "scVI"
+  - "anndata"
+  - "h5ad"
+  - "loompy"
+  # NOTE: "cell type" / "cell population" / "cell state" intentionally
+  # NOT included here. They're generic biology vocabulary that every
+  # modality eventually mentions (a ChIP-seq paper says "cell type-
+  # specific peaks", a bulk RNA-seq paper says "cell population
+  # differences") and they were misrouting ChIP / ATAC / spatial
+  # scenarios into single_cell_rnaseq. Per RCA-tier-1 fix.
+edam_topic: "topic:3308"
+edam_operation: "operation:3432"
+taxonomy_path: stage-taxonomies/single-cell.yaml
+archetype_id: single_cell_de
+semantic_equivalence_bounds:
+  - metric: ari
+    operator: ">="
+    threshold: 0.90
+    rationale: "Grant §G2 scRNA cluster ARI bound: Adjusted Rand Index between cluster label vectors ≥ 0.90"
+  - metric: cluster_marker_jaccard
+    operator: ">="
+    threshold: 0.85
+    applies_to: "results/tables/markers_*.csv"
+    rationale: "Per-cluster marker-gene Jaccard ≥ 0.85 across matched cluster pairs"

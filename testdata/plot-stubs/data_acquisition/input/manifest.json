@@ -1,0 +1,104 @@
+{
+  "samples": [
+    {
+      "id": "sample_00",
+      "size_bytes": 7049810275,
+      "study_id": "study_0"
+    },
+    {
+      "id": "sample_01",
+      "size_bytes": 8050270990,
+      "study_id": "study_1"
+    },
+    {
+      "id": "sample_02",
+      "size_bytes": 9031554118,
+      "study_id": "study_2"
+    },
+    {
+      "id": "sample_03",
+      "size_bytes": 3656730355,
+      "study_id": "study_0"
+    },
+    {
+      "id": "sample_04",
+      "size_bytes": 1225336336,
+      "study_id": "study_1"
+    },
+    {
+      "id": "sample_05",
+      "size_bytes": 3278561834,
+      "study_id": "study_2"
+    },
+    {
+      "id": "sample_06",
+      "size_bytes": 5467597005,
+      "study_id": "study_0"
+    },
+    {
+      "id": "sample_07",
+      "size_bytes": 1879930355,
+      "study_id": "study_1"
+    },
+    {
+      "id": "sample_08",
+      "size_bytes": 4410514899,
+      "study_id": "study_2"
+    },
+    {
+      "id": "sample_09",
+      "size_bytes": 4524703900,
+      "study_id": "study_0"
+    },
+    {
+      "id": "sample_10",
+      "size_bytes": 6452071432,
+      "study_id": "study_1"
+    },
+    {
+      "id": "sample_11",
+      "size_bytes": 5308626407,
+      "study_id": "study_2"
+    },
+    {
+      "id": "sample_12",
+      "size_bytes": 4272453859,
+      "study_id": "study_0"
+    },
+    {
+      "id": "sample_13",
+      "size_bytes": 1611237679,
+      "study_id": "study_1"
+    },
+    {
+      "id": "sample_14",
+      "size_bytes": 4417031878,
+      "study_id": "study_2"
+    },
+    {
+      "id": "sample_15",
+      "size_bytes": 3998866845,
+      "study_id": "study_0"
+    },
+    {
+      "id": "sample_16",
+      "size_bytes": 7087527181,
+      "study_id": "study_1"
+    },
+    {
+      "id": "sample_17",
+      "size_bytes": 3399953973,
+      "study_id": "study_2"
+    },
+    {
+      "id": "sample_18",
+      "size_bytes": 591985753,
+      "study_id": "study_0"
+    },
+    {
+      "id": "sample_19",
+      "size_bytes": 7859766173,
+      "study_id": "study_1"
+    }
+  ]
+}

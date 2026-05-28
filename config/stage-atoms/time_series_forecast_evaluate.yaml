@@ -1,0 +1,55 @@
+id: time_series_forecast_evaluate
+version: "1.0.0"
+role: operation
+description: |
+  Produce point forecasts + prediction intervals over the named
+  horizon and evaluate against a held-out window. Emits a tabular
+  forecast table tagged as a statistical estimate (data:0951) so
+  the v4 planner can match it to the
+  `time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of
+  the dag-design-v3-v4-100-percent-closure plan.
+edam_operation: "operation:3659"
+edam_data: "data:0951"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - time_series_model_fit
+plot_stage_id: forecasting_inference
+expected_artifacts:
+  - forecast_table.tsv
+  - evaluation_metrics.csv
+  - manifest.json
+  - result.json
+required_figures:
+  - forecast_ribbon
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+inputs:
+  - name: fitted_model
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3134"
+      label: "Gene expression matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: forecast_table
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "time_series_forecast_evaluation"
+      proposed_parent_terms:
+        - "swfc:time_series_forecast"
+        - "data:0951"
+        - "data:3768"
+      definition: "Point forecasts, prediction intervals, and held-out evaluation metrics for a time-series forecasting model."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

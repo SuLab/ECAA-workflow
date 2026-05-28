@@ -1,0 +1,73 @@
+id: neoantigen_filtering
+version: "1.0.0"
+role: operation
+description: |
+  Filter HLA peptidomics binders to identify tumor-specific
+  neoantigens by intersecting with the patient's somatic variant
+  set. Per-patient: take WES somatic-variant-derived 9mer windows
+  containing each mutation, intersect with detected HLA-bound
+  peptides + strong-binder predictions, output the catalog of
+  experimentally-detected variant-derived neoantigens.
+edam_operation: "operation:0252"
+edam_data: "data:2976"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - netmhc_binding_prediction
+expected_artifacts:
+  - neoantigen_catalog.tsv
+  - neoantigen_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: hla_peptidomics
+required_figures:
+  - neoantigen_per_patient_bar
+  - shared_neoantigen_heatmap
+attributes:
+  candidate_tools:
+    - pvactools
+    - neopipe
+    - mupexi
+    - neoag
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  A neoantigen catalog is the intersection of MS-detected peptides
+  + predicted strong binders + somatic-variant-derived 9mer windows.
+  Confidence depends on the PSM FDR control, the binding-predictor
+  threshold, and the somatic-variant-call quality. Cross-validate
+  top candidates with MHC tetramer + T-cell-reactivity assays before
+  prioritizing for therapy.
+inputs:
+  - name: binding_predictions
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: hla_binding_table
+      proposed_parent_terms:
+        - "data:2976"
+      definition: "Per-peptide HLA binding-affinity predictions"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: neoantigen_catalog
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: neoantigen_catalog
+      proposed_parent_terms:
+        - "data:2976"
+      definition: "Per-patient catalog of variant-derived HLA-bound peptides"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

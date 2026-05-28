@@ -1,0 +1,605 @@
+---
+# Abstract compute profiles keyed by stage class.
+#
+# The AWS executor maps these cloud-agnostic shapes into concrete EC2
+# instance types. Local mode ignores the profiles entirely. Scaling
+# factors are consumed by the high-water resolver in the harness; in
+# When no scaling fields are populated, the base requirement is used as-is.
+#
+# Per-profile `default_container` is the lowest-
+# precedence container default in the composer's resolver chain
+# (atom > archetype > profile > package > host). When neither the
+# atom nor the matched archetype declares a `preferred_container`,
+# the composer falls back to the profile's default. Optional;
+# missing means host-mode falls all the way through to the
+# package-level `policies/container.json` (the legacy path).
+
+
+profiles:
+  data_acquisition:
+    description: "Download from repositories — network-bound, low compute"
+    requirements:
+      vcpus: 2
+      memory_gb: 4
+      storage_gb: 100
+    scaling_factors:
+      - dimension: sample_count
+        per_unit_storage_gb: 10
+    notes: "Network-bound. Burstable family preferred. Scale storage, not compute."
+    # Example profile-level container default.
+    # `scripps-bio-base` (S15.5) is the catch-all baseline image for
+    # download/QC/lightweight-preprocessing stages whose tool set is
+    # already in the base. Atoms or archetypes that need specialized
+    # tooling (e.g. STAR 2-pass for alignment) override this via
+    # their own `preferred_container`.
+    default_container:
+      image: "ghcr.io/scripps/scripps-bio-base"
+      tag: "0.1.0"
+      # TODO: resolve and pin sha256 digest after the first push to
+      # ghcr.io/scripps/scripps-bio-base.
+      # Run `docker buildx imagetools inspect ghcr.io/scripps/scripps-bio-base:0.1.0`
+      # and add a `digest:` key alongside `tag:` here.
+      # digest: "sha256:..."
+
+  preprocessing_qc:
+    description: "FastQC, MultiQC, trimming — lightweight per-sample"
+    requirements:
+      vcpus: 4
+      memory_gb: 8
+      storage_gb: 50
+    scaling_factors:
+      - dimension: sample_count
+        per_unit_vcpus: 0.5
+        max_vcpus: 16
+    # per-tool thread hints. The agent picks
+    # min(recommended_threads, tool_thread_curves[<tool>]) for --threads.
+    tool_thread_curves:
+      fastqc: 4
+      trim_galore: 4
+      cutadapt: 4
+      multiqc: 1
+    env_overrides_template:
+      OMP_NUM_THREADS: "${recommended_threads}"
+      MKL_NUM_THREADS: "${recommended_threads}"
+      OPENBLAS_NUM_THREADS: "${recommended_threads}"
+      NUMEXPR_NUM_THREADS: "${recommended_threads}"
+    notes: "CPU-bound but lightweight. Compute-optimized family."
+
+  alignment_quantification:
+    description: "STAR, HISAT2, Salmon, featureCounts — memory-intensive"
+    requirements:
+      vcpus: 8
+      memory_gb: 64
+      storage_gb: 200
+    scaling_factors:
+      - dimension: genome_size
+        threshold_gb: 3
+        above:
+          memory_gb: 128
+      - dimension: sample_count
+        per_unit_storage_gb: 20
+    # Per-stage SSM timeout override. STAR 2-pass +
+    # large references can easily blow past the 1h session default.
+    ssm_timeout_secs: 7200
+    # per-tool thread budgets. Values assume the agent is
+    # running solo on the provisioned instance. When
+    # SWFC_HW_CONCURRENT_PEERS_BY_CLASS > 0, prompt_role.txt tells
+    # the agent to reduce proportionally.
+    tool_thread_curves:
+      bwa: 8
+      bwa_mem2: 8
+      star: 16
+      hisat2: 8
+      salmon: 8
+      samtools_sort: 4
+      featurecounts: 8
+    env_overrides_template:
+      OMP_NUM_THREADS: "${recommended_threads}"
+      MKL_NUM_THREADS: "${recommended_threads}"
+      OPENBLAS_NUM_THREADS: "${recommended_threads}"
+      NUMEXPR_NUM_THREADS: "${recommended_threads}"
+    notes: >
+      STAR 2-pass needs 32 GB for human genome index alone.
+      Memory-optimized family. Bump to 128 GB for large genomes.
+
+  normalization:
+    description: "DESeq2 VST, TMM — single-threaded R, moderate memory"
+    requirements:
+      vcpus: 4
+      memory_gb: 32
+      storage_gb: 50
+    notes: "R is single-threaded for most normalization. Memory matters more than cores."
+
+  differential_expression:
+    description: "DESeq2, edgeR, limma — single-threaded R, moderate memory"
+    requirements:
+      vcpus: 4
+      memory_gb: 32
+      storage_gb: 50
+    notes: "Similar to normalization. DESeq2 fitType=parametric is memory-bound."
+
+  clustering:
+    description: "Leiden/Louvain clustering, UMAP — memory for large cell counts"
+    requirements:
+      vcpus: 8
+      memory_gb: 64
+      storage_gb: 100
+    scaling_factors:
+      - dimension: cell_count
+        threshold: 500000
+        above:
+          memory_gb: 128
+    notes: "scanpy/Seurat neighbor graph is O(n) memory. Scale for >500k cells."
+
+  variant_calling:
+    description: "GATK, bcftools, DeepVariant — compute + memory intensive"
+    requirements:
+      vcpus: 8
+      memory_gb: 64
+      storage_gb: 300
+    scaling_factors:
+      - dimension: genome_size
+        threshold_gb: 3
+        above:
+          memory_gb: 128
+      - dimension: coverage_depth
+        threshold: 50
+        above:
+          vcpus: 16
+          memory_gb: 128
+    # Per-stage SSM timeout override. GATK
+    # HaplotypeCaller at high coverage can run 3-4 hours per sample.
+    ssm_timeout_secs: 14400
+    # per-tool thread budgets + multi-phase tool breakdown.
+    # DeepVariant's call_variants phase is GPU-bound; the agent should
+    # oversubscribe make_examples (CPU) and run call_variants with a
+    # single CPU coordinator.
+    tool_thread_curves:
+      gatk_haplotypecaller: 8
+      bcftools: 4
+      samtools_sort: 4
+      deepvariant: 16
+    env_overrides_template:
+      OMP_NUM_THREADS: "${recommended_threads}"
+      MKL_NUM_THREADS: "${recommended_threads}"
+      OPENBLAS_NUM_THREADS: "${recommended_threads}"
+      NUMEXPR_NUM_THREADS: "${recommended_threads}"
+    phase_thread_counts:
+      deepvariant:
+        make_examples: 16
+        call_variants: 1
+        postprocess_variants: 4
+    notes: "GATK HaplotypeCaller is both CPU and memory hungry."
+
+  review:
+    description: "SME review — no compute needed"
+    requirements: null
+    notes: "Review tasks are human-assigned. No instance needed."
+
+  # Backfill of stage classes referenced by the 12
+  # taxonomies but missing from the original 8-row profiles set.
+  # Without these the high-water resolver falls back to the
+  # `default:` block (2 vCPU / 8 GB / 50 GB) which is conservatively
+  # under-provisioned for compute-heavy stages — pilot sizing still
+  # corrects, but operators saw multi-iteration "instance too small"
+  # blockers on the first attempt. These rows give the resolver a
+  # better starting guess.
+
+  batch_correction:
+    description: "Harmony / scVI / Combat — memory-intensive on cell-level data"
+    requirements:
+      vcpus: 8
+      memory_gb: 64
+      storage_gb: 100
+    scaling_factors:
+      - dimension: cell_count
+        threshold: 500000
+        above:
+          memory_gb: 192
+    tool_thread_curves:
+      harmony: 8
+      scvi: 8
+      combat: 4
+    notes: "scVI uses GPU when present; Harmony/Combat are CPU-only."
+
+  integration:
+    description: "Cross-sample integration (CCA / Harmony / scVI)"
+    requirements:
+      vcpus: 8
+      memory_gb: 64
+      storage_gb: 100
+    scaling_factors:
+      - dimension: cell_count
+        threshold: 1000000
+        above:
+          memory_gb: 192
+    notes: "Same as batch_correction shape but typically runs on integrated AnnData rather than per-sample."
+
+  dimensionality_reduction:
+    description: "PCA / UMAP / t-SNE / scvi-latent extraction"
+    requirements:
+      vcpus: 4
+      memory_gb: 32
+      storage_gb: 50
+    tool_thread_curves:
+      umap: 4
+      pca: 4
+      tsne: 4
+    notes: "Memory scales with cell count × feature count; mostly CPU-bound."
+
+  pathway_enrichment:
+    description: "fgsea / gprofiler / Reactome enrichment"
+    requirements:
+      vcpus: 2
+      memory_gb: 8
+      storage_gb: 20
+    notes: "I/O bound on database fetch; minimal compute."
+
+  biological_interpretation:
+    description: "Narrative + LLM cross-check; mostly read-only on results"
+    requirements:
+      vcpus: 2
+      memory_gb: 8
+      storage_gb: 20
+    notes: "No heavy compute; runs the claim_extractor + claim_verifier pipeline."
+
+  cell_type_annotation:
+    description: "Marker-based / reference-based cell-type assignment"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 50
+    scaling_factors:
+      - dimension: cell_count
+        threshold: 500000
+        above:
+          memory_gb: 64
+    notes: "scanpy.tl.rank_genes_groups + reference-mapping (azimuth, scANVI)."
+
+  peak_calling:
+    description: "MACS3 / Peakzilla / Genrich peak detection"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 100
+    tool_thread_curves:
+      macs3: 4
+      genrich: 8
+    notes: "I/O-bound on BAM scan; CPU-bound on peak detection."
+
+  variant_filtering:
+    description: "VEP / SnpEff / hard-filter expressions on VCF"
+    requirements:
+      vcpus: 2
+      memory_gb: 8
+      storage_gb: 50
+    notes: "Annotation-database fetch dominates; minimal compute."
+
+  variant_annotation:
+    description: "VEP / ANNOVAR / SnpEff functional annotation"
+    requirements:
+      vcpus: 2
+      memory_gb: 8
+      storage_gb: 100
+    notes: "Database fetch; offline-cached database is preferred."
+
+  colocalization:
+    description: "coloc / FastEnloc / SuSiE / fine-mapping"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 50
+    notes: "Per-locus credible-set computation; embarrassingly parallel."
+
+  gwas_summary_harmonization:
+    description: "Strand-flip / allele-coding / liftover summary stats"
+    requirements:
+      vcpus: 2
+      memory_gb: 16
+      storage_gb: 100
+    notes: "I/O-bound; pandas / DuckDB on tabular files."
+
+  peptide_search:
+    description: "MaxQuant / FragPipe / Comet peptide identification"
+    requirements:
+      vcpus: 16
+      memory_gb: 64
+      storage_gb: 200
+    scaling_factors:
+      - dimension: sample_count
+        per_unit_vcpus: 1
+        max_vcpus: 64
+    tool_thread_curves:
+      maxquant: 16
+      fragpipe: 16
+      comet: 8
+    notes: "Search-engine grunt work; CPU-bound, scales with thread count."
+
+  protein_quantification:
+    description: "DIA-NN / FragPipe-DIA / iBAQ rollups"
+    requirements:
+      vcpus: 8
+      memory_gb: 32
+      storage_gb: 100
+    notes: "DIA-NN is GPU-aware for some steps; default CPU path."
+
+  taxonomic_classification:
+    description: "Kraken2 / Centrifuge / Bracken classification"
+    requirements:
+      vcpus: 8
+      memory_gb: 64
+      storage_gb: 200
+    scaling_factors:
+      - dimension: sample_count
+        per_unit_vcpus: 1
+        max_vcpus: 32
+    notes: "Memory dominated by reference DB load (Kraken2 standard ≈ 50 GB)."
+
+  diversity_analysis:
+    description: "alpha/beta diversity, ordination — pandas + scikit-bio"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 20
+    notes: "CPU-bound; small data."
+
+  spatial_clustering:
+    description: "Squidpy / Banksy / spatial neighborhood analysis"
+    requirements:
+      vcpus: 8
+      memory_gb: 64
+      storage_gb: 50
+    notes: "Memory scales with spot/cell count × feature count."
+
+  isoform_calling:
+    description: "FLAIR / IsoQuant / TALON long-read isoforms"
+    requirements:
+      vcpus: 8
+      memory_gb: 32
+      storage_gb: 200
+    notes: "Long-read bound on alignment + read-cluster discovery."
+
+  ms_raw_conversion:
+    description: "ThermoRawFileParser / MSConvert vendor-format conversion"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 200
+    notes: "I/O-bound on raw-file parsing."
+
+  forecast_modeling:
+    description: "ARIMA / Prophet / NeuralProphet / TimesNet model fit"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 20
+    notes: "Per-series fits parallelize; deep models benefit from GPU."
+
+  time_series_decomposition:
+    description: "STL / X-13ARIMA-SEATS seasonal-trend decomposition"
+    requirements:
+      vcpus: 2
+      memory_gb: 8
+      storage_gb: 20
+    notes: "Lightweight; statsmodels-backed."
+
+  trial_population_definition:
+    description: "ITT / mITT / per-protocol cohort construction"
+    requirements:
+      vcpus: 2
+      memory_gb: 8
+      storage_gb: 20
+    notes: "Pure pandas / arrow joins; CPU-bound, fast."
+
+  trial_primary_endpoint:
+    description: "Primary endpoint estimand evaluation (MMRM / CMH / KM)"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 20
+    notes: "R/Python statistical packages; CPU-bound."
+
+  trial_safety_analysis:
+    description: "Adverse event tabulation + descriptive statistics"
+    requirements:
+      vcpus: 2
+      memory_gb: 8
+      storage_gb: 20
+    notes: "Tabulation + summary statistics; CPU-bound, small data."
+
+  aggregator:
+    description: "Fan-in / merge / per-sample concatenation barriers"
+    requirements:
+      vcpus: 2
+      memory_gb: 16
+      storage_gb: 100
+    notes: "I/O-bound on artifact concatenation; minimal compute."
+
+  # Backfill stage-class compute profiles surfaced by
+  # `crates/core/tests/taxonomy_validation.rs` as missing from the
+  # cross-class coverage matrix. Each entry is a conservative
+  # CPU-bound shape until method-level overrides land.
+  alignment:
+    description: "Generic alignment (umbrella class — `alignment_quantification` is the production form for short-read RNA-seq; this row covers ATAC, ChIP, methylation, long-read)"
+    requirements:
+      vcpus: 16
+      memory_gb: 32
+      storage_gb: 500
+    notes: "CPU-bound on minimap2 / bowtie2 / bwa-mem2; per-method overrides below adjust memory."
+
+  analysis:
+    description: "Generic downstream-analysis stage (umbrella for class-less analytical steps)"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 50
+    notes: "Conservative CPU shape; concrete classes (DE, clustering, etc.) have dedicated profiles."
+
+  benchmarking:
+    description: "GIAB / SVdb / DREAM-style benchmark scoring"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 100
+    notes: "CPU-bound on hap.py / vcfeval; storage for truth-set + query VCF."
+
+  cell_communication:
+    description: "CellChat / LIANA / NicheNet ligand-receptor inference"
+    requirements:
+      vcpus: 8
+      memory_gb: 32
+      storage_gb: 50
+    notes: "CPU-bound R/Python; memory grows with cell count × ligand-receptor pair count."
+
+  clinical_trial:
+    description: "Umbrella class for clinical-trial taxonomy stages — mapped to trial_* sub-profiles when stage_class lands more specifically"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 50
+    notes: "CPU-bound; trial-specific sub-profiles (`trial_population_definition`, `trial_primary_endpoint`, `trial_safety_analysis`) override when matched."
+
+  deconvolution:
+    description: "Bulk → cell-type-fraction deconvolution (CIBERSORTx, MuSiC, BayesPrism)"
+    requirements:
+      vcpus: 8
+      memory_gb: 32
+      storage_gb: 50
+    notes: "CPU-bound; memory scales with reference single-cell atlas size. BayesPrism + CIBERSORTx have ≥32 GB recommendations."
+
+  differential_transcript_usage:
+    description: "DRIMSeq / DEXSeq / IsoformSwitchAnalyzeR transcript-usage testing"
+    requirements:
+      vcpus: 8
+      memory_gb: 32
+      storage_gb: 50
+    notes: "CPU-bound; scales with isoform count × sample count."
+
+  harmonization:
+    description: "Cross-study metadata + count-matrix harmonization (umbrella class)"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 100
+    notes: "CPU-bound; storage scales with cohort size. `metadata_harmonization` sub-profile covers the per-study metadata path."
+
+  interpretation:
+    description: "Biological interpretation umbrella (claim drafting, ontology lookup, narrative synthesis)"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 50
+    notes: "CPU-bound; ontology (GO/KEGG/Reactome) lookup tables + narrative drafting. Falls into `biological_interpretation` when matched specifically."
+
+  locus_definition:
+    description: "GWAS locus definition (P+T clumping, FUMA / MAGMA-style window calls, cojo-slct)"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 50
+    notes: "CPU-bound; scales with GWAS variant count. PLINK clumping is single-threaded."
+
+  metadata_harmonization:
+    description: "Per-sample metadata harmonization (canonical TSV with condition / age / grade)"
+    requirements:
+      vcpus: 2
+      memory_gb: 8
+      storage_gb: 20
+    notes: "CPU-bound; small data. Spec-required stage in single-cell + bulk taxonomies."
+
+  quantification:
+    description: "Read → feature quantification (Salmon / kallisto / featureCounts / featureCounts-multi)"
+    requirements:
+      vcpus: 8
+      memory_gb: 16
+      storage_gb: 200
+    notes: "CPU-bound; memory grows with transcriptome index size (Salmon ~12 GB on Ensembl human v115)."
+
+  reporting:
+    description: "Final-report HTML / PDF / dashboard composition"
+    requirements:
+      vcpus: 2
+      memory_gb: 8
+      storage_gb: 20
+    notes: "CPU-bound; small data. Quarto / RMarkdown / MultiQC."
+
+  sensitivity_comparison:
+    description: "Per-method sensitivity sweep + winner-selection scaffolding"
+    requirements:
+      vcpus: 2
+      memory_gb: 8
+      storage_gb: 20
+    notes: "CPU-bound; the scaffolding stage itself is light — the per-method runs use the underlying class's profile."
+
+  spatially_variable_genes:
+    description: "SpatialDE / Sepal / SpatialPCA-style spatially-variable-gene tests"
+    requirements:
+      vcpus: 8
+      memory_gb: 32
+      storage_gb: 50
+    notes: "CPU-bound; memory scales with spot count × gene count."
+
+  time_series_forecast:
+    description: "Time-series forecasting (SARIMA / ETS / Prophet)"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 50
+    notes: "CPU-bound R/Python; minimal storage."
+
+  tissue_prioritization:
+    description: "MAGMA-style gene-tissue prioritization (FUMA / GTEx-aware)"
+    requirements:
+      vcpus: 4
+      memory_gb: 16
+      storage_gb: 50
+    notes: "CPU-bound; reference tissue panel sets memory floor."
+
+  trajectory:
+    description: "Pseudotime / trajectory inference (Monocle3, Slingshot, scFates, Chronocell)"
+    requirements:
+      vcpus: 8
+      memory_gb: 32
+      storage_gb: 50
+    notes: "CPU-bound; trajectory-graph construction scales with cell count. Pseudotime claims have no field-consensus ground truth (Round-2 §3.10)."
+
+# Conservative default for stage classes not listed above.
+default:
+  description: "Unknown-stage fallback"
+  requirements:
+    vcpus: 2
+    memory_gb: 8
+    storage_gb: 50
+  notes: "Conservative default for unknown stage classes."
+
+# Method-driven overrides. Same stage_class can have very different needs
+# depending on the chosen method. The high-water resolver checks intake
+# methods against this table; if a method matches, it merges into the
+# stage's base requirement (max of vcpus/memory/storage; GPU added if any).
+method_overrides:
+  deepvariant:
+    applies_to: [variant_calling]
+    requires:
+      gpu:
+        kind: nvidia-l4
+        count: 1
+      vcpus: 8
+      memory_gb: 64
+    notes: "DeepVariant is GPU-accelerated; CPU-only fallback is ~10x slower."
+
+  alphafold:
+    applies_to: [structural_modeling]
+    requires:
+      gpu:
+        kind: nvidia-a100
+        count: 1
+      vcpus: 16
+      memory_gb: 128
+      storage_gb: 500
+    notes: "AlphaFold needs A100-class GPU memory. Storage for MSA databases."
+
+  star-2pass:
+    applies_to: [alignment_quantification]
+    requires:
+      memory_gb: 64
+    notes: "STAR 2-pass needs the full genome index in memory."

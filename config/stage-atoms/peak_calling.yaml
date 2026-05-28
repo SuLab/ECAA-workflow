@@ -1,0 +1,59 @@
+id: peak_calling
+version: "1.0.0"
+role: operation
+description: |
+  Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /
+  CUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime
+  by mark type (narrow / broad).
+edam_operation: "operation:3222"
+edam_data: "data:0863"
+edam_format: "format:3003"
+assignee: agent
+depends_on:
+  - alignment
+expected_artifacts:
+  - peaks.bed
+  - peak_summary.json
+  - manifest.json
+  - result.json
+required_figures:
+  - profile_pileup
+  - coverage_track
+  - peak_saturation
+attributes:
+  candidate_tools:
+    - macs2
+    - macs3
+    - seacr
+    - genrich
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Legacy edam_data is data:0863 (the BAM input); the output is a
+# peak feature-record set, which is data:1255 / format:3003 (BED).
+inputs:
+  - name: aligned_reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0863"
+      label: "Sequence alignment"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:2572"
+      label: "BAM"
+    privacy_class: internal
+outputs:
+  - name: peaks
+    semantic_type:
+      kind: ontology_term
+      iri: "data:1255"
+      label: "Feature record"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3003"
+      label: "BED"
+    coordinate_system: "0-based-half-open"
+    privacy_class: internal

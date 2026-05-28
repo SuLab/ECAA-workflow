@@ -1,0 +1,65 @@
+schema_version: "0.1"
+id: cross_omics_rnaseq_methylation
+version: "1.0.0"
+description: |
+  Two-way cross-omics integrating bulk RNA-seq + DNA methylation
+  (WGBS / RRBS / EM-seq / arrays) on the same samples. Aliased
+  branches (rnaseq_*, methylation_*) run end-to-end independently
+  and converge at the expression_methylation_correlation step,
+  which identifies candidate methylation-driven gene-expression
+  dysregulation.
+sme_summary: |
+  Run bulk RNA-seq differential expression and DNA-methylation
+  differentially-methylated-region analysis in parallel, then
+  integrate the two via per-gene methylation-expression
+  correlation.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: cross_omics_rnaseq_methylation
+cross_omics_modalities:
+  - bulk_rnaseq
+  - methylation
+atoms:
+  # ── rnaseq_* branch
+  - { atom_id: data_acquisition,        alias: rnaseq_data_acquisition,         required: true }
+  - { atom_id: raw_qc,                  alias: rnaseq_raw_qc,                   depends_on: [rnaseq_data_acquisition], required: true }
+  - { atom_id: sequence_trimming,       alias: rnaseq_sequence_trimming,        depends_on: [rnaseq_raw_qc], required: true }
+  - { atom_id: alignment,               alias: rnaseq_alignment,                depends_on: [rnaseq_sequence_trimming], required: true }
+  - { atom_id: quantification,          alias: rnaseq_quantification,           depends_on: [rnaseq_alignment], required: true }
+  - { atom_id: qc_preprocessing,        alias: rnaseq_qc_preprocessing,         depends_on: [rnaseq_quantification], required: true }
+  - { atom_id: normalisation,           alias: rnaseq_normalisation,            depends_on: [rnaseq_qc_preprocessing], required: true }
+  - { atom_id: differential_expression, alias: rnaseq_differential_expression,  depends_on: [rnaseq_normalisation], required: true }
+  # ── methylation_* branch
+  - { atom_id: data_acquisition,        alias: methylation_data_acquisition,    required: true }
+  - { atom_id: raw_qc,                  alias: methylation_raw_qc,              depends_on: [methylation_data_acquisition], required: true }
+  - { atom_id: sequence_trimming,       alias: methylation_sequence_trimming,   depends_on: [methylation_raw_qc], required: true }
+  - { atom_id: alignment,               alias: methylation_alignment,           depends_on: [methylation_sequence_trimming], required: true }
+  - { atom_id: quantification,          alias: methylation_extraction,          depends_on: [methylation_alignment], required: true }
+  - { atom_id: qc_preprocessing,        alias: methylation_qc_preprocessing,    depends_on: [methylation_extraction], required: true }
+  - { atom_id: normalisation,           alias: methylation_normalisation,       depends_on: [methylation_qc_preprocessing], required: true }
+  - { atom_id: differential_expression, alias: methylation_dmr_calling,         depends_on: [methylation_normalisation], required: true }
+  # ── 2-way convergence
+  - atom_id: expression_methylation_correlation
+    required: true
+    depends_on: [rnaseq_differential_expression, methylation_dmr_calling]
+  - atom_id: pathway_enrichment
+    required: false
+    depends_on: [expression_methylation_correlation]
+  - atom_id: reporting
+    required: true
+    depends_on: [expression_methylation_correlation, rnaseq_differential_expression, methylation_dmr_calling, pathway_enrichment]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  contrast: rnaseq_differential_expression.inputs.contrast
+  organism: rnaseq_alignment.inputs.organism
+  samples: rnaseq_data_acquisition.inputs.samples
+claim_boundary: |
+  Methylation-expression correlations are statistical associations
+  — they identify candidate methylation-driven genes but do not
+  establish causality. Cellular composition + CpG-island context
+  + Houseman cell-fraction adjustment should be applied
+  alongside the integration. Cross-validate top candidates with
+  orthogonal evidence.

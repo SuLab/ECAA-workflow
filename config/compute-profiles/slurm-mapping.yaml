@@ -1,0 +1,81 @@
+# SLURM resource-class mapping.
+#
+# This file is site-specific — each cluster ships its own. The shape
+# is validated against `slurm-mapping.schema.json` at executor startup
+# : drift fails loud at load, not at sbatch
+# time on a compute node.
+#
+# The sizing loader picks the smallest `resource_classes` entry whose
+# SLURM resources satisfy the emitted `ResourceRequirements`
+# (vCPUs / memory / optional GPU) for the current stage. When no
+# entry matches, `fallback` is used — operators pick the safest
+# default for their site.
+#
+# The values below are a generic starting point calibrated to a
+# typical university HPC cluster. Override for your site.
+#
+# `partitions[]` declares which container runtimes are
+# validated for each partition. `slurm/sbatch.rs::validate_submission`
+# rejects with `BlockerKind::SlurmRuntimeUnavailable` when an atom's
+# `preferred_container` requires a runtime not on the partition's
+# allow-list. SLURM 25.11's `--container` directive is gated behind
+# `SWFC_SLURM_NATIVE_CONTAINER=1` AND a partition whose runtimes
+# include the requested one — today the auto-detect chain at
+# agent-claude-slurm.sh covers the typical case (Apptainer pre-loaded
+# on most HPC compute nodes).
+version: 1
+resource_classes:
+  cpu_small:
+    partition: short
+    qos: normal
+    cpus_per_task: 4
+    mem: 16G
+    time: "02:00:00"
+  cpu_medium:
+    partition: normal
+    cpus_per_task: 16
+    mem: 64G
+    time: "08:00:00"
+  cpu_large:
+    partition: long
+    cpus_per_task: 48
+    mem: 256G
+    time: "24:00:00"
+  gpu_small:
+    partition: gpu
+    gres: "gpu:1"
+    cpus_per_task: 8
+    mem: 48G
+    time: "08:00:00"
+  gpu_large:
+    partition: gpu-large
+    gres: "gpu:a100:2"
+    cpus_per_task: 16
+    mem: 128G
+    time: "24:00:00"
+fallback:
+  partition: normal
+  cpus_per_task: 4
+  mem: 8G
+  time: "04:00:00"
+# Per-partition container-runtime allow-list.
+# `validate_submission` cross-references the chosen partition (from
+# resource_classes[<class>].partition above) against this map and
+# refuses to submit when the atom's `preferred_container` declares a
+# runtime not on the partition's list. The `none` runtime keyword
+# means "host execution allowed" (no container required); typical
+# compute partitions include it.
+#
+# Most HPC sites preload Apptainer on every node — the default below
+# reflects that. Sites without Apptainer override this section.
+partitions:
+  short:
+    container_runtimes: [apptainer-1.4, none]
+  normal:
+    container_runtimes: [apptainer-1.4, none]
+  long:
+    container_runtimes: [apptainer-1.4, none]
+  gpu:
+    container_runtimes: [apptainer-1.4, none]
+  gpu-large:
+    container_runtimes: [apptainer-1.4, none]

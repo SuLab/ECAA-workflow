@@ -1,0 +1,25 @@
+schema_version: "0.1"
+id: chip_seq
+display_name: ChIP-seq
+keywords: ["chip-seq", chipseq, "chip seq", "transcription factor", "tf binding", macs2, macs3]
+# The generic tokens "chromatin" / "histone" / "bowtie" / "samtools" were
+# removed: they false-positive on chip-exo prompts ("ChIP-exo on yeast
+# chromatin remodelers and core histone variants"), pushing the corpus's
+# chip-exo-yen-coactivator scenario into chip_seq routing. The remaining
+# keywords (canonical protocol names + ChIP-seq-specific peakcallers)
+# are sufficient to identify a chip-seq intake without colliding with
+# chip_exo's specific tokens.
+edam_topic: "topic:3169"
+edam_operation: "operation:3222"
+taxonomy_path: stage-taxonomies/chip-seq.yaml
+archetype_id: chip_seq_peaks
+semantic_equivalence_bounds:
+  - metric: peak_jaccard
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/peaks/*.narrowPeak"
+    rationale: "Grant §G2 ChIP-seq consensus-peak Jaccard ≥ 0.90 between runs"
+  - metric: frip_delta
+    operator: "<="
+    threshold: 0.05
+    rationale: "FRiP score absolute difference ≤ 0.05 between replicate calls"

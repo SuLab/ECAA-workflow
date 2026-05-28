@@ -1,0 +1,4 @@
+Single-cell scRNA-seq cell type annotation on a 10x Chromium dataset of healthy human
+liver. Cluster cells with Leiden, identify marker genes per cluster, and produce an
+annotated AnnData h5ad output with cell type labels assigned via marker-based
+identification.

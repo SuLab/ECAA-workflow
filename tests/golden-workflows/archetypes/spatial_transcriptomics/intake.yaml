@@ -1,0 +1,3 @@
+Spatial transcriptomics analysis on 10x Visium data from human cortex. Identify
+spatial domains, run neighborhood enrichment, and produce a Moran's I autocorrelation
+score per gene for spatial gene expression patterns.

@@ -1,0 +1,89 @@
+id: integrate_multi_omics_diablo
+version: "1.0.0"
+role: operation
+description: |
+  Plan §B.M8 — supervised multi-omics integration via DIABLO (mixOmics R
+  package): sparse PLS-DA across N sample-aligned matrices + class
+  labels. Outputs latent components, per-block sparse loadings, and a
+  classifier. Best when the SME has class labels (case/control,
+  treatment/control) AND the goal is biomarker discovery.
+
+  Distinct from MOFA (unsupervised, accepts missingness) and SNF
+  (unsupervised, similarity-based subtyping). The discover_integration_
+  method atom selects between the three based on label availability
+  and goal kind.
+edam_operation: "swfc:multi_omics_diablo"
+edam_data: "data:1278"
+edam_format: "format:3464"
+assignee: agent
+depends_on: []
+plot_stage_id: multi_omics_integration
+expected_artifacts:
+  - component_scores.tsv
+  - sparse_loadings.tsv
+  - classifier_metrics.json
+  - manifest.json
+  - result.json
+required_figures:
+  - modality_concordance_heatmap
+  - factor_variance_bar
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: false
+  runtime_class: minutes
+preferred_container:
+  image: "scripps-derived/r-mixomics"
+  tag: "1.0.0"
+  digest: "sha256:d1a8104f2e8c6b9a0e7f3c5d8a1b4e6c9f2a5d8e1b4c7a0f3e6d9c2b5a8e1f4d"
+  arch: ["amd64"]
+  gpu_required: false
+claim_boundary: |
+  DIABLO surfaces sparse loadings the model assigned to each feature in
+  each component; high-loading features are CANDIDATES for biomarker
+  follow-up, not validated biomarkers. The reported classifier accuracy
+  is in-sample without external cross-validation; report it alongside
+  the test-fold accuracy when one is available, never as standalone
+  performance.
+# Explicit rich ports.
+# Multi-modal integrator: consumes N sample-aligned per-modality
+# matrices + class labels, emits a DIABLO model artifact + integrated
+# component representation.
+inputs:
+  - name: multi_modal_matrices
+    semantic_type:
+      kind: ontology_term
+      iri: "data:1278"
+      label: "Genetic data"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "normalized"
+    privacy_class: internal
+    cardinality:
+      kind: many
+outputs:
+  - name: diablo_model
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "diablo_model"
+      proposed_parent_terms:
+        - "data:1278"
+      definition: "DIABLO sparse PLS-DA model: per-block components, sparse loadings, classifier weights"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal
+  - name: integrated_components
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2603"
+      label: "Expression data"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "normalized"
+    privacy_class: internal

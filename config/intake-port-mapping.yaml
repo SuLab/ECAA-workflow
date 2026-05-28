@@ -1,0 +1,146 @@
+# Declarative intake-field → atom-input mapping.
+#
+# Each rule names a leaf-level field on `IntakeFacts` and maps it to
+# the EDAM data class (and optionally format) the value represents.
+# The composer's slot-fill (S6.11) reads this to seed atoms whose
+# `consumes` slots match.
+#
+# Until the composer ships, this file is parallel-shipping reference —
+# the legacy `crates/core/src/builder.rs` keeps the hardcoded mapping
+# in Rust source. The composer reads through the
+# registry; the legacy path becomes the fallback.
+#
+# Schema: `crates/core/src/intake_port_mapper.rs::PortMappingRegistry`.
+# version: 1 shape (the optional `constraints:` block is deferred).
+
+version: 1
+
+rules:
+  # ── Sample-level fields ──────────────────────────────────────────
+  - intake_field: samples
+    edam_data: data:2531
+    edam_format: format:1930
+    cardinality: collection
+
+  - intake_field: sample_count
+    edam_data: data:0006
+    cardinality: single
+
+  - intake_field: replicates_per_condition
+    edam_data: data:0006
+    cardinality: single
+
+  # ── Sequencing fields ────────────────────────────────────────────
+  - intake_field: reads
+    edam_data: data:2978
+    edam_format: format:1930
+    cardinality: collection
+
+  - intake_field: alignment
+    edam_data: data:0863
+    edam_format: format:2572
+    cardinality: collection
+
+  - intake_field: count_matrix
+    edam_data: data:3917
+    edam_format: format:3590
+    cardinality: single
+
+  - intake_field: anndata_object
+    edam_data: data:3917
+    edam_format: format:3590
+    cardinality: single
+
+  # ── Reference / panel fields ─────────────────────────────────────
+  - intake_field: reference_genome
+    edam_data: data:1383
+    edam_format: format:1929
+    cardinality: single
+
+  - intake_field: gene_annotation
+    edam_data: data:1276
+    edam_format: format:2306
+    cardinality: single
+
+  - intake_field: gene_panel
+    edam_data: swfc:cell_marker_panel
+    cardinality: single
+
+  # ── Variant fields ───────────────────────────────────────────────
+  - intake_field: variants
+    edam_data: data:3498
+    edam_format: format:3016
+    cardinality: collection
+
+  - intake_field: gwas_summary_stats
+    edam_data: data:2872
+    edam_format: format:3475
+    cardinality: collection
+
+  # ── Proteomics fields ────────────────────────────────────────────
+  - intake_field: ms_raw
+    edam_data: data:2536
+    edam_format: format:3712
+    cardinality: collection
+
+  - intake_field: peptide_table
+    edam_data: data:2974
+    edam_format: format:3475
+    cardinality: single
+
+  - intake_field: protein_groups
+    edam_data: data:1383
+    edam_format: format:3475
+    cardinality: single
+
+  # ── Spatial / metagenomics ───────────────────────────────────────
+  - intake_field: spatial_coords
+    edam_data: swfc:spatial_coordinates
+    cardinality: single
+
+  - intake_field: taxonomy_assignment
+    edam_data: data:3028
+    edam_format: format:3475
+    cardinality: single
+
+  # ── Metadata fields ──────────────────────────────────────────────
+  - intake_field: organism
+    edam_data: data:1872
+    cardinality: single
+    constraints:
+      - "case_insensitive_match"
+
+  - intake_field: condition
+    edam_data: data:2080
+    cardinality: collection
+
+  - intake_field: contrast
+    edam_data: swfc:contrast_specification
+    cardinality: single
+
+  # ── Clinical-trial fields ────────────────────────────────────────
+  - intake_field: arms
+    edam_data: swfc:trial_arm
+    cardinality: collection
+
+  - intake_field: endpoints
+    edam_data: swfc:trial_endpoint
+    cardinality: collection
+
+  - intake_field: analysis_set
+    edam_data: swfc:trial_analysis_set
+    cardinality: single
+
+  # ── Time-series fields ───────────────────────────────────────────
+  - intake_field: time_series
+    edam_data: data:3768
+    edam_format: format:3475
+    cardinality: collection
+
+  - intake_field: forecast_horizon
+    edam_data: data:0006
+    cardinality: single
+
+  - intake_field: seasonality
+    edam_data: swfc:seasonality_period
+    cardinality: single

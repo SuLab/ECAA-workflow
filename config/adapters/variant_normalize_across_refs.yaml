@@ -1,0 +1,9 @@
+id: variant_normalize_across_refs
+name: "Variant normalization across reference genomes"
+class: coordinate_liftover
+safety: policy_restricted
+from_format: "format:3016"
+to_format: "format:3016"
+from_semantic_type: "data:3498"
+to_semantic_type: "data:3498"
+rationale: "Cross-reference variant normalization is regulated for clinical interpretation; refused outside approved pipelines"

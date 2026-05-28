@@ -1,0 +1,142 @@
+# 09 — SG-NEx long-read RNA-seq isoform benchmark
+#
+# Tests multi-protocol benchmarking with spike-in truth (not GENCODE)
+# and the per-protocol no-pooling constraint.
+
+name: SG-NEx long-read isoform benchmark
+modality: long_read_rnaseq
+
+beats:
+  - user: |
+      I want to benchmark long-read isoform callers on the SG-NEx data.
+    assistant:
+      content: |
+        SG-NEx long-read isoform benchmarking — got it. The core
+        SG-NEx release is 7 cell lines by 5 library protocols on
+        ENA PRJEB44348 (also mirrored on AWS Open Data). Which
+        callers are you comparing?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+      visibleText:
+        - "SG-NEx"
+        - "PRJEB44348"
+
+  - user: "Bambu, FLAIR, and IsoQuant as the primary three."
+    assistant:
+      content: |
+        Bambu + FLAIR + IsoQuant in parallel. Precision and recall
+        against the SG-NEx sequin and SIRV spike-in truth sets, not
+        against GENCODE — GENCODE is not a gold-standard truth for
+        isoform discovery.
+    expect:
+      visibleText:
+        - "Bambu"
+        - "sequin"
+      forbiddenText:
+        - "I recommend"
+        - "StringTie"
+
+  - user: |
+      Right — spike-in truth only. Also compute cross-cell-line
+      differential transcript usage and compare to Illumina-based DTU.
+    assistant:
+      content: |
+        DTU cross-cell-line via DRIMSeq + StageR on long-read,
+        matched Illumina DTU via Salmon + DRIMSeq for cross-platform
+        comparison. DTU, DTE, and DGE are distinct hypotheses — the
+        package will make that distinction explicit.
+    expect:
+      visibleText:
+        - "DRIMSeq"
+        - "Salmon"
+
+  - user: |
+      Good. Pin GRCh38 and the GENCODE release. Per-protocol reporting
+      only — absolutely no pooling across direct-RNA, cDNA, PCR-cDNA,
+      Illumina, and PacBio.
+    assistant:
+      content: |
+        GRCh38 + pinned GENCODE release (exact version logged in
+        provenance), protocol-aware minimap2 presets, and per-protocol
+        results reported separately. Pooling is explicitly forbidden
+        in the primary analysis.
+    expect:
+      visibleText:
+        - "minimap2"
+        - "per-protocol"
+
+  - user: "Fail closed if per-tool precision < 0.75 or recall < 0.80 on direct-RNA."
+    assistant:
+      content: |
+        Here's the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **SG-NEx long-read isoform benchmark**
+
+          - **Cohort:** 7 cell lines × 5 library protocols
+            (ENA PRJEB44348, AWS Open Data mirror)
+          - **Reference:** GRCh38 + GENCODE release pinned
+          - **Aligner:** minimap2 with protocol-specific presets
+          - **Callers:** Bambu + FLAIR + IsoQuant (primary);
+            StringTie2 optional
+          - **Truth:** SG-NEx sequin/SIRV spike-ins (NOT GENCODE)
+          - **DTU:** DRIMSeq + StageR on long-read,
+            Salmon + DRIMSeq on Illumina for cross-platform check
+          - **No pooling:** per-protocol reporting enforced
+          - **Fail-closed:** direct-RNA precision ≥ 0.75, recall ≥ 0.80
+          - **Claim boundary:** descriptive per-tool isoform-discovery
+            benchmarks and cross-cell-line DTU only. No disease,
+            tissue-specific, or functional claims. Isoform
+            annotation extensions are hypothesis-generating.
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "Claim boundary"
+        - "per-protocol"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: "Package emitted — long-read benchmark ready for execution."
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I want to benchmark long-read isoform callers on the SG-NEx data — 7 cell
+    lines by 5 library protocols on ENA PRJEB44348. The primary callers are
+    Bambu, FLAIR, and IsoQuant run in parallel. Precision and recall must be
+    against the SG-NEx sequin and SIRV spike-in truth sets, not GENCODE.
+    Compute cross-cell-line differential transcript usage and compare to
+    Illumina-based DTU via Salmon plus DRIMSeq. Pin GRCh38 and the GENCODE
+    release version. Per-protocol reporting only — absolutely no pooling across
+    direct-RNA, cDNA, PCR-cDNA, Illumina, and PacBio. Use protocol-specific
+    minimap2 presets. Fail closed if per-tool precision drops below 0.75 or
+    recall below 0.80 on direct-RNA. Internal use, public data. Once we agree
+    on the plan, emit the package to {pkgDir}.
+  followups:
+    - trigger: "(?i)(truth|GENCODE|spike.in|sequin|SIRV)"
+      reply: "Spike-in truth sets only — sequin and SIRV. GENCODE is not a gold-standard truth for isoform discovery."
+    - trigger: "(?i)(pool|protocol|per.protocol)"
+      reply: "Strictly per-protocol reporting. No pooling across direct-RNA, cDNA, PCR-cDNA, Illumina, and PacBio."
+    - trigger: "(?i)(DTU|DTE|DGE|differential)"
+      reply: "DTU, DTE, and DGE are distinct hypotheses — the package must make that distinction explicit."
+    - trigger: "(?i)(threshold|fail.closed|precision|recall)"
+      reply: "Fail closed if direct-RNA precision below 0.75 or recall below 0.80."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "StringTie"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 4

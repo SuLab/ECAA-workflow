@@ -1,0 +1,5 @@
+subexperiment	cell_line	screen_type	n_target_genes	day_of_readout	n_cells	accession_sra	processed_data_portal	notes
+K562_gwps	K562	CRISPRi	9866 (all expressed genes)	day 8	~1.97 M	PRJNA831566	gwps.wi.mit.edu and figshare 20029387	genome-wide K562 screen; median knockdown ~86%
+K562_essential	K562	CRISPRi	2057 (common essentials)	day 6	~0.6 M	PRJNA831566	gwps.wi.mit.edu and figshare 20029387	earlier readout due to essentiality dropout
+RPE1_essential	RPE1	CRISPRi	2000+ (common essentials)	day 7	~0.3 M	PRJNA831566	gwps.wi.mit.edu and figshare 20029387	median knockdown ~92%
+scPerturb_harmonized_release	various	harmonized CRISPRi/KO	thousands	multi-day	aggregated	Peidli 2024 scPerturb	Zenodo 10617829	preferred structured access path for downstream reanalysis

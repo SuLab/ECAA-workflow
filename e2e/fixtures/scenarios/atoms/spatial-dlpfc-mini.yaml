@@ -1,0 +1,92 @@
+# atoms/spatial-dlpfc-mini — atom-coverage spec
+#
+# Synthetic Visium-style spatial transcriptomics: 50 spots, 100 genes,
+# simulating a DLPFC tissue section. Compact enough for fast execution.
+
+name: Synthetic DLPFC Visium spatial transcriptomics
+modality: spatial_transcriptomics
+
+beats:
+  - user: >-
+      I want to run spatial transcriptomics analysis on a small synthetic
+      Visium dataset mimicking human DLPFC tissue. I have 50 spots with
+      expression data for 100 genes and tissue position coordinates.
+    assistant:
+      content: >-
+        Spatial transcriptomics, synthetic DLPFC Visium, 50 spots × 100 genes.
+        What spatial clustering approach and downstream analysis are you planning?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      Standard spatial pipeline: QC, normalization, spatial clustering
+      with tissue-layer annotation, and differential expression between
+      spatial clusters. Internal use, synthetic data.
+    assistant:
+      content: >-
+        Recorded — QC → normalization → spatial clustering → layer annotation
+        → spatial DE. Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **Spatial transcriptomics — synthetic DLPFC Visium**
+
+          - **Dataset:** Synthetic Visium (50 spots × 100 genes)
+          - **Tissue:** DLPFC (simulated)
+          - **Pipeline:** QC → normalization → spatial clustering → DE
+          - **Governance:** synthetic data, internal use
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I want to run spatial transcriptomics analysis on a synthetic Visium
+    dataset representing a human DLPFC tissue section. The data is 50 tissue
+    spots × 100 genes with tissue position coordinates. Files are staged
+    locally: counts.tsv (spot × gene count matrix), tissue_positions.csv
+    (x/y coordinates for each spot), and scalefactors_json.json (Visium
+    scale factors). The pipeline should cover: spatial QC, normalization,
+    spatial clustering to identify tissue layers, and differential expression
+    between spatial clusters. Internal use, synthetic data. Please build the
+    plan and emit once confirmed.
+  followups:
+    - trigger: "(?i)(organism|species|genome|human|mouse)"
+      reply: >-
+        Human (Homo sapiens).
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use, synthetic data, no PHI.
+    - trigger: "(?i)(file|format|path|input|data|visium|spots)"
+      reply: >-
+        Files staged at testdata/scenarios/atoms/spatial-dlpfc-mini/.
+        Counts: counts.tsv. Positions: tissue_positions.csv.
+        Scale factors: scalefactors_json.json.
+    - trigger: "(?i)(layer|cluster|annotation|region|deconvolut)"
+      reply: >-
+        Identify spatial clusters — no reference snRNA-seq for deconvolution.
+        Just spatial clustering and per-cluster DE.
+    - trigger: "(?i)(contrast|comparison|condition|group)"
+      reply: >-
+        Comparison is between spatial clusters discovered in the data.
+        No pre-defined experimental groups.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

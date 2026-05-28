@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "04-pbmc-3k-10x"
+claims:
+  - id: "04-pbmc-3k-10x-claim-001"
+    text: "Fig 1A-B (cord blood CITE-seq UMAP): clear partial blending of CD4/CD8 T in RNA, separation in ADT"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 8617
+    tolerance: 0.1
+  - id: "04-pbmc-3k-10x-claim-002"
+    text: "Fig 1E (cord blood WNN UMAP): CD4 / CD8 / cDC all distinguished"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: "CD4 / CD8 / cDC all distinguished"
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-003"
+    text: "Fig 1F (modality weights): CD8+ T cells: high protein weight; DC: high RNA weight"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: "CD8+ T cells: high protein weight; DC: high RNA weight"
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-004"
+    text: "Fig 2A (bone marrow WNN): resolves 25-Ab-panel cell states"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 25
+    tolerance: 0.1
+  - id: "04-pbmc-3k-10x-claim-005"
+    text: "Fig 2C (ADT noise simulation): dose-dependent decrease of protein weights to 0"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 0
+    tolerance: 0.1
+  - id: "04-pbmc-3k-10x-claim-006"
+    text: "Fig 2D (proteinwise benchmark): WNN ≥ alternatives for all 25 markers"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 25
+    tolerance: 0.1
+  - id: "04-pbmc-3k-10x-claim-007"
+    text: "Fig 2E (speed): 15× faster on full dataset"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 15
+    tolerance: 0.1
+  - id: "04-pbmc-3k-10x-claim-008"
+    text: "Fig 3A (PBMC vaccine schematic): 24 samples"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 24
+    tolerance: 0.1
+  - id: "04-pbmc-3k-10x-claim-009"
+    text: "Fig 3B-D (PBMC UMAP): WNN separates all 57 fine-grained clusters"
+    contract: categorical
+    source_table: "results/tables/clusters.csv"
+    expected_value: 57
+    tolerance: 0.1
+  - id: "04-pbmc-3k-10x-claim-010"
+    text: "Fig 4A (CD4/CD8 cluster heatmap): distinct molecular signatures per L3 cluster"
+    contract: categorical
+    source_table: "results/tables/clusters.csv"
+    expected_value: "distinct molecular signatures per L3 cluster"
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-011"
+    text: "Fig 4C (panel minimization): single-marker enriches 45 of 57; 3-marker enriches 55 of 57"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: 45
+    tolerance: 0.1
+  - id: "04-pbmc-3k-10x-claim-012"
+    text: "Fig 5A (CD49a/CD103 scatter): bimodal mutually-exclusive populations"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: "bimodal mutually-exclusive populations"
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "04-pbmc-3k-10x-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 04-pbmc-3k-10x"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null

@@ -1,0 +1,43 @@
+# Workflow Context
+
+**Modality:** single_cell_rnaseq
+**Domain:** computational biology
+**Description:** scRNA-seq clustering + differential expression. Standard pipeline:
+preprocess, cell-level QC, normalise, optional batch correction +
+integration sweep, dimensionality reduction, cluster, annotate cell
+types, test cluster-vs-rest or cross-condition DE, then pathway
+enrichment. Mirrors today's `config/modalities/single-cell.yaml` + `config/archetypes/`.
+
+**EDAM topic:** topic:3308
+**EDAM operation:** operation:3432
+**Confidence:** high (100%)
+
+## Organisms
+- Homo sapiens (taxon:9606)
+- Mus musculus (taxon:10090)
+
+## Methods mentioned in SME prose
+
+_Keyword-scraped from intake text; see SME discovery decisions above for authoritative values._
+
+- clustering: Seurat
+
+## Data sources
+- GSE63473 (NCBI GEO Series)
+
+## SME intake text
+
+We want to recreate the original Drop-seq cell atlas of the mouse retina from Macosko et al. 2015 Cell, GEO accession GSE63473. The data is 49,300 STAMPs collected from postnatal-day-14 mouse retinas across 7 experimental batches over 4 days. Sequencing on NextSeq 500. Drop-seq cell barcode is 12 bp on read 1, UMI is 8 bp, cDNA on read 2. Reference is mm10.
+
+Use Drop-seq tools (McCarroll lab) to convert FASTQ to a digital gene expression (DGE) matrix; do not use Cell Ranger.
+
+The clustering follows the paper's protocol exactly. Take the 13,155 cells with more than 900 genes detected as the training set and run PCA in Seurat. Identify the 32 statistically significant PCs by permutation test. Run t-SNE on those 32 PCs. Project the remaining 36,145 cells onto the t-SNE map based on their PC-subspace representation. Apply density clustering (Ester et al. 1996, DBSCAN-style) on the resulting t-SNE point cloud. The expected output is 39 transcriptionally distinct clusters spanning the 5 neuronal retinal classes (photoreceptor = rods+cones, bipolar, horizontal, retinal ganglion, amacrine) plus non-neuronal populations (Mueller glia, microglia, astrocyte, endothelial, pericyte). Cluster sizes range from ~50 to ~29,400.
+
+Within the amacrine compartment, focus on the 21 amacrine clusters and classify them by neurotransmitter markers: 12 should be GABAergic (Gad1/Gad2+), 5 glycinergic (Slc6a9+), 1 excitatory (Slc17a8+), and 3 nGnG (clusters 4, 20, 21). Cluster 16 should mark as A-II amacrines (high Gjd2) and cluster 3 as SACs (high Chat). Recreate the cluster 7 vs cluster 6 DE finding (16 genes at >2.8-fold, p<1e-9) and the cluster 20 vs cluster 21 DE finding (12 genes at >2.8-fold, p<1e-9).
+
+Run McDavid et al. 2013 likelihood-ratio test for differential expression. Build a dendrogram from Euclidean distance + complete linkage on cluster centroids.
+
+Also recreate the species-mixing experiments (HEK+3T3 across cell concentrations 12.5/25/50/100 cells/uL) and reproduce the doublet rates (0.36%/1.4%/4.6%/11.3%), single-cell purity (98.8% down to 90.4%), and the cell-cycle reconstruction (544 human + 668 mouse cell-cycle genes at FDR 5%, 200 orthologous pairs).
+
+No mechanistic claims -- descriptive cell atlas only.
+

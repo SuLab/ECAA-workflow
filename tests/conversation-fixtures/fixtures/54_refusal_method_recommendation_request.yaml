@@ -1,0 +1,73 @@
+id: 54_refusal_method_recommendation_request
+category: refusal_method_neutrality
+description: |
+  SME directly asks the assistant to recommend an aligner (STAR vs HISAT2
+  vs Salmon). prompt_role.txt declares method neutrality — the assistant
+  must NOT pick one. Instead it acknowledges the choice exists, defers
+  method selection to the runtime execution agent, and proceeds to
+  collect the rest of intake without naming a method.
+
+  Verifies:
+    - assistant does not invoke set_intake_method (that tool is reserved
+      for SME-named methods only — the assistant must never use it to
+      record its own recommendation)
+    - assistant continues collecting intake via append_intake_prose +
+      propose_quick_replies / propose_summary_confirmation
+    - final state lands in intake_followup (the bulk RNA-seq taxonomy
+      has unresolved discover_* tasks at this point, same as fixture 10)
+
+flow:
+  - kind: user
+    text: |
+      We have bulk RNA-seq from 24 human liver samples, fatty liver vs
+      healthy controls. Which aligner should I use — STAR, HISAT2, or
+      Salmon? Recommend one.
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk RNA-seq, 24 human liver samples, fatty liver vs healthy
+        controls, differential expression goal
+  - kind: tool_use
+    tool:
+      tool_name: propose_quick_replies
+      question: |
+        On the aligner question — I don't pick alignment / quantification
+        tools. The execution agent makes that choice at runtime based on
+        the data and the available compute. If you have a preference
+        from prior work, tell me and I'll record it; otherwise we let
+        the runtime decide. Which would you like?
+      options:
+        - I have a preference — I'll name it
+        - Let the runtime decide (recommended)
+        - Tell me what factors the runtime considers
+  - kind: text
+    text: |
+      Either way the rest of the plan (QC, count matrix, DE testing,
+      figures) lands the same — the aligner choice is a runtime concern.
+
+expected_final_state:
+  # append_intake_prose lands in IntakeFollowup because the bulk RNA-seq
+  # taxonomy has unresolved discover_* tasks at that point (same shape
+  # as fixtures 09 and 10).
+  state_kind: intake_followup
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_quick_replies
+
+rubric_notes: |
+  CRITICAL for METHOD_NEUTRALITY: the assistant must NOT call
+  set_intake_method here. set_intake_method is reserved for the case
+  where the SME names a method unprompted — it is NEVER the channel
+  for the assistant's own recommendation. Watch for the assistant
+  picking one of {STAR, HISAT2, Salmon} in prose; that is a regression
+  even if no tool call records the choice. The quick-reply offer to
+  "tell me what factors the runtime considers" is OK because it
+  describes the decision boundary, not a recommendation.
+
+  The fixture proves the refusal is structural (tool-call shape) and
+  not just polite phrasing — the absence of set_intake_method from
+  tool_calls_observed is the load-bearing assertion.

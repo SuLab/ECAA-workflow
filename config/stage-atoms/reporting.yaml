@@ -1,0 +1,63 @@
+id: reporting
+version: "1.0.0"
+role: operation
+description: |
+  Assemble narrative tables, figures, and summary text from upstream stage
+  outputs into a per-stage HTML / Markdown report. Modality-agnostic; bio
+  taxonomies override the description at the include site to specify what
+  goes into the report.
+edam_operation: "operation:0337"
+edam_data: "data:2048"
+edam_format: "format:2331"
+assignee: agent
+depends_on:
+  - differential_expression
+expected_artifacts:
+  - report.md
+  - manifest.json
+  - result.json
+required_figures:
+  - concordance_heatmap
+  - pathway_overlap_bar
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Aggregates upstream stage outputs into a per-stage report bundle.
+# Output bundle is a multi-format set: PDF (format:3508) + HTML
+# (format:2331); the primary committed artifact mirrors edam_format
+# above (HTML).
+inputs:
+  - name: aggregated_results
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2048"
+      label: "Report"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal
+outputs:
+  - name: report_html
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2048"
+      label: "Report"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:2331"
+      label: "HTML"
+    privacy_class: internal
+  - name: report_pdf
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2048"
+      label: "Report"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3508"
+      label: "PDF"
+    privacy_class: internal

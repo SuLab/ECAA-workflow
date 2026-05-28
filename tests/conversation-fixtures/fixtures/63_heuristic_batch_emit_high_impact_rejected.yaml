@@ -1,0 +1,71 @@
+id: 63_heuristic_batch_emit_high_impact_rejected
+category: non_scripted_batching
+description: |
+  R5.19 Phase 3 — heuristic backend with `batched_high_impact_illegal`
+  strategy. Every turn the decision table would normally emit a single
+  tool, the strategy instead ships an ILLEGAL pair:
+  `HighImpactTool::EmitPackage` + `BatchableTool::GetSessionState`.
+
+  The dispatcher's alone-in-turn guard refuses the whole batch with
+  `ToolError::PreconditionFailure` whose reason carries the
+  "must be the only tool call in its turn" sentinel. The early-return
+  branch in `dispatch_batch` SKIPS the `push_with_rotation` audit
+  step, so `session.tool_call_log` stays empty even though the LLM
+  surface (`tool_exchange`) recorded the attempted batch. The session
+  NEVER transitions to `Emitted` — the EmitPackage handler is never
+  reached because the rejection fires before any handler runs.
+
+  Iteration 1 fans out the illegal pair → rejected. Iteration 2
+  sees `emit_package` in `tool_exchange.current_turn_calls`, fires
+  the heuristic's Rule 6 ("emit already attempted") which returns
+  assistant text + `StopReason::EndTurn`, so the tool-loop exits
+  cleanly without reaching `TOOL_LOOP_CAP`. The session is left in
+  the `Intake` state that `maybe_auto_append` transitioned into on
+  the first user prose; no successful tool dispatch ever advanced
+  it further.
+
+  Counterpart to fixture 62 (legal-batching positive case).
+
+mock_backend: heuristic
+heuristic_batch_strategy: batched_high_impact_illegal
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq differential expression analysis comparing
+      degenerated vs healthy intervertebral disc tissue from PBMCs.
+      Public data, GSE251686 + GSE189916. 24 samples total.
+
+# mock_responses omitted: HeuristicMockBackend emits the illegal pair
+# unconditionally under this strategy; every turn is rejected by the
+# dispatcher's alone-in-turn guard.
+
+expected_final_state:
+  # `maybe_auto_append` runs `rebuild_dag` on the first SME prose;
+  # for bulk-RNA-seq DE with GSE accessions the DAG carries unresolved
+  # `discover_*` tasks, firing `DagBuiltWithUnresolvedDiscovery` →
+  # IntakeFollowup. The load-bearing claim — that the illegal batch is
+  # rejected and NEVER advances state via a successful tool dispatch —
+  # is captured by the empty `tool_call_log` plus the explicit
+  # `tool_calls_excluded` below.
+  state_kind: intake_followup
+  user_confirmed: false
+  # tool_calls_observed deliberately empty: the alone-in-turn early
+  # return in dispatch_batch skips push_with_rotation, so the audit
+  # log records nothing despite the rejection firing. The negative
+  # assertion (no `emitted` state + no package on disk + not confirmed)
+  # is the load-bearing check.
+  tool_calls_excluded:
+    - emit_package
+    - get_session_state
+
+rubric_notes: |
+  Watch for: the alone-in-turn guard rejects the batch BEFORE any
+  handler runs. The session never transitions to Emitted and no
+  package is written to disk. The heuristic's Rule 6 short-circuits
+  iteration 2 once it sees emit_package in the per-turn
+  `tool_exchange`, so the tool-loop exits within 2 iterations instead
+  of hammering all 10 against the same illegal batch. The structural
+  property (HighImpact + sibling tool in one batch → all rejected)
+  is fuzz-verified at the dispatcher boundary in
+  `crates/conversation/tests/heuristic_batch_proptest.rs`.

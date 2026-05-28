@@ -1,0 +1,72 @@
+id: 07_generic_omics_fallback
+category: happy_path_generic_fallback
+description: |
+  Deliberately vague intake that doesn't match any specific modality
+  keywords. Classifier falls back to `generic_omics`. The assistant
+  acknowledges the ambiguity, restates what little was provided, and
+  confirms with the SME. Verifies the fallback taxonomy is reachable
+  through the LLM-mediated path.
+
+flow:
+  - kind: user
+    text: |
+      We have some omics data from a small clinical study and we want to
+      look for differences between the treatment and control groups. Not
+      sure which kind of analysis fits best yet — happy to start with
+      whatever the system can do generically.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        omics data from a small clinical study, treatment vs control,
+        unclear modality, willing to start generically
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's what I have so far. The description is open enough that I'll
+        set up a generic workflow that reports group-level differences:
+        - Treatment vs control comparison from a small clinical study
+        - Modality not yet pinned down — generic exploratory pipeline
+
+        The package will surface group-level statistical patterns, not
+        cause-and-effect claims. We can swap to a more specific pipeline
+        later if you can share more about the data type.
+
+        Click Accept to proceed, or Revise to revise.
+  - kind: text
+    text: "Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The package is ready as a generic exploratory pipeline. When you have
+      more detail about the data type, we can rebuild it against a more
+      specific taxonomy.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: assistant acknowledges ambiguity without forcing the SME to
+  name a modality, claim boundary surfaced anyway, package is still
+  emitted (generic_omics is the explicit fallback — the compiler always
+  emits a package).

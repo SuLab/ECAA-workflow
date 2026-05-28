@@ -1,0 +1,16 @@
+schema_version: "0.1"
+id: generic_omics
+display_name: Generic Omics
+keywords: []
+edam_topic: "topic:3391"
+edam_operation: "operation:2945"
+taxonomy_path: stage-taxonomies/generic-omics.yaml
+semantic_equivalence_bounds:
+  - metric: spearman_rho
+    operator: ">="
+    threshold: 0.90
+    rationale: "Default: Spearman correlation of primary quantification output ≥ 0.90 between runs"
+  - metric: pvalue_relative_delta
+    operator: "<="
+    threshold: 0.05
+    rationale: "Default: relative p-value delta ≤ 0.05 for statistical tests"

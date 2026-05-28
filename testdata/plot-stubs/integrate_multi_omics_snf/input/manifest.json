@@ -1,0 +1,129 @@
+{
+  "fused_matrix_path": "snf_matrix.tsv",
+  "clusters_path": "clusters.tsv",
+  "modality_concordance_matrix": [
+    [
+      0.6961,
+      0.6929,
+      0.047,
+      0.3816,
+      0.4166
+    ],
+    [
+      0.7881,
+      0.6851,
+      0.9658,
+      0.0538,
+      0.7437
+    ],
+    [
+      0.2031,
+      0.8688,
+      0.8604,
+      0.4431,
+      0.2255
+    ],
+    [
+      0.6338,
+      0.7095,
+      0.3677,
+      0.5884,
+      0.7385
+    ],
+    [
+      0.1965,
+      0.7249,
+      0.1935,
+      0.4488,
+      0.9835
+    ]
+  ],
+  "row_labels": [
+    "M0",
+    "M1",
+    "M2",
+    "M3",
+    "M4"
+  ],
+  "col_labels": [
+    "M0",
+    "M1",
+    "M2",
+    "M3",
+    "M4"
+  ],
+  "factor_variance": [
+    {
+      "factor": "f1",
+      "variance": 0.1442
+    },
+    {
+      "factor": "f2",
+      "variance": 0.1446
+    },
+    {
+      "factor": "f3",
+      "variance": 0.1969
+    },
+    {
+      "factor": "f4",
+      "variance": 0.2746
+    },
+    {
+      "factor": "f5",
+      "variance": 0.0695
+    }
+  ],
+  "cluster_assignments": {
+    "sample_00": 2,
+    "sample_01": 3,
+    "sample_02": 1,
+    "sample_03": 3,
+    "sample_04": 2,
+    "sample_05": 2,
+    "sample_06": 3,
+    "sample_07": 3,
+    "sample_08": 0,
+    "sample_09": 1,
+    "sample_10": 3,
+    "sample_11": 1,
+    "sample_12": 1,
+    "sample_13": 0,
+    "sample_14": 2,
+    "sample_15": 1,
+    "sample_16": 1,
+    "sample_17": 1,
+    "sample_18": 1,
+    "sample_19": 2,
+    "sample_20": 0,
+    "sample_21": 1,
+    "sample_22": 3,
+    "sample_23": 2,
+    "sample_24": 0,
+    "sample_25": 3,
+    "sample_26": 3,
+    "sample_27": 3,
+    "sample_28": 1,
+    "sample_29": 1,
+    "sample_30": 3,
+    "sample_31": 0,
+    "sample_32": 1,
+    "sample_33": 0,
+    "sample_34": 1,
+    "sample_35": 1,
+    "sample_36": 1,
+    "sample_37": 0,
+    "sample_38": 1,
+    "sample_39": 0,
+    "sample_40": 1,
+    "sample_41": 2,
+    "sample_42": 1,
+    "sample_43": 3,
+    "sample_44": 0,
+    "sample_45": 2,
+    "sample_46": 0,
+    "sample_47": 1,
+    "sample_48": 3,
+    "sample_49": 3
+  }
+}

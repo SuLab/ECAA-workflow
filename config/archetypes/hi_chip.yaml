@@ -1,0 +1,65 @@
+schema_version: "0.1"
+id: hi_chip
+version: "1.0.0"
+description: |
+  HiChIP combines ChIP-seq for an active-chromatin mark with
+  Hi-C-style proximity ligation to capture promoter-enhancer
+  contact loops. Pipeline: paired-end alignment, contact-pair
+  extraction + cooler binning, ChIP-style peak calling on the
+  rectangular-mode pileup (HiChIP anchors), loop calling anchored
+  on the peaks (FitHiChIP / hichipper), and differential loop
+  testing between conditions.
+sme_summary: |
+  Build contact matrices from HiChIP data, call peak-anchored
+  loops, test for differential promoter-enhancer contacts between
+  conditions, and link loops to gene expression.
+goal_data: "data:1255"
+goal_format: "format:3003"
+project_class: bioinformatics
+modality_hint: hi_chip
+goal_kind_hint: chromatin_loops
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: true
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: chromatin_contact_calling
+    required: true
+    depends_on: [alignment]
+  - atom_id: peak_calling
+    required: true
+    depends_on: [alignment]
+  - atom_id: chromatin_loop_calling
+    required: true
+    depends_on: [chromatin_contact_calling, peak_calling]
+  # Differential_loop_analysis is required so the
+  # archetype produces data:0951 (matches classifier-inferred DE goal).
+  - atom_id: differential_loop_analysis
+    required: true
+    depends_on: [chromatin_loop_calling]
+  - atom_id: pathway_enrichment
+    required: false
+    depends_on: [differential_loop_analysis]
+  - atom_id: reporting
+    required: true
+    depends_on: [chromatin_loop_calling, differential_loop_analysis, peak_calling, pathway_enrichment]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  organism: alignment.inputs.organism
+  samples: data_acquisition.inputs.samples
+  restriction_enzyme: chromatin_contact_calling.inputs.restriction_enzyme
+claim_boundary: |
+  HiChIP loops are statistical contact enrichments at FDR;
+  differential loop strength between conditions is statistical
+  association, not mechanistic causation. Anchor-to-gene
+  inferences require integrating with expression / ChIP /
+  perturbation evidence.

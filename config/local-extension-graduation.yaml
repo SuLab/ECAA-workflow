@@ -1,0 +1,8 @@
+version: "1.0.0"
+graduation:
+  min_usage_count: 5
+  min_unique_sessions: 3
+  min_success_rate: 0.6
+duplicate_detection:
+  jaccard_near_duplicate_threshold: 0.85
+  jaccard_candidate_match_threshold: 0.70

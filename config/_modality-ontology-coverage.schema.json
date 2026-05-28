@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "swfc:modality-ontology-coverage",
+  "type": "object",
+  "required": ["version", "coverage"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "coverage": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["modality", "primary_ontologies", "secondary_ontologies", "forbidden_ontologies"],
+        "additionalProperties": false,
+        "properties": {
+          "modality": {
+            "enum": [
+              "bulk_rnaseq", "single_cell_rnaseq", "variant_calling",
+              "chip_seq", "metagenomics", "proteomics", "metabolomics",
+              "spatial_omics", "phylogenetics", "structural_biology",
+              "multi_omics", "generic_omics"
+            ]
+          },
+          "primary_ontologies":   { "$ref": "#/$defs/OntologySet" },
+          "secondary_ontologies": { "$ref": "#/$defs/OntologySet" },
+          "forbidden_ontologies": { "$ref": "#/$defs/OntologySet" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "OntologySet": {
+      "oneOf": [
+        { "const": "union" },
+        {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[A-Z][A-Za-z0-9_]*$" },
+          "uniqueItems": true
+        }
+      ]
+    }
+  }
+}

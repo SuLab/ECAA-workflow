@@ -1,0 +1,27 @@
+Package: scrippsWorkflowPlotting
+Type: Package
+Title: Scripps Workflow R-side plotting library
+Version: 1.1.0
+Description: Companion to the Python lib/plotting library. Provides
+    ggplot2-based renderers that share theme.json and the figure-id
+    catalog so a Python-rendered and R-rendered figure of the same
+    figure_id are visually equivalent. Sourced as plain R files from
+    runtime/plotting_r/core.R; not built as a CRAN package.
+Imports:
+    ggplot2 (>= 4.0.0),
+    grDevices,
+    grid,
+    jsonlite,
+    ragg,
+    scales,
+    stats,
+    utils
+Suggests:
+    Cairo,
+    cowplot,
+    digest,
+    ggrepel,
+    patchwork,
+    RColorBrewer,
+    viridisLite
+License: see ../../LICENSE

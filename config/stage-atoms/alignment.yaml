@@ -1,0 +1,53 @@
+id: alignment
+version: "1.0.0"
+role: operation
+description: |
+  Align trimmed reads to a reference genome. Method neutrality: the concrete
+  aligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)
+  is selected at runtime by the agent. EDAM operation:3198 (Read mapping)
+  is the more-specific child of operation:0292 (Sequence alignment).
+edam_operation: "operation:3198"
+edam_data: "data:1234"
+edam_format: "format:2572"
+assignee: agent
+depends_on:
+  - sequence_trimming
+attributes:
+  candidate_tools:
+    - star
+    - hisat2
+    - bwa_mem2
+    - bwa_mem
+    - minimap2
+    - bowtie2
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: false
+  runtime_class: hours
+# Explicit rich ports.
+# Legacy edam_data / edam_format above remain for the synthesis
+# fallback during migration.
+inputs:
+  - name: reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2044"
+      label: "Sequence reads"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:1930"
+      label: "FASTQ"
+    privacy_class: internal
+outputs:
+  - name: aligned_reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0863"
+      label: "Sequence alignment"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:2572"
+      label: "BAM"
+    coordinate_system: "1-based-inclusive"
+    privacy_class: internal

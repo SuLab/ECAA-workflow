@@ -1,0 +1,83 @@
+id: translation_efficiency_de
+version: "1.0.0"
+role: operation
+description: |
+  Differential translation-efficiency testing between conditions
+  using paired ribosome-protected-fragment counts and matched
+  total-mRNA counts. TE = RPF / mRNA per gene per sample.
+  anota2seq / Xtail / DESeq2 with a translation:condition
+  interaction term selected at runtime; reports per-gene TE
+  log2FC and adjusted p-value.
+edam_operation: "operation:3223"
+edam_data: "swfc:te_results"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - quantification
+expected_artifacts:
+  - te_results.tsv
+  - te_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: ribo_seq
+required_figures:
+  - te_volcano
+  - te_quadrant_plot
+attributes:
+  candidate_tools:
+    - anota2seq
+    - xtail
+    - deltate
+    - deseq2
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Translation efficiency is the ratio of RPF count to mRNA count
+  and is a statistical proxy for translation rate, not a direct
+  measurement of protein synthesis. Differential TE between
+  conditions is statistical association; mechanistic translation
+  control inferences require orthogonal validation (polysome
+  profiling, ribosome run-off, etc.).
+inputs:
+  - name: rpf_counts
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "raw_counts"
+    privacy_class: internal
+  - name: mrna_counts
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "raw_counts"
+    privacy_class: internal
+outputs:
+  - name: te_results
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: te_results
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-gene translation efficiency differential: RPF/mRNA log2FC + adjusted p-value between conditions"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    units: "log2 fold change"
+    statistical_state: "de_tested"
+    privacy_class: internal

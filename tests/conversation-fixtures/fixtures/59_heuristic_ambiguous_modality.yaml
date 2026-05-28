@@ -1,0 +1,55 @@
+id: 59_heuristic_ambiguous_modality
+category: non_scripted_tool_selection
+description: |
+  R5.19 Phase 1 — mid-band (0.3 ≤ confidence < 0.7). The SME prose
+  carries TWO distinct modality keywords ("RNA-seq" + "ATAC-seq"),
+  which routes the confidence estimator to the 0.5 ambiguous band. The
+  HeuristicMockBackend dispatches `classify_intake` first, then on the
+  follow-up turn fires `get_classification_evidence` so the rationale
+  lands in the SME-facing transcript before any intake mutation.
+
+  Phase-5 (fixture 64) will extend this to the full cross-omics
+  routing path (`is_cross_omics_intent` + `propose_quick_replies`
+  round). This fixture only asserts the mid-band classify-then-evidence
+  ordering — emission is held off, the session sits in `Intake` waiting
+  for SME elaboration.
+
+mock_backend: heuristic
+
+flow:
+  # Two modality keywords WITHOUT any cross-omics conjunction pattern
+  # (`X and Y`, `joint analysis of`, `integrated`, `combined with`).
+  # Semicolon-separated phrasing keeps mid-band confidence (~0.5)
+  # WITHOUT pre-empting via the cross-omics gate (the cross-omics
+  # positive case is fixture 65).
+  - kind: user
+    text: |
+      RNA-seq differential expression in human PBMCs; ATAC-seq
+      chromatin accessibility profiling on the same cohort.
+
+expected_final_state:
+  # `maybe_auto_append` runs `rebuild_dag` on the first SME prose; with
+  # bulk-RNA-seq + ATAC-seq the DAG contains unresolved `discover_*`
+  # tasks and the state machine fires `DagBuiltWithUnresolvedDiscovery`
+  # → IntakeFollowup. The mid-band classify+evidence ordering still
+  # lands inside that state; this fixture's load-bearing claim is the
+  # tool ordering, not the exact terminal state.
+  state_kind: intake_followup
+  user_confirmed: false
+  tool_calls_observed:
+    - classify_intake
+    - get_classification_evidence
+  tool_calls_excluded:
+    - propose_quick_replies
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+
+rubric_notes: |
+  Watch for: the heuristic recognizes two distinct modality keywords
+  in the prose and walks the mid-band ordering — classify, then fetch
+  the evidence rationale — before any intake mutation. `emit_package`
+  must NOT fire (the loop terminates with the mid-band clarifying
+  assistant text once both calls have landed). The cross-omics
+  conjunction routing (`joint analysis of X and Y`) lands in Phase 5;
+  this fixture only exercises the confidence-band side of the branch.

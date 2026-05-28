@@ -1,0 +1,9 @@
+sample_id,condition,age,sex
+S1,healthy,28,F
+S2,healthy,42,M
+S3,healthy,48,F
+S4,healthy,50,F
+S5,disease,49,F
+S6,disease,36,F
+S7,disease,69,F
+S8,disease,48,F

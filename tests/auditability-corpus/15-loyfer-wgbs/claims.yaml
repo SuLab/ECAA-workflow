@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "15-loyfer-wgbs"
+claims:
+  - id: "15-loyfer-wgbs-claim-001"
+    text: "Samples ingested (GSE186458 sample sheet): 207 (exact)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 207
+    tolerance: 0.0
+  - id: "15-loyfer-wgbs-claim-002"
+    text: "Cell types covered (Loyfer 2023 Fig 1a): 39 (exact)"
+    contract: categorical
+    source_table: "results/tables/qc.csv"
+    expected_value: 39
+    tolerance: 0.0
+  - id: "15-loyfer-wgbs-claim-003"
+    text: "CpGs in beta matrix (hg38, Loyfer Methods): 28,217,448 (exact)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 28217448
+    tolerance: 0.01
+  - id: "15-loyfer-wgbs-claim-004"
+    text: "Per-sample bisulfite conversion rate (deposited): ≥ 99%"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.99
+    tolerance: 0.005
+  - id: "15-loyfer-wgbs-claim-005"
+    text: "Per-CpG Pearson ρ vs published cell-type tracks (cell-type-mean): ≥ 0.99"
+    contract: group_comparison
+    source_table: "results/tables/methylation.csv"
+    expected_value: 0.99
+    tolerance: 0.01
+  - id: "15-loyfer-wgbs-claim-006"
+    text: "Per-CpG Pearson ρ vs published cell-type tracks (sample-level): ≥ 0.985"
+    contract: group_comparison
+    source_table: "results/tables/methylation.csv"
+    expected_value: 0.985
+    tolerance: 0.01
+  - id: "15-loyfer-wgbs-claim-007"
+    text: "Marker-DMR overlap Jaccard vs Loyfer Supp Tables 2-4: ≥ 0.95"
+    contract: group_comparison
+    source_table: "results/tables/dmrs.csv"
+    expected_value: 0.95
+    tolerance: 0.03
+  - id: "15-loyfer-wgbs-claim-008"
+    text: "UXM cell-type prediction accuracy (held-out, Fig 4): ≥ 90% top-1"
+    contract: rank_top_n
+    source_table: "results/tables/deconvolution.csv"
+    expected_value: 0.90
+    tolerance: 0.05
+  - id: "15-loyfer-wgbs-claim-009"
+    text: "Atlas UMAP cell-type silhouette: ≥ 0.45"
+    contract: categorical
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.45
+    tolerance: 0.05
+  - id: "15-loyfer-wgbs-claim-010"
+    text: "Number of cell-type-specific marker DMRs (paper reports ~30k): 25,000-35,000"
+    contract: categorical
+    source_table: "results/tables/dmrs.csv"
+    expected_value: 30000
+    tolerance: 0.2
+  - id: "15-loyfer-wgbs-claim-011"
+    text: "Emitted workflow contains stage 'discover_methylation_calling': wgbstools beta extraction across 207 samples"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_methylation_calling"
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-012"
+    text: "Emitted workflow contains stage 'find_markers': cell-type-specific DMR identification (~30k markers)"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "find_markers"
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null
+  - id: "15-loyfer-wgbs-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 15-loyfer-wgbs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/methylation.csv"
+    expected_value: null
+    tolerance: null

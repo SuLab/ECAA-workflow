@@ -1,0 +1,51 @@
+schema_version: "0.1"
+id: starr_seq
+version: "1.0.0"
+description: |
+  STARR-seq / MPRA enhancer-activity assay. Distinct from
+  ChIP-seq / ATAC-seq peak calling: the central readout is the
+  RNA / DNA tile-ratio per candidate-enhancer element, not
+  enrichment-over-background of a single sample. Pipeline:
+  align DNA + RNA libraries separately, compute per-tile
+  log2(RNA/DNA) + DESeq2 normalization for sequencing depth, call
+  active enhancers, annotate with H3K27ac / DNase if available.
+sme_summary: |
+  Quantify per-tile enhancer activity from paired DNA + RNA STARR
+  libraries, call active enhancers at log2(RNA/DNA) ≥ 2 AND FDR
+  threshold, annotate against chromatin marks.
+goal_data: "data:1255"
+goal_format: "format:3003"
+project_class: bioinformatics
+modality_hint: starr_seq
+goal_kind_hint: enhancer_activity
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: true
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: enhancer_activity_calling
+    required: true
+    depends_on: [alignment]
+  - atom_id: reporting
+    required: true
+    depends_on: [enhancer_activity_calling]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  organism: alignment.inputs.organism
+  samples: data_acquisition.inputs.samples
+  activity_threshold: enhancer_activity_calling.inputs.activity_log2fc_threshold
+claim_boundary: |
+  Active-enhancer calls are statistical RNA/DNA enrichments at FDR
+  — they identify candidate functional regulatory elements but
+  the activity score does not directly map to a gene target.
+  Cross-validate with H3K27ac / DNase peaks at the same coordinates
+  and with orthogonal reporter assays before naming target genes.

@@ -1,0 +1,82 @@
+id: colocalization
+version: "1.0.0"
+role: operation
+description: |
+  Test whether two genetic association signals (typically GWAS + eQTL) share
+  a common causal variant. coloc / SuSiE-coloc / HyPrColoc / fastenloc
+  selected at runtime. swfc namespace per EDAM audit — operation:3229
+  (Imputation) is mis-labeled for coloc.
+edam_operation: "swfc:gwas_colocalization"
+edam_data: "data:3498"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - gwas_summary_harmonization
+expected_artifacts:
+  - coloc_results.tsv
+  - manifest.json
+  - result.json
+required_figures:
+  - manhattan
+  - qq
+  - miami
+  - locus_zoom
+  - credible_set_track
+  - coloc_pp_panel
+attributes:
+  candidate_tools:
+    - coloc
+    - susie_coloc
+    - hyprcoloc
+    - fastenloc
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Colocalization posterior probabilities are evidence of shared genetic
+  signal, not proof of mechanism. Report the credible-set size and assumed
+  prior alongside every PP.H4 value.
+# Explicit rich ports.
+# Two-input port shape: a GWAS summary stats table aligned via
+# gwas_summary_harmonization, and an eQTL summary stats table from a
+# matched-tissue source. The output is a swfc local extension because
+# EDAM has no first-class colocalization-result class today; proposed
+# parents map it to the GWAS-summary lineage so downstream consumers
+# (locus reporters) can match it via partial subsumption.
+inputs:
+  - name: gwas_summary_stats
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0928"
+      label: "GWAS summary"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+  - name: eqtl_summary_stats
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0928"
+      label: "GWAS summary"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: coloc_results
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "colocalization_results"
+      proposed_parent_terms:
+        - "data:0928"
+      definition: "Per-locus colocalization posterior probabilities (PP.H0–H4) and credible-set summaries"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "posterior_probabilities"
+    privacy_class: internal

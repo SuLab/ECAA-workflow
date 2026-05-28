@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "swfc:population-coverage",
+  "title": "Population coverage statement",
+  "description": "v3 §11.X / v3 Phase 9 — workflow-level statement of which sample cohorts the workflow has been validated on. One file per workflow id at config/population-coverage/<workflow_id>.yaml.",
+  "type": "object",
+  "required": ["workflow_id", "validated_cohorts"],
+  "additionalProperties": false,
+  "properties": {
+    "workflow_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "description": "Stable archetype/workflow id this statement applies to. Matches the file stem."
+    },
+    "validated_cohorts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/cohort" },
+      "description": "Cohorts the workflow was evaluated on. Must carry at least one entry."
+    },
+    "explicitly_untested": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/cohort" },
+      "description": "Cohorts known to be outside validation scope. Surfaces in the UI as an explicit gap so the SME sees what was tested but NOT validated."
+    },
+    "citations": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Validation source citations (DOIs or PMIDs). At least one recommended for clinical-grade workflows."
+    }
+  },
+  "$defs": {
+    "cohort": {
+      "type": "object",
+      "required": ["label"],
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Free-text label (e.g. 'GIAB Ashkenazi trio', '1000 Genomes EUR')."
+        },
+        "population_code": {
+          "type": "string",
+          "description": "Optional structured population code (NIH MOR taxonomy, OMOP)."
+        },
+        "age_band": {
+          "enum": ["pediatric", "adolescent", "adult", "geriatric", "all"],
+          "description": "Age range covered by the cohort."
+        },
+        "sample_type": {
+          "type": "string",
+          "description": "Sample type (e.g. 'solid_tumor', 'liquid_biopsy', 'germline', 'bulk_tissue')."
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Sample size for the cohort."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,91 @@
+# atoms/gwas-1kg-chr22 — atom-coverage spec
+#
+# Synthetic GWAS + eQTL colocalization on chr22.
+# 5,000 variants from a simulated GWAS + 2,000 eQTL entries,
+# LD reference stub pointing to 1000 Genomes Phase 3 EUR.
+
+name: Synthetic chr22 GWAS colocalization with eQTL
+modality: gwas_coloc
+
+beats:
+  - user: >-
+      I want to run a GWAS colocalization analysis on chromosome 22.
+      I have summary statistics from a synthetic GWAS (5,000 variants)
+      and matching eQTL data from a simulated GTEx-style brain dataset.
+    assistant:
+      content: >-
+        GWAS coloc, chr22, synthetic GWAS + brain eQTL. Which colocalization
+        method and LD reference?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      Use coloc.abf as primary method. LD reference is 1000 Genomes
+      Phase 3 EUR, chr22 only. Default priors. Internal use, synthetic data.
+    assistant:
+      content: >-
+        Recorded — harmonize GWAS + eQTL alleles → coloc.abf with 1000G EUR
+        LD → report colocalized loci. Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **GWAS colocalization — synthetic chr22**
+
+          - **GWAS:** 5,000 synthetic variants on chr22
+          - **eQTL:** Simulated brain eQTL (2,000 pairs)
+          - **Method:** coloc.abf (default priors)
+          - **LD reference:** 1000 Genomes Phase 3 EUR, chr22
+          - **Pipeline:** harmonization → colocalization → reporting
+          - **Governance:** synthetic data, internal use
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I want to run a GWAS colocalization analysis on chromosome 22 using
+    synthetic summary statistics. The GWAS file is gwas_chr22_summary.tsv
+    (5,000 variants) and the eQTL file is eqtl_chr22_summary.tsv (2,000
+    gene-variant pairs from a simulated brain tissue). The LD reference is
+    1000 Genomes Phase 3 EUR restricted to chr22. Use coloc.abf as the primary
+    colocalization method with default priors (p1=p2=1e-4, p12=1e-5). Report
+    all loci with PP.H4 >= 0.5. Internal use, synthetic data, no PHI.
+    Please build the plan and emit once confirmed.
+  followups:
+    - trigger: "(?i)(prior|p12|p1|p2|coloc)"
+      reply: >-
+        Default priors: p1=p2=1e-4, p12=1e-5.
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use, synthetic data, no PHI.
+    - trigger: "(?i)(file|format|path|gwas|eqtl|input|data)"
+      reply: >-
+        Files staged at testdata/scenarios/atoms/gwas-1kg-chr22/.
+        GWAS: gwas_chr22_summary.tsv, eQTL: eqtl_chr22_summary.tsv,
+        LD info: ld_panel_info.txt.
+    - trigger: "(?i)(tissue|brain|gtex|eqtl.source)"
+      reply: >-
+        Simulated brain frontal cortex eQTL — treat as a single tissue.
+    - trigger: "(?i)(ancestry|population|eur|european)"
+      reply: >-
+        European-ancestry only. 1000G Phase 3 EUR LD reference.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

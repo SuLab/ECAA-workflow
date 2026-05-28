@@ -1,0 +1,6 @@
+{
+  "$comment": "Shared enumerations referenced by multiple policy files. Single source of truth for value vocabularies — do not duplicate elsewhere. Resolved at policy load time via the {\"$shared\": \"<key>\"} substitution mechanism.",
+  "freshnessAcceptableStatuses": ["current", "fresh", "pinned", "up to date", "uptodate"],
+  "contradictionBlockingStatuses": ["contradicted", "mixed", "unresolved", "retracted"],
+  "strongClaimMinEvidence": 2
+}

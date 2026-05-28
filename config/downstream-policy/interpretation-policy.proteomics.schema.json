@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Interpretation Policy (proteomics overrides)",
+  "description": "Proteomics overlay (plan S3.16). Carries verifiableEntities tuned for UniProt accessions + PRIDE/MASSIVE accessions + PTM-aware vocab + LFQ/TMT/iBAQ effect-size columns, plus the proteomics-specific evidenceRules. Shared claim-boundary shape is validated against `_policy-skeleton.schema.json` by the loader.",
+  "type": "object",
+  "properties": {
+    "verifiableEntities": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "entityNamePatterns",
+        "directionVocab",
+        "effectSizeColumns",
+        "entityColumns"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "entityNamePatterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Regular expressions identifying entity names in narrative prose. For proteomics this includes UniProt accessions, PRIDE/MASSIVE dataset IDs, and ontology IDs (GO, Reactome, KEGG)."
+        },
+        "directionVocab": {
+          "type": "object",
+          "required": ["up", "down"],
+          "properties": {
+            "up": { "type": "array", "items": { "type": "string" } },
+            "down": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "effectSizeColumns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Column headers where effect sizes appear. For proteomics this includes LFQ/TMT/iBAQ ratio columns alongside standard logFC."
+        },
+        "entityColumns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Column headers where entity names appear. For proteomics this includes UniProt accession columns and PTM-site columns."
+        },
+        "pvalueColumns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tolerance": {
+          "type": "object",
+          "properties": {
+            "log2FcAbsoluteDelta": { "type": "number" },
+            "pvalueRelativeDelta": { "type": "number" }
+          }
+        }
+      }
+    }
+  }
+}

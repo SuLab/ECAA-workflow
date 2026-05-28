@@ -1,0 +1,52 @@
+id: discover_time_series_method
+version: "1.0.0"
+role: discovery
+discovery_kind: tool_selection
+description: |
+  Runtime tool selection for time_series_model_fitting
+  (ARIMA / ETS / Prophet / NeuralProphet / TimesNet). Reads
+  the engineered feature matrix + horizon spec, picks the
+  model based on series length + seasonality.
+edam_operation: "swfc:method_discovery"
+assignee: agent
+depends_on:
+  - time_series_feature_engineering
+attributes:
+  axis: time_series_method
+  candidates: [arima, ets, prophet, neural_prophet, timesnet]
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: seconds
+figure_exempt:
+  reason: "Discovery atom: selects time-series model at runtime; the downstream time_series_model_fitting atom carries the figure obligation."
+  category: non_plottable
+inputs:
+  - name: feature_matrix
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "time_series"
+    statistical_state: "engineered"
+    privacy_class: internal
+outputs:
+  - name: method_choice
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "method_choice"
+      proposed_parent_terms:
+        - "data:2080"
+      definition: "Selected time-series model + rationale"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    modality: "time_series"
+    statistical_state: "selected"
+    privacy_class: internal

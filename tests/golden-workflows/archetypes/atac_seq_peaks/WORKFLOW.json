@@ -1,0 +1,362 @@
+{
+  "version": "1.0",
+  "workflow_id": "golden-atac_seq_peaks",
+  "current_task": null,
+  "tasks": {
+    "alignment": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_alignment",
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Align reads to reference genome using discovered aligner; ATAC requires soft-clipping of Tn5-introduced biases",
+      "spec": {
+        "edam_operation": "operation:3198",
+        "stage_class": "alignment"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "data_acquisition": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Acquire raw FASTQ files and per-sample tissue/condition metadata from repositories",
+      "spec": {
+        "edam_operation": "operation:2422",
+        "required_figures": [
+          "samples_per_study"
+        ],
+        "stage_class": "data_acquisition"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_alignment": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Discover appropriate short-read aligner (Bowtie2, BWA-MEM) for this experiment",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3198",
+        "stage_class": "alignment"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_data_acquisition": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "ready"
+      },
+      "depends_on": [],
+      "assignee": "agent",
+      "description": "Discover best-practice method for: Acquire raw FASTQ files and per-sample tissue/condition metadata from repositories",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:2422",
+        "stage_class": "data_acquisition"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_peak_calling": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "validate_alignment"
+      ],
+      "assignee": "agent",
+      "description": "Discover peak caller — MACS3 is the 2026 baseline; HMMRATAC retained as ATAC-specific alternative for nucleosome-resolved peaks",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3222",
+        "stage_class": "analysis"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "motif_enrichment": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "peak_calling"
+      ],
+      "assignee": "agent",
+      "description": "Run HOMER / MEME motif enrichment on accessible-region centers",
+      "spec": {
+        "edam_operation": "operation:0445",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "peak_annotation": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "peak_calling"
+      ],
+      "assignee": "agent",
+      "description": "Annotate accessible regions with genomic features (promoter / intronic / intergenic) and nearest TSS",
+      "spec": {
+        "edam_operation": "operation:0362",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "peak_calling": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_peak_calling",
+        "validate_alignment"
+      ],
+      "assignee": "agent",
+      "description": "Call accessible regions using MACS3 in BAMPE mode (paired-end ATAC) with --shift -75 --extsize 150",
+      "spec": {
+        "edam_operation": "operation:3222",
+        "required_figures": [
+          "profile_pileup",
+          "coverage_track",
+          "peak_saturation"
+        ],
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "quality_control": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Run FastQC/MultiQC quality assessment on raw reads with ATAC-specific insert-size distribution check",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "results_reporting": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "peak_annotation",
+        "motif_enrichment"
+      ],
+      "assignee": "agent",
+      "description": "Generate summary report with peak statistics, TSS-enrichment, fragment-size distribution, motif enrichment, and per-sample QC metrics",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "stage_class": "reporting"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "results_review": {
+      "kind": "review",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "results_reporting"
+      ],
+      "assignee": "sme",
+      "description": "SME reviews accessible regions and motif enrichment for biological plausibility",
+      "spec": {
+        "stage_class": "review"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "trimming": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Trim Tn5 adapter sequences and low-quality bases",
+      "spec": {
+        "condition": "quality_control.result.needs_trimming == true",
+        "edam_operation": "operation:3192",
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_alignment": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "alignment"
+      ],
+      "assignee": "agent",
+      "description": "Assess alignment rates, mitochondrial fraction (typically <30% for high-quality ATAC), and TSS-enrichment score",
+      "spec": {
+        "edam_operation": "operation:2424",
+        "stage_class": "alignment"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_motif_enrichment": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "motif_enrichment"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Run HOMER / MEME motif enrichment on accessible-region centers",
+      "spec": {
+        "edam_operation": "operation:0445",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_peak_annotation": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "peak_annotation"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Annotate accessible regions with genomic features (promoter / intronic / intergenic) and nearest TSS",
+      "spec": {
+        "edam_operation": "operation:0362",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_peak_calling": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "peak_calling"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Call accessible regions using MACS3 in BAMPE mode (paired-end ATAC) with --shift -75 --extsize 150",
+      "spec": {
+        "edam_operation": "operation:3222",
+        "required_figures": [
+          "profile_pileup",
+          "coverage_track",
+          "peak_saturation"
+        ],
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_quality_control": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Run FastQC/MultiQC quality assessment on raw reads with ATAC-specific insert-size distribution check",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_results_reporting": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "results_reporting"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Generate summary report with peak statistics, TSS-enrichment, fragment-size distribution, motif enrichment, and per-sample QC metrics",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "stage_class": "reporting"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_trimming": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "trimming"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Trim Tn5 adapter sequences and low-quality bases",
+      "spec": {
+        "edam_operation": "operation:3192",
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    }
+  }
+}

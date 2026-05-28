@@ -1,0 +1,46 @@
+id: 11_correction_modality_change
+category: correction_after_reject
+description: |
+  SME proposes a plan, the assistant summarizes single-cell, the SME rejects
+  ("actually it's bulk"), and the conversation returns to Intake. Verifies
+  the PendingConfirmation → Intake transition preserves the conversation
+  history. The fixture stops at Intake (no second emission); a real session
+  would continue with the corrected modality.
+
+flow:
+  - kind: user
+    text: |
+      We have RNA-seq data from human intervertebral disc samples, comparing
+      degenerated vs healthy tissue. Goal is differential expression.
+  - kind: reject
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        scRNA-seq from human IVD samples, comparing degenerated vs healthy
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        From what you've described it sounds like single-cell RNA-seq
+        comparing degenerated vs healthy IVD samples. I'll set up a
+        single-cell analysis package.
+
+        Click Accept if this is right, or Revise if I've
+        misread the data type.
+  - kind: text
+    text: "Confirm or correct?"
+
+expected_final_state:
+  state_kind: intake
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+
+rubric_notes: |
+  Tests the PendingConfirmation → Intake reject path. Verifies the assistant
+  committed an inferred modality (single_cell) before user correction, and
+  the session correctly returns to Intake without losing prior context.

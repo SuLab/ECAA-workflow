@@ -1,0 +1,47 @@
+schema_version: "0.1"
+id: time_series_forecast
+version: "1.1.0"
+description: |
+  Time-series analysis and forecasting. Standard pipeline: import the
+  time-series panel, exploratory decomposition + stationarity diagnostics,
+  fit the SME-named model family (ARIMA / state-space / neural), produce
+  point forecasts + prediction intervals, and evaluate against a held-out
+  window.
+sme_summary: |
+  Fit the SME-named model family to a time-series panel and produce point
+  forecasts plus prediction intervals over the named horizon.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: time_series_forecast
+atoms:
+  - atom_id: data_import
+    required: true
+  - atom_id: time_series_decompose
+    required: true
+    depends_on: [data_import]
+  - atom_id: time_series_model_fit
+    required: true
+    depends_on: [time_series_decompose]
+  - atom_id: time_series_forecast_evaluate
+    required: true
+    depends_on: [time_series_model_fit]
+  # Add reporting + final_reporting so the forecast
+  # evaluation isn't a dangling operation orphan.
+  - atom_id: reporting
+    required: true
+    depends_on: [time_series_forecast_evaluate]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  model_family: time_series_model_fit.inputs.model_family
+  model_order: time_series_model_fit.inputs.model_order
+  forecast_horizon: time_series_forecast_evaluate.inputs.forecast_horizon
+  holdout_period: time_series_forecast_evaluate.inputs.holdout_period
+  exogenous_covariates: time_series_model_fit.inputs.exogenous_covariates
+  series_id: time_series_decompose.inputs.series_id
+claim_boundary: |
+  Report forecasts and diagnostics as computed by the SME-named model. Do
+  not assert causal structure, predictive validity on regimes outside the
+  training window, or domain-interpretive meaning beyond what the SME has
+  already stated.

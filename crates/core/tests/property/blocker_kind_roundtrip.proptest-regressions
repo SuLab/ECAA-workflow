@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc fbf517b9fad493bf1c82ce8370b766df9b2e277b61005757418d763e78921867 # shrinks to kind = PilotOversize { projected_usd: 2860.8064596196878, ceiling_usd: 0.0 }
+cc a7933e394ccd089323d925d3d5ae6c529d42a3c980d10393dee1ceccacccfadb # shrinks to kind = IterationDidNotConverge { task_id: " ", iterations_run: 1, last_metric: 0.0, threshold: 0.09714334851259451 }

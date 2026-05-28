@@ -1,0 +1,31 @@
+name: ChIP-seq TF binding map
+modality: chip_seq
+
+beats:
+  - user: "ChIP-seq for a transcription factor in K562 cells with matched input controls. I need peaks and motif enrichment."
+    assistant:
+      content: "Acknowledged — I have the modality + key parameters; will ask for any missing details before locking the plan."
+    expect:
+      visibleText: ["ChIP", "peak"]
+      forbiddenText: ["DAG"]
+
+live:
+  intake_prose: |
+    Two biological replicates of CTCF ChIP-seq in K562 plus matched input
+    controls, paired-end Illumina, hg38. Per-sample fragment-size QC,
+    alignment, MACS2-style narrow peak calling against input, IDR
+    reproducibility, motif enrichment over the consensus peak set, and
+    peak-to-gene annotation. Public ENCODE data, internal use.
+  followups:
+    - trigger: "(?i)(narrow|broad|peak.type)"
+      reply: "Narrow peaks — CTCF is a point-source factor."
+    - trigger: "(?i)(reference|genome)"
+      reply: "hg38, paired-end."
+    - trigger: "(?i)(input|control|IgG)"
+      reply: "Matched input control per replicate, never IgG."
+  assertions:
+    stateNotGreeting: true
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

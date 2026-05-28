@@ -1,0 +1,33 @@
+schema_version: "0.1"
+id: spatial_transcriptomics
+display_name: Spatial transcriptomics
+keywords:
+- spatial transcriptomics
+- visium
+- slide-seq
+- slide seq
+- merfish
+- seqfish
+- 10x visium
+- stereo-seq
+- spatial gene expression
+- tissue section
+- h&e image
+edam_topic: topic:3308
+edam_operation: operation:3432
+archetype_id: spatial_transcriptomics
+taxonomy_path: stage-taxonomies/single-cell.yaml
+semantic_equivalence_bounds:
+  - metric: ari
+    operator: ">="
+    threshold: 0.45
+    rationale: "Grant §G2 spatial: ARI ≥ 0.45 on the 151673 Visium reference section (spatially-aware cluster assignments)"
+  - metric: mean_ari_over_12
+    operator: ">="
+    threshold: 0.40
+    rationale: "Grant §G2 spatial: mean ARI ≥ 0.40 averaged over the 12 DLPFC Visium benchmark sections"
+  - metric: expression_spearman_rho
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/tables/expression_*.csv"
+    rationale: "Spot-level expression Spearman ≥ 0.90 for spatially variable genes between runs"

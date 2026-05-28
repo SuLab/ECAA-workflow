@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "19-cusanovich-sci-atac"
+claims:
+  - id: "19-cusanovich-sci-atac-claim-001"
+    text: "Cell-type cluster ARI vs published 85-cluster assignment (Cusanovich 2018 Suppl Table 4): ≥ 0.80"
+    contract: group_comparison
+    source_table: "results/tables/clusters.csv"
+    expected_value: 0.80
+    tolerance: 0.05
+  - id: "19-cusanovich-sci-atac-claim-002"
+    text: "Marker-TF motif Spearman ρ vs published chromVAR z-scores per cluster: ≥ 0.85"
+    contract: group_comparison
+    source_table: "results/tables/motif_enrichment.csv"
+    expected_value: 0.85
+    tolerance: 0.05
+  - id: "19-cusanovich-sci-atac-claim-003"
+    text: "LSI top-50-component RV-coefficient vs published embedding: ≥ 0.9"
+    contract: rank_top_n
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.9
+    tolerance: 0.05
+  - id: "19-cusanovich-sci-atac-claim-004"
+    text: "Cells retained after QC within ±2% of ~100,000 (Cusanovich 2018 main text)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 100000
+    tolerance: 0.02
+  - id: "19-cusanovich-sci-atac-claim-005"
+    text: "Cluster count after resolution sweep within 80-90 (target 85, Suppl Table 4)"
+    contract: categorical
+    source_table: "results/tables/clusters.csv"
+    expected_value: 85
+    tolerance: 0.1
+  - id: "19-cusanovich-sci-atac-claim-006"
+    text: "Marker TF HNF4 enriched in hepatocyte cluster"
+    contract: group_comparison
+    source_table: "results/tables/motif_enrichment.csv"
+    expected_value: "HNF4"
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-007"
+    text: "Marker TF SPI1 enriched in macrophage / B-cell clusters"
+    contract: group_comparison
+    source_table: "results/tables/motif_enrichment.csv"
+    expected_value: "SPI1"
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-008"
+    text: "Marker TF NEUROD enriched in neuronal clusters"
+    contract: group_comparison
+    source_table: "results/tables/motif_enrichment.csv"
+    expected_value: "NEUROD"
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-009"
+    text: "Marker TF OLIG2 enriched in oligodendrocyte cluster"
+    contract: group_comparison
+    source_table: "results/tables/motif_enrichment.csv"
+    expected_value: "OLIG2"
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-010"
+    text: "Marker TF GATA enriched in erythroid cluster"
+    contract: group_comparison
+    source_table: "results/tables/motif_enrichment.csv"
+    expected_value: "GATA"
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-011"
+    text: "Emitted workflow contains stage 'discover_clustering': LSI + Louvain at resolution targeting 85 clusters"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_clustering"
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-012"
+    text: "Emitted workflow contains stage 'discover_motif_enrichment': chromVAR z-score matrix per cluster"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_motif_enrichment"
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "19-cusanovich-sci-atac-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 19-cusanovich-sci-atac"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null

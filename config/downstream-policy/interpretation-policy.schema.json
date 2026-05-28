@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Interpretation Policy (domain overrides)",
+  "description": "this sidecar now carries only interpretation-specific overrides: the `verifiableEntities` block consumed by the core claim verifier. The shared claim-boundary shape is validated against `_policy-skeleton.schema.json` by the loader.",
+  "type": "object",
+  "properties": {
+    "verifiableEntities": {
+      "type": "object",
+      "required": [
+        "enabled",
+        "entityNamePatterns",
+        "directionVocab",
+        "effectSizeColumns",
+        "entityColumns"
+      ],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "entityNamePatterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Regular expressions identifying entity names in narrative prose (e.g. gene symbols, protein IDs, endpoint codes)."
+        },
+        "entityNameExcludePatterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Anchored regex patterns (e.g. '^DNA$') for tokens that must be excluded after entity-pattern matching. Used to suppress common-noun acronyms (RNA, PCR, DNA, WHO) that the broad gene-symbol regex otherwise captures. Optional — absent field treated as empty denylist."
+        },
+        "directionVocab": {
+          "type": "object",
+          "required": ["up", "down"],
+          "properties": {
+            "up": { "type": "array", "items": { "type": "string" } },
+            "down": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "effectSizeColumns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Column headers where effect sizes appear in result tables; the verifier tries each in order."
+        },
+        "entityColumns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Column headers where entity names appear; used to locate the row for a given claim."
+        },
+        "pvalueColumns": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "tolerance": {
+          "type": "object",
+          "properties": {
+            "log2FcAbsoluteDelta": { "type": "number" },
+            "pvalueRelativeDelta": { "type": "number" }
+          }
+        }
+      }
+    }
+  }
+}

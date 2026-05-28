@@ -1,0 +1,5 @@
+sample_id,condition,tissue,donor
+E003_brain,fetal_brain,brain,donor_1
+E008_brain,fetal_brain,brain,donor_2
+E029_monocyte,monocyte,blood,donor_1
+E032_monocyte,monocyte,blood,donor_2

@@ -1,0 +1,68 @@
+id: 03_variant_calling_germline
+category: happy_path_variant_calling
+description: |
+  Germline variant calling on whole-genome sequencing data. Happy path —
+  classifier should land on `variant_calling`, the assistant proposes the
+  plan, the SME confirms, the package is emitted to a per-fixture tempdir.
+
+flow:
+  - kind: user
+    text: |
+      Germline variant calling on whole-genome sequencing data from 50 trio
+      samples (mother / father / proband). Looking for de novo variants in
+      developmental disorder cases. We have GATK and DeepVariant available
+      and want to compare callers. Internal data, hg38.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        germline variant calling, wgs whole genome sequencing, 50 trio samples,
+        hg38, de novo variants, gatk and deepvariant
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's the plan I have for your germline variant analysis:
+        - 50 trio samples (mother / father / proband)
+        - Whole-genome sequencing aligned to hg38
+        - Looking for de novo variants in the proband
+        - You've named GATK and DeepVariant — the execution agent will
+          run both and compare callsets
+
+        This kind of analysis reports candidate variants with quality metrics;
+        clinical interpretation is downstream and not part of the package.
+
+        Click Accept if this matches, or Revise to revise.
+  - kind: text
+    text: "Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The package is ready. The execution agent will pick filtering thresholds
+      based on the data when it runs.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: classifier hits the variant_calling taxonomy, SME-named tools
+  (GATK, DeepVariant) acknowledged but no methodological comparison.

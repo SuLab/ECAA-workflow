@@ -1,0 +1,79 @@
+id: fairness_audit
+version: "1.0.0"
+role: validation
+description: |
+  Audit subgroup performance differentials for a fitted clinical
+  prediction model. Computes AUROC, AUPRC, sensitivity, specificity,
+  and calibration metrics per stratification axis (typically age,
+  sex, race/ethnicity, hospital-of-origin) plus pairwise subgroup
+  differentials with bootstrap confidence intervals. Emits a
+  fairness report and a SME-facing pass/fail per configured
+  differential thresholds. Subgroup membership comes from the
+  labeled-cohort sensitive-attribute columns; absent stratifiers
+  surface as a configurable blocker rather than silently dropping
+  the axis.
+edam_operation: "operation:3659"
+edam_data: "data:0951"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - predictive_model_fit
+expected_artifacts:
+  - fairness_report.json
+  - subgroup_metrics.tsv
+  - manifest.json
+  - result.json
+figure_exempt:
+  reason: "Fairness audit emits per-subgroup metric tables + JSON differentials consumed by the downstream reporting atom; the audit stage itself does not commit an SME-facing figure."
+  category: non_plottable
+attributes:
+  candidate_tools:
+    - fairlearn
+    - aequitas
+    - custom_subgroup_bootstrap
+  stratification_axes:
+    - age
+    - sex
+    - race
+    - hospital_of_origin
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Subgroup metrics are descriptive; differentials are computed with
+  bootstrap CIs and reported as-is. Do not infer causal mechanisms
+  for an observed differential; do not over-interpret small-N
+  subgroups (each axis level's N is logged with the metric). Any
+  fairness recommendation is hypothesis-generating only.
+# Explicit rich ports.
+# Input is the per-row predicted probabilities from
+# predictive_model_fit (the sensitive-attribute columns travel with
+# the prediction table). Output is the per-subgroup fairness report.
+inputs:
+  - name: internal_predictions
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "predicted_probabilities"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-row predicted probabilities (with sensitive-attribute columns) on the internal validation split."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: fairness_report
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "fairness_report"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-subgroup AUROC / AUPRC / calibration metrics plus pairwise differentials with bootstrap CIs."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal

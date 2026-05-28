@@ -1,0 +1,371 @@
+@prefix ecaa: <https://w3id.org/ecaa/ns/0.1#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix p-plan: <http://purl.org/net/p-plan#> .
+@prefix wfprov: <https://w3id.org/ro/wfrun/provenance/0.5#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix bioschema: <https://bioschemas.org/> .
+
+#######################################################################
+# ECAA v0.1 Ontology
+# https://w3id.org/ecaa/v0.1
+#
+# Normative OWL ontology profile for the Evidence-Carrying Analysis
+# Artifact (ECAA) v0.1 specification. Declares the 8 sub-graph classes,
+# 25 node-type classes, 20 edge predicates, and the DL-expressible
+# audit-proof invariants (1, 3, 5).
+#
+# Invariants 2, 4, 6 are encoded in ecaa-v0.1.shacl.ttl.
+#######################################################################
+
+<https://w3id.org/ecaa/v0.1> a owl:Ontology ;
+    dcterms:title "ECAA v0.1 Ontology" ;
+    dcterms:created "2026-05-18"^^xsd:date ;
+    owl:versionInfo "0.1.0" ;
+    rdfs:comment "Normative OWL profile for the Evidence-Carrying Analysis Artifact v0.1 specification. See https://w3id.org/ecaa/v0.1 for the full specification document." .
+
+#######################################################################
+# The 8 sub-graph top-level classes
+#######################################################################
+
+ecaa:IntentGraph a owl:Class ;
+    rdfs:subClassOf prov:Collection ;
+    rdfs:label "Intent Graph"@en ;
+    rdfs:comment "The I sub-graph: SME intent (question, cohort, contrast, modality, expected output)."@en .
+
+ecaa:DecisionGraph a owl:Class ;
+    rdfs:subClassOf prov:Collection ;
+    rdfs:label "Decision Graph"@en ;
+    rdfs:comment "The D sub-graph: method choices, justifications, alternatives, citations."@en .
+
+ecaa:ExecutionGraph a owl:Class ;
+    rdfs:subClassOf prov:Collection ;
+    rdfs:label "Execution Graph"@en ;
+    rdfs:comment "The E sub-graph: workflow steps, containers, I/O files, runtime environments."@en .
+
+ecaa:EvidenceGraph a owl:Class ;
+    rdfs:subClassOf prov:Collection ;
+    rdfs:label "Evidence Graph"@en ;
+    rdfs:comment "The V sub-graph: tables, figures, statistics, files bearing analytical weight."@en .
+
+ecaa:ClaimGraph a owl:Class ;
+    rdfs:subClassOf prov:Collection ;
+    rdfs:label "Claim Graph"@en ;
+    rdfs:comment "The C sub-graph: narrative claims linked to Evidence."@en .
+
+ecaa:EquivalenceGraph a owl:Class ;
+    rdfs:subClassOf prov:Collection ;
+    rdfs:label "Equivalence Graph"@en ;
+    rdfs:comment "The Q sub-graph: re-execution outcome classifications."@en .
+
+ecaa:FailureGraph a owl:Class ;
+    rdfs:subClassOf prov:Collection ;
+    rdfs:label "Failure Graph"@en ;
+    rdfs:comment "The F sub-graph: typed blockers and recovery actions."@en .
+
+ecaa:AuditProofGraph a owl:Class ;
+    rdfs:subClassOf prov:Collection ;
+    rdfs:label "Audit-proof Graph"@en ;
+    rdfs:comment "The A sub-graph: invariant verdicts evaluated over the other 7 sub-graphs."@en .
+
+ecaa:Package a owl:Class ;
+    rdfs:label "ECAA Package"@en ;
+    rdfs:comment "An ECAA v0.1 package — the tuple P = (I, D, E, V, C, Q, F, A) materialized as a WRROC v0.5 Tier-3 RO-Crate."@en .
+
+#######################################################################
+# I — Intent sub-graph node types (5)
+#######################################################################
+
+ecaa:Question a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Question"@en ;
+    rdfs:comment "SME-stated biological question."@en .
+
+ecaa:Cohort a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Cohort"@en .
+
+ecaa:Contrast a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Contrast"@en .
+
+ecaa:Modality a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Modality"@en ;
+    rdfs:comment "The analysis modality (bulk_rnaseq, scrnaseq, chipseq, etc.). Closed 21-modality set in v0.1."@en .
+
+ecaa:ExpectedOutput a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Expected Output"@en .
+
+#######################################################################
+# D — Decision sub-graph node types (4)
+#######################################################################
+
+ecaa:MethodChoice a owl:Class ;
+    rdfs:subClassOf prov:Activity ;
+    rdfs:label "Method Choice"@en ;
+    rdfs:seeAlso <https://www.ieee.org/2791-2020/#UsabilityDomain> ;
+    rdfs:comment "A chosen method (aligner, normalizer, statistical test, etc.) with justification."@en .
+
+ecaa:Justification a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Justification"@en .
+
+ecaa:Alternative a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Alternative"@en ;
+    rdfs:comment "A method considered but rejected in favor of the chosen MethodChoice."@en .
+
+ecaa:Citation a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Citation"@en ;
+    rdfs:comment "A reference (PMID, DOI, or URL) supporting a MethodChoice."@en .
+
+#######################################################################
+# E — Execution sub-graph node types (5)
+#######################################################################
+
+ecaa:WorkflowStep a owl:Class ;
+    rdfs:subClassOf prov:Activity, wfprov:ProcessRun ;
+    rdfs:label "Workflow Step"@en ;
+    rdfs:comment "A single executed task; aligns to wfprov:ProcessRun."@en .
+
+ecaa:Container a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Container"@en ;
+    rdfs:comment "An OCI container image (Docker/Apptainer/Podman). SHOULD use SHA-256 digest references."@en .
+
+ecaa:InputFile a owl:Class ;
+    rdfs:subClassOf prov:Entity, wfprov:DataItem ;
+    rdfs:label "Input File"@en .
+
+ecaa:OutputFile a owl:Class ;
+    rdfs:subClassOf prov:Entity, wfprov:DataItem ;
+    rdfs:label "Output File"@en .
+
+ecaa:RuntimeEnvironment a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Runtime Environment"@en ;
+    rdfs:comment "Hardware + OS + sandbox profile + container runtime."@en .
+
+#######################################################################
+# V — Evidence sub-graph node types (4)
+#######################################################################
+
+ecaa:Table a owl:Class ;
+    rdfs:subClassOf prov:Entity, dcat:Dataset ;
+    rdfs:label "Table"@en .
+
+ecaa:Figure a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Figure"@en .
+
+ecaa:Statistic a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Statistic"@en .
+
+ecaa:File a owl:Class ;
+    rdfs:subClassOf prov:Entity, dcat:Distribution ;
+    rdfs:label "Evidence File"@en .
+
+#######################################################################
+# C — Claim sub-graph node types (3)
+#######################################################################
+
+ecaa:Claim a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Claim"@en ;
+    rdfs:comment "A narrative scientific claim made by the analysis."@en .
+
+ecaa:Quantification a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Quantification"@en .
+
+ecaa:Direction a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Direction"@en .
+
+#######################################################################
+# Q — Equivalence sub-graph node types (1)
+#######################################################################
+
+ecaa:RerunOutcome a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Rerun Outcome"@en ;
+    rdfs:comment "Classification of a single OutputFile re-execution outcome (one of 5 closed classes)."@en .
+
+# Class enum encoded as named individuals
+ecaa:byteIdentical a ecaa:RerunOutcomeClass .
+ecaa:semanticallyEquivalent a ecaa:RerunOutcomeClass .
+ecaa:nonDeterministic a ecaa:RerunOutcomeClass .
+ecaa:unavailable a ecaa:RerunOutcomeClass .
+ecaa:failed a ecaa:RerunOutcomeClass .
+
+ecaa:RerunOutcomeClass a owl:Class ;
+    owl:oneOf (ecaa:byteIdentical ecaa:semanticallyEquivalent ecaa:nonDeterministic ecaa:unavailable ecaa:failed) ;
+    rdfs:label "Rerun Outcome Class"@en ;
+    rdfs:comment "Closed 5-class set for v0.1."@en .
+
+#######################################################################
+# F — Failure sub-graph node types (2)
+#######################################################################
+
+ecaa:Blocker a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Blocker"@en ;
+    rdfs:comment "A typed recoverable failure state with kind from the closed 47-variant BlockerKind enum."@en .
+
+ecaa:RecoveryAction a owl:Class ;
+    rdfs:subClassOf prov:Activity ;
+    rdfs:label "Recovery Action"@en .
+
+#######################################################################
+# A — Audit-proof sub-graph node types (1)
+#######################################################################
+
+ecaa:InvariantVerdict a owl:Class ;
+    rdfs:subClassOf prov:Entity ;
+    rdfs:label "Invariant Verdict"@en ;
+    rdfs:comment "A single audit-proof invariant evaluation result."@en .
+
+ecaa:Pass a ecaa:VerdictState .
+ecaa:Warn a ecaa:VerdictState .
+ecaa:Fail a ecaa:VerdictState .
+ecaa:Unverified a ecaa:VerdictState .
+
+ecaa:VerdictState a owl:Class ;
+    owl:oneOf (ecaa:Pass ecaa:Warn ecaa:Fail ecaa:Unverified) ;
+    rdfs:label "Verdict State"@en ;
+    rdfs:comment "Closed 4-state verdict ladder."@en .
+
+#######################################################################
+# Edge predicates (20 total) with domain/range
+#######################################################################
+
+# I — Intent (3)
+ecaa:refines a owl:ObjectProperty ;
+    rdfs:domain ecaa:Question ; rdfs:range ecaa:Question ;
+    rdfs:label "refines"@en .
+ecaa:stratifies a owl:ObjectProperty ;
+    rdfs:domain ecaa:Cohort ; rdfs:range ecaa:Cohort ;
+    rdfs:label "stratifies"@en .
+ecaa:expects a owl:ObjectProperty ;
+    rdfs:domain ecaa:Question ; rdfs:range ecaa:ExpectedOutput ;
+    rdfs:label "expects"@en .
+
+# D — Decision (5)
+ecaa:chooses a owl:ObjectProperty ;
+    rdfs:domain ecaa:MethodChoice ; rdfs:range prov:Entity ;
+    rdfs:label "chooses"@en .
+ecaa:rejects a owl:ObjectProperty ;
+    rdfs:domain ecaa:MethodChoice ; rdfs:range ecaa:Alternative ;
+    rdfs:label "rejects"@en .
+ecaa:cites a owl:ObjectProperty ;
+    rdfs:domain ecaa:MethodChoice ; rdfs:range ecaa:Citation ;
+    rdfs:label "cites"@en .
+ecaa:amends a owl:ObjectProperty ;
+    rdfs:domain ecaa:MethodChoice ; rdfs:range ecaa:MethodChoice ;
+    rdfs:label "amends"@en .
+# prov:wasDerivedFrom imported from PROV-O, used inside D for lineage
+
+# E — Execution (3)
+ecaa:produces a owl:ObjectProperty ;
+    rdfs:domain ecaa:WorkflowStep ; rdfs:range ecaa:OutputFile ;
+    rdfs:subPropertyOf wfprov:wasGeneratedBy ;
+    rdfs:label "produces"@en .
+ecaa:consumes a owl:ObjectProperty ;
+    rdfs:domain ecaa:WorkflowStep ; rdfs:range ecaa:InputFile ;
+    rdfs:subPropertyOf wfprov:used ;
+    rdfs:label "consumes"@en .
+ecaa:runs_in a owl:ObjectProperty ;
+    rdfs:domain ecaa:WorkflowStep ; rdfs:range ecaa:RuntimeEnvironment ;
+    rdfs:label "runs-in"@en .
+
+# V — Evidence (2)
+ecaa:appears_in a owl:ObjectProperty ;
+    rdfs:label "appears-in"@en .
+ecaa:computed_from a owl:ObjectProperty ;
+    rdfs:domain prov:Entity ; rdfs:range ecaa:OutputFile ;
+    rdfs:label "computed-from"@en .
+
+# C — Claim (2)
+ecaa:supported_by a owl:ObjectProperty ;
+    rdfs:domain ecaa:Claim ; rdfs:range prov:Entity ;
+    rdfs:label "supported-by"@en ;
+    rdfs:comment "Points from a Claim to a V Statistic/Figure/Table/File."@en .
+ecaa:contradicts a owl:ObjectProperty ;
+    rdfs:domain ecaa:Claim ; rdfs:range prov:Entity ;
+    rdfs:label "contradicts"@en .
+
+# Q — Equivalence (2)
+ecaa:equivalent_to a owl:ObjectProperty ;
+    rdfs:domain ecaa:RerunOutcome ; rdfs:range prov:Entity ;
+    rdfs:label "equivalent-to"@en .
+ecaa:diverges_from a owl:ObjectProperty ;
+    rdfs:domain ecaa:RerunOutcome ; rdfs:range prov:Entity ;
+    rdfs:label "diverges-from"@en .
+
+# F — Failure (2)
+ecaa:requires a owl:ObjectProperty ;
+    rdfs:domain ecaa:RecoveryAction ; rdfs:range ecaa:RecoveryAction ;
+    rdfs:label "requires"@en .
+ecaa:unblocks a owl:ObjectProperty ;
+    rdfs:domain ecaa:Blocker ; rdfs:range ecaa:RecoveryAction ;
+    rdfs:label "unblocks"@en .
+
+# A — Audit-proof (1)
+ecaa:evaluated_against a owl:ObjectProperty ;
+    rdfs:domain ecaa:InvariantVerdict ;
+    rdfs:label "evaluated-against"@en .
+
+#######################################################################
+# Audit-proof invariant restrictions (DL-expressible: 1, 3, 5)
+# Invariants 2, 4, 6 are in ecaa-v0.1.shacl.ttl.
+#######################################################################
+
+# Invariant 1: claim-completeness
+# Every Claim either has status "pending" OR has ≥1 supported-by edge.
+# Encoded as: Claim ⊑ (∃ status."pending") ⊔ (∃ supported-by.⊤)
+
+ecaa:status a owl:DatatypeProperty ;
+    rdfs:domain ecaa:Claim ;
+    rdfs:range xsd:string ;
+    rdfs:label "claim status"@en .
+
+ecaa:Claim rdfs:subClassOf
+    [ a owl:Class ;
+      owl:unionOf (
+        [ a owl:Restriction ;
+          owl:onProperty ecaa:status ;
+          owl:hasValue "pending"^^xsd:string ]
+        [ a owl:Restriction ;
+          owl:onProperty ecaa:supported_by ;
+          owl:minCardinality "1"^^xsd:nonNegativeInteger ]
+      )
+    ] .
+
+# Invariant 3: evidence-coverage
+# Every OutputFile is referenced via computed-from from some Evidence node
+# OR is referenced by an F Blocker of kind OutputUnused.
+# (DL-encodes the "referenced in V" half; the "OutputUnused" carve-out
+# is in SHACL because it requires cross-graph value-set comparison.)
+
+ecaa:OutputFile rdfs:subClassOf
+    [ a owl:Restriction ;
+      owl:onProperty [ owl:inverseOf ecaa:computed_from ] ;
+      owl:minCardinality "1"^^xsd:nonNegativeInteger ] .
+
+# Invariant 5: cross-graph-integrity
+# Encoded as a structural constraint: ecaa:supported_by range is a
+# nominally-typed union over V node classes. Dangling references
+# violate this when the target IRI fails to resolve to any of the
+# four V node classes.
+
+ecaa:supported_by rdfs:range
+    [ a owl:Class ;
+      owl:unionOf (ecaa:Statistic ecaa:Figure ecaa:Table ecaa:File) ] .

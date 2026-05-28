@@ -1,0 +1,7 @@
+feature	modality	loading_comp1
+RNA_g1	rna	0.42
+RNA_g2	rna	0.35
+PROT_p1	proteomics	0.40
+PROT_p2	proteomics	0.28
+RNA_g3	rna	-0.30
+PROT_p3	proteomics	-0.18

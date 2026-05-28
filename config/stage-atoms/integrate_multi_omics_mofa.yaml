@@ -1,0 +1,77 @@
+id: integrate_multi_omics_mofa
+version: "1.0.0"
+role: operation
+description: |
+  Plan §B.M8 — unsupervised multi-omics integration via MOFA / MOFA+
+  (Bioconductor R or MOFA2 Python): factor model across N matrices
+  with per-modality missingness tolerance. Outputs latent factors,
+  per-modality variance partition, and sparse per-feature loadings.
+
+  Best when the SME does NOT have class labels (discovery), or wants
+  variance partitioning, or the modality matrices have missing samples
+  per modality (MOFA tolerates per-modality dropout — DIABLO does not).
+  Selected as the conservative default when discover_integration_method
+  can't disambiguate.
+edam_operation: "swfc:multi_omics_mofa"
+edam_data: "data:1278"
+edam_format: "format:3464"
+assignee: agent
+depends_on: []
+plot_stage_id: multi_omics_integration
+expected_artifacts:
+  - latent_factors.tsv
+  - variance_partition.tsv
+  - loadings.tsv
+  - manifest.json
+  - result.json
+required_figures:
+  - modality_concordance_heatmap
+  - factor_variance_bar
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: false
+  runtime_class: minutes
+preferred_container:
+  image: "scripps-derived/mofa2-py"
+  tag: "1.0.0"
+  digest: "sha256:a2c5e8b1d4f7a0c3e6b9d2f5a8c1e4b7d0a3f6c9e2b5d8a1f4c7e0d3b6a9f2c5"
+  arch: ["amd64"]
+  gpu_required: false
+claim_boundary: |
+  MOFA factors capture covariance shared across modalities; per-factor
+  variance attribution and per-modality loadings are descriptive
+  decompositions, not causal claims. Report the variance-explained
+  share for each factor in each modality and prefer "factor F captures
+  variation co-occurring across X and Y" over "factor F regulates Y".
+# Explicit rich ports.
+# Unsupervised integrator: tolerates per-modality missingness; emits
+# latent factors plus per-modality variance-partition table.
+inputs:
+  - name: multi_modal_matrices
+    semantic_type:
+      kind: ontology_term
+      iri: "data:1278"
+      label: "Genetic data"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "normalized"
+    privacy_class: internal
+    cardinality:
+      kind: many
+outputs:
+  - name: mofa_factors
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "mofa_factors"
+      proposed_parent_terms:
+        - "data:2603"
+      definition: "MOFA latent factor matrix (samples x factors) with per-modality variance partition + sparse loadings"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "normalized"
+    privacy_class: internal

@@ -1,0 +1,118 @@
+version: "1.0.0"
+entries:
+  # Privacy is non-waivable.
+  - defect_class: privacy_violation
+    privacy_class: phi
+    resolution: blocking
+  - defect_class: privacy_violation
+    privacy_class: controlled_access
+    resolution: blocking
+  # Genome build is critical but waivable by a bioinformatics lead.
+  - defect_class: genome_build_mismatch
+    privacy_class: research
+    resolution: waivable_with_credentials
+    required_credentials: [bioinformatics_lead]
+  - defect_class: genome_build_mismatch
+    privacy_class: phi
+    resolution: blocking
+  # Strandedness can be inferred from a draft run, so it's non-blocking
+  # but limits the workflow to draft state.
+  - defect_class: strandedness_unknown
+    privacy_class: research
+    resolution: non_blocking
+    required_resolution_state: draft_only
+  # Annotation version is similar.
+  - defect_class: annotation_version_unknown
+    privacy_class: research
+    resolution: non_blocking
+    required_resolution_state: draft_only
+  # Novel-node unverified blocks production for all privacy classes.
+  - defect_class: novel_node_unverified
+    privacy_class: research
+    resolution: blocking
+  - defect_class: novel_node_unverified
+    privacy_class: phi
+    resolution: blocking
+  # Risky adapters are blocking; F9 already prevents silent insertion.
+  - defect_class: scientifically_risky_adapter
+    privacy_class: research
+    resolution: blocking
+  - defect_class: policy_restricted_adapter
+    privacy_class: research
+    resolution: blocking
+  # Ontology mapping unresolved is draft-only research; blocking for clinical.
+  - defect_class: ontology_mapping_unresolved
+    privacy_class: research
+    resolution: non_blocking
+    required_resolution_state: draft_only
+  - defect_class: ontology_mapping_unresolved
+    privacy_class: phi
+    resolution: blocking
+  # Lossy-adapter default: non-blocking but ledger entry required.
+  - defect_class: lossy_adapter_default
+    privacy_class: research
+    resolution: non_blocking
+  # Remaining defect classes default to draft-only research.
+  - defect_class: coordinate_convention_unknown
+    privacy_class: research
+    resolution: non_blocking
+    required_resolution_state: draft_only
+  - defect_class: library_layout_unknown
+    privacy_class: research
+    resolution: non_blocking
+    required_resolution_state: draft_only
+  - defect_class: sample_metadata_missing
+    privacy_class: research
+    resolution: non_blocking
+    required_resolution_state: draft_only
+  - defect_class: reference_data_unspecified
+    privacy_class: research
+    resolution: non_blocking
+    required_resolution_state: draft_only
+
+# `policy_rules:` registry. Every
+# `PolicyRuleId` minted from operator input (chain-of-custody record,
+# population waiver, lifecycle adversarial `ForbiddenWaiverAttempt`,
+# `DecisionType::AssumptionWaived`, …) must construct against a row
+# below via `PolicyRuleId::new(id, &table)`. Legacy in-tree string
+# literals are pre-registered here so existing fixtures continue to
+# round-trip.
+policy_rules:
+  # Canonical rule names.
+  - id: phi_strict_v1
+    description: "PHI-bearing fields must be suppressed at RedactedAudit or Suppressed tier."
+    privacy_class: phi
+    defect_class: privacy_violation
+  - id: clinical_validated_only_v1
+    description: "Clinical workflows require ValidatedNodesOnly promotion."
+    privacy_class: phi
+    defect_class: novel_node_unverified
+  - id: assumption_blocking_v1
+    description: "Unresolved high-impact assumptions block promotion."
+    privacy_class: research
+    defect_class: novel_node_unverified
+  # Pre-Phase-5 rule ids referenced by in-tree fixtures + tests.
+  - id: "phi_strict:rule_1"
+    description: "Legacy ChainOfCustody fixture (phi_strict default class)."
+    privacy_class: phi
+    defect_class: privacy_violation
+  - id: "prompt_injection:rule_2"
+    description: "Legacy ChainOfCustody fixture (prompt_injection class)."
+    privacy_class: research
+    defect_class: scientifically_risky_adapter
+  - id: "dbgap:rule_3"
+    description: "Legacy ChainOfCustody fixture (controlled_access dbGaP class)."
+    privacy_class: controlled_access
+    defect_class: privacy_violation
+  - id: "population_coverage:rnaseq-de-clinical"
+    description: "Legacy population-waiver fixture (rnaseq-de-clinical workflow)."
+    privacy_class: phi
+    defect_class: sample_metadata_missing
+  - id: "genome_build_mismatch:clinical"
+    description: "Genome-build mismatch on a clinical workflow — non-waivable."
+    privacy_class: phi
+    defect_class: genome_build_mismatch
+  - id: "genome_build_mismatch:research"
+    description: "Genome-build mismatch on a research workflow — waivable by bioinformatics lead."
+    privacy_class: research
+    defect_class: genome_build_mismatch

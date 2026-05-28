@@ -1,0 +1,77 @@
+id: 39_hardware_star_align_thread_obedience
+category: hardware_awareness
+description: |
+  Phase 2 hardware-awareness fixture. SME describes a 50-sample bulk
+  RNA-seq run; the assistant should acknowledge that the execution
+  agent will size STAR's --runThreadN against the harness's hardware
+  envelope (not invent a thread count or recommend one to the SME).
+
+  This exercise pairs with the Phase-1 profile change that gave
+  alignment_quantification `tool_thread_curves: { star: 16 }` in
+  profiles.yaml and the Phase-2 prompt_role.txt "Hardware-aware
+  execution" block. The conversational surface should:
+
+    - not offer a specific thread count up front (method neutrality
+      still applies)
+    - when emit-ready, emit the package without mentioning thread
+      tuning details to the SME
+    - the scorer's `hardware_awareness` dimension rewards transcripts
+      that DON'T invent `--runThreadN 16` in chat but DO leave the
+      determination to the execution agent at runtime
+
+flow:
+  - kind: user
+    text: |
+      bulk RNA-seq, 50 mouse samples, STAR alignment + Salmon
+      quantification. Downstream DE with DESeq2. Running on the
+      standard cluster — emit the package and I'll kick it off.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk RNA-seq, 50 mouse samples, STAR alignment, Salmon
+        quantification, DESeq2 differential expression
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Bulk RNA-seq — 50 mouse samples, STAR alignment, Salmon
+        quantification, DESeq2 differential expression. The
+        execution agent will size parallelism against whatever
+        hardware the harness provisions. Confirm to emit.
+  - kind: text
+    text: "Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      Package written. STAR / Salmon thread counts, BLAS env vars,
+      and per-sample parallelism are all decided by the execution
+      agent at runtime against the harness's hardware envelope —
+      you don't need to pre-configure those in chat.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+
+rubric_notes: |
+  Hardware-awareness rubric (9th scorer dimension) rewards:
+
+  - assistant defers thread-count / BLAS-env decisions to the
+    execution agent at runtime (never states `--runThreadN 16` or
+    `OMP_NUM_THREADS=16` in chat unprompted)
+  - when acknowledging parallelism, frames it as "the agent sizes
+    against the hardware envelope" rather than a specific number
+  - method neutrality still holds — no recommendation of STAR vs
+    HISAT2, Salmon vs featureCounts

@@ -1,0 +1,239 @@
+{
+  "current_task": null,
+  "meta": {
+    "modality_stratum": "proteomics",
+    "run_id": "3117a673-c561-3328-09e4-cc384276fdd1"
+  },
+  "run_id": "3117a673-c561-3328-09e4-cc384276fdd1",
+  "tasks": {
+    "data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "differential_expression": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_differential_expression",
+        "protein_quantification"
+      ],
+      "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_differential_expression": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_pathway_enrichment": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_peptide_search": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for peptide_search (options: maxquant, fragpipe, spectronaut, dia_nn, msfragger). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_protein_quantification": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for protein_quantification (options: maxlfq, irs_normalization, spectronaut_directlfq). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "pathway_enrichment": {
+      "assignee": "agent",
+      "depends_on": [
+        "differential_expression",
+        "discover_pathway_enrichment"
+      ],
+      "description": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "peptide_search": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition",
+        "discover_peptide_search"
+      ],
+      "description": "Match MS/MS spectra against a protein database to identify peptides.\nMaxQuant / FragPipe / Spectronaut / DIA-NN selected at runtime by\nacquisition mode (DDA / DIA).\n",
+      "kind": "computation",
+      "resource_class": "memory_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "protein_quantification": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_protein_quantification",
+        "peptide_search"
+      ],
+      "description": "Quantify protein abundance from peptide-spectrum matches. LFQ / TMT / SILAC /\niBAQ strategies; MaxLFQ / IRS-corrected TMT / Spectronaut directLFQ\nselected at runtime by labeling chemistry.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "differential_expression",
+        "pathway_enrichment"
+      ],
+      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_differential_expression": {
+      "assignee": "agent",
+      "depends_on": [
+        "differential_expression"
+      ],
+      "description": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "final_reporting"
+      ],
+      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_pathway_enrichment": {
+      "assignee": "agent",
+      "depends_on": [
+        "pathway_enrichment"
+      ],
+      "description": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_peptide_search": {
+      "assignee": "agent",
+      "depends_on": [
+        "peptide_search"
+      ],
+      "description": "Validate outputs of: Match MS/MS spectra against a protein database to identify peptides.\nMaxQuant / FragPipe / Spectronaut / DIA-NN selected at runtime by\nacquisition mode (DDA / DIA).\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_protein_quantification": {
+      "assignee": "agent",
+      "depends_on": [
+        "protein_quantification"
+      ],
+      "description": "Validate outputs of: Quantify protein abundance from peptide-spectrum matches. LFQ / TMT / SILAC /\niBAQ strategies; MaxLFQ / IRS-corrected TMT / Spectronaut directLFQ\nselected at runtime by labeling chemistry.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    }
+  },
+  "version": "1.0",
+  "workflow_id": "workflow-f68a61781ed6"
+}

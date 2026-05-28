@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "swfc:assumption-policy",
+  "type": "object",
+  "required": ["version", "entries", "policy_rules"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["defect_class", "privacy_class", "resolution"],
+        "additionalProperties": false,
+        "properties": {
+          "defect_class": {
+            "enum": [
+              "privacy_violation",
+              "genome_build_mismatch",
+              "strandedness_unknown",
+              "annotation_version_unknown",
+              "coordinate_convention_unknown",
+              "library_layout_unknown",
+              "sample_metadata_missing",
+              "reference_data_unspecified",
+              "novel_node_unverified",
+              "scientifically_risky_adapter",
+              "policy_restricted_adapter",
+              "ontology_mapping_unresolved",
+              "lossy_adapter_default"
+            ]
+          },
+          "privacy_class": { "enum": ["phi", "controlled_access", "research", "public"] },
+          "resolution": { "enum": ["blocking", "non_blocking", "waivable_with_credentials"] },
+          "required_credentials": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" },
+            "uniqueItems": true
+          },
+          "required_resolution_state": {
+            "enum": ["draft_only", "validated_only", "any"]
+          }
+        }
+      }
+    },
+    "policy_rules": {
+      "description": "v3 §10.2 follow-up (Phase 5) — registry that backs PolicyRuleId construction. Every PolicyRuleId minted from operator input must match an `id` here.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "type": "object",
+        "required": ["id", "description", "privacy_class", "defect_class"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(:[a-z][a-z0-9_-]*)*$" },
+          "description": { "type": "string", "minLength": 1 },
+          "privacy_class": { "enum": ["phi", "controlled_access", "research", "public"] },
+          "defect_class": {
+            "enum": [
+              "privacy_violation",
+              "genome_build_mismatch",
+              "strandedness_unknown",
+              "annotation_version_unknown",
+              "coordinate_convention_unknown",
+              "library_layout_unknown",
+              "sample_metadata_missing",
+              "reference_data_unspecified",
+              "novel_node_unverified",
+              "scientifically_risky_adapter",
+              "policy_restricted_adapter",
+              "ontology_mapping_unresolved",
+              "lossy_adapter_default"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

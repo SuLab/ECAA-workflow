@@ -1,0 +1,94 @@
+# Cargo-deny configuration.
+#
+# cargo-deny enforces four bands of supply-chain hygiene:
+#  - advisories: deny known-vulnerable crates (RustSec advisory DB)
+#  - bans: deny specific crates (license violators, deprecated forks)
+#  - licenses: enforce a copy-left-free allowlist
+#  - sources: pin which registries we accept crates from
+#
+# Run locally: `cargo deny check`
+# Run in CI: see `.github/workflows/rust.yml` (the supply-chain job).
+
+[graph]
+# Workspace-wide check; per-crate overrides are rare in practice.
+all-features = false
+no-default-features = false
+exclude-dev = false
+
+[output]
+feature-depth = 1
+
+[advisories]
+db-path = "~/.cargo/advisory-db"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Deny ANY advisory the upstream DB has flagged. Yanked crates are
+# treated identically — a yank usually means there's an undisclosed
+# vulnerability the maintainer pulled the release for.
+yanked = "deny"
+ignore = [
+    # paste 1.0.15: unmaintained (RUSTSEC-2024-0436). Transitive dep via
+    # clap_derive and other proc-macro crates. No drop-in replacement
+    # exists in the ecosystem today; the upstream author has not responded
+    # to maintenance-transfer requests. Re-evaluate quarterly.
+    { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained but widely depended-on via clap proc-macros; no safe replacement today" },
+    # serde_yml 0.0.12: archived (RUSTSEC-2025-0068). Replacement for
+    # serde_yaml itself archived by its author. Transitive via several
+    # config-loading paths. Migration to serde_yaml 0.9 or an equivalent
+    # is tracked in the audit remediation plan; no same-API upgrade exists.
+    { id = "RUSTSEC-2025-0068", reason = "serde_yml is archived; migration tracked in audit remediation plan, no safe upgrade today" },
+]
+
+[licenses]
+# Allowlist mirrors the SPDX identifiers used by every direct +
+# transitive dep we currently use. Keep this tight; adding a new
+# license requires deliberate review (e.g. AGPL would poison
+# anything that links it).
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "MPL-2.0",
+    "Zlib",
+    "0BSD",
+    "BSL-1.0",
+    "OpenSSL",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    # `aho-corasick`, `byteorder`, `csv`, `csv-core`, `jiff`,
+    # `jiff-static`, `memchr`, `same-file`, `termcolor`, `walkdir` all
+    # ship `Unlicense OR MIT`. cargo-deny's resolver wants every clause
+    # of an OR-expression covered (not just one); listing `Unlicense`
+    # explicitly avoids relying on left-to-right MIT selection.
+    "Unlicense",
+]
+# Crates the upstream DB can't auto-detect a license for; vetted
+# manually. Keep the count low — every entry is a per-crate audit
+# escape hatch.
+exceptions = []
+# Confidence floor for license detection. 0.93 is the cargo-deny
+# default; flagging anything below is what surfaces ambiguous SPDX.
+confidence-threshold = 0.93
+
+[bans]
+# Multiple-version detection: warn when more than one version of a
+# transitive dep is in the build graph. Common with the rust crate
+# ecosystem so this is a soft signal, not a hard fail.
+multiple-versions = "warn"
+wildcards = "deny"
+highlight = "all"
+# No bans today; this section is a placeholder for when we need to
+# pin a deprecated crate (e.g. ban a fork that diverged).
+deny = []
+skip = []
+skip-tree = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

@@ -1,0 +1,54 @@
+id: 10_scope_creep_pushback
+category: clarification_scope_pressure
+description: |
+  SME asks the assistant to do something outside the compiler's scope —
+  here it's "predict which patients will respond to therapy" on top of
+  the bulk RNA-seq DE plan. The assistant should narrow back to what the
+  package actually outputs (gene-level associations) and offer a concrete
+  next step rather than promising biological prediction. Stops in Intake
+  before emit; the test verifies the assistant didn't quietly commit to
+  the out-of-scope ask via set_intake_method or any mutation tool.
+
+flow:
+  - kind: user
+    text: |
+      We have bulk RNA-seq from 60 melanoma patients on immune checkpoint
+      therapy — 30 responders and 30 non-responders. We want to find which
+      genes predict which patients will respond. Can the package do that?
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk RNA-seq from 60 melanoma patients on immune checkpoint therapy,
+        30 responders vs 30 non-responders, looking at gene-level differences
+        between groups
+  - kind: text
+    text: |
+      Here's the honest framing: this kind of analysis can surface genes
+      that are statistically associated with response status — that's a
+      real and useful output. What it doesn't do is build a predictive
+      model that calls "responder" or "non-responder" on a held-out
+      patient — that's a downstream modeling step that needs its own
+      pipeline. If the gene-level association list is what you want, I
+      can put together that plan; if you also need the predictive model,
+      that's a separate conversation.
+
+expected_final_state:
+  # See fixture 08. append_intake_prose lands the session in
+  # IntakeFollowup because the bulk RNA-seq taxonomy has unresolved
+  # discover_* tasks at that point.
+  state_kind: intake_followup
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+
+rubric_notes: |
+  CRITICAL for the rubric: the assistant must NOT call set_intake_method
+  or propose_summary_confirmation in this turn — it's pushing back on
+  scope, not committing to a plan. Watch for METHOD_NEUTRALITY (no
+  unsolicited recommendation of a predictive modeling library) and for
+  CLAIM_BOUNDARY (associations vs prediction is exactly the boundary
+  conversation the plan §3.3 calls out). The assistant ends with two
+  concrete options instead of a vague "let me know what you want".

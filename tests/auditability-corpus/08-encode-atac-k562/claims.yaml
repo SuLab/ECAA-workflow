@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "08-encode-atac-k562"
+claims:
+  - id: "08-encode-atac-k562-claim-001"
+    text: "Fig 1a-b (cohort schematic): 9 healthy + 12 AML donors; 13 populations"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: 9
+    tolerance: 0.1
+  - id: "08-encode-atac-k562-claim-002"
+    text: "Fig 1c (peak union): ~590,650 peaks"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: 590650
+    tolerance: 0.1
+  - id: "08-encode-atac-k562-claim-003"
+    text: "Fig 1d (technical R): R = 0.98"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: 0.98
+    tolerance: 0.05
+  - id: "08-encode-atac-k562-claim-004"
+    text: "Fig 1e (biological R): R = 0.97"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: 0.97
+    tolerance: 0.05
+  - id: "08-encode-atac-k562-claim-005"
+    text: "Fig 1f (Fast-ATAC vs DNase): R = 0.73"
+    contract: group_comparison
+    source_table: "results/tables/peaks.csv"
+    expected_value: 0.73
+    tolerance: 0.05
+  - id: "08-encode-atac-k562-claim-006"
+    text: "Fig 1g (HSC vs CD34+): R=0.77 vs R=0.91 expected"
+    contract: group_comparison
+    source_table: "results/tables/peaks.csv"
+    expected_value: 0.77
+    tolerance: 0.05
+  - id: "08-encode-atac-k562-claim-007"
+    text: "Fig 2a-d (clustering): proper lineage tree (myeloid / erythroid / lymphoid branches)"
+    contract: categorical
+    source_table: "results/tables/peaks.csv"
+    expected_value: 13
+    tolerance: 0.1
+  - id: "08-encode-atac-k562-claim-008"
+    text: "Fig 2e-f (cluster purity): distal elements significantly better"
+    contract: categorical
+    source_table: "results/tables/peaks.csv"
+    expected_value: "distal elements significantly better"
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-009"
+    text: "Fig 2g (TET2 example): HSPC, NK, T cells distinguishable in distal but not promoter"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: "HSPC, NK, T cells distinguishable in distal but not promoter"
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-010"
+    text: "Fig 3c-d (enhancer cytometry leave-one-out): 13 of 13 cell types correctly classified except HSC vs MPP discrimination"
+    contract: group_comparison
+    source_table: "results/tables/peaks.csv"
+    expected_value: 13
+    tolerance: 0.1
+  - id: "08-encode-atac-k562-claim-011"
+    text: "Fig 3e-f (CD34+ enumeration): R² = 0.95"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: 0.95
+    tolerance: 0.05
+  - id: "08-encode-atac-k562-claim-012"
+    text: "Fig 4a (motif heatmap): 46 hematopoiesis TF motifs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: 46
+    tolerance: 0.1
+  - id: "08-encode-atac-k562-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null
+  - id: "08-encode-atac-k562-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 08-encode-atac-k562"
+    contract: numeric_table_lookup
+    source_table: "results/tables/peaks.csv"
+    expected_value: null
+    tolerance: null

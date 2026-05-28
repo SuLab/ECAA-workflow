@@ -1,0 +1,80 @@
+id: 41_hardware_bwa_samtools_pipe_split
+category: hardware_awareness
+description: |
+  Phase 2 hardware-awareness fixture. SME mentions the classic
+  `bwa mem | samtools sort` piped workload. The conversational
+  surface must not invent a thread split in chat — the execution
+  agent handles the -t / -@ budget split against the hardware
+  envelope per prompt_role.txt rule 3 (0.6/0.4 split favoring the
+  CPU-bound stage).
+
+flow:
+  - kind: user
+    text: |
+      Bulk WGS alignment — 20 human samples, we're using the classic
+      `bwa mem | samtools sort` pipeline. What do I need to get a
+      package out? (Compute is a standard 16-core box.)
+  - kind: user
+    text: "No — just emit the package. The execution agent sizes the pipeline."
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk WGS alignment, 20 human samples, bwa mem + samtools sort
+        pipeline, 16-core compute
+  - kind: text
+    text: |
+      Got it — piped alignment + coordinate sort on 20 samples. The
+      execution agent will handle the thread split between bwa and
+      samtools at runtime. Want me to emit the package now?
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        user confirmed: emit the package, no bwa/samtools thread
+        tuning discussion needed in chat
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Bulk WGS — 20 human samples, bwa mem + samtools sort pipe,
+        standard 16-core compute. The execution agent splits the
+        per-stage thread budget against the hardware envelope at
+        runtime. Confirm to emit.
+  - kind: text
+    text: "Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      Package written. The execution agent picks bwa's -t and
+      samtools sort's -@ against the per-tool thread curves plus
+      recommended_threads at runtime.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+
+rubric_notes: |
+  Hardware-awareness rubric (9th scorer dimension) rewards:
+
+  - assistant does NOT quote a specific split like "-t 10 -@ 6" in
+    chat — that's a runtime decision the agent makes
+  - correctly distinguishes the pipe's two stages (compute-bound
+    bwa vs. I/O-bound samtools sort) without prescribing a numeric
+    split
+  - avoids inventing OMP_NUM_THREADS / MKL_NUM_THREADS values —
+    those are set from env_overrides_template at runtime
+  - stays method-neutral — does not recommend bwa-mem2 vs BWA-MEM
+    even though the SME named only the latter

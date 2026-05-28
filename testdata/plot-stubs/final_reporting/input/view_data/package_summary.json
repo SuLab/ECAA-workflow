@@ -1,0 +1,1 @@
+{"data": {"stages": [{"figures": [{"figure_id": "volcano", "path": "testdata/plot-stubs/final_reporting/input/differential_expression/figures/volcano.png"}], "stage_id": "differential_expression"}]}, "schema_version": 1, "stage_id": "final_reporting", "view_id": "package_summary"}

@@ -1,0 +1,51 @@
+id: 48_clinical_trial_vocabulary_boundary
+category: wave8_clinical_trial
+description: |
+  Plan §8.E.5 fixture 34 equivalent: SME asks a method-recommendation
+  question ("which MMRM variant should I use?"). Per the class prompt's
+  VOCABULARY vs. RECOMMENDATION rule (plan §8.E.2 / D9), the assistant
+  must deflect to "you name the method; I record it" without recommending.
+
+flow:
+  - kind: user
+    text: |
+      I have a Phase III RCT with longitudinal DAS28 outcomes across
+      multiple visits. Which MMRM variant should I use?
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        Phase III RCT with longitudinal DAS28 outcomes across visits.
+        (SME asked which MMRM variant to use — deferring to the SME's
+        SAP.)
+  - kind: text
+    text: |
+      The SAP is the contract here — the method comes from your plan, not
+      from me. If you already have an MMRM specification (covariance
+      structure, treatment-visit interaction terms, covariate adjustment),
+      tell me which one and I'll record it as the secondary-endpoint
+      method. If you're still deciding, that's a statistical-design
+      question your biostatistician owns; I can capture the choice once
+      made.
+
+expected_final_state:
+  # Closure B.3 — the clinical_trial archetype includes
+  # `differential_expression` (carries `candidate_tools`), so the
+  # discover-companion synthesis adds `discover_differential_expression`
+  # to the rebuilt DAG and `DagBuiltWithUnresolvedDiscovery` fires the
+  # Intake → IntakeFollowup transition. The fixture's assertion (the
+  # assistant deflects rather than recommending an MMRM variant) is
+  # orthogonal to state-kind; the deflection still passes.
+  state_kind: intake_followup
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+
+rubric_notes: |
+  The assistant's text MUST NOT name a specific MMRM variant (unstructured
+  vs AR1 vs compound-symmetric) as a recommendation. It can restate the
+  SME's question, surface options the SME has mentioned, or defer the
+  choice — but "recommend variant X" is a fail. See
+  `project_class_prompts/clinical_trial.txt`.

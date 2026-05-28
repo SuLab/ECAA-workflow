@@ -1,0 +1,25 @@
+schema_version: "0.1"
+id: variant_calling
+display_name: Variant Calling
+keywords: ["variant calling", "variant call", "variant detection", wgs, wes, exome, snp, indel, germline, somatic, gatk, deepvariant, mutect, haplotypecaller, "short variants", "structural variants"]
+# Bare "variant" / "bwa" / "bowtie2" removed: they collide with
+# bio-domain prose like "core histone variants" (chip-exo) and
+# "bwa-meth" / "bowtie alignment" (other modalities). The corpus's
+# chip-exo-yen-coactivator scenario was routing to variant_calling
+# because of the bare "variant" substring match on "histone
+# variants". The multi-word forms below cover real variant-calling
+# intake without tripping on generic biology prose.
+edam_topic: "topic:3673"
+edam_operation: "operation:3227"
+taxonomy_path: stage-taxonomies/variant-calling.yaml
+archetype_id: variant_calling_germline
+semantic_equivalence_bounds:
+  - metric: vcf_concordance
+    operator: ">="
+    threshold: 0.995
+    applies_to: "results/vcf/*.vcf.gz"
+    rationale: "Grant §G2 variant-calling VCF concordance ≥ 0.995 (genotype-level agreement across all PASS variants)"
+  - metric: snp_sensitivity_delta
+    operator: "<="
+    threshold: 0.005
+    rationale: "SNP sensitivity difference ≤ 0.5 pp between runs against the same truth set"

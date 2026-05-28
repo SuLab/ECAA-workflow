@@ -1,0 +1,402 @@
+{
+  "current_task": null,
+  "meta": {
+    "modality_stratum": "genomics",
+    "run_id": "d5d81154-a4a7-7922-075d-1e5ade90f2ef"
+  },
+  "run_id": "d5d81154-a4a7-7922-075d-1e5ade90f2ef",
+  "tasks": {
+    "alignment": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_alignment",
+        "sequence_trimming"
+      ],
+      "description": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "kind": "computation",
+      "resource_class": "memory_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "contextualize_findings_with_literature": {
+      "assignee": "agent",
+      "depends_on": [
+        "review_prior_work",
+        "variant_annotation"
+      ],
+      "description": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "kind": "computation",
+      "required_artifacts": [
+        {
+          "path": "claims_evidence_matrix.csv",
+          "schema_ref": "schemas/claims_evidence_matrix.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked",
+            "claim_row_has_finding_id",
+            "concordance_flag_in_closed_set"
+          ]
+        },
+        {
+          "path": "evidence/manifest.json",
+          "schema_ref": "schemas/literature_evidence_manifest.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked",
+            "claim_row_has_finding_id",
+            "concordance_flag_in_closed_set"
+          ]
+        }
+      ],
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_alignment": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_sequence_trimming": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_variant_annotation": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for variant_annotation (options: vep, annovar, snpeff). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_variant_calling": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for variant_calling (options: haplotypecaller, deepvariant, mutect2, strelka2, dragen). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_variant_filtering": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for variant_filtering (options: vqsr, gatk_hard_filter, deepvariant_cnn, bcftools_filter). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "raw_qc": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "contextualize_findings_with_literature",
+        "variant_annotation"
+      ],
+      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "review_prior_work": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nSWFC_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "kind": "computation",
+      "required_artifacts": [
+        {
+          "path": "prior_claims_matrix.csv",
+          "schema_ref": "schemas/literature_claims_matrix.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        },
+        {
+          "path": "evidence/manifest.json",
+          "schema_ref": "schemas/literature_evidence_manifest.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        },
+        {
+          "min_size_bytes": 1,
+          "path": "citation_verification_report.md",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        }
+      ],
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "sequence_trimming": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_sequence_trimming",
+        "raw_qc"
+      ],
+      "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_alignment": {
+      "assignee": "agent",
+      "depends_on": [
+        "alignment"
+      ],
+      "description": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_contextualize_findings_with_literature": {
+      "assignee": "agent",
+      "depends_on": [
+        "contextualize_findings_with_literature"
+      ],
+      "description": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "final_reporting"
+      ],
+      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_raw_qc": {
+      "assignee": "agent",
+      "depends_on": [
+        "raw_qc"
+      ],
+      "description": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_review_prior_work": {
+      "assignee": "agent",
+      "depends_on": [
+        "review_prior_work"
+      ],
+      "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nSWFC_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_sequence_trimming": {
+      "assignee": "agent",
+      "depends_on": [
+        "sequence_trimming"
+      ],
+      "description": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_variant_annotation": {
+      "assignee": "agent",
+      "depends_on": [
+        "variant_annotation"
+      ],
+      "description": "Validate outputs of: Annotate filtered variants with gene impact, consequence, population\nfrequency, and clinical significance. VEP / ANNOVAR / SnpEff against\nEnsembl / RefSeq / gnomAD / ClinVar selected at runtime.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_variant_calling": {
+      "assignee": "agent",
+      "depends_on": [
+        "variant_calling"
+      ],
+      "description": "Validate outputs of: Call germline or somatic SNVs / indels from aligned reads. HaplotypeCaller /\nDeepVariant / Mutect2 / Strelka2 selected at runtime by experimental design\n(germline cohort vs tumor-normal pair vs tumor-only).\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_variant_filtering": {
+      "assignee": "agent",
+      "depends_on": [
+        "variant_filtering"
+      ],
+      "description": "Validate outputs of: Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\nswfc namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "variant_annotation": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_variant_annotation",
+        "variant_filtering"
+      ],
+      "description": "Annotate filtered variants with gene impact, consequence, population\nfrequency, and clinical significance. VEP / ANNOVAR / SnpEff against\nEnsembl / RefSeq / gnomAD / ClinVar selected at runtime.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "variant_calling": {
+      "assignee": "agent",
+      "depends_on": [
+        "alignment",
+        "discover_variant_calling"
+      ],
+      "description": "Call germline or somatic SNVs / indels from aligned reads. HaplotypeCaller /\nDeepVariant / Mutect2 / Strelka2 selected at runtime by experimental design\n(germline cohort vs tumor-normal pair vs tumor-only).\n",
+      "kind": "computation",
+      "resource_class": "memory_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "variant_filtering": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_variant_filtering",
+        "variant_calling"
+      ],
+      "description": "Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\nswfc namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    }
+  },
+  "version": "1.0",
+  "workflow_id": "workflow-2108932d7e96"
+}

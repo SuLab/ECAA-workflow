@@ -1,0 +1,146 @@
+# 02 — DLPFC Visium + snRNA-seq spatial atlas reconstruction
+#
+# Tests the "no single GEO accession" path — the Maynard pilot is
+# distributed through spatialLIBD / Globus, not GEO. The assistant
+# should handle this without insisting on a GEO id.
+
+name: Public DLPFC spatial transcriptomics atlas
+modality: spatial_transcriptomics
+
+beats:
+  - user: "I want to reanalyze public human DLPFC spatial transcriptomics data."
+    assistant:
+      content: |
+        DLPFC Visium reanalysis — got it. Are you starting from a
+        specific cohort or do you want me to gather candidates?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+      visibleText:
+        - "DLPFC"
+      forbiddenText:
+        - "DAG"
+        - "task graph"
+
+  - user: |
+      Maynard 2021 Nat Neurosci — the pilot with manually-annotated layer
+      labels. 12 Visium sections, 3 donors.
+    assistant:
+      content: |
+        Maynard 2021 pilot — 12 sections, 3 donors, manually-annotated
+        layer ground truth. I notice there's no single GEO accession
+        for this — the canonical distribution is through the
+        spatialLIBD Bioconductor ExperimentHub and the
+        jhpce#HumanPilot10x Globus endpoint. I'll plan for both paths.
+    expect:
+      visibleText:
+        - "spatialLIBD"
+        - "Maynard"
+      forbiddenText:
+        - "BayesSpace"
+        - "Leiden"
+        - "I recommend"
+
+  - user: |
+      Yes — either access path is fine, let the harness decide at runtime.
+      I also want cell-type deconvolution using snRNA-seq.
+    assistant:
+      content: |
+        Deconvolution via snRNA-seq reference — makes sense. Two
+        obvious candidates are the LieberInstitute spatialDLPFC
+        snRNA-seq (30 donors) and the Allen SEA-AD atlas (2.78 M
+        nuclei from DLPFC and MTG). Want me to plan for one or both?
+    expect:
+      visibleText:
+        - "SEA-AD"
+        - "LieberInstitute"
+
+  - user: |
+      Both references, and the package should log which one it actually
+      used at runtime. SEA-AD is open but has a DUA we need to acknowledge.
+    assistant:
+      content: |
+        Recorded — both references, reference choice logged in
+        provenance, and the SEA-AD DUA acknowledgment is captured
+        as a gate. The layer assignment has to be audited against
+        Maynard ground truth — I'll add an ARI threshold and
+        fail-closed stop condition.
+    expect:
+      visibleText:
+        - "DUA"
+        - "ARI"
+
+  - user: |
+      Yes — if ARI against Maynard ground truth drops below the floor,
+      the package should refuse to emit layer-level claims. Neurotypical
+      only, no AD samples in the primary analysis.
+    assistant:
+      content: |
+        Here's the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **DLPFC spatial transcriptomics — Maynard pilot reconstruction**
+
+          - **Anchor dataset:** Maynard 2021 pilot (spatialLIBD + Globus)
+          - **Reference:** SEA-AD + LieberInstitute snRNA-seq (both)
+          - **Deconvolution:** reference choice logged per run
+          - **Ground truth:** manually-annotated layer labels from
+            spatialLIBD; ARI floor with fail-closed stop condition
+          - **Governance:** public data, SEA-AD DUA acknowledged,
+            neurotypical only, internal use
+          - **Claim boundary:** descriptive laminar architecture and
+            per-layer cell-type abundance only. No disease-state or
+            phenotype claims. Any SEA-AD AD comparison is descriptive
+            composition shift only.
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "Claim boundary"
+        - "fail-closed"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: "Package emitted — the harness will handle the dual-access-path logic at runtime."
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I want to reanalyze the Maynard 2021 Nat Neurosci DLPFC spatial
+    transcriptomics pilot — 12 Visium sections from 3 donors with manually
+    annotated layer labels. There's no single GEO accession; the data comes
+    through spatialLIBD on Bioconductor ExperimentHub and the jhpce#HumanPilot10x
+    Globus endpoint, either path is fine. I need cell-type deconvolution using
+    snRNA-seq references: both the LieberInstitute spatialDLPFC set (30 donors)
+    and the Allen SEA-AD atlas (2.78M nuclei). The SEA-AD data has a DUA that
+    needs acknowledgment. The layer assignment must be audited against Maynard
+    ground truth with an ARI threshold and fail-closed stop condition.
+    Neurotypical only, no AD samples in the primary analysis. Internal use,
+    public data. Once we agree on the plan, emit the package to {pkgDir}.
+  followups:
+    - trigger: "(?i)(access|download|GEO|accession)"
+      reply: "Either spatialLIBD ExperimentHub or the Globus endpoint — let the harness decide at runtime."
+    - trigger: "(?i)(reference|deconvolution|snRNA)"
+      reply: "Both references: LieberInstitute spatialDLPFC and Allen SEA-AD. Log which one is actually used."
+    - trigger: "(?i)(DUA|governance|SEA.AD)"
+      reply: "SEA-AD DUA must be acknowledged as a gate. Neurotypical only, no AD samples in the primary."
+    - trigger: "(?i)(ARI|ground.truth|layer)"
+      reply: "ARI against Maynard ground truth must meet the floor; fail closed if it drops below."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "BayesSpace"
+      - "Leiden"
+      - "I recommend"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 4

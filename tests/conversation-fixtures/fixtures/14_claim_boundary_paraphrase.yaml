@@ -1,0 +1,80 @@
+id: 14_claim_boundary_paraphrase
+category: claim_boundary_surfacing
+description: |
+  Single-cell taxonomy has a `claim_boundary` directive. The assistant
+  must restate it in plain SME-friendly language as part of the summary
+  it proposes for confirmation. The mock summary explicitly paraphrases
+  the boundary so the rubric scorer (Phase 4.2b) can verify it landed.
+  Happy path through emission so the runner can also check the boundary
+  text reaches PROMPT.md.
+
+flow:
+  - kind: user
+    text: |
+      Single-cell RNA-seq of mouse brain, 12 animals, comparing aged vs
+      young cohorts. We want to understand how cell-type composition shifts
+      with age. Internal data, not public.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        single-cell scRNA-seq from mouse brain, 12 animals, aged vs young
+        cohorts, looking at cell-type composition shifts with age
+  - kind: tool_use
+    tool:
+      tool_name: get_taxonomy_info
+      modality_id: single_cell_rnaseq
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's the plan for your single-cell aging study:
+        - 12 mouse brain samples (aged vs young cohorts)
+        - Compare cell-type composition shifts between groups
+        - Internal data
+
+        One thing worth saying up front: this kind of analysis reports
+        statistical patterns — which cell types are over- or under-
+        represented in aged vs young brain — rather than direct cause-
+        and-effect about why those shifts happen. The summary will phrase
+        findings as "associated with" rather than "caused by".
+
+        Click Accept if this matches what you want, or Revise
+        to revise.
+  - kind: text
+    text: "Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The package is ready. The execution agent will pick clustering and
+      cell-type annotation parameters based on what it sees in the data.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - get_taxonomy_info
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Phase 4.2b scorer should give CLAIM_BOUNDARY = 2 here because the
+  assistant's summary explicitly paraphrases the non-causality claim
+  boundary in the SME's own context (cell-type shifts associated with
+  age, not caused by). Verify the get_taxonomy_info call happened
+  before the summary so the LLM had the boundary text to draw from.

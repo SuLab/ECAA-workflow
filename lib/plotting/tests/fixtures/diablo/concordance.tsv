@@ -1,0 +1,5 @@
+modality_a	modality_b	correlation
+rna	proteomics	0.72
+rna	rna	1.00
+proteomics	proteomics	1.00
+proteomics	rna	0.72

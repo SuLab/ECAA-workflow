@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "InvariantId": {
+      "enum": [
+        "claim_completeness",
+        "decision_justification",
+        "evidence_coverage",
+        "equivalence_failure",
+        "cross_graph_integrity",
+        "substrate_validity"
+      ],
+      "type": "string"
+    },
+    "InvariantStatus": {
+      "enum": [
+        "pass",
+        "warn",
+        "fail",
+        "unverified"
+      ],
+      "type": "string"
+    },
+    "InvariantVerdict": {
+      "properties": {
+        "detail": {
+          "description": "Human-readable detail when status != Pass.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "$ref": "#/definitions/InvariantId"
+        },
+        "n_inspected": {
+          "description": "Items inspected (e.g., number of claims, decisions, edges).",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "n_violations": {
+          "description": "Items violating the invariant.",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/definitions/InvariantStatus"
+        }
+      },
+      "required": [
+        "id",
+        "n_inspected",
+        "n_violations",
+        "status"
+      ],
+      "type": "object"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "verdicts": {
+      "items": {
+        "$ref": "#/definitions/InvariantVerdict"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "verdicts"
+  ],
+  "title": "AuditProofReport",
+  "type": "object"
+}

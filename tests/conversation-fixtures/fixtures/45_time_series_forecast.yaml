@@ -1,0 +1,69 @@
+id: 45_time_series_forecast
+category: wave8_time_series_forecast
+description: |
+  Wave 8.H acceptance: structurally different non-bio class (no arms, no
+  CDISC, no populations). SME describes an ARIMA forecast; classifier routes
+  to TimeSeriesForecast; time-series-forecast.yaml taxonomy loads; emission
+  writes a package with the time-series container declared.
+
+flow:
+  - kind: user
+    text: |
+      I need a time series forecast of monthly hospital admissions for the
+      next 12 months. We have 8 years of monthly data. Expected model family
+      is SARIMA with seasonal period 12. Run ADF stationarity diagnostics
+      and Ljung-Box on residuals. Holdout the last 24 months for backtesting
+      and report MAPE and RMSE.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        Monthly time-series forecast of hospital admissions over an 8-year
+        history; SARIMA with seasonal period 12; 12-month forecast horizon;
+        ADF stationarity diagnostics and Ljung-Box residual checks; 24-month
+        holdout for backtesting; report MAPE and RMSE.
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Confirming the SARIMA monthly forecast: 8-year history, period-12
+        seasonality, 12-month horizon, 24-month holdout, MAPE+RMSE metrics.
+        Eight stages from data_import through reporting.
+  - kind: text
+    text: |
+      Plan captured. Accept when it looks right.
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The time-series package is ready. The execution agent runs inside the
+      scripps/time-series:1.0 container so pmdarima / statsmodels / prophet
+      are available.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - policies/container.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Proves the plugin abstraction generalizes beyond clinical trials.
+  Stage IDs (data_import, reporting) deliberately duplicate the bio and
+  clinical-trial taxonomies — Wave 8.J will factor them into _shared/
+  once both non-bio taxonomies have shipped.

@@ -1,0 +1,1 @@
+{"schema_version":"0.1.0","timestamp":"2026-05-18T00:00:00Z","session_id":"minimal-session-001","decision":{"kind":"emit_package","output_dir":"./"},"rationale":"Minimal fixture emission for end-to-end SHACL testing.","actor":"sme"}

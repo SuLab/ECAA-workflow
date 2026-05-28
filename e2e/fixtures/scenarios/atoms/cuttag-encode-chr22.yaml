@@ -1,0 +1,87 @@
+# atoms/cuttag-encode-chr22 — atom-coverage spec
+#
+# Synthetic CUT&Tag dataset: H3K27ac mark on chr22, 2 replicates + IgG control.
+# Simulates an ENCODE-style CUT&Tag experiment condensed to chr22.
+
+name: Synthetic chr22 CUT&Tag H3K27ac peak calling
+modality: cut_tag
+
+beats:
+  - user: >-
+      I want to analyze a CUT&Tag experiment for H3K27ac on chr22.
+      I have two treatment replicates and an IgG control — the goal is
+      to call peaks and identify enriched histone-mark regions.
+    assistant:
+      content: >-
+        CUT&Tag H3K27ac, chr22, 2 reps + IgG control. SEACR for peak
+        calling? Any differential binding comparison planned?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      Yes, SEACR peak calling against the IgG control, then annotate peaks
+      to nearest genes. No differential binding comparison for now.
+      Internal use, synthetic data.
+    assistant:
+      content: >-
+        Recorded — QC → alignment → SEACR peaks vs IgG → peak annotation.
+        Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **CUT&Tag H3K27ac — chr22 peak calling**
+
+          - **Dataset:** Synthetic chr22 CUT&Tag (2 reps + IgG control)
+          - **Antibody:** H3K27ac
+          - **Pipeline:** QC → alignment → SEACR peaks → peak annotation
+          - **Governance:** synthetic data, internal use
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I want to analyze a CUT&Tag experiment for the H3K27ac histone mark on
+    chromosome 22. I have two treatment replicates (H3K27ac_rep1 and
+    H3K27ac_rep2) and an IgG control, all as gzipped BED files staged locally.
+    The pipeline should cover raw QC, alignment to GRCh38 chr22, peak calling
+    with SEACR using the IgG control as background, and peak annotation to
+    nearest genes. No differential binding comparison is needed. Internal use,
+    synthetic data. Please build the plan and emit once confirmed.
+  followups:
+    - trigger: "(?i)(genome|reference|organism|human|mouse|assembly)"
+      reply: >-
+        Human GRCh38, chromosome 22 only.
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use, synthetic data, no PHI.
+    - trigger: "(?i)(file|format|path|bed|fragment|input|data)"
+      reply: >-
+        Files staged at testdata/scenarios/atoms/cuttag-encode-chr22/:
+        H3K27ac_chr22.bed.gz (treatment), IgG_control_chr22.bed.gz (control).
+    - trigger: "(?i)(peak.caller|seacr|macs|cut.run)"
+      reply: >-
+        SEACR with the IgG control as background. Default parameters.
+    - trigger: "(?i)(differential|comparison|condition|contrast)"
+      reply: >-
+        No differential binding comparison needed for this run.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

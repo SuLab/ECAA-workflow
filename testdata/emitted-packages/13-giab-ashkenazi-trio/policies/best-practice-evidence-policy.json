@@ -1,0 +1,132 @@
+{
+  "schemaVersion": "1.0",
+  "citationMinimum": {
+    "strongClaimMinEvidence": 2,
+    "requireHighQualitySource": true,
+    "highQualitySourceTypes": [
+      "named_standard",
+      "official_regulator",
+      "independent_benchmark",
+      "reproducibility_study"
+    ],
+    "insufficientAloneSources": [
+      "vendor_page",
+      "release_post",
+      "community_thread",
+      "marketing_source"
+    ]
+  },
+  "freshnessDefaults": {
+    "$comment": "Active documentation older than 180 days (6 months) triggers a freshness penalty in the scoring policy. Benchmark comparisons older than 365 days do the same. Windows are intentionally generous because rebenchmarking is expensive; tighten them if a tool family is moving fast (e.g., single-cell methods in 2024-2025).",
+    "activeDocumentationDays": 180,
+    "benchmarkComparativeDays": 365,
+    "standardsGuidelines": "latest_active_version"
+  },
+  "sourceClassDomainPatterns": [
+    {
+      "sourceClass": "PublishedResearchPaper",
+      "domains": [
+        "pubmed",
+        "ncbi.nlm.nih.gov",
+        "nature.com",
+        "science.org",
+        "cell.com",
+        "biorxiv",
+        "medrxiv",
+        "bmj",
+        "thelancet"
+      ]
+    },
+    {
+      "sourceClass": "GuidelineOrConsensusDocument",
+      "domains": ["nih.gov", "who.int", "ema.europa.eu", "fda.gov", "nice.org.uk", "cdc.gov"]
+    },
+    {
+      "sourceClass": "StandardsBodyResource",
+      "domains": ["iso.org", "ga4gh.org", "w3.org", "consort-statement.org"]
+    },
+    {
+      "sourceClass": "RepositoryMetadataEndpoint",
+      "domains": ["zenodo.org", "figshare.com", "ebi.ac.uk", "ncbi.nlm.nih.gov/geo"]
+    }
+  ],
+  "literatureEligibilityRules": [
+    "Every promoted default must remain literature-eligible even when empirical screening drives final selection.",
+    "Literature eligibility requires at least one official, benchmark, or primary-literature anchor relevant to the stage family.",
+    "Source quality for literature eligibility is distinct from dataset-backed empirical ranking and must be logged separately."
+  ],
+  "datasetSelectionRules": [
+    "Empirical selection evidence must come from datasets, splits, or benchmarks that are in manifest scope and logged with provenance.",
+    "Dataset-backed ranking may refine the admissible set, but it must not override hard literature exclusions or regulator/standard blockers.",
+    "When the stage is coarse-first, targeted refinement is allowed only after the coarse family has passed literature, robustness, and testability checks."
+  ],
+  "stageEmpiricalRequirements": [
+    {
+      "stageClass": "StagePreprocessingQC",
+      "empiricalRequirement": "EmpiricalRequired",
+      "selectionEvidence": ["qc_retention_curves", "artifact_removal_benchmarks"]
+    },
+    {
+      "stageClass": "StageAlignmentQuantification",
+      "empiricalRequirement": "EmpiricalRequired",
+      "selectionEvidence": ["mapping_accuracy", "quantification_consistency", "reference_compatibility"]
+    },
+    {
+      "stageClass": "StageNormalizationBatchCorrection",
+      "empiricalRequirement": "EmpiricalRequired",
+      "selectionEvidence": ["batch_mixing", "biological_signal_preservation", "rerun_stability"]
+    },
+    {
+      "stageClass": "StageIntegrationAlignment",
+      "empiricalRequirement": "EmpiricalRequired",
+      "selectionEvidence": ["cross_batch_alignment", "local_structure_preservation", "stability"]
+    },
+    {
+      "stageClass": "StageClusteringStateInference",
+      "empiricalRequirement": "EmpiricalRequired",
+      "selectionEvidence": ["cluster_stability", "resolution_sensitivity", "marker_recovery"]
+    },
+    {
+      "stageClass": "StageAnnotationLabelTransfer",
+      "empiricalRequirement": "EmpiricalRequired",
+      "selectionEvidence": ["label_agreement", "uncertainty_calibration", "rare_label_recall"]
+    },
+    {
+      "stageClass": "StageDifferentialAnalysis",
+      "empiricalRequirement": "EmpiricalRequired",
+      "selectionEvidence": ["type_i_error_control", "signal_recovery", "effect_size_stability"]
+    },
+    {
+      "stageClass": "StageVariantCallingFiltering",
+      "empiricalRequirement": "EmpiricalRequired",
+      "selectionEvidence": ["truthset_concordance", "precision_recall", "filter_stability"]
+    },
+    {
+      "stageClass": "StageBenchmarkingEvaluation",
+      "empiricalRequirement": "EmpiricalRequired",
+      "selectionEvidence": ["leaderboard_rank", "heldout_metrics", "runtime_cost"]
+    },
+    {
+      "stageClass": "StageCausalDesign",
+      "empiricalRequirement": "EmpiricalPreferred",
+      "selectionEvidence": ["negative_controls", "sensitivity_analysis", "design_diagnostics"]
+    },
+    {
+      "stageClass": "StagePredictionValidation",
+      "empiricalRequirement": "EmpiricalRequired",
+      "selectionEvidence": ["calibration", "discrimination", "external_validation"]
+    },
+    {
+      "stageClass": "StageResourceReleaseMetadata",
+      "empiricalRequirement": "EmpiricalPreferred",
+      "selectionEvidence": ["metadata_completeness", "schema_validation", "replayability_checks"]
+    },
+    {
+      "stageClass": "StageOther",
+      "empiricalRequirement": "EmpiricalPreferred",
+      "selectionEvidence": ["task_specific_metric", "stability_check"]
+    }
+  ],
+  "trustPolicy": "fetched_pages_untrusted_until_corroborated",
+  "stopAndBlockConditions": ["evidence_weak", "evidence_contradictory", "evidence_stale", "evidence_out_of_scope"]
+}

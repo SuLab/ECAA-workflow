@@ -1,0 +1,59 @@
+id: qc_preprocessing
+version: "1.0.0"
+role: operation
+description: |
+  Apply count-matrix-level QC: cell or sample filtering by total counts, gene
+  detection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`
+  (which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —
+  EDAM operation:3218 conflates raw-read QC with count-matrix QC.
+edam_operation: "swfc:scrnaseq_cell_qc"
+edam_data: "data:3917"
+edam_format: "format:3590"
+assignee: agent
+depends_on:
+  - quantification
+plot_stage_id: quality_control
+expected_artifacts:
+  - qc_summary.json
+  - filtered_cells_index.json
+  - manifest.json
+  - result.json
+required_figures:
+  - per_sample_metric_violin
+  - per_sample_metric_bar
+  - qc_summary_bar
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Cell/sample-level QC of the raw count matrix from quantification.
+# Output is a filtered count matrix preserving the raw-counts statistical
+# state (filtering changes shape, not values).
+inputs:
+  - name: count_matrix
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "raw_counts"
+    privacy_class: internal
+outputs:
+  - name: filtered_count_matrix
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "qc_metrics"
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Per-sample / per-cell QC metrics with cell-filter index from count-matrix-level QC"
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
+    statistical_state: "raw_counts"
+    privacy_class: internal

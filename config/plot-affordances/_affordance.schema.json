@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RegisteredAffordance",
+  "type": "object",
+  "required": ["semantic_type", "figure_ids", "renderer_module", "theme_version"],
+  "properties": {
+    "semantic_type": {
+      "type": "string",
+      "description": "EDAM IRI or local-extension semantic type id."
+    },
+    "figure_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1
+    },
+    "renderer_module": {
+      "type": "string",
+      "description": "Dotted module path under runtime.plotting (e.g., runtime.plotting.stages.differential_expression)."
+    },
+    "theme_version": { "type": "string" }
+  },
+  "additionalProperties": false
+}

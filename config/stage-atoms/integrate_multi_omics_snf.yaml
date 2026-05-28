@@ -1,0 +1,76 @@
+id: integrate_multi_omics_snf
+version: "1.0.0"
+role: operation
+description: |
+  Plan §B.M8 — multi-omics patient subtyping via SNF (Similarity Network
+  Fusion, SNFtool R package). Per-modality patient-patient similarity
+  matrices are fused into a single network; spectral clustering on the
+  fused network yields subtype assignments + a fused similarity matrix
+  for downstream survival / clinical-correlate analyses.
+
+  Best when the SME's goal is patient subtyping or hypothesis-free
+  clustering across modalities. Distinct from DIABLO (supervised) and
+  MOFA (factor decomposition).
+edam_operation: "swfc:multi_omics_snf"
+edam_data: "data:1278"
+edam_format: "format:3464"
+assignee: agent
+depends_on: []
+plot_stage_id: multi_omics_integration
+expected_artifacts:
+  - fused_similarity.tsv
+  - subtype_assignments.tsv
+  - manifest.json
+  - result.json
+required_figures:
+  - modality_concordance_heatmap
+  - factor_variance_bar
+resource_profile:
+  cpu: heavy
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+preferred_container:
+  image: "scripps-derived/r-snftool"
+  tag: "1.0.0"
+  digest: "sha256:b3d6f9a2c5e8b1d4f7a0c3e6b9d2f5a8c1e4b7d0a3f6c9e2b5d8a1f4c7e0d3b6"
+  arch: ["amd64"]
+  gpu_required: false
+claim_boundary: |
+  SNF subtypes are unsupervised cluster assignments; cluster-specific
+  features and survival differences are descriptive associations
+  pending external replication. Report the number of clusters chosen
+  (k), the gap statistic / silhouette underlying that choice, and
+  bootstrap-stability if available. Avoid biological-mechanism claims
+  attached to a specific cluster.
+# Explicit rich ports.
+# Per-modality patient-patient similarity matrices in, single fused
+# similarity matrix + spectral subtype assignments out.
+inputs:
+  - name: similarity_matrices
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "patient_similarity_matrix"
+      proposed_parent_terms:
+        - "data:1278"
+      definition: "Per-modality patient-patient similarity matrix (square, symmetric)"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+    cardinality:
+      kind: many
+outputs:
+  - name: fused_similarity
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "fused_similarity_matrix"
+      proposed_parent_terms:
+        - "data:1278"
+      definition: "Fused patient-patient similarity matrix from SNF; spectral clustering yields subtype assignments"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

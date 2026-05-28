@@ -1,0 +1,70 @@
+id: peak_to_gene_linking
+version: "1.0.0"
+role: operation
+description: |
+  Link ATAC-derived peaks to RNA-derived gene expression within
+  shared nuclei to identify regulatory peak-to-gene relationships.
+  Signac LinkPeaks / ArchR addPeak2GeneLinks / cicero at runtime.
+  Standard inputs: per-cluster differential peaks + DE genes;
+  outputs candidate cis-regulatory edges with statistical support.
+edam_operation: "operation:3463"
+edam_data: "data:1255"
+edam_format: "format:3003"
+assignee: agent
+depends_on:
+  - joint_wnn_integration
+expected_artifacts:
+  - peak_to_gene_links.tsv
+  - linking_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: peak_to_gene
+required_figures:
+  - peak_to_gene_arc
+  - links_per_cluster_bar
+attributes:
+  candidate_tools:
+    - signac_linkpeaks
+    - archr_peak2gene
+    - cicero
+resource_profile:
+  cpu: moderate
+  memory: large
+  gpu: false
+  runtime_class: hours
+claim_boundary: |
+  Peak-to-gene links are statistical correlations between
+  per-nucleus chromatin accessibility and gene expression. They
+  do not directly establish causal regulation — orthogonal
+  evidence (TF perturbation, eQTL data, reporter assays) is
+  required before any regulatory-mechanism claim.
+inputs:
+  - name: joint_embedding
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: joint_wnn_embedding
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Joint WNN embedding + cluster assignments per nucleus"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
+    privacy_class: internal
+outputs:
+  - name: peak_to_gene_links
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: peak_to_gene_link_table
+      proposed_parent_terms:
+        - "data:1255"
+      definition: "Statistical peak-to-gene regulatory link table"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

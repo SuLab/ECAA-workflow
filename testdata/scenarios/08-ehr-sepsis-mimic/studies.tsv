@@ -1,0 +1,6 @@
+dataset	first_author	year	journal	pmid	version	n_patients	n_icu_stays	hosts	access_tier	notes
+MIMIC-IV_v3.1	Johnson	2023	Sci Data	36596836	v3.1	~364627 patients	~94458 ICU stays	BIDMC Boston	PhysioNet credentialed	DUA + CITI training required; dataset DOI 10.13026/6mm1-ek67
+eICU-CRD_v2.0	Pollard	2018	Sci Data	-	v2.0	~200859 patients	~200859 ICU stays	~208 US hospitals	PhysioNet credentialed	multi-center; vendor-agnostic
+MIMIC-IV_ED	Johnson	2023	Sci Data	36596836	v2.2	-	-	BIDMC Boston	PhysioNet credentialed	ED module; out of scope for primary analysis
+mimic-code_sepsis3	Johnson	-	-	-	rolling	-	-	MIT-LCP GitHub	public code	derived Sepsis-3 label table; canonical derivation
+YAIB_v1.2	van de Water	2024	ICLR	-	v1.2	wraps MIMIC-III MIMIC-IV eICU HiRID AUMCdb	multi	multi	public code	reference benchmark framework with 5 tasks incl. sepsis

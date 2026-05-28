@@ -1,0 +1,255 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AuditorProcedure": {
+      "description": "How an authorized auditor can retrieve the suppressed content. Tagged so the UI branches on retrieval kind rather than free text.",
+      "oneOf": [
+        {
+          "description": "File a ticket; the restricted-archive operator retrieves content. `ticket_template` is a stable identifier (URL, queue name) the UI can deep-link to.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "restricted_archive"
+              ],
+              "type": "string"
+            },
+            "ticket_template": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "ticket_template"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Permanently deleted; only the deletion-authority reference remains. `deletion_id` lets auditors confirm the deletion in the operator's deletion log.",
+          "properties": {
+            "deletion_authority": {
+              "description": "Deletion authority.",
+              "type": "string"
+            },
+            "deletion_id": {
+              "description": "Deletion id.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "permanently_deleted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "deletion_authority",
+            "deletion_id",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "In-process retrieval via an authenticated API endpoint. `scope` names the OAuth/JWT scope required.",
+          "properties": {
+            "endpoint": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "authenticated_api"
+              ],
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "endpoint",
+            "kind",
+            "scope"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ChainOfCustody": {
+      "description": "Required chain-of-custody fields on every provenance record. Composed as `Option<ChainOfCustody>` on record types so older records without custody info remain valid.",
+      "properties": {
+        "auditor_access": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AuditorProcedure"
+            }
+          ],
+          "description": "How an authorized auditor retrieves full content."
+        },
+        "cryptographic_commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ContentCommitment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Cryptographic commitment (BLAKE3 hash) over the suppressed payload. `None` when the payload is structurally guessable from a hash and a non-public commitment is filed under the restricted-archive procedure."
+        },
+        "policy_rule_id": {
+          "description": "Foreign key into the `policy_rules:` registry in `config/assumption-policy.yaml`. Constructed via [`PolicyRuleId::new`] in registry-aware contexts, or via [`PolicyRuleId::unchecked`] (the `From<&str>` / `From<String>` blanket impls) where the registry isn't reachable.",
+          "type": "string"
+        },
+        "suppressing_component": {
+          "description": "Subsystem identifier (e.g. `provenance_tiers::redact_record`, `ingestion_safety::quarantine`).",
+          "type": "string"
+        },
+        "suppression_class": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/SuppressionClass"
+            }
+          ],
+          "description": "Class of suppression / redaction applied (matches a registered taxonomy ID, e.g. `phi_strict`, `prompt_injection`, `controlled_access_genotype`)."
+        },
+        "suppression_timestamp": {
+          "description": "RFC3339 timestamp.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditor_access",
+        "policy_rule_id",
+        "suppressing_component",
+        "suppression_class",
+        "suppression_timestamp"
+      ],
+      "type": "object"
+    },
+    "ContentCommitment": {
+      "description": "BLAKE3 commitment over the suppressed payload. The algorithm name is preserved verbatim in the record so future curators can add alternate algorithms without ambiguity at read time.",
+      "properties": {
+        "algorithm": {
+          "description": "Algorithm name (always `\"blake3\"` for records produced by `ChainOfCustody::with_commitment`).",
+          "type": "string"
+        },
+        "digest_hex": {
+          "description": "Hex-encoded digest. BLAKE3 produces 32 bytes → 64 hex chars.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "algorithm",
+        "digest_hex"
+      ],
+      "type": "object"
+    },
+    "SuppressionClass": {
+      "description": "Closed taxonomy of suppression kinds. Maps to the §15.2 policy table and to ingestion-safety quarantine reasons.",
+      "oneOf": [
+        {
+          "description": "PHI strict — patient identifiers, dates of birth, etc.",
+          "enum": [
+            "phi_strict"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Controlled-access genotype (dbGaP-style restrictions).",
+          "enum": [
+            "controlled_access_genotype"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Prompt-injection payload quarantined by `ingestion_safety`.",
+          "enum": [
+            "prompt_injection"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Structurally guessable identifier (e.g. short numeric MRN) for which a plain hash would still leak information; the commitment is filed restricted instead of inlined.",
+          "enum": [
+            "structurally_guessable_identifier"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Raw credential captured incidentally (API key, password).",
+          "enum": [
+            "raw_credential"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "User-supplied free text whose redaction status is unknown.",
+          "enum": [
+            "user_supplied_free_text"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Proprietary pipeline detail an operator opted out of publishing.",
+          "enum": [
+            "proprietary_pipeline_detail"
+          ],
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "items": {
+    "description": "Evidence that a composition is internally consistent.",
+    "properties": {
+      "chain_of_custody": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/ChainOfCustody"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Chain-of-custody for the report when its summary or validator outputs carry suppressed content. `None` for ordinary validation reports. Older records without the field deserialize cleanly."
+      },
+      "containers_pinned": {
+        "description": "Whether all container digests are pinned (ADR 0025 contract).",
+        "type": "boolean"
+      },
+      "edges_proven": {
+        "description": "Edges proven.",
+        "format": "uint32",
+        "minimum": 0.0,
+        "type": "integer"
+      },
+      "nodes_checked": {
+        "description": "Atoms checked.",
+        "format": "uint32",
+        "minimum": 0.0,
+        "type": "integer"
+      },
+      "summary": {
+        "description": "Free-form summary.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "validators_wired": {
+        "description": "Whether all required validators are wired up and resolved.",
+        "type": "boolean"
+      },
+      "versions_pinned": {
+        "description": "Whether all node versions are pinned.",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "edges_proven",
+      "nodes_checked"
+    ],
+    "title": "ValidationReport",
+    "type": "object"
+  },
+  "type": "array"
+}

@@ -1,0 +1,90 @@
+# atoms/cross-omics-rna-atac — atom-coverage spec
+#
+# Synthetic paired scRNA + scATAC dataset: 50 cells, 200 RNA genes, 20 ATAC peaks.
+# Tests the cross_omics_rnaseq_atac archetype (joint WNN integration,
+# differential accessibility, peak-to-gene linking).
+
+name: Synthetic paired scRNA+scATAC joint analysis
+modality: single_cell_rnaseq
+
+beats:
+  - user: >-
+      I want to run a paired single-cell RNA + ATAC analysis on a small
+      synthetic multiome dataset: 50 cells with both RNA (200 genes) and
+      ATAC (20 peaks) profiles from a PBMC experiment.
+    assistant:
+      content: >-
+        Paired scRNA+ATAC multiome, 50 cells. Joint WNN integration,
+        clustering, and peak-to-gene linking planned?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      Yes — joint QC, WNN integration, clustering, cell-type annotation,
+      differential accessibility between clusters, and peak-to-gene linking.
+      Internal use, synthetic data.
+    assistant:
+      content: >-
+        Recorded — joint QC → WNN integration → clustering → cell-type annotation
+        → differential accessibility → peak-to-gene linking. Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **Paired scRNA+ATAC — synthetic PBMC multiome**
+
+          - **Dataset:** Synthetic (50 cells, 200 RNA genes, 20 ATAC peaks)
+          - **Pipeline:** QC → WNN integration → clustering → annotation → DA → peak-to-gene
+          - **Governance:** synthetic data, internal use
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I want to run a paired single-cell RNA and ATAC joint analysis on a
+    synthetic PBMC multiome dataset. The data represents 50 cells measured
+    with both modalities: RNA (200 genes, matrix.mtx.gz + barcodes + features)
+    and ATAC (20 peaks, fragments.tsv.gz). Files are staged locally with an
+    rna_ and atac_ prefix. The pipeline should cover: joint QC, normalization,
+    WNN-based joint integration, clustering, cell-type annotation, differential
+    accessibility between clusters, and peak-to-gene linking. Internal use,
+    synthetic data. Please build the plan and emit once confirmed.
+  followups:
+    - trigger: "(?i)(organism|species|genome|human|mouse)"
+      reply: >-
+        Human (Homo sapiens).
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use, synthetic data, no PHI.
+    - trigger: "(?i)(file|format|path|matrix|fragment|input|data|multiome)"
+      reply: >-
+        Files staged at testdata/scenarios/atoms/cross-omics-rna-atac/.
+        RNA: rna_matrix.mtx.gz, rna_barcodes.tsv.gz, rna_features.tsv.gz.
+        ATAC: atac_fragments.tsv.gz, atac_peaks.bed. Manifest: modalities.json.
+    - trigger: "(?i)(protocol|multiome|10x|arc|share.seq|barcode)"
+      reply: >-
+        10x Multiome ARC protocol. Barcodes are already matched between RNA and ATAC.
+    - trigger: "(?i)(contrast|comparison|condition|group)"
+      reply: >-
+        Comparison is between cell clusters discovered during analysis. No
+        pre-defined condition groups.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

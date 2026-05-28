@@ -1,0 +1,91 @@
+# atoms/wgs-giab-chr22 — atom-coverage spec
+#
+# Synthetic chr22 WGS variant calling dataset: HG002-style germline variants
+# (200 synthetic SNVs) + truth VCF + high-confidence BED.
+# Tests the variant_calling_germline archetype.
+
+name: Synthetic chr22 WGS germline variant calling (GIAB-style)
+modality: variant_calling
+
+beats:
+  - user: >-
+      I want to run germline variant calling on a synthetic chr22 WGS dataset.
+      I have variant calls, a truth VCF, and a high-confidence BED file
+      for benchmarking — modeled after the GIAB HG002 sample.
+    assistant:
+      content: >-
+        Germline variant calling, chr22, HG002-style benchmark. What caller
+        and benchmarking strategy should I use?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      Standard germline pipeline: QC, alignment, variant calling, GATK-style
+      filtering, and benchmarking against the truth VCF using the
+      high-confidence regions. Annotate passing variants.
+      Internal use, synthetic data.
+    assistant:
+      content: >-
+        Recorded — QC → alignment → variant calling → filtering → benchmarking
+        vs truth → annotation. Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **Germline variant calling — synthetic chr22 (GIAB-style)**
+
+          - **Dataset:** Synthetic chr22 WGS (200 SNVs, HG002-style)
+          - **Pipeline:** QC → alignment → calling → filtering → benchmark → annotation
+          - **Governance:** synthetic data, internal use
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I want to run germline variant calling benchmarking on a synthetic chr22
+    WGS dataset modeled after GIAB HG002. The dataset includes:
+    HG002_chr22_variants.vcf.gz (200 synthetic called variants),
+    HG002_chr22_truth.vcf.gz (truth VCF), and HG002_chr22_highconf.bed
+    (high-confidence regions on chr22). The pipeline should cover: raw QC,
+    alignment to GRCh38 chr22, germline variant calling, GATK-style hard
+    filtering, benchmarking against the truth VCF within the high-confidence
+    BED (precision, recall, F1), and variant annotation. Internal use,
+    synthetic data. Please build the plan and emit once confirmed.
+  followups:
+    - trigger: "(?i)(organism|genome|reference|human|grch38|assembly)"
+      reply: >-
+        Human GRCh38, chromosome 22 only.
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use, synthetic data, no PHI.
+    - trigger: "(?i)(file|format|path|vcf|bam|fastq|input|data)"
+      reply: >-
+        Files staged at testdata/scenarios/atoms/wgs-giab-chr22/.
+        Variants: HG002_chr22_variants.vcf.gz. Truth: HG002_chr22_truth.vcf.gz.
+        High-confidence: HG002_chr22_highconf.bed.
+    - trigger: "(?i)(caller|gatk|deepvariant|haplotype)"
+      reply: >-
+        Let the agent choose the variant caller at runtime.
+    - trigger: "(?i)(somatic|tumor|cancer|paired)"
+      reply: >-
+        Germline only. No tumor-normal paired analysis.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

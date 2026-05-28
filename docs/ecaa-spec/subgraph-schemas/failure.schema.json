@@ -1,0 +1,644 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AssumptionResolution": {
+      "description": "How an assumption was resolved (or not). Variants cover the full lifecycle: `Accepted`, `Rejected`, `ResolvedByValidator`, `Contradicted`, and `WaivedWithRisk`.",
+      "oneOf": [
+        {
+          "description": "Unresolved variant.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "unresolved"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "SME explicitly accepted the assumption — workflow can run as drafted.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "accepted"
+              ],
+              "type": "string"
+            },
+            "rationale": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "rationale"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "SME rejected the assumption — composer must pivot or refuse.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "rejected"
+              ],
+              "type": "string"
+            },
+            "rationale": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "rationale"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Resolved via a downstream validation step; see `ValidatorRef`.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "resolved_by_validator"
+              ],
+              "type": "string"
+            },
+            "result_ref": {
+              "description": "Result ref.",
+              "type": "string"
+            },
+            "validator_id": {
+              "description": "Validator id.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "result_ref",
+            "validator_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A later confirmation contradicted an earlier one. Both confirmations preserved in decision log; resolution returns to `Unresolved` for the next round.",
+          "properties": {
+            "conflicting_confirmation_id": {
+              "description": "Conflicting confirmation id.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "contradicted"
+              ],
+              "type": "string"
+            },
+            "prior_confirmation_id": {
+              "description": "Prior confirmation id.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "conflicting_confirmation_id",
+            "kind",
+            "prior_confirmation_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Waived under the assumption-policy table with explicit risk acknowledgment. `policy_rule_id` names the row in `config/assumption-policy.yaml` that authorized the waiver. V3 §10.2 typed against the `policy_rules:` registry via [`PolicyRuleId`].",
+          "properties": {
+            "credentials": {
+              "description": "Credentials.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "enum": [
+                "waived_with_risk"
+              ],
+              "type": "string"
+            },
+            "policy_rule_id": {
+              "description": "Policy rule id.",
+              "type": "string"
+            },
+            "rationale": {
+              "description": "Rationale.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "credentials",
+            "kind",
+            "policy_rule_id",
+            "rationale"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AssumptionSource": {
+      "description": "Where an assumption came from.",
+      "oneOf": [
+        {
+          "description": "SME explicitly accepted a default.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "sme_accepted"
+              ],
+              "type": "string"
+            },
+            "rationale": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "rationale"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "LLM inferred a missing field from intake context.",
+          "properties": {
+            "confidence": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "llm_inferred"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "confidence",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Adapter classified as `LossyDeclared` was inserted.",
+          "properties": {
+            "adapter_node_id": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "lossy_adapter"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "adapter_node_id",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Profiler degraded (e.g. couldn't read the file).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "profiler_degraded"
+              ],
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Policy exception explicitly granted for a clinical/regulatory path.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "policy_exception"
+              ],
+              "type": "string"
+            },
+            "policy_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "policy_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Ontology mapping unresolved (LocalExtension proposed parents).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "ontology_mapping_unresolved"
+              ],
+              "type": "string"
+            },
+            "type_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "type_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An atom was added without an explicit user override; the registry default for the affected port took effect.",
+          "properties": {
+            "atom_id": {
+              "$ref": "#/definitions/AtomId"
+            },
+            "default_taken": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "registry_default"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "atom_id",
+            "default_taken",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An ontology adapter node was inserted to bridge incompatible IRIs.",
+          "properties": {
+            "from_iri": {
+              "description": "From iri.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "ontology_adapter_inserted"
+              ],
+              "type": "string"
+            },
+            "reason": {
+              "description": "Reason.",
+              "type": "string"
+            },
+            "to_iri": {
+              "description": "To iri.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "from_iri",
+            "kind",
+            "reason",
+            "to_iri"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A search-heuristic seed was selected (vs a deterministic archetype match).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "seed_heuristic"
+              ],
+              "type": "string"
+            },
+            "strategy": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "strategy"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "AtomId": {
+      "type": "string"
+    },
+    "AuditorProcedure": {
+      "description": "How an authorized auditor can retrieve the suppressed content. Tagged so the UI branches on retrieval kind rather than free text.",
+      "oneOf": [
+        {
+          "description": "File a ticket; the restricted-archive operator retrieves content. `ticket_template` is a stable identifier (URL, queue name) the UI can deep-link to.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "restricted_archive"
+              ],
+              "type": "string"
+            },
+            "ticket_template": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "ticket_template"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Permanently deleted; only the deletion-authority reference remains. `deletion_id` lets auditors confirm the deletion in the operator's deletion log.",
+          "properties": {
+            "deletion_authority": {
+              "description": "Deletion authority.",
+              "type": "string"
+            },
+            "deletion_id": {
+              "description": "Deletion id.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "permanently_deleted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "deletion_authority",
+            "deletion_id",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "In-process retrieval via an authenticated API endpoint. `scope` names the OAuth/JWT scope required.",
+          "properties": {
+            "endpoint": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "authenticated_api"
+              ],
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "endpoint",
+            "kind",
+            "scope"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ChainOfCustody": {
+      "description": "Required chain-of-custody fields on every provenance record. Composed as `Option<ChainOfCustody>` on record types so older records without custody info remain valid.",
+      "properties": {
+        "auditor_access": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AuditorProcedure"
+            }
+          ],
+          "description": "How an authorized auditor retrieves full content."
+        },
+        "cryptographic_commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ContentCommitment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Cryptographic commitment (BLAKE3 hash) over the suppressed payload. `None` when the payload is structurally guessable from a hash and a non-public commitment is filed under the restricted-archive procedure."
+        },
+        "policy_rule_id": {
+          "description": "Foreign key into the `policy_rules:` registry in `config/assumption-policy.yaml`. Constructed via [`PolicyRuleId::new`] in registry-aware contexts, or via [`PolicyRuleId::unchecked`] (the `From<&str>` / `From<String>` blanket impls) where the registry isn't reachable.",
+          "type": "string"
+        },
+        "suppressing_component": {
+          "description": "Subsystem identifier (e.g. `provenance_tiers::redact_record`, `ingestion_safety::quarantine`).",
+          "type": "string"
+        },
+        "suppression_class": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/SuppressionClass"
+            }
+          ],
+          "description": "Class of suppression / redaction applied (matches a registered taxonomy ID, e.g. `phi_strict`, `prompt_injection`, `controlled_access_genotype`)."
+        },
+        "suppression_timestamp": {
+          "description": "RFC3339 timestamp.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditor_access",
+        "policy_rule_id",
+        "suppressing_component",
+        "suppression_class",
+        "suppression_timestamp"
+      ],
+      "type": "object"
+    },
+    "ContentCommitment": {
+      "description": "BLAKE3 commitment over the suppressed payload. The algorithm name is preserved verbatim in the record so future curators can add alternate algorithms without ambiguity at read time.",
+      "properties": {
+        "algorithm": {
+          "description": "Algorithm name (always `\"blake3\"` for records produced by `ChainOfCustody::with_commitment`).",
+          "type": "string"
+        },
+        "digest_hex": {
+          "description": "Hex-encoded digest. BLAKE3 produces 32 bytes → 64 hex chars.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "algorithm",
+        "digest_hex"
+      ],
+      "type": "object"
+    },
+    "RiskClass": {
+      "description": "Risk class — drives planner scoring and policy gates. Aligned with design §3 + §15 risk language.",
+      "oneOf": [
+        {
+          "description": "Negligible variant.",
+          "enum": [
+            "negligible"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Low variant.",
+          "enum": [
+            "low"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Moderate variant.",
+          "enum": [
+            "moderate"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "High variant.",
+          "enum": [
+            "high"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Reserved for clinical/regulatory paths — treated as High plus additional policy gates.",
+          "enum": [
+            "clinical"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "SuppressionClass": {
+      "description": "Closed taxonomy of suppression kinds. Maps to the §15.2 policy table and to ingestion-safety quarantine reasons.",
+      "oneOf": [
+        {
+          "description": "PHI strict — patient identifiers, dates of birth, etc.",
+          "enum": [
+            "phi_strict"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Controlled-access genotype (dbGaP-style restrictions).",
+          "enum": [
+            "controlled_access_genotype"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Prompt-injection payload quarantined by `ingestion_safety`.",
+          "enum": [
+            "prompt_injection"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Structurally guessable identifier (e.g. short numeric MRN) for which a plain hash would still leak information; the commitment is filed restricted instead of inlined.",
+          "enum": [
+            "structurally_guessable_identifier"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Raw credential captured incidentally (API key, password).",
+          "enum": [
+            "raw_credential"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "User-supplied free text whose redaction status is unknown.",
+          "enum": [
+            "user_supplied_free_text"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Proprietary pipeline detail an operator opted out of publishing.",
+          "enum": [
+            "proprietary_pipeline_detail"
+          ],
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "items": {
+    "description": "A single assumption entry in the ledger. Persisted via `decision_log::DecisionRecord`.",
+    "properties": {
+      "affects_nodes": {
+        "default": [],
+        "description": "Task node ids this assumption affects. Always serialized (even when empty) so the TypeScript binding's `string[]` type matches the wire payload — older `skip_serializing_if = Vec::is_empty` caused the Composition tab to crash with `Cannot read properties of undefined (reading 'length')` on assumptions where the planner hadn't populated the field.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "chain_of_custody": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/ChainOfCustody"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Chain-of-custody for the assumption when its statement carries suppressed content. `None` for ordinary non-suppressed assumptions. Older records without the field deserialize cleanly."
+      },
+      "id": {
+        "description": "Id.",
+        "type": "string"
+      },
+      "resolution": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/AssumptionResolution"
+          }
+        ],
+        "default": {
+          "kind": "unresolved"
+        },
+        "description": "Resolution."
+      },
+      "risk": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/RiskClass"
+          }
+        ],
+        "description": "Risk."
+      },
+      "source": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/AssumptionSource"
+          }
+        ],
+        "description": "Source."
+      },
+      "statement": {
+        "description": "Statement.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "risk",
+      "source",
+      "statement"
+    ],
+    "title": "Assumption",
+    "type": "object"
+  },
+  "type": "array"
+}

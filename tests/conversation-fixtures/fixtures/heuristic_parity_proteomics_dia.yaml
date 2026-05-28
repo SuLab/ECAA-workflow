@@ -1,0 +1,41 @@
+id: heuristic_parity_proteomics_dia
+category: heuristic_parity
+description: |
+  R5.19 acceptance #2 partial — heuristic-path parity fixture for
+  the proteomics DIA modality. Scripted counterpart:
+  `06_proteomics_dia.yaml`.
+
+
+mock_backend: heuristic
+
+flow:
+  - kind: user
+    text: |
+      DIA proteomics analysis of plasma samples from 30 sepsis patients
+      and 30 healthy controls. Thermo Orbitrap Exploris 480, 90 min
+      gradients, Homo sapiens. Goal is to identify and quantify
+      proteins differentially abundant in sepsis vs healthy plasma.
+      Internal cohort.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - classify_intake
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: proteomics DIA prose with instrument + gradient detail
+  routes through the heuristic to `Emitted`, matching the scripted
+  fixture 06 artifact shape.

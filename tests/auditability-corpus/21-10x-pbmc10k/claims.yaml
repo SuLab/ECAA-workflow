@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "21-10x-pbmc10k"
+claims:
+  - id: "21-10x-pbmc10k-claim-001"
+    text: "Cluster ARI vs 10x-published cluster labels for PBMC10k_v3: ≥ 0.90"
+    contract: group_comparison
+    source_table: "results/tables/clusters.csv"
+    expected_value: 0.90
+    tolerance: 0.05
+  - id: "21-10x-pbmc10k-claim-002"
+    text: "Major PBMC populations identified: ≥ 7 of 8 distinct clusters (CD4 T, CD8 T, NK, B, CD14 mono, CD16 mono, DC, platelet)"
+    contract: categorical
+    source_table: "results/tables/clusters.csv"
+    expected_value: 7
+    tolerance: 0.0
+  - id: "21-10x-pbmc10k-claim-003"
+    text: "Cells retained post-QC: 10,000 ± 5%"
+    contract: numeric_table_lookup
+    source_table: "results/tables/qc.csv"
+    expected_value: 10000
+    tolerance: 0.05
+  - id: "21-10x-pbmc10k-claim-004"
+    text: "Cluster annotated as cardiomyocytes is NOT present (PBMC populations only; PBMC10k_v3 is peripheral blood)"
+    contract: categorical
+    source_table: "results/tables/clusters.csv"
+    expected_value: "absent"
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-005"
+    text: "Marker gene CD3D enriched in T-cell clusters"
+    contract: group_comparison
+    source_table: "results/tables/markers.csv"
+    expected_value: "CD3D"
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-006"
+    text: "Marker gene CD8A enriched in CD8 T-cell cluster"
+    contract: group_comparison
+    source_table: "results/tables/markers.csv"
+    expected_value: "CD8A"
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-007"
+    text: "Marker gene MS4A1 enriched in B-cell cluster"
+    contract: group_comparison
+    source_table: "results/tables/markers.csv"
+    expected_value: "MS4A1"
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-008"
+    text: "Marker gene CD14 enriched in CD14 monocyte cluster"
+    contract: group_comparison
+    source_table: "results/tables/markers.csv"
+    expected_value: "CD14"
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-009"
+    text: "Marker gene FCGR3A enriched in CD16 monocyte cluster"
+    contract: group_comparison
+    source_table: "results/tables/markers.csv"
+    expected_value: "FCGR3A"
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-010"
+    text: "Marker gene NKG7 enriched in NK cluster"
+    contract: group_comparison
+    source_table: "results/tables/markers.csv"
+    expected_value: "NKG7"
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-011"
+    text: "Emitted workflow contains stage 'discover_clustering': Leiden clustering on Seurat/Scanpy HVG-based PCA reduction"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_clustering"
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-012"
+    text: "Emitted workflow contains stage 'discover_cell_type_annotation': SingleR or marker-gene reference annotation against PBMC reference"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_cell_type_annotation"
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null
+  - id: "21-10x-pbmc10k-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 21-10x-pbmc10k"
+    contract: numeric_table_lookup
+    source_table: "results/tables/clusters.csv"
+    expected_value: null
+    tolerance: null

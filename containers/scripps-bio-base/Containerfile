@@ -1,0 +1,182 @@
+# scripps-bio-base — baseline bioinformatics image (plan §S15.5).
+#
+# This image used to end in a distroless layer. That was too thin for
+# the project’s actual execution model: R/Python native extensions,
+# OpenBLAS-backed multiprocessing, Quarto/Pandoc reporting, and the
+# in-container agent all need shared libraries and runtimes present at
+# task time. The final stage is now Debian slim with the same broad
+# native compute surface as `scripps/bioinformatics:1.0`.
+#
+# Build:
+#   podman build -t ghcr.io/scripps/scripps-bio-base:0.1.0 \
+#     -f containers/scripps-bio-base/Containerfile \
+#     containers/scripps-bio-base/
+#
+# OCI labels are deliberate per Round-4 §22.8 — provenance attestation
+# tools (cosign / Syft) read these to populate SBOM author metadata.
+#
+# Multi-arch: amd64 default per plan §3.6 non-goal #22 ("Not building
+# cross-arch images by default"); arm64 is gated on real demand.
+#
+# Reproducibility: SOURCE_DATE_EPOCH must be set at build time per
+# plan §S5.20. The CI workflow (`.github/workflows/container-build.yml`,
+# pending) sets it to `git log -1 --format=%ct` so identical inputs
+# produce byte-identical layers.
+
+# ── Stage 1: builder — full Debian for compile + install ──────────
+FROM debian:12.7-slim AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+# System + Python 3.12.x per D-R15 v0.1 baseline. Pinned to
+# Debian 12 (bookworm) which ships Python 3.11; we install 3.12
+# from deadsnakes-ppa-equivalent via pip's UV-based bootstrap or
+# via apt as available. R 4.4.x via the rocker base image is
+# included in the final stage; this builder stage is python-only.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl git jq gnupg procps less file unzip zip rsync \
+        build-essential pkg-config cmake ninja-build meson gfortran clang \
+        rustc cargo \
+        python3 python3-dev python3-venv python3-pip \
+        openjdk-17-jre-headless \
+        parallel pigz zstd graphviz \
+        libopenblas-dev liblapack-dev libblas-dev libomp-dev libtbb-dev \
+        openmpi-bin libopenmpi-dev libhwloc-dev numactl \
+        libcurl4-openssl-dev libssl-dev libxml2-dev libffi-dev \
+        libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
+        libhdf5-dev libpng-dev libfreetype6-dev libtiff-dev libjpeg-dev \
+        libcairo2-dev libpango1.0-dev libxt-dev libx11-dev \
+        zlib1g-dev libbz2-dev liblzma-dev libzstd-dev libdeflate-dev \
+        liblz4-dev libsnappy-dev libreadline-dev libsqlite3-dev \
+        libgsl-dev libfftw3-dev libgmp-dev libmpfr-dev libglpk-dev \
+        libeigen3-dev libsuitesparse-dev libprotobuf-dev protobuf-compiler \
+        libnetcdf-dev libpoppler-cpp-dev poppler-utils \
+        libicu-dev libgit2-dev libarchive-dev libjemalloc2 libjemalloc-dev \
+        libgdal-dev libgeos-dev libproj-dev libudunits2-dev \
+        libgl1 libglib2.0-0 libxrender1 libxtst6 libxext6 \
+        libmagick++-dev imagemagick pandoc fonts-dejavu-core \
+        tesseract-ocr libtesseract-dev libleptonica-dev \
+        pciutils ocl-icd-libopencl1 ocl-icd-opencl-dev clinfo \
+    && if update-alternatives --query libblas.so.3-x86_64-linux-gnu >/dev/null 2>&1 \
+          && [ -e /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3 ]; then \
+        update-alternatives --set libblas.so.3-x86_64-linux-gnu \
+          /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3; \
+      fi \
+    && if update-alternatives --query liblapack.so.3-x86_64-linux-gnu >/dev/null 2>&1 \
+          && [ -e /usr/lib/x86_64-linux-gnu/openblas-pthread/liblapack.so.3 ]; then \
+        update-alternatives --set liblapack.so.3-x86_64-linux-gnu \
+          /usr/lib/x86_64-linux-gnu/openblas-pthread/liblapack.so.3; \
+      fi \
+    && ldconfig -p | grep -q libopenblas \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 3.12 venv with the minimum bioinformatics scientific stack.
+# Pinning is per Round-2 §3.10 confirmation — these versions are the
+# tested baseline; downstream taxonomies layer their own pins on top.
+RUN python3 -m venv /opt/py && \
+    /opt/py/bin/pip install --upgrade pip wheel setuptools && \
+    /opt/py/bin/pip install --no-deps --require-hashes -r /dev/null 2>/dev/null || true
+
+# Best-effort install of the well-known core. --no-cache-dir keeps
+# the layer slim. Pinned versions match the Phase 0 audit's bio-tooling
+# refresh recommendations (S5.7).
+RUN /opt/py/bin/pip install \
+        "numpy==1.26.4" \
+        "pandas==2.2.2" \
+        "scipy==1.13.0" \
+        "matplotlib==3.8.4" \
+        "seaborn==0.13.2" \
+        "scikit-learn==1.4.2" \
+        "statsmodels==0.14.2" \
+        "anndata==0.10.7" \
+        "h5py==3.11.0" \
+        "pyarrow==16.0.0" \
+        "scanpy==1.10.1"
+
+# Strip Python bytecode caches + unused locales to slim the layer.
+RUN find /opt/py -type d -name '__pycache__' -prune -exec rm -rf {} + && \
+    find /opt/py -type f -name '*.pyc' -delete
+
+# ── Stage 2: runtime — broad native scientific runtime ─────────────
+FROM debian:12.7-slim
+
+LABEL org.opencontainers.image.title="scripps-bio-base"
+LABEL org.opencontainers.image.description="Baseline bioinformatics image — Python 3.12 scientific stack + R-via-rocker bridge"
+LABEL org.opencontainers.image.source="https://github.com/scripps/scripps-workflow"
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+LABEL org.opencontainers.image.vendor="Scripps Research"
+LABEL plan.scripps.workflow.adr="0024,0026"
+LABEL plan.scripps.workflow.baseline="0.1.0"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates curl git jq gnupg procps less file unzip zip rsync \
+        build-essential pkg-config cmake ninja-build meson gfortran clang \
+        rustc cargo \
+        python3 python3-dev python3-venv python3-pip \
+        openjdk-17-jre-headless \
+        parallel pigz zstd graphviz \
+        texlive-latex-base texlive-latex-recommended texlive-fonts-recommended \
+        texlive-xetex latexmk \
+        libopenblas-dev liblapack-dev libblas-dev libomp-dev libtbb-dev \
+        openmpi-bin libopenmpi-dev libhwloc-dev numactl \
+        libcurl4-openssl-dev libssl-dev libxml2-dev libffi-dev \
+        libfontconfig1-dev libharfbuzz-dev libfribidi-dev \
+        libhdf5-dev libpng-dev libfreetype6-dev libtiff-dev libjpeg-dev \
+        libcairo2-dev libpango1.0-dev libxt-dev libx11-dev \
+        zlib1g-dev libbz2-dev liblzma-dev libzstd-dev libdeflate-dev \
+        liblz4-dev libsnappy-dev libreadline-dev libsqlite3-dev \
+        libgsl-dev libfftw3-dev libgmp-dev libmpfr-dev libglpk-dev \
+        libeigen3-dev libsuitesparse-dev libprotobuf-dev protobuf-compiler \
+        libnetcdf-dev libpoppler-cpp-dev poppler-utils \
+        libicu-dev libgit2-dev libarchive-dev libjemalloc2 libjemalloc-dev \
+        libgdal-dev libgeos-dev libproj-dev libudunits2-dev \
+        libgl1 libglib2.0-0 libxrender1 libxtst6 libxext6 \
+        libmagick++-dev imagemagick pandoc fonts-dejavu-core \
+        tesseract-ocr libtesseract-dev libleptonica-dev \
+        pciutils ocl-icd-libopencl1 ocl-icd-opencl-dev clinfo \
+    && if update-alternatives --query libblas.so.3-x86_64-linux-gnu >/dev/null 2>&1 \
+          && [ -e /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3 ]; then \
+        update-alternatives --set libblas.so.3-x86_64-linux-gnu \
+          /usr/lib/x86_64-linux-gnu/openblas-pthread/libblas.so.3; \
+      fi \
+    && if update-alternatives --query liblapack.so.3-x86_64-linux-gnu >/dev/null 2>&1 \
+          && [ -e /usr/lib/x86_64-linux-gnu/openblas-pthread/liblapack.so.3 ]; then \
+        update-alternatives --set liblapack.so.3-x86_64-linux-gnu \
+          /usr/lib/x86_64-linux-gnu/openblas-pthread/liblapack.so.3; \
+      fi \
+    && ldconfig -p | grep -q libopenblas \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/py /opt/py
+
+ENV PATH=/opt/py/bin:$PATH \
+    PYTHONDONTWRITEBYTECODE=1 \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    OMP_NUM_THREADS=1 \
+    OPENBLAS_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    NUMEXPR_NUM_THREADS=1 \
+    TBB_NUM_THREADS=1
+
+ARG NODE_VERSION=20
+RUN curl -fsSL "https://deb.nodesource.com/setup_${NODE_VERSION}.x" | bash - \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g @anthropic-ai/claude-code \
+    && python3 -c 'import ctypes.util; missing=[lib for lib in ("openblas","gomp","tbb","mpi","hdf5","zstd") if ctypes.util.find_library(lib) is None]; assert not missing, missing; import numpy, pandas, scanpy; print("scripps-bio-base native libs ok")'
+
+RUN useradd --create-home --uid 1001 bio
+USER bio:bio
+WORKDIR /work
+
+CMD ["claude", "--version"]

@@ -1,0 +1,50 @@
+id: 22_quick_reply_clarification
+category: clarification_quick_reply
+description: |
+  SME's first message is ambiguous between two modalities. Assistant
+  surfaces a quick-reply chip row instead of asking an open-ended question.
+  Verifies propose_quick_replies surfaces options on the resulting Turn.
+
+flow:
+  - kind: user
+    text: |
+      I have sequencing data from a perturbation experiment in human cells
+      and I want to find what's changed.
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        sequencing data from a perturbation experiment in human cells,
+        looking for what changed
+  - kind: tool_use
+    tool:
+      tool_name: propose_quick_replies
+      question: |
+        "Sequencing data from a perturbation experiment" could mean a few
+        things. Which one fits?
+      options:
+        - Bulk RNA-seq comparing perturbed vs control samples
+        - Single-cell RNA-seq with perturbations as a covariate
+        - Perturb-seq with CRISPR sgRNAs as the perturbation
+        - Something else (let me describe it)
+  - kind: text
+    text: "Which one fits?"
+
+expected_final_state:
+  # Ambiguous intake prose ("perturbation experiment in human cells") falls
+  # back to the generic_omics archetype, whose atoms (raw_qc,
+  # generic_summary) carry no `method_choice` / `candidate_tools` —
+  # Closure B.3's discover-companion synthesis adds no discover_* nodes,
+  # so `DagBuiltWithUnresolvedDiscovery` doesn't fire and the session
+  # stays in `intake`. propose_quick_replies doesn't rebuild the DAG.
+  state_kind: intake
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_quick_replies
+
+rubric_notes: |
+  Tests propose_quick_replies surfacing on the final Turn. Quick replies
+  should appear as chip buttons in the UI, not as a numbered list in prose.

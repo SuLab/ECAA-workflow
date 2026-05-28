@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "10-geo-gse112879-metagenomics"
+claims:
+  - id: "10-geo-gse112879-metagenomics-claim-001"
+    text: "Host-read fraction filtered out: 0.5%-30% per sample"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: 0.005
+    tolerance: 0.05
+  - id: "10-geo-gse112879-metagenomics-claim-002"
+    text: "Microbial reads retained per sample: ≥ 1M paired post-filter"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: "≥ 1M paired post-filter"
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-003"
+    text: "Species-level Spearman ρ vs IBDMDB reference: ≥ 0.90 pooled across intersection"
+    contract: group_comparison
+    source_table: "results/tables/abundance.csv"
+    expected_value: 0.9
+    tolerance: 0.05
+  - id: "10-geo-gse112879-metagenomics-claim-004"
+    text: "Per-sample species detected (MetaPhlAn): 50-250"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: 50
+    tolerance: 0.1
+  - id: "10-geo-gse112879-metagenomics-claim-005"
+    text: "HUMAnN3 EC concordance vs HUMAnN2: ≥ 64%"
+    contract: group_comparison
+    source_table: "results/tables/abundance.csv"
+    expected_value: 0.64
+    tolerance: 0.05
+  - id: "10-geo-gse112879-metagenomics-claim-006"
+    text: "MAG completeness (CheckM, optional arm): ≥ 80% on ≥50% of MAGs"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: 0.8
+    tolerance: 0.05
+  - id: "10-geo-gse112879-metagenomics-claim-007"
+    text: "Top-15 species prevalence agreement: ≥ 12 of 15 shared with IBDMDB"
+    contract: rank_top_n
+    source_table: "results/tables/abundance.csv"
+    expected_value: 12
+    tolerance: 0.1
+  - id: "10-geo-gse112879-metagenomics-claim-008"
+    text: "Fig 1a (cohort + sampling timeline): per-subject collection timeline colored by diagnosis"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: "per-subject collection timeline colored by diagnosis"
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-009"
+    text: "Fig 1b (top species per disease): stacked bar of top-15 species per group"
+    contract: rank_top_n
+    source_table: "results/tables/abundance.csv"
+    expected_value: 15
+    tolerance: 0.1
+  - id: "10-geo-gse112879-metagenomics-claim-010"
+    text: "Fig 2 (alpha/beta diversity by diagnosis): Shannon boxplot + Bray-Curtis PCoA"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: "Shannon boxplot + Bray-Curtis PCoA"
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-011"
+    text: "Fig 3 (dysbiosis trajectory): per-subject dysbiosis-score line chart"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: "per-subject dysbiosis-score line chart"
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-012"
+    text: "Fig 4 (functional pathway shifts in IBD): HUMAnN top disease-associated pathways"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: "HUMAnN top disease-associated pathways"
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null
+  - id: "10-geo-gse112879-metagenomics-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 10-geo-gse112879-metagenomics"
+    contract: numeric_table_lookup
+    source_table: "results/tables/abundance.csv"
+    expected_value: null
+    tolerance: null

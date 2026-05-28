@@ -1,0 +1,3 @@
+Bulk RNA-seq differential expression analysis comparing treated vs control samples
+with DESeq2. This intake emits a child package whose runtime/cross-version-diff.json
+ranks rows of the DESeq2 results table against a parent emission for concordance.

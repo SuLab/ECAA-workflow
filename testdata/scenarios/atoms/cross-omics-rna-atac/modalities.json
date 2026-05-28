@@ -1,0 +1,24 @@
+{
+  "experiment": "PBMC multiome simulation",
+  "modalities": [
+    {
+      "type": "scrna",
+      "files": [
+        "rna_matrix.mtx.gz",
+        "rna_barcodes.tsv.gz",
+        "rna_features.tsv.gz"
+      ]
+    },
+    {
+      "type": "scatac",
+      "files": [
+        "atac_fragments.tsv.gz",
+        "atac_peaks.bed"
+      ]
+    }
+  ],
+  "n_cells": 50,
+  "n_genes_rna": 200,
+  "n_peaks_atac": 20,
+  "note": "Synthetic paired RNA+ATAC data for atoms campaign testing"
+}

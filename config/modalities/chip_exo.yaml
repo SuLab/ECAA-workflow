@@ -1,0 +1,26 @@
+schema_version: "0.1"
+id: chip_exo
+display_name: ChIP-exo
+keywords:
+- chip-exo
+- chipexo
+- chip exo
+- exonuclease chip
+- exonuclease-chip
+- peakzilla
+- mace peak
+- chexmix
+edam_topic: topic:3169
+edam_operation: operation:3222
+archetype_id: chip_exo_peaks
+taxonomy_path: stage-taxonomies/chip-seq.yaml
+semantic_equivalence_bounds:
+  - metric: peak_jaccard
+    operator: ">="
+    threshold: 0.85
+    applies_to: "results/peaks/*.bed"
+    rationale: "ChIP-exo peak Jaccard ≥ 0.85 between runs (exonuclease trimming adds position jitter)"
+  - metric: motif_enrichment_rank_spearman
+    operator: ">="
+    threshold: 0.90
+    rationale: "Spearman correlation of motif enrichment rank lists ≥ 0.90"

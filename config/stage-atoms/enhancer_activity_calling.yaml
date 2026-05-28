@@ -1,0 +1,80 @@
+id: enhancer_activity_calling
+version: "1.0.0"
+role: operation
+description: |
+  Compute per-tile enhancer activity from a STARR-seq / MPRA
+  experiment. Takes the input DNA-pool BAM (the plasmid library
+  representation) and the cellular RNA output BAM, counts reads
+  per candidate enhancer tile in both, computes log2(RNA/DNA) +
+  DESeq2-derived adjusted p-value per tile. Active enhancers:
+  log2(RNA/DNA) ≥ threshold AND adjusted p ≤ threshold.
+edam_operation: "operation:3222"
+edam_data: "data:1255"
+edam_format: "format:3003"
+assignee: agent
+depends_on:
+  - alignment
+expected_artifacts:
+  - enhancer_activity.tsv
+  - active_enhancers.bed
+  - activity_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: enhancer_activity
+required_figures:
+  - rna_vs_dna_scatter
+  - activity_score_histogram
+attributes:
+  candidate_tools:
+    - basicpipeline
+    - starrpeaker
+    - cradle
+    - mpranalyze
+    - deseq2
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Enhancer activity scores are RNA/DNA tile-ratios with statistical
+  enrichment tests — they identify candidate functional enhancers
+  but do not directly map regulatory targets. Cross-validate top
+  hits with H3K27ac peaks at the same coordinates and orthogonal
+  reporter validation.
+inputs:
+  - name: dna_pool_alignment
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0863"
+      label: "Sequence alignment"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:2572"
+      label: "BAM"
+    privacy_class: internal
+  - name: rna_output_alignment
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0863"
+      label: "Sequence alignment"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:2572"
+      label: "BAM"
+    privacy_class: internal
+outputs:
+  - name: enhancer_activity_table
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: enhancer_activity_table
+      proposed_parent_terms:
+        - "data:1255"
+      definition: "Per-tile enhancer activity log2(RNA/DNA) + adjusted p-value"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

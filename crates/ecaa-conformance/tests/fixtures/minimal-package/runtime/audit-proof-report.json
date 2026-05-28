@@ -1,0 +1,11 @@
+{
+  "schema_version": "0.1",
+  "verdicts": [
+    {"id": "claim_completeness", "status": "pass", "detail": null, "n_inspected": 0, "n_violations": 0},
+    {"id": "decision_justification", "status": "pass", "detail": null, "n_inspected": 1, "n_violations": 0},
+    {"id": "evidence_coverage", "status": "pass", "detail": null, "n_inspected": 1, "n_violations": 0},
+    {"id": "equivalence_failure", "status": "pass", "detail": null, "n_inspected": 0, "n_violations": 0},
+    {"id": "cross_graph_integrity", "status": "pass", "detail": null, "n_inspected": 1, "n_violations": 0},
+    {"id": "substrate_validity", "status": "pass", "detail": null, "n_inspected": 1, "n_violations": 0}
+  ]
+}

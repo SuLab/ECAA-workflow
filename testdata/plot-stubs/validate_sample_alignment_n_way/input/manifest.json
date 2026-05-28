@@ -1,0 +1,75 @@
+{
+  "modality_concordance_matrix": [
+    [
+      0.384,
+      0.11,
+      0.0136,
+      0.8305,
+      0.9347
+    ],
+    [
+      0.1322,
+      0.7701,
+      0.2677,
+      0.9386,
+      0.5996
+    ],
+    [
+      0.7924,
+      0.0094,
+      0.7917,
+      0.5424,
+      0.8183
+    ],
+    [
+      0.8527,
+      0.085,
+      0.1392,
+      0.7597,
+      0.8924
+    ],
+    [
+      0.8155,
+      0.3074,
+      0.4789,
+      0.2438,
+      0.5435
+    ]
+  ],
+  "row_labels": [
+    "RNA",
+    "ATAC",
+    "Protein",
+    "Methylation",
+    "CNV"
+  ],
+  "col_labels": [
+    "RNA",
+    "ATAC",
+    "Protein",
+    "Methylation",
+    "CNV"
+  ],
+  "factor_variance": [
+    {
+      "factor": "Factor1",
+      "variance": 0.1169
+    },
+    {
+      "factor": "Factor2",
+      "variance": 0.1859
+    },
+    {
+      "factor": "Factor3",
+      "variance": 0.0553
+    },
+    {
+      "factor": "Factor4",
+      "variance": 0.0611
+    },
+    {
+      "factor": "Factor5",
+      "variance": 0.1862
+    }
+  ]
+}

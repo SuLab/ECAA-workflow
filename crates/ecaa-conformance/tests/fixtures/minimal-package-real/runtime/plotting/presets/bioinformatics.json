@@ -1,0 +1,28 @@
+{
+  "_preset_name": "bioinformatics",
+  "_description": "OUP Bioinformatics / Genome Biology / similar Bioinformatics journals. Single-column 86mm, double-column 178mm. Sans-serif, 8pt body acceptable, vector preferred for line art.",
+  "fonts": {
+    "family": "sans-serif",
+    "stack": ["Arial", "Helvetica", "DejaVu Sans"],
+    "body_pt": 8,
+    "title_pt": 9,
+    "tick_pt": 7,
+    "legend_pt": 7,
+    "footer_pt": 5
+  },
+  "axes": {
+    "linewidth": 0.5,
+    "spines_top": false,
+    "spines_right": false,
+    "constrained_layout": true
+  },
+  "output": {
+    "png_dpi": 300,
+    "formats": ["png", "pdf"],
+    "pdf_fonttype": 42,
+    "svg_fonttype": "none",
+    "rasterize_threshold_n": 50000,
+    "single_column_mm": 86,
+    "double_column_mm": 178
+  }
+}

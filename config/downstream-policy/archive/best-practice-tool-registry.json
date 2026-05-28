@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "1.0",
+  "tools": [
+    {
+      "name": "search_research_sources",
+      "description": "Search for current methods, packages, guidelines, benchmarks, release notes, or literature relevant to the current file or workflow stage."
+    },
+    {
+      "name": "fetch_research_source",
+      "description": "Fetch a source page or document to inspect exact source text, version notes, or methods guidance before promoting claims or drafting policy."
+    },
+    {
+      "name": "record_evidence_item",
+      "description": "Record a single evidence item discovered during research. Each evidence item must be recorded before it can be cited by claims."
+    },
+    {
+      "name": "submit_best_practice_stage_profiles",
+      "description": "Submit the generalized stage taxonomy, admissibility rules, empirical requirement flags, and allowed metric families before screening candidates."
+    },
+    {
+      "name": "submit_best_practice_evidence_claims",
+      "description": "Submit candidate-definition summaries, literature-eligibility decisions, evaluations, and evidence-linked claims before empirical ranking."
+    },
+    {
+      "name": "submit_best_practice_empirical_results",
+      "description": "Submit empirical screening, robustness, downstream testability, and targeted-refinement records for stage-aware best-practice discovery."
+    },
+    {
+      "name": "submit_best_practice_plans",
+      "description": "Submit validation and reproducibility plans that explicitly reference the generalized best-practice cycle artifacts."
+    },
+    {
+      "name": "submit_best_practice_branch_lock",
+      "description": "Submit final primary and sensitivity branch locks, including divergence records when execution differs from the promoted mode."
+    },
+    {
+      "name": "submit_best_practice_determination",
+      "description": "Submit the complete best-practice determination after stage profiles, evidence claims, empirical results, plans, and branch locks are all in place."
+    }
+  ],
+  "budgetLimits": {
+    "maxSearchCalls": 32,
+    "maxFetchCalls": 32,
+    "maxTotalToolSteps": 96
+  }
+}

@@ -1,0 +1,30 @@
+name: CUT&Tag histone mark profiling
+modality: cut_tag
+
+beats:
+  - user: "CUT&Tag for H3K27me3 in low-input mouse cells, peak calling and differential accessibility between conditions."
+    assistant:
+      content: "Acknowledged — I have the modality + key parameters; will ask for any missing details before locking the plan."
+    expect:
+      visibleText: ["CUT&Tag", "H3K27me3"]
+
+live:
+  intake_prose: |
+    CUT&Tag for H3K27me3 across two mouse embryonic stem-cell conditions
+    (wild-type vs. PRC2 knockdown), three biological replicates per
+    condition, low input (~10k cells), paired-end. I want broad peak
+    calling, differential accessibility between WT and KD, peak-to-gene
+    annotation, and reproducibility QC. Public data, internal use.
+  followups:
+    - trigger: "(?i)(reference|genome|mm10|mm39)"
+      reply: "mm10. Paired-end."
+    - trigger: "(?i)(peak.type|broad|narrow)"
+      reply: "Broad peaks — H3K27me3 is a broad polycomb mark."
+    - trigger: "(?i)(IgG|control)"
+      reply: "IgG isotype control per replicate."
+  assertions:
+    stateNotGreeting: true
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

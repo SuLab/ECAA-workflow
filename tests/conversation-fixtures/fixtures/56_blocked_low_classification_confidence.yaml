@@ -1,0 +1,108 @@
+id: 56_blocked_low_classification_confidence
+category: blocked_low_confidence
+description: |
+  SME's prose is intentionally vague — "we have some data, please
+  analyze" gives the keyword classifier nothing to anchor a modality
+  on. Even after the assistant asks for clarification and the SME
+  follows up with a second equally-vague reply, the classifier
+  remains below the 0.3 confidence threshold that model_policy uses
+  to escalate Sonnet → Opus. At that point the operator injects a
+  low-confidence block so the SME's UI surfaces the BlockerCard with
+  a concrete recovery affordance (the BlockerCard dispatches on
+  BlockerKind so even a generic reason carries through cleanly).
+
+  Note: there is no dedicated BlockerKind::LowConfidence variant in
+  crates/core/src/blocker.rs as of 2026-05-18 (the closest matches
+  are AwaitingStructuredDecision and AwaitingSmeApproval, both of
+  which expect more session context than this fixture provides).
+  We instead use inject_infra_error with a reason payload that
+  encodes the low-confidence cause; that routes through the
+  InfraError trigger which is the same path fixtures 17/18 use to
+  drop into Blocked from any state. The reason-string assertion
+  (blocked_reason_contains) is the load-bearing check — the
+  BlockerKind itself is the runner's choice (InfraError), and the
+  test verifies the operator's diagnosis survives the transition.
+
+  Verifies:
+    - two rounds of vague prose do not push the session into
+      ReadyToEmit (the assistant continues asking instead of
+      synthesizing a summary it can't justify)
+    - operator-injected low-confidence block lands cleanly with the
+      reason string intact
+    - final state is Blocked with the low-confidence reason verbatim
+
+flow:
+  - kind: user
+    text: |
+      We have some data, please analyze.
+  - kind: user
+    text: |
+      I'm not sure what you need. Just figure it out.
+  - kind: inject_infra_error
+    reason: "classification confidence 0.08 below 0.3 threshold after 2 elaboration rounds; modality unresolved; opus escalation insufficient"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        SME prose: "we have some data, please analyze" — no modality,
+        organism, sample count, or goal signal extractable
+  - kind: tool_use
+    tool:
+      tool_name: get_classification_evidence
+  - kind: text
+    text: |
+      Before I can sketch a plan I need a bit more to anchor on.
+      Three quick questions:
+
+      - what kind of data is this (RNA-seq, proteomics, imaging,
+        clinical measurements, something else)?
+      - roughly how many samples or subjects?
+      - what's the question you want answered (group differences,
+        biomarkers, time-course, prediction)?
+
+      Any one of those gets us moving; all three lets me put together
+      a concrete plan.
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        SME follow-up: "I'm not sure what you need. Just figure it
+        out." — still no modality signal; classification remains
+        below confidence threshold
+  - kind: text
+    text: |
+      I hear you, and I'd rather not guess and produce the wrong
+      analysis. Even a one-sentence note about what kind of data is
+      sitting in front of you gets us unstuck — for example "RNA
+      sequencing from 30 patients" or "proteomics data from a small
+      pilot" would each route to a different starting plan.
+
+expected_final_state:
+  state_kind: blocked
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+    - get_classification_evidence
+  blocked_reason_contains: "classification confidence 0.08 below 0.3 threshold"
+
+rubric_notes: |
+  The two assistant turns before the block must NOT call
+  propose_summary_confirmation or emit_package — synthesizing a
+  summary from "we have some data" is the failure mode this fixture
+  guards against (the assistant fabricates a plausible-sounding
+  modality and the SME confirms by accident).
+
+  The BlockerCard the SME sees on the UI side must carry the
+  operator's reason verbatim — generic "something went wrong"
+  copy is the regression (same property fixtures 17/18 assert for
+  the InfraError path). The recovery affordance is
+  inject_unblock + a more specific re-prompt; that's tested
+  separately by fixture 18.
+
+  BlockerKind variant choice: we use the InfraError path because
+  there's no LowConfidence variant in v0.1's BlockerKind enum;
+  if/when one is added (the natural home is the classifier
+  module), this fixture's mock_responses do not need to change —
+  only the reason-string anchor does.

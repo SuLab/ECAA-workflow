@@ -1,0 +1,75 @@
+schema_version: "0.1"
+id: long_read_rnaseq
+version: "1.0.0"
+description: |
+  Long-read RNA-seq — Oxford Nanopore (direct-RNA, cDNA, PCR-cDNA) or
+  PacBio Iso-Seq. Standard pipeline: acquire per-platform data, raw QC,
+  trim, splice-aware align (minimap2 / GMAP), quantify at transcript
+  level, normalise, test for differential transcript usage.
+
+  Caveat: a dedicated isoform-discovery / transcript-assembly atom and
+  a per-platform benchmarking aggregator atom don't exist yet — see the
+  README "atoms needed" list.
+sme_summary: |
+  Discover and quantify isoforms from long-read RNA-seq, then test for
+  differential transcript usage between conditions.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: long_read_rnaseq
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: false
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: quantification
+    required: true
+    depends_on: [alignment]
+  - atom_id: normalisation
+    required: true
+    depends_on: [quantification]
+  # Long-read differential transcript usage needs isoform-resolved
+  # counts. The DTU atom's own `depends_on: [isoform_discovery]`
+  # gets overridden by the archetype's depends_on chain, so without
+  # this entry the DAG would jump normalisation → DTU and skip the
+  # FLAIR/IsoQuant/TALON isoform-discovery step entirely.
+  - atom_id: isoform_discovery
+    required: true
+    depends_on: [normalisation]
+  # Long-read differential analysis is at the TRANSCRIPT (isoform)
+  # level, not the gene level. The `differential_transcript_usage`
+  # atom produces edam_data:0951 (effect-size + adjusted p-value),
+  # which matches the classifier's goal triple for long-read DE
+  # phrases. Gene-level `differential_expression` produces
+  # edam_data:3917 (count matrix) — using it here left the v4
+  # composer with no path to the data:0951 goal and threw
+  # `GoalUnreachable`, producing 0-task DAGs on every long-read
+  # Prompt (audit).
+  - atom_id: differential_transcript_usage
+    required: true
+    depends_on: [isoform_discovery]
+  - atom_id: reporting
+    required: true
+    depends_on: [differential_transcript_usage]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  platform: data_acquisition.inputs.platform
+  organism: alignment.inputs.organism
+  reference_annotation: quantification.inputs.reference_annotation
+  samples: data_acquisition.inputs.samples
+  contrast: differential_transcript_usage.inputs.contrast
+claim_boundary: |
+  Long-read isoform calls + DTU statistics are scoped to the platform and
+  protocol. Do not pool ONT direct-RNA, ONT cDNA, and PacBio Iso-Seq into
+  a single aggregate call unless the SME asked for it. A novel isoform
+  requires orthogonal support (spike-in, matched short-read, or
+  curated-annotation corroboration).

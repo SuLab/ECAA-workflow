@@ -1,0 +1,755 @@
+# Seed catalog for the PlotAffordance registry.
+# One entry per stage renderer module + per-modality semantic-type ancestor.
+# 92+ entries as of (count: grep -cE "semantic_type:" registered.yaml).
+# Enforced by the figure_obligation CI gate in crates/core/tests/figure_obligation.rs.
+#
+# semantic_type: EDAM:data_NNNN for types with established EDAM coverage;
+#  swfc:<readable_id> for workflow-compiler-specific output types.
+# parents: ontology parent terms in subsumption order (closer ancestor first).
+#  Used by the registry-side BFS walk in resolve_affordance.
+# renderer_module: dotted module path under runtime.plotting
+# theme_version: theme file reference (resolved by renderer at runtime)
+
+affordances:
+  # ── scRNA-seq / bulk RNA-seq ─────────────────────────────────────────────
+
+  - semantic_type: EDAM:data_3134
+    # EDAM:data_3134 = Gene expression data (interpreted here as the DE results
+    # table — log2FC + p-values — produced by differential_expression stage).
+    # `ma_plot` complements volcano with the mean-expression-vs-log2FC view
+    # standard to DESeq2/edgeR/limma diagnostics; renders when the DE
+    # table carries a baseMean / mean_expression column.
+    figure_ids: [volcano, top_features_heatmap, ma_plot]
+    renderer_module: runtime.plotting.stages.differential_expression
+    theme_version: theme.json
+    parents: [EDAM:data_3917]
+
+  - semantic_type: EDAM:data_3917
+    # EDAM:data_3917 = Count matrix (scRNA-seq / bulk normalised counts).
+    # Used by normalization, batch_correction, clustering, dimensionality_reduction,
+    # cell_type_annotation, and quality_control. Each stage registers under a more
+    # specific swfc: semantic type below; this entry serves as the shared ancestor.
+    # `sample_pca` runs SVD over the normalized expression matrix and
+    # projects samples onto PC1/PC2 — the canonical bulk-RNA-seq QC plot.
+    figure_ids: [mean_variance, hvg_count_bar, sample_pca]
+    renderer_module: runtime.plotting.stages.normalization
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:normalised_count_matrix
+    figure_ids: [mean_variance, hvg_count_bar, sample_pca]
+    renderer_module: runtime.plotting.stages.normalization
+    theme_version: theme.json
+    parents: [EDAM:data_3917]
+
+  - semantic_type: swfc:batch_corrected_embedding
+    figure_ids: [mixing_score_bar, umap_pre_post]
+    renderer_module: runtime.plotting.stages.batch_correction
+    theme_version: theme.json
+    parents: [EDAM:data_3917]
+
+  - semantic_type: swfc:cell_clusters
+    figure_ids: [umap_clusters, cluster_size_bar]
+    renderer_module: runtime.plotting.stages.clustering
+    theme_version: theme.json
+    parents: [EDAM:data_3917]
+
+  - semantic_type: swfc:cell_embedding
+    # Output of dimensionality_reduction: PCA / UMAP / tSNE coordinates.
+    figure_ids: [variance_explained_elbow, embedding_scatter]
+    renderer_module: runtime.plotting.stages.dimensionality_reduction
+    theme_version: theme.json
+    parents: [EDAM:data_3917]
+
+  - semantic_type: swfc:cell_type_labels
+    figure_ids: [umap_by_celltype, celltype_size_bar]
+    renderer_module: runtime.plotting.stages.cell_type_annotation
+    theme_version: theme.json
+    parents: [swfc:cell_clusters]
+
+  - semantic_type: swfc:qc_metrics
+    # Per-sample / per-cell QC metrics produced by quality_control / qc_preprocessing.
+    figure_ids: [per_sample_metric_violin, per_sample_metric_bar, qc_summary_bar]
+    renderer_module: runtime.plotting.stages.quality_control
+    theme_version: theme.json
+    parents: [EDAM:data_3917]
+
+  - semantic_type: swfc:pseudotime_coords
+    # Trajectory-analysis pseudotime assignments over UMAP coordinates.
+    figure_ids: [pseudotime_umap]
+    renderer_module: runtime.plotting.stages.trajectory_analysis
+    theme_version: theme.json
+    parents: [swfc:cell_embedding]
+
+  - semantic_type: swfc:cell_signaling_table
+    # Cell-cell communication interaction tables (CellChat / CellPhoneDB / liana).
+    figure_ids: [signaling_heatmap, top_pathways]
+    renderer_module: runtime.plotting.stages.cell_cell_communication
+    theme_version: theme.json
+    parents: [EDAM:data_3917]
+
+  # ── GWAS / variant analysis ──────────────────────────────────────────────
+
+  - semantic_type: EDAM:data_3753
+    # EDAM:data_3753 = GWAS summary statistics (harmonised).
+    figure_ids: [qq, manhattan]
+    renderer_module: runtime.plotting.stages.variant_filtering
+    theme_version: theme.json
+    parents: [EDAM:data_3498]
+
+  - semantic_type: EDAM:data_3498
+    # EDAM:data_3498 = Sequence variations / VCF + GWAS results.
+    figure_ids: [manhattan, qq]
+    renderer_module: runtime.plotting.stages.variant_filtering
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:gwas_harmonised_table
+    # Output of gwas_summary_harmonization: harmonised GWAS summary stats.
+    figure_ids: [qq, manhattan]
+    renderer_module: runtime.plotting.stages.variant_filtering
+    theme_version: theme.json
+    parents: [EDAM:data_3753]
+
+  - semantic_type: swfc:colocalization_results
+    # Output of colocalization: per-locus posterior probabilities.
+    figure_ids: [manhattan, qq, miami, locus_zoom, credible_set_track, coloc_pp_panel]
+    renderer_module: runtime.plotting.stages.colocalization
+    theme_version: theme.json
+    parents: [EDAM:data_3753]
+
+  - semantic_type: swfc:validated_colocalization
+    # Output of validate_colocalization: validated coloc posterior panel.
+    figure_ids: [coloc_pp_panel]
+    renderer_module: runtime.plotting.stages.validate_colocalization
+    theme_version: theme.json
+    parents: [swfc:colocalization_results]
+
+  - semantic_type: swfc:benchmarking_concordance
+    # Output of benchmarking (long-read isoform / GWAS cross-tool concordance).
+    figure_ids: [forest]
+    renderer_module: runtime.plotting.stages.benchmarking
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  # ── Spatial transcriptomics ──────────────────────────────────────────────
+
+  - semantic_type: swfc:spatial_domains
+    # Output of spatial_domain_segmentation: per-spot domain assignments.
+    figure_ids: [tissue_overlay, morans_i_scatter, neighborhood_enrichment]
+    renderer_module: runtime.plotting.stages.spatial_clustering
+    theme_version: theme.json
+    parents: [swfc:cell_clusters]
+
+  # ── ChIP-seq / ATAC-seq ──────────────────────────────────────────────────
+
+  - semantic_type: EDAM:data_0863
+    # EDAM:data_0863 = Sequence alignment (BAM / BED). Shared parent for
+    # peak-calling output used both by peak_calling and quantification.
+    figure_ids: [profile_pileup, coverage_track, peak_saturation]
+    renderer_module: runtime.plotting.stages.peak_calling
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:peak_calls
+    # BED peak calls produced by peak_calling.
+    figure_ids: [profile_pileup, coverage_track, peak_saturation]
+    renderer_module: runtime.plotting.stages.peak_calling
+    theme_version: theme.json
+    parents: [EDAM:data_0863]
+
+  - semantic_type: swfc:differential_accessibility_results
+    # Per-peak log2FC/FDR table from differential_accessibility.
+    figure_ids: [volcano, ma_plot, diff_heatmap]
+    renderer_module: runtime.plotting.stages.differential_accessibility
+    theme_version: theme.json
+    parents: [data:1255, EDAM:data_0951]
+
+  - semantic_type: swfc:peak_annotation_table
+    # Peak-to-feature/TSS annotation table from peak_annotation.
+    figure_ids: [peak_feature_distribution, tss_distance_distribution]
+    renderer_module: runtime.plotting.stages.peak_annotation
+    theme_version: theme.json
+    parents: [data:1255]
+
+  - semantic_type: swfc:motif_enrichment_results
+    # Ranked DNA-binding motif enrichment table from motif_enrichment.
+    figure_ids: [motif_enrichment_table, motif_logo_grid]
+    renderer_module: runtime.plotting.stages.motif_enrichment
+    theme_version: theme.json
+    parents: [data:1364, EDAM:data_0951]
+
+  # ── Proteomics ───────────────────────────────────────────────────────────
+
+  - semantic_type: EDAM:data_2976
+    # EDAM:data_2976 = Protein sequence (used here for protein quantification
+    # matrix produced by protein_quantification).
+    figure_ids: [peptide_coverage, ridgeline]
+    renderer_module: runtime.plotting.stages.quantification
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:protein_abundance_matrix
+    figure_ids: [peptide_coverage, ridgeline]
+    renderer_module: runtime.plotting.stages.quantification
+    theme_version: theme.json
+    parents: [EDAM:data_2976]
+
+  # ── Long-read / isoform ──────────────────────────────────────────────────
+
+  - semantic_type: EDAM:data_1276
+    # EDAM:data_1276 = Nucleic acid features (gene / transcript structures).
+    # Used for isoform_discovery GTF output.
+    figure_ids: [isoform_structure, sashimi]
+    renderer_module: runtime.plotting.stages.isoform_calling
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:isoform_catalog
+    figure_ids: [isoform_structure, sashimi]
+    renderer_module: runtime.plotting.stages.isoform_calling
+    theme_version: theme.json
+    parents: [EDAM:data_1276]
+
+  # ── Multi-omics integration ──────────────────────────────────────────────
+
+  - semantic_type: EDAM:data_1278
+    # EDAM:data_1278 = Sequence features (used here as shared parent for
+    # multi-factor latent-space outputs from MOFA / DIABLO / SNF).
+    figure_ids: [modality_concordance_heatmap, factor_variance_bar]
+    renderer_module: runtime.plotting.stages.multi_omics_integration
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:multi_omics_factors
+    figure_ids: [modality_concordance_heatmap, factor_variance_bar]
+    renderer_module: runtime.plotting.stages.multi_omics_integration
+    theme_version: theme.json
+    parents: [EDAM:data_1278]
+
+  # ── Metagenomics ─────────────────────────────────────────────────────────
+
+  - semantic_type: swfc:taxonomic_profile
+    # Output of taxonomic_classification: per-sample abundance TSV.
+    figure_ids: [taxonomic_stacked_bar, diversity_violin]
+    renderer_module: runtime.plotting.stages.taxonomic_profiling
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  # ── Pathway enrichment / biological interpretation ───────────────────────
+
+  - semantic_type: EDAM:data_0951
+    # EDAM:data_0951 = Statistical estimate (used as shared parent for enrichment,
+    # diversity, and benchmarking results that are all tabular numeric estimates).
+    figure_ids: [top_enriched_terms]
+    renderer_module: runtime.plotting.stages.biological_interpretation
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:pathway_enrichment_results
+    figure_ids: [top_enriched_terms]
+    renderer_module: runtime.plotting.stages.biological_interpretation
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  # ── Time series / forecasting ────────────────────────────────────────────
+
+  - semantic_type: EDAM:data_3768
+    # EDAM:data_3768 = Experimental measurement (numeric time series).
+    figure_ids: [decomposition_panel, acf_pacf_panel]
+    renderer_module: runtime.plotting.stages.exploratory_analysis
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:time_series_decomposition
+    figure_ids: [decomposition_panel, acf_pacf_panel]
+    renderer_module: runtime.plotting.stages.exploratory_analysis
+    theme_version: theme.json
+    parents: [EDAM:data_3768]
+
+  - semantic_type: swfc:time_series_forecast
+    figure_ids: [forecast_ribbon, anomaly_timeline]
+    renderer_module: runtime.plotting.stages.forecasting_inference
+    theme_version: theme.json
+    parents: [EDAM:data_3768]
+
+  - semantic_type: swfc:time_series_forecast_evaluation
+    # Forecast-evaluation atoms emit a forecast table plus holdout metrics.
+    # They do not always emit anomaly calls, so the required SME-facing
+    # figure is the forecast ribbon.
+    figure_ids: [forecast_ribbon]
+    renderer_module: runtime.plotting.stages.forecasting_inference
+    theme_version: theme.json
+    parents: [swfc:time_series_forecast, EDAM:data_0951]
+
+  # ── Clinical trial analysis ──────────────────────────────────────────────
+
+  - semantic_type: swfc:trial_analysis_set
+    # Population assignment output of population_definition.
+    figure_ids: [consort_diagram]
+    renderer_module: runtime.plotting.stages.population_definition
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:trial_endpoint
+    # Primary endpoint results (time-to-event, ANCOVA, etc.).
+    figure_ids: [kaplan_meier, forest]
+    renderer_module: runtime.plotting.stages.primary_endpoint
+    theme_version: theme.json
+    parents: [swfc:trial_analysis_set]
+
+  - semantic_type: swfc:trial_secondary_endpoint
+    figure_ids: [spaghetti, forest]
+    renderer_module: runtime.plotting.stages.secondary_endpoints
+    theme_version: theme.json
+    parents: [swfc:trial_endpoint]
+
+  - semantic_type: swfc:trial_safety_data
+    figure_ids: [adverse_event_bar, cumulative_incidence]
+    renderer_module: runtime.plotting.stages.safety_analysis
+    theme_version: theme.json
+    parents: [swfc:trial_analysis_set]
+
+  - semantic_type: swfc:trial_subgroup_results
+    figure_ids: [forest]
+    renderer_module: runtime.plotting.stages.subgroup_analyses
+    theme_version: theme.json
+    parents: [swfc:trial_endpoint]
+
+  # Aliases for the `clinical_*` semantic types emitted by the
+  # clinical_endpoint_analysis / clinical_safety_summary /
+  # clinical_subgroup_analysis / clinical_sensitivity_analysis atoms. The
+  # atom YAMLs settled on `clinical_*` IDs (matching the atom names) before
+  # the registry settled on `trial_*` (matching the analytical concept).
+  # Rather than risk breaking the atom contract, we add explicit aliases so
+  # the affordance lookup resolves directly instead of falling back to the
+  # generic biological_interpretation parent — that fallback selects the
+  # wrong renderer and yields zero matching figures for clinical-trial
+  # atoms.
+  - semantic_type: swfc:clinical_endpoint_results
+    figure_ids: [kaplan_meier, forest]
+    renderer_module: runtime.plotting.stages.primary_endpoint
+    theme_version: theme.json
+    parents: [swfc:trial_endpoint]
+
+  - semantic_type: swfc:clinical_safety_summary
+    figure_ids: [adverse_event_bar, cumulative_incidence]
+    renderer_module: runtime.plotting.stages.safety_analysis
+    theme_version: theme.json
+    parents: [swfc:trial_safety_data]
+
+  - semantic_type: swfc:clinical_subgroup_forest
+    figure_ids: [forest]
+    renderer_module: runtime.plotting.stages.subgroup_analyses
+    theme_version: theme.json
+    parents: [swfc:trial_subgroup_results]
+
+  - semantic_type: swfc:clinical_sensitivity_report
+    figure_ids: [spaghetti, forest]
+    renderer_module: runtime.plotting.stages.secondary_endpoints
+    theme_version: theme.json
+    parents: [swfc:trial_secondary_endpoint]
+
+  # ── Data acquisition / preprocessing / QC ───────────────────────────────
+
+  - semantic_type: EDAM:data_2531
+    # EDAM:data_2531 = Experimental measurement / raw sample data manifest.
+    # Shared parent for data_acquisition and metadata_harmonization outputs.
+    figure_ids: [samples_per_study]
+    renderer_module: runtime.plotting.stages.data_acquisition
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:cohort_manifest
+    figure_ids: [samples_per_study]
+    renderer_module: runtime.plotting.stages.data_acquisition
+    theme_version: theme.json
+    parents: [EDAM:data_2531]
+
+  - semantic_type: swfc:sample_metadata_table
+    # Harmonised per-sample metadata matrix from metadata_harmonization.
+    figure_ids: [metadata_attribute_heatmap]
+    renderer_module: runtime.plotting.stages.metadata_harmonization
+    theme_version: theme.json
+    parents: [EDAM:data_2531]
+
+  - semantic_type: swfc:preprocessed_reads
+    # Output of sequence_trimming / preprocessing: post-QC read set.
+    figure_ids: [retention_bar]
+    renderer_module: runtime.plotting.stages.preprocessing
+    theme_version: theme.json
+    parents: []
+
+  # ── Reporting ────────────────────────────────────────────────────────────
+
+  - semantic_type: EDAM:data_2048
+    # EDAM:data_2048 = Report. Shared parent for narrative report outputs.
+    figure_ids: [concordance_heatmap, pathway_overlap_bar]
+    renderer_module: runtime.plotting.stages.reporting
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:stage_report
+    figure_ids: [concordance_heatmap, pathway_overlap_bar]
+    renderer_module: runtime.plotting.stages.reporting
+    theme_version: theme.json
+    parents: [EDAM:data_2048]
+
+  - semantic_type: swfc:final_report
+    figure_ids: [summary_dashboard]
+    renderer_module: runtime.plotting.stages.final_reporting
+    theme_version: theme.json
+    parents: [EDAM:data_2048]
+
+  # ── CURIE-format aliases ─────────────────────────────────────────────────
+  # Atom YAML files use the CURIE IRI format (e.g. `data:3917`) while the
+  # canonical registry entries above use the EDAM-prefixed format
+  # (e.g. `EDAM:data_3917`). The affordance selector does exact-string
+  # lookup, so atoms whose `edam_data` or `outputs[].iri` are in CURIE
+  # Format need matching entries here. Each alias lists the EDAM-prefixed
+  # entry as its parent so the BFS walk finds the registered renderer when
+  # the exact match succeeds on the alias first.
+  #
+  # Convention: alias entries are grouped by the EDAM:data_NNNN they mirror.
+
+  # data:3134 ↔ EDAM:data_3134 (Gene expression / DE results table)
+  - semantic_type: data:3134
+    figure_ids: [volcano, top_features_heatmap]
+    renderer_module: runtime.plotting.stages.differential_expression
+    theme_version: theme.json
+    parents: [EDAM:data_3134]
+
+  # data:3917 ↔ EDAM:data_3917 (Count matrix — scRNA-seq / bulk)
+  - semantic_type: data:3917
+    figure_ids: [mean_variance, hvg_count_bar]
+    renderer_module: runtime.plotting.stages.normalization
+    theme_version: theme.json
+    parents: [EDAM:data_3917]
+
+  # data:3753 ↔ EDAM:data_3753 (GWAS summary statistics)
+  - semantic_type: data:3753
+    figure_ids: [qq, manhattan]
+    renderer_module: runtime.plotting.stages.variant_filtering
+    theme_version: theme.json
+    parents: [EDAM:data_3753]
+
+  # data:3498 ↔ EDAM:data_3498 (Sequence variations / VCF + GWAS results)
+  - semantic_type: data:3498
+    figure_ids: [manhattan, qq]
+    renderer_module: runtime.plotting.stages.variant_filtering
+    theme_version: theme.json
+    parents: [EDAM:data_3498]
+
+  # data:0863 ↔ EDAM:data_0863 (Sequence alignment / BAM)
+  - semantic_type: data:0863
+    figure_ids: [profile_pileup, coverage_track, peak_saturation]
+    renderer_module: runtime.plotting.stages.peak_calling
+    theme_version: theme.json
+    parents: [EDAM:data_0863]
+
+  # data:2976 ↔ EDAM:data_2976 (Protein sequence / quantification matrix)
+  - semantic_type: data:2976
+    figure_ids: [peptide_coverage, ridgeline]
+    renderer_module: runtime.plotting.stages.quantification
+    theme_version: theme.json
+    parents: [EDAM:data_2976]
+
+  # data:1276 ↔ EDAM:data_1276 (Nucleic acid features / isoform catalog)
+  - semantic_type: data:1276
+    figure_ids: [isoform_structure, sashimi]
+    renderer_module: runtime.plotting.stages.isoform_calling
+    theme_version: theme.json
+    parents: [EDAM:data_1276]
+
+  # data:1278 ↔ EDAM:data_1278 (Sequence features / multi-omics factors)
+  - semantic_type: data:1278
+    figure_ids: [modality_concordance_heatmap, factor_variance_bar]
+    renderer_module: runtime.plotting.stages.multi_omics_integration
+    theme_version: theme.json
+    parents: [EDAM:data_1278]
+
+  # data:0951 ↔ EDAM:data_0951 (Statistical estimate — enrichment / diversity)
+  - semantic_type: data:0951
+    figure_ids: [top_enriched_terms]
+    renderer_module: runtime.plotting.stages.biological_interpretation
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  # data:3768 ↔ EDAM:data_3768 (Experimental measurement / numeric time series)
+  - semantic_type: data:3768
+    figure_ids: [decomposition_panel, acf_pacf_panel]
+    renderer_module: runtime.plotting.stages.exploratory_analysis
+    theme_version: theme.json
+    parents: [EDAM:data_3768]
+
+  # data:2531 ↔ EDAM:data_2531 (Experimental measurement / raw sample data)
+  - semantic_type: data:2531
+    figure_ids: [samples_per_study]
+    renderer_module: runtime.plotting.stages.data_acquisition
+    theme_version: theme.json
+    parents: [EDAM:data_2531]
+
+  # data:2048 ↔ EDAM:data_2048 (Report)
+  - semantic_type: data:2048
+    figure_ids: [concordance_heatmap, pathway_overlap_bar]
+    renderer_module: runtime.plotting.stages.reporting
+    theme_version: theme.json
+    parents: [EDAM:data_2048]
+
+  # ── New entries for atom-referenced types not yet in the EDAM-prefixed set ──
+
+  # data:1234 = Sequence data (generic reads / trimmed reads / BAM predecessor).
+  # Used by: alignment (legacy edam_data), sequence_trimming, raw_qc, taxonomic_classification.
+  # Maps to preprocessing renderer; downstream stages (alignment → quantification)
+  # carry the real figures.
+  - semantic_type: data:1234
+    figure_ids: [retention_bar]
+    renderer_module: runtime.plotting.stages.preprocessing
+    theme_version: theme.json
+    parents: []
+
+  # data:2914 = Sequence metrics (FastQC / MultiQC per-sample QC table).
+  # Used by: raw_qc output PortContract.
+  - semantic_type: data:2914
+    figure_ids: [per_sample_metric_violin, per_sample_metric_bar, qc_summary_bar]
+    renderer_module: runtime.plotting.stages.quality_control
+    theme_version: theme.json
+    parents: [data:1234]
+
+  # swfc:spatial_coordinates — per-spot spatial-transcriptomics coordinates
+  # with cell-type domain labels. Output of spatial_domain_segmentation.
+  - semantic_type: swfc:spatial_coordinates
+    figure_ids: [tissue_overlay, morans_i_scatter, neighborhood_enrichment]
+    renderer_module: runtime.plotting.stages.spatial_clustering
+    theme_version: theme.json
+    parents: [EDAM:data_3917]
+
+  # ── Routing aliases — existing renderers with missing registry entries ──
+
+  # data:0960 = Biological pathway info (pathway_enrichment atom output)
+  - semantic_type: data:0960
+    figure_ids: [top_enriched_terms]
+    renderer_module: runtime.plotting.stages.biological_interpretation
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  # data:1255 = Sequence features / annotated regions (peak_calling atom output)
+  - semantic_type: data:1255
+    figure_ids: [profile_pileup, coverage_track, peak_saturation]
+    renderer_module: runtime.plotting.stages.peak_calling
+    theme_version: theme.json
+    parents: [EDAM:data_0863]
+
+  # data:3028 = Taxonomic profile (taxonomic_classification atom output)
+  - semantic_type: data:3028
+    figure_ids: [taxonomic_stacked_bar, diversity_violin]
+    renderer_module: runtime.plotting.stages.taxonomic_profiling
+    theme_version: theme.json
+    parents: []
+
+  # data:3736 = Ontology mapping (cell_type_annotation atom output)
+  - semantic_type: data:3736
+    figure_ids: [umap_by_celltype, celltype_size_bar]
+    renderer_module: runtime.plotting.stages.cell_type_annotation
+    theme_version: theme.json
+    parents: [swfc:cell_clusters]
+
+  # data:2044 = Sequence data (sequence_trimming, data_acquisition atom outputs)
+  - semantic_type: data:2044
+    figure_ids: [retention_bar]
+    renderer_module: runtime.plotting.stages.preprocessing
+    theme_version: theme.json
+    parents: [data:1234]
+
+  # data:0928 = GWAS summary (gwas_summary_harmonization atom output)
+  - semantic_type: data:0928
+    figure_ids: [qq, manhattan]
+    renderer_module: runtime.plotting.stages.variant_filtering
+    theme_version: theme.json
+    parents: [EDAM:data_3753]
+
+  # data:0945 = Peptide identification (peptide_search atom output)
+  - semantic_type: data:0945
+    figure_ids: [peptide_coverage, ridgeline]
+    renderer_module: runtime.plotting.stages.quantification
+    theme_version: theme.json
+    parents: [EDAM:data_2976]
+
+  # swfc:spatially_variable_genes — spatial_clustering renders morans_i_scatter
+  - semantic_type: swfc:spatially_variable_genes
+    figure_ids: [morans_i_scatter]
+    renderer_module: runtime.plotting.stages.spatial_clustering
+    theme_version: theme.json
+    parents: [swfc:spatial_domains]
+
+  # swfc:forecast — forecasting_inference renders forecast_ribbon + anomaly_timeline
+  - semantic_type: swfc:forecast
+    figure_ids: [forecast_ribbon, anomaly_timeline]
+    renderer_module: runtime.plotting.stages.forecasting_inference
+    theme_version: theme.json
+    parents: [EDAM:data_3768]
+
+  # swfc:mofa_factors — multi_omics_integration handles factor_variance_bar + concordance
+  - semantic_type: swfc:mofa_factors
+    figure_ids: [modality_concordance_heatmap, factor_variance_bar]
+    renderer_module: runtime.plotting.stages.multi_omics_integration
+    theme_version: theme.json
+    parents: [EDAM:data_1278]
+
+  # ── Specific-IRI aliases for swfc: namespace renderers ──
+
+  - semantic_type: swfc:clonotype_table
+    figure_ids: [public_clonotype_size_bar, clonotype_network]
+    renderer_module: runtime.plotting.stages.vdj_repertoire
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  - semantic_type: swfc:repertoire_diversity_table
+    figure_ids: [clonal_frequency_rank, v_segment_usage_bar]
+    renderer_module: runtime.plotting.stages.vdj_repertoire
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  - semantic_type: swfc:cis_regulatory_scores
+    figure_ids: [cis_effect_volcano, variant_peak_overlap_bar]
+    renderer_module: runtime.plotting.stages.regulatory_variants
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  - semantic_type: swfc:differential_loop_table
+    figure_ids: [loop_volcano, differential_loop_arc]
+    renderer_module: runtime.plotting.stages.chromatin_loops
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  - semantic_type: swfc:methylation_correlation_table
+    figure_ids: [methylation_vs_expression_scatter, methylation_driven_gene_heatmap]
+    renderer_module: runtime.plotting.stages.methylation_expression
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  - semantic_type: swfc:te_results
+    figure_ids: [te_volcano, te_quadrant_plot]
+    renderer_module: runtime.plotting.stages.ribo_seq
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  - semantic_type: swfc:diablo_model
+    figure_ids: [diablo_components_scatter, diablo_loadings_heatmap, modality_concordance_heatmap, factor_variance_bar]
+    renderer_module: runtime.plotting.stages.diablo
+    theme_version: theme.json
+    parents: [EDAM:data_1278]
+
+  - semantic_type: swfc:fused_similarity_matrix
+    figure_ids: [fused_similarity_heatmap, snf_cluster_size_bar, modality_concordance_heatmap, factor_variance_bar]
+    renderer_module: runtime.plotting.stages.snf
+    theme_version: theme.json
+    parents: [EDAM:data_1278]
+
+  - semantic_type: swfc:vdj_per_cell_table
+    figure_ids: [chain_assignment_per_cell_bar, cdr3_length_distribution]
+    renderer_module: runtime.plotting.stages.vdj_repertoire
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:hla_peptide_table
+    figure_ids: [peptide_length_distribution, psm_score_distribution]
+    renderer_module: runtime.plotting.stages.hla_peptidomics
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:hla_binding_table
+    figure_ids: [binder_rank_histogram, allele_presentation_heatmap]
+    renderer_module: runtime.plotting.stages.hla_peptidomics
+    theme_version: theme.json
+    parents: [swfc:hla_peptide_table]
+
+  - semantic_type: swfc:neoantigen_catalog
+    figure_ids: [neoantigen_per_patient_bar, shared_neoantigen_heatmap]
+    renderer_module: runtime.plotting.stages.hla_peptidomics
+    theme_version: theme.json
+    parents: [swfc:hla_binding_table]
+
+  - semantic_type: swfc:chromatin_contact_matrix
+    figure_ids: [cis_trans_ratio, distance_decay_curve]
+    renderer_module: runtime.plotting.stages.chromatin_contacts
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:chromatin_loop_table
+    figure_ids: [loop_count_bar, loop_size_distribution]
+    renderer_module: runtime.plotting.stages.chromatin_loops
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:peak_to_gene_link_table
+    figure_ids: [peak_to_gene_arc, links_per_cluster_bar]
+    renderer_module: runtime.plotting.stages.peak_to_gene
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:joint_wnn_embedding
+    figure_ids: [wnn_umap, cluster_composition_bar]
+    renderer_module: runtime.plotting.stages.joint_wnn
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:multiome_paired_per_nucleus
+    figure_ids: [paired_capture_summary, barcode_match_summary]
+    renderer_module: runtime.plotting.stages.barcode_pairing
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:sgrna_assignment_table
+    figure_ids: [sgrna_umi_histogram, cells_per_perturbation_bar]
+    renderer_module: runtime.plotting.stages.crispr_screen
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:psite_offset_table
+    figure_ids: [psite_offset_per_length, frame_periodicity]
+    renderer_module: runtime.plotting.stages.ribo_seq
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:enhancer_activity_table
+    figure_ids: [rna_vs_dna_scatter, activity_score_histogram]
+    renderer_module: runtime.plotting.stages.enhancer_activity
+    theme_version: theme.json
+    parents: []
+
+  - semantic_type: swfc:differential_transcript_usage_results
+    figure_ids: [dtu_volcano, transcript_usage_stacked_bar]
+    renderer_module: runtime.plotting.stages.dtu
+    theme_version: theme.json
+    parents: [EDAM:data_0951]
+
+  # ── Missing-renderer aliases (figure-obligation gate closure) ─────────────
+
+  # swfc:cluster_assignments — per-cell cluster id assignments from clustering
+  # atom. Routes to the clustering renderer which has umap_clusters +
+  # cluster_size_bar. Parent is swfc:cell_clusters (same renderer, superset
+  # figure set).
+  - semantic_type: swfc:cluster_assignments
+    figure_ids: [umap_clusters, cluster_size_bar]
+    renderer_module: runtime.plotting.stages.clustering
+    theme_version: theme.json
+    parents: [swfc:cell_clusters]
+
+  # swfc:embedding — low-dimensional embedding (PCA / UMAP / t-SNE / PHATE)
+  # from dimensionality_reduction atom. Routes to the dimensionality_reduction
+  # renderer. Parent is swfc:cell_embedding (same renderer, matching figures).
+  - semantic_type: swfc:embedding
+    figure_ids: [variance_explained_elbow, embedding_scatter]
+    renderer_module: runtime.plotting.stages.dimensionality_reduction
+    theme_version: theme.json
+    parents: [swfc:cell_embedding]
+
+  # swfc:diversity_metrics — alpha + beta diversity tables from diversity_analysis
+  # atom. Routes to the taxonomic_profiling renderer which implements diversity_violin
+  # (plus taxonomic_stacked_bar); only diversity_violin is required by this atom.
+  - semantic_type: swfc:diversity_metrics
+    figure_ids: [diversity_violin]
+    renderer_module: runtime.plotting.stages.taxonomic_profiling
+    theme_version: theme.json
+    parents: [swfc:taxonomic_profile]

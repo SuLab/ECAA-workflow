@@ -1,0 +1,102 @@
+# atoms/bulk-rnaseq-pasilla — atom-coverage pilot
+#
+# Bioconductor pasilla dataset: Drosophila melanogaster, untreated vs treated
+# (pasilla-knockdown via RNAi). The smallest fully-public bulk-RNA-seq dataset
+# with a clean two-condition design — ideal for the atoms/plots campaign
+# because the DAG is compact (6-10 tasks) and execution finishes in minutes.
+#
+# Reference: Brooks et al. 2011, Genome Research 21:193-202.
+# Counts file: pasilla_gene_counts.tsv (14,599 genes × 7 samples)
+# Annotation:  pasilla_sample_annotation.csv
+
+name: Bioconductor pasilla Drosophila bulk RNA-seq
+modality: bulk_rnaseq
+
+# Mocked-tier beats: minimal, no brittle phrasing assertions.
+# The live tier drives the real LLM via the `live:` section below.
+beats:
+  - user: >-
+      I want to run a bulk RNA-seq differential expression analysis on the
+      Bioconductor pasilla dataset — Drosophila melanogaster, comparing
+      untreated vs treated (pasilla RNAi knockdown). I have a counts matrix
+      and sample annotation already downloaded.
+    assistant:
+      content: >-
+        Got it — pasilla dataset, Drosophila, untreated vs treated.
+        What contrast should drive the DE analysis?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      The contrast is untreated vs treated. Standard QC, normalization,
+      and differential expression are all I need. Internal use, public data.
+    assistant:
+      content: >-
+        Recorded — untreated vs treated, QC + normalization + DE pipeline.
+        Please review the plan and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **Bulk RNA-seq DE — pasilla (Drosophila melanogaster)**
+
+          - **Dataset:** Bioconductor pasilla (Brooks et al. 2011)
+          - **Organism:** Drosophila melanogaster
+          - **Contrast:** untreated vs treated (pasilla RNAi knockdown)
+          - **Pipeline:** QC → normalization → differential expression
+          - **Governance:** public data, internal use
+          - **Claim boundary:** descriptive differential expression only
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  # Compact but complete — enough signal for the LLM to classify bulk_rnaseq,
+  # build a DE archetype, and reach pending_confirmation in ≤3 turns.
+  intake_prose: >-
+    I want to run a bulk RNA-seq differential expression analysis using the
+    Bioconductor pasilla dataset. The organism is Drosophila melanogaster.
+    The comparison is untreated versus treated samples (pasilla knockdown via
+    RNAi). I have the gene counts matrix (pasilla_gene_counts.tsv, 14599 genes
+    × 7 samples) and sample annotation (pasilla_sample_annotation.csv) already
+    staged locally. The pipeline should cover QC, normalization, and differential
+    expression with reporting figures. This is internal use, all public data.
+    Please build the plan and emit the package once confirmed.
+  followups:
+    - trigger: "(?i)(contrast|comparison|condition|group|design|what.*vs|untreated|treated)"
+      reply: >-
+        Untreated versus treated — the treated group received pasilla RNAi
+        knockdown. Two-condition design, no batch variables.
+    - trigger: "(?i)(organism|species|genome|drosophila|fly)"
+      reply: >-
+        Drosophila melanogaster. Standard reference genome — dm6 or equivalent.
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use only, all public data from Bioconductor pasilla.
+        No PHI, no controlled-access data.
+    - trigger: "(?i)(file|format|path|count|matrix|input|data)"
+      reply: >-
+        The counts TSV and sample annotation CSV are staged at
+        testdata/scenarios/atoms/bulk-rnaseq-pasilla/. No re-alignment needed.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+      - "DESeq2"
+      - "edgeR"
+      - "limma"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

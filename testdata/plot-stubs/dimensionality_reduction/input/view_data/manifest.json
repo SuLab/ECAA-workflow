@@ -1,0 +1,9 @@
+{
+  "errors": {},
+  "skipped": {},
+  "stage_id": "dimensionality_reduction",
+  "written": {
+    "embedding_scatter": "embedding_scatter.json",
+    "variance_explained": "variance_explained.json"
+  }
+}

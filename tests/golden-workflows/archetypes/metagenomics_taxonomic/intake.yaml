@@ -1,0 +1,3 @@
+Metagenomic taxonomic profiling of stool samples from a human gut microbiome study.
+Use Kraken2 for taxonomic classification, then compute alpha and beta diversity and
+produce a per-sample abundance table for downstream community composition analysis.

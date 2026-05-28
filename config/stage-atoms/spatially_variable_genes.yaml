@@ -1,0 +1,61 @@
+id: spatially_variable_genes
+version: "1.0.0"
+role: operation
+description: |
+  Identify genes whose expression varies systematically across spatial
+  coordinates beyond what cell-type abundance alone explains. Methods:
+  Moran's I, SpatialDE, SOMDE, Spark-X. Emits a ranked table of genes
+  with spatial-variability statistic + adjusted p-value. swfc:spatially_
+  variable_genes — extends EDAM operation:3223 (DE) into the spatial
+  axis the upstream ontology doesn't model.
+edam_operation: "swfc:spatially_variable_genes"
+edam_data: "data:3917"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - spatial_domain_segmentation
+plot_stage_id: spatial_clustering
+expected_artifacts:
+  - spatially_variable_genes.tsv
+  - manifest.json
+  - result.json
+required_figures:
+  - morans_i_scatter
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Consumes the spatial expression object + domain assignments;
+# emits a ranked SVG list with spatial-variability statistic and
+# adjusted p-value (statistical_state: multiple_testing_corrected).
+inputs:
+  - name: spatial_expression
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "spatial_object"
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Spatial transcriptomics object (AnnData/SpatialData) with per-spot counts, coordinates, and domain labels"
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
+    modality: "spatial_transcriptomics"
+    privacy_class: internal
+outputs:
+  - name: spatially_variable_genes
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "spatially_variable_genes"
+      proposed_parent_terms:
+        - "data:1255"
+      definition: "Ranked list of genes with spatial-variability statistic + adjusted p-value"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "spatial_transcriptomics"
+    statistical_state: "multiple_testing_corrected"
+    privacy_class: internal

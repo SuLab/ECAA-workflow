@@ -1,0 +1,304 @@
+[package]
+name = "scripps-workflow-core"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/SuLab/ECAA-workflow"
+description = "Deterministic offline compiler for natural-language bioinformatics workflow descriptions (RO-Crate emitter)."
+
+[dependencies]
+scripps-workflow-ecaa-types = { version = "0.1", path = "../ecaa-types" }
+serde.workspace = true
+serde_json.workspace = true
+serde_yml = { workspace = true }
+petgraph = "0.6"
+anyhow.workspace = true
+chrono.workspace = true
+ts-rs.workspace = true
+# Layer 5 — JsonSchema derive on workflow_contracts, claim_*, decision_log,
+# decision_substrate source types so the ECAA subgraph schemas can be
+# regenerated rather than hand-maintained.
+schemars = { workspace = true }
+jsonschema = { workspace = true }
+regex.workspace = true
+csv.workspace = true
+sha2.workspace = true
+# v3 P5 — BLAKE3 cryptographic commitment over suppressed payloads in
+# `workflow_contracts::chain_of_custody::ChainOfCustody::with_commitment`.
+# Modern, fast (faster than SHA-2 family, parallelizable), and standard
+# for content-addressed commitments. 32-byte / 64-hex digest.
+blake3 = "1"
+# Common Expression Language (CEL) for atom
+# `excludes:` / archetype `when:` / iteration `metric_source` /
+# downstream-policy gate evaluation. Pinned EXACTLY (not `^0.13`
+# or `~0.13`) because the crate is community-maintained, not
+# Google-blessed; we wrap eval calls behind the
+# `expression::ExpressionEvaluator` trait so a future swap
+# (Microsoft Regorus, Datafun, future Google-blessed CEL crate)
+# is a one-file change. Watchlist: cel-interpreter advisories +
+# cel-spec drift (round-2 §3.10 flagged 12 advisories incl. 2
+# Critical in April 2026; pin defends against drive-by churn).
+# Exact pin (not `^0.10`) for cel-interpreter. The crate is community-
+# maintained and has a history of breaking changes within minor
+# versions. Keep on this exact version until the breaking-change pattern
+# stabilizes; manually review the changelog before bumping. Quarterly
+# review cadence — track at the same time as the rust-toolchain.toml pin.
+cel-interpreter = "=0.10.0"
+# `typed_id` module re-exports `uuid::Uuid` as
+# `SessionId`. Used directly by the foundational typed-ID module;
+# the conversation crate already depends on uuid for session ids.
+uuid.workspace = true
+# Derive `EnumCount` on `DecisionType` so the test in
+# decision_log.rs that asserts every variant has a serde fixture stays
+# in sync with the enum at compile time. Bumping the enum without
+# bumping the fixture array now fails to compile rather than producing
+# a passing-but-incomplete test.
+strum.workspace = true
+# V4 modality-scoped ontology resolution emits
+# annotation-only `tracing::warn!` log events from the compatibility
+# engine + registry importer (gated by `RUST_LOG=ontology_scope=warn`).
+# v4 P2 swaps these for `decision_substrate::record(OntologyScopeChecked)`
+# substrate events; until then the structured-log path is the audit trail.
+tracing.workspace = true
+# Semver-typed `schema_version` on IR types (`WorkflowIntent`,
+# `Session`, `SessionLineage`, `DispatchRecord`). The `migration`
+# module's serde adapter accepts both legacy `u64` JSON values and
+# canonical SemVer strings so existing on-disk artifacts round-trip
+# without migration. Workspace pin in the root `Cargo.toml`.
+semver = { workspace = true }
+# Typed error enum for the atom-safety
+# registry-load lint (`crate::atom_safety::SafetyConsistencyError`).
+# Workspace pin in the root `Cargo.toml` (thiserror 2.0).
+thiserror = { workspace = true }
+# `Config::from_env` parses `ANTHROPIC_BASE_URL` via `url::Url` so the
+# loopback-http exception can match `parsed.host_str()` rather than
+# substring-checking the raw string.
+url = "2"
+# `resilient_client::ResilientClient` wraps `reqwest::Client` with an
+# HTTPS-or-loopback scheme guard at construction time. Workspace entry
+# pins version + default-features = false + json/rustls-tls features.
+reqwest = { workspace = true }
+# HMAC-SHA256 signed audit-log rows (`crate::audit_writer`). `subtle`
+# provides constant-time byte comparison; `rand` seeds the per-session
+# secret. `hex` moved here from dev-dependencies since production code
+# now consumes the crate.
+hmac = "0.12"
+hex = "0.4"
+subtle = "2"
+rand = { workspace = true }
+# Unicode NFC normalization before claim ↔ table-cell comparison in
+# `claim_verifier`. NFD-encoded narrative tokens (e.g. composed vs
+# decomposed accents) would otherwise miss byte-for-byte matches even
+# though the characters render identically.
+unicode-normalization = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+# Parallel SHA-512 hashing of payload files in
+# `emitter::bagit::write_bagit_manifest`. Each emitted package can contain
+# 100-500 files (config snapshots, RO-Crate metadata, evidence tables);
+# SHA-512 is CPU-bound and embarrassingly parallel, so `par_iter` over the
+# pre-sorted entries cuts manifest emission from ~50-200ms to wall-time
+# bounded by the largest file. Output bytes remain byte-identical to the
+# serial path because the assembly loop walks `entries` + `hashes` in
+# lockstep after the parallel map collects in order.
+rayon = "1"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
+tempfile.workspace = true
+# R-23 — snapshot-test ergonomics. Replaces multi-field
+# `assert_eq!(actual, expected)` patterns in golden-shape tests
+# (cross-version diff, WRROC v0.5 metadata, replay round-trip) with
+# `insta::assert_json_snapshot!(actual)`. First run writes
+# `tests/snapshots/<test>.snap`; subsequent runs diff. Drift gets
+# reviewed via `cargo insta review` rather than by hand-editing
+# expected literals.
+insta = { workspace = true }
+# Grant v19 §Aim 3A Arm B′ — serialize env-var mutation tests in
+# `ablation::tests` so they don't race when other env-touching tests
+# run in parallel under `cargo test`.
+serial_test = "3"
+# Criterion 0.5 for hot-path microbenchmarks. Pin major
+# at 0.5; the 0.6 line was abandoned. Used for `classifier`, `dag`
+# builder, and `claim_extractor` regex paths per Round-4 §2. Adoption
+# cadence: opt-in via `cargo bench`; not part of `make all` so
+# benchmarks don't gate PRs (Bencher.dev / iai-callgrind continuous
+# benching is the future home, separate workstream).
+criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
+# Tier F property tests per `docs/dag_eval.md`. The 17 fNN_*.rs
+# integration tests under `tests/property/` import `proptest!`. Phase
+# 1 lands stubs; phases 2-11 replace each stub with the real
+# F-invariant assertions.
+proptest = { workspace = true }
+# v3 P10 — F13/F14 property tests pin the closed-tool vocabulary on
+# `scripps-workflow-conversation::tools::Tool`. Circular dev-dep with
+# the conversation crate (which depends on core for IR types) is fine
+# — Cargo treats dev-deps as a separate graph, same pattern as the
+# eval-adapters dev-dep above.
+scripps-workflow-conversation = { version = "0.1", path = "../conversation" }
+# Functional-core boundary (C22 / R-7): the `python3 scripts/wrroc-validate.py`
+# subprocess lives in the harness adapter
+# (`scripps_workflow_harness::wrroc_validator_impl::PythonRuncrateWrrocValidator`)
+# so core stays I/O-free. The `tests/wrroc_v05_fixtures.rs` integration
+# test still needs the real Python runner, so harness is dev-dep'd here.
+# Cargo treats dev-deps as a separate graph (same pattern as the
+# conversation / eval-adapters dev-deps above), so this doesn't perturb
+# the production dep order.
+scripps-workflow-harness = { version = "0.1", path = "../harness" }
+# v4 P8 (D1 / F23) — `trybuild` drives the compile-fail harness under
+# `tests/compile_fail/`. The fixture there attempts a
+# `#[derive(Serialize)] struct ShouldNotCompile(AlignedReads<GRCh38>);`
+# and trybuild asserts the file fails to compile, locking in the
+# "phantom-typed wrappers MUST NOT derive serde" invariant.
+trybuild = "1"
+
+[[bench]]
+name = "classifier"
+harness = false
+
+# Tier F property-test binaries per `docs/dag_eval.md`. Each fNN_*.rs
+# is its own integration-test crate (Rust's default `tests/*.rs`
+# discovery doesn't pick up subdirectories, so we declare the paths
+# explicitly). Some entries are passing stubs awaiting their real
+# F-invariant assertions.
+[[test]]
+name = "f01_acyclicity"
+path = "tests/property/f01_acyclicity.rs"
+
+[[test]]
+name = "f02_input_port_coverage"
+path = "tests/property/f02_input_port_coverage.rs"
+
+[[test]]
+name = "f03_no_dangling_required"
+path = "tests/property/f03_no_dangling_required.rs"
+
+[[test]]
+name = "f05_every_edge_has_proof"
+path = "tests/property/f05_every_edge_has_proof.rs"
+
+[[test]]
+name = "f06_proof_content"
+path = "tests/property/f06_proof_content.rs"
+
+[[test]]
+name = "f07_unknown_types_no_strict_satisfaction"
+path = "tests/property/f07_unknown_types_no_strict_satisfaction.rs"
+
+[[test]]
+name = "f08_adapter_risk_class"
+path = "tests/property/f08_adapter_risk_class.rs"
+
+[[test]]
+name = "f09_risky_adapter_no_silent_insert"
+path = "tests/property/f09_risky_adapter_no_silent_insert.rs"
+
+[[test]]
+name = "f10_adapter_validator_presence"
+path = "tests/property/f10_adapter_validator_presence.rs"
+
+[[test]]
+name = "f11_promotion_refusal"
+path = "tests/property/f11_promotion_refusal.rs"
+
+[[test]]
+name = "f13_llm_no_authoritative_mutation"
+path = "tests/property/f13_llm_no_authoritative_mutation.rs"
+
+[[test]]
+name = "f14_llm_proposals_schema_validated"
+path = "tests/property/f14_llm_proposals_schema_validated.rs"
+
+[[test]]
+name = "f15_policy_denial_not_warning"
+path = "tests/property/f15_policy_denial_not_warning.rs"
+
+[[test]]
+name = "f16_privacy_violation_blocks_promotion"
+path = "tests/property/f16_privacy_violation_blocks_promotion.rs"
+
+# V4 alignment validation × lifecycle promotion
+# grid in `config/promotion-gate-policy.yaml` is the only source of
+# truth for promotion decisions; ad-hoc promotion in code is forbidden.
+[[test]]
+name = "f19_promotion_gate_config_only"
+path = "tests/property/f19_promotion_gate_config_only.rs"
+
+[[test]]
+name = "f22_modality_scoped_ontology"
+path = "tests/property/f22_modality_scoped_ontology.rs"
+
+# v4 P4 (D6 / F21) — every non-hard `RefusalReport` carries at least
+# one `UnblockPath`. Locks the F21 invariant at the type boundary
+# via `RefusalReport::validate()`; hard-policy kinds
+# (`HardPolicyViolation`, `PhiLeakBlocked`, `PrivacyViolation`)
+# permit the empty vec.
+[[test]]
+name = "f21_refusal_carries_unblock_paths"
+path = "tests/property/f21_refusal_carries_unblock_paths.rs"
+
+# v4 P5 (D5 / F20) — silent repair is forbidden. Every emitted
+# `RepairProposal` must surface to the verifier-decision substrate
+# (`VerifierDecision::RepairProposed`); proposals whose `risk_class`
+# is above `PlanningContext::auto_attempt_risk_threshold` MUST emit
+# but MUST NOT mutate the DAG. The default threshold is
+# `LowAutoAttempt`, so medium- and high-risk proposals never silently
+# auto-apply.
+# v4 P8 (D1 / F23) — runtime defense-in-depth assertion that the
+# phantom-typed compile-time-discipline wrappers never leak into
+# externally-visible IR `type_name` paths. The real F23 enforcement
+# is the trybuild compile-fail harness below; this test is the
+# runtime cross-check.
+[[test]]
+name = "f23_compile_time_discipline_no_serde"
+path = "tests/property/f23_compile_time_discipline_no_serde.rs"
+
+# v4 P8 (D1 / F23) — trybuild compile-fail harness. Asserts the
+# fixture under `tests/compile_fail/no_serialize_on_phantom.rs`
+# does NOT compile, locking in the "phantom-typed wrappers MUST
+# NOT derive serde" invariant.
+[[test]]
+name = "compile_fail"
+path = "tests/compile_fail/runner.rs"
+
+# v3 P8 — Tier 4.9.3 adversarial lifecycle property tests (design §7).
+# Six non-monotonic edges: same-user contradiction, cross-user
+# conflict, upstream invalidation, forbidden waiver, verifier-
+# discovered unresolvability, production-node revocation. Plus a
+# round-trip test for AdjudicationQueueEntry as a whole.
+[[test]]
+name = "lifecycle_adversarial"
+path = "tests/property/lifecycle_adversarial.rs"
+
+# R-24 — property-test additions. Each binary lives under `tests/property/`
+# so Cargo's default
+# `tests/*.rs` discovery doesn't pick it up; the explicit `[[test]]`
+# entries below register them.
+[[test]]
+name = "classifier_fuzz"
+path = "tests/property/classifier_fuzz.rs"
+
+[[test]]
+name = "blocker_kind_roundtrip"
+path = "tests/property/blocker_kind_roundtrip.rs"
+
+[[test]]
+name = "cross_version_diff_concordance"
+path = "tests/property/cross_version_diff_concordance.rs"
+
+[[test]]
+name = "ts_rs_serde_parity"
+path = "tests/property/ts_rs_serde_parity.rs"
+
+[[test]]
+name = "atom_safety_combinatorial"
+path = "tests/property/atom_safety_combinatorial.rs"
+
+# The `legacy-taxonomy` feature flag is retired with the YAML
+# directory. `taxonomy.rs` now only holds the `StageSpec` /
+# `StageCardinality` / `StageTaxonomy` metadata types that the v4
+# composer-driven path consumes; the YAML loader is gone. No
+# source-level cfg-gating was applied, so removing the feature flag
+# has no compile-time effect.
+
+[lints]
+workspace = true

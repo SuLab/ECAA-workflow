@@ -1,0 +1,63 @@
+id: share_seq_barcode_match
+version: "1.0.0"
+role: operation
+description: |
+  Match split-pool combinatorial barcodes between SHARE-seq RNA
+  and SHARE-seq ATAC reads to assign both to the same nucleus.
+  SHARE-seq combinatorial barcoding requires reconstructing the
+  4-round split-pool barcode per read; nuclei are then linked
+  across modalities via the combined barcode string.
+edam_operation: "operation:3185"
+edam_data: "data:3917"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - data_acquisition
+expected_artifacts:
+  - share_paired_barcodes.tsv
+  - barcode_match_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: barcode_pairing
+required_figures:
+  - barcode_match_summary
+attributes:
+  candidate_tools:
+    - share_seq_pipeline
+    - bbmap_demux
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: hours
+claim_boundary: |
+  Per-nucleus pairing across SHARE-seq modalities depends on
+  combinatorial-barcode reconstruction accuracy and round-by-round
+  ligation efficiency. Report per-round-barcode recovery rate
+  + downstream paired-nucleus yield.
+inputs:
+  - name: share_library_reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2044"
+      label: "Sequence"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:1930"
+      label: "FASTQ"
+    privacy_class: internal
+outputs:
+  - name: paired_rna_atac_per_nucleus
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: multiome_paired_per_nucleus
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Per-nucleus paired RNA + ATAC barcode-aligned tables"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
+    privacy_class: internal

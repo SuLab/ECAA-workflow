@@ -1,0 +1,282 @@
+{
+  "current_task": null,
+  "meta": {
+    "modality_stratum": "clinical",
+    "run_id": "e7eff0c3-2aee-4681-54bd-4defaf83408e"
+  },
+  "run_id": "e7eff0c3-2aee-4681-54bd-4defaf83408e",
+  "tasks": {
+    "calibration_audit": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_calibration_audit",
+        "predictive_model_fit"
+      ],
+      "description": "Audit the calibration of a fitted predictive model on the internal\nvalidation predictions. Emits the Brier score, the reliability curve\n(binned predicted vs observed), expected and maximum calibration\nerror (ECE / MCE), and a SME-facing pass/fail per a configured\nBrier threshold (e.g., Brier ≤ 0.10 for binary clinical prediction).\nRecommends a calibration method (Platt / isotonic / temperature\nscaling) only when the audit fails the threshold; recommendation\nis advisory — calibration retraining is gated by SME approval.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "clinical_feature_extraction": {
+      "assignee": "agent",
+      "depends_on": [
+        "clinical_label_derivation",
+        "discover_clinical_feature_extraction"
+      ],
+      "description": "Windowed vital-sign / lab / treatment feature extraction for clinical\nprediction. Builds a per-(patient, prediction-window) feature matrix\nfrom labeled-cohort timestamps, optionally aggregated through standard\nEHR feature frameworks (MIMIC-Extract, concepts library, FIDDLE).\nRuns a mandatory leakage audit that asserts no feature window overlaps\nthe label-derivation window (e.g., the Sepsis-3 SOFA + suspected\ninfection window); the audit emits a per-feature `crosses_label_window`\nflag and refuses to emit features that cross the boundary.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "clinical_label_derivation": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_import",
+        "discover_clinical_label_derivation"
+      ],
+      "description": "Derive ground-truth labels (e.g., Sepsis-3 onset, hospital mortality,\nAKI stage) from raw EHR tables. Canonical derivations come from\ncommunity-maintained code (e.g., mimic-code `sepsis3` table, eICU\nhelpers); ICD-only labels are a known failure mode and must be\nrejected by the agent's runtime check. Emits a labeled cohort\ntable with one row per (patient, encounter, prediction window)\nand the derived outcome columns + onset timestamps.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "data_import": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_calibration_audit": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for calibration_audit (options: sklearn_calibration_curve, netcal, custom_platt, custom_isotonic). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_clinical_feature_extraction": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for clinical_feature_extraction (options: mimic_extract, concepts_library, fiddle, custom_window_aggregator). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_clinical_label_derivation": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for clinical_label_derivation (options: mimic_code_sepsis3, eicu_helpers, custom_sql_concepts). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_external_validation": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for external_validation (options: sklearn_metrics, custom_external_scorer). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_fairness_audit": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for fairness_audit (options: fairlearn, aequitas, custom_subgroup_bootstrap). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_predictive_model_fit": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for predictive_model_fit (options: xgboost, lightgbm, lstm, tcn, transformer). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "external_validation": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_external_validation",
+        "predictive_model_fit"
+      ],
+      "description": "Re-evaluate a trained predictive model on a holdout external cohort\n(e.g., eICU-CRD when the model was trained on MIMIC-IV). Repeats\nlabel derivation, feature extraction, and prediction generation\nusing the SAME pipeline contracts as the internal pass, then scores\nthe model's predictions against the external cohort's labels.\nEmits AUROC, AUPRC, calibration, fairness metrics plus a transport\ndiagnostic (feature-distribution shift, label-prevalence shift)\nso SMEs see whether degradation is statistical drop or distribution\nshift. External AUROC is expected to drop 0.05-0.15 relative to\ninternal validation; this is not interpreted as model failure\nabsent other signals.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "fairness_audit": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_fairness_audit",
+        "predictive_model_fit"
+      ],
+      "description": "Audit subgroup performance differentials for a fitted clinical\nprediction model. Computes AUROC, AUPRC, sensitivity, specificity,\nand calibration metrics per stratification axis (typically age,\nsex, race/ethnicity, hospital-of-origin) plus pairwise subgroup\ndifferentials with bootstrap confidence intervals. Emits a\nfairness report and a SME-facing pass/fail per configured\ndifferential thresholds. Subgroup membership comes from the\nlabeled-cohort sensitive-attribute columns; absent stratifiers\nsurface as a configurable blocker rather than silently dropping\nthe axis.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "predictive_model_fit": {
+      "assignee": "agent",
+      "depends_on": [
+        "clinical_feature_extraction",
+        "discover_predictive_model_fit"
+      ],
+      "description": "Fit one or more clinical-prediction model families against the\nwindowed feature matrix. Method-neutral: the agent picks the model\nfamily from the SME-named candidate list (typically gradient-boosted\ntrees — XGBoost / LightGBM — plus a sequence model — LSTM / TCN /\nTransformer) at runtime. Emits trained-model artifacts and per-row\npredicted probabilities on an internal validation split; cross-\nvalidation and hyperparameter-search logs are committed to the\nfitting report.\n",
+      "kind": "computation",
+      "resource_class": "memory_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "calibration_audit",
+        "external_validation",
+        "fairness_audit"
+      ],
+      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_clinical_feature_extraction": {
+      "assignee": "agent",
+      "depends_on": [
+        "clinical_feature_extraction"
+      ],
+      "description": "Validate outputs of: Windowed vital-sign / lab / treatment feature extraction for clinical\nprediction. Builds a per-(patient, prediction-window) feature matrix\nfrom labeled-cohort timestamps, optionally aggregated through standard\nEHR feature frameworks (MIMIC-Extract, concepts library, FIDDLE).\nRuns a mandatory leakage audit that asserts no feature window overlaps\nthe label-derivation window (e.g., the Sepsis-3 SOFA + suspected\ninfection window); the audit emits a per-feature `crosses_label_window`\nflag and refuses to emit features that cross the boundary.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_clinical_label_derivation": {
+      "assignee": "agent",
+      "depends_on": [
+        "clinical_label_derivation"
+      ],
+      "description": "Validate outputs of: Derive ground-truth labels (e.g., Sepsis-3 onset, hospital mortality,\nAKI stage) from raw EHR tables. Canonical derivations come from\ncommunity-maintained code (e.g., mimic-code `sepsis3` table, eICU\nhelpers); ICD-only labels are a known failure mode and must be\nrejected by the agent's runtime check. Emits a labeled cohort\ntable with one row per (patient, encounter, prediction window)\nand the derived outcome columns + onset timestamps.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_data_import": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_import"
+      ],
+      "description": "Validate outputs of: Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "final_reporting"
+      ],
+      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_predictive_model_fit": {
+      "assignee": "agent",
+      "depends_on": [
+        "predictive_model_fit"
+      ],
+      "description": "Validate outputs of: Fit one or more clinical-prediction model families against the\nwindowed feature matrix. Method-neutral: the agent picks the model\nfamily from the SME-named candidate list (typically gradient-boosted\ntrees — XGBoost / LightGBM — plus a sequence model — LSTM / TCN /\nTransformer) at runtime. Emits trained-model artifacts and per-row\npredicted probabilities on an internal validation split; cross-\nvalidation and hyperparameter-search logs are committed to the\nfitting report.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    }
+  },
+  "version": "1.0",
+  "workflow_id": "workflow-ca268c8fba9b"
+}

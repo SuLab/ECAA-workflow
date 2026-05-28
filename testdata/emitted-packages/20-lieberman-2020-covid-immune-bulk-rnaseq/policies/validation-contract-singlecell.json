@@ -1,0 +1,181 @@
+{
+  "contract_id": "validation-contract-singlecell",
+  "description": "Per-stage required assertions for the single-cell RNA-seq taxonomy. Each stage_class block lists assertions the validator MUST run; the harness cross-checks the validator's validation_report.json after completion and re-blocks the parent compute task if any `required` assertion is missing or failed. Derived from the Lotz IVD spec (specs/0[1-9]_*.md + 1[0-2]_*.md).",
+  "version": "1.0.0",
+  "stages": {
+    "data_acquisition": {
+      "assertions": [
+        {
+          "id": "data_acquisition.registry_present",
+          "description": "A dataset_registry.tsv must be produced listing every accession with kept/dropped status.",
+          "assertion_type": "artifact_present",
+          "target": "runtime/outputs/data_acquisition/dataset_registry.tsv",
+          "severity": "recommended"
+        }
+      ]
+    },
+    "metadata_harmonization": {
+      "assertions": [
+        {
+          "id": "metadata_harmonization.sample_metadata_present",
+          "description": "sample_metadata.tsv must be produced by the metadata_harmonization stage.",
+          "assertion_type": "artifact_present",
+          "target": "runtime/outputs/metadata_harmonization/sample_metadata.tsv",
+          "severity": "required"
+        },
+        {
+          "id": "metadata_harmonization.canonical_columns",
+          "description": "sample_metadata.tsv must carry the canonical columns for downstream DE + composition analysis.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/metadata_harmonization/sample_metadata.tsv",
+          "check": {
+            "substrings": ["study", "sample_key", "condition", "age_years", "pfirrmann_grade", "compartment"]
+          },
+          "severity": "required"
+        }
+      ]
+    },
+    "preprocessing": {
+      "assertions": [
+        {
+          "id": "preprocessing.cellranger_or_passthrough_documented",
+          "description": "Either Cell Ranger 7.x is the method, or the passthrough is explicitly documented with a spec-deviation rationale in known_limitations.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/preprocessing/manifest.json",
+          "check": {
+            "substrings_any": ["cellranger_7", "cellranger_8", "skip_preprocessing_passthrough"]
+          },
+          "severity": "recommended"
+        },
+        {
+          "id": "preprocessing.doublet_detection_ran",
+          "description": "Scrublet or an equivalent doublet detection method must have run.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/preprocessing/manifest.json",
+          "check": {
+            "substrings_any": ["scrublet", "doubletfinder", "doublet_detection"]
+          },
+          "severity": "recommended"
+        }
+      ]
+    },
+    "batch_correction": {
+      "assertions": [
+        {
+          "id": "batch_correction.integration_stats_present",
+          "description": "Every compartment directory must contain an integration_stats.json.",
+          "assertion_type": "artifact_glob_any",
+          "target": "runtime/outputs/batch_correction/compartment_*/integration_stats.json",
+          "severity": "required"
+        },
+        {
+          "id": "batch_correction.ilisi_recorded",
+          "description": "iLISI (or equivalent batch-mixing metric) must be present in each compartment's integration_stats.json.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/batch_correction/compartment_NP/integration_stats.json",
+          "check": {
+            "substrings_any": ["ilisi", "batch_mixing_post", "mixing_post"]
+          },
+          "severity": "recommended"
+        }
+      ]
+    },
+    "clustering": {
+      "assertions": [
+        {
+          "id": "clustering.cluster_assignments_present",
+          "description": "Every compartment directory must contain cluster_assignments.tsv(.gz).",
+          "assertion_type": "artifact_glob_any",
+          "target": "runtime/outputs/clustering/compartment_*/cluster_assignments.tsv*",
+          "severity": "required"
+        },
+        {
+          "id": "clustering.resolution_sweep_documented",
+          "description": "A resolution sweep must be recorded in the manifest (the spec's step-0.1 sweep is preferred; looser sweeps are a documented deviation).",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/clustering/manifest.json",
+          "check": {
+            "substrings_any": ["resolution_sweep", "resolution_sensitivity"]
+          },
+          "severity": "recommended"
+        }
+      ]
+    },
+    "cell_type_annotation": {
+      "assertions": [
+        {
+          "id": "cell_type_annotation.labels_present",
+          "description": "Per-compartment annotation_per_cell.tsv(.gz) must be produced with a cell-type column.",
+          "assertion_type": "artifact_glob_any",
+          "target": "runtime/outputs/cell_type_annotation/compartment_*/annotation_per_cell.tsv*",
+          "severity": "required"
+        }
+      ]
+    },
+    "differential_expression": {
+      "assertions": [
+        {
+          "id": "differential_expression.results_non_empty",
+          "description": "de_results.tsv(.gz) for at least one compartment must carry more than its header row — an empty DE table marks the stage as not actually run.",
+          "assertion_type": "artifact_non_empty_table",
+          "target": "runtime/outputs/differential_expression/compartment_*/de_results.tsv*",
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.design_records_covariates",
+          "description": "The DE design string in the manifest should record the condition + study covariates at minimum; ivd_score is spec-preferred when available.",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/manifest.json",
+          "check": {
+            "substrings_any": ["condition", "design"]
+          },
+          "severity": "recommended"
+        }
+      ]
+    },
+    "biological_interpretation": {
+      "assertions": [
+        {
+          "id": "biological_interpretation.enrichment_present",
+          "description": "Per-compartment enrichment tables must be produced (ora, method_consensus, or gsea).",
+          "assertion_type": "artifact_glob_any",
+          "target": "runtime/outputs/biological_interpretation/compartment_*/*.tsv*",
+          "severity": "required"
+        }
+      ]
+    },
+    "trajectory_analysis": {
+      "assertions": [
+        {
+          "id": "trajectory_analysis.pseudotime_present",
+          "description": "Per-compartment pseudotime assignments (dpt_per_cell.tsv.gz or equivalent) must be produced when the stage runs.",
+          "assertion_type": "artifact_glob_any",
+          "target": "runtime/outputs/trajectory_analysis/compartment_*/dpt_per_cell.tsv*",
+          "severity": "recommended"
+        }
+      ]
+    },
+    "cell_cell_communication": {
+      "assertions": [
+        {
+          "id": "cell_cell_communication.interactions_present",
+          "description": "Per-compartment interaction tables must be produced (LIANA or CellChat).",
+          "assertion_type": "artifact_glob_any",
+          "target": "runtime/outputs/cell_cell_communication/compartment_*/*.tsv*",
+          "severity": "required"
+        }
+      ]
+    },
+    "final_reporting": {
+      "assertions": [
+        {
+          "id": "final_reporting.report_present",
+          "description": "A final report must be produced (HTML or Markdown acceptable).",
+          "assertion_type": "artifact_glob_any",
+          "target": "runtime/outputs/final_reporting/*.{html,md}",
+          "severity": "required"
+        }
+      ]
+    }
+  }
+}

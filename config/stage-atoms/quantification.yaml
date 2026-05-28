@@ -1,0 +1,49 @@
+id: quantification
+version: "1.0.0"
+role: operation
+description: |
+  Quantify gene- or transcript-level expression from aligned reads. Method
+  neutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected
+  at runtime. Emits a count matrix consumed by downstream normalisation.
+edam_operation: "operation:3800"
+edam_data: "data:0863"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - alignment
+attributes:
+  candidate_tools:
+    - salmon
+    - kallisto
+    - featurecounts
+    - htseq
+    - rsem
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: false
+  runtime_class: hours
+# Explicit rich ports.
+inputs:
+  - name: aligned_reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0863"
+      label: "Sequence alignment"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:2572"
+      label: "BAM"
+    privacy_class: internal
+outputs:
+  - name: count_matrix
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "raw_counts"
+    privacy_class: internal

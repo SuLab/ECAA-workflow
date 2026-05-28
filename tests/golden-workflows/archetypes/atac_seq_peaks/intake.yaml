@@ -1,0 +1,3 @@
+ATAC-seq peak calling to identify open chromatin and accessible regions across a
+panel of differentiated cell types. Use MACS3 to call narrow peaks and produce
+accessibility BED tracks for downstream comparison.

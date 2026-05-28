@@ -1,0 +1,43 @@
+schema_version: "0.1"
+id: generic_omics
+version: "1.0.0"
+description: |
+  Catch-all archetype for off-topic prose that mentions omics data but
+  carries no specific modality or goal phrase. Emits the universal
+  `raw_qc → generic_summary` pipeline so the SME sees something
+  runnable; further analysis steps surface as SME-driven amendments
+  rather than auto-emitted. Closes Phase 6.1 task B.2 of the v3+v4
+  100-percent-closure plan, retiring the last legacy taxonomy
+  fallback for bare-modality prose.
+sme_summary: |
+  Generic catch-all: run raw QC on the inputs and emit a summary
+  table. Further analysis surfaces as SME amendments.
+goal_data: "data:0006"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: generic_omics
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: generic_summary
+    required: true
+    depends_on: [raw_qc]
+  # Every emitted package terminates in a `reporting`/`final_reporting`
+  # pair so the post-emit DAG audit (no isolated nodes, every primary
+  # task reaches a terminal) holds even on the catch-all path that's
+  # routinely augmented by promoted propose_hypothesized_node atoms
+  # (Tier-B flex scenarios). Without these the audit reports no-terminal
+  # on every promoted-proposal DAG.
+  - atom_id: reporting
+    required: true
+    depends_on: [generic_summary]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+claim_boundary: |
+  Report QC metrics and summary counts as computed. Do not assert
+  modality-specific biological interpretation; the archetype is a
+  catch-all and downstream typed analysis is up to the SME.

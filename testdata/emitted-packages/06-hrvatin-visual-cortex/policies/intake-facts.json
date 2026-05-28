@@ -1,0 +1,12 @@
+{
+  "modality": "single_cell_rnaseq",
+  "project_class": "bioinformatics",
+  "organism_taxon_id": 10090,
+  "organism_name": "Mus musculus",
+  "methods": [
+    "STAR",
+    "DESeq2",
+    "edgeR"
+  ],
+  "literature_review_requested": false
+}

@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scripps-workflow/config/modalities/_modality.schema.json",
+  "title": "ModalityDefinition",
+  "description": "Plan §A.S5 — schema for `config/modalities/<id>.yaml`. The single source of truth for modality definition: classifier keywords, EDAM IRI tuple, taxonomy/archetype routing, fixture corpus rows. Replaces the per-modality block in `modality-keywords.yaml`. The `ModalityRegistry` loader (Plan §A.S5) validates each YAML against this schema before deserialization. The file stem must equal the declared id.",
+  "type": "object",
+  "required": ["schema_version", "id", "display_name", "keywords", "edam_topic", "edam_operation"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "0.1",
+      "description": "Schema-layout version for this modality manifest. Registered in `crates/core/src/migration` so an emitted package referencing an older modality schema surfaces `BlockerKind::SchemaVersionMismatch` at load time. Bump on breaking layout changes; additive optional fields stay on the same version."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+      "description": "Stable modality id (e.g. `bulk_rnaseq`, `single_cell_rnaseq`). Lowercase + underscores. The composer uses this as the cache key for archetype matching."
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable name surfaced in SME-facing UI."
+    },
+    "keywords": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Substring keywords the classifier scans the SME's normalized intake text against. Empty list is the fallback shape (`generic_omics`)."
+    },
+    "edam_topic": {
+      "type": "string",
+      "pattern": "^topic:\\d+$",
+      "description": "EDAM topic IRI characterising the modality."
+    },
+    "edam_operation": {
+      "type": "string",
+      "pattern": "^operation:\\d+$",
+      "description": "EDAM operation IRI for the modality's primary computation."
+    },
+    "taxonomy_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Plan Stage 9 sunset target — path (relative to config/) of the legacy taxonomy YAML for this modality. The keyword classifier loads this when no archetype match is found. Stage 9 prunes this field after the composer-native archetype path becomes the default."
+    },
+    "archetype_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+      "description": "Optional composer-native archetype id this modality maps to. When set, the composer fast-path can route directly without classifier-tie-break."
+    },
+    "fixture_corpus_rows": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Names of fixture corpus rows that exercise this modality. Used by `playwright_eval/corpus.rs::infer_modality` to map fixture id → modality without hardcoded match arms."
+    },
+    "interpretation_policy_override": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional path of a per-modality interpretation policy that overrides the default. When omitted, the loader uses the project-class-level policy."
+    },
+    "prompt_addendum_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional path to a per-modality prompt addendum the conversation crate appends after the project-class block. Most modalities don't need this; reserve for modalities with strong claim-boundary or vocabulary-fence requirements."
+    },
+    "semantic_equivalence_bounds": {
+      "type": "array",
+      "description": "Per-modality numeric tolerances that define when two independent runs of the analysis are considered semantically equivalent. Used by the claim verifier and the evaluation rubric scorer to gate PAR-26-040 §G2 reproducibility claims.",
+      "items": {
+        "type": "object",
+        "required": ["metric", "operator", "threshold"],
+        "additionalProperties": false,
+        "properties": {
+          "metric": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Metric name, e.g. log2fc_abs_delta, ari, jaccard, vcf_concordance, spearman_rho."
+          },
+          "operator": {
+            "type": "string",
+            "enum": ["<=", ">=", "<", ">", "approx"],
+            "description": "Comparison direction: the observed value must satisfy `observed <operator> threshold`."
+          },
+          "threshold": {
+            "type": "number",
+            "description": "Numeric bound."
+          },
+          "applies_to": {
+            "type": "string",
+            "description": "Optional glob-style artifact pattern relative to the package root, e.g. 'results/tables/de_*.csv'. When omitted the bound applies to any artifact that exposes the metric."
+          },
+          "rationale": {
+            "type": "string",
+            "description": "Free-text rationale, e.g. 'Grant §G2 bulk-RNA DE bound'."
+          }
+        }
+      }
+    }
+  }
+}

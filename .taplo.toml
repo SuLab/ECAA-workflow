@@ -1,0 +1,51 @@
+# Taplo TOML hygiene.
+#
+# Used by `taplo fmt --check` + `taplo lint` in CI (`.github/workflows/
+# rust.yml`). Format rules pin a single workspace style so Cargo.toml
+# diffs stay minimal across PRs.
+#
+# Soft-fail in CI today (warning, not error). Hard-gate flip is a
+# follow-up once the existing TOML is normalized in a single sweep.
+
+include = [
+  "Cargo.toml",
+  "crates/*/Cargo.toml",
+  ".taplo.toml",
+  "rust-toolchain.toml",
+  "deny.toml",
+]
+
+# Don't reformat fixtures or 3rd-party-shaped files.
+exclude = [
+  "target/**",
+  "ui/node_modules/**",
+  "tests/**/*.toml",
+  "testdata/**/*.toml",
+]
+
+[formatting]
+# 100-col target matches rustfmt's max_width for narrative consistency
+# between the Rust source and its Cargo.toml siblings.
+column_width = 100
+# Trailing newline at EOF is the standard textfile invariant + rustfmt
+# default for any Rust source file in this repo.
+trailing_newline = true
+# `align_entries` formats key/value pairs in adjacent rows so deps
+# read like a column. Keeps Cargo.toml deps blocks scannable.
+align_entries = true
+# `indent_string` mirrors rustfmt's 4-space indent.
+indent_string = "    "
+# Keep array elements on their own lines when the array spans more
+# than one line. Same shape clippy + rustfmt enforce on `vec![…]`.
+array_auto_collapse = false
+array_auto_expand = true
+
+[[rule]]
+include = ["**/Cargo.toml"]
+
+[rule.formatting]
+# Cargo workspaces conventionally keep deps unaligned for readability
+# of the `[dependencies]` blocks (where keys vary in length and
+# alignment can produce ugly gaps). Override the global setting just
+# for Cargo.toml.
+align_entries = false

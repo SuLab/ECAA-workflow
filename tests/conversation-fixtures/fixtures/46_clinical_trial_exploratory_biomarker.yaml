@@ -1,0 +1,62 @@
+id: 46_clinical_trial_exploratory_biomarker
+category: wave8_clinical_trial
+description: |
+  Plan §8.E.5 fixture 32 equivalent: clinical-trial SME describes an
+  exploratory biomarker analysis (no prespec SAP frame). Classifier must
+  still route to ProjectClass::ClinicalTrial but SessionMode stays
+  Exploratory — the overlay + deviation machinery do not fire.
+
+flow:
+  - kind: user
+    text: |
+      We're exploring a post-hoc biomarker signature in a Phase II RCT. No
+      prespecified SAP beyond the primary endpoint. Looking at treatment
+      arm response stratified by IL-6 and CRP at baseline; compute odds
+      ratios with bootstrap confidence intervals. Exploratory only — this
+      is hypothesis-generating for Phase III.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        Phase II RCT biomarker exploration: treatment arm response stratified
+        by IL-6 and CRP at baseline; odds ratios with bootstrap CIs.
+        Hypothesis-generating only.
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Exploratory biomarker analysis plan. No SAP lock; results are
+        hypothesis-generating for Phase III.
+  - kind: text
+    text: |
+      Accept when it looks right.
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      Package emitted. Exploratory branch — no deviation log will fire
+      because the session carries no prespecified stages.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - policies/container.json
+
+rubric_notes: |
+  Proves the ClinicalTrial class supports exploratory sessions. The
+  "Analysis discipline" dropdown defaults to Exploratory even though
+  the class is ClinicalTrial (plan §8.C.2 / D8 — force-explicit-mode is
+  about *picking*, not about always picking Confirmatory).

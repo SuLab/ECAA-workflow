@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://scripps-workflow/slurm-mapping.schema.json",
+  "title": "SLURM Resource Mapping",
+  "description": "Schema for config/compute-profiles/slurm-mapping.yaml. Maps abstract ResourceRequirements from the emitted compute-resource-policy.json to SLURM partition/QoS/gres/time flags. Site-specific: each cluster ships its own YAML. Validated at load; drift fails loud at executor startup, not at sbatch time.",
+  "type": "object",
+  "required": ["version", "resource_classes", "fallback"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1,
+      "description": "Schema version. Bump when the shape changes in a way that breaks old YAML."
+    },
+    "resource_classes": {
+      "type": "object",
+      "description": "Named resource classes. Keys are arbitrary identifiers (e.g. cpu_small, gpu_large); the sizing loader picks the smallest class whose SLURM-flagged resources satisfy the stage's ResourceRequirements.",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/definitions/resource_class" }
+    },
+    "fallback": {
+      "allOf": [
+        { "$ref": "#/definitions/resource_class" }
+      ],
+      "description": "Used when no resource_class satisfies the ResourceRequirements. Required so the loader never has to error at runtime — operators pick the safest default for their site."
+    },
+    "partitions": {
+      "type": "object",
+      "description": "Plan §S15.12 — per-partition container-runtime allow-list. Keys are partition names referenced by resource_classes[*].partition above; values declare which container runtimes the partition supports. `slurm/sbatch.rs::validate_submission` rejects with `BlockerKind::SlurmRuntimeUnavailable` when an atom's `preferred_container` requires a runtime not on the partition's list. Optional: when omitted, the validator falls back to the agent script's auto-detect chain (S15.4).",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["container_runtimes"],
+        "properties": {
+          "container_runtimes": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "description": "Runtime keyword. `none` means 'host execution allowed' (no container required); `apptainer-1.4`, `singularity-3.x`, `podman`, `docker` follow the agent-claude-slurm.sh probe priority."
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "resource_class": {
+      "type": "object",
+      "required": ["partition", "cpus_per_task", "mem", "time"],
+      "additionalProperties": false,
+      "properties": {
+        "partition": {
+          "type": "string",
+          "minLength": 1,
+          "description": "SLURM partition name passed as --partition=."
+        },
+        "qos": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional --qos= value. Site-dependent."
+        },
+        "cpus_per_task": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "--cpus-per-task= value."
+        },
+        "mem": {
+          "type": "string",
+          "pattern": "^[0-9]+[KMGT]?$",
+          "description": "--mem= value in SLURM's syntax (e.g. '16G', '64000M'). Integer + optional K/M/G/T suffix."
+        },
+        "gres": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional --gres= value (e.g. 'gpu:1', 'gpu:a100:2')."
+        },
+        "time": {
+          "type": "string",
+          "pattern": "^([0-9]+-)?[0-9]{1,2}:[0-9]{2}:[0-9]{2}$",
+          "description": "--time= wall-clock limit in SLURM syntax (DD-HH:MM:SS or HH:MM:SS)."
+        }
+      }
+    }
+  }
+}

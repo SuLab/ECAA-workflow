@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Retrieval Tool Registry",
+  "description": "Sidecar schema validating the top-level shape of retrieval-tool-registry.json. Describes the list of discovery and retrieval agent tools and the associated budget limits.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "tools",
+    "budgetLimits"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "tools": { "type": "array" },
+    "budgetLimits": { "type": "object" }
+  }
+}

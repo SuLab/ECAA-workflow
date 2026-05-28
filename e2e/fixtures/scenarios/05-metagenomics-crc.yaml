@@ -1,0 +1,145 @@
+# 05 — CRC stool microbiome cross-cohort meta-analysis
+#
+# Wirbel 2019 style LOCO meta-analysis. The assistant should not
+# recommend a profiler beyond what the SME explicitly named.
+
+name: CRC stool metagenomics meta-analysis
+modality: metagenomics
+
+beats:
+  - user: "I want to do a cross-cohort CRC stool microbiome meta-analysis."
+    assistant:
+      content: |
+        CRC shotgun metagenomics cross-cohort — got it. Which cohorts
+        and what contrast?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+      visibleText:
+        - "CRC"
+        - "metagenomics"
+
+  - user: |
+      Five primary cohorts from ENA — Zeller 2014 (FR), Feng 2015 (AT),
+      Yu 2017 (CN), Vogtmann 2016 (US), Wirbel 2019 (DE).
+    assistant:
+      content: |
+        Five primary cohorts staged — FR, AT, CN, US, DE. Two
+        optional validation cohorts exist (Thomas IT, Yachida JP).
+        Include them as validation or leave out of the primary?
+    expect:
+      visibleText:
+        - "FR"
+        - "AT"
+        - "DE"
+      forbiddenText:
+        - "MetaPhlAn"
+        - "HUMAnN"
+        - "I recommend"
+
+  - user: |
+      Include both optional cohorts as external validation. We can
+      consume either raw fastq or the curatedMetagenomicData fast-path.
+    assistant:
+      content: |
+        Both validation cohorts included, and I'll keep the raw-fastq
+        vs curatedMetagenomicData access path as an explicit runtime
+        decision. CLR transformation is mandatory before any parametric
+        test.
+    expect:
+      visibleText:
+        - "curatedMetagenomicData"
+        - "CLR"
+
+  - user: |
+      Yes — LOCO cross-validation is required, in-cohort AUROC isn't
+      a valid endpoint for a generalization claim.
+    assistant:
+      content: |
+        Recorded — leave-one-cohort-out as the primary evaluation,
+        per-cohort AUROC reported alongside the aggregate. Fail-closed
+        on LOCO AUROC below floor or Jaccard against Wirbel 2019
+        29-species list below 0.5.
+    expect:
+      visibleText:
+        - "leave-one-cohort-out"
+        - "Wirbel"
+
+  - user: |
+      Perfect. Contrast is CRC vs healthy adults; exclude adenomas from
+      the primary. Internal use, public data only.
+    assistant:
+      content: |
+        Here's the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **CRC cross-cohort stool metagenomics meta-analysis**
+
+          - **Primary cohorts:** Zeller FR, Feng AT, Yu CN, Vogtmann US,
+            Wirbel DE (five, 386 CRC + 392 healthy)
+          - **Validation:** Thomas IT, Yachida JP (external only)
+          - **Access path:** raw fastq re-profiling OR
+            curatedMetagenomicData fast-path (runtime decision logged)
+          - **Transformation:** CLR mandatory before any parametric test
+          - **Evaluation:** leave-one-cohort-out primary, per-cohort
+            AUROC and feature stability reported
+          - **Fail-closed:** LOCO AUROC floor + Jaccard ≥ 0.5 vs Wirbel
+            2019 29-species signature
+          - **Exclusions:** adenomas from primary contrast
+          - **Claim boundary:** descriptive cross-cohort microbial
+            association and classifier discrimination only. No
+            clinical-utility, screening-deployment, causal, or
+            mechanistic claims.
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "Claim boundary"
+        - "leave-one-cohort-out"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: "Package emitted — cross-cohort profiling ready for execution."
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I want to run a cross-cohort CRC stool microbiome meta-analysis in the
+    style of Wirbel 2019. Five primary ENA cohorts: Zeller 2014 (FR), Feng 2015
+    (AT), Yu 2017 (CN), Vogtmann 2016 (US), and Wirbel 2019 (DE). Include
+    Thomas (IT) and Yachida (JP) as external validation only. We can consume
+    either raw fastq or curatedMetagenomicData — let the harness decide at
+    runtime. CLR transformation is mandatory before any parametric test.
+    Leave-one-cohort-out cross-validation is the primary evaluation; in-cohort
+    AUROC alone is not a valid generalization endpoint. Contrast is CRC versus
+    healthy adults; exclude adenomas from the primary analysis. Fail closed if
+    LOCO AUROC drops below floor or Jaccard against Wirbel 2019 29-species list
+    falls below 0.5. Internal use, public data only. Once we agree on the plan,
+    emit the package to {pkgDir}.
+  followups:
+    - trigger: "(?i)(validation|Thomas|Yachida|external)"
+      reply: "Thomas IT and Yachida JP are external validation only, not in the primary meta-analysis."
+    - trigger: "(?i)(access|fastq|curatedMetagenomicData)"
+      reply: "Either raw fastq re-profiling or curatedMetagenomicData fast-path — runtime decision."
+    - trigger: "(?i)(adenoma|exclusion|contrast)"
+      reply: "CRC versus healthy adults only. Adenomas are excluded from the primary contrast."
+    - trigger: "(?i)(LOCO|leave.one|sensitivity)"
+      reply: "Leave-one-cohort-out is required. In-cohort AUROC alone is not sufficient."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "MetaPhlAn"
+      - "HUMAnN"
+      - "I recommend"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 4

@@ -1,0 +1,5 @@
+sample_id,cell_type,condition
+atac_sample_1,Tcell,immune
+atac_sample_2,Tcell,immune
+atac_sample_3,Bcell,reference
+atac_sample_4,Bcell,reference

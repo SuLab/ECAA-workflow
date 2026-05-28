@@ -1,0 +1,81 @@
+{
+  "methods": {
+    "alphafold": {
+      "cpu_impl": null,
+      "gpu_impl": "run_alphafold.py --use_gpu_relax=true",
+      "mig_profile": null,
+      "mps_compatible": false,
+      "notes": "AlphaFold has no practical CPU path — structure prediction falls back with a warning.",
+      "parabricks_route": false,
+      "requires": [
+        "nvidia",
+        "cuda_11_plus",
+        "vram_40gb_plus"
+      ]
+    },
+    "alphafold3": {
+      "cpu_impl": null,
+      "gpu_impl": "run_alphafold3.py",
+      "mig_profile": "3g.40gb",
+      "mps_compatible": false,
+      "notes": "AlphaFold-3 single-GPU only; A100/H100 80GB official support, ≤5,120 tokens per single-GPU run, no multi-GPU inference.",
+      "parabricks_route": false,
+      "requires": [
+        "nvidia",
+        "cuda_12_plus",
+        "vram_80gb_plus"
+      ]
+    },
+    "deepvariant": {
+      "cpu_impl": "run_deepvariant --use_accelerator=False",
+      "gpu_impl": "run_deepvariant --use_accelerator=True",
+      "mig_profile": null,
+      "mps_compatible": false,
+      "notes": "DeepVariant's --use_accelerator flag toggles CPU vs GPU within the same binary. Parabricks v4.6 wraps DeepVariant for the 30x WGS / 8 min H100 path.",
+      "parabricks_route": true,
+      "requires": [
+        "nvidia",
+        "cuda_11_plus",
+        "deepvariant_gpu_image"
+      ]
+    },
+    "haplotypecaller": {
+      "cpu_impl": "gatk HaplotypeCaller",
+      "gpu_impl": "pbrun haplotypecaller",
+      "mig_profile": null,
+      "mps_compatible": false,
+      "notes": "Parabricks ships HaplotypeCaller on the vendor AMI. Saturates a full H100 / A100 — MIG splits hurt throughput.",
+      "parabricks_route": true,
+      "requires": [
+        "nvidia",
+        "cuda_11_plus",
+        "parabricks_ami"
+      ]
+    },
+    "rapids_singlecell": {
+      "cpu_impl": "scanpy.<op>",
+      "gpu_impl": "rsc.<op>",
+      "mig_profile": null,
+      "mps_compatible": true,
+      "notes": "RAPIDS-singlecell 0.15 — orders-of-magnitude speedup over Scanpy for AnnData >100k cells.",
+      "parabricks_route": false,
+      "requires": [
+        "nvidia",
+        "cuda_11_plus",
+        "rapids_singlecell_image"
+      ]
+    },
+    "scvi": {
+      "cpu_impl": "scvi.train(use_gpu=False)",
+      "gpu_impl": "scvi.train(use_gpu=True)",
+      "mig_profile": null,
+      "mps_compatible": true,
+      "notes": "scVI training runs comfortably under MPS; replica-exchange cell-population fits per-replica.",
+      "parabricks_route": false,
+      "requires": [
+        "nvidia",
+        "cuda_11_plus"
+      ]
+    }
+  }
+}

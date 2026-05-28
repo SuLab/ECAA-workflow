@@ -1,0 +1,71 @@
+id: sciagent_solution
+version: "1.0.0"
+role: operation
+description: |
+  Solve one ScienceAgentBench task. The agent emits a Python program
+  (`solution.py`) into the package directory; the eval-adapter scorer
+  runs the program inside the bioinformatics evaluation container,
+  collects the program's emitted output, and applies the
+  paper-supplied evaluation metrics from
+  `OSU-NLP-Group/ScienceAgentBench/eval_metrics/<task>/`.
+  Pass-fail thresholds come verbatim from the paper. Container
+  must include the bioinformatics evaluation runtime (Python +
+  paper's eval_metrics deps); tag pinned in versions.lock.
+edam_operation: "swfc:sciagent_solution"
+assignee: agent
+preferred_container:
+  image: "ghcr.io/scripps/bio-min"
+  tag: "v0.1.0-eval-sciagent"
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+safety:
+  level: network
+  network:
+    kind: bridge
+# Explicit rich ports.
+# Agent task: input is a scientific problem statement, output is a
+# structured solution (Python program + paper-eval-metric scores).
+figure_exempt:
+  reason: "Benchmark evaluation atom; structured eval score output does not map to a visual figure type."
+  category: non_plottable
+inputs:
+  - name: problem_statement
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "llm_query"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "ScienceAgentBench task description + paper-supplied evaluation criteria."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public
+outputs:
+  - name: solution
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "llm_response"
+      proposed_parent_terms:
+        - "data:2526"
+      definition: "Agent-emitted Python program (solution.py) plus runtime output."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public
+  - name: score
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "eval_score"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Paper-supplied eval_metrics pass/fail score."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: public

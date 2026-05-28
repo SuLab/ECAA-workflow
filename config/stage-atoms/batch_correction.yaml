@@ -1,0 +1,66 @@
+id: batch_correction
+version: "1.0.0"
+role: operation
+description: |
+  Remove technical batch effects between donors / runs / sequencing centres
+  while preserving biological signal. swfc namespace per EDAM audit —
+  operation:3435 conflates with normalisation.
+edam_operation: "swfc:scrnaseq_batch_correction"
+edam_data: "data:3917"
+edam_format: "format:3590"
+assignee: agent
+depends_on:
+  - normalisation
+expected_artifacts:
+  - integration_stats.json
+  - corrected_embedding.tsv
+  - manifest.json
+  - result.json
+required_figures:
+  - mixing_score_bar
+  - umap_pre_post
+attributes:
+  candidate_tools:
+    - harmony
+    - scvi
+    - bbknn
+    - mnn_correct
+    - combat
+    - seurat_cca
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: false
+  runtime_class: hours
+# Explicit rich ports.
+# Removes technical batch effects from the normalised matrix while
+# preserving biological signal. Output carries normalization_state =
+# batch_corrected so downstream consumers know technical variance has
+# been regressed out.
+inputs:
+  - name: normalized_counts
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "normalized"
+    privacy_class: internal
+outputs:
+  - name: corrected_counts
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "batch_corrected_embedding"
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Batch-corrected embedding / count matrix with technical variance regressed out"
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
+    statistical_state: "normalized"
+    normalization_state: "batch_corrected"
+    privacy_class: internal

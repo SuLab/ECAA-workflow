@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "$id": "https://scripps-workflow/gpu-capability-map.schema.json",
+  "title": "GPU Capability Map",
+  "description": "Schema for config/compute-profiles/gpu-capability-map.yaml. Validated at emit time — if the map drifts from this shape the emitter errors at load rather than the runtime agent misrouting.",
+  "type": "object",
+  "required": ["methods"],
+  "additionalProperties": false,
+  "properties": {
+    "methods": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/definitions/method"
+      }
+    }
+  },
+  "definitions": {
+    "method": {
+      "type": "object",
+      "required": ["gpu_impl", "requires"],
+      "additionalProperties": false,
+      "properties": {
+        "cpu_impl": {
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "gpu_impl": { "type": "string", "minLength": 1 },
+        "requires": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "notes": { "type": "string", "minLength": 1 },
+        "mig_profile": {
+          "description": "Plan §S5.49 — Multi-Instance GPU slice the method fits in (e.g. \"3g.40gb\" on H100). Null/absent means the method needs a full GPU. SLURM consumers map this to `--gres=gpu:<type>_<profile>:1`.",
+          "anyOf": [
+            { "type": "string", "minLength": 1 },
+            { "type": "null" }
+          ]
+        },
+        "mps_compatible": {
+          "description": "Plan §S5.49 — true when CUDA MPS sharing is appropriate (short-running, fits comfortably in fraction of device memory, no MIG required). MIG and MPS are mutually exclusive on the same device.",
+          "type": "boolean"
+        },
+        "parabricks_route": {
+          "description": "Plan §S5.49 — true when the GPU implementation is a Parabricks pipeline. Triggers the Parabricks AMI path (S15.11) and the appropriate `pbrun ...` invocation.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

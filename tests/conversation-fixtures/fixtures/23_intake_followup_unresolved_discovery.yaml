@@ -1,0 +1,53 @@
+id: 23_intake_followup_unresolved_discovery
+category: state_machine_intake_followup
+description: |
+  Verifies the round-6 Phase 0 finishing touch — rebuild_dag now fires
+  DagBuiltWithUnresolvedDiscovery whenever the rebuilt DAG has Pending
+  or Ready discover_* tasks, so the session lands in IntakeFollowup
+  rather than staying in Intake. This fixture is the explicit
+  end-to-end demonstration: send a single intake message, observe the
+  state lands in IntakeFollowup. The single-cell taxonomy has multiple
+  discover_* stages so the trigger always fires for it.
+
+flow:
+  - kind: user
+    text: |
+      Single-cell scRNA-seq of human PBMCs from 24 donors. We want to
+      look at differential cell-type abundance between healthy donors
+      and donors with autoimmune disease. Public data planned, exact
+      datasets TBD.
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        single-cell scRNA-seq of human PBMCs, 24 donors, healthy vs
+        autoimmune disease, differential cell-type abundance, public
+        data TBD
+  - kind: text
+    text: |
+      Got it — single-cell PBMC comparison. Before I sketch the full
+      plan, two things to firm up: which autoimmune indication
+      specifically, and is the donor cohort already collected or do
+      we need to pick datasets first? Either answer is fine; just
+      helps me set up the pipeline correctly.
+
+expected_final_state:
+  # Round 6 Phase 0 finishing touch: append_intake_prose → rebuild_dag
+  # finds unresolved discover_* tasks → fires
+  # DagBuiltWithUnresolvedDiscovery → IntakeFollowup. Before round 6
+  # this transition was unreachable at runtime even though the state
+  # machine table defined it.
+  state_kind: intake_followup
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+
+rubric_notes: |
+  This fixture is the integration check for the IntakeFollowup state.
+  The unit tests in src/tools.rs::tests cover the behaviour at the
+  rebuild_dag layer; this fixture verifies the same trigger fires
+  end-to-end through the service tool loop. If a future change makes
+  rebuild_dag stop firing the trigger, this fixture is the regression
+  guard.

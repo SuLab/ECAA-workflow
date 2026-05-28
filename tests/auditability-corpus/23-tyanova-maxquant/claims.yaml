@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "23-tyanova-maxquant"
+claims:
+  - id: "23-tyanova-maxquant-claim-001"
+    text: "Quantified protein groups across 12 LFQ samples (Tyanova 2016 MaxQB-baseline): ≥ 4,000"
+    contract: time_series_summary
+    source_table: "results/tables/proteins.csv"
+    expected_value: 4000
+    tolerance: 0.1
+  - id: "23-tyanova-maxquant-claim-002"
+    text: "Per-cell-line valid-value rate: ≥ 80% of protein groups have valid LFQ in ≥2 of 3 replicates"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: 0.80
+    tolerance: 0.05
+  - id: "23-tyanova-maxquant-claim-003"
+    text: "Per-protein CV on technical replicates (within cell line) < 20% median"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: 0.20
+    tolerance: 0.05
+  - id: "23-tyanova-maxquant-claim-004"
+    text: "LFQ intensity correlation between same-cell-line technical replicates: ≥ 0.95 Pearson on log2-LFQ"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: 0.95
+    tolerance: 0.02
+  - id: "23-tyanova-maxquant-claim-005"
+    text: "PSM-level FDR (MaxQuant reverse-decoy default): ≤ 1%"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.01
+    tolerance: 0.005
+  - id: "23-tyanova-maxquant-claim-006"
+    text: "Protein-group FDR (MaxQuant reverse-decoy default): ≤ 1%"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/qc.csv"
+    expected_value: 0.01
+    tolerance: 0.005
+  - id: "23-tyanova-maxquant-claim-007"
+    text: "Pairwise t-test recovery for HeLa vs HEK293 at permutation FDR 5%: ≥ 1,000 significant proteins"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/de_results.csv"
+    expected_value: 1000
+    tolerance: 0.2
+  - id: "23-tyanova-maxquant-claim-008"
+    text: "PCA PC1+PC2 explained-variance attributable to cell-line factor: ≥ 0.6"
+    contract: numeric_table_lookup
+    source_table: "results/tables/pca.csv"
+    expected_value: 0.6
+    tolerance: 0.1
+  - id: "23-tyanova-maxquant-claim-009"
+    text: "K562 marker HBA1 enriched (chronic myelogenous leukemia / erythroid lineage)"
+    contract: categorical
+    source_table: "results/tables/de_results.csv"
+    expected_value: "HBA1"
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-010"
+    text: "HEK293 marker KRT18 enriched (embryonic kidney / cytokeratin-rich)"
+    contract: categorical
+    source_table: "results/tables/de_results.csv"
+    expected_value: "KRT18"
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-011"
+    text: "Emitted workflow contains stage 'discover_quantification': MaxQuant LFQ quantification + Perseus permutation t-test pipeline"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_quantification"
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-012"
+    text: "Emitted workflow contains stage 'discover_differential_expression' for Perseus pairwise t-test across cell lines"
+    contract: categorical
+    source_table: "WORKFLOW.json"
+    expected_value: "discover_differential_expression"
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null
+  - id: "23-tyanova-maxquant-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 23-tyanova-maxquant"
+    contract: numeric_table_lookup
+    source_table: "results/tables/proteins.csv"
+    expected_value: null
+    tolerance: null

@@ -1,0 +1,28 @@
+name: Immunopeptidomics HLA-bound peptides
+modality: immunopeptidomics
+
+beats:
+  - user: "Mass-spec immunopeptidomics — HLA class I peptides from tumor cell lines. I need binders + binding-affinity prediction + presentation summary."
+    assistant:
+      content: "Acknowledged — I have the modality + key parameters; will ask for any missing details before locking the plan."
+    expect:
+      visibleText: ["HLA", "peptide"]
+
+live:
+  intake_prose: |
+    Immunoaffinity-purified HLA class I peptide pools from four tumor cell
+    lines, three technical replicates each, DDA mass spec. I want peptide
+    identification, length distribution QC, per-allele HLA binding-affinity
+    prediction, presentation-likelihood scoring, and a final summary of
+    cell-line-specific presented peptides. Public data, internal use.
+  followups:
+    - trigger: "(?i)(reference|database|UniProt)"
+      reply: "UniProt human reference proteome. No-enzyme search."
+    - trigger: "(?i)(HLA|class.I|allele)"
+      reply: "HLA class I only. Allele typing already done — pass-through to the predictor."
+  assertions:
+    stateNotGreeting: true
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

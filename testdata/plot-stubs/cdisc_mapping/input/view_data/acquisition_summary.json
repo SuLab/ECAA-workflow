@@ -1,0 +1,1 @@
+{"data": {"studies": [{"n_samples": 7, "study_id": "study_0"}, {"n_samples": 7, "study_id": "study_1"}, {"n_samples": 6, "study_id": "study_2"}], "total_samples": 20}, "schema_version": 1, "stage_id": "data_acquisition", "view_id": "acquisition_summary"}

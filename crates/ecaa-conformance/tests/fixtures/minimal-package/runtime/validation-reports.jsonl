@@ -1,0 +1,1 @@
+{"task_id":"task_qc_001","obligation_id":"fastqc_produces_html","outcome":"passed","class":"contract_test","outputs":["data/figures/fig_qc.png"]}

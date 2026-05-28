@@ -1,0 +1,1654 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AtomId": {
+      "type": "string"
+    },
+    "AuditorProcedure": {
+      "description": "How an authorized auditor can retrieve the suppressed content. Tagged so the UI branches on retrieval kind rather than free text.",
+      "oneOf": [
+        {
+          "description": "File a ticket; the restricted-archive operator retrieves content. `ticket_template` is a stable identifier (URL, queue name) the UI can deep-link to.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "restricted_archive"
+              ],
+              "type": "string"
+            },
+            "ticket_template": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "ticket_template"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Permanently deleted; only the deletion-authority reference remains. `deletion_id` lets auditors confirm the deletion in the operator's deletion log.",
+          "properties": {
+            "deletion_authority": {
+              "description": "Deletion authority.",
+              "type": "string"
+            },
+            "deletion_id": {
+              "description": "Deletion id.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "permanently_deleted"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "deletion_authority",
+            "deletion_id",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "In-process retrieval via an authenticated API endpoint. `scope` names the OAuth/JWT scope required.",
+          "properties": {
+            "endpoint": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "authenticated_api"
+              ],
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "endpoint",
+            "kind",
+            "scope"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ChainOfCustody": {
+      "description": "Required chain-of-custody fields on every provenance record. Composed as `Option<ChainOfCustody>` on record types so older records without custody info remain valid.",
+      "properties": {
+        "auditor_access": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AuditorProcedure"
+            }
+          ],
+          "description": "How an authorized auditor retrieves full content."
+        },
+        "cryptographic_commitment": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ContentCommitment"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Cryptographic commitment (BLAKE3 hash) over the suppressed payload. `None` when the payload is structurally guessable from a hash and a non-public commitment is filed under the restricted-archive procedure."
+        },
+        "policy_rule_id": {
+          "description": "Foreign key into the `policy_rules:` registry in `config/assumption-policy.yaml`. Constructed via [`PolicyRuleId::new`] in registry-aware contexts, or via [`PolicyRuleId::unchecked`] (the `From<&str>` / `From<String>` blanket impls) where the registry isn't reachable.",
+          "type": "string"
+        },
+        "suppressing_component": {
+          "description": "Subsystem identifier (e.g. `provenance_tiers::redact_record`, `ingestion_safety::quarantine`).",
+          "type": "string"
+        },
+        "suppression_class": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/SuppressionClass"
+            }
+          ],
+          "description": "Class of suppression / redaction applied (matches a registered taxonomy ID, e.g. `phi_strict`, `prompt_injection`, `controlled_access_genotype`)."
+        },
+        "suppression_timestamp": {
+          "description": "RFC3339 timestamp.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "auditor_access",
+        "policy_rule_id",
+        "suppressing_component",
+        "suppression_class",
+        "suppression_timestamp"
+      ],
+      "type": "object"
+    },
+    "ContentCommitment": {
+      "description": "BLAKE3 commitment over the suppressed payload. The algorithm name is preserved verbatim in the record so future curators can add alternate algorithms without ambiguity at read time.",
+      "properties": {
+        "algorithm": {
+          "description": "Algorithm name (always `\"blake3\"` for records produced by `ChainOfCustody::with_commitment`).",
+          "type": "string"
+        },
+        "digest_hex": {
+          "description": "Hex-encoded digest. BLAKE3 produces 32 bytes → 64 hex chars.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "algorithm",
+        "digest_hex"
+      ],
+      "type": "object"
+    },
+    "DecisionActor": {
+      "description": "Who originated the decision.\n\n- `Sme`: a REST-endpoint button click (`/confirm`, `/reject`, `/unblock`, `/branch`) where the SME is the proximate actor. - `Llm`: a tool-dispatch decision (e.g. the LLM fired `emit_package` after the SME confirmed). The alone-in-turn gate means these are always authorised by a prior SME action, but the LLM is the proximate caller. - `Harness`: the harness / orchestrator recorded the decision on the session (e.g. resume-from-blocker). Not currently emitted but reserved so the enum is forward-compatible.",
+      "oneOf": [
+        {
+          "description": "Sme variant.",
+          "enum": [
+            "sme"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Llm variant.",
+          "enum": [
+            "llm"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Harness variant.",
+          "enum": [
+            "harness"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "DecisionType": {
+      "description": "Closed taxonomy of decisions worth auditing. Internally-tagged so the Serialized JSON is flat (`{\"kind\":\"amend_stage\",...}`). Adding a new variant requires a plan amendment — the decision log is part of the reproducibility contract.\n\n`EnumCount` is derived so test fixtures that enumerate variants stay in sync with the enum at compile time (F42).",
+      "oneOf": [
+        {
+          "description": "The SME clicked **Confirm** on the summary card. Gates `emit_package`.\n\nWhen the confirmation card carried a `summary_hash` (SHA-256 of the displayed markdown), the same fingerprint is attached here so an audit replayer can match the recorded confirmation to the exact text the SME saw. None for legacy records whose cards pre-date the hashing logic and for confirm calls that happened outside the `propose_summary_confirmation` flow (e.g. test fixtures, scripted offline confirms).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "confirm"
+              ],
+              "type": "string"
+            },
+            "summary_hash": {
+              "description": "Hex SHA-256 of the `summary_markdown` the SME saw on the confirmation card. `#[serde(default)]` keeps the legacy unit-variant on-disk form (`{\"kind\":\"confirm\"}`) deserializable: it loads with `summary_hash = None`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The SME clicked **Make corrections**.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "reject"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The SME cleared a blocker from the `BlockerCard`.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "unblock"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A new branched session was forked from this one. The child's id is recorded so the two logs can be cross-referenced.",
+          "properties": {
+            "child_session_id": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "branch"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "child_session_id",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The compiler emitted a package to disk. `output_dir` is the absolute path of the emitted package root.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "emit_package"
+              ],
+              "type": "string"
+            },
+            "output_dir": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "output_dir"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A stage's method was swapped post-emission.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "amend_stage"
+              ],
+              "type": "string"
+            },
+            "method_prose": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "method_prose",
+            "stage"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A completed task was re-queued with its existing method. `reason` carries the free-form justification passed through the `rerun_task` tool.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "rerun_task"
+              ],
+              "type": "string"
+            },
+            "reason": {
+              "description": "Reason.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "task_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/TaskId"
+                }
+              ],
+              "description": "Task id."
+            }
+          },
+          "required": [
+            "kind",
+            "task_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The user picked a winner from a sensitivity comparison. `stage` identifies the comparison; `winner` names the chosen variant.\n\nThe candidates the SME *rejected* are captured here at decision-time. Without this field, the `Blocked { AwaitingSmeSelection { candidates } }` list is dropped on transition and the audit trail loses the counterfactual — replay can't tell whether the SME picked scVI over `[CCA]` (one-of-two) or `[CCA, Harmony, fastMNN]` (one-of-four). Both sides of the choice are durable. `#[serde(default)]` keeps legacy on-disk records (which omit the field entirely) loading as an empty Vec.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "select_sensitivity_winner"
+              ],
+              "type": "string"
+            },
+            "rejected_candidates": {
+              "description": "Rejected candidates.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "stage": {
+              "description": "Stage.",
+              "type": "string"
+            },
+            "winner": {
+              "description": "Winner.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "stage",
+            "winner"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The harness emitted a cross-version concordance report after an amend or branch re-emission. Both package paths are recorded so readers (UI History tab, lotz ledger drift report, future regulatory exporter) can resolve the diff files without re-running `cross_version_diff`.",
+          "properties": {
+            "child_package": {
+              "description": "Child package.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "cross_version_diff"
+              ],
+              "type": "string"
+            },
+            "n_discordant": {
+              "description": "N discordant.",
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "overall_concordance": {
+              "description": "Overall concordance.",
+              "format": "double",
+              "type": "number"
+            },
+            "parent_package": {
+              "description": "Parent package.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "child_package",
+            "kind",
+            "n_discordant",
+            "overall_concordance",
+            "parent_package"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fired when a post-emission `amend_stage_method` or `rerun_task` targets a stage that was declared prespecified in `SessionMode::Confirmatory`. A non-empty rationale is required by the tool handler; `reason` carries it here for the audit trail.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "post_hoc_deviation"
+              ],
+              "type": "string"
+            },
+            "new_method": {
+              "description": "New method.",
+              "type": "string"
+            },
+            "prior_method": {
+              "description": "Prior method.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Reason.",
+              "type": "string"
+            },
+            "target_stage": {
+              "description": "Target stage.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "new_method",
+            "prior_method",
+            "reason",
+            "target_stage"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fired when `CheckpointMode::{Fast,Selective}` skips an SME review gate that Gated mode would have paused on. The audit log captures the stage + which mode did the skip so post-run review can always reconstruct whether a stage was explicitly approved or auto-advanced.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "auto_advanced"
+              ],
+              "type": "string"
+            },
+            "mode": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "mode",
+            "stage"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The SME answered a structured-blocker decision point via the BlockerCard picker (or the equivalent REST endpoint). Written once per decision_point per answer round; a blocker with N decision_points produces N records. Surfaced in the Decisions tab so the audit trail is complete end-to-end.",
+          "properties": {
+            "chosen": {
+              "description": "Chosen.",
+              "type": "string"
+            },
+            "decision_point_id": {
+              "description": "Decision point id.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "applied_structured_decision"
+              ],
+              "type": "string"
+            },
+            "task_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/TaskId"
+                }
+              ],
+              "description": "Task id."
+            }
+          },
+          "required": [
+            "chosen",
+            "decision_point_id",
+            "kind",
+            "task_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fired when the server ingests a new `sme_disposition.json` file (either via an agent `disposition_proposed` progress event or a backfill scan). Captures the disposition's origin task + author timestamp + how many actions it contains so the Decisions tab surfaces the proposal independently of its eventual acceptance / rejection.",
+          "properties": {
+            "action_count": {
+              "description": "Action count.",
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "created_at": {
+              "description": "RFC-3339 from the disposition's `created_at` when present; server fills with its own now() when the field is absent.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "disposition_proposed"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "description": "Path of the disposition file relative to the emitted package root, e.g. `runtime/outputs/results_review/sme_disposition.json`.",
+              "type": "string"
+            },
+            "task_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/TaskId"
+                }
+              ],
+              "description": "`task_id` field from inside the disposition — not the same as the disposition's file-system task directory when the agent cross-writes (rare but permitted)."
+            }
+          },
+          "required": [
+            "action_count",
+            "created_at",
+            "kind",
+            "path",
+            "task_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fired once per action during `/dispositions/:path/apply` (or the per-action variant). `outcome` is `\"ok\"` or `\"err\"`; `error_reason` is populated only on the latter. `auto` flags the double-gate escape hatch — `false` on SME-clicked applies.",
+          "properties": {
+            "action_index": {
+              "description": "Action index.",
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "action_kind": {
+              "description": "Action kind.",
+              "type": "string"
+            },
+            "auto": {
+              "description": "Auto.",
+              "type": "boolean"
+            },
+            "error_reason": {
+              "description": "Error reason.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "enum": [
+                "disposition_applied"
+              ],
+              "type": "string"
+            },
+            "outcome": {
+              "description": "Outcome.",
+              "type": "string"
+            },
+            "path": {
+              "description": "Path.",
+              "type": "string"
+            },
+            "target_stage": {
+              "description": "Target stage.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "action_index",
+            "action_kind",
+            "auto",
+            "kind",
+            "outcome",
+            "path",
+            "target_stage"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fired when the SME rejects a disposition via `/dispositions/:path/reject`. `rationale` is optional but strongly encouraged — the SME's justification for declining the agent's plan is valuable audit context. Not mutation-bearing: no action runs.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "disposition_rejected"
+              ],
+              "type": "string"
+            },
+            "path": {
+              "description": "Path.",
+              "type": "string"
+            },
+            "rationale": {
+              "description": "Rationale.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fired when the SME reverses a just-applied amendment via the Undo toast before the harness has re-run the invalidated forward slice. `stage` identifies the stage whose prose round-trips; `reverted_to` is the prior method prose the session now carries.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "undone_amendment"
+              ],
+              "type": "string"
+            },
+            "reverted_to": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "reverted_to",
+            "stage"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Recorded when the SME sets or clears the session-level soft budget cap. `prior_usd` is the ceiling the change replaced (None when no cap was set); `new_usd` is the new ceiling (None when the SME cleared the cap).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "budget_changed"
+              ],
+              "type": "string"
+            },
+            "new_usd": {
+              "description": "New usd.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "prior_usd": {
+              "description": "Prior usd.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The SME attached a freeform note to a task via the Notes drawer. `body` is the note body verbatim; `author` carries the session envelope's author when the client passed it (empty string otherwise). Surfaces in the Decisions tab so multi-person handoff has a searchable trail.",
+          "properties": {
+            "author": {
+              "default": "",
+              "description": "Author.",
+              "type": "string"
+            },
+            "body": {
+              "description": "Body.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "user_note"
+              ],
+              "type": "string"
+            },
+            "task_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/TaskId"
+                }
+              ],
+              "description": "Task id."
+            }
+          },
+          "required": [
+            "body",
+            "kind",
+            "task_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "LLM-side `set_intake_field` recorded a structured value for a stage during intake. `value` is the JSON-encoded payload so replay can reconstruct `Session.intake_methods` exactly.",
+          "properties": {
+            "field": {
+              "description": "Field.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "set_intake_field"
+              ],
+              "type": "string"
+            },
+            "stage": {
+              "description": "Stage.",
+              "type": "string"
+            },
+            "value": {
+              "description": "Value."
+            }
+          },
+          "required": [
+            "field",
+            "kind",
+            "stage",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "LLM-side `set_intake_method` recorded the SME's natural-language method choice for a stage. Distinct from `AmendStage`, which covers the post-emission swap path.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "set_intake_method"
+              ],
+              "type": "string"
+            },
+            "method_prose": {
+              "type": "string"
+            },
+            "stage": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "method_prose",
+            "stage"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "LLM-side `append_intake_prose` appended a fragment to the running intake description. Captures the appended fragment plus the modality classification so replay can reconstruct the classifier's path.",
+          "properties": {
+            "classified_modality": {
+              "description": "Classified modality.",
+              "type": "string"
+            },
+            "fragment": {
+              "description": "Fragment.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "append_intake_prose"
+              ],
+              "type": "string"
+            },
+            "modality_changed": {
+              "description": "Modality changed.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "classified_modality",
+            "fragment",
+            "kind",
+            "modality_changed"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An assumption was recorded during composition (LLM inference, lossy adapter insertion, missing metadata, profiler degradation). The decision-log entry is the persistence path for `AssumptionLedger`; the typed `Assumption` shape lives in `workflow_contracts::evidence`.",
+          "properties": {
+            "affects_nodes": {
+              "description": "TaskNode ids the assumption affects.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "id": {
+              "description": "Stable assumption id (`a_<n>` per session).",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "assumption_recorded"
+              ],
+              "type": "string"
+            },
+            "risk": {
+              "description": "Risk class label (`negligible|low|moderate|high|clinical`).",
+              "type": "string"
+            },
+            "source": {
+              "description": "Source kind (`sme_accepted`, `llm_inferred`, `lossy_adapter`, `profiler_degraded`, `policy_exception`, `ontology_mapping_unresolved`).",
+              "type": "string"
+            },
+            "statement": {
+              "description": "Free-text statement.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "affects_nodes",
+            "id",
+            "kind",
+            "risk",
+            "source",
+            "statement"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An assumption was resolved (accepted, rejected, or validated by a downstream check).",
+          "properties": {
+            "id": {
+              "description": "References the previously recorded assumption.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "assumption_resolved"
+              ],
+              "type": "string"
+            },
+            "resolution": {
+              "description": "Resolution kind (`accepted`, `rejected`, `resolved_by_validator`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "resolution"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The LLM proposed a hypothesized node (a new TaskNode the registry doesn't yet know about). The node enters the proposals registry with `LifecycleState::Hypothesized` / `TrustLevel::Unverified` and cannot execute until promotion evidence accumulates (validators + sandbox + promotion gate). Rejected proposals (LLM-recoverable schema errors) do *not* write to the decision log; only accepted proposals are durable.\n\nThe `llm_rationale` field was removed from the canonical decision record because it carried free-form LLM narrative that could not be safely attributed to the SME. The narrative can still appear in the conversational turn body for the SME to read; the durable audit trail now keeps only the structural fields (id + parent terms). Existing on-disk `decisions.jsonl` records that still carry the field will load via `#[serde(default, skip_serializing_if = \"Option::is_none\")]` without breaking deserialization — the field is preserved as an optional read-only sidecar for legacy replay but never written.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "proposed_hypothesized_node"
+              ],
+              "type": "string"
+            },
+            "llm_rationale": {
+              "description": "Legacy field. New records do not set this; older on-disk records may still carry it. Deserialize-only — present so legacy replay doesn't fail, never populated by current code.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "node_id": {
+              "description": "Stable id assigned by the proposals registry.",
+              "type": "string"
+            },
+            "parent_terms": {
+              "description": "Proposed parent ontology term IRIs (resolvability validated against EDAM / local-extension namespace at proposal time).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "node_id",
+            "parent_terms"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Flexible plotting upgrade plan a `PlotAffordance` variant was successfully resolved for an output port and the resolution is durable (written to `runtime/plot_affordances.jsonl`). `provisional` mirrors `PlotAffordance::is_provisional()`; every non-`Registered` variant is provisional. `snapshot_id` is the registry snapshot the resolution consulted, enabling replay without re-resolving against a potentially-newer registry.\n\nWritten by the backend emitter when `EmitContext::emit_affordances == Some(_)`. The decision-log entry duplicates the compact fields from the sidecar so the Decisions tab can surface affordance provenance without loading the full JSONL sidecar.",
+          "properties": {
+            "affordance_variant": {
+              "description": "Affordance variant.",
+              "type": "string"
+            },
+            "figure_ids": {
+              "description": "Figure ids.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "enum": [
+                "plot_affordance_resolved"
+              ],
+              "type": "string"
+            },
+            "port_name": {
+              "description": "Port name.",
+              "type": "string"
+            },
+            "provisional": {
+              "description": "Provisional.",
+              "type": "boolean"
+            },
+            "snapshot_id": {
+              "description": "Snapshot id.",
+              "type": "string"
+            },
+            "task_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/TaskId"
+                }
+              ],
+              "description": "Task id."
+            }
+          },
+          "required": [
+            "affordance_variant",
+            "figure_ids",
+            "kind",
+            "port_name",
+            "provisional",
+            "snapshot_id",
+            "task_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Flexible plotting upgrade plan the affordance resolution pipeline fell back to a `StructuralFallback` or `Deferred` variant because no registered or inherited renderer matched the output port's semantic type. Distinct from `PlotAffordanceResolved` so the Decisions tab can highlight fallbacks for SME review without scanning the full sidecar.\n\n`primitive` is the `GenericPrimitive` snake_case tag (for `StructuralFallback`) or `\"deferred\"` (for `Deferred`). `semantic_type` is the port's source semantic-type IRI. `fallback_reason` is the human-readable text from the `AffordanceProof.rationale` field, preserved here because the Decisions-tab viewer doesn't load the full JSONL sidecar.",
+          "properties": {
+            "fallback_reason": {
+              "description": "Fallback reason.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "plot_affordance_fallback"
+              ],
+              "type": "string"
+            },
+            "port_name": {
+              "description": "Port name.",
+              "type": "string"
+            },
+            "primitive": {
+              "description": "Primitive.",
+              "type": "string"
+            },
+            "semantic_type": {
+              "description": "Semantic type.",
+              "type": "string"
+            },
+            "task_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/TaskId"
+                }
+              ],
+              "description": "Task id."
+            }
+          },
+          "required": [
+            "fallback_reason",
+            "kind",
+            "port_name",
+            "primitive",
+            "semantic_type",
+            "task_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Flexible plotting upgrade plan the LLM called `propose_hypothesized_renderer` and the proposal was accepted (parent-term resolvability + figure-id shadowing checks passed).\n\nThe proposal enters the session-scoped `RendererProposals` registry with `LifecycleState::Hypothesized` / `TrustLevel::Unverified` and will not replace the structural fallback until catalog-promotion evidence accumulates (validators + sandbox + promotion gate). Rejected proposals do *not* write to the decision log; only accepted proposals are durable.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "proposed_hypothesized_renderer"
+              ],
+              "type": "string"
+            },
+            "proposal_id": {
+              "description": "Stable id assigned by the proposals registry (e.g. `renderer-proposal-<12hex>`).",
+              "type": "string"
+            },
+            "sme_intent": {
+              "description": "LLM-summarized SME description, ≤ 800 chars.",
+              "type": "string"
+            },
+            "target_semantic_type": {
+              "description": "The output-port semantic type IRI the renderer addresses.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "proposal_id",
+            "sme_intent",
+            "target_semantic_type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Flexible plotting upgrade plan the renderer drafter side-call was dispatched for a proposal. Fired once per draft invocation even if the drafter returns an error; the model field records which LLM was used (always `ModelPolicy::for_remediation_proposer()` today).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "renderer_draft_requested"
+              ],
+              "type": "string"
+            },
+            "model": {
+              "description": "LLM model id used for the draft (e.g. `\"opus_4_7\"`).",
+              "type": "string"
+            },
+            "proposal_id": {
+              "description": "Proposal id from the session-scoped `RendererProposals` registry.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "model",
+            "proposal_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Flexible plotting upgrade plan the renderer drafter side-call returned a `DraftedRenderer`. Fired on every successful parse; `lints` preserves the advisory messages from the draft.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "renderer_draft_received"
+              ],
+              "type": "string"
+            },
+            "lints": {
+              "description": "Advisory lint messages from the drafter (may be empty).",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "proposal_id": {
+              "description": "Proposal id.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "lints",
+            "proposal_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Flexible plotting upgrade plan the static sandbox check (`check_drafted_renderer`) completed. `outcome` is `\"static_checks_passed\"` or `\"refused:<count>_refusals\"` so the Decisions tab can show the gate result without loading the full sandbox report.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "renderer_sandbox_outcome"
+              ],
+              "type": "string"
+            },
+            "outcome": {
+              "description": "Short outcome tag: `\"static_checks_passed\"` or `\"refused\"`.",
+              "type": "string"
+            },
+            "proposal_id": {
+              "description": "Proposal id.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "outcome",
+            "proposal_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Flexible plotting upgrade plan the SME approved the drafted renderer for promotion to the shared affordance catalog. This decision id is stored as `RendererPromotionRequest::sme_approval_decision_id` and referenced in the promoted YAML's provenance header.",
+          "properties": {
+            "approver": {
+              "description": "SME identity at approval time (from `DecisionActor::Sme` context, typically the session's `owner_user`).",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "approve_generated_renderer"
+              ],
+              "type": "string"
+            },
+            "proposal_id": {
+              "description": "Proposal id.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "approver",
+            "kind",
+            "proposal_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Flexible plotting upgrade plan the SME rejected the drafted renderer. The proposal stays in the session registry but cannot be promoted without a fresh draft + new approval cycle.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "reject_generated_renderer"
+              ],
+              "type": "string"
+            },
+            "proposal_id": {
+              "description": "Proposal id.",
+              "type": "string"
+            },
+            "reason": {
+              "description": "Free-form reason for the rejection.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "proposal_id",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Flexible plotting upgrade plan `promote_renderer` completed successfully and wrote `config/plot-affordances/generated/<stage_id>.yaml`. `version` is the version string embedded in the YAML (e.g. `\"1.0.0\"`).",
+          "properties": {
+            "kind": {
+              "enum": [
+                "promoted_generated_renderer"
+              ],
+              "type": "string"
+            },
+            "proposal_id": {
+              "description": "Proposal id.",
+              "type": "string"
+            },
+            "target_stage_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/StageId"
+                }
+              ],
+              "description": "Stage id the YAML was written for."
+            },
+            "version": {
+              "description": "Version string embedded in the promoted YAML.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "proposal_id",
+            "target_stage_id",
+            "version"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "SME confirmed or rejected an inserted adapter surfaced by the AdapterWarningCard. Risky / lossy adapters require explicit acknowledgment before the planner permits their composition to advance to ValidatedExecutableDag.",
+          "properties": {
+            "adapter_id": {
+              "description": "Adapter task node id.",
+              "type": "string"
+            },
+            "decision": {
+              "description": "`confirmed` or `rejected`.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "adapter_decision_recorded"
+              ],
+              "type": "string"
+            },
+            "safety": {
+              "description": "Adapter safety class at decision time (`lossy_declared`, `scientifically_risky`, `policy_restricted`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "adapter_id",
+            "decision",
+            "kind",
+            "safety"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "SME accepted a `NovelNodeSpec` outcome from the v4 planner (the LLM proposed a hypothesized node and the SME explicitly authorizes it as a draft) or rejected it.",
+          "properties": {
+            "decision": {
+              "description": "`accepted_as_draft` or `rejected`.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "novel_node_decision_recorded"
+              ],
+              "type": "string"
+            },
+            "node_id": {
+              "description": "HypothesizedNode id from the proposals registry.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "decision",
+            "kind",
+            "node_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "SME acknowledged a `Refusal` outcome and chose a recovery affordance (branch / amend-policy / dismiss). Persists which path the SME took so multi-person handoff has a searchable trail.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "refusal_acknowledged"
+              ],
+              "type": "string"
+            },
+            "recovery": {
+              "description": "`branch`, `amend_policy`, or `dismiss`.",
+              "type": "string"
+            },
+            "refusal_id": {
+              "description": "`RefusalReport.id`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "recovery",
+            "refusal_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A later confirmation contradicted an earlier one on the same assumption.",
+          "properties": {
+            "assumption_id": {
+              "description": "Assumption id.",
+              "type": "string"
+            },
+            "conflicting_confirmation_id": {
+              "description": "Conflicting confirmation id.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "assumption_contradicted"
+              ],
+              "type": "string"
+            },
+            "prior_confirmation_id": {
+              "description": "Prior confirmation id.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "assumption_id",
+            "conflicting_confirmation_id",
+            "kind",
+            "prior_confirmation_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "SME waived an assumption under the assumption-policy table. V3 §10.2 `policy_rule_id` is the registry-validated foreign key; deserialization is permissive so legacy decision logs round-trip unchanged.",
+          "properties": {
+            "assumption_id": {
+              "description": "Assumption id.",
+              "type": "string"
+            },
+            "credentials": {
+              "description": "Credentials.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "enum": [
+                "assumption_waived"
+              ],
+              "type": "string"
+            },
+            "policy_rule_id": {
+              "description": "Policy rule id.",
+              "type": "string"
+            },
+            "rationale": {
+              "description": "Rationale.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "assumption_id",
+            "credentials",
+            "kind",
+            "policy_rule_id",
+            "rationale"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Upstream contract change invalidated a prior resolution. Forces the resolution back to `Unresolved` on the next planner pass.",
+          "properties": {
+            "assumption_id": {
+              "description": "Assumption id.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "assumption_invalidated"
+              ],
+              "type": "string"
+            },
+            "upstream_change": {
+              "description": "Upstream change.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "assumption_id",
+            "kind",
+            "upstream_change"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "V3 one of the six non-monotonic lifecycle edges from design §7 fired and was queued on the session adjudication queue. `transition_kind` is the `LifecycleTransition::kind()` discriminator; `payload` is the JSON-encoded full `LifecycleTransition` so replay can reconstruct the queued entry without consulting the session-state file.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "lifecycle_transition"
+              ],
+              "type": "string"
+            },
+            "payload": {
+              "description": "Payload.",
+              "type": "string"
+            },
+            "transition_kind": {
+              "description": "Transition kind.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "payload",
+            "transition_kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "V3 a contradiction (same-user or cross-user) was detected against a previously confirmed assumption.",
+          "properties": {
+            "assumption_id": {
+              "description": "Assumption id.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "contradiction_detected"
+              ],
+              "type": "string"
+            },
+            "new_id": {
+              "description": "New id.",
+              "type": "string"
+            },
+            "prior_id": {
+              "description": "Prior id.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "assumption_id",
+            "kind",
+            "new_id",
+            "prior_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "V3 an upstream-invalidation cascade fired. Captures the cascade-level summary so the audit replay has a single row for the cascade event rather than N per-assumption rows.",
+          "properties": {
+            "affected": {
+              "description": "Affected.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "assumption_id": {
+              "description": "Assumption id.",
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "invalidation_cascaded"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "affected",
+            "assumption_id",
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The SME rejected a hypothesized-node proposal at a non-terminal lifecycle stage via the `POST /api/chat/session/:id/proposal/:proposal_id/reject` endpoint. Captures the rationale supplied at reject time so the Decisions tab preserves the audit trail without scanning the session-state file.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "proposal_rejected"
+              ],
+              "type": "string"
+            },
+            "proposal_id": {
+              "description": "Stable `ProposalId` of the rejected proposal.",
+              "type": "string"
+            },
+            "rationale": {
+              "description": "Free-form SME rationale; absent when the reject button was pressed without a comment.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "proposal_id"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Atom-safety-policy the SME widened an atom's `runtime_packages` set from the BlockerCard's `ProvisioningDenied` affordance, allowing a previously-refused package install on retry. `atom_id` matches `Task::source_atom_id`; `package` / `registry` mirror the `ProvisioningDenied` blocker payload that triggered the affordance. Always idempotent on the session field; duplicate clicks still write one record per call so the audit trail captures every SME interaction.",
+          "properties": {
+            "atom_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/AtomId"
+                }
+              ],
+              "description": "Atom whose `runtime_packages` set was widened."
+            },
+            "kind": {
+              "enum": [
+                "runtime_package_added"
+              ],
+              "type": "string"
+            },
+            "package": {
+              "description": "Package the SME approved (e.g. `samtools`, `scanpy>=1.10`).",
+              "type": "string"
+            },
+            "registry": {
+              "description": "Registry the package is installed from (e.g. `apt`, `pip`, `cran`, `conda`).",
+              "type": "string"
+            }
+          },
+          "required": [
+            "atom_id",
+            "kind",
+            "package",
+            "registry"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The server-side claim-verification endpoint (`POST /api/chat/session/:id/task/:task_id/verify`) re-runs `claim_extractor` + `claim_verifier` over a completed task's narrative artifact and appends one row regardless of outcome. Without this audit record, a `Blocked { ValidationFailed }` transition (and an SSE event) leaves no trace in `runtime/decisions.jsonl` — the Decisions tab never sees the verifier round-trip. The row captures the number of claims verified, the number that mismatched, and the task the verifier ran against.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "claim_verification"
+              ],
+              "type": "string"
+            },
+            "n_mismatch": {
+              "description": "N mismatch.",
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "n_verified": {
+              "description": "N verified.",
+              "format": "uint",
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "task_id": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/TaskId"
+                }
+              ],
+              "description": "Task id."
+            }
+          },
+          "required": [
+            "kind",
+            "n_mismatch",
+            "n_verified",
+            "task_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "StageId": {
+      "type": "string"
+    },
+    "SuppressionClass": {
+      "description": "Closed taxonomy of suppression kinds. Maps to the §15.2 policy table and to ingestion-safety quarantine reasons.",
+      "oneOf": [
+        {
+          "description": "PHI strict — patient identifiers, dates of birth, etc.",
+          "enum": [
+            "phi_strict"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Controlled-access genotype (dbGaP-style restrictions).",
+          "enum": [
+            "controlled_access_genotype"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Prompt-injection payload quarantined by `ingestion_safety`.",
+          "enum": [
+            "prompt_injection"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Structurally guessable identifier (e.g. short numeric MRN) for which a plain hash would still leak information; the commitment is filed restricted instead of inlined.",
+          "enum": [
+            "structurally_guessable_identifier"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Raw credential captured incidentally (API key, password).",
+          "enum": [
+            "raw_credential"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "User-supplied free text whose redaction status is unknown.",
+          "enum": [
+            "user_supplied_free_text"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Proprietary pipeline detail an operator opted out of publishing.",
+          "enum": [
+            "proprietary_pipeline_detail"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "TaskId": {
+      "type": "string"
+    }
+  },
+  "items": {
+    "description": "One audit-trail entry. Append-only; the emitter writes these into `runtime/decisions.jsonl` one record per line.",
+    "properties": {
+      "actor": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/DecisionActor"
+          }
+        ],
+        "description": "Actor."
+      },
+      "chain_of_custody": {
+        "anyOf": [
+          {
+            "$ref": "#/definitions/ChainOfCustody"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "description": "Chain-of-custody for the record when its payload carries suppressed content. `None` for ordinary records. Older records without the field deserialize cleanly."
+      },
+      "decision": {
+        "allOf": [
+          {
+            "$ref": "#/definitions/DecisionType"
+          }
+        ],
+        "description": "Decision."
+      },
+      "rationale": {
+        "description": "Free-form SME-supplied justification. Optional — the LLM-driven paths (`emit_package`, `amend_stage_method`) do not always carry one.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "schema_version": {
+        "default": "0.1.0",
+        "description": "On-disk schema version. `#[serde(default)]` gives `0.1.0` to records written before this field was added, so pre-existing `decisions.jsonl` files continue to load unchanged.",
+        "type": "string"
+      },
+      "session_id": {
+        "description": "The session the decision was recorded against. For branch decisions this is the *parent*; the child session's own log starts fresh.",
+        "type": "string"
+      },
+      "source_ip": {
+        "description": "Closes the security-remediation gap \"no audit logging of SME action provenance.\" Best-effort capture of the client IP that originated the decision, populated from the request's `X-Forwarded-For` header (when present and the operator's reverse proxy is trusted) or the per-connection `ConnectInfo<SocketAddr>` extension. `None` when the call site has not yet been wired to extract a request address (LLM-side tool dispatch, harness-side decision recording, scripted offline tests). The audit deliverable is that the field is AVAILABLE in the type; downstream call sites can backfill the value incrementally without breaking the on-disk JSONL format — the `#[serde(default, skip_serializing_if = \"Option::is_none\")]` guard keeps every legacy record round-trippable.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "timestamp": {
+        "description": "ISO-8601 UTC timestamp when the decision fired.",
+        "format": "date-time",
+        "type": "string"
+      }
+    },
+    "required": [
+      "actor",
+      "decision",
+      "session_id",
+      "timestamp"
+    ],
+    "title": "DecisionRecord",
+    "type": "object"
+  },
+  "type": "array"
+}

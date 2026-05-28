@@ -1,0 +1,9 @@
+cohort	first_author	year	journal	country	accession	n_crc	n_controls	total_samples	assay	access_tier	notes
+FR_Zeller	Zeller	2014	Mol Syst Biol	France	ERP005534	53	61	114	Illumina shotgun metagenomics	public ENA	first primary cohort; Wirbel 2019 reuses
+AT_Feng	Feng	2015	Nat Commun	Austria	ERP008729	46	63	109	Illumina shotgun metagenomics	public ENA	includes advanced adenomas
+CN_Yu	Yu	2017	Gut	China	PRJEB10878	74	54	128	Illumina shotgun metagenomics	public ENA	Chinese cohort; CRC and healthy only
+US_Vogtmann	Vogtmann	2016	PLoS ONE	United States	PRJEB12449	52	52	104	Illumina shotgun metagenomics	public ENA	balanced case-control design
+DE_Wirbel	Wirbel	2019	Nat Med	Germany	PRJEB27928	60	60	120	Illumina shotgun metagenomics	public ENA	new cohort introduced in Wirbel 2019
+IT1_Thomas_validation	Thomas	2019	Nat Med	Italy	see Wirbel 2019 supplement	-	-	-	Illumina shotgun metagenomics	public ENA	independent validation cohort (secondary)
+JP_Yachida_validation	Yachida	2019	Nat Med	Japan	see Yachida 2019 supplement	-	-	-	Illumina shotgun metagenomics	public ENA	independent validation cohort (secondary)
+curatedMetagenomicData	Pasolli	2017	Nat Methods	n/a	Bioconductor ExperimentHub	-	-	all above pre-profiled	MetaPhlAn and HUMAnN profiled tables	public	alternative fast-path to raw-fastq profiling; freezes tool version

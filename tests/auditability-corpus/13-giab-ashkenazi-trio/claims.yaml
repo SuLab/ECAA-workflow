@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "13-giab-ashkenazi-trio"
+claims:
+  - id: "13-giab-ashkenazi-trio-claim-001"
+    text: "Trio sample-relatedness check passes: yes (kinship coefficient ~0.25 parent-child)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 0.25
+    tolerance: 0.05
+  - id: "13-giab-ashkenazi-trio-claim-002"
+    text: "GIAB SNV recall (germline truth): ≥ 0.99"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 0.99
+    tolerance: 0.05
+  - id: "13-giab-ashkenazi-trio-claim-003"
+    text: "GIAB indel recall (germline truth): ≥ 0.92 (HaplotypeCaller-typical; DeepVariant typically reaches ≥ 0.96)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 0.92
+    tolerance: 0.05
+  - id: "13-giab-ashkenazi-trio-claim-004"
+    text: "Mendelian error rate (post-filtration): ≤ 0.5% of variants"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 0.005
+    tolerance: 0.05
+  - id: "13-giab-ashkenazi-trio-claim-005"
+    text: "Spike-in recall in top-50 prioritized: ≥ 95%"
+    contract: rank_top_n
+    source_table: "results/tables/variants.csv"
+    expected_value: 0.95
+    tolerance: 0.05
+  - id: "13-giab-ashkenazi-trio-claim-006"
+    text: "Spike-in recall in top-10 prioritized: ≥ 80%"
+    contract: rank_top_n
+    source_table: "results/tables/variants.csv"
+    expected_value: 0.8
+    tolerance: 0.05
+  - id: "13-giab-ashkenazi-trio-claim-007"
+    text: "Per-inheritance-pattern coverage: ≥ 1 spike-in detected per pattern (AR, AD, XL)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 1
+    tolerance: 0.1
+  - id: "13-giab-ashkenazi-trio-claim-008"
+    text: "Top-50 ranked candidate list per inheritance mode (AR / AD / XL): TSV table with columns: rank, variant_id, gene, inheritance_pattern, exomiser_score, matched_hpo_term, is_spike_in"
+    contract: rank_top_n
+    source_table: "results/tables/variants.csv"
+    expected_value: "TSV table with columns: rank, variant_id, gene, inheritance_pattern, exomiser_score, matched_hpo_term, is_spike_in"
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-009"
+    text: "Hap.py SNV/indel precision-recall: precision-recall curve, per-class (SNV / indel)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: "precision-recall curve, per-class (SNV / indel)"
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-010"
+    text: "Spike-in recovery curve: line plot of % spike-ins recovered vs top-N rank threshold (N=1, 5, 10, 25, 50, 100)"
+    contract: group_comparison
+    source_table: "results/tables/variants.csv"
+    expected_value: 1
+    tolerance: 0.1
+  - id: "13-giab-ashkenazi-trio-claim-011"
+    text: "Per-inheritance-pattern recovery: bar chart, x = AR / AD / XL, y = % recovered in top-50"
+    contract: rank_top_n
+    source_table: "results/tables/variants.csv"
+    expected_value: 50
+    tolerance: 0.1
+  - id: "13-giab-ashkenazi-trio-claim-012"
+    text: "Variant-quality score distribution (pre/post-filtration): overlaid density plots"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: "overlaid density plots"
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "13-giab-ashkenazi-trio-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 13-giab-ashkenazi-trio"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null

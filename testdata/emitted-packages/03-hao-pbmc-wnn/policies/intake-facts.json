@@ -1,0 +1,11 @@
+{
+  "modality": "single_cell_rnaseq",
+  "project_class": "bioinformatics",
+  "organism_taxon_id": 9606,
+  "organism_name": "Homo sapiens",
+  "methods": [
+    "Cell Ranger",
+    "Seurat"
+  ],
+  "literature_review_requested": false
+}

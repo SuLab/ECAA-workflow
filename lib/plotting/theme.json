@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "fonts": {
+    "family": "sans-serif",
+    "stack": ["Arial", "Helvetica", "DejaVu Sans"],
+    "body_pt": 8,
+    "title_pt": 9,
+    "tick_pt": 7,
+    "legend_pt": 7,
+    "footer_pt": 5
+  },
+  "axes": {
+    "linewidth": 0.5,
+    "spines_top": false,
+    "spines_right": false,
+    "constrained_layout": true
+  },
+  "palette": {
+    "categorical_8": "wong",
+    "categorical_extended": "glasbey20",
+    "sequential": "viridis",
+    "diverging": "RdBu_r",
+    "sig_up": "#D55E00",
+    "sig_down": "#0072B2",
+    "non_sig": "#999999"
+  },
+  "output": {
+    "png_dpi": 300,
+    "formats": ["png", "pdf"],
+    "pdf_fonttype": 42,
+    "svg_fonttype": "none",
+    "rasterize_threshold_n": 50000
+  },
+  "provenance_footer": true
+}

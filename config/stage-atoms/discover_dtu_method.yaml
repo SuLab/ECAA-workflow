@@ -1,0 +1,53 @@
+id: discover_dtu_method
+version: "1.0.0"
+role: discovery
+discovery_kind: tool_selection
+description: |
+  Runtime method-choice wrapper for differential_transcript_usage
+  (DRIMSeq / DEXSeq / IsoformSwitchAnalyzeR). Reads the isoform
+  count matrix + sample contrast, picks the analysis tool based
+  on cohort size + power, emits a `method_choice.json` artifact
+  the downstream DTU atom consumes.
+edam_operation: "swfc:method_discovery"
+assignee: agent
+depends_on:
+  - isoform_discovery
+attributes:
+  axis: dtu_method
+  candidates: [drimseq, dexseq, isoform_switch_analyze_r]
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: seconds
+figure_exempt:
+  reason: "Discovery atom: selects DTU analysis tool at runtime; the downstream differential_transcript_usage atom carries the figure obligation."
+  category: non_plottable
+inputs:
+  - name: isoform_counts
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "long_read_rnaseq"
+    statistical_state: "raw_counts"
+    privacy_class: internal
+outputs:
+  - name: method_choice
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "method_choice"
+      proposed_parent_terms:
+        - "data:2080"
+      definition: "Selected DTU analysis tool + rationale"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    modality: "long_read_rnaseq"
+    statistical_state: "selected"
+    privacy_class: internal

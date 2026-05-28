@@ -1,0 +1,74 @@
+id: clinical_feature_extraction
+version: "1.0.0"
+role: operation
+description: |
+  Windowed vital-sign / lab / treatment feature extraction for clinical
+  prediction. Builds a per-(patient, prediction-window) feature matrix
+  from labeled-cohort timestamps, optionally aggregated through standard
+  EHR feature frameworks (MIMIC-Extract, concepts library, FIDDLE).
+  Runs a mandatory leakage audit that asserts no feature window overlaps
+  the label-derivation window (e.g., the Sepsis-3 SOFA + suspected
+  infection window); the audit emits a per-feature `crosses_label_window`
+  flag and refuses to emit features that cross the boundary.
+edam_operation: "operation:0335"
+edam_data: "data:3134"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - clinical_label_derivation
+expected_artifacts:
+  - feature_matrix.parquet
+  - feature_dictionary.json
+  - leakage_audit.json
+  - manifest.json
+  - result.json
+figure_exempt:
+  reason: "Windowed EHR feature matrix + leakage audit are structured intermediates consumed by predictive_model_fit; per-feature diagnostics surface in the downstream fitting / calibration / fairness reports."
+  category: intermediate
+attributes:
+  candidate_tools:
+    - mimic_extract
+    - concepts_library
+    - fiddle
+    - custom_window_aggregator
+resource_profile:
+  cpu: moderate
+  memory: large
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Feature extraction produces aggregated numeric / categorical fields
+  for downstream modelling. The leakage audit is mandatory: any
+  feature whose extraction window overlaps the label-derivation
+  window must be dropped or surfaced as a blocker. Do not interpret
+  feature values as clinical findings.
+# Explicit rich ports.
+# Input is the labeled cohort from clinical_label_derivation.
+# Output is a tabular feature matrix indexed by (patient,
+# prediction-window) plus a leakage-audit report.
+inputs:
+  - name: labeled_cohort
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "labeled_cohort"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "Labeled cohort table for clinical prediction."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: feature_matrix
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "ehr_feature_matrix"
+      proposed_parent_terms:
+        - "data:3134"
+      definition: "Per-(patient, prediction-window) windowed EHR feature matrix with leakage-audit metadata."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

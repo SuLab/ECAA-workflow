@@ -1,0 +1,68 @@
+schema_version: "0.1"
+id: methylation_de
+version: "1.0.0"
+description: |
+  DNA methylation differential analysis covering WGBS, RRBS, EM-seq, and
+  methylation arrays (EPIC / 450K). Standard pipeline: raw QC, bisulfite
+  / enzymatic-converted-read alignment, per-CpG methylation extraction,
+  DMR (differentially methylated region) calling, annotation.
+
+  The methylation modality is keyword-routed (config/modality-keywords.yaml
+  entry id=methylation). Goal triple is data:0951 (statistical estimate
+  score, since DMRs are reported with effect-size + adjusted p-value) /
+  format:3475 (tabular). The same atom inventory (data_acquisition →
+  raw_qc → ... → differential_expression → reporting) handles
+  methylation chemistry because the per-stage atom is a discovery wrapper
+  in v4 — the agent picks Bismark / bwa-meth / minfi at the alignment
+  stage and methylKit / dmrseq / minfi at the DE stage at runtime.
+sme_summary: |
+  Test for differentially methylated regions between SME-named groups and
+  report the DMRs plus pathway enrichment.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: methylation
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: true
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: quantification
+    required: true
+    depends_on: [alignment]
+  - atom_id: qc_preprocessing
+    required: true
+    depends_on: [quantification]
+  - atom_id: normalisation
+    required: true
+    depends_on: [qc_preprocessing]
+  - atom_id: differential_expression
+    required: true
+    depends_on: [normalisation]
+  - atom_id: pathway_enrichment
+    required: false
+    depends_on: [differential_expression]
+  - atom_id: reporting
+    required: true
+    depends_on: [differential_expression, pathway_enrichment]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  contrast: differential_expression.inputs.contrast
+  reference_level: differential_expression.inputs.reference_level
+  organism: alignment.inputs.organism
+  samples: data_acquisition.inputs.samples
+claim_boundary: |
+  Differential methylation is statistical association across the
+  SME-named contrast, not biological causation. Report effect size +
+  adjusted p-value + the reference factor level + the methylation
+  assay (WGBS / RRBS / EM-seq / array); prefer "associated with" /
+  "differentially methylated in" over mechanistic language.

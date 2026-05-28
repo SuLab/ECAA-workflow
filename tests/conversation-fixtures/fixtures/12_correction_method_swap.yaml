@@ -1,0 +1,51 @@
+id: 12_correction_method_swap
+category: correction_in_intake
+description: |
+  SME provides a method preference, then revises it mid-conversation.
+  The assistant captures the corrected method via set_intake_method without
+  losing the rest of the intake. Tests that mutation tools can be replayed
+  and the session state stays coherent. Fixture stops in Intake before
+  emit; the test verifies the corrected method landed in intake_methods.
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq differential expression, 30 samples comparing IBD vs
+      healthy controls, human, GRCh38. We were planning to use STAR for
+      alignment but actually let's go with HISAT2 instead — that's what
+      the rest of the lab uses.
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk RNA-seq DE, 30 samples IBD vs healthy controls, human GRCh38,
+        switching from STAR to HISAT2 mid-thought
+  - kind: tool_use
+    tool:
+      tool_name: set_intake_method
+      stage: alignment
+      method_prose: |
+        HISAT2 — the SME corrected mid-message; their lab uses it as the
+        default and prefers consistency.
+  - kind: text
+    text: |
+      Got it — I'll capture HISAT2 as your alignment method. Anything else
+      you'd like to lock in, or should I sketch the rest of the plan?
+
+expected_final_state:
+  # set_intake_method also rebuilds the DAG, so the IntakeFollowup
+  # transition fires here too. See fixture 08.
+  state_kind: intake_followup
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+    - set_intake_method
+
+rubric_notes: |
+  Watch for: assistant honours the SME's method correction without
+  expressing a preference between STAR and HISAT2, doesn't explain
+  trade-offs (set_intake_method is correct because the SME named the
+  method unprompted), captures the correction immediately rather than
+  asking "are you sure".

@@ -1,0 +1,10 @@
+{
+  "components_path": "components.tsv",
+  "loadings_path": "loadings.tsv",
+  "concordance_path": "concordance.tsv",
+  "factor_variance": [
+    {"factor": "comp_1", "variance": 0.34},
+    {"factor": "comp_2", "variance": 0.21},
+    {"factor": "comp_3", "variance": 0.12}
+  ]
+}

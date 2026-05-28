@@ -1,0 +1,65 @@
+{
+  "components_path": "components.tsv",
+  "loadings_path": "loadings.tsv",
+  "concordance_path": "concordance.tsv",
+  "modality_concordance_matrix": [
+    [
+      0.8431,
+      0.5478,
+      0.3139,
+      0.7368
+    ],
+    [
+      0.5536,
+      0.2173,
+      0.2097,
+      0.7144
+    ],
+    [
+      0.6866,
+      0.9212,
+      0.1327,
+      0.7104
+    ],
+    [
+      0.9752,
+      0.1778,
+      0.5425,
+      0.6369
+    ]
+  ],
+  "row_labels": [
+    "RNA",
+    "Protein",
+    "Methylation",
+    "ATAC"
+  ],
+  "col_labels": [
+    "RNA",
+    "Protein",
+    "Methylation",
+    "ATAC"
+  ],
+  "factor_variance": [
+    {
+      "factor": "comp_1",
+      "variance": 0.2276
+    },
+    {
+      "factor": "comp_2",
+      "variance": 0.2402
+    },
+    {
+      "factor": "comp_3",
+      "variance": 0.1906
+    },
+    {
+      "factor": "comp_4",
+      "variance": 0.1957
+    },
+    {
+      "factor": "comp_5",
+      "variance": 0.2857
+    }
+  ]
+}

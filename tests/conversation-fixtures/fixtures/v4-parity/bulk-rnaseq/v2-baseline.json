@@ -1,0 +1,670 @@
+{
+  "version": "1.0",
+  "workflow_id": "v2-bulk-rnaseq",
+  "current_task": null,
+  "tasks": {
+    "alignment": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "sequence_trimming"
+      ],
+      "assignee": "agent",
+      "description": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "spec": {
+        "edam_operation": "operation:3198",
+        "stage_class": "operation"
+      },
+      "resource_class": "memory_heavy"
+    },
+    "data_acquisition": {
+      "kind": "computation",
+      "state": {
+        "status": "ready"
+      },
+      "depends_on": [],
+      "assignee": "agent",
+      "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "spec": {
+        "edam_operation": "operation:2422",
+        "expected_artifacts": [
+          "cohort_manifest.tsv",
+          "per_accession_summary.json",
+          "matrices_index.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "samples_per_study"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/samples_per_study.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/samples_per_study.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "differential_expression": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "normalisation"
+      ],
+      "assignee": "agent",
+      "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "spec": {
+        "edam_operation": "operation:3223",
+        "expected_artifacts": [
+          "de_results.tsv",
+          "de_summary.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "volcano",
+          "top_features_heatmap"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/volcano.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/volcano.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/top_features_heatmap.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/top_features_heatmap.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "final_reporting": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "reporting"
+      ],
+      "assignee": "agent",
+      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "expected_artifacts": [
+          "final_report.md",
+          "dashboard_index.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "summary_dashboard"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/summary_dashboard.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/summary_dashboard.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "normalisation": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "qc_preprocessing"
+      ],
+      "assignee": "agent",
+      "description": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "spec": {
+        "edam_operation": "operation:3435",
+        "expected_artifacts": [
+          "normalized_counts_index.json",
+          "hvg_list.tsv",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "normalization",
+        "required_figures": [
+          "mean_variance",
+          "hvg_count_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/mean_variance.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/mean_variance.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/hvg_count_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/hvg_count_bar.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "pathway_enrichment": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "spec": {
+        "edam_operation": "operation:2436",
+        "expected_artifacts": [
+          "pathway_results.tsv",
+          "pathway_summary.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "biological_interpretation",
+        "required_figures": [
+          "top_enriched_terms"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/top_enriched_terms.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/top_enriched_terms.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "qc_preprocessing": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quantification"
+      ],
+      "assignee": "agent",
+      "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "spec": {
+        "edam_operation": "swfc:scrnaseq_cell_qc",
+        "expected_artifacts": [
+          "qc_summary.json",
+          "filtered_cells_index.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "quality_control",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/per_sample_metric_violin.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_violin.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_bar.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/qc_summary_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/qc_summary_bar.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "quantification": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "alignment"
+      ],
+      "assignee": "agent",
+      "description": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "spec": {
+        "edam_operation": "operation:3800",
+        "stage_class": "operation"
+      },
+      "resource_class": "memory_heavy"
+    },
+    "raw_qc": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "expected_artifacts": [
+          "qc_metrics.tsv",
+          "qc_summary.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "quality_control",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/per_sample_metric_violin.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_violin.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_bar.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/qc_summary_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/qc_summary_bar.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "reporting": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "expected_artifacts": [
+          "report.md",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "concordance_heatmap",
+          "pathway_overlap_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/concordance_heatmap.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/concordance_heatmap.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/pathway_overlap_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/pathway_overlap_bar.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "sequence_trimming": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "raw_qc"
+      ],
+      "assignee": "agent",
+      "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "spec": {
+        "edam_operation": "operation:3192",
+        "expected_artifacts": [
+          "retention_summary.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "preprocessing",
+        "required_figures": [
+          "retention_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/retention_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/retention_bar.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "validate_alignment": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "alignment"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "spec": {
+        "edam_operation": "operation:3198",
+        "stage_class": "operation"
+      },
+      "resource_class": "memory_heavy"
+    },
+    "validate_data_acquisition": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "spec": {
+        "edam_operation": "operation:2422",
+        "required_figures": [
+          "samples_per_study"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_differential_expression": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "spec": {
+        "edam_operation": "operation:3223",
+        "required_figures": [
+          "volcano",
+          "top_features_heatmap"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_final_reporting": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "final_reporting"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "required_figures": [
+          "summary_dashboard"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_normalisation": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "normalisation"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "spec": {
+        "edam_operation": "operation:3435",
+        "plot_stage_id": "normalization",
+        "required_figures": [
+          "mean_variance",
+          "hvg_count_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_pathway_enrichment": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "pathway_enrichment"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "spec": {
+        "edam_operation": "operation:2436",
+        "plot_stage_id": "biological_interpretation",
+        "required_figures": [
+          "top_enriched_terms"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_qc_preprocessing": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "qc_preprocessing"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "spec": {
+        "edam_operation": "swfc:scrnaseq_cell_qc",
+        "plot_stage_id": "quality_control",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_quantification": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quantification"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "spec": {
+        "edam_operation": "operation:3800",
+        "stage_class": "operation"
+      },
+      "resource_class": "memory_heavy"
+    },
+    "validate_raw_qc": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "raw_qc"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "plot_stage_id": "quality_control",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_reporting": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "reporting"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "required_figures": [
+          "concordance_heatmap",
+          "pathway_overlap_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_sequence_trimming": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "sequence_trimming"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "spec": {
+        "edam_operation": "operation:3192",
+        "plot_stage_id": "preprocessing",
+        "required_figures": [
+          "retention_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    }
+  }
+}

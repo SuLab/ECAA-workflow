@@ -1,0 +1,66 @@
+id: chromatin_contact_calling
+version: "1.0.0"
+role: operation
+description: |
+  Extract paired ligation contacts from a Hi-C / HiChIP / Micro-C
+  paired-end BAM, deduplicate, and bin into multi-resolution
+  contact matrices (.cool / .mcool). The standard pre-loop-calling
+  step for any chromatin-conformation assay.
+edam_operation: "operation:3222"
+edam_data: "data:0863"
+edam_format: "format:2572"
+assignee: agent
+depends_on:
+  - alignment
+expected_artifacts:
+  - contacts.pairs.gz
+  - contacts.cool
+  - contact_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: chromatin_contacts
+required_figures:
+  - cis_trans_ratio
+  - distance_decay_curve
+attributes:
+  candidate_tools:
+    - pairtools
+    - cooler
+    - juicer
+    - hic-pro
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: false
+  runtime_class: hours
+claim_boundary: |
+  Contact matrices are the statistical summary of pairwise
+  ligation events; QC metrics (cis/trans ratio, distance decay,
+  duplicate rate) must be reported alongside any downstream
+  loop / TAD analysis.
+inputs:
+  - name: aligned_pairs
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0863"
+      label: "Sequence alignment"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:2572"
+      label: "BAM"
+    privacy_class: internal
+outputs:
+  - name: contact_matrix
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: chromatin_contact_matrix
+      proposed_parent_terms:
+        - "data:0863"
+      definition: "Multi-resolution chromatin contact matrix"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
+    privacy_class: internal

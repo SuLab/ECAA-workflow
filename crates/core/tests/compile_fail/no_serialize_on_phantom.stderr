@@ -1,0 +1,11 @@
+error[E0603]: module `reference_genome` is private
+  --> tests/compile_fail/no_serialize_on_phantom.rs:19:53
+   |
+19 | use scripps_workflow_core::compile_time_discipline::reference_genome::{AlignedReads, GRCh38};
+   |                                                     ^^^^^^^^^^^^^^^^ private module
+   |
+note: the module `reference_genome` is defined here
+  --> src/compile_time_discipline/mod.rs
+   |
+   | pub(crate) mod reference_genome;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

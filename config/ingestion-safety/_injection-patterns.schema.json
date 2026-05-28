@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "swfc:injection-patterns",
+  "type": "object",
+  "required": ["version", "patterns"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "patterns": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "category", "pattern", "severity", "default_action"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "category": {
+            "enum": [
+              "instruction_injection",
+              "fake_ontology_term",
+              "dependency_confusion",
+              "hidden_html_comment",
+              "credential",
+              "url_exfiltration"
+            ]
+          },
+          "pattern": { "type": "string", "minLength": 1 },
+          "severity": { "enum": ["low", "medium", "high", "critical"] },
+          "default_action": { "enum": ["quarantine", "refuse", "annotate"] }
+        }
+      }
+    }
+  }
+}

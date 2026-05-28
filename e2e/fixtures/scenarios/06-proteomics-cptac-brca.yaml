@@ -1,0 +1,160 @@
+# 06 — CPTAC breast cancer proteogenomic reanalysis
+#
+# Validates the TMT-11 + cross-plex IRS normalization path and the
+# proteome/phosphoproteome/matched-genomics integration.
+
+name: CPTAC breast cancer proteogenomic reanalysis
+modality: proteomics
+
+beats:
+  - user: "I want to reanalyze the CPTAC breast cancer proteogenomics cohort."
+    assistant:
+      content: |
+        CPTAC-BRCA proteogenomics — got it. Which cohort, and are you
+        starting from raw PDC files or from processed tables?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+      visibleText:
+        - "CPTAC"
+        - "BRCA"
+
+  - user: "Krug 2020 prospective cohort — PDC000120 for proteome, PDC000121 for phospho."
+    assistant:
+      content: |
+        Krug 2020 prospective — 122 treatment-naive primary tumors,
+        TMT-11 LC-MS/MS across ~11 plexes. PDC000120 proteome +
+        PDC000121 phosphoproteome. Cross-plex IRS normalization
+        is mandatory for this design.
+    expect:
+      visibleText:
+        - "PDC000120"
+        - "PDC000121"
+        - "TMT-11"
+      forbiddenText:
+        - "MaxQuant"
+        - "FragPipe"
+        - "I recommend"
+
+  - user: "Also pull matched CPTAC-3 WES/WGS/RNA-seq from GDC for multi-omic integration."
+    assistant:
+      content: |
+        Matched CPTAC-3 genomics from GDC (WES/WGS/RNA-seq) staged
+        alongside. Protein-RNA correlations will be reported explicitly
+        per gene — the package won't silently substitute RNA expression
+        for protein abundance.
+    expect:
+      visibleText:
+        - "GDC"
+        - "Protein-RNA"
+
+  - user: |
+      Raw-data re-search not processed-table consumption. Use UniProt
+      human canonical + isoform, pin the database version.
+    assistant:
+      content: |
+        Raw re-search path, UniProt human canonical + isoform pinned.
+        Phosphosite localization-probability filter at 0.75 minimum
+        to avoid ambiguous assignments. MSstats for statistical
+        contrasts.
+    expect:
+      visibleText:
+        - "0.75"
+
+  # The live assistant reliably asks whether to scope this package to the
+  # mass-spec side alone or to also include genomics/integration pipelines.
+  # Without this explicit scope-lock beat, the 5-beat budget runs out
+  # Before pending_confirmation is reached (see remediation).
+  - user: |
+      Scope this package to the proteomics + phosphoproteomics re-search
+      and quantification only. Genomics and integration are separate
+      efforts — don't try to build them in here.
+    assistant:
+      content: |
+        Scope locked — mass-spec side only (proteome + phosphoproteome
+        re-search + quantification). Genomics and multi-omic integration
+        will be their own packages. One remaining detail before we lock
+        the plan: what Rand-index floor should the PAM50 concordance
+        gate use?
+    expect:
+      visibleText:
+        - "scope"
+        - "proteom"
+
+  - user: |
+      Good. Re-derive PAM50 subtypes and compare against Krug 2020
+      labels with a Rand index floor of 0.70 — fail closed below that.
+    assistant:
+      content: |
+        Here's the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **CPTAC-BRCA proteogenomic reanalysis — Krug 2020 prospective cohort**
+
+          - **Cohort:** 122 treatment-naive primary tumors, TMT-11
+          - **Accessions:** PDC000120 proteome, PDC000121 phosphoproteome,
+            GDC CPTAC-3 WES/WGS/RNA-seq
+          - **Pipeline:** raw-data re-search, UniProt canonical + isoform
+            pinned, cross-plex IRS normalization, MSstats contrast
+          - **Phosphosite filter:** localization probability ≥ 0.75
+          - **Validation:** re-derive PAM50 subtypes, Rand-index floor
+            against Krug 2020 labels, fail-closed below threshold
+          - **Protein-RNA:** correlations reported per gene, no silent
+            RNA substitution
+          - **Claim boundary:** descriptive subtype-discriminating
+            proteomic and phosphoproteomic features and
+            hypothesis-generating kinase-substrate enrichment only.
+            No clinical-utility, therapeutic actionability, diagnostic,
+            or survival claims.
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "Claim boundary"
+        - "Rand-index"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: "Package emitted — MS data re-search ready for execution."
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I want to reanalyze the CPTAC breast cancer proteogenomics cohort — Krug
+    2020 prospective, 122 treatment-naive primary tumors on TMT-11. PDC000120
+    for the proteome and PDC000121 for the phosphoproteome. Also pull matched
+    CPTAC-3 WES, WGS, and RNA-seq from GDC for multi-omic integration. This is
+    a raw-data re-search, not processed-table consumption: use UniProt human
+    canonical plus isoform with a pinned database version. Phosphosite
+    localization probability filter at 0.75 minimum. Cross-plex IRS
+    normalization is mandatory. Re-derive PAM50 subtypes and compare against
+    Krug 2020 labels with a Rand-index floor — fail closed below the threshold.
+    Protein-RNA correlations reported per gene, no silent RNA substitution.
+    Internal use. Once we agree on the plan, emit the package to {pkgDir}.
+  followups:
+    - trigger: "(?i)(processed|table|raw)"
+      reply: "Raw-data re-search only, not processed-table consumption."
+    - trigger: "(?i)(normalization|IRS|cross.plex)"
+      reply: "Cross-plex IRS normalization is mandatory for the TMT-11 design."
+    - trigger: "(?i)(PAM50|subtype|Rand)"
+      reply: "Re-derive PAM50 subtypes and compare against Krug 2020 labels; fail closed below the Rand-index floor."
+    - trigger: "(?i)(protein.RNA|correlation|substitut)"
+      reply: "Protein-RNA correlations per gene, explicitly — no silent RNA substitution for protein abundance."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "MaxQuant"
+      - "FragPipe"
+      - "I recommend"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 4

@@ -1,0 +1,38 @@
+schema_version: "0.1"
+id: cross_omics_rnaseq_atac
+version: "1.0.0"
+description: |
+  Paired single-cell RNA + ATAC analysis. Base scaffold: QC,
+  preprocessing, joint integration, clustering, cell-type annotation,
+  peak-to-gene linking. Protocol-specific demultiplexing or barcode-
+  matching steps come from the `protocol` slot.
+sme_summary: |
+  Joint single-cell RNA+ATAC analysis with clustering, cell-type
+  annotation, and peak-to-gene linking.
+goal_data: "data:3917"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: cross_omics_rnaseq_atac
+cross_omics_modalities:
+  - single_cell_rnaseq
+  - atac_seq
+atoms:
+  - { atom_id: data_acquisition, required: true }
+  - { atom_id: qc_preprocessing, depends_on: [data_acquisition], required: true }
+  - { atom_id: normalisation, depends_on: [qc_preprocessing], required: true }
+  - { atom_id: joint_wnn_integration,
+      depends_on: [normalisation, multiome_arc_demultiplex, share_seq_barcode_match],
+      required: true }
+  - { atom_id: clustering, depends_on: [joint_wnn_integration], required: true }
+  - { atom_id: cell_type_annotation, depends_on: [clustering], required: true }
+  - { atom_id: differential_expression, depends_on: [cell_type_annotation], required: true }
+  - { atom_id: pathway_enrichment, depends_on: [differential_expression], required: false }
+  # Multiome/SHARE-seq ATAC side: per-cluster differential accessibility on
+  # the ATAC half. Depends on joint clustering + cell-type labels — the
+  # multiome demultiplexer / SHARE-seq barcode-matcher already produced
+  # the per-cell ATAC counts upstream of joint_wnn_integration.
+  - { atom_id: differential_accessibility, depends_on: [joint_wnn_integration, cell_type_annotation], required: true }
+  - { atom_id: peak_to_gene_linking, depends_on: [joint_wnn_integration, cell_type_annotation], required: true }
+  - { atom_id: reporting, depends_on: [differential_expression, differential_accessibility, peak_to_gene_linking], required: true }
+  - { atom_id: final_reporting, depends_on: [reporting], required: true }
+slot_mappings: {}

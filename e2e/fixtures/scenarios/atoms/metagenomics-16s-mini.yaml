@@ -1,0 +1,89 @@
+# atoms/metagenomics-16s-mini — atom-coverage spec
+#
+# Synthetic 16S amplicon dataset: 30 OTUs × 8 samples (4 healthy, 4 disease).
+# Tests the metagenomics_taxonomic archetype.
+
+name: Synthetic 16S amplicon gut microbiome diversity analysis
+modality: metagenomics
+
+beats:
+  - user: >-
+      I want to run a 16S amplicon metagenomics analysis on a small synthetic
+      gut microbiome dataset: 30 OTUs across 8 samples comparing healthy vs
+      disease individuals.
+    assistant:
+      content: >-
+        16S gut microbiome, 30 OTUs, healthy vs disease. Alpha and beta
+        diversity analysis planned?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      Standard pipeline: taxonomic classification from the OTU table,
+      alpha diversity (Shannon, observed features), beta diversity (Bray-Curtis),
+      and differential abundance testing. Internal use, synthetic data.
+    assistant:
+      content: >-
+        Recorded — taxonomic import → alpha diversity → beta diversity →
+        differential abundance. Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **16S gut microbiome — healthy vs disease**
+
+          - **Dataset:** Synthetic OTU table (30 OTUs × 8 samples)
+          - **Contrast:** healthy vs disease
+          - **Pipeline:** taxonomic profiling → alpha diversity → beta diversity → DA
+          - **Governance:** synthetic data, internal use
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I want to run a 16S amplicon metagenomics analysis comparing healthy and
+    disease gut microbiome samples. The dataset is a synthetic OTU table with
+    30 OTUs across 8 samples (4 healthy, 4 disease), with taxonomy labels,
+    staged locally as otu_table.tsv. Sample metadata is in samples.csv. The
+    pipeline should cover: taxonomic profiling from the OTU table, alpha
+    diversity (Shannon index, observed features), beta diversity with
+    Bray-Curtis dissimilarity and PERMANOVA testing, and differential abundance
+    between healthy and disease. Internal use, synthetic data, no PHI.
+    Please build the plan and emit once confirmed.
+  followups:
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use, fully synthetic data, no PHI.
+    - trigger: "(?i)(file|format|path|otu|biom|input|data|qiime)"
+      reply: >-
+        Files staged at testdata/scenarios/atoms/metagenomics-16s-mini/.
+        OTU table: otu_table.tsv. Sample metadata: samples.csv.
+    - trigger: "(?i)(contrast|comparison|condition|group|healthy|disease)"
+      reply: >-
+        Healthy (S1-S4) vs disease (S5-S8). Two-group comparison.
+    - trigger: "(?i)(classifier|kraken|metaphlan|dada2|qiime|amplicon)"
+      reply: >-
+        Pre-computed OTU table — skip read classification. Import directly.
+    - trigger: "(?i)(alpha|shannon|diversity|chao|evenness)"
+      reply: >-
+        Shannon index and observed features for alpha diversity.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

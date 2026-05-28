@@ -1,0 +1,208 @@
+{
+  "current_task": null,
+  "meta": {
+    "modality_stratum": "metagenomics",
+    "run_id": "e62e7c7c-f943-2d55-923f-de996a36341a"
+  },
+  "run_id": "e62e7c7c-f943-2d55-923f-de996a36341a",
+  "tasks": {
+    "data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_sequence_trimming": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_taxonomic_classification": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Discover method for taxonomic_classification (options: kraken2, metaphlan, qiime2_dada2, qiime2_deblur, bracken, centrifuge). Surface set_intake_method.",
+      "kind": {
+        "discovery": {
+          "custom": "custom"
+        }
+      },
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "diversity_analysis": {
+      "assignee": "agent",
+      "depends_on": [
+        "taxonomic_classification"
+      ],
+      "description": "Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). swfc namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "raw_qc": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "diversity_analysis"
+      ],
+      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "sequence_trimming": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_sequence_trimming",
+        "raw_qc"
+      ],
+      "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "taxonomic_classification": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_taxonomic_classification",
+        "sequence_trimming"
+      ],
+      "description": "Assign taxonomic identities to metagenomic reads or contigs. Kraken2 /\nMetaPhlAn / QIIME2 (DADA2 / Deblur) / Bracken selected at runtime by\nmodality (shotgun vs amplicon).\n",
+      "kind": "computation",
+      "resource_class": "memory_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_diversity_analysis": {
+      "assignee": "agent",
+      "depends_on": [
+        "diversity_analysis"
+      ],
+      "description": "Validate outputs of: Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). swfc namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_final_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "final_reporting"
+      ],
+      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_raw_qc": {
+      "assignee": "agent",
+      "depends_on": [
+        "raw_qc"
+      ],
+      "description": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_reporting": {
+      "assignee": "agent",
+      "depends_on": [
+        "reporting"
+      ],
+      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_sequence_trimming": {
+      "assignee": "agent",
+      "depends_on": [
+        "sequence_trimming"
+      ],
+      "description": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_taxonomic_classification": {
+      "assignee": "agent",
+      "depends_on": [
+        "taxonomic_classification"
+      ],
+      "description": "Validate outputs of: Assign taxonomic identities to metagenomic reads or contigs. Kraken2 /\nMetaPhlAn / QIIME2 (DADA2 / Deblur) / Bracken selected at runtime by\nmodality (shotgun vs amplicon).\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "state": {
+        "status": "pending"
+      }
+    }
+  },
+  "version": "1.0",
+  "workflow_id": "workflow-7120df71defd"
+}

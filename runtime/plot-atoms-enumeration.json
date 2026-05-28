@@ -1,0 +1,636 @@
+[
+  {
+    "atom_id": "alignment",
+    "semantic_type_iri": "data:0863",
+    "renderer_module": "runtime.plotting.stages.peak_calling",
+    "figure_ids": [
+      "profile_pileup",
+      "coverage_track",
+      "peak_saturation"
+    ],
+    "stage_id": "peak_calling"
+  },
+  {
+    "atom_id": "batch_correction",
+    "semantic_type_iri": "swfc:batch_corrected_embedding",
+    "renderer_module": "runtime.plotting.stages.batch_correction",
+    "figure_ids": [
+      "mixing_score_bar",
+      "umap_pre_post"
+    ],
+    "stage_id": "batch_correction"
+  },
+  {
+    "atom_id": "cdisc_mapping",
+    "semantic_type_iri": "data:2531",
+    "renderer_module": "runtime.plotting.stages.data_acquisition",
+    "figure_ids": [
+      "samples_per_study"
+    ],
+    "stage_id": "data_acquisition"
+  },
+  {
+    "atom_id": "cdr3_clonotype_clustering",
+    "semantic_type_iri": "swfc:clonotype_table",
+    "renderer_module": "runtime.plotting.stages.vdj_repertoire",
+    "figure_ids": [
+      "public_clonotype_size_bar",
+      "clonotype_network"
+    ],
+    "stage_id": "vdj_repertoire"
+  },
+  {
+    "atom_id": "cell_type_annotation",
+    "semantic_type_iri": "data:3736",
+    "renderer_module": "runtime.plotting.stages.cell_type_annotation",
+    "figure_ids": [
+      "umap_by_celltype",
+      "celltype_size_bar"
+    ],
+    "stage_id": "cell_type_annotation"
+  },
+  {
+    "atom_id": "chromatin_contact_calling",
+    "semantic_type_iri": "swfc:chromatin_contact_matrix",
+    "renderer_module": "runtime.plotting.stages.chromatin_contacts",
+    "figure_ids": [
+      "cis_trans_ratio",
+      "distance_decay_curve"
+    ],
+    "stage_id": "chromatin_contacts"
+  },
+  {
+    "atom_id": "chromatin_loop_calling",
+    "semantic_type_iri": "swfc:chromatin_loop_table",
+    "renderer_module": "runtime.plotting.stages.chromatin_loops",
+    "figure_ids": [
+      "loop_count_bar",
+      "loop_size_distribution"
+    ],
+    "stage_id": "chromatin_loops"
+  },
+  {
+    "atom_id": "cis_regulatory_variant_scoring",
+    "semantic_type_iri": "swfc:cis_regulatory_scores",
+    "renderer_module": "runtime.plotting.stages.regulatory_variants",
+    "figure_ids": [
+      "cis_effect_volcano",
+      "variant_peak_overlap_bar"
+    ],
+    "stage_id": "regulatory_variants"
+  },
+  {
+    "atom_id": "clustering",
+    "semantic_type_iri": "swfc:cluster_assignments",
+    "renderer_module": "runtime.plotting.stages.clustering",
+    "figure_ids": [
+      "umap_clusters",
+      "cluster_size_bar"
+    ],
+    "stage_id": "clustering"
+  },
+  {
+    "atom_id": "colocalization",
+    "semantic_type_iri": "swfc:colocalization_results",
+    "renderer_module": "runtime.plotting.stages.colocalization",
+    "figure_ids": [
+      "manhattan",
+      "qq",
+      "miami",
+      "locus_zoom",
+      "credible_set_track",
+      "coloc_pp_panel"
+    ],
+    "stage_id": "colocalization"
+  },
+  {
+    "atom_id": "data_acquisition",
+    "semantic_type_iri": "data:2531",
+    "renderer_module": "runtime.plotting.stages.data_acquisition",
+    "figure_ids": [
+      "samples_per_study"
+    ],
+    "stage_id": "data_acquisition"
+  },
+  {
+    "atom_id": "differential_accessibility",
+    "semantic_type_iri": "swfc:differential_accessibility_results",
+    "renderer_module": "runtime.plotting.stages.differential_accessibility",
+    "figure_ids": [
+      "volcano",
+      "ma_plot",
+      "diff_heatmap"
+    ],
+    "stage_id": "differential_accessibility"
+  },
+  {
+    "atom_id": "differential_expression",
+    "semantic_type_iri": "data:3134",
+    "renderer_module": "runtime.plotting.stages.differential_expression",
+    "figure_ids": [
+      "volcano",
+      "top_features_heatmap"
+    ],
+    "stage_id": "differential_expression"
+  },
+  {
+    "atom_id": "differential_loop_analysis",
+    "semantic_type_iri": "swfc:differential_loop_table",
+    "renderer_module": "runtime.plotting.stages.chromatin_loops",
+    "figure_ids": [
+      "loop_volcano",
+      "differential_loop_arc"
+    ],
+    "stage_id": "chromatin_loops"
+  },
+  {
+    "atom_id": "differential_transcript_usage",
+    "semantic_type_iri": "swfc:differential_transcript_usage_results",
+    "renderer_module": "runtime.plotting.stages.dtu",
+    "figure_ids": [
+      "dtu_volcano",
+      "transcript_usage_stacked_bar"
+    ],
+    "stage_id": "dtu"
+  },
+  {
+    "atom_id": "dimensionality_reduction",
+    "semantic_type_iri": "swfc:embedding",
+    "renderer_module": "runtime.plotting.stages.dimensionality_reduction",
+    "figure_ids": [
+      "variance_explained_elbow",
+      "embedding_scatter"
+    ],
+    "stage_id": "dimensionality_reduction"
+  },
+  {
+    "atom_id": "diversity_analysis",
+    "semantic_type_iri": "swfc:diversity_metrics",
+    "renderer_module": "runtime.plotting.stages.taxonomic_profiling",
+    "figure_ids": [
+      "diversity_violin"
+    ],
+    "stage_id": "taxonomic_profiling"
+  },
+  {
+    "atom_id": "endpoint_analysis",
+    "semantic_type_iri": "swfc:trial_endpoint",
+    "renderer_module": "runtime.plotting.stages.primary_endpoint",
+    "figure_ids": [
+      "kaplan_meier",
+      "forest"
+    ],
+    "stage_id": "primary_endpoint"
+  },
+  {
+    "atom_id": "enhancer_activity_calling",
+    "semantic_type_iri": "swfc:enhancer_activity_table",
+    "renderer_module": "runtime.plotting.stages.enhancer_activity",
+    "figure_ids": [
+      "rna_vs_dna_scatter",
+      "activity_score_histogram"
+    ],
+    "stage_id": "enhancer_activity"
+  },
+  {
+    "atom_id": "expression_methylation_correlation",
+    "semantic_type_iri": "swfc:methylation_correlation_table",
+    "renderer_module": "runtime.plotting.stages.methylation_expression",
+    "figure_ids": [
+      "methylation_vs_expression_scatter",
+      "methylation_driven_gene_heatmap"
+    ],
+    "stage_id": "methylation_expression"
+  },
+  {
+    "atom_id": "final_reporting",
+    "semantic_type_iri": "swfc:final_report",
+    "renderer_module": "runtime.plotting.stages.final_reporting",
+    "figure_ids": [
+      "summary_dashboard"
+    ],
+    "stage_id": "final_reporting"
+  },
+  {
+    "atom_id": "gwas_summary_harmonization",
+    "semantic_type_iri": "data:0928",
+    "renderer_module": "runtime.plotting.stages.variant_filtering",
+    "figure_ids": [
+      "qq",
+      "manhattan"
+    ],
+    "stage_id": "variant_filtering"
+  },
+  {
+    "atom_id": "hla_peptide_search",
+    "semantic_type_iri": "swfc:hla_peptide_table",
+    "renderer_module": "runtime.plotting.stages.hla_peptidomics",
+    "figure_ids": [
+      "peptide_length_distribution",
+      "psm_score_distribution"
+    ],
+    "stage_id": "hla_peptidomics"
+  },
+  {
+    "atom_id": "integrate_multi_omics_diablo",
+    "semantic_type_iri": "swfc:diablo_model",
+    "renderer_module": "runtime.plotting.stages.diablo",
+    "figure_ids": [
+      "diablo_components_scatter",
+      "diablo_loadings_heatmap",
+      "modality_concordance_heatmap",
+      "factor_variance_bar"
+    ],
+    "stage_id": "diablo"
+  },
+  {
+    "atom_id": "integrate_multi_omics_mofa",
+    "semantic_type_iri": "swfc:mofa_factors",
+    "renderer_module": "runtime.plotting.stages.multi_omics_integration",
+    "figure_ids": [
+      "modality_concordance_heatmap",
+      "factor_variance_bar"
+    ],
+    "stage_id": "multi_omics_integration"
+  },
+  {
+    "atom_id": "integrate_multi_omics_snf",
+    "semantic_type_iri": "swfc:fused_similarity_matrix",
+    "renderer_module": "runtime.plotting.stages.snf",
+    "figure_ids": [
+      "fused_similarity_heatmap",
+      "snf_cluster_size_bar",
+      "modality_concordance_heatmap",
+      "factor_variance_bar"
+    ],
+    "stage_id": "snf"
+  },
+  {
+    "atom_id": "integration",
+    "semantic_type_iri": "data:3917",
+    "renderer_module": "runtime.plotting.stages.normalization",
+    "figure_ids": [
+      "mean_variance",
+      "hvg_count_bar"
+    ],
+    "stage_id": "normalization"
+  },
+  {
+    "atom_id": "isoform_discovery",
+    "semantic_type_iri": "data:1276",
+    "renderer_module": "runtime.plotting.stages.isoform_calling",
+    "figure_ids": [
+      "isoform_structure",
+      "sashimi"
+    ],
+    "stage_id": "isoform_calling"
+  },
+  {
+    "atom_id": "joint_wnn_integration",
+    "semantic_type_iri": "swfc:joint_wnn_embedding",
+    "renderer_module": "runtime.plotting.stages.joint_wnn",
+    "figure_ids": [
+      "wnn_umap",
+      "cluster_composition_bar"
+    ],
+    "stage_id": "joint_wnn"
+  },
+  {
+    "atom_id": "long_read_benchmarking",
+    "semantic_type_iri": "data:0951",
+    "renderer_module": "runtime.plotting.stages.biological_interpretation",
+    "figure_ids": [
+      "top_enriched_terms"
+    ],
+    "stage_id": "biological_interpretation"
+  },
+  {
+    "atom_id": "motif_enrichment",
+    "semantic_type_iri": "swfc:motif_enrichment_results",
+    "renderer_module": "runtime.plotting.stages.motif_enrichment",
+    "figure_ids": [
+      "motif_enrichment_table",
+      "motif_logo_grid"
+    ],
+    "stage_id": "motif_enrichment"
+  },
+  {
+    "atom_id": "multiome_arc_demultiplex",
+    "semantic_type_iri": "swfc:multiome_paired_per_nucleus",
+    "renderer_module": "runtime.plotting.stages.barcode_pairing",
+    "figure_ids": [
+      "paired_capture_summary",
+      "barcode_match_summary"
+    ],
+    "stage_id": "barcode_pairing"
+  },
+  {
+    "atom_id": "neoantigen_filtering",
+    "semantic_type_iri": "swfc:neoantigen_catalog",
+    "renderer_module": "runtime.plotting.stages.hla_peptidomics",
+    "figure_ids": [
+      "neoantigen_per_patient_bar",
+      "shared_neoantigen_heatmap"
+    ],
+    "stage_id": "hla_peptidomics"
+  },
+  {
+    "atom_id": "netmhc_binding_prediction",
+    "semantic_type_iri": "swfc:hla_binding_table",
+    "renderer_module": "runtime.plotting.stages.hla_peptidomics",
+    "figure_ids": [
+      "binder_rank_histogram",
+      "allele_presentation_heatmap"
+    ],
+    "stage_id": "hla_peptidomics"
+  },
+  {
+    "atom_id": "normalisation",
+    "semantic_type_iri": "data:3917",
+    "renderer_module": "runtime.plotting.stages.normalization",
+    "figure_ids": [
+      "mean_variance",
+      "hvg_count_bar"
+    ],
+    "stage_id": "normalization"
+  },
+  {
+    "atom_id": "pathway_enrichment",
+    "semantic_type_iri": "data:0960",
+    "renderer_module": "runtime.plotting.stages.biological_interpretation",
+    "figure_ids": [
+      "top_enriched_terms"
+    ],
+    "stage_id": "biological_interpretation"
+  },
+  {
+    "atom_id": "peak_annotation",
+    "semantic_type_iri": "swfc:peak_annotation_table",
+    "renderer_module": "runtime.plotting.stages.peak_annotation",
+    "figure_ids": [
+      "peak_feature_distribution",
+      "tss_distance_distribution"
+    ],
+    "stage_id": "peak_annotation"
+  },
+  {
+    "atom_id": "peak_calling",
+    "semantic_type_iri": "data:1255",
+    "renderer_module": "runtime.plotting.stages.peak_calling",
+    "figure_ids": [
+      "profile_pileup",
+      "coverage_track",
+      "peak_saturation"
+    ],
+    "stage_id": "peak_calling"
+  },
+  {
+    "atom_id": "peak_to_gene_linking",
+    "semantic_type_iri": "swfc:peak_to_gene_link_table",
+    "renderer_module": "runtime.plotting.stages.peak_to_gene",
+    "figure_ids": [
+      "peak_to_gene_arc",
+      "links_per_cluster_bar"
+    ],
+    "stage_id": "peak_to_gene"
+  },
+  {
+    "atom_id": "peptide_search",
+    "semantic_type_iri": "data:0945",
+    "renderer_module": "runtime.plotting.stages.quantification",
+    "figure_ids": [
+      "peptide_coverage",
+      "ridgeline"
+    ],
+    "stage_id": "quantification"
+  },
+  {
+    "atom_id": "population_definition",
+    "semantic_type_iri": "swfc:trial_analysis_set",
+    "renderer_module": "runtime.plotting.stages.population_definition",
+    "figure_ids": [
+      "consort_diagram"
+    ],
+    "stage_id": "population_definition"
+  },
+  {
+    "atom_id": "protein_quantification",
+    "semantic_type_iri": "swfc:protein_abundance_matrix",
+    "renderer_module": "runtime.plotting.stages.quantification",
+    "figure_ids": [
+      "peptide_coverage",
+      "ridgeline"
+    ],
+    "stage_id": "quantification"
+  },
+  {
+    "atom_id": "psite_offset_calibration",
+    "semantic_type_iri": "swfc:psite_offset_table",
+    "renderer_module": "runtime.plotting.stages.ribo_seq",
+    "figure_ids": [
+      "psite_offset_per_length",
+      "frame_periodicity"
+    ],
+    "stage_id": "ribo_seq"
+  },
+  {
+    "atom_id": "qc_preprocessing",
+    "semantic_type_iri": "swfc:qc_metrics",
+    "renderer_module": "runtime.plotting.stages.quality_control",
+    "figure_ids": [
+      "per_sample_metric_violin",
+      "per_sample_metric_bar",
+      "qc_summary_bar"
+    ],
+    "stage_id": "quality_control"
+  },
+  {
+    "atom_id": "quantification",
+    "semantic_type_iri": "data:3917",
+    "renderer_module": "runtime.plotting.stages.normalization",
+    "figure_ids": [
+      "mean_variance",
+      "hvg_count_bar"
+    ],
+    "stage_id": "normalization"
+  },
+  {
+    "atom_id": "raw_qc",
+    "semantic_type_iri": "data:2914",
+    "renderer_module": "runtime.plotting.stages.quality_control",
+    "figure_ids": [
+      "per_sample_metric_violin",
+      "per_sample_metric_bar",
+      "qc_summary_bar"
+    ],
+    "stage_id": "quality_control"
+  },
+  {
+    "atom_id": "repertoire_diversity",
+    "semantic_type_iri": "swfc:repertoire_diversity_table",
+    "renderer_module": "runtime.plotting.stages.vdj_repertoire",
+    "figure_ids": [
+      "clonal_frequency_rank",
+      "v_segment_usage_bar"
+    ],
+    "stage_id": "vdj_repertoire"
+  },
+  {
+    "atom_id": "reporting",
+    "semantic_type_iri": "data:2048",
+    "renderer_module": "runtime.plotting.stages.reporting",
+    "figure_ids": [
+      "concordance_heatmap",
+      "pathway_overlap_bar"
+    ],
+    "stage_id": "reporting"
+  },
+  {
+    "atom_id": "sequence_trimming",
+    "semantic_type_iri": "data:2044",
+    "renderer_module": "runtime.plotting.stages.preprocessing",
+    "figure_ids": [
+      "retention_bar"
+    ],
+    "stage_id": "preprocessing"
+  },
+  {
+    "atom_id": "sgrna_assignment",
+    "semantic_type_iri": "swfc:sgrna_assignment_table",
+    "renderer_module": "runtime.plotting.stages.crispr_screen",
+    "figure_ids": [
+      "sgrna_umi_histogram",
+      "cells_per_perturbation_bar"
+    ],
+    "stage_id": "crispr_screen"
+  },
+  {
+    "atom_id": "share_seq_barcode_match",
+    "semantic_type_iri": "swfc:multiome_paired_per_nucleus",
+    "renderer_module": "runtime.plotting.stages.barcode_pairing",
+    "figure_ids": [
+      "paired_capture_summary",
+      "barcode_match_summary"
+    ],
+    "stage_id": "barcode_pairing"
+  },
+  {
+    "atom_id": "spatial_domain_segmentation",
+    "semantic_type_iri": "swfc:spatial_domains",
+    "renderer_module": "runtime.plotting.stages.spatial_clustering",
+    "figure_ids": [
+      "tissue_overlay",
+      "morans_i_scatter",
+      "neighborhood_enrichment"
+    ],
+    "stage_id": "spatial_clustering"
+  },
+  {
+    "atom_id": "spatially_variable_genes",
+    "semantic_type_iri": "swfc:spatially_variable_genes",
+    "renderer_module": "runtime.plotting.stages.spatial_clustering",
+    "figure_ids": [
+      "morans_i_scatter"
+    ],
+    "stage_id": "spatial_clustering"
+  },
+  {
+    "atom_id": "taxonomic_classification",
+    "semantic_type_iri": "data:3028",
+    "renderer_module": "runtime.plotting.stages.taxonomic_profiling",
+    "figure_ids": [
+      "taxonomic_stacked_bar",
+      "diversity_violin"
+    ],
+    "stage_id": "taxonomic_profiling"
+  },
+  {
+    "atom_id": "time_series_decomposition",
+    "semantic_type_iri": "swfc:time_series_decomposition",
+    "renderer_module": "runtime.plotting.stages.exploratory_analysis",
+    "figure_ids": [
+      "decomposition_panel",
+      "acf_pacf_panel"
+    ],
+    "stage_id": "exploratory_analysis"
+  },
+  {
+    "atom_id": "time_series_forecast_evaluate",
+    "semantic_type_iri": "swfc:time_series_forecast_evaluation",
+    "renderer_module": "runtime.plotting.stages.forecasting_inference",
+    "figure_ids": [
+      "forecast_ribbon"
+    ],
+    "stage_id": "forecasting_inference"
+  },
+  {
+    "atom_id": "time_series_forecasting",
+    "semantic_type_iri": "swfc:forecast",
+    "renderer_module": "runtime.plotting.stages.forecasting_inference",
+    "figure_ids": [
+      "forecast_ribbon",
+      "anomaly_timeline"
+    ],
+    "stage_id": "forecasting_inference"
+  },
+  {
+    "atom_id": "translation_efficiency_de",
+    "semantic_type_iri": "swfc:te_results",
+    "renderer_module": "runtime.plotting.stages.ribo_seq",
+    "figure_ids": [
+      "te_volcano",
+      "te_quadrant_plot"
+    ],
+    "stage_id": "ribo_seq"
+  },
+  {
+    "atom_id": "validate_sample_alignment_n_way",
+    "semantic_type_iri": "data:1278",
+    "renderer_module": "runtime.plotting.stages.multi_omics_integration",
+    "figure_ids": [
+      "modality_concordance_heatmap",
+      "factor_variance_bar"
+    ],
+    "stage_id": "multi_omics_integration"
+  },
+  {
+    "atom_id": "variant_annotation",
+    "semantic_type_iri": "data:3498",
+    "renderer_module": "runtime.plotting.stages.variant_filtering",
+    "figure_ids": [
+      "manhattan",
+      "qq"
+    ],
+    "stage_id": "variant_filtering"
+  },
+  {
+    "atom_id": "variant_calling",
+    "semantic_type_iri": "data:3498",
+    "renderer_module": "runtime.plotting.stages.variant_filtering",
+    "figure_ids": [
+      "manhattan",
+      "qq"
+    ],
+    "stage_id": "variant_filtering"
+  },
+  {
+    "atom_id": "variant_filtering",
+    "semantic_type_iri": "data:3498",
+    "renderer_module": "runtime.plotting.stages.variant_filtering",
+    "figure_ids": [
+      "manhattan",
+      "qq"
+    ],
+    "stage_id": "variant_filtering"
+  },
+  {
+    "atom_id": "vdj_reconstruction",
+    "semantic_type_iri": "swfc:vdj_per_cell_table",
+    "renderer_module": "runtime.plotting.stages.vdj_repertoire",
+    "figure_ids": [
+      "chain_assignment_per_cell_bar",
+      "cdr3_length_distribution"
+    ],
+    "stage_id": "vdj_repertoire"
+  }
+]

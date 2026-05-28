@@ -1,0 +1,8 @@
+{
+  "comparisons": [
+    {
+      "id": "treated_vs_control",
+      "table_path": "comparison_1/differential_peaks.tsv"
+    }
+  ]
+}

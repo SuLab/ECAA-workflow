@@ -1,0 +1,662 @@
+# Cross-cutting classifier rules.
+#
+# Per-modality definitions (id, keywords, EDAM IRIs, archetype routing)
+# live in config/modalities/<id>.yaml and load via `ModalityRegistry`.
+# `Classifier::load` rejects any `modalities:` block found here so the
+# two sources cannot drift.
+
+method_keywords:
+  - keyword: star
+    stage: alignment
+    method: STAR
+    match: word
+  - keyword: hisat2
+    stage: alignment
+    method: HISAT2
+    match: word
+  - keyword: bwa
+    stage: alignment
+    method: BWA-MEM
+    match: word
+  - keyword: bowtie2
+    stage: alignment
+    method: Bowtie2
+    match: word
+  - keyword: salmon
+    stage: quantification
+    method: Salmon
+    match: word
+  - keyword: kallisto
+    stage: quantification
+    method: kallisto
+    match: word
+  - keyword: featurecounts
+    stage: quantification
+    method: featureCounts
+    match: word
+  - keyword: htseq
+    stage: quantification
+    method: HTSeq
+    match: word
+  - keyword: deseq2
+    stage: differential_expression
+    method: DESeq2
+    match: word
+  - keyword: edger
+    stage: differential_expression
+    method: edgeR
+    match: word
+  - keyword: limma
+    stage: differential_expression
+    method: limma-voom
+    match: word
+  - keyword: cellranger
+    stage: preprocessing
+    method: Cell Ranger
+    match: word
+  - keyword: seurat
+    stage: clustering
+    method: Seurat
+    match: word
+  - keyword: scanpy
+    stage: clustering
+    method: scanpy
+    match: word
+  - keyword: gatk
+    stage: variant_calling
+    method: GATK HaplotypeCaller
+    match: word
+  - keyword: deepvariant
+    stage: variant_calling
+    method: DeepVariant
+    match: word
+  - keyword: mutect2
+    stage: variant_calling
+    method: Mutect2
+    match: word
+  - keyword: macs2
+    stage: peak_calling
+    method: MACS2
+    match: word
+  - keyword: macs3
+    stage: peak_calling
+    method: MACS3
+    match: word
+  - keyword: maxquant
+    stage: protein_identification
+    method: MaxQuant
+    match: word
+  - keyword: fragpipe
+    stage: protein_identification
+    method: FragPipe
+    match: word
+  - keyword: metaphlan
+    stage: taxonomic_profiling
+    method: MetaPhlAn
+    match: word
+  - keyword: kraken2
+    stage: taxonomic_profiling
+    method: Kraken2
+    match: word
+
+organism_keywords:
+  - keyword: human
+    name: Homo sapiens
+    taxon_id: 9606
+  - keyword: "homo sapiens"
+    name: Homo sapiens
+    taxon_id: 9606
+  - keyword: hg38
+    name: Homo sapiens
+    taxon_id: 9606
+  - keyword: hg19
+    name: Homo sapiens
+    taxon_id: 9606
+  - keyword: grch38
+    name: Homo sapiens
+    taxon_id: 9606
+  - keyword: mouse
+    name: Mus musculus
+    taxon_id: 10090
+  - keyword: "mus musculus"
+    name: Mus musculus
+    taxon_id: 10090
+  - keyword: mm10
+    name: Mus musculus
+    taxon_id: 10090
+  - keyword: mm39
+    name: Mus musculus
+    taxon_id: 10090
+  - keyword: rat
+    name: Rattus norvegicus
+    taxon_id: 10116
+  - keyword: zebrafish
+    name: Danio rerio
+    taxon_id: 7955
+  - keyword: drosophila
+    name: Drosophila melanogaster
+    taxon_id: 7227
+  - keyword: arabidopsis
+    name: Arabidopsis thaliana
+    taxon_id: 3702
+  - keyword: "e. coli"
+    name: Escherichia coli
+    taxon_id: 562
+  - keyword: yeast
+    name: Saccharomyces cerevisiae
+    taxon_id: 4932
+
+data_source_patterns:
+  - pattern: "GSE\\d+"
+    label: NCBI GEO Series
+  - pattern: "GSM\\d+"
+    label: NCBI GEO Sample
+  - pattern: "PRJNA\\d+"
+    label: NCBI BioProject
+  - pattern: "SRR\\d+"
+    label: NCBI SRA Run
+  - pattern: "SRP\\d+"
+    label: NCBI SRA Project
+  - pattern: "E-MTAB-\\d+"
+    label: ArrayExpress
+  - pattern: "PXD\\d+"
+    label: ProteomeXchange
+  - pattern: "EMPIAR-\\d+"
+    label: EMPIAR (electron microscopy)
+  - pattern: "EGAD\\d+"
+    label: EGA Dataset
+  - pattern: "PMID\\d+"
+    label: PubMed citation
+  - pattern: "PMC\\d+"
+    label: PubMed Central article
+
+# Keyword-path goal extraction. The classifier scans
+# this list in order and the FIRST matching pattern populates
+# `ClassificationResult.goal`. Phrases use the same normalize-for-
+# match pipeline as `keywords`/`organism_keywords` (lowercase,
+# hyphen + underscore -> space) so SME prose with various
+# punctuation matches. EDAM IRIs follow the `data:N` /
+# `format:N` ontology shorthand (with `swfc:N` reserved for our
+# extensions per S4.8 / S4.9). Composer (S7.2) reads
+# (edam_data, edam_format, modifiers) to seed backward chaining.
+goal_patterns:
+  # KNOWN-ISSUE / DOCUMENTATION: the three proteomics goal patterns
+  # below (DDA / DIA / quantification) tag `edam_data: data:2976`.
+  # Per the EDAM 1.25 ontology, `data:2976` is "Protein sequence"
+  # (parent: data:2044 Sequence) — NOT a quantification / mass-spectrum
+  # type. The correct goal IRI is probably `data:2603 Expression data`
+  # for the input matrix or `data:0951 Statistical estimate score` for
+  # the DE-style output. The mislabel works today because
+  # `config/stage-atoms/protein_quantification.yaml` also declares
+  # `edam_data: data:2976`, so the goal-reachability check passes via
+  # exact-match. Fixing the IRI requires BOTH sides to change in
+  # lockstep — atom + every proteomics archetype goal_data — otherwise
+  # the proteomics scenarios start failing GoalUnreachable. Tracked as
+  # a follow-up; do not silently rewrite either side.
+  # Coverage is broadened so common SME phrasings trip a goal:
+  # ~15-25 phrases per pattern, picking up colloquial + tool-name +
+  # abbreviation variants that appear in real intake prose. Each
+  # pattern still maps to a single (edam_data, edam_format) pair so
+  # the archetype scoring stays deterministic.
+
+  # Proteomics DDA/DIA goal patterns must come BEFORE
+  # the generic DE pattern. Otherwise DE-keyword matches (fold change,
+  # limma, log2 fold change) in a proteomics prompt fire the DE goal
+  # (data:0951) and the DDA/DIA disambiguation never gets a chance.
+  # The result was a goal_data=data:0951 vs archetype goal_data=data:2976
+  # mismatch and the composer falling to the polluted search-only path.
+  - phrases:
+      - "dda analysis"
+      - "dda proteomics"
+      - "data dependent acquisition"
+      - "tmt quantification"
+      - "tmt labeling"
+      - "itraq"
+      - "ibaq"
+      - "shotgun proteomics"
+      - "fragpipe"
+      - "maxquant"
+      - "msfragger"
+    edam_data: "data:2976"
+    edam_format: "format:3475"
+    modifiers:
+      kind: proteomics_dda
+
+  - phrases:
+      - "dia analysis"
+      - "dia proteomics"
+      - "data independent acquisition"
+      - "label free quantification"
+      - "lfq"
+      - "label-free quantification"
+      - "diann"
+      - "dia-nn"
+      - "spectronaut"
+      - "dia-umpire"
+    edam_data: "data:2976"
+    edam_format: "format:3475"
+    modifiers:
+      kind: proteomics_dia
+
+  # Differential expression results are the most common SME ask
+  # across bulk + single-cell. Tabular committed shape (DE
+  # summary CSV / TSV); EDAM data:0951 = "statistical estimate
+  # score"; EDAM format:3475 = "Tabular text".
+  - phrases:
+      - "differential expression"
+      - "differential gene expression"
+      - "differential transcript expression"
+      - "differentially expressed"
+      - "deg analysis"
+      - "deg list"
+      - "deg table"
+      - "deg results"
+      - "de analysis"
+      - "de genes"
+      - "deseq2"
+      - "edger"
+      - "limma voom"
+      - "limma-voom"
+      - "fold change"
+      - "log2 fold change"
+      - "logfc"
+      - "upregulated genes"
+      - "downregulated genes"
+      - "compare gene expression"
+      - "gene expression differences"
+      - "differences in gene expression"
+      - "expression differences"
+      - "expression comparison"
+      - "find differentially"
+      - "identify de genes"
+      - "transcriptomics and proteomics"
+      - "gene expression and proteomics"
+      - "rna seq and proteomics"
+      - "rnaseq and proteomics"
+      - "bulk rna seq and lc ms"
+      - "shared signal analysis"
+      - "formal convergence"
+      - "formal convergence test"
+      - "general overlap"
+      - "overlap analysis"
+      - "same direction dysregulation"
+      # Methylation differential analysis emits the
+      # same edam_data:0951 / edam_format:3475 goal triple (effect
+      # size + adjusted p-value tabular table) as bulk RNA-seq DE.
+      # Without these phrases the methylation classifier hit modality
+      # match but produced goal=null, causing the composer fast-path
+      # to refuse to build the DAG.
+      - "differentially methylated"
+      - "differentially methylated positions"
+      - "differentially methylated regions"
+      - "dmp analysis"
+      - "dmp detection"
+      - "dmr analysis"
+      - "dmr detection"
+      - "dmr calling"
+      - "dmrcate"
+      - "methylkit"
+      - "minfi"
+      - "bsseq"
+      - "methylpy"
+      - "dmrseq"
+      - "methylseq"
+      - "differential methylation analysis"
+      # CUT&Tag, ChIP-exo, HiChIP, STARR-seq, single-
+      # cell V(D)J, immunopeptidomics, ribo-seq, long-read RNA-seq,
+      # spatial-transcriptomics differential-analysis phrases. All
+      # emit the same effect-size + p-value tabular goal triple.
+      - "differential peaks"
+      - "differential peak calling"
+      - "differential accessibility"
+      - "differential binding"
+      - "differential loop calling"
+      - "differential loops"
+      - "differential clonotype"
+      - "differential repertoire"
+      - "differential presentation"
+      - "differential translation efficiency"
+      - "differential isoform usage"
+      - "differential transcript usage"
+      - "differential transcript usage analysis"
+      - "differential layer composition"
+      - "differential cell-type abundance"
+    edam_data: "data:0951"
+    edam_format: "format:3475"
+    modifiers:
+      kind: differential_expression
+
+  # Variant calls (VCF). Common across cancer + GWAS + clinical
+  # genomics. EDAM data:3498 = "Sequence variations"; EDAM
+  # format:3016 = "VCF".
+  - phrases:
+      - "variant calls"
+      - "variant calling"
+      - "germline variants"
+      - "germline calling"
+      - "somatic variants"
+      - "somatic calling"
+      - "snv calling"
+      - "snv detection"
+      - "indel calling"
+      - "small variant"
+      - "vcf output"
+      - "vcf file"
+      - "call variants"
+      - "haplotypecaller"
+      - "deepvariant"
+      - "strelka"
+      - "mutect"
+      - "gatk variant"
+      - "freebayes"
+      - "find mutations"
+      - "identify mutations"
+    edam_data: "data:3498"
+    edam_format: "format:3016"
+    modifiers:
+      kind: variant_calling
+
+  # Annotated single-cell AnnData (the lotz IVD pattern). EDAM
+  # data:3917 = "Count matrix"; format:3590 = "HDF5 format"
+  # (an AnnData h5ad is HDF5).
+  - phrases:
+      - "single cell annotation"
+      - "single cell anndata"
+      - "clustered anndata"
+      - "annotated cells"
+      - "celltype annotation"
+      - "cell type annotation"
+      - "cell type identification"
+      - "cell type assignment"
+      - "cell type calling"
+      - "celltype identification"
+      - "annotate cell types"
+      - "label cells"
+      - "label transfer"
+      - "umap clustering"
+      - "leiden clustering"
+      - "louvain clustering"
+      - "scrna clustering"
+      - "marker gene"
+      - "marker genes"
+      - "scanpy"
+      - "seurat"
+      - "scvi"
+      - "h5ad"
+    edam_data: "data:3917"
+    edam_format: "format:3590"
+    modifiers:
+      kind: scrnaseq_annotation
+
+  # Pathway / functional enrichment.
+  - phrases:
+      - "pathway enrichment"
+      - "pathway analysis"
+      - "functional enrichment"
+      - "ora analysis"
+      - "ora enrichment"
+      - "over representation"
+      - "gene set enrichment"
+      - "gsea"
+      - "fgsea"
+      - "go enrichment"
+      - "go terms"
+      - "reactome enrichment"
+      - "reactome analysis"
+      - "kegg enrichment"
+      - "kegg analysis"
+      - "msigdb"
+      - "enriched pathways"
+      - "biological pathways"
+    edam_data: "data:0951"
+    edam_format: "format:3475"
+    modifiers:
+      kind: enrichment
+
+  # Peak calling for ChIP-seq / ATAC-seq. EDAM data:1255 =
+  # "Feature record" (the parent term for genomic-region records like
+  # peak sets); format:3003 = "BED". The v4 composer's
+  # `peak_calling` atom declares its output port at
+  # `data:1255 / format:3003` — keep this goal pattern aligned so the
+  # backward search unifies with the atom's output IRI.
+  #
+  # `edam_data` here is `data:1255` (Feature record, the *output*
+  # of peak calling), not `data:0863` (Sequence alignment / BAM,
+  # the *input*). v4's port-based search requires the goal IRI to
+  # match the atom's output port IRI, so the goal-pattern config
+  # is the right place to fix the IRI — the goal is what the SME
+  # asks for (a peak set), not what the atom consumes.
+  - phrases:
+      - "chip seq peaks"
+      - "chip-seq peaks"
+      - "atac seq peaks"
+      - "atac-seq peaks"
+      - "peak calls"
+      - "peak calling"
+      - "call peaks"
+      - "macs2 peaks"
+      - "macs3 peaks"
+      - "macs2"
+      - "macs3"
+      - "narrow peaks"
+      - "broad peaks"
+      - "narrowpeak"
+      - "broadpeak"
+      - "bed file"
+      - "bed output"
+      - "open chromatin"
+      - "accessible regions"
+      - "transcription factor binding"
+      - "tf binding sites"
+      - "histone modifications"
+      - "histone marks"
+    edam_data: "data:1255"
+    edam_format: "format:3003"
+    modifiers:
+      kind: peak_calling
+
+  # Survival / time-to-event analysis.
+  - phrases:
+      - "kaplan meier"
+      - "kaplan-meier"
+      - "km curve"
+      - "survival curve"
+      - "survival analysis"
+      - "survival probability"
+      - "cox proportional hazards"
+      - "cox regression"
+      - "cox model"
+      - "time to event"
+      - "time-to-event"
+      - "hazard ratio"
+      - "hr analysis"
+      - "log rank"
+      - "log-rank"
+      - "overall survival"
+      - "progression free survival"
+      - "disease free survival"
+      - "median survival"
+    edam_data: "data:0951"
+    edam_format: "format:3475"
+    modifiers:
+      kind: survival_analysis
+
+  # Forecast time-series.
+  - phrases:
+      - "time series forecast"
+      - "time-series forecast"
+      - "forecast horizon"
+      - "forecasting"
+      - "demand forecast"
+      - "sales forecast"
+      - "predict future"
+      - "predicted values"
+      - "arima"
+      - "arima forecast"
+      - "prophet"
+      - "prophet forecast"
+      - "exponential smoothing"
+      - "ets model"
+      - "lstm forecast"
+      - "anomaly detection"
+      - "trend analysis"
+      - "seasonal decomposition"
+    edam_data: "data:0951"
+    edam_format: "format:3475"
+    modifiers:
+      kind: forecast
+
+  # Generic proteomics phrasing (no DDA/DIA hint).
+  # Falls through to the proteomics modality without committing to
+  # a sub-archetype; the composer surfaces `TieRequiresSmeDecision`
+  # if both DDA + DIA archetypes match. Captures phrases that
+  # don't disambiguate which proteomics method applies.
+  - phrases:
+      - "protein abundance"
+      - "protein quantification"
+      - "protein expression"
+      - "phosphoproteomics"
+      - "post translational modification"
+      - "ptm analysis"
+      - "phospho sites"
+      - "ubiquitination sites"
+    edam_data: "data:2976"
+    edam_format: "format:3475"
+    modifiers:
+      kind: proteomics_quantification
+
+  # Metagenomics taxonomic profiling goal. Distinct
+  # from DE because the committed artifact is a taxonomic
+  # abundance table (per-sample × per-taxon counts), not a per-
+  # gene DE summary. Routes to metagenomics_taxonomic archetype.
+  - phrases:
+      - "metagenomic profiling"
+      - "metagenomics analysis"
+      - "taxonomic profiling"
+      - "taxonomic classification"
+      - "taxonomy assignment"
+      - "microbiome analysis"
+      - "microbiome composition"
+      - "16s rrna"
+      - "16s sequencing"
+      - "amplicon sequencing"
+      - "shotgun metagenomics"
+      - "alpha diversity"
+      - "beta diversity"
+      - "kraken"
+      - "kraken2"
+      - "metaphlan"
+      - "qiime"
+      - "qiime2"
+      - "dada2"
+      - "otu table"
+      - "asv table"
+      - "abundance table"
+      - "species composition"
+      - "community composition"
+    edam_data: "data:0951"
+    edam_format: "format:3475"
+    modifiers:
+      kind: metagenomics_taxonomic
+
+  # Spatial transcriptomics goal. Distinct artifact
+  # shape (cells × genes + spatial coordinates) so routes to
+  # spatial_transcriptomics archetype, not single_cell_de.
+  - phrases:
+      - "spatial transcriptomics"
+      - "spatial analysis"
+      - "spatial gene expression"
+      - "visium"
+      - "10x visium"
+      - "slide-seq"
+      - "merfish"
+      - "stereo-seq"
+      - "neighborhood analysis"
+      - "tissue domain"
+      - "spatial domain"
+      - "spatial niche"
+      - "spatial neighborhood"
+      - "spot deconvolution"
+      - "spatial autocorrelation"
+      - "moran's i"
+      - "morans i"
+    edam_data: "data:3917"
+    edam_format: "format:3590"
+    modifiers:
+      kind: spatial_transcriptomics
+
+  # Long-read isoform discovery / DTU goal.
+  # Distinguishes from short-read DE (data:0951) because the
+  # committed artifact is per-isoform usage stats. Routes to
+  # long_read_rnaseq archetype.
+  - phrases:
+      - "isoform discovery"
+      - "isoform usage"
+      - "differential transcript usage"
+      - "dtu analysis"
+      - "long read rnaseq"
+      - "long-read rnaseq"
+      - "long-read sequencing"
+      - "pacbio iso-seq"
+      - "iso-seq"
+      - "isoseq"
+      - "nanopore rnaseq"
+      - "oxford nanopore"
+      - "alternative splicing"
+      - "splice variants"
+      - "novel isoforms"
+      - "transcript isoforms"
+    edam_data: "data:0951"
+    edam_format: "format:3475"
+    modifiers:
+      kind: long_read_rnaseq
+
+  # GWAS colocalization goal. Distinct artifact
+  # (variant × phenotype association table) so routes to
+  # gwas_coloc archetype.
+  - phrases:
+      - "gwas analysis"
+      - "genome wide association"
+      - "genome-wide association"
+      - "colocalization"
+      - "coloc analysis"
+      - "fine mapping"
+      - "fine-mapping"
+      - "credible set"
+      - "lead snp"
+      - "manhattan plot"
+      - "qq plot"
+      - "locuszoom"
+      - "summary statistics"
+      - "association test"
+      - "gwas summary stats"
+    edam_data: "data:3498"
+    edam_format: "format:3475"
+    modifiers:
+      kind: gwas_coloc
+
+  # Metagenomic strain-level resolution. Atypical-shape modality
+  # (strain SNP calling on metagenomic shotgun) — routes through
+  # the `generic_omics` fall-through so universal terminals are
+  # emitted alongside any modality-specific outputs.
+  - phrases:
+      - "strain snp"
+      - "strain-level"
+      - "strain resolution"
+      - "metagenomic strain"
+    edam_data: "data:0006"
+    modifiers:
+      kind: strain_resolution
+
+  # scATAC-only (no companion RNA modality). Routes through the
+  # `generic_omics` fall-through to ensure the universal `raw_qc`
+  # + `generic_summary` terminals are present even though the
+  # single-cell ATAC pipeline has its own modality-specific outputs.
+  - phrases:
+      - "scatac only"
+      - "scatac seq only"
+      - "single cell atac alone"
+      - "snatac only"
+    edam_data: "data:0006"
+    modifiers:
+      kind: scatac_only

@@ -1,0 +1,11 @@
+{
+  "schema_version": "0.1",
+  "mode": "schema_only",
+  "schema_validation": {
+    "passed": 6,
+    "failed": [],
+    "skipped_pending_harness": 2
+  },
+  "external_validation": null,
+  "duration_ms": 0
+}

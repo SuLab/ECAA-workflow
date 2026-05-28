@@ -1,0 +1,31 @@
+#OTU_ID	S1	S2	S3	S4	S5	S6	S7	S8	taxonomy
+OTU0000	631	9	94	50	2651	78	552	299	k__Bacteria; p__Firmicutes; g__Bacteroides; s__Bacteroides fragilis
+OTU0001	17	535	1990	214	8	57	3031	28	k__Bacteria; p__Firmicutes; g__Faecalibacterium; s__Faecalibacterium prausnitzii
+OTU0002	78	63	33	317	8	41	145	11	k__Bacteria; p__Firmicutes; g__Akkermansia; s__Akkermansia muciniphila
+OTU0003	97	1918	29	120	16	74	966	507	k__Bacteria; p__Firmicutes; g__Bifidobacterium; s__Bifidobacterium longum
+OTU0004	559	35	6445	304	3	11	53	1	k__Bacteria; p__Firmicutes; g__Lactobacillus; s__Lactobacillus acidophilus
+OTU0005	1137	149	0	1057	8	400	2163	14	k__Bacteria; p__Firmicutes; g__Prevotella; s__Prevotella copri
+OTU0006	59	24	39	316	461	32	595	98	k__Bacteria; p__Firmicutes; g__Ruminococcus; s__Ruminococcus gnavus
+OTU0007	264	20	80	207	3627	99780	12	25	k__Bacteria; p__Firmicutes; g__Escherichia; s__Escherichia coli
+OTU0008	35	2014	7190	18	505	9	512	1878	k__Bacteria; p__Firmicutes; g__Blautia; s__Blautia obeum
+OTU0009	724	2	1722	469	631	14	202	59	k__Bacteria; p__Firmicutes; g__Roseburia; s__Roseburia intestinalis
+OTU0010	109	9	46	120	631	9059	22	1184	k__Bacteria; p__Firmicutes; g__Unknown_OTU_0; s__Unknown_OTU_0
+OTU0011	21	72	4	410	53	35	46	3	k__Bacteria; p__Firmicutes; g__Unknown_OTU_1; s__Unknown_OTU_1
+OTU0012	2666	1339	1438	961	466	62	134	12	k__Bacteria; p__Firmicutes; g__Unknown_OTU_2; s__Unknown_OTU_2
+OTU0013	565	5294	399	6	17	72	152	99	k__Bacteria; p__Firmicutes; g__Unknown_OTU_3; s__Unknown_OTU_3
+OTU0014	46	23	28	364	536	244	868	16	k__Bacteria; p__Firmicutes; g__Unknown_OTU_4; s__Unknown_OTU_4
+OTU0015	79	4	175	122	57	6315	704	11	k__Bacteria; p__Firmicutes; g__Unknown_OTU_5; s__Unknown_OTU_5
+OTU0016	76	101	158	2	291	63	7255	65	k__Bacteria; p__Firmicutes; g__Unknown_OTU_6; s__Unknown_OTU_6
+OTU0017	146	9	18	362	37	98	18	98	k__Bacteria; p__Firmicutes; g__Unknown_OTU_7; s__Unknown_OTU_7
+OTU0018	292	95	63	13	102	1	2	169	k__Bacteria; p__Firmicutes; g__Unknown_OTU_8; s__Unknown_OTU_8
+OTU0019	639	53	336	249	28822	48	111	1787	k__Bacteria; p__Firmicutes; g__Unknown_OTU_9; s__Unknown_OTU_9
+OTU0020	85	129	78	4	57	200	305	2586	k__Bacteria; p__Firmicutes; g__Unknown_OTU_10; s__Unknown_OTU_10
+OTU0021	250	183	0	26	283	291	39	88	k__Bacteria; p__Firmicutes; g__Unknown_OTU_11; s__Unknown_OTU_11
+OTU0022	224	1179	723	1	5	308	2	487	k__Bacteria; p__Firmicutes; g__Unknown_OTU_12; s__Unknown_OTU_12
+OTU0023	13	1558	459	5	157	836	13290	405	k__Bacteria; p__Firmicutes; g__Unknown_OTU_13; s__Unknown_OTU_13
+OTU0024	34	865	12	687	529	5	228	9571	k__Bacteria; p__Firmicutes; g__Unknown_OTU_14; s__Unknown_OTU_14
+OTU0025	150	34	2509	7	664	17	194	1852	k__Bacteria; p__Firmicutes; g__Unknown_OTU_15; s__Unknown_OTU_15
+OTU0026	84	97	37	76	84	790	9935	283	k__Bacteria; p__Firmicutes; g__Unknown_OTU_16; s__Unknown_OTU_16
+OTU0027	514	27	525	148	430	427	200	498	k__Bacteria; p__Firmicutes; g__Unknown_OTU_17; s__Unknown_OTU_17
+OTU0028	301	152	79	555	21	270	471	21	k__Bacteria; p__Firmicutes; g__Unknown_OTU_18; s__Unknown_OTU_18
+OTU0029	31	5404	3510	42	59	22	134	300	k__Bacteria; p__Firmicutes; g__Unknown_OTU_19; s__Unknown_OTU_19

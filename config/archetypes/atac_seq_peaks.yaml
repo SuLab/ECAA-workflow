@@ -1,0 +1,59 @@
+schema_version: "0.1"
+id: atac_seq_peaks
+version: "1.0.0"
+description: |
+  ATAC-seq accessible-region calling. Standard pipeline: raw QC with
+  insert-size distribution check, optional Tn5-aware trimming, alignment
+  with soft-clipping, MACS3 BAMPE peak calling (--shift -75 --extsize 150),
+  TSS-enrichment validation, and HOMER/MEME motif enrichment on
+  accessible-region centers.
+sme_summary: |
+  Identify accessible chromatin regions in an ATAC-seq experiment, validate
+  TSS-enrichment + mitochondrial fraction, and surface enriched motifs at
+  accessible centers.
+goal_data: "data:1255"
+goal_format: "format:3003"
+project_class: bioinformatics
+modality_hint: atac_seq
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: false
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: peak_calling
+    required: true
+    depends_on: [alignment]
+  - atom_id: peak_annotation
+    required: false
+    depends_on: [peak_calling]
+  - atom_id: differential_accessibility
+    required: false
+    depends_on: [peak_calling]
+  - atom_id: motif_enrichment
+    required: false
+    depends_on: [peak_calling]
+  - atom_id: reporting
+    required: true
+    depends_on: [peak_calling, peak_annotation, differential_accessibility, motif_enrichment]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  organism: alignment.inputs.organism
+  samples: data_acquisition.inputs.samples
+claim_boundary: |
+  Peaks are regions of statistical enrichment in chromatin accessibility
+  signal — they do NOT directly identify which transcription factor is
+  bound. Motif enrichment at accessible centers names plausible TF
+  candidates, not direct binding events. Always cite the called caller
+  (MACS3 BAMPE), shift/extsize parameters, FDR threshold, and the
+  observed TSS-enrichment + mitochondrial-fraction QC values alongside
+  every peak set. ATAC peaks differ from ChIP-seq peaks in that they
+  reflect open chromatin, not TF-specific binding.

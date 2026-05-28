@@ -1,0 +1,57 @@
+# ── Rust build output ────────────────────────────────────────────────────────
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# ── Node / UI build output ───────────────────────────────────────────────────
+node_modules/
+ui/dist/
+ui/.vite/
+
+# ── Python caches ────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ── Local env / secrets ──────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+.secrets/
+
+# ── Playwright + e2e ─────────────────────────────────────────────────────────
+e2e/playwright-report/
+e2e/test-results/
+e2e/test-shots/
+
+# ── Operator runtime / scratch ───────────────────────────────────────────────
+runtime/eval-runs/
+runtime/metrics-snapshots/
+runtime/scratch/
+runtime/outputs/
+
+# ── IDE / OS noise ───────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ── Local working artifacts (not tracked) ────────────────────────────────────
+.archive/
+.tmp/
+tmp/
+.worktrees/
+test-screenshots/
+test-screenshots-comprehensive/
+test-shots/
+manual-test-shots/
+/*.png
+
+# ── Local agent / Claude state (memories + project context) ─────────────────
+.claude/
+CLAUDE.md

@@ -1,0 +1,59 @@
+id: 51_checkpoint_mode_fast_auto_advances
+category: wave8_checkpoint_mode
+description: |
+  Plan §8.F.2 fixture 39 equivalent: smoke for the Fast checkpoint mode
+  on the clinical-trial taxonomy. The emission path should pre-write
+  sme-review-confirmed sidecars for every review-gated stage and log
+  AutoAdvanced decision records. Unit coverage lives at
+  `crates/conversation/src/emit/mod.rs::tests::
+  fast_mode_writes_auto_advance_sidecars_and_decisions`.
+
+flow:
+  - kind: user
+    text: |
+      Phase II exploratory RCT — running in fast mode, I'll review the
+      final report rather than gating each stage.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        Phase II exploratory RCT, no SAP freeze. Running fast — skipping
+        per-stage SME gates; will review the compiled report at the end.
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Fast-mode exploratory analysis.
+  - kind: text
+    text: |
+      Accept when it looks right.
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      Package emitted. Fast mode would pre-approve every review gate;
+      the fixture runner confirms without a mode selector so this run
+      exercises the default Gated path.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - policies/container.json
+
+rubric_notes: |
+  Fixture-runner confirms always default to Gated; the Fast auto-advance
+  path is covered by the dedicated unit test in emit/mod.rs. This
+  fixture's role is a regression guard on emission + taxonomy loading.

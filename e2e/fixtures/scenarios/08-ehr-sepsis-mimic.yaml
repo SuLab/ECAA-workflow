@@ -1,0 +1,163 @@
+# 08 — MIMIC-IV sepsis early-warning prediction
+#
+# Special case: this scenario hits a Blocked state mid-flow because
+# MIMIC-IV is credentialed-access on PhysioNet. The matching spec
+# file drives the conversation to the blocker, verifies the
+# BlockerCard, clicks unblock, then continues through to confirmation.
+#
+# Beats 1-2 set up → blocker → beats 3-5 after unblock → confirm.
+
+name: MIMIC-IV sepsis early-warning prediction
+modality: ehr_clinical
+
+beats:
+  - user: |
+      I want to train a sepsis early-warning classifier on MIMIC-IV
+      and externally validate on eICU-CRD.
+    assistant:
+      content: |
+        Sepsis-3 prediction on MIMIC-IV with eICU-CRD external
+        validation — got it. Both datasets are credentialed access
+        on PhysioNet. Have you already completed the PhysioNet DUA
+        and CITI training?
+    state:
+      kind: blocked
+      reason: |
+        MIMIC-IV and eICU-CRD are credentialed-access on PhysioNet.
+        The package cannot download them autonomously — you need to
+        confirm you've completed the DUA and CITI training before we
+        proceed.
+      recovery_hint: |
+        Once you've completed the DUA and CITI training, click the
+        button below to continue.
+    expect:
+      stateBadge: blocked
+      blockerVisible: true
+      visibleText:
+        - "credentialed"
+        - "DUA"
+
+  # Beats 2+ run AFTER the spec file clicks unblock.
+  - user: |
+      Yes — DUA and CITI training are both complete. I'm ready to
+      continue.
+    assistant:
+      content: |
+        Great. Continuing with the plan. Which label derivation are
+        you using? The mimic-code sepsis3 table is canonical;
+        ICD-only labels are a known failure mode and I'll reject
+        them if proposed.
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+      visibleText:
+        - "sepsis3"
+      forbiddenText:
+        - "XGBoost"
+        - "I recommend"
+
+  - user: |
+      mimic-code sepsis3 is fine. Feature extraction hourly, with
+      leakage audit against the Sepsis-3 derivation window.
+    assistant:
+      content: |
+        Recorded — hourly features via MIMIC-Extract, leakage audit
+        on any feature crossing the Sepsis-3 derivation window,
+        package blocks if a leak is detected.
+    expect:
+      visibleText:
+        - "leakage audit"
+
+  - user: |
+      Model ensemble — XGBoost plus a TCN. Internal AUROC ≥ 0.85,
+      external AUROC ≥ 0.75. Fairness audit across age, sex, race.
+    assistant:
+      content: |
+        XGBoost + TCN ensemble, AUROC floors set, Brier ≤ 0.10, and
+        the fairness audit will stratify on age, sex, race, and
+        hospital-of-origin. Remember the external AUROC can drop
+        0.05–0.15 vs internal — that's expected, not a failure.
+    expect:
+      visibleText:
+        - "AUROC"
+        - "fairness"
+
+  - user: "Confirmed. Internal use, no PHI leaves the host."
+    assistant:
+      content: |
+        Here's the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **MIMIC-IV sepsis early-warning prediction**
+
+          - **Training:** MIMIC-IV v3.1 (credentialed, DUA confirmed)
+          - **External validation:** eICU-CRD v2.0 (credentialed)
+          - **Label:** mimic-code sepsis3 table (canonical, ICD-only
+            forbidden)
+          - **Features:** hourly via MIMIC-Extract with mandatory
+            leakage audit vs Sepsis-3 derivation window
+          - **Model:** XGBoost + TCN ensemble with Platt calibration
+          - **Thresholds:** internal AUROC ≥ 0.85, external ≥ 0.75,
+            Brier ≤ 0.10 (fail-closed)
+          - **Fairness audit:** age, sex, race, hospital-of-origin
+          - **Governance:** credentialed access, no PHI leaves host,
+            no re-identification attempts, PhysioNet DUA terms apply
+          - **Claim boundary:** descriptive prediction performance,
+            calibration, and fairness audit only. No
+            clinical-deployment, clinical-decision-support, or
+            bedside-triage claims. Any interpretation is
+            hypothesis-generating.
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "Claim boundary"
+        - "hypothesis-generating"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: "Package emitted — model training ready for execution under the credentialed-access gate."
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I want to train a sepsis early-warning classifier on MIMIC-IV and
+    externally validate on eICU-CRD. Both are credentialed-access on PhysioNet
+    and I have already completed the DUA and CITI training. Use the mimic-code
+    sepsis3 table for label derivation — ICD-only labels are a known failure
+    mode and should be rejected. Hourly feature extraction via MIMIC-Extract
+    with a mandatory leakage audit against the Sepsis-3 derivation window;
+    block if a leak is detected. Model ensemble of XGBoost and a TCN with Platt
+    calibration. Thresholds: internal AUROC at least 0.85, external AUROC at
+    least 0.75, Brier at most 0.10, all fail-closed. Fairness audit across age,
+    sex, race, and hospital-of-origin. No PHI leaves the host. Internal use
+    only. Once we agree on the plan, emit the package to {pkgDir}.
+  followups:
+    - trigger: "(?i)(credential|DUA|CITI|PhysioNet|access)"
+      reply: "DUA and CITI training are both complete. Ready to proceed."
+    - trigger: "(?i)(label|ICD|sepsis3)"
+      reply: "mimic-code sepsis3 canonical table only. ICD-only labels must be rejected."
+    - trigger: "(?i)(leakage|derivation.window|feature)"
+      reply: "Hourly features via MIMIC-Extract. Mandatory leakage audit against the Sepsis-3 derivation window."
+    - trigger: "(?i)(fairness|bias|equity)"
+      reply: "Fairness audit stratified by age, sex, race, and hospital-of-origin."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      # XGBoost is NOT forbidden here because the SME names it in beat 4
+      # ("Model ensemble — XGBoost plus a TCN"). The model may echo it
+      # back after the SME says it. The pre-SME beat (beat 2) still
+      # forbids it via per-beat forbiddenText.
+      - "I recommend"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 4

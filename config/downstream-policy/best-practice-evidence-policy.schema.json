@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Best Practice Evidence Policy",
+  "description": "Sidecar schema validating the top-level shape of best-practice-evidence-policy.json. Describes citation minimums, freshness defaults, source-class domain patterns, literature and dataset selection rules, stage empirical requirements, trust policy, and stop-and-block conditions.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "citationMinimum",
+    "freshnessDefaults",
+    "sourceClassDomainPatterns",
+    "literatureEligibilityRules",
+    "datasetSelectionRules",
+    "stageEmpiricalRequirements",
+    "trustPolicy",
+    "stopAndBlockConditions"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "citationMinimum": { "type": "object" },
+    "freshnessDefaults": { "type": "object" },
+    "sourceClassDomainPatterns": { "type": "array" },
+    "literatureEligibilityRules": { "type": "array" },
+    "datasetSelectionRules": { "type": "array" },
+    "stageEmpiricalRequirements": { "type": "array" },
+    "trustPolicy": { "type": "string" },
+    "stopAndBlockConditions": { "type": "array" }
+  }
+}

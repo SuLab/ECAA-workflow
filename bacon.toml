@@ -1,0 +1,51 @@
+# bacon — background cargo check for the inner loop.
+# Install: cargo install --locked bacon
+# Run:     bacon (in repo root). Recompiles on file save.
+#
+# Reference: https://dystroy.org/bacon/
+
+default_job = "check"
+
+[jobs.check]
+command = ["cargo", "check", "--workspace", "--all-targets", "--color", "always"]
+need_stdout = false
+
+[jobs.check-fast]
+# Only the product tier (excludes eval-adapters). Skips integration
+# tests for faster turnaround on `--bin` and `--lib` only.
+command = ["cargo", "check", "--lib", "--bins", "--color", "always"]
+need_stdout = false
+
+[jobs.test]
+# Nextest-driven test job. Falls back to `cargo test` if nextest absent.
+command = ["cargo", "nextest", "run", "--workspace", "--profile", "fast", "--color", "always"]
+need_stdout = true
+
+[jobs.test-core]
+command = ["cargo", "nextest", "run", "-p", "scripps-workflow-core", "--color", "always"]
+need_stdout = true
+
+[jobs.test-conversation]
+command = ["cargo", "nextest", "run", "-p", "scripps-workflow-conversation", "--color", "always"]
+need_stdout = true
+
+[jobs.clippy]
+command = ["cargo", "clippy", "--workspace", "--all-targets", "--color", "always", "--", "-D", "warnings"]
+need_stdout = false
+
+[jobs.clippy-fast]
+command = ["cargo", "clippy", "--lib", "--bins", "--color", "always", "--", "-D", "warnings"]
+need_stdout = false
+
+[jobs.doc]
+command = ["cargo", "doc", "--workspace", "--no-deps", "--color", "always"]
+need_stdout = false
+
+[keybindings]
+c = "job:check"
+f = "job:check-fast"
+t = "job:test"
+T = "job:test-core"
+l = "job:clippy"
+L = "job:clippy-fast"
+d = "job:doc"

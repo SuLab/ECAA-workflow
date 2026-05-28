@@ -1,0 +1,334 @@
+{
+  "schemaVersion": "1.0",
+  "$comment": "Scoring pipeline: (1) compute composite score across 5 axes with optional renormalization (compositeScoreWeights); (2) apply qualityGatePenalties as additive score modifiers BEFORE tier assignment; (3) evaluate defaultEligibilityCriteria as a hard filter — a candidate failing any criterion is ineligible for the defaultRecommended tier but may still appear as tentative or alternative; (4) assign tiers using tierAssignmentRules. The LLM agent enforces steps 2-4 at runtime; crates/core/src/composite_score.rs provides testable Rust reference implementations of the same logic. Last reviewed 2026-05-27.",
+  "compositeScoreWeights": {
+    "$comment": "Weights sum to 1.0 when all axes are present. defaultSuitability and specMatch are tied at 0.30 because both measure how well a method matches the task; robustness is 0.20 as a hygiene check; adoption + operationalFit (0.10 each) are tiebreakers. When an axis listed in `renormalizeWhenAxisMissing` has no input value (e.g., specMatch when task.spec.spec_preferred_methods is empty), its weight is redistributed proportionally among the remaining axes so the score budget always sums to 1.0. Last reviewed 2026-05-27.",
+    "defaultSuitability": 0.30,
+    "robustness": 0.20,
+    "adoption": 0.10,
+    "operationalFit": 0.10,
+    "specMatch": 0.30,
+    "renormalizeWhenAxisMissing": ["specMatch"]
+  },
+  "specMatchAxis": {
+    "boostWhenPreferred": 1.0,
+    "baselineWhenNeutral": 0.0,
+    "description": "Populated from the task spec's `spec_preferred_methods` map: each candidate whose method_id matches a key gets this full axis score; others get 0. The agent reads `task.spec.spec_preferred_methods` at discovery time and applies the boost, then records `spec_match_applied: true` in decision.json."
+  },
+  "evidenceQuality": {
+    "$comment": "Bonuses reward high-quality citation classes; penalties discourage uncited or low-quality-only support. officialSourceBonus (0.25) > independentBenchmarkBonus and primaryLiteratureBonus (0.2 each) because regulator/standards-body sourcing is the strongest signal. breadthBonusPerItem (0.1) caps at breadthBonusMaxItems (3) so a wall of citations can't dominate quality. zeroEvidencePenalty (-1.0) is a hard penalty; noHighQualitySupportPenalty (-0.35) is softer because vendor/community-only support is common for newer tools. Last reviewed 2026-05-15.",
+    "officialSourceBonus": 0.25,
+    "independentBenchmarkBonus": 0.2,
+    "primaryLiteratureBonus": 0.2,
+    "breadthBonusPerItem": 0.1,
+    "breadthBonusMaxItems": 3,
+    "zeroEvidencePenalty": -1.0,
+    "noHighQualitySupportPenalty": -0.35
+  },
+  "freshness": {
+    "noSupportingClaimsPenalty": -0.2,
+    "anyClaimFreshnessIssuePenalty": -0.5,
+    "acceptableStatuses": {"$shared": "freshnessAcceptableStatuses"}
+  },
+  "contradiction": {
+    "anyClaimContradictoryPenalty": -0.75,
+    "blockingStatuses": {"$shared": "contradictionBlockingStatuses"}
+  },
+  "confidenceLevelAdjustments": {
+    "$comment": "Per-confidence-level scoring adjustments. high=0.0 (no penalty); moderate=-0.2 (small honesty discount); low=-0.6 (large enough that low-confidence candidates almost never win over moderate-confidence ones at equal raw score). Tuned to keep low-confidence picks out of the default-recommended tier without making them invisible. Last reviewed 2026-05-15.",
+    "high": 0.0,
+    "moderate": -0.2,
+    "low": -0.6
+  },
+  "qualityGatePenalties": {
+    "$comment": "Composite-score modifiers applied BEFORE tier assignment. Blocking gate failure subtracts 1.0; non-blocking subtracts 0.25; penalties stack additively. A candidate may still appear in the candidate pool with reduced score after a blocking failure, but it is filtered out of the defaultRecommended tier by defaultEligibilityCriteria.no_blocking_quality_gates. Last reviewed 2026-05-27.",
+    "blocking": -1.0,
+    "nonBlocking": -0.25
+  },
+  "adjustmentClamp": {
+    "minimum": -1.5,
+    "maximum": 1.0
+  },
+  "finalScoreClamp": {
+    "minimum": 0.0,
+    "maximum": 5.0
+  },
+  "$comment": "3.5/5.0 = 70%. Methods scoring below this don't surface as 'recommended' in the SME UI. Empirically tuned so that ~70% of canonical (officially-recommended) methods cross the bar in the IVD+ATAC fixture set.",
+  "defaultRecommendationThreshold": 3.5,
+  "winMarginByConfidence": {
+    "high": 0.25,
+    "moderate": 0.4,
+    "low": 1.0
+  },
+  "defaultEligibilityCriteria": [
+    "confidence_not_low",
+    "no_blocking_quality_gates",
+    "has_supporting_evidence",
+    "has_high_quality_support",
+    "no_contradictory_claims",
+    "no_freshness_issues",
+    "literature_eligibility_confirmed"
+  ],
+  "tierAssignmentRules": {
+    "baseline": "role == Baseline",
+    "defaultRecommended": "downstream_selected_primary_branch AND literature_eligible AND composite_rank == 1 AND passes_default_eligibility_criteria",
+    "tentative": "top_non_baseline AND (NOT literature_eligible OR refinement_needed OR rescue_branch_triggered)",
+    "alternative": "non_baseline AND NOT locked_primary",
+    "tieBreakOrder": ["empirical_rank", "higher_robustness", "higher_operational_fit", "more_conservative_anchor"]
+  },
+  "stageClassRules": [
+    {
+      "stageClass": "StagePreprocessingQC",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyDataCoverage", "MetricFamilyRuntimeCost", "MetricFamilyReproducibility"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> testability",
+      "empiricalComponents": ["yield_retention", "artifact_removal", "runtime_cost"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.2,
+      "rescueBranchTrigger": "admissible_primary_count < 1 OR qc_failure_rate > 0.25",
+      "targetedRefinementPreference": "coarse_filter_then_refine_on_qc_borderline_cases"
+    },
+    {
+      "stageClass": "StageAlignmentQuantification",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyAccuracyDiscrimination", "MetricFamilyRuntimeCost", "MetricFamilyReproducibility"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> operational_fit",
+      "empiricalComponents": ["mapping_accuracy", "quantification_consistency", "runtime_cost"],
+      "testabilityPenalty": 0.15,
+      "robustnessPenalty": 0.2,
+      "rescueBranchTrigger": "primary_fails_reference_compatibility OR admissible_primary_count < 1",
+      "targetedRefinementPreference": "refine_on_reference_and_annotation_compatibility"
+    },
+    {
+      "stageClass": "StageNormalizationBatchCorrection",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyBatchMixing", "MetricFamilyBiologicalConservation", "MetricFamilyReproducibility"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> testability",
+      "empiricalComponents": ["batch_mixing", "biological_signal_preservation", "rerun_stability"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.25,
+      "rescueBranchTrigger": "batch_effect_residuals > threshold OR biological_signal_loss > threshold",
+      "targetedRefinementPreference": "coarse_family_lock_then_dataset_specific_refinement"
+    },
+    {
+      "stageClass": "StageIntegrationAlignment",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyBatchMixing", "MetricFamilyBiologicalConservation", "MetricFamilyClusteringStability"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> testability",
+      "empiricalComponents": ["integration_score", "local_structure_preservation", "stability_under_reseed"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.25,
+      "rescueBranchTrigger": "cross_batch_alignment_unstable OR topology_drift_detected",
+      "targetedRefinementPreference": "refine_top_two_non_baseline_families_when_margin_below_win_threshold"
+    },
+    {
+      "stageClass": "StageClusteringStateInference",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyClusteringStability", "MetricFamilyBiologicalConservation", "MetricFamilyReproducibility"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> branch_lock",
+      "empiricalComponents": ["cluster_stability", "marker_recovery", "resolution_sensitivity"],
+      "testabilityPenalty": 0.15,
+      "robustnessPenalty": 0.25,
+      "rescueBranchTrigger": "cluster_assignments_unstable_across_resolutions",
+      "targetedRefinementPreference": "coarse_selection_then_resolution_refinement"
+    },
+    {
+      "stageClass": "StageAnnotationLabelTransfer",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyLabelTransferAgreement", "MetricFamilyCalibration", "MetricFamilyReproducibility"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> testability -> robustness",
+      "empiricalComponents": ["agreement_to_reference", "uncertainty_calibration", "rare_label_recall"],
+      "testabilityPenalty": 0.25,
+      "robustnessPenalty": 0.15,
+      "rescueBranchTrigger": "unknown_label_rate > threshold OR calibration_failure",
+      "targetedRefinementPreference": "refine_reference_choice_only_after_family_selection"
+    },
+    {
+      "stageClass": "StageDifferentialAnalysis",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyDifferentialSignalCalibration", "MetricFamilyCalibration", "MetricFamilyReproducibility"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> testability",
+      "empiricalComponents": ["type_i_error_control", "signal_recovery", "effect_size_stability"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.2,
+      "rescueBranchTrigger": "calibration_failure OR excessive_false_discoveries",
+      "targetedRefinementPreference": "refine_contrast_specific_parameters_after_family_lock"
+    },
+    {
+      "stageClass": "StageVariantCallingFiltering",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyVariantPrecisionRecall", "MetricFamilyRuntimeCost", "MetricFamilyReproducibility"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> testability",
+      "empiricalComponents": ["precision_recall", "truthset_concordance", "filter_stability"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.25,
+      "rescueBranchTrigger": "precision_recall_below_floor OR caller_specific_failure_mode_detected",
+      "targetedRefinementPreference": "refine_top_two_non_baseline_families_when_margin_below_win_threshold"
+    },
+    {
+      "stageClass": "StageBenchmarkingEvaluation",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyAccuracyDiscrimination", "MetricFamilyCalibration", "MetricFamilyRuntimeCost"],
+      "rankingFormula": "benchmark_surface -> empirical_screen -> robustness -> reporting_readiness",
+      "empiricalComponents": ["leaderboard_rank", "calibration", "runtime_cost"],
+      "testabilityPenalty": 0.15,
+      "robustnessPenalty": 0.15,
+      "rescueBranchTrigger": "benchmark_surface_incomplete OR heldout_evaluation_missing",
+      "targetedRefinementPreference": "refine_top_two_non_baseline_families_when_margin_below_win_threshold"
+    },
+    {
+      "stageClass": "StageCausalDesign",
+      "empiricalRequired": false,
+      "metricFamilies": ["MetricFamilyCalibration", "MetricFamilyReproducibility", "MetricFamilyOther"],
+      "rankingFormula": "design_admissibility -> literature_eligibility -> robustness -> sensitivity_branching",
+      "empiricalComponents": ["identification_checks", "negative_control_behavior", "sensitivity_analysis"],
+      "testabilityPenalty": 0.1,
+      "robustnessPenalty": 0.2,
+      "rescueBranchTrigger": "identification_assumptions_fail OR sensitivity_span_too_large",
+      "targetedRefinementPreference": "refine_estimand_specific_design_after_family_lock"
+    },
+    {
+      "stageClass": "StagePredictionValidation",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyAccuracyDiscrimination", "MetricFamilyCalibration", "MetricFamilyReproducibility"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> calibration -> robustness -> testability",
+      "empiricalComponents": ["discrimination", "calibration", "external_validation"],
+      "testabilityPenalty": 0.25,
+      "robustnessPenalty": 0.2,
+      "rescueBranchTrigger": "external_validation_failure OR transportability_breakdown",
+      "targetedRefinementPreference": "refine_thresholds_and_calibration_only_after_family_lock"
+    },
+    {
+      "stageClass": "StageResourceReleaseMetadata",
+      "empiricalRequired": false,
+      "metricFamilies": ["MetricFamilyDataCoverage", "MetricFamilyReproducibility", "MetricFamilyOther"],
+      "rankingFormula": "literature_eligibility -> standards_alignment -> release_testability",
+      "empiricalComponents": ["metadata_completeness", "packaging_replay", "schema_conformance"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.1,
+      "rescueBranchTrigger": "required_metadata_missing OR release_schema_invalid",
+      "targetedRefinementPreference": "refine_metadata_profile_after_standard_family_selection"
+    },
+    {
+      "stageClass": "StageOther",
+      "empiricalRequired": false,
+      "metricFamilies": ["MetricFamilyOther", "MetricFamilyReproducibility", "MetricFamilyRuntimeCost"],
+      "rankingFormula": "literature_eligibility -> empirical_if_available -> robustness -> testability",
+      "empiricalComponents": ["task_specific_metric", "rerun_stability", "operational_cost"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.2,
+      "rescueBranchTrigger": "no_admissible_primary_after_screening",
+      "targetedRefinementPreference": "refine_only_if_coarse_family_selection_is_honestly_insufficient"
+    },
+    {
+      "stageClass": "StageAggregator",
+      "empiricalRequired": false,
+      "metricFamilies": ["MetricFamilyReproducibility", "MetricFamilyRuntimeCost", "MetricFamilyOther"],
+      "rankingFormula": "literature_eligibility -> robustness -> testability",
+      "empiricalComponents": ["aggregation_consistency", "rerun_stability"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.2,
+      "rescueBranchTrigger": "aggregation_inconsistent_across_inputs",
+      "targetedRefinementPreference": "refine_aggregation_logic_after_family_lock"
+    },
+    {
+      "stageClass": "StagePathwayEnrichment",
+      "empiricalRequired": false,
+      "metricFamilies": ["MetricFamilyCalibration", "MetricFamilyReproducibility", "MetricFamilyOther"],
+      "rankingFormula": "literature_eligibility -> database_version_currency -> robustness -> testability",
+      "empiricalComponents": ["fdr_calibration", "term_recovery", "rerun_stability"],
+      "testabilityPenalty": 0.15,
+      "robustnessPenalty": 0.2,
+      "rescueBranchTrigger": "database_version_stale OR enrichment_inflation_detected",
+      "targetedRefinementPreference": "refine_database_version_and_background_after_family_lock"
+    },
+    {
+      "stageClass": "StageColocalization",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyCalibration", "MetricFamilyReproducibility", "MetricFamilyAccuracyDiscrimination"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> testability",
+      "empiricalComponents": ["posterior_calibration", "credible_set_overlap", "ld_panel_sensitivity"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.25,
+      "rescueBranchTrigger": "ld_panel_mismatch OR credible_set_collapse",
+      "targetedRefinementPreference": "refine_ld_panel_and_priors_after_family_lock"
+    },
+    {
+      "stageClass": "StageMSRawConversion",
+      "empiricalRequired": false,
+      "metricFamilies": ["MetricFamilyReproducibility", "MetricFamilyRuntimeCost", "MetricFamilyOther"],
+      "rankingFormula": "literature_eligibility -> reference_compatibility -> robustness -> testability",
+      "empiricalComponents": ["centroiding_consistency", "metadata_preservation", "vendor_format_coverage"],
+      "testabilityPenalty": 0.15,
+      "robustnessPenalty": 0.2,
+      "rescueBranchTrigger": "vendor_format_unsupported OR metadata_loss_above_threshold",
+      "targetedRefinementPreference": "refine_conversion_parameters_after_tool_family_selection"
+    },
+    {
+      "stageClass": "StageProteomicsQuant",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyCalibration", "MetricFamilyReproducibility", "MetricFamilyAccuracyDiscrimination"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> testability",
+      "empiricalComponents": ["quantitation_fdr_calibration", "missing_value_recovery", "rerun_stability"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.25,
+      "rescueBranchTrigger": "quantitation_fdr_uncontrolled OR missing_value_imputation_unstable",
+      "targetedRefinementPreference": "refine_quant_engine_parameters_after_family_lock"
+    },
+    {
+      "stageClass": "StageSpatialAnalysis",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyClusteringStability", "MetricFamilyBiologicalConservation", "MetricFamilyReproducibility"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> testability",
+      "empiricalComponents": ["spatial_autocorrelation", "domain_boundary_stability", "rerun_stability"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.25,
+      "rescueBranchTrigger": "spatial_autocorrelation_collapse OR domain_assignment_unstable",
+      "targetedRefinementPreference": "refine_resolution_after_family_lock"
+    },
+    {
+      "stageClass": "StageTrajectoryAnalysis",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyClusteringStability", "MetricFamilyBiologicalConservation", "MetricFamilyReproducibility"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> testability",
+      "empiricalComponents": ["pseudotime_stability", "branch_detection_consistency", "starting_cell_sensitivity"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.25,
+      "rescueBranchTrigger": "pseudotime_collapse OR branch_assignment_unstable_across_seeds",
+      "targetedRefinementPreference": "refine_starting_cells_and_resolution_after_family_lock"
+    },
+    {
+      "stageClass": "StageCellCommunication",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyCalibration", "MetricFamilyReproducibility", "MetricFamilyAccuracyDiscrimination"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> robustness -> testability",
+      "empiricalComponents": ["lr_pair_calibration", "significance_control", "rerun_stability"],
+      "testabilityPenalty": 0.2,
+      "robustnessPenalty": 0.25,
+      "rescueBranchTrigger": "lr_database_stale OR excessive_false_interactions",
+      "targetedRefinementPreference": "refine_lr_database_and_significance_threshold_after_family_lock"
+    },
+    {
+      "stageClass": "StageTimeSeriesForecast",
+      "empiricalRequired": true,
+      "metricFamilies": ["MetricFamilyAccuracyDiscrimination", "MetricFamilyCalibration", "MetricFamilyReproducibility"],
+      "rankingFormula": "literature_eligibility -> empirical_screen -> calibration -> robustness",
+      "empiricalComponents": ["forecast_horizon_accuracy", "calibration", "rolling_origin_stability"],
+      "testabilityPenalty": 0.25,
+      "robustnessPenalty": 0.2,
+      "rescueBranchTrigger": "forecast_drift OR calibration_failure_on_holdout",
+      "targetedRefinementPreference": "refine_horizon_specific_parameters_after_family_lock"
+    },
+    {
+      "stageClass": "StageClinicalTrialAnalysis",
+      "empiricalRequired": false,
+      "metricFamilies": ["MetricFamilyCalibration", "MetricFamilyReproducibility", "MetricFamilyOther"],
+      "rankingFormula": "design_admissibility -> literature_eligibility -> assumption_checks -> robustness",
+      "empiricalComponents": ["assumption_diagnostics", "sensitivity_analysis", "missing_data_handling"],
+      "testabilityPenalty": 0.15,
+      "robustnessPenalty": 0.2,
+      "rescueBranchTrigger": "assumption_violation_unaddressed OR missing_data_mechanism_unspecified",
+      "targetedRefinementPreference": "refine_sensitivity_analyses_after_design_lock"
+    }
+  ]
+}

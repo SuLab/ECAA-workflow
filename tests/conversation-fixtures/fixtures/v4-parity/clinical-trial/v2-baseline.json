@@ -1,0 +1,337 @@
+{
+  "version": "1.0",
+  "workflow_id": "v2-clinical-trial",
+  "current_task": null,
+  "tasks": {
+    "data_import": {
+      "kind": "computation",
+      "state": {
+        "status": "ready"
+      },
+      "depends_on": [],
+      "assignee": "agent",
+      "description": "Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
+      "spec": {
+        "edam_operation": "operation:2422",
+        "expected_artifacts": [
+          "imported_data_manifest.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "data_acquisition",
+        "required_figures": [
+          "samples_per_study"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/samples_per_study.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/samples_per_study.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "differential_expression": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "qc_preprocessing"
+      ],
+      "assignee": "agent",
+      "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "spec": {
+        "edam_operation": "operation:3223",
+        "expected_artifacts": [
+          "de_results.tsv",
+          "de_summary.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "volcano",
+          "top_features_heatmap"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/volcano.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/volcano.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/top_features_heatmap.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/top_features_heatmap.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "final_reporting": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "reporting"
+      ],
+      "assignee": "agent",
+      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "expected_artifacts": [
+          "final_report.md",
+          "dashboard_index.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "summary_dashboard"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/summary_dashboard.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/summary_dashboard.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "qc_preprocessing": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_import"
+      ],
+      "assignee": "agent",
+      "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "spec": {
+        "edam_operation": "swfc:scrnaseq_cell_qc",
+        "expected_artifacts": [
+          "qc_summary.json",
+          "filtered_cells_index.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "quality_control",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/per_sample_metric_violin.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_violin.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/per_sample_metric_bar.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/qc_summary_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/qc_summary_bar.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "reporting": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "expected_artifacts": [
+          "report.md",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "concordance_heatmap",
+          "pathway_overlap_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy",
+      "required_artifacts": [
+        {
+          "path": "figures/manifest.json",
+          "min_size_bytes": 2
+        },
+        {
+          "path": "figures/concordance_heatmap.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/concordance_heatmap.pdf",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/pathway_overlap_bar.png",
+          "min_size_bytes": 1
+        },
+        {
+          "path": "figures/pathway_overlap_bar.pdf",
+          "min_size_bytes": 1
+        }
+      ]
+    },
+    "validate_data_import": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_import"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
+      "spec": {
+        "edam_operation": "operation:2422",
+        "plot_stage_id": "data_acquisition",
+        "required_figures": [
+          "samples_per_study"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_differential_expression": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "differential_expression"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "spec": {
+        "edam_operation": "operation:3223",
+        "required_figures": [
+          "volcano",
+          "top_features_heatmap"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_final_reporting": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "final_reporting"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "required_figures": [
+          "summary_dashboard"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_qc_preprocessing": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "qc_preprocessing"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "spec": {
+        "edam_operation": "swfc:scrnaseq_cell_qc",
+        "plot_stage_id": "quality_control",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_reporting": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "reporting"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "required_figures": [
+          "concordance_heatmap",
+          "pathway_overlap_bar"
+        ],
+        "stage_class": "operation"
+      },
+      "resource_class": "cpu_heavy"
+    }
+  }
+}

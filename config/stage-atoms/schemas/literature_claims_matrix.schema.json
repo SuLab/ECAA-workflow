@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LiteratureClaimsMatrixRow",
+  "description": "Row schema for prior_claims_matrix.csv emitted by review_prior_work. Each row is one PMID-anchored prior-work claim with a verbatim evidence quote.",
+  "type": "object",
+  "required": ["entity", "entity_kind", "pmid", "evidence_quote", "evidence_quote_offset",
+               "source_kind", "source_hash", "retrieval_ts", "redistributable", "verified"],
+  "additionalProperties": false,
+  "properties": {
+    "entity": { "type": "string", "minLength": 1 },
+    "entity_kind": { "type": "string", "enum": ["gene", "region", "variant", "pathway", "cell_type"] },
+    "pmid": { "type": "string", "pattern": "^[1-9][0-9]{6,8}$" },
+    "evidence_quote": { "type": "string", "minLength": 1 },
+    "evidence_quote_offset": { "type": "integer", "minimum": 0 },
+    "source_kind": { "type": "string", "enum": ["pmc_oa_full_text", "abstract_only", "external_pdf_local_only"] },
+    "source_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "retrieval_ts": { "type": "string", "format": "date-time" },
+    "redistributable": { "type": "boolean" },
+    "verified": { "type": "boolean" }
+  }
+}

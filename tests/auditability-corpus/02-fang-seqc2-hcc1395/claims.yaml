@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "02-fang-seqc2-hcc1395"
+claims:
+  - id: "02-fang-seqc2-hcc1395-claim-001"
+    text: "Fig 2a (confidence-level bar chart): SNV: HighConf 37,094 / MedConf 2,442 / LowConf 8,143 / Unclassified 62,407; INDEL: HighConf 1,588 / MedConf 432 / LowConf 921 / Unclassified 3,849"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 37094
+    tolerance: 0.1
+  - id: "02-fang-seqc2-hcc1395-claim-002"
+    text: "Fig 2b (VAF histograms): HighConf SNV broad full-range VAF; MedConf low-VAF concentrated; LowConf near detection limit"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: "HighConf SNV broad full-range VAF; MedConf low-VAF concentrated; LowConf near detection limit"
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-003"
+    text: "Fig 2c (AmpliSeq scatter): R = 0.958 for HighConf (paper text)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 0.958
+    tolerance: 0.05
+  - id: "02-fang-seqc2-hcc1395-claim-004"
+    text: "Fig 2d (Ion Torrent scatter): R = 0.928 for HighConf"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 0.928
+    tolerance: 0.05
+  - id: "02-fang-seqc2-hcc1395-claim-005"
+    text: "Fig 2e (HiSeq WES scatter): R = 0.992 for HighConf"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 0.992
+    tolerance: 0.05
+  - id: "02-fang-seqc2-hcc1395-claim-006"
+    text: "Fig 2f (fitting score): HighConf: high score (~5–7); MedConf: ~3–5; LowConf/Unclassified: <2"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 5
+    tolerance: 0.1
+  - id: "02-fang-seqc2-hcc1395-claim-007"
+    text: "Table 2 (validation rates): AmpliSeq HighConf SNV: 234 / 237 (98.7% validation rate); 237 of 247 total interpretable (96.0% interpretable). HiSeq WES HighConf SNV: 1,068 / 1,068 (100% validation rate); 1,068 of 1,074 interpretable (99.4%). Ion Torrent WES HighConf SNV: 623 / 629 (99.0%); 629 of 703 interpretable. AmpliSeq HighConf INDEL: 16 / 17 (94.1%); 17 total. HiSeq WES HighConf INDEL: 43 / 43 (100%); 45 total."
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 234
+    tolerance: 0.1
+  - id: "02-fang-seqc2-hcc1395-claim-008"
+    text: "Fig 3a (germline SCP histogram): Main text: \"over 3.5 million\" SCP=1; per Suppl Table S7 / Fig 3a panels: SCP=1: 3,597,940; SCP<0.1: 5,162,906; intermediate bins: 19k–55k each (these exact integers are not in the bundled PDF main text — verify against supplementary)"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/variants.csv"
+    expected_value: 3.5
+    tolerance: 0.1
+  - id: "02-fang-seqc2-hcc1395-claim-009"
+    text: "Fig 3b (germline AmpliSeq scatter): R = 0.986 for SCP=1"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 0.986
+    tolerance: 0.05
+  - id: "02-fang-seqc2-hcc1395-claim-010"
+    text: "Fig 3c (germline Ion Torrent scatter): R = 0.758 for SCP=1"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: 0.758
+    tolerance: 0.05
+  - id: "02-fang-seqc2-hcc1395-claim-011"
+    text: "Fig 4a (coverage circos): visual coverage circos"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: "visual coverage circos"
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-012"
+    text: "Fig 4b (callable regions circos): visual circos"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: "visual circos"
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null
+  - id: "02-fang-seqc2-hcc1395-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 02-fang-seqc2-hcc1395"
+    contract: numeric_table_lookup
+    source_table: "results/tables/variants.csv"
+    expected_value: null
+    tolerance: null

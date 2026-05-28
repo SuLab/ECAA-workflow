@@ -1,0 +1,29 @@
+name: Single-cell V(D)J TCR repertoire
+modality: single_cell_vdj
+
+beats:
+  - user: "Single-cell V(D)J on tumor-infiltrating lymphocytes from melanoma. I need TCR clonotypes, clonality, and CDR3 clustering."
+    assistant:
+      content: "Acknowledged — I have the modality + key parameters; will ask for any missing details before locking the plan."
+    expect:
+      visibleText: ["V(D)J", "TCR"]
+
+live:
+  intake_prose: |
+    10x Genomics 5' single-cell V(D)J on tumor-infiltrating lymphocytes
+    from melanoma biopsies, four patients, paired with matched scRNA-seq.
+    Standard 10x V(D)J reference. I want per-cell TCR alpha/beta clonotype
+    assignment, repertoire clonality metrics, CDR3 motif clustering across
+    patients, and a final summary of expanded clones overlaid on the
+    scRNA-seq clusters. Public data, internal use.
+  followups:
+    - trigger: "(?i)(chain|TCR|BCR|alpha|beta)"
+      reply: "TCR alpha + beta only, no BCR."
+    - trigger: "(?i)(reference|10x|vdj)"
+      reply: "Standard 10x V(D)J reference (GRCh38)."
+  assertions:
+    stateNotGreeting: true
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

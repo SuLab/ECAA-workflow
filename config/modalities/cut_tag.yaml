@@ -1,0 +1,35 @@
+schema_version: "0.1"
+id: cut_tag
+display_name: CUT&Tag / CUT&RUN
+keywords:
+- cut&tag
+- cut and tag
+- cut tag
+- cuttag
+- cut&run
+- cut and run
+- cut run
+- cutandrun
+- cutnrun
+- pa-mnase
+- pa mnase
+- patn5
+- pa-tn5
+- concanavalin
+- seacr
+- cleavage under targets
+edam_topic: topic:3169
+edam_operation: operation:3222
+archetype_id: cut_tag_peaks
+taxonomy_path: stage-taxonomies/chip-seq.yaml
+semantic_equivalence_bounds:
+  - metric: peak_jaccard
+    operator: ">="
+    threshold: 0.85
+    applies_to: "results/peaks/*.bed"
+    rationale: "CUT&Tag peak-call Jaccard ≥ 0.85 (lower than ChIP-seq due to SEACR threshold sensitivity)"
+  - metric: spearman_rho
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/tables/signal_*.csv"
+    rationale: "Spearman correlation of bin-level signal tracks ≥ 0.90"

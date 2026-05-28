@@ -1,0 +1,46 @@
+id: heuristic_parity_bulk_rnaseq
+category: heuristic_parity
+description: |
+  R5.19 acceptance #2 partial — heuristic-path parity fixture for
+  the bulk RNA-seq DE modality. The scripted counterpart is
+  `02_rnaseq_de_bulk_case_control.yaml`. Both fixtures land the
+  session at `Emitted` with the same package artifacts; the only
+  difference is whether the tool sequence was scripted on a tape
+  or computed by `HeuristicMockBackend` from session state.
+
+  This batch ships 5 of the 21-modality parity sweep (bulk_rnaseq,
+  atac_seq, chip_seq, proteomics_dia, scrna_seq); the remaining 16
+  land with later phases.
+
+mock_backend: heuristic
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq differential expression analysis comparing 12 IBD patient
+      ileal biopsies against 12 healthy controls. Illumina paired-end 150bp
+      reads, Homo sapiens. Looking for genes differentially expressed in
+      inflamed vs healthy tissue. Internal data, not public.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - classify_intake
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: the heuristic backend reaches `Emitted` on the same
+  prose the scripted fixture 02 uses, without consulting a recorded
+  tape for tool selection.

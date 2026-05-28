@@ -1,0 +1,4 @@
+GWAS colocalization analysis using genome-wide association summary statistics.
+Run fine-mapping to identify credible sets and colocalize with eQTL results to
+prioritize candidate causal variants. Produce a Manhattan plot and locus-level
+colocalization report.

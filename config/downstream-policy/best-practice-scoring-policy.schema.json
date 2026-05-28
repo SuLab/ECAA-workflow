@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Best Practice Scoring Policy",
+  "description": "Sidecar schema validating the top-level shape of best-practice-scoring-policy.json. Describes composite score weights, evidence quality modifiers, freshness and contradiction penalties, confidence adjustments, quality-gate penalties, clamps, recommendation thresholds, eligibility criteria, tier-assignment rules, and per-stage-class scoring rules.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "compositeScoreWeights",
+    "evidenceQuality",
+    "freshness",
+    "contradiction",
+    "confidenceLevelAdjustments",
+    "qualityGatePenalties",
+    "adjustmentClamp",
+    "finalScoreClamp",
+    "defaultRecommendationThreshold",
+    "winMarginByConfidence",
+    "defaultEligibilityCriteria",
+    "tierAssignmentRules",
+    "stageClassRules"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "compositeScoreWeights": {
+      "type": "object",
+      "required": ["defaultSuitability", "robustness", "adoption", "operationalFit", "specMatch"],
+      "properties": {
+        "defaultSuitability": { "type": "number" },
+        "robustness": { "type": "number" },
+        "adoption": { "type": "number" },
+        "operationalFit": { "type": "number" },
+        "specMatch": { "type": "number" },
+        "renormalizeWhenAxisMissing": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Axes whose weight is redistributed proportionally when the axis has no input source. Absent or empty preserves the pre-2026-05-27 literal-multiplication behaviour."
+        }
+      }
+    },
+    "evidenceQuality": { "type": "object" },
+    "freshness": { "type": "object" },
+    "contradiction": { "type": "object" },
+    "confidenceLevelAdjustments": { "type": "object" },
+    "qualityGatePenalties": { "type": "object" },
+    "adjustmentClamp": { "type": "object" },
+    "finalScoreClamp": { "type": "object" },
+    "defaultRecommendationThreshold": { "type": "number" },
+    "winMarginByConfidence": { "type": "object" },
+    "defaultEligibilityCriteria": { "type": "array" },
+    "tierAssignmentRules": { "type": "object" },
+    "stageClassRules": { "type": "array" }
+  }
+}

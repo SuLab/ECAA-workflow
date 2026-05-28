@@ -1,0 +1,115 @@
+[package]
+name = "scripps-workflow-conversation"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/SuLab/ECAA-workflow"
+description = "LLM-mediated conversational shell wrapping the scripps-workflow compiler with a closed 19-tool vocabulary."
+
+[dependencies]
+scripps-workflow-core = { version = "0.1", path = "../core" }
+anyhow.workspace = true
+# Pure-Rust JSON Schema (draft-07) validation for ECAA sidecar shape
+# checks in emit/validation.rs. Workspace-pinned at 0.18 — the API uses
+# JSONSchema::compile() and validate() returning Result<(), ErrorIterator>.
+jsonschema.workspace = true
+# `propose_summary_confirmation` fingerprints
+# the summary markdown via SHA-256 so the durable audit log records
+# the exact text the SME saw at /confirm time. Workspace-pinned
+# alongside the core + server + cli + eval-adapters call sites.
+sha2.workspace = true
+# Workspace-pinned thiserror 2.0 for typed error enums.
+# Stays alongside anyhow (Round-3 §3.11 stay-on decision); eyre /
+# miette / error-stack / snafu all rejected.
+thiserror.workspace = true
+# `stream` extends the workspace's common (json + rustls-tls) feature
+# set with the SSE-accumulator dep conversation needs for the Anthropic
+# /v1/messages client.
+reqwest = { workspace = true, features = ["stream"] }
+# `rc` extends the workspace `serde` features (derive) so conversation
+# can derive Serialize/Deserialize on `Arc<T>` / `Rc<T>` containers.
+serde = { workspace = true, features = ["rc"] }
+serde_json.workspace = true
+serde_yml = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time", "io-util"] }
+futures = "0.3"
+uuid.workspace = true
+url = "2.5"
+chrono.workspace = true
+ts-rs.workspace = true
+# Layer 5 — JsonSchema derive on session/state.rs Turn / ToolCallRecord
+# / ConfirmationCard / AssistantIntent / etc. so the intake-conversation
+# subgraph schema can be regenerated.
+schemars = { workspace = true }
+tracing.workspace = true
+async-trait.workspace = true
+# Per-session mutex persistence store. DashMap's internal sharding
+# lets concurrent sessions take out their per-session locks without
+# contending on a single outer map lock.
+dashmap = { workspace = true }
+# sme_text.rs sanitizer: regex + once_cell for the static pattern table.
+regex.workspace = true
+once_cell.workspace = true
+# R-39 — TTL-aware concurrent cache for `side_calls::explain` and
+# `side_calls::summary`. Earlier revisions used `Mutex<HashMap>` with
+# a coarse random-eviction-on-cap path; moka's `Cache<K,V>` enforces
+# both the size cap and a per-entry TTL (1 hour) atomically.
+moka = { workspace = true, features = ["sync"] }
+# Derive `EnumCount` on `Tool` so the closed 16-tool count is
+# compile-time tied to the enum, not a CLAUDE.md literal that drifts.
+strum.workspace = true
+# get_literature_context tool: read prior_claims_matrix.csv + claims_evidence_matrix.csv
+csv.workspace = true
+# HMAC audit sidecar (C5): hex-encode 32-byte secret for JSON persistence;
+# rand::OsRng seeds the per-session secret in Session::new. Versions match
+# the pinned set in crates/core (hex 0.4, rand 0.8) so the workspace
+# compiles a single copy of each crate.
+hex = "0.4"
+rand = "0.8"
+# Auto-register prose-path hints (SWFC_AUTO_REGISTER_PROSE_PATHS) walks
+# user-cited input directories to build a per-file inventory inline.
+# Mirrors crates/server/src/chat_routes/inputs/list.rs::build_manifest.
+walkdir.workspace = true
+# v3 P7 — `Session::schema_version` + `SessionLineage::schema_version`
+# promoted to semver. Workspace pin in the root `Cargo.toml`.
+semver = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+tempfile.workspace = true
+pretty_assertions.workspace = true
+# Layer 5D — schemars_generation drift-detection test imports
+# AuditProofReport from ecaa-types (no other crate currently re-exports
+# it conveniently for tests).
+scripps-workflow-ecaa-types = { version = "0.1", path = "../ecaa-types" }
+# Schema-validate the 8 ECAA subgraph sidecars after a real emit
+# (`emit_roundtrip_schema_clean`). Pure-Rust, no external Python deps;
+# version matches the workspace pin used by core + harness.
+jsonschema = { workspace = true }
+# R-23 — snapshot-test ergonomics. See `crates/core/Cargo.toml` for the
+# rationale. Conversation-side use-cases: cross-version diff goldens,
+# tool-loop response shapes, persistence envelope round-trips.
+insta = { workspace = true }
+# `no_silent_transition_drops` walks the crate source
+# tree for tolerated `try_transition` calls that forgot to log failures.
+walkdir.workspace = true
+# Serialize env-mutating tests (e.g. `auto_title_inflight_gate` toggles
+# SWFC_AUTO_TITLE, `model_policy::registry` toggles
+# SWFC_MODEL_ROUTING_CONFIDENCE_THRESHOLD) so they don't race under
+# `cargo test`.
+serial_test = "3"
+# `heuristic_batch_proptest` fuzzes batches of `Tool` variants
+# to assert dispatcher alone-in-turn enforcement against the
+# `BatchableTool` / `HighImpactTool` sealed-enum split. Workspace-pinned
+# at 1.5 (see root Cargo.toml).
+proptest = { workspace = true }
+
+# A/B harness for the rubric scorer — Sonnet 4.6 (baseline) vs Haiku 4.5
+# (candidate). Live-API only, invoked via `make scorer-ab`. Not wired
+# into `make all`.
+[[bin]]
+name = "scorer_ab"
+path = "src/bin/scorer_ab.rs"
+
+[lints]
+workspace = true

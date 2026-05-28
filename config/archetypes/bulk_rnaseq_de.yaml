@@ -1,0 +1,74 @@
+schema_version: "0.1"
+id: bulk_rnaseq_de
+version: "1.0.0"
+description: |
+  Bulk RNA-seq differential expression analysis. Standard pipeline: raw QC,
+  trim, align, quantify, normalise, test for DE between conditions, then
+  pathway enrichment on the ranked DE result.
+sme_summary: |
+  Compare gene expression between two or more bulk RNA-seq conditions and
+  report the differentially expressed genes plus pathway enrichment.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: bulk_rnaseq
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: true
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: quantification
+    required: true
+    depends_on: [alignment]
+  - atom_id: qc_preprocessing
+    required: true
+    depends_on: [quantification]
+  - atom_id: normalisation
+    required: true
+    depends_on: [qc_preprocessing]
+  - atom_id: review_prior_work
+    required: false
+    # Phase G of the literature-atom plan. Gated by
+    # intake.literature_review_requested via compose_with_intake; when
+    # the SME hasn't opted in, this atom + contextualize_findings_with_literature
+    # are filtered out before slot-fill so the emitted DAG is byte-identical
+    # to a pre-literature DAG.
+  - atom_id: differential_expression
+    required: true
+    depends_on: [normalisation]
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [differential_expression, review_prior_work]
+  - atom_id: pathway_enrichment
+    required: false
+    depends_on: [differential_expression]
+  - atom_id: reporting
+    required: true
+    # Reporting must also consume pathway_enrichment when
+    # present so it doesn't dangle as an orphan operation node in the
+    # lowered DAG (audit-dag.py OPERATION_ORPHANS check).
+    # Same for contextualize_findings_with_literature (Phase G).
+    depends_on:
+      - differential_expression
+      - pathway_enrichment
+      - contextualize_findings_with_literature
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  contrast: differential_expression.inputs.contrast
+  reference_level: differential_expression.inputs.reference_level
+  organism: alignment.inputs.organism
+  samples: data_acquisition.inputs.samples
+claim_boundary: |
+  Differential expression is statistical association across the SME-named
+  contrast, not biological causation. Report effect size + adjusted p-value
+  + the reference factor level; prefer "associated with" / "enriched in"
+  over mechanistic language.

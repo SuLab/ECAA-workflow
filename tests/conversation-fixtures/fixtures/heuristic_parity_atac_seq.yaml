@@ -1,0 +1,43 @@
+id: heuristic_parity_atac_seq
+category: heuristic_parity
+description: |
+  R5.19 acceptance #2 partial — heuristic-path parity fixture for
+  the ATAC-seq modality. Pair with any scripted ATAC-seq fixture in
+  the corpus; the assertion is that the heuristic backend lands the
+  session at `Emitted` with the same package shape (WORKFLOW.json +
+  ro-crate-metadata.json + the intake-conversation log).
+
+
+mock_backend: heuristic
+
+flow:
+  - kind: user
+    text: |
+      ATAC-seq chromatin accessibility profiling of mouse CD8+ T cells
+      across naive, effector, and exhausted states. 4 replicates per
+      condition, paired-end 75bp Illumina reads, Mus musculus. Goal is
+      to identify differentially accessible regions between exhausted
+      and effector cells. Internal data.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - classify_intake
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: ATAC-seq prose routes through the heuristic decision
+  table to `Emitted` without a scripted tape, matching the scripted-
+  path emission shape for the same modality.

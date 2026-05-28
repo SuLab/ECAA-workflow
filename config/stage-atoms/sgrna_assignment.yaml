@@ -1,0 +1,65 @@
+id: sgrna_assignment
+version: "1.0.0"
+role: operation
+description: |
+  Assign each cell in a pooled CRISPRi/CRISPRa/Perturb-seq screen to
+  its delivered sgRNA from feature-barcode reads. Filters to cells
+  with ≥N sgRNA UMIs and a unique winning sgRNA per cell. Tool
+  selected at runtime (Cell Ranger feature-barcoding; ScreenPro;
+  pyperturb).
+edam_operation: "operation:3937"
+edam_data: "data:3917"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - quantification
+expected_artifacts:
+  - sgrna_assignment.tsv
+  - sgrna_assignment_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: crispr_screen
+required_figures:
+  - sgrna_umi_histogram
+  - cells_per_perturbation_bar
+attributes:
+  candidate_tools:
+    - cellranger
+    - screenpro
+    - pyperturb
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Per-cell sgRNA assignment is a probabilistic mapping based on
+  observed sgRNA UMI counts. Cells with ambiguous or low-confidence
+  assignments are dropped from downstream perturbation analyses.
+inputs:
+  - name: cell_by_feature_counts
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
+    statistical_state: "raw_counts"
+    privacy_class: internal
+outputs:
+  - name: sgrna_per_cell
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: sgrna_assignment_table
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Per-cell winning-sgRNA assignment table from a pooled CRISPR screen"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

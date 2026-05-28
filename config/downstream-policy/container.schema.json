@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scripps-workflow/container.schema.json",
+  "title": "Package-wide container pin",
+  "description": "Sidecar schema validating the shape of policies/container.json — the package-wide container pin emitted by core::emitter::emit_container_spec. Plan §S15.18 — formalises the shape so registry tampering, malformed taxonomy `preferred_container` declarations, and arch-mismatch errors fail loudly at emit time. The current bio-default emit path writes `{\"image\": null}`; non-bio archetypes (clinical_trial, time_series_forecast) declare a non-null pin in their taxonomy YAML.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["image"],
+  "properties": {
+    "image": {
+      "description": "Image reference (e.g. `ghcr.io/scripps/scripps-bio-base`) or null to fall through to the host environment. Must not contain `..` path traversal segments — defence-in-depth against a taxonomy that tries to escape its registry namespace.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "string",
+          "minLength": 1,
+          "not": { "pattern": "\\.\\." }
+        }
+      ]
+    },
+    "tag": {
+      "description": "Image tag (semver-like). Pinned to a specific release; emitter resolves `:latest`-style refs to a digest at emit time. Null when the image was given as a digest reference rather than a tag.",
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "digest": {
+      "description": "SHA-256 digest, populated at emit time per ADR 0025. v1 schema accepts an empty string here when the taxonomy declares only image + tag; the emitter rewrites it once digest resolution has run.",
+      "type": "string",
+      "pattern": "^(|sha256:[a-f0-9]{64})$"
+    },
+    "arch": {
+      "description": "Architecture allowlist. Defaults to `[\"amd64\"]` per plan §3.6 non-goal #22 (\"Not building cross-arch images by default\"). Each entry must be one of the supported architectures.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": ["amd64", "arm64"]
+      }
+    },
+    "gpu_required": {
+      "description": "True when the image needs GPU passthrough (`--nv` / `--gpus=all`). Cross-checks with the task's `resource_profile.gpu` at composition time.",
+      "type": "boolean"
+    },
+    "network": {
+      "description": "Network policy. `bridge` = inherit harness default; `none` = no network (used by the clinical_trial archetype per ADR 0028); `host` = host networking (rare, opt-in for sites that need direct registry/proxy access).",
+      "type": "string",
+      "enum": ["bridge", "none", "host"]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+modality_a	modality_b	correlation
+RNA	RNA	0.816613
+RNA	Protein	0.565635
+RNA	Methylation	0.366824
+RNA	ATAC	0.726296
+Protein	RNA	0.570544
+Protein	Protein	0.284741
+Protein	Methylation	0.278256
+Protein	ATAC	0.707227
+Methylation	RNA	0.68362
+Methylation	Protein	0.883013
+Methylation	Methylation	0.212771
+Methylation	ATAC	0.703837
+ATAC	RNA	0.928903
+ATAC	Protein	0.251141
+ATAC	Methylation	0.561118
+ATAC	ATAC	0.641346

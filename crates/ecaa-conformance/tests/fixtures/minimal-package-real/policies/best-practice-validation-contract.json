@@ -1,0 +1,299 @@
+{
+  "schemaVersion": "1.0",
+  "crossReferenceRules": [
+    {
+      "source": "workflowStage.candidateIds",
+      "target": "candidate.candidateId",
+      "minPerStage": 2
+    },
+    {
+      "source": "stageProfile.stageId",
+      "target": "workflowStage.stageId"
+    },
+    {
+      "source": "candidate.stageId",
+      "target": "workflowStage.stageId"
+    },
+    {
+      "source": "candidateDefinition.stageId",
+      "target": "workflowStage.stageId"
+    },
+    {
+      "source": "evidence.candidateIds",
+      "target": "candidate.candidateId"
+    },
+    {
+      "source": "empiricalResult.stageId",
+      "target": "workflowStage.stageId"
+    },
+    {
+      "source": "branch.stageId",
+      "target": "workflowStage.stageId"
+    },
+    {
+      "source": "branchLock.stageId",
+      "target": "workflowStage.stageId"
+    },
+    {
+      "source": "claim.stageId",
+      "target": "workflowStage.stageId"
+    },
+    {
+      "source": "claim.candidateId",
+      "target": "candidate.candidateId"
+    },
+    {
+      "source": "claim.evidenceIds",
+      "target": "evidence.evidenceId"
+    },
+    {
+      "source": "tierAssignment.stageId",
+      "target": "workflowStage.stageId"
+    },
+    {
+      "source": "tierAssignment.candidateId",
+      "target": "candidate.candidateId"
+    }
+  ],
+  "cycleRequirements": [
+    {
+      "stageClass": "StagePreprocessingQC",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageAlignmentQuantification",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageNormalizationBatchCorrection",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageIntegrationAlignment",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageClusteringStateInference",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageAnnotationLabelTransfer",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageDifferentialAnalysis",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageVariantCallingFiltering",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageBenchmarkingEvaluation",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageCausalDesign",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": false,
+      "requireRobustness": true,
+      "requireTestability": false,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StagePredictionValidation",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageResourceReleaseMetadata",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": false,
+      "requireRobustness": false,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageOther",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": false,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageAggregator",
+      "requireCandidateDefinition": false,
+      "requireEmpiricalScreening": false,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": false
+    },
+    {
+      "stageClass": "StagePathwayEnrichment",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": false,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageColocalization",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageMSRawConversion",
+      "requireCandidateDefinition": false,
+      "requireEmpiricalScreening": false,
+      "requireRobustness": false,
+      "requireTestability": true,
+      "requireBranchLock": false
+    },
+    {
+      "stageClass": "StageProteomicsQuant",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageSpatialAnalysis",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageTrajectoryAnalysis",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageCellCommunication",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageTimeSeriesForecast",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": true,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    },
+    {
+      "stageClass": "StageClinicalTrialAnalysis",
+      "requireCandidateDefinition": true,
+      "requireEmpiricalScreening": false,
+      "requireRobustness": true,
+      "requireTestability": true,
+      "requireBranchLock": true
+    }
+  ],
+  "tierUniquenessRule": "exactly_one_default_or_tentative_per_stage",
+  "strongClaimRequirements": {
+    "minUniqueEvidenceRecords": 2,
+    "citationMinimumMustBeMet": true,
+    "freshnessAcceptableStatuses": [
+      "current",
+      "fresh",
+      "pinned",
+      "up to date",
+      "uptodate"
+    ],
+    "contradictionBlockingStatuses": [
+      "contradicted",
+      "mixed",
+      "unresolved",
+      "retracted"
+    ]
+  },
+  "requireDivergenceRecord": true,
+  "requireMetricBundlesForEmpiricalStages": true,
+  "requiredOutputFiles": [
+    "BEST_PRACTICE_STAGE_PROFILES.json",
+    "BEST_PRACTICE_CANDIDATE_DEFINITIONS.json",
+    "BEST_PRACTICE_EMPIRICAL_SCREENING.json",
+    "BEST_PRACTICE_ROBUSTNESS_REPORT.json",
+    "BEST_PRACTICE_TESTABILITY_REPORT.json",
+    "BEST_PRACTICE_TARGETED_REFINEMENT.json",
+    "BEST_PRACTICE_BRANCH_LOCK.json",
+    "BEST_PRACTICE_EXECUTION_DIVERGENCE.json",
+    "METHOD_SELECTION_MATRIX.csv",
+    "BEST_PRACTICE_EXECUTION_GUIDE.md",
+    "BEST_PRACTICE_DETERMINATION.json"
+  ],
+  "matrixRequiredColumns": [
+    "stage_id",
+    "stage_class",
+    "candidate_id",
+    "candidate_name",
+    "role",
+    "literature_eligible",
+    "composite_rank",
+    "recommended_tier",
+    "branch_id",
+    "citation_minimum_met"
+  ],
+  "guideRequiredPhrases": [
+    "stage taxonomy",
+    "empirical screening",
+    "robustness",
+    "testability gate",
+    "branch lock",
+    "execution divergence",
+    "targeted refinement",
+    "stop_and_block"
+  ]
+}

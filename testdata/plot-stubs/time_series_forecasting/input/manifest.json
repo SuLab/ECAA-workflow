@@ -1,0 +1,4 @@
+{
+  "forecast_table": "forecast.tsv",
+  "anomaly_table": "anomaly.tsv"
+}

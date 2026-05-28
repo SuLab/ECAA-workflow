@@ -1,0 +1,53 @@
+slot_name: integrator
+slot_kind: closed_enum
+default: generic
+values:
+  - id: diablo
+    keywords:
+      - diablo
+      - "spls-da"
+      - "spls da"
+      - mixomics
+      - "sparse pls-da"
+    extra_atoms:
+      - { atom_id: validate_sample_alignment_n_way,
+          alias: cross_omics_alignment_check, required: true,
+          depends_on: [rnaseq_quantification, proteomics_protein_quantification] }
+      - { atom_id: integrate_multi_omics_diablo,
+          alias: cross_omics_diablo_integration, required: true,
+          depends_on: [cross_omics_alignment_check] }
+      - { atom_id: final_reporting,
+          alias: cross_omics_diablo_final_reporting, required: true,
+          depends_on: [cross_omics_diablo_integration] }
+  - id: mofa
+    keywords:
+      - mofa
+      - "factor decomposition"
+      - "factor analysis"
+      - "multi-omics factor"
+    extra_atoms:
+      # Note: final_reporting NOT re-added in slot — it's already in
+      # the base archetype. Adding it here would create a duplicate
+      # task id which the composer's exclusion-consistency check
+      # rejects. The base's final_reporting picks up
+      # integrate_multi_omics_mofa as an upstream via the standard
+      # reporting → final_reporting wiring.
+      - { atom_id: validate_sample_alignment_n_way, required: true,
+          depends_on: [rnaseq_quantification, proteomics_protein_quantification] }
+      - { atom_id: integrate_multi_omics_mofa, required: true,
+          depends_on: [validate_sample_alignment_n_way] }
+  - id: snf
+    keywords:
+      - "snf integration"
+      - "similarity network fusion"
+      - "similarity-network fusion"
+      - "snftool"
+    extra_atoms:
+      # Same final_reporting de-dup as MOFA — see comment above.
+      - { atom_id: validate_sample_alignment_n_way, required: true,
+          depends_on: [rnaseq_quantification, proteomics_protein_quantification] }
+      - { atom_id: integrate_multi_omics_snf, required: true,
+          depends_on: [validate_sample_alignment_n_way] }
+  - id: generic
+    keywords: []
+    extra_atoms: []

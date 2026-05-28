@@ -1,0 +1,49 @@
+schema_version: "0.1"
+id: crispr_screen_scrnaseq
+display_name: CRISPR screen scRNA-seq (Perturb-seq)
+keywords:
+- crispri screen
+- crispra screen
+- crispr screen
+- pooled crispr screen
+- pooled crispri
+- pooled crispra
+- pooled crispr
+- perturb-seq
+- perturbseq
+- perturb seq
+- crop-seq
+- cropseq
+- crop seq
+- mageck
+- sgrna
+- guide rna
+- single-guide rna
+- guide barcode
+- gRNA library
+- feature barcoding
+- feature-barcoding
+- dcas9-vpr
+- dcas9-krab
+- cas9 knockout screen
+- guide assignment
+- guide demultiplexing
+- pooled knockout screen
+- single-cell crispr
+- single-cell crispri
+- perturbation atlas
+- genome-wide perturbation
+edam_topic: topic:3308
+edam_operation: operation:3432
+archetype_id: single_cell_de
+taxonomy_path: stage-taxonomies/single-cell.yaml
+semantic_equivalence_bounds:
+  - metric: cluster_ari
+    operator: ">="
+    threshold: 0.85
+    rationale: "Perturb-seq cluster ARI ≥ 0.85 between runs (guide-informed clustering)"
+  - metric: perturbation_score_spearman_rho
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/tables/perturbation_scores_*.csv"
+    rationale: "Spearman correlation of per-guide perturbation effect scores ≥ 0.90"

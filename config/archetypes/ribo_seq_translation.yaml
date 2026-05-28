@@ -1,0 +1,69 @@
+schema_version: "0.1"
+id: ribo_seq_translation
+version: "1.0.0"
+description: |
+  Ribosome-profiling (Ribo-seq) translation-efficiency analysis.
+  Specialized pipeline: contaminant-filtered short-read alignment,
+  P-site offset calibration via riboWaltz, CDS-restricted RPF
+  quantification, then per-gene translation-efficiency DE
+  comparing RPF / mRNA ratios across conditions. Requires paired
+  total mRNA-seq libraries for the same samples (the matched-mRNA
+  input is the normalization denominator).
+sme_summary: |
+  Calibrate P-site offsets, quantify CDS-restricted ribosome
+  footprints, and test translation-efficiency changes between
+  conditions using anota2seq / Xtail / deltaTE.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: ribo_seq
+goal_kind_hint: translation_efficiency
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: true
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: psite_offset_calibration
+    required: true
+    depends_on: [alignment]
+  - atom_id: quantification
+    required: true
+    depends_on: [alignment, psite_offset_calibration]
+  - atom_id: qc_preprocessing
+    required: true
+    depends_on: [quantification]
+  - atom_id: normalisation
+    required: true
+    depends_on: [qc_preprocessing]
+  - atom_id: translation_efficiency_de
+    required: true
+    depends_on: [quantification, normalisation]
+  - atom_id: pathway_enrichment
+    required: false
+    depends_on: [translation_efficiency_de]
+  - atom_id: reporting
+    required: true
+    depends_on: [translation_efficiency_de, pathway_enrichment]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  contrast: translation_efficiency_de.inputs.contrast
+  reference_level: translation_efficiency_de.inputs.reference_level
+  organism: alignment.inputs.organism
+  samples: data_acquisition.inputs.samples
+  matched_mrna_samples: translation_efficiency_de.inputs.mrna_counts
+claim_boundary: |
+  Translation efficiency is a statistical proxy for translation
+  rate (RPF / mRNA), not a direct measurement of protein output.
+  Differential TE is statistical association across the SME-named
+  contrast — mechanistic translation-control claims require
+  orthogonal validation. Report effect size + adjusted p-value +
+  the RPF / mRNA pairing used.

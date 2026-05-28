@@ -1,0 +1,50 @@
+version: "1.0.0"
+coverage:
+  - modality: bulk_rnaseq
+    primary_ontologies: [GO, SO, EDAM]
+    secondary_ontologies: [CL, UBERON, MONDO]
+    forbidden_ontologies: []
+  - modality: single_cell_rnaseq
+    primary_ontologies: [CL, GO, EDAM]
+    secondary_ontologies: [UBERON, MONDO, SO]
+    forbidden_ontologies: []
+  - modality: variant_calling
+    primary_ontologies: [SO, MONDO, EDAM]
+    secondary_ontologies: [GO, ChEBI]
+    forbidden_ontologies: []
+  - modality: chip_seq
+    primary_ontologies: [SO, GO, EDAM]
+    secondary_ontologies: [CL, UBERON]
+    forbidden_ontologies: []
+  - modality: metagenomics
+    primary_ontologies: [NCBITaxon, GO, EDAM]
+    secondary_ontologies: [ENVO]
+    forbidden_ontologies: []
+  - modality: proteomics
+    primary_ontologies: [PR, ChEBI, GO, EDAM]
+    secondary_ontologies: [OBI]
+    forbidden_ontologies: []
+  - modality: metabolomics
+    primary_ontologies: [ChEBI, GO, EDAM]
+    secondary_ontologies: [OBI]
+    forbidden_ontologies: []
+  - modality: spatial_omics
+    primary_ontologies: [CL, UBERON, GO, EDAM]
+    secondary_ontologies: [OBI, MONDO]
+    forbidden_ontologies: []
+  - modality: phylogenetics
+    primary_ontologies: [NCBITaxon, SO, EDAM]
+    secondary_ontologies: [GO]
+    forbidden_ontologies: []
+  - modality: structural_biology
+    primary_ontologies: [PR, ChEBI, GO, EDAM]
+    secondary_ontologies: [OBI, MONDO]
+    forbidden_ontologies: []
+  - modality: multi_omics
+    primary_ontologies: union
+    secondary_ontologies: union
+    forbidden_ontologies: []
+  - modality: generic_omics
+    primary_ontologies: [EDAM, GO, SO]
+    secondary_ontologies: [CL, UBERON, ChEBI]
+    forbidden_ontologies: []

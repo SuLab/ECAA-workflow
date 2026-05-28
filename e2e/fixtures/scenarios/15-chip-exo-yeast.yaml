@@ -1,0 +1,28 @@
+name: ChIP-exo yeast TF footprinting
+modality: chip_exo
+
+beats:
+  - user: "ChIP-exo on a yeast transcription factor, basepair-resolution binding footprints."
+    assistant:
+      content: "Acknowledged — I have the modality + key parameters; will ask for any missing details before locking the plan."
+    expect:
+      visibleText: ["ChIP-exo", "footprint"]
+
+live:
+  intake_prose: |
+    ChIP-exo FASTQs for a yeast (S. cerevisiae) DNA-binding factor, two
+    biological replicates plus IgG-equivalent control, single-end. I want
+    basepair-resolution footprint calling, motif enrichment over the
+    footprint set, peak-to-gene annotation, and a per-replicate
+    reproducibility summary. Public data, internal use.
+  followups:
+    - trigger: "(?i)(reference|genome|sacCer)"
+      reply: "sacCer3 / R64. Single-end."
+    - trigger: "(?i)(footprint|resolution)"
+      reply: "Basepair-resolution footprints, narrower than narrow peaks."
+  assertions:
+    stateNotGreeting: true
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

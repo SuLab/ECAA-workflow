@@ -1,0 +1,9 @@
+chrom_a	start_a	chrom_b	start_b	distance	count
+chr1	100	chr1	200	100	950
+chr1	100	chr1	5000	4900	120
+chr1	200	chr1	10000	9800	75
+chr1	300	chr2	100	-1	30
+chr1	500	chr1	50000	49500	22
+chr2	100	chr2	1000	900	840
+chr2	100	chr2	8000	7900	60
+chr3	100	chr1	100	-1	18

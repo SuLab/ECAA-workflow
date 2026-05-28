@@ -1,0 +1,90 @@
+# 11 — Mock Phase III clinical-trial analysis
+#
+# Source prose: testdata/scenarios/11-clinical-trial-mock-phase3/request.md
+#
+# Proves the clinical-trial project class loads the right taxonomy +
+# container. Deliberately short — the heavy-lift coverage for the
+# confirmatory-deviation gate lives in the conversation-fixture suite
+# (fixtures 44 + 47 + 48).
+
+name: Mock Phase III clinical-trial analysis
+modality: clinical_trial
+
+beats:
+  - user: |
+      I need to run the primary and secondary endpoint analyses for a
+      Phase III randomized controlled trial of Drug X versus placebo in
+      moderate-to-severe rheumatoid arthritis. SAP is frozen.
+    assistant:
+      content: |
+        Phase III RCT with a frozen SAP — got it. Primary endpoint?
+    state: intake
+    expect:
+      stateBadge: intake
+      visibleText:
+        - "Phase III"
+      forbiddenText:
+        - "DAG"
+        - "task graph"
+
+  - user: |
+      Primary endpoint is ACR20 at Week 24, analyzed by logistic
+      regression on the ITT population. Secondary endpoints are
+      DAS28-CRP change and HAQ-DI change via MMRM with hierarchical
+      multiplicity.
+    assistant:
+      content: |
+        Here's the plan — please review.
+      confirmation_card:
+        summary_markdown: |
+          **Phase III RA RCT analysis**
+
+          - **Primary:** ACR20 at Week 24, logistic regression, ITT
+          - **Secondary:** DAS28-CRP + HAQ-DI, MMRM with hierarchical
+            multiplicity testing
+          - **Container:** `scripps/clinical-trial:1.0`
+          - **Analysis discipline:** pick Exploratory or Confirmatory
+            before Confirm activates.
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+      visibleText:
+        - "ACR20"
+        - "MMRM"
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: |
+          Package emitted — clinical-trial container will execute.
+      state: emitted
+      expect:
+        stateBadge: emitted
+        visibleText:
+          - "Package emitted"
+
+live:
+  intake_prose: |
+    I need to run the primary and secondary endpoint analyses for a Phase III
+    randomized controlled trial of Drug X versus placebo in moderate-to-severe
+    rheumatoid arthritis. The SAP is frozen. Primary endpoint: ACR20 response
+    at Week 24 analyzed by logistic regression on the ITT population.
+    Secondary endpoints: DAS28-CRP change and HAQ-DI change via MMRM with
+    hierarchical multiplicity testing. Sensitivity analyses are per-protocol
+    ACR20 and tipping-point. Emit the package to {pkgDir}.
+  followups:
+    - trigger: "(?i)(endpoint|SAP)"
+      reply: "Primary is ACR20 at Week 24, ITT. Secondary is DAS28-CRP + HAQ-DI via MMRM."
+    - trigger: "(?i)(sensitivity|per.protocol|tipping)"
+      reply: "Per-protocol ACR20 and tipping-point for missing data."
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "recommend"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 2

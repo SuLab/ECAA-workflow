@@ -1,0 +1,374 @@
+{
+  "version": "1.0",
+  "workflow_id": "golden-metagenomics_taxonomic",
+  "current_task": null,
+  "tasks": {
+    "data_acquisition": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Acquire raw sequencing data and sample metadata from repositories or local storage",
+      "spec": {
+        "edam_operation": "operation:2422",
+        "expected_artifacts": [
+          "cohort_manifest.tsv",
+          "per_accession_summary.json",
+          "matrices_index.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "samples_per_study"
+        ],
+        "spec_preferred_methods": {
+          "geoparse_python_processed_matrices": "GEO-only Python fallback (geoparse). Select only when every SME-named accession is a GSE and CNGB/NGDC/EGA sources are absent from the cohort. If a non-GEO accession is present, this method SHOULD NOT be top-ranked alone — it forces silent cohort truncation. Pair with a CNGB/NGDC helper or escalate to multi_repo_processed_matrices_python.",
+          "geoquery_r_processed_matrices": "GEO-only R fallback (GEOquery / Bioconductor). Same scope caveat as geoparse_python_processed_matrices. Requires r_seurat=true or equivalent Bioconductor capability at runtime.",
+          "multi_repo_processed_matrices_python": "Preferred: dispatch per-accession by prefix. GEO (GSE*) → GEOparse; SRA (SRP*/PRJNA*) → pysradb + prefetch; CNGB CNSA (CNP*) → HTTPS to ftp.cngb.org/pub/CNSA + scripts/helpers/cngb_fetch.py; NGDC GSA (CRA*/HRA* public) → ngdc.cncb.ac.cn download API. Union of processed matrices written to a single manifest. Keeps the \"use published matrices, do not reprocess FASTQ\" commitment while covering non-GEO public repos.",
+          "multi_repo_processed_matrices_r": "R/Bioconductor equivalent — GEO via GEOquery, SRA via SRAdb, CNGB/NGDC via httr + a shared URL-resolver helper. Use only when env_capability shows r_seurat=true; otherwise prefer the Python multi_repo method.",
+          "sme_provided_direct_urls": "SME supplies a TSV of {accession, direct_url, sha256} when repository APIs are unavailable or when a specific mirror is preferred. Agent downloads via curl/wget and verifies checksums."
+        },
+        "stage_class": "data_acquisition"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_data_acquisition": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "ready"
+      },
+      "depends_on": [],
+      "assignee": "agent",
+      "description": "Discover best-practice method for: Acquire raw sequencing data and sample metadata from repositories or local storage",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:2422",
+        "stage_class": "data_acquisition"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_host_removal": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Determine if host decontamination is required and identify reference genome",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3192",
+        "stage_class": "preprocessing_qc"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "discover_taxonomic_profiler": {
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Discover appropriate taxonomic profiler (Kraken2, MetaPhlAn, QIIME2) for data type",
+      "spec": {
+        "discovery_kind": "best_practice",
+        "edam_operation": "operation:3460",
+        "stage_class": "analysis"
+      },
+      "resolution": {
+        "primary": "Search literature and tool registries for best-practice method",
+        "fallback": "Use default method from best-practice-scoring-policy.json",
+        "escalation": "escalate_to_sme",
+        "policy_ref": "best-practice-scoring-policy.json"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "diversity_analysis": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "taxonomic_profiling"
+      ],
+      "assignee": "agent",
+      "description": "Compute alpha- and beta-diversity metrics across samples",
+      "spec": {
+        "edam_operation": "operation:2238",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "functional_annotation": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "taxonomic_profiling"
+      ],
+      "assignee": "agent",
+      "description": "Annotate metabolic pathways and functional genes (HUMAnN, eggNOG-mapper)",
+      "spec": {
+        "edam_operation": "operation:3672",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "host_removal": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_host_removal",
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Remove host reads by alignment to host reference genome",
+      "spec": {
+        "condition": "discover_host_removal.result.host_removal_required == true",
+        "edam_operation": "operation:3192",
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "quality_control": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "assignee": "agent",
+      "description": "Assess read quality, adapter content, and per-sample depth",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "results_reporting": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "functional_annotation",
+        "diversity_analysis"
+      ],
+      "assignee": "agent",
+      "description": "Generate community composition report with diversity plots and differential abundance",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "stage_class": "reporting"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "results_review": {
+      "kind": "review",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "results_reporting"
+      ],
+      "assignee": "sme",
+      "description": "SME reviews taxonomic composition and functional annotations for biological validity",
+      "spec": {
+        "stage_class": "review"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "taxonomic_profiling": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "discover_taxonomic_profiler",
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Assign taxonomy to reads or OTUs using discovered profiler",
+      "spec": {
+        "edam_operation": "operation:3460",
+        "required_figures": [
+          "taxonomic_stacked_bar",
+          "diversity_violin"
+        ],
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "trimming": {
+      "kind": "computation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Trim adapters and low-quality bases",
+      "spec": {
+        "condition": "quality_control.result.needs_trimming == true",
+        "edam_operation": "operation:3192",
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_diversity_analysis": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "diversity_analysis"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Compute alpha- and beta-diversity metrics across samples",
+      "spec": {
+        "edam_operation": "operation:2238",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_functional_annotation": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "functional_annotation"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Annotate metabolic pathways and functional genes (HUMAnN, eggNOG-mapper)",
+      "spec": {
+        "edam_operation": "operation:3672",
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_host_removal": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "host_removal"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Remove host reads by alignment to host reference genome",
+      "spec": {
+        "edam_operation": "operation:3192",
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_quality_control": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "quality_control"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Assess read quality, adapter content, and per-sample depth",
+      "spec": {
+        "edam_operation": "operation:3218",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ],
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_results_reporting": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "results_reporting"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Generate community composition report with diversity plots and differential abundance",
+      "spec": {
+        "edam_operation": "operation:0337",
+        "stage_class": "reporting"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_taxonomic_profiling": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "taxonomic_profiling"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Assign taxonomy to reads or OTUs using discovered profiler",
+      "spec": {
+        "edam_operation": "operation:3460",
+        "required_figures": [
+          "taxonomic_stacked_bar",
+          "diversity_violin"
+        ],
+        "stage_class": "analysis"
+      },
+      "resource_class": "cpu_heavy"
+    },
+    "validate_trimming": {
+      "kind": "validation",
+      "state": {
+        "status": "pending"
+      },
+      "depends_on": [
+        "trimming"
+      ],
+      "assignee": "agent",
+      "description": "Validate outputs of: Trim adapters and low-quality bases",
+      "spec": {
+        "edam_operation": "operation:3192",
+        "stage_class": "preprocessing_qc"
+      },
+      "resource_class": "cpu_heavy"
+    }
+  }
+}

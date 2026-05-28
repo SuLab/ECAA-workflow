@@ -1,0 +1,62 @@
+id: differential_accessibility
+version: "1.0.0"
+role: operation
+description: |
+  Test for differential chromatin accessibility between sample groups
+  from ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-
+  consensus-peaks / edgeR / csaw selected at runtime. Operates on a
+  consensus peak set produced by peak_calling; emits per-peak
+  differential statistics (log2FC, p-value, FDR).
+edam_operation: "operation:3223"
+edam_data: "data:1255"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - peak_calling
+plot_stage_id: differential_accessibility
+expected_artifacts:
+  - differential_peaks.tsv
+  - diffacc_summary.json
+  - manifest.json
+  - result.json
+required_figures:
+  - volcano
+  - ma_plot
+  - diff_heatmap
+attributes:
+  candidate_tools:
+    - diffbind
+    - deseq2
+    - edger
+    - csaw
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+inputs:
+  - name: peaks
+    semantic_type:
+      kind: ontology_term
+      iri: "data:1255"
+      label: "Feature record"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3003"
+      label: "BED"
+    coordinate_system: "0-based-half-open"
+    privacy_class: internal
+outputs:
+  - name: differential_peaks
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "differential_accessibility_results"
+      proposed_parent_terms:
+        - "data:1255"
+        - "data:0951"
+      definition: "Per-peak differential accessibility statistics with genomic interval labels, log2 fold changes, p-values, FDR, and optional mean accessibility."
+    physical_format:
+      iri: "format:3475"
+      label: "TSV"
+    privacy_class: internal

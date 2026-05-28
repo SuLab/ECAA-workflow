@@ -1,0 +1,54 @@
+id: 08_classification_ambiguous
+category: classification_clarification
+description: |
+  SME's first message could fit either bulk RNA-seq or single-cell — the
+  prose mentions "RNA-seq" without specifying. The assistant asks one
+  clarifying question via propose_quick_replies before classifying. The
+  fixture stops at Intake; a real session would receive the SME's clarifier
+  and then advance to summary + emit.
+
+flow:
+  - kind: user
+    text: |
+      We have RNA-seq data from 24 mouse samples comparing diet conditions
+      and want differential expression results. Looking for which genes
+      respond to the dietary intervention.
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        RNA-seq from 24 mouse samples, dietary intervention, differential
+        expression. Modality (bulk vs single-cell) not yet specified.
+  - kind: tool_use
+    tool:
+      tool_name: propose_quick_replies
+      question: |
+        Quick clarification — is this bulk RNA-seq from whole tissue, or
+        single-cell from dissociated cells?
+      options:
+        - Bulk RNA-seq (whole tissue extract)
+        - Single-cell RNA-seq (10x or similar)
+        - I'm not sure — describe what we did
+
+  - kind: text
+    text: "Once I know the type I can put together the right analysis plan."
+
+expected_final_state:
+  # After the round-6 Phase 0 finishing touch, append_intake_prose's
+  # rebuild_dag fires DagBuiltWithUnresolvedDiscovery so the session
+  # lands in IntakeFollowup. The next user prose would oscillate the
+  # state back to Intake before the next rebuild fires the trigger
+  # again — but this fixture only has one user turn, so the final
+  # state is IntakeFollowup.
+  state_kind: intake_followup
+  user_confirmed: false
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_quick_replies
+
+rubric_notes: |
+  Watch for: assistant asks ONE clarifying question, surfaces options as
+  quick-reply chips not as a numbered list in prose, doesn't infer the
+  modality from "RNA-seq from mice" alone (could be bulk or single-cell).

@@ -1,0 +1,183 @@
+schema_version: "0.1"
+study_id: "12-geo-gse63525-hic"
+claims:
+  - id: "12-geo-gse63525-hic-claim-001"
+    text: "Spots loaded: 47,681"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: 47681
+    tolerance: 0.1
+  - id: "12-geo-gse63525-hic-claim-002"
+    text: "Annotated spots: ≥ 47,329 (99.26%)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: 47329
+    tolerance: 0.1
+  - id: "12-geo-gse63525-hic-claim-003"
+    text: "Sections / donors: 12 / 3 (Br5292, Br5595, Br8100)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: 12
+    tolerance: 0.1
+  - id: "12-geo-gse63525-hic-claim-004"
+    text: "ARI on 151673: ≥ 0.45"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: 0.45
+    tolerance: 0.05
+  - id: "12-geo-gse63525-hic-claim-005"
+    text: "Mean ARI across 12 sections: ≥ 0.40"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: 0.4
+    tolerance: 0.05
+  - id: "12-geo-gse63525-hic-claim-006"
+    text: "Moran's I on L1–L6 markers (gray matter): ≥ 0.6"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: 0.6
+    tolerance: 0.05
+  - id: "12-geo-gse63525-hic-claim-007"
+    text: "Cluster count k for primary ARI: 7 (6 layers + WM)"
+    contract: categorical
+    source_table: "results/tables/contacts.csv"
+    expected_value: 7
+    tolerance: 0.1
+  - id: "12-geo-gse63525-hic-claim-008"
+    text: "SVGs recovered: ≥ 2,000 at FDR < 0.05"
+    contract: thresholded_de_or_enrichment
+    source_table: "results/tables/contacts.csv"
+    expected_value: 2000
+    tolerance: 0.1
+  - id: "12-geo-gse63525-hic-claim-009"
+    text: "Top laminar markers recovered: MOBP, MBP (WM); PCP4 (L5); CCK / CUX2 (L2/L3); CARTPT (L6b); RORB (L4); KRT17 (L6); HPCAL1 (L2)"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: "MOBP, MBP (WM); PCP4 (L5); CCK / CUX2 (L2/L3); CARTPT (L6b); RORB (L4); KRT17 (L6); HPCAL1 (L2)"
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-010"
+    text: "Fig 1c–d (Visium spot map of 151673 colored by manual layer): spot scatter on H&E coords, fill = layer_guess_reordered"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: "spot scatter on H&E coords, fill = layer_guess_reordered"
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-011"
+    text: "Fig 2a–b (laminar-gradient heatmap of marker genes × layer): row-normalized expression of MOBP, MBP, PCP4, CCK, CARTPT, CUX2, RORB, KRT17, HPCAL1 across L1–L6 + WM"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: "row-normalized expression of MOBP, MBP, PCP4, CCK, CARTPT, CUX2, RORB, KRT17, HPCAL1 across L1–L6 + WM"
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-012"
+    text: "Fig 2c (Moran's I per gene class): violin / boxplot of Moran's I, laminar markers vs random"
+    contract: group_comparison
+    source_table: "results/tables/contacts.csv"
+    expected_value: "violin / boxplot of Moran's I, laminar markers vs random"
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-013"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 13 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-014"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 14 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-015"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 15 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-016"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 16 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-017"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 17 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-018"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 18 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-019"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 19 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-020"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 20 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-021"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 21 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-022"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 22 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-023"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 23 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-024"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 24 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-025"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 25 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-026"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 26 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-027"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 27 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-028"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 28 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-029"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 29 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null
+  - id: "12-geo-gse63525-hic-claim-030"
+    text: "PLACEHOLDER - HCI lead to fill in specific claim 30 for 12-geo-gse63525-hic"
+    contract: numeric_table_lookup
+    source_table: "results/tables/contacts.csv"
+    expected_value: null
+    tolerance: null

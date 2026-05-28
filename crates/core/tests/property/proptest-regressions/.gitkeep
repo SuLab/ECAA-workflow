@@ -1,0 +1,10 @@
+# Phase 10c / R2-N11 — proptest seed-pinning home.
+#
+# When a `proptest!` block fails in this crate, proptest writes a
+# `<test_name>.txt` file here containing the failing seed; subsequent
+# runs replay that seed first so regressions stay pinned across CI
+# runs and operator machines. The `.gitignore` carries a negation
+# entry so any future files in this directory ARE tracked.
+#
+# This file just keeps the directory in git history before the first
+# failure is encountered.

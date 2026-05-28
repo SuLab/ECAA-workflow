@@ -1,0 +1,53 @@
+id: discover_isoform_caller
+version: "1.0.0"
+role: discovery
+discovery_kind: tool_selection
+description: |
+  Runtime tool selection for long-read isoform_discovery
+  (FLAIR / IsoQuant / TALON / Bambu). Reads aligned long-read
+  BAM + sample manifest, picks the caller based on protocol
+  (ONT-direct-RNA / ONT-cDNA / PacBio-Iso-Seq), emits a
+  `method_choice.json`.
+edam_operation: "swfc:method_discovery"
+assignee: agent
+depends_on:
+  - alignment
+attributes:
+  axis: isoform_caller
+  candidates: [flair, isoquant, talon, bambu]
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: seconds
+figure_exempt:
+  reason: "Discovery atom: selects isoform caller at runtime; the downstream isoform_discovery atom carries the figure obligation."
+  category: non_plottable
+inputs:
+  - name: aligned_reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:1383"
+      label: "Sequence alignment"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:2572"
+      label: "BAM"
+    modality: "long_read_rnaseq"
+    statistical_state: "aligned"
+    privacy_class: internal
+outputs:
+  - name: method_choice
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "method_choice"
+      proposed_parent_terms:
+        - "data:2080"
+      definition: "Selected isoform caller + rationale"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    modality: "long_read_rnaseq"
+    statistical_state: "selected"
+    privacy_class: internal

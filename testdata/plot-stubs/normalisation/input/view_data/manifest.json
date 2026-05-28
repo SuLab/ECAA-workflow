@@ -1,0 +1,8 @@
+{
+  "errors": {},
+  "skipped": {},
+  "stage_id": "normalization",
+  "written": {
+    "mean_variance": "mean_variance.json"
+  }
+}

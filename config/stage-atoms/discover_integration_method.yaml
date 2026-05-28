@@ -1,0 +1,70 @@
+id: discover_integration_method
+version: "1.0.0"
+role: discovery
+discovery_kind: integration_method
+description: |
+  Plan §B.M8 — runtime selection between DIABLO / MOFA / SNF integrative
+  multi-omics methods. The agent inspects the goal kind, label
+  availability per modality, missingness levels, and sample count, then
+  emits a chosen method id (one of `integrate_multi_omics_diablo`,
+  `integrate_multi_omics_mofa`, `integrate_multi_omics_snf`).
+
+  Selection rubric (executed at runtime by the agent against the
+  upstream sample-alignment validator's report):
+    1. Has class labels for every modality + goal kind is biomarker
+       discovery / supervised classification → DIABLO.
+    2. Per-modality missingness > 0 OR goal kind is variance partition
+       / unsupervised discovery → MOFA.
+    3. Goal kind is patient subtyping / hypothesis-free clustering →
+       SNF.
+    4. Otherwise (no clear signal) → MOFA (most permissive; tolerates
+       both label-presence and missingness shapes).
+
+  Method neutrality: the LLM never picks a method unprompted; this
+  atom is the deterministic selector that fans into one of the three
+  integrator atoms via discovery routing. The conversation surface
+  surfaces the choice via `propose_summary_confirmation` for SME
+  visibility but commits to the chosen method only after the agent's
+  rubric runs.
+edam_operation: "swfc:discover_integration_method"
+edam_data: "data:1278"
+edam_format: "format:3464"
+assignee: agent
+depends_on: []
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: seconds
+claim_boundary: |
+  This atom selects a method; it does NOT generate biological claims.
+  The chosen method's claim_boundary is what the SME sees on the
+  output review card.
+# Explicit rich ports.
+# Discovery atom: input is the candidate per-modality matrices the
+# integrator would consume; output is an opaque "chosen method" JSON
+# (one of integrate_multi_omics_diablo / _mofa / _snf) that the
+# composer routes onto the selected integrator atom.
+figure_exempt:
+  reason: "Discovery atom: selects integration method at runtime; the downstream integration atom carries the figure obligation."
+  category: non_plottable
+inputs:
+  - name: candidate_matrices
+    semantic_type:
+      kind: ontology_term
+      iri: "data:1278"
+      label: "Genetic data"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal
+outputs:
+  - name: integration_method_choice
+    semantic_type:
+      kind: opaque
+      description: "Discovery output — chosen integration method id (one of integrate_multi_omics_diablo, integrate_multi_omics_mofa, integrate_multi_omics_snf) plus rubric rationale"
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal

@@ -1,0 +1,71 @@
+id: joint_wnn_integration
+version: "1.0.0"
+role: operation
+description: |
+  Joint dimensionality reduction over paired single-cell RNA +
+  ATAC matrices via weighted nearest neighbors (WNN). Produces a
+  joint UMAP embedding + joint Leiden clusters that respect both
+  modalities. Seurat v5 WNN at runtime; Signac for the ATAC
+  embedding upstream.
+edam_operation: "operation:3936"
+edam_data: "data:3917"
+edam_format: "format:3590"
+assignee: agent
+depends_on:
+  - multiome_arc_demultiplex
+expected_artifacts:
+  - joint_embedding.h5
+  - joint_clusters.tsv
+  - wnn_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: joint_wnn
+required_figures:
+  - wnn_umap
+  - cluster_composition_bar
+attributes:
+  candidate_tools:
+    - seurat_wnn
+    - muon
+    - mofa_plus
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: false
+  runtime_class: hours
+claim_boundary: |
+  WNN clusters are joint statistical groupings that respect both
+  modalities — they are not biological cell-type assignments
+  without downstream marker-based annotation. The WNN weights
+  per cell quantify which modality drives each cell's cluster
+  membership; report the modality-balance histogram.
+inputs:
+  - name: paired_rna_atac_per_nucleus
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: multiome_paired_per_nucleus
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Per-nucleus paired RNA + ATAC barcode-aligned tables"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
+    privacy_class: internal
+outputs:
+  - name: joint_embedding
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: joint_wnn_embedding
+      proposed_parent_terms:
+        - "data:3917"
+      definition: "Joint WNN embedding + cluster assignments per nucleus"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3590"
+      label: "HDF5"
+    privacy_class: internal

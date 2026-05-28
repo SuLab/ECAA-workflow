@@ -1,0 +1,58 @@
+schema_version: "0.1"
+id: cross_omics_rnaseq_proteomics
+version: "1.0.0"
+description: |
+  Cross-omics analysis comparing transcriptomics + proteomics across
+  SME-named groups. Two parallel evidence streams — bulk RNA-seq DE
+  and DDA proteomics differential abundance — joined at a thematic-
+  comparison reporting stage. Each stream stays statistically
+  independent until the join; the join surfaces concordant +
+  discordant signals across the two omics layers without claiming
+  mechanistic integration.
+sme_summary: |
+  Run RNA-seq differential expression and mass-spec proteomics
+  differential abundance in parallel, then compare the gene set
+  against the protein set to surface concordant + discordant signals.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: cross_omics_rnaseq_proteomics
+cross_omics_modalities:
+  - bulk_rnaseq
+  - proteomics
+atoms:
+  - { atom_id: data_acquisition,        alias: rnaseq_data_acquisition,            required: true }
+  - { atom_id: raw_qc,                  alias: rnaseq_raw_qc,                      depends_on: [rnaseq_data_acquisition], required: true }
+  - { atom_id: sequence_trimming,       alias: rnaseq_sequence_trimming,           depends_on: [rnaseq_raw_qc],           required: true }
+  - { atom_id: alignment,               alias: rnaseq_alignment,                   depends_on: [rnaseq_sequence_trimming], required: true }
+  - { atom_id: quantification,          alias: rnaseq_quantification,              depends_on: [rnaseq_alignment],        required: true }
+  - { atom_id: qc_preprocessing,        alias: rnaseq_qc_preprocessing,            depends_on: [rnaseq_quantification],   required: true }
+  - { atom_id: normalisation,           alias: rnaseq_normalisation,               depends_on: [rnaseq_qc_preprocessing], required: true }
+  - { atom_id: differential_expression, alias: rnaseq_differential_expression,     depends_on: [rnaseq_normalisation],    required: true }
+  - { atom_id: pathway_enrichment,      alias: rnaseq_pathway_enrichment,          depends_on: [rnaseq_differential_expression], required: false }
+  - { atom_id: data_acquisition,        alias: proteomics_data_acquisition,        required: true }
+  - { atom_id: peptide_search,          alias: proteomics_peptide_search,          depends_on: [proteomics_data_acquisition], required: true }
+  - { atom_id: protein_quantification,  alias: proteomics_protein_quantification,  depends_on: [proteomics_peptide_search],   required: true }
+  - { atom_id: differential_expression, alias: proteomics_differential_abundance,  depends_on: [proteomics_protein_quantification], required: true }
+  - { atom_id: pathway_enrichment,      alias: proteomics_pathway_enrichment,      depends_on: [proteomics_differential_abundance], required: false }
+  - { atom_id: reporting,               alias: cross_omics_thematic_comparison,
+      # Consume pathway enrichments too so they don't orphan.
+      depends_on: [rnaseq_differential_expression, proteomics_differential_abundance,
+                   rnaseq_pathway_enrichment, proteomics_pathway_enrichment], required: true }
+  - { atom_id: final_reporting,         depends_on: [cross_omics_thematic_comparison], required: true }
+slot_mappings:
+  contrast: rnaseq_differential_expression.inputs.contrast
+  reference_level: rnaseq_differential_expression.inputs.reference_level
+  organism: rnaseq_alignment.inputs.organism
+  proteomics_contrast: proteomics_differential_abundance.inputs.contrast
+  proteomics_reference_level: proteomics_differential_abundance.inputs.reference_level
+  labeling_chemistry: proteomics_protein_quantification.inputs.labeling_chemistry
+  protein_database: proteomics_peptide_search.inputs.protein_database
+  rnaseq_samples: rnaseq_data_acquisition.inputs.samples
+  proteomics_samples: proteomics_data_acquisition.inputs.samples
+claim_boundary: |
+  Cross-omics concordance/discordance is a descriptive comparison of
+  two independent statistical association sets, not a mechanistic
+  integration. Report each branch's effect size + adjusted p-value
+  independently; the join surfaces overlap and discordance, not
+  causation.

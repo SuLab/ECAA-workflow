@@ -1,0 +1,60 @@
+id: peak_annotation
+version: "1.0.0"
+role: operation
+description: |
+  Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible
+  regions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene
+  and overlapping genomic feature (promoter, exon, intron, UTR,
+  intergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at
+  runtime by organism + reference build. Emits a per-peak annotation
+  table with distance-to-TSS, nearest-gene id/symbol, and feature class.
+edam_operation: "operation:2436"
+edam_data: "data:1255"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - peak_calling
+plot_stage_id: peak_annotation
+expected_artifacts:
+  - peak_annotation.tsv
+  - annotation_summary.json
+  - manifest.json
+  - result.json
+required_figures:
+  - peak_feature_distribution
+  - tss_distance_distribution
+attributes:
+  candidate_tools:
+    - chipseeker
+    - homer_annotatepeaks
+    - great
+resource_profile:
+  cpu: minimal
+  memory: small
+  gpu: false
+  runtime_class: minutes
+inputs:
+  - name: peaks
+    semantic_type:
+      kind: ontology_term
+      iri: "data:1255"
+      label: "Feature record"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3003"
+      label: "BED"
+    coordinate_system: "0-based-half-open"
+    privacy_class: internal
+outputs:
+  - name: annotated_peaks
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "peak_annotation_table"
+      proposed_parent_terms:
+        - "data:1255"
+      definition: "Per-peak annotation table with nearest-gene labels, genomic feature class, and distance-to-TSS values."
+    physical_format:
+      iri: "format:3475"
+      label: "TSV"
+    privacy_class: internal

@@ -1,0 +1,70 @@
+id: hla_peptide_search
+version: "1.0.0"
+role: operation
+description: |
+  HLA-restricted peptide identification from MS/MS spectra of
+  affinity-purified MHC-bound peptides. No-enzyme specificity,
+  8–14 aa peptide length, allows variable-modifications typical
+  for HLA peptidomics. Distinct from tryptic-digest peptide_search
+  because the absence of an enzyme constraint dramatically inflates
+  the search space — strict 1% PSM FDR is the gate. Optional
+  sample-specific neoantigen database (per-patient WES variants
+  encoded as 9mer windows) layered on top of the human reference.
+edam_operation: "operation:3767"
+edam_data: "data:2976"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - data_acquisition
+expected_artifacts:
+  - hla_peptide_identifications.tsv
+  - hla_peptide_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: hla_peptidomics
+required_figures:
+  - peptide_length_distribution
+  - psm_score_distribution
+attributes:
+  candidate_tools:
+    - peaks_db
+    - maxquant
+    - msfragger
+    - comet
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  HLA peptide identifications are statistical hits in a target-decoy
+  search at 1% PSM FDR. No-enzyme search inflates the false-discovery
+  surface; report the searched database, the variable modifications
+  considered, and the FDR-control strategy alongside every
+  identification.
+inputs:
+  - name: ms_spectra
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2536"
+      label: "Mass spectrometry data"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3245"
+      label: "mzML"
+    privacy_class: internal
+outputs:
+  - name: hla_peptide_hits
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: hla_peptide_table
+      proposed_parent_terms:
+        - "data:2976"
+      definition: "HLA-restricted peptide identifications with no-enzyme search results"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

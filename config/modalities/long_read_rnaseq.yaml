@@ -1,0 +1,34 @@
+schema_version: "0.1"
+id: long_read_rnaseq
+display_name: Long-read RNA-seq
+keywords:
+- long-read
+- iso-seq
+- isoseq
+- pacbio
+- oxford nanopore
+- nanopore
+- minion
+- promethion
+- smrt
+- ccs reads
+- hifi reads
+- minimap2
+- isoform discovery
+- full-length transcript
+- sqanti
+edam_topic: topic:3170
+edam_operation: operation:3680
+archetype_id: long_read_rnaseq
+taxonomy_path: stage-taxonomies/long-read.yaml
+semantic_equivalence_bounds:
+  - metric: isoform_jaccard
+    operator: ">="
+    threshold: 0.85
+    applies_to: "results/tables/isoforms_*.csv"
+    rationale: "Jaccard overlap of detected isoform sets ≥ 0.85 between runs"
+  - metric: spearman_rho
+    operator: ">="
+    threshold: 0.90
+    applies_to: "results/tables/expression_*.csv"
+    rationale: "Spearman correlation of isoform-level expression estimates ≥ 0.90"

@@ -1,0 +1,71 @@
+schema_version: "0.1"
+id: cut_tag_peaks
+version: "1.0.0"
+description: |
+  CUT&Tag / CUT&RUN peak calling. Same atom inventory as
+  chip_seq_peaks, but `goal_kind_hint: cut_tag` so the agent picks
+  the CUT&Tag/CUT&RUN-native peak caller (SEACR by default; MACS2 in
+  paired-mode only when SEACR fails QC) instead of the standard
+  MACS2 narrow path. The IgG control library is the typical
+  background reference rather than matched input chromatin.
+sme_summary: |
+  Call peaks from a CUT&Tag or CUT&RUN experiment with SEACR (the
+  protocol-native caller), report differential binding between
+  conditions, and annotate peaks to nearest genes.
+goal_data: "data:1255"
+goal_format: "format:3003"
+project_class: bioinformatics
+modality_hint: cut_tag
+goal_kind_hint: cut_tag
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: raw_qc
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: sequence_trimming
+    required: true
+    depends_on: [raw_qc]
+  - atom_id: alignment
+    required: true
+    depends_on: [sequence_trimming]
+  - atom_id: peak_calling
+    required: true
+    depends_on: [alignment]
+  # Include DE atom for differential binding between
+  # conditions; also satisfies classifier-inferred goal=data:0951
+  # so the v4 planner's search side can reach the goal.
+  - atom_id: differential_expression
+    required: false
+    depends_on: [peak_calling]
+  # CUT&Tag for TF profiling typically asks for motif enrichment under
+  # the peak set; histone-mark CUT&Tag rarely does. Carried as optional
+  # so the agent emits it when the prompt names a TF panel or motif
+  # analysis explicitly. peak_annotation is also a routine downstream
+  # of TF peaks.
+  - atom_id: motif_enrichment
+    required: false
+    depends_on: [peak_calling]
+  - atom_id: peak_annotation
+    required: false
+    depends_on: [peak_calling]
+  - atom_id: pathway_enrichment
+    required: false
+    depends_on: [differential_expression]
+  - atom_id: reporting
+    required: true
+    depends_on: [peak_calling, differential_expression, motif_enrichment, peak_annotation, pathway_enrichment]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  organism: alignment.inputs.organism
+  samples: data_acquisition.inputs.samples
+  igg_control: peak_calling.inputs.control_library
+claim_boundary: |
+  Peaks are regions of statistical enrichment in the CUT&Tag /
+  CUT&RUN signal relative to the IgG control — they identify
+  TF/histone-mark-bound regions but the protocol-specific QC
+  metrics (FRiP, IgG ratio, fragment-size distribution) must be
+  reported alongside every peak set. Differential binding between
+  conditions is statistical association, not mechanistic causation.

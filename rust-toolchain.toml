@@ -1,0 +1,17 @@
+[toolchain]
+# Pinned to close out plan F33 (third leg of the reproducibility stool —
+# alongside --remap-path-prefix and SOURCE_DATE_EPOCH). Bytes flip across
+# rustc versions even from byte-identical source; SLSA L3 + verify-
+# reproducibility is incomplete without this pin.
+#
+# Refresh cadence: quarterly. Bump in a dedicated commit so the before/
+# after pair is auditable. Update CONTRIBUTING.md when bumping.
+# Byte-reproducibility anchor (Plan F33).
+# Bumping requires regenerating the byte-diff baseline + emit-snapshot
+# fixtures used by `make ivd-cross-version` and the workspace's
+# `cargo test --features reproducibility-baseline` gate. Quarterly review
+# cadence — track upstream Rust releases against this pin and update
+# alongside the baseline regeneration PR.
+channel = "1.93"
+components = ["rustfmt", "clippy", "rust-src"]
+profile = "minimal"

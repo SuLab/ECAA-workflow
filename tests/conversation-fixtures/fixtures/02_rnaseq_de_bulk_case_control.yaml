@@ -1,0 +1,69 @@
+id: 02_rnaseq_de_bulk_case_control
+category: happy_path_bulk_de
+description: |
+  Bulk RNA-seq differential expression case/control study. Happy path —
+  no clarifying questions, the SME has provided enough detail in one turn.
+  Tests the second taxonomy (rnaseq-de) end-to-end.
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq differential expression analysis comparing 12 IBD patient
+      ileal biopsies against 12 healthy controls. Illumina paired-end 150bp
+      reads, Homo sapiens. Looking for genes differentially expressed in
+      inflamed vs healthy tissue. Internal data, not public.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        bulk RNA-seq differential expression, 12 IBD ileal biopsies vs
+        12 healthy controls, Illumina paired-end 150bp, Homo sapiens
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Here's the plan I have so far for your bulk RNA-seq DE study:
+        - 12 IBD ileal biopsies vs 12 healthy controls
+        - Illumina paired-end 150bp reads, human
+        - Looking for differentially expressed genes between inflamed and
+          healthy tissue
+        - Internal data, not public
+
+        This kind of analysis reports statistical patterns — the package
+        will surface gene-level associations between disease state and
+        expression, not causal mechanisms.
+
+        Click Accept when this matches, or Revise to revise.
+  - kind: text
+    text: "Confirm or correct when you're ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: |
+      The package is ready. The execution agent will pick alignment and
+      normalization based on the data when it runs.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: no specific aligner/normalizer recommendations, claim boundary
+  surfaced, single confirmation gate respected.

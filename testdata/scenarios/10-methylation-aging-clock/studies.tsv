@@ -1,0 +1,6 @@
+dataset	first_author	year	journal	pmid	accession	platform	tissue	n_samples	age_range	role	notes
+GSE40279	Hannum	2013	Mol Cell	23177740	GSE40279	Illumina HumanMethylation450	whole blood	656	19-101	training cohort	canonical Hannum clock training dataset
+GSE87571	Johansson	2013	PLoS ONE	PMID 24278571	GSE87571	Illumina HumanMethylation450	whole blood	729	14-94	calibration cohort	independent whole-blood cohort; age-EWAS benchmark
+GSE87648	Ventham	2016	Nat Commun	27886173	GSE87648	Illumina HumanMethylation450	whole blood	381	mixed	disease-context cohort	IBD EWAS dataset; optional disease-context extension
+dnamage_calculator	Horvath	-	-	-	dnamage.genetics.ucla.edu	-	-	-	-	online reference calculator	for output cross-check only
+TCGA_methylation	NCI	-	-	-	GDC gdc.cancer.gov	Illumina 450k	33 cancer types	~11000 tumors	-	optional disease-context extension	for tumor-methylation EWAS — out of scope primary

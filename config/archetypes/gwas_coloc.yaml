@@ -1,0 +1,47 @@
+schema_version: "0.1"
+id: gwas_coloc
+version: "1.0.0"
+description: |
+  GWAS + colocalization from summary statistics. Standard pipeline: acquire
+  GWAS + QTL summary stats + LD reference, harmonize alleles / strand /
+  build, then test colocalization. Method choice (coloc / SuSiE-coloc /
+  HyPrColoc / fastenloc) deferred to the atom layer.
+sme_summary: |
+  Test whether a GWAS signal and a molecular-QTL signal share a common
+  causal variant by colocalization on harmonised summary statistics.
+goal_data: "data:3498"
+goal_format: "format:3475"
+project_class: bioinformatics
+# Without this hint, `find_primary_for_modality("gwas", "bioinformatics")`
+# returns None, the v4 planner's clinical-trial demotion guard becomes a
+# no-op, and any GWAS prose whose goal_data overlaps the clinical-trial
+# bucket (data:2048 — e.g. "Schizophrenia GWAS coloc with PGC3 + GTEx")
+# emits a clinical_trial_analysis DAG instead of gwas_coloc.
+modality_hint: gwas
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: gwas_summary_harmonization
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: colocalization
+    required: true
+    depends_on: [gwas_summary_harmonization]
+  - atom_id: reporting
+    required: true
+    depends_on: [colocalization]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  gwas_source: data_acquisition.inputs.gwas_source
+  qtl_source: data_acquisition.inputs.qtl_source
+  ld_reference: data_acquisition.inputs.ld_reference
+  ancestry: gwas_summary_harmonization.inputs.ancestry
+  trait: colocalization.inputs.trait
+claim_boundary: |
+  Colocalization posterior probabilities are evidence of shared genetic
+  signal within the declared ancestry panel and LD reference, not proof of
+  mechanism. Report PP.H4, credible-set size, and assumed prior for every
+  locus. Do not extrapolate across ancestries unless run with a matched
+  LD reference.

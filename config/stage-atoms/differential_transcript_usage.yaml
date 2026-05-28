@@ -1,0 +1,61 @@
+id: differential_transcript_usage
+version: "1.0.0"
+role: operation
+description: |
+  Test whether the relative abundance of transcripts within a gene shifts
+  between conditions (DTU). Distinct from differential_expression which
+  tests gene-level abundance. Methods: DRIMSeq, DEXSeq, IsoformSwitchAnalyzeR.
+  Emits per-transcript test statistics + per-gene aggregated results.
+  swfc:differential_transcript_usage — EDAM operation:3223 (DE) is
+  gene-level only.
+edam_operation: "swfc:differential_transcript_usage"
+edam_data: "data:0951"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - isoform_discovery
+attributes:
+  candidate_tools: [drimseq, dexseq, isoform_switch_analyze_r]
+method_choice:
+  deferred_to: discover_dtu_method
+plot_stage_id: dtu
+required_figures: [dtu_volcano, transcript_usage_stacked_bar]
+resource_profile:
+  cpu: heavy
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+# Input is the transcript-level count matrix produced by isoform_
+# discovery (an isoform_counts.tsv companion to the novel_transcripts
+# annotation). The output table is a DTU swfc local extension because
+# EDAM data:0951 (Statistical estimate score) is the closest container
+# but doesn't capture the within-gene relative-abundance test design.
+inputs:
+  - name: transcript_counts
+    semantic_type:
+      kind: ontology_term
+      iri: "data:3917"
+      label: "Count matrix"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "long_read_rnaseq"
+    statistical_state: "raw_counts"
+    privacy_class: internal
+outputs:
+  - name: dtu_results
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "differential_transcript_usage_results"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-transcript test statistics + per-gene aggregated DTU results"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    modality: "long_read_rnaseq"
+    statistical_state: "multiple_testing_corrected"
+    privacy_class: internal

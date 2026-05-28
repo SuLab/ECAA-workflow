@@ -1,0 +1,4 @@
+Bulk RNA-seq differential expression analysis where adapter trimming is conditional
+on the QC report's adapter-contamination flag. If FastQC reports detectable adapter
+sequence, run Trimmomatic; if not, skip trimming and pass raw reads directly to
+alignment. The trimming task should short-circuit when QC says it's not needed.

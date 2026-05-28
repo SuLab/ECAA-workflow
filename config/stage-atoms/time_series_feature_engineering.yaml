@@ -1,0 +1,50 @@
+id: time_series_feature_engineering
+version: "1.0.0"
+role: operation
+description: |
+  Build lagged, rolling, calendar (day-of-week, holiday, fiscal-quarter),
+  and exogenous-regressor features for downstream model fitting. Default
+  lags: 1, 7, 30; rolling windows: 7-day mean / std; calendar features
+  derived from the time index. Emits a wide-format augmented feature
+  table. swfc:time_series_feature_engineering.
+edam_operation: "swfc:time_series_feature_engineering"
+edam_data: "data:3768"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - time_series_decomposition
+resource_profile:
+  cpu: light
+  memory: small
+  gpu: false
+  runtime_class: minutes
+# Explicit rich ports.
+figure_exempt:
+  category: intermediate
+  reason: "Intermediate artifact (feature matrix / fitted-model binary) consumed by downstream forecasting atoms; no SME-facing figure at this stage."
+inputs:
+  - name: time_series
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "time_series_data"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "Numeric time-indexed observations (uni- or multi-variate)."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: feature_table
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "time_series_features"
+      proposed_parent_terms:
+        - "data:3754"
+      definition: "Wide-format augmented feature table: lags, rolling stats, calendar, exogenous regressors."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

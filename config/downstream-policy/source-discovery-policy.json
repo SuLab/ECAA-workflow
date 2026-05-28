@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "1.0",
+  "defaultPreferredAccessClasses": [
+    "DiscoveryAccessPublicOpen",
+    "DiscoveryAccessPublicRegistered",
+    "DiscoveryAccessInternalApproved"
+  ],
+  "disallowedJustificationClasses": [
+    "community-narrative",
+    "marketing-claim",
+    "unverified-summary"
+  ],
+  "claimSupportRules": {
+    "requireOfficialSourcesForDefaults": true,
+    "requireBenchmarkOrPrimaryLiteratureForStrongClaims": true,
+    "requireCorroborationForPromotedClaims": true,
+    "minimumIndependentSources": 2,
+    "notesByAuthority": {
+      "frozenProtocol": "Frozen protocol execution must not widen evidence lookup beyond the packaged bundle. STOP_AND_BLOCK if stronger support would be required.",
+      "boundedEvidenceSeeking": "Bounded evidence-seeking may refresh current papers, textbooks, standards, and guidelines only through the packaged evidence classes and retrieval routes; strong claims still require corroboration.",
+      "openEndedBrowsingDefault": "Open-ended discovery may widen source lookup beyond the named source inventory, but defaults, versions, deprecations, and strong scientific claims still require official guidance plus corroborating benchmark or literature support."
+    }
+  },
+  "provenanceRequirements": {
+    "requireUrlOrLocator": true,
+    "requireRetrievalPath": true,
+    "requireAccessDate": true,
+    "requireWhyConsulted": true,
+    "requireWhyTrusted": true,
+    "requireEvidenceRole": true,
+    "requireVersionContextForMethodClaims": true,
+    "notesByAuthority": {
+      "frozenProtocol": "No new live source discovery should occur under frozen protocol execution.",
+      "boundedEvidenceSeeking": "Every fetched source must remain inside the packaged evidence classes and approved retrieval-route families.",
+      "openEndedBrowsingDefault": "Named domains and repositories define the packaged discovery floor, not a strict ceiling. Newly discovered sources remain admissible only when their source class, access pattern, freshness, and contradiction handling satisfy this policy."
+    }
+  },
+  "defaultDatasetRegistryClasses": [
+    "DiscoverySourceCatalog",
+    "DiscoverySourceRegistry",
+    "DiscoverySourceRepository",
+    "DiscoverySourceKnowledgebase"
+  ],
+  "defaultLiteratureIndexClasses": [
+    "RetrievalRouteLiteratureIndex",
+    "RetrievalRouteGuidelineRepository",
+    "RetrievalRouteStandardsCatalog",
+    "RetrievalRouteTextbookCatalog"
+  ],
+  "officialGuidanceClasses": [
+    "GuidelineOrConsensusDocument",
+    "StandardsBodyResource",
+    "RepositoryMetadataEndpoint"
+  ],
+  "workbookPolicy": {
+    "evidenceRole": "Workbook curation is admissible as structured internal evidence for candidate nomination and contradiction surfacing, but it is not authoritative relative to official repository metadata or endpoint records.",
+    "contradictionClasses": [
+      "workbook_internal_contradiction",
+      "official_endpoint_contradiction",
+      "workbook_vs_endpoint_contradiction"
+    ],
+    "evidenceNotes": [
+      "Workbook-derived records may seed candidate datasets, sample mappings, and split hypotheses when provenance is preserved.",
+      "Workbook contradictions must remain visible in runtime provenance rather than being flattened into generic metadata warnings.",
+      "When workbook curation disagrees with official endpoint metadata, preserve both as competing evidence and fail closed on admission or claim promotion until the conflict is resolved."
+    ]
+  }
+}

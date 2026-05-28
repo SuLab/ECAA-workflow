@@ -1,0 +1,507 @@
+{
+  "@context": [
+    "https://w3id.org/ro/crate/1.1/context",
+    "https://w3id.org/ro/terms/workflow-run"
+  ],
+  "@graph": [
+    {
+      "@id": "ro-crate-metadata.json",
+      "@type": "CreativeWork",
+      "about": {
+        "@id": "./"
+      },
+      "conformsTo": [
+        {
+          "@id": "https://w3id.org/ro/crate/1.1"
+        },
+        {
+          "@id": "https://w3id.org/ro/wfrun/process/0.5"
+        },
+        {
+          "@id": "https://w3id.org/ro/wfrun/workflow/0.5"
+        },
+        {
+          "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
+        }
+      ]
+    },
+    {
+      "@id": "./",
+      "@type": "Dataset",
+      "dateCreated": "2052-01-15T11:05:23+00:00",
+      "description": "We want to recreate the label-free quantification (LFQ) proteomics benchmark from Bouwmeester et al. 2020 Journal of Proteome Research, ProteomeXchange accession PXD028735. The dataset is a three-species peptide mixture benchmark (human, yeast, E. coli) with 13 different instrument configurations (Orbitrap Fusion, Q Exactive HF-X, timsTOF Pro, and others) and multiple gradient lengths. The benchmark provides a ground-truth proteome-level mixture of known ratios for evaluating LFQ accuracy and reproducibility.\n\nThe analysis follows the benchmark design: process RAW files through MaxQuant v2.x for feature detection and protein group assembly (LFQ min ratio count 2, match between runs enabled, 1% FDR at both PSM and protein level using reverse decoy). Use the canonical UP000005640 human, UP000002311 yeast, and UP000000625 E. coli UniProt reference proteomes concatenated as the search database.\n\nFor LFQ normalization benchmarking, compare three quantification approaches on the same raw data: MaxQuant LFQ, intensity-based absolute quantification (iBAQ), and MaxLFQ. The primary acceptance criterion is accurate recovery of the known species ratios from the mixture design: human:yeast:E. coli = 65:30:5 by protein mass. Each method should recover human proteins at 60-70%, yeast at 25-35%, and E. coli at 3-8% of total protein mass.\n\nProtein-level quantification quality: coefficient of variation (CV) for technical replicates within each instrument platform should be below 20% for >80% of quantified proteins. Missing value rate should be below 15% per sample. Require a minimum of 1,000 quantified human protein groups, 500 yeast protein groups, and 100 E. coli protein groups across all platforms.\n\nRun PCA on the log2-normalized LFQ intensities across all samples; the first principal component should separate instrument platforms (expected R^2 > 0.4 for platform effect). Run differential abundance analysis between the three species proteome fractions using limma with empirical Bayes moderation; volcano plots should show clean separation at fold change > 2 and adjusted p-value < 0.05.\n\nAcceptance: species mixture ratios within +/-5 percentage points of ground truth for at least 8/13 instrument configurations; CV < 20% for >80% of proteins in technical replicates; at least 1,200 quantified human protein groups total.\n",
+      "hasPart": [
+        {
+          "@id": "WORKFLOW.json"
+        },
+        {
+          "@id": "PROMPT.md"
+        },
+        {
+          "@id": "CONTEXT.md"
+        },
+        {
+          "@id": "policies/"
+        }
+      ],
+      "license": "https://www.apache.org/licenses/LICENSE-2.0",
+      "mainEntity": {
+        "@id": "WORKFLOW.json"
+      },
+      "name": "computational biology — Data-dependent acquisition (DDA) LC-MS/MS proteomics — TMT, SILAC, or\nlabel-free MaxLFQ. Standard pipeline: acquire raw spectra, search\npeptides (MaxQuant / FragPipe), quantify proteins, test for differential\nabundance, then enrichment. Mirrors the DDA branch of today's\n`config/stage-taxonomies/proteomics.yaml`.\n"
+    },
+    {
+      "@id": "WORKFLOW.json",
+      "@type": [
+        "File",
+        "ComputationalWorkflow"
+      ],
+      "applicationSubCategory": {
+        "@id": "https://edamontology.org/topic:0121"
+      },
+      "conformsTo": {
+        "@id": "https://bioschemas.org/profiles/ComputationalWorkflow/1.0-RELEASE"
+      },
+      "encodingFormat": "application/json",
+      "featureList": {
+        "@id": "https://edamontology.org/operation:3767"
+      },
+      "name": "workflow-60af1323f173 DAG",
+      "programmingLanguage": {
+        "@id": "#scripps-workflow-dag"
+      },
+      "sdPublisher": {
+        "@id": "#ecaa-workflow"
+      },
+      "step": [
+        {
+          "@id": "#step-discover_protein_quantification"
+        },
+        {
+          "@id": "#step-discover_peptide_search"
+        },
+        {
+          "@id": "#step-discover_pathway_enrichment"
+        },
+        {
+          "@id": "#step-discover_differential_expression"
+        },
+        {
+          "@id": "#step-data_acquisition"
+        },
+        {
+          "@id": "#step-validate_data_acquisition"
+        },
+        {
+          "@id": "#step-peptide_search"
+        },
+        {
+          "@id": "#step-validate_peptide_search"
+        },
+        {
+          "@id": "#step-protein_quantification"
+        },
+        {
+          "@id": "#step-validate_protein_quantification"
+        },
+        {
+          "@id": "#step-differential_expression"
+        },
+        {
+          "@id": "#step-validate_differential_expression"
+        },
+        {
+          "@id": "#step-pathway_enrichment"
+        },
+        {
+          "@id": "#step-validate_pathway_enrichment"
+        },
+        {
+          "@id": "#step-reporting"
+        },
+        {
+          "@id": "#step-validate_reporting"
+        },
+        {
+          "@id": "#step-final_reporting"
+        },
+        {
+          "@id": "#step-validate_final_reporting"
+        }
+      ]
+    },
+    {
+      "@id": "#scripps-workflow-dag",
+      "@type": "ComputerLanguage",
+      "name": "Scripps Workflow DAG",
+      "version": "1.0"
+    },
+    {
+      "@id": "#ecaa-workflow",
+      "@type": "Organization",
+      "name": "ecaa-workflow"
+    },
+    {
+      "@id": "#sme",
+      "@type": "Role",
+      "description": "The domain expert who resolved discovery decisions during intake chat, prior to agent execution.",
+      "name": "Subject Matter Expert (intake)"
+    },
+    {
+      "@id": "PROMPT.md",
+      "@type": "File",
+      "encodingFormat": "text/markdown",
+      "name": "Agent Instructions"
+    },
+    {
+      "@id": "CONTEXT.md",
+      "@type": "File",
+      "encodingFormat": "text/markdown",
+      "name": "Workflow Context"
+    },
+    {
+      "@id": "policies/",
+      "@type": "Dataset",
+      "name": "Discovery and scoring policies"
+    },
+    {
+      "@id": "runtime/LOG.jsonl",
+      "@type": "File",
+      "encodingFormat": "application/jsonl",
+      "name": "Execution provenance log"
+    },
+    {
+      "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",
+      "@type": "Taxon",
+      "identifier": 9606,
+      "name": "Homo sapiens"
+    },
+    {
+      "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=562",
+      "@type": "Taxon",
+      "identifier": 562,
+      "name": "Escherichia coli"
+    },
+    {
+      "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=4932",
+      "@type": "Taxon",
+      "identifier": 4932,
+      "name": "Saccharomyces cerevisiae"
+    },
+    {
+      "@id": "#step-discover_protein_quantification",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for protein_quantification (options: maxlfq, irs_normalization, spectronaut_directlfq). Surface set_intake_method.",
+      "position": 1
+    },
+    {
+      "@id": "#step-discover_peptide_search",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for peptide_search (options: maxquant, fragpipe, spectronaut, dia_nn, msfragger). Surface set_intake_method.",
+      "position": 2
+    },
+    {
+      "@id": "#step-discover_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+      "position": 3
+    },
+    {
+      "@id": "#step-discover_differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+      "position": 4
+    },
+    {
+      "@id": "#step-data_acquisition",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "position": 5
+    },
+    {
+      "@id": "#step-validate_data_acquisition",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "position": 6
+    },
+    {
+      "@id": "#step-peptide_search",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Match MS/MS spectra against a protein database to identify peptides.\nMaxQuant / FragPipe / Spectronaut / DIA-NN selected at runtime by\nacquisition mode (DDA / DIA).\n",
+      "position": 7
+    },
+    {
+      "@id": "#step-validate_peptide_search",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Match MS/MS spectra against a protein database to identify peptides.\nMaxQuant / FragPipe / Spectronaut / DIA-NN selected at runtime by\nacquisition mode (DDA / DIA).\n",
+      "position": 8
+    },
+    {
+      "@id": "#step-protein_quantification",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Quantify protein abundance from peptide-spectrum matches. LFQ / TMT / SILAC /\niBAQ strategies; MaxLFQ / IRS-corrected TMT / Spectronaut directLFQ\nselected at runtime by labeling chemistry.\n",
+      "position": 9
+    },
+    {
+      "@id": "#step-validate_protein_quantification",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Quantify protein abundance from peptide-spectrum matches. LFQ / TMT / SILAC /\niBAQ strategies; MaxLFQ / IRS-corrected TMT / Spectronaut directLFQ\nselected at runtime by labeling chemistry.\n",
+      "position": 10
+    },
+    {
+      "@id": "#step-differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "position": 11
+    },
+    {
+      "@id": "#step-validate_differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "position": 12
+    },
+    {
+      "@id": "#step-pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 13
+    },
+    {
+      "@id": "#step-validate_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 14
+    },
+    {
+      "@id": "#step-reporting",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 15
+    },
+    {
+      "@id": "#step-validate_reporting",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 16
+    },
+    {
+      "@id": "#step-final_reporting",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "position": 17
+    },
+    {
+      "@id": "#step-validate_final_reporting",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "position": 18
+    },
+    {
+      "@id": "#p-plan/workflow-60af1323f173",
+      "@type": [
+        "Plan",
+        "p-plan:Plan"
+      ],
+      "matchedArchetype": "proteomics_dda",
+      "rationale": "Composed for modality `proteomics` (domain `computational biology`)."
+    },
+    {
+      "@id": "#parameter-connection/discover_differential_expression__to__differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/protein_quantification__to__differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-protein_quantification#output"
+      },
+      "targetParameter": {
+        "@id": "#step-differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/reporting__to__final_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-final_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/differential_expression__to__pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_pathway_enrichment__to__pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/data_acquisition__to__peptide_search",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-peptide_search#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_peptide_search__to__peptide_search",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_peptide_search#output"
+      },
+      "targetParameter": {
+        "@id": "#step-peptide_search#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_protein_quantification__to__protein_quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_protein_quantification#output"
+      },
+      "targetParameter": {
+        "@id": "#step-protein_quantification#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/peptide_search__to__protein_quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-peptide_search#output"
+      },
+      "targetParameter": {
+        "@id": "#step-protein_quantification#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/differential_expression__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/pathway_enrichment__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/data_acquisition__to__validate_data_acquisition",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_data_acquisition#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/differential_expression__to__validate_differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/final_reporting__to__validate_final_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-final_reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_final_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/pathway_enrichment__to__validate_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/peptide_search__to__validate_peptide_search",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-peptide_search#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_peptide_search#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/protein_quantification__to__validate_protein_quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-protein_quantification#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_protein_quantification#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/reporting__to__validate_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_reporting#input"
+      }
+    }
+  ]
+}

@@ -1,0 +1,49 @@
+schema_version: "0.1"
+id: hla_peptidomics
+version: "1.0.0"
+description: |
+  HLA / immunopeptidomics workflow: identify MHC-bound peptides
+  from immunopurified mass-spec data, predict HLA binding
+  affinity for the patient's HLA alleles, then filter to
+  somatic-variant-derived neoantigens. Distinct from generic
+  proteomics in (a) no-enzyme search, (b) NetMHCpan binding
+  prediction layer, (c) per-patient neoantigen filtering against
+  matched WES variants.
+sme_summary: |
+  Identify HLA-bound peptides, predict NetMHCpan-binding strength
+  per patient HLA, and filter to variant-derived neoantigens.
+goal_data: "data:2976"
+goal_format: "format:3475"
+project_class: bioinformatics
+modality_hint: immunopeptidomics
+goal_kind_hint: immunopeptidomics
+atoms:
+  - atom_id: data_acquisition
+    required: true
+  - atom_id: hla_peptide_search
+    required: true
+    depends_on: [data_acquisition]
+  - atom_id: netmhc_binding_prediction
+    required: true
+    depends_on: [hla_peptide_search]
+  - atom_id: neoantigen_filtering
+    required: false
+    depends_on: [netmhc_binding_prediction]
+  - atom_id: reporting
+    required: true
+    depends_on: [netmhc_binding_prediction, neoantigen_filtering]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  hla_alleles: netmhc_binding_prediction.inputs.hla_typing
+  somatic_variants: neoantigen_filtering.inputs.variant_set
+  samples: data_acquisition.inputs.samples
+claim_boundary: |
+  All findings are statistical hits — peptide identifications at
+  1% PSM FDR + predicted binding ranks + variant overlap. The
+  catalog is hypothesis-generating; downstream tetramer + T-cell
+  reactivity validation is required before claiming therapeutic
+  relevance. Report HLA typing source, search engine + parameters,
+  binding-predictor + threshold, and somatic-variant-call source
+  alongside every neoantigen.

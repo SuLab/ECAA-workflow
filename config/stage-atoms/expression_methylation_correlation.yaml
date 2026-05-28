@@ -1,0 +1,85 @@
+id: expression_methylation_correlation
+version: "1.0.0"
+role: operation
+description: |
+  Integrate paired bulk RNA-seq differential-expression results
+  with DNA-methylation EWAS / DMR results on the same samples.
+  For each gene, intersect its promoter-region DMRs (TSS ±1500 bp
+  by default) with its DE log2FC, computing correlation across
+  the cohort. Genes with significant inverse correlation between
+  expression-up and methylation-down (or vice versa) are
+  candidate methylation-driven targets. MOFA2 or DIABLO as a
+  sensitivity check.
+edam_operation: "operation:3463"
+edam_data: "swfc:methylation_correlation_table"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - differential_expression
+expected_artifacts:
+  - methylation_expression_correlation.tsv
+  - methylation_driven_genes.tsv
+  - correlation_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: methylation_expression
+required_figures:
+  - methylation_vs_expression_scatter
+  - methylation_driven_gene_heatmap
+attributes:
+  candidate_tools:
+    - mofa2
+    - mixomics_diablo
+    - elmer
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Methylation-expression correlation is a statistical association.
+  An inverse correlation between promoter methylation and gene
+  expression does not directly establish that methylation
+  CAUSES the expression change — covariates (cellular composition,
+  CpG-island context) need to be controlled. Cross-validate top
+  candidates with orthogonal evidence (reporter assays, TET2/DNMT
+  perturbation).
+inputs:
+  - name: rnaseq_de_results
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0951"
+      label: "Statistical estimate score"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "de_tested"
+    privacy_class: internal
+  - name: methylation_dmrs
+    semantic_type:
+      kind: ontology_term
+      iri: "data:0951"
+      label: "Statistical estimate score"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "de_tested"
+    privacy_class: internal
+outputs:
+  - name: methylation_driven_genes
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: methylation_correlation_table
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-gene promoter methylation vs expression correlation table; inverse-correlated candidates flagged"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "de_tested"
+    privacy_class: internal

@@ -1,0 +1,3 @@
+v4 emission produced via DIRECT-PATH FALLBACK (production dispatch path is broken). DAG was still written to WORKFLOW.json so the parity check can compare atom sets.
+
+Production dispatch failed; legacy taxonomy fallback (mirroring v2 `try_build_via_composer` downgrade) produced the DAG. Production error: production: GoalUnreachable { goal: "data:0951 (format:3475)" }

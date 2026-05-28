@@ -1,0 +1,87 @@
+id: predictive_model_fit
+version: "1.0.0"
+role: operation
+description: |
+  Fit one or more clinical-prediction model families against the
+  windowed feature matrix. Method-neutral: the agent picks the model
+  family from the SME-named candidate list (typically gradient-boosted
+  trees — XGBoost / LightGBM — plus a sequence model — LSTM / TCN /
+  Transformer) at runtime. Emits trained-model artifacts and per-row
+  predicted probabilities on an internal validation split; cross-
+  validation and hyperparameter-search logs are committed to the
+  fitting report.
+edam_operation: "operation:3659"
+edam_data: "data:0951"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - clinical_feature_extraction
+expected_artifacts:
+  - trained_model.pkl
+  - internal_predictions.tsv
+  - fitting_report.json
+  - manifest.json
+  - result.json
+figure_exempt:
+  reason: "Fitted predictive-model artifact is a binary intermediate consumed by calibration_audit / fairness_audit / external_validation; visual diagnostics (ROC, PR, reliability curves, subgroup bars) are produced by those downstream audit atoms, not at the fitting stage."
+  category: intermediate
+attributes:
+  candidate_tools:
+    - xgboost
+    - lightgbm
+    - lstm
+    - tcn
+    - transformer
+resource_profile:
+  cpu: heavy
+  memory: large
+  gpu: true
+  runtime_class: hours
+claim_boundary: |
+  Report predicted probabilities + internal validation discrimination
+  (AUROC, AUPRC). The fitted model is a statistical association
+  device; do not interpret outputs as clinical recommendations or
+  bedside-triage decisions. Cross-validation fold composition must
+  be logged.
+# Explicit rich ports.
+# Input is the windowed feature matrix from clinical_feature_extraction.
+# Outputs are the trained-model artifact plus the per-row predicted
+# probabilities on an internal validation split.
+inputs:
+  - name: feature_matrix
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "ehr_feature_matrix"
+      proposed_parent_terms:
+        - "data:3134"
+      definition: "Per-(patient, prediction-window) windowed EHR feature matrix."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal
+outputs:
+  - name: trained_model
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "predictive_model_artifact"
+      proposed_parent_terms:
+        - "data:0006"
+      definition: "Serialized trained predictive model (GBT / RNN ensemble) plus fitting metadata."
+    physical_format:
+      iri: "format:3464"
+      label: "JSON"
+    privacy_class: internal
+  - name: internal_predictions
+    semantic_type:
+      kind: local_extension
+      namespace: "swfc"
+      id: "predicted_probabilities"
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-row predicted probabilities on the internal validation split."
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: internal

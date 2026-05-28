@@ -1,0 +1,3 @@
+{"turn_id":"00000000-0000-0000-0000-000000000001","timestamp":"2026-05-18T00:00:00Z","role":"user","content":"Run QC on a single FASTQ."}
+{"turn_id":"00000000-0000-0000-0000-000000000002","timestamp":"2026-05-18T00:00:01Z","role":"assistant","content":"Acknowledged. Will run FastQC on data/input.fastq.gz."}
+{"turn_id":"00000000-0000-0000-0000-000000000003","timestamp":"2026-05-18T00:00:02Z","role":"assistant","content":"Emitting package."}

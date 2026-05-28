@@ -1,0 +1,12 @@
+id: bam_sort_coordinate
+name: Sort BAM by coordinate
+class: sorting
+safety: lossless
+from_format: "format:2572"
+to_format: "format:2572"
+from_semantic_type: "data:0863"
+to_semantic_type: "data:0863"
+rationale: "samtools sort by coordinate; record content unchanged"
+validators:
+  - id: bam_record_count_preserved
+  - id: bam_sort_order_coordinate

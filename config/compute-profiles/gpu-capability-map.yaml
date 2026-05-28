@@ -1,0 +1,84 @@
+---
+# GPU capability map — routes a chosen method to its GPU implementation
+# when hardware + AMI support it. This is *routing*, not *recommendation*:
+# the method was already selected upstream (SME intake or default from
+# best-practice-scoring-policy.json). The agent's hardware-aware rules in
+# prompt_role.txt probe `which <binary>` before invoking the GPU impl and
+# fall back to the CPU impl when the required binary is missing.
+#
+# Method keys match the `method_overrides` keys in profiles.yaml so the
+# sizing layer and the routing layer agree on method identities.
+#
+# Enrichment fields:
+#  - `mig_profile`: Multi-Instance GPU slice the method fits in.
+#  Currently meaningful on NVIDIA H100 / H200. Unset/null = method needs
+#  a full GPU. SLURM consumers map `--gres=gpu:h100_3g.40gb:1`.
+#  - `mps_compatible`: true when CUDA MPS sharing is appropriate
+#  (short-running, fits comfortably in a fraction of device memory,
+#  no MIG required). MIG and MPS are mutually exclusive on the same
+#  device.
+#  - `parabricks_route`: true when the GPU implementation is a
+#  Parabricks pipeline. Triggers the Parabricks AMI path (S15.11)
+#  And the appropriate `pbrun...` invocation.
+
+methods:
+  haplotypecaller:
+    cpu_impl: "gatk HaplotypeCaller"
+    gpu_impl: "pbrun haplotypecaller"
+    requires: [nvidia, cuda_11_plus, parabricks_ami]
+    mig_profile: null
+    mps_compatible: false
+    parabricks_route: true
+    notes: "Parabricks ships HaplotypeCaller on the vendor AMI. Saturates a full H100 / A100 — MIG splits hurt throughput."
+
+  deepvariant:
+    cpu_impl: "run_deepvariant --use_accelerator=False"
+    gpu_impl: "run_deepvariant --use_accelerator=True"
+    requires: [nvidia, cuda_11_plus, deepvariant_gpu_image]
+    mig_profile: null
+    mps_compatible: false
+    parabricks_route: true
+    notes: "DeepVariant's --use_accelerator flag toggles CPU vs GPU within the same binary. Parabricks v4.6 wraps DeepVariant for the 30x WGS / 8 min H100 path."
+
+  alphafold:
+    cpu_impl: null
+    gpu_impl: "run_alphafold.py --use_gpu_relax=true"
+    requires: [nvidia, cuda_11_plus, vram_40gb_plus]
+    mig_profile: null
+    mps_compatible: false
+    parabricks_route: false
+    notes: "AlphaFold has no practical CPU path — structure prediction falls back with a warning."
+
+  alphafold3:
+    cpu_impl: null
+    gpu_impl: "run_alphafold3.py"
+    requires: [nvidia, cuda_12_plus, vram_80gb_plus]
+    # AlphaFold-3 fits ≤5,120 tokens on a single 3g.40gb slice of an H100;
+    # smaller chains can run on the slice in parallel with other tasks.
+    mig_profile: "3g.40gb"
+    mps_compatible: false
+    parabricks_route: false
+    notes: "AlphaFold-3 single-GPU only; A100/H100 80GB official support, ≤5,120 tokens per single-GPU run, no multi-GPU inference."
+
+  scvi:
+    cpu_impl: "scvi.train(use_gpu=False)"
+    gpu_impl: "scvi.train(use_gpu=True)"
+    requires: [nvidia, cuda_11_plus]
+    mig_profile: null
+    # scVI training is short and fits comfortably in <8 GB VRAM —
+    # ideal MPS candidate for cluster utilisation.
+    mps_compatible: true
+    parabricks_route: false
+    notes: "scVI training runs comfortably under MPS; replica-exchange cell-population fits per-replica."
+
+  rapids_singlecell:
+    cpu_impl: "scanpy.<op>"
+    gpu_impl: "rsc.<op>"
+    requires: [nvidia, cuda_11_plus, rapids_singlecell_image]
+    mig_profile: null
+    mps_compatible: true
+    parabricks_route: false
+    notes: "RAPIDS-singlecell 0.15 — orders-of-magnitude speedup over Scanpy for AnnData >100k cells."
+
+  # minimap2, STAR, bwa-mem2 — CPU-only. No entry means "agent invokes
+  # the CPU path unconditionally; no GPU routing is attempted".

@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Best Practice Validation Contract",
+  "description": "Sidecar schema validating the top-level shape of best-practice-validation-contract.json. Describes cross-reference rules, per-stage cycle requirements, tier uniqueness, strong-claim requirements, divergence-record and metric-bundle flags, required output files, matrix columns, and execution-guide phrases.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "crossReferenceRules",
+    "cycleRequirements",
+    "tierUniquenessRule",
+    "strongClaimRequirements",
+    "requireDivergenceRecord",
+    "requireMetricBundlesForEmpiricalStages",
+    "requiredOutputFiles",
+    "matrixRequiredColumns",
+    "guideRequiredPhrases"
+  ],
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "crossReferenceRules": { "type": "array" },
+    "cycleRequirements": { "type": "array" },
+    "tierUniquenessRule": { "type": "string" },
+    "strongClaimRequirements": { "type": "object" },
+    "requireDivergenceRecord": { "type": "boolean" },
+    "requireMetricBundlesForEmpiricalStages": { "type": "boolean" },
+    "requiredOutputFiles": { "type": "array" },
+    "matrixRequiredColumns": { "type": "array" },
+    "guideRequiredPhrases": { "type": "array" }
+  }
+}

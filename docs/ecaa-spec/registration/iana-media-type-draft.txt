@@ -1,0 +1,65 @@
+IANA Media Type Registration — application/vnd.ecaa+zip
+========================================================
+
+Type name:
+    application
+
+Subtype name:
+    vnd.ecaa+zip
+
+Required parameters:
+    none
+
+Optional parameters:
+    profile  one of the profile IRIs listed in the ECAA v0.1
+             specification §3.1 (https://w3id.org/ecaa/v0.1).
+
+Encoding considerations:
+    binary (ZIP archive).
+
+Security considerations:
+    ECAA packages may contain pointers to executable code
+    (agent-generated) and references to clinical data. See
+    https://w3id.org/ecaa/v0.1 §10 for the full security-considerations
+    section. Re-execution MUST be performed in an isolated sandbox.
+    Container references SHOULD use immutable SHA-256 digests. PII/PHI
+    MUST NOT appear in any sub-graph node.
+
+Interoperability considerations:
+    ECAA packages are WRROC v0.5 Tier-3 RO-Crates. See
+    https://w3id.org/ecaa/v0.1 §3 (substrate binding) and §9
+    (version negotiation protocol).
+
+Published specification:
+    https://w3id.org/ecaa/v0.1
+
+Applications that use this media type:
+    ECAA-v0.1-conformant emitters, readers, and conformance-suite
+    implementations. The open-source reference implementation is
+    awa-workflow (https://github.com/scripps-workflow/awa-workflow).
+
+Fragment identifier considerations:
+    not applicable.
+
+Additional information:
+    Magic number(s):
+        the first 4 bytes of an ECAA package are the ZIP local-file
+        header magic (PK\x03\x04 = 0x504B0304).
+    File extension(s):
+        .ecaa, .ecaa.zip
+    Macintosh file type code(s):
+        not applicable
+
+Person & email address to contact for further information:
+    alan huebschen <ahuebschen@scripps.edu>
+    The Scripps Research Institute
+    PAR-26-040 / NIH NLM R01 grant
+
+Intended usage:
+    COMMON
+
+Restrictions on usage:
+    none
+
+Author/Change controller:
+    PAR-26-040 grant team via https://w3id.org/ecaa/

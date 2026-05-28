@@ -1,0 +1,82 @@
+schema_version: "0.1"
+id: clinical_trial_analysis
+version: "1.0.0"
+description: |
+  Clinical-trial analysis following a prespecified Statistical Analysis
+  Plan (SAP). Standard pipeline: import CDISC ADaM / SDTM tables, run
+  the primary + secondary endpoint analyses (`clinical_endpoint_analysis`),
+  produce the safety section (`clinical_safety_summary`), run the
+  prespecified subgroup forest-plot branch
+  (`clinical_subgroup_analysis`), run the prespecified sensitivity
+  branch (`clinical_sensitivity_analysis`), then assemble the report.
+
+  2026-05-16 update — the legacy bridge through `qc_preprocessing` +
+  `differential_expression` was retired because those atoms expect an
+  RNA-seq count matrix and the v4 planner couldn't bridge the CDISC
+  ADaM tabular shape into them (`GoalUnreachable { goal: "data:0951
+  (format:3475)" }`). The four clinical atoms consume the tabular
+  `data_import` output directly.
+sme_summary: |
+  Run the prespecified Statistical Analysis Plan against trial data, report
+  primary and secondary endpoints with multiplicity adjustment, and flag
+  any deviation as post-hoc.
+goal_data: "data:2048"
+goal_format: "format:2331"
+project_class: clinical_trial
+# clinical_trial archetypes default to strict network containment
+# with an allowlist of registries + storage buckets. The composer
+# threads this onto every Task whose atom does not declare its own
+# `preferred_container`. Sites can override per-task via
+# overrides.json, but the default posture is PCCP-friendly: no
+# unbounded egress from a clinical-trial agent.
+preferred_container:
+  image: rocker/r-ver
+  tag: "4.4.1"
+  digest: "sha256:78cb94ce2db23aaaf7b546450fcf70b5a3f2ace5a9b5fa1f87217da329211312"
+  arch: ["amd64"]
+  gpu_required: false
+  network:
+    kind: none
+    allowlist:
+      - ghcr.io
+      - registry-1.docker.io
+      - api.anthropic.com
+  source:
+    kind: image
+atoms:
+  - atom_id: data_import
+    required: true
+  - atom_id: clinical_endpoint_analysis
+    required: true
+    depends_on: [data_import]
+  - atom_id: clinical_safety_summary
+    required: true
+    depends_on: [data_import]
+  - atom_id: clinical_subgroup_analysis
+    required: true
+    depends_on: [clinical_endpoint_analysis]
+  - atom_id: clinical_sensitivity_analysis
+    required: true
+    depends_on: [clinical_endpoint_analysis]
+  - atom_id: reporting
+    required: true
+    depends_on:
+      - clinical_endpoint_analysis
+      - clinical_safety_summary
+      - clinical_subgroup_analysis
+      - clinical_sensitivity_analysis
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  primary_endpoint: clinical_endpoint_analysis.inputs.primary_endpoint
+  secondary_endpoints: clinical_endpoint_analysis.inputs.secondary_endpoints
+  analysis_population: clinical_endpoint_analysis.inputs.analysis_population
+  treatment_arm: clinical_endpoint_analysis.inputs.treatment_arm
+  control_arm: clinical_endpoint_analysis.inputs.control_arm
+  multiplicity_strategy: clinical_endpoint_analysis.inputs.multiplicity_strategy
+claim_boundary: |
+  Report endpoint effects as the pre-specified SAP analyses produced them;
+  any deviation from the SAP-defined method is post-hoc and must be flagged.
+  Do not make regulatory, efficacy, or safety-signal claims beyond what
+  the SME has already asserted.

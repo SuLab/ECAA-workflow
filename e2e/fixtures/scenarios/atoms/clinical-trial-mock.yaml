@@ -1,0 +1,91 @@
+# atoms/clinical-trial-mock — atom-coverage spec
+#
+# Synthetic CDISC ADaM mock Phase III trial data (adsl.csv, adae.csv, adlb.csv).
+# Reuses data from testdata/scenarios/11-clinical-trial-mock-phase3/.
+# Tests the clinical_trial_analysis archetype end-to-end.
+
+name: Synthetic Phase III clinical trial analysis
+modality: clinical_trial
+
+beats:
+  - user: >-
+      I need to analyze a mock Phase III randomized controlled trial dataset.
+      I have ADaM tables (ADSL, ADAE, ADLB) and a prespecified statistical
+      analysis plan. Primary endpoint is overall survival at 24 months.
+    assistant:
+      content: >-
+        Phase III RCT analysis, ADaM tables, OS at 24 months as primary endpoint.
+        What's the primary comparison and ITT population definition?
+    state: intake_followup
+    expect:
+      stateBadge: intake_followup
+
+  - user: >-
+      Treatment arm vs placebo, ITT population. Kaplan-Meier primary analysis,
+      log-rank test with hazard ratio. Report safety summary and secondary
+      endpoints. Frozen SAP, no post-hoc analyses. Internal use, synthetic data.
+    assistant:
+      content: >-
+        Recorded — CDISC import → primary endpoint (KM + log-rank + HR) →
+        safety summary → secondary endpoints → reporting. Please review and confirm.
+      confirmation_card:
+        summary_markdown: |
+          **Phase III clinical trial analysis — synthetic mock**
+
+          - **Dataset:** Synthetic ADaM tables (ADSL, ADAE, ADLB)
+          - **Primary endpoint:** OS at 24 months, ITT population
+          - **Pipeline:** CDISC import → endpoint analysis → safety → reporting
+          - **Governance:** synthetic data, internal use, frozen SAP
+    state: pending_confirmation
+    expect:
+      stateBadge: pending_confirmation
+      confirmationCardVisible: true
+
+finale:
+  confirmAction: confirm
+  afterConfirm:
+    - user: "(confirmed — please continue)"
+      assistant:
+        content: Package emitted.
+      state: emitted
+      expect:
+        stateBadge: emitted
+
+live:
+  intake_prose: >-
+    I need to analyze a mock Phase III randomized controlled trial. The dataset
+    is synthetic CDISC ADaM tables: ADSL (subject-level), ADAE (adverse events),
+    and ADLB (lab values), all staged locally. The prespecified statistical
+    analysis plan calls for: primary endpoint of overall survival at 24 months
+    in the ITT population (treatment vs placebo), Kaplan-Meier curves with
+    log-rank test and hazard ratio from Cox regression, safety summary (adverse
+    events, lab abnormalities), and secondary endpoint analyses (PFS, response
+    rate). This is a frozen SAP — no post-hoc modifications. Internal use,
+    fully synthetic data. Please build the plan and emit once confirmed.
+  followups:
+    - trigger: "(?i)(SAP|statistical analysis plan|prespecified|endpoint)"
+      reply: >-
+        Frozen SAP. Primary: overall survival at 24 months, ITT population.
+        Secondary: progression-free survival, objective response rate.
+    - trigger: "(?i)(governance|access|PHI|controlled|public|internal)"
+      reply: >-
+        Internal use, fully synthetic data, no real patient data.
+    - trigger: "(?i)(file|format|path|adam|adsl|adae|adlb|input|data)"
+      reply: >-
+        CDISC ADaM files staged at testdata/scenarios/atoms/clinical-trial-mock/.
+        ADSL.csv, ADAE.csv, ADLB.csv.
+    - trigger: "(?i)(population|itt|per.protocol|full.analysis)"
+      reply: >-
+        ITT population is the primary analysis population.
+    - trigger: "(?i)(comparison|arm|treatment|placebo|randomiz)"
+      reply: >-
+        Treatment arm versus placebo. Two-arm RCT.
+  assertions:
+    stateNotGreeting: true
+    forbiddenText:
+      - "I recommend"
+      - "I suggest"
+    directConfirm: true
+    verifyPackage: true
+    expectedFinalState: emitted
+    minTranscriptTurns: 3

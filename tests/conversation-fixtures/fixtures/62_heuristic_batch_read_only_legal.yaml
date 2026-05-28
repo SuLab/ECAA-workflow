@@ -1,0 +1,56 @@
+id: 62_heuristic_batch_read_only_legal
+category: non_scripted_batching
+description: |
+  R5.19 Phase 3 — heuristic backend with `batched_read_only` strategy.
+  Every turn the decision table would normally emit a single
+  `BatchableTool` instead ships TWO batchable tools in one
+  `TurnResponse` (the chosen tool + `get_classification_evidence`).
+  Every such batch is legal under the `BatchableTool` / `HighImpactTool`
+  sealed-enum split, so the dispatcher accepts it and runs both
+  handlers in order.
+
+  `emit_package` is high-impact, so the strategy passes it through as
+  a single call (see `heuristic_batch::build_batched_response`) —
+  fanning it out would collide with the dispatcher's alone-in-turn
+  guard, which is what fixture 63 covers. This fixture exercises the
+  positive case: legal batching reaches `Emitted` with the same
+  terminal state the single-tool path lands on (fixture 57).
+
+
+mock_backend: heuristic
+heuristic_batch_strategy: batched_read_only
+
+flow:
+  - kind: user
+    text: |
+      Bulk RNA-seq differential expression analysis comparing
+      degenerated vs healthy intervertebral disc tissue from PBMCs.
+      Public data, GSE251686 + GSE189916. 24 samples total.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+
+# mock_responses omitted: HeuristicMockBackend picks tools from
+# session state, then the batched_read_only strategy fans each
+# BatchableTool out into a 2-tool batch.
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - classify_intake
+    - get_classification_evidence
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+
+rubric_notes: |
+  Watch for: every Batchable turn in the tool_call_log carries TWO
+  entries (the picked tool + get_classification_evidence). The
+  emit_package call is a single entry — the strategy passes high-impact
+  tools through as Single so the alone-in-turn guard never trips. The
+  session reaches the same Emitted terminal state fixture 57 lands on.

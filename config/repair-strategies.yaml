@@ -1,0 +1,90 @@
+# v4 P5 (D5 / F20) — repair-strategy catalog. This file is the
+# operator-visible inventory of every strategy `RepairRegistry::with_builtin()`
+# registers at startup. The catalog is the source of truth for
+# strategy-id stability + risk-class assignment; changes here must be
+# accompanied by the matching Rust strategy file under
+# `crates/core/src/repair/strategies/` (the registry asserts
+# `strategies.len() == catalog.len()` at load).
+#
+# Schema: see `_repair-strategies.schema.json` sidecar.
+version: "1.0.0"
+strategies:
+  - id: insert_gzip_decompression
+    risk_class: low_auto_attempt
+    applicable_to:
+      - contract_gap
+      - ambiguous_match
+    rationale: |
+      Splice a gunzip converter onto the offending edge when the
+      producer reports gzip compression but the consumer wants the
+      bare uncompressed form. Lossless mechanical conversion — safe
+      to auto-apply.
+  - id: insert_sort_index
+    risk_class: low_auto_attempt
+    applicable_to:
+      - contract_gap
+      - ambiguous_match
+    rationale: |
+      Splice `samtools sort` + `samtools index` onto the edge so the
+      consumer can random-access the BAM. Lossless mechanical
+      conversion.
+  - id: insert_liftover
+    risk_class: high_credentialed_review
+    applicable_to:
+      - reference_mismatch
+    required_credentials:
+      - bioinformatics_lead
+    rationale: |
+      Insert a genome liftover adapter (UCSC liftOver / CrossMap)
+      when producer + consumer differ on `genome_build`. Introduces
+      coordinate uncertainty; failed-lift and multi-mapped regions
+      need downstream interpretation. Credentialed review required.
+  - id: request_strandedness_metadata
+    risk_class: medium_user_gated
+    applicable_to:
+      - missing_metadata
+      - contract_gap
+    rationale: |
+      Consumer requires a strandedness annotation the producer
+      cannot derive without SME guidance. No DAG mutation — the SME
+      supplies the value; the planner re-runs.
+  - id: request_genome_build_metadata
+    risk_class: medium_user_gated
+    applicable_to:
+      - missing_metadata
+      - contract_gap
+    rationale: |
+      Consumer requires a `genome_build` annotation the producer
+      did not declare. SME supplies the target build (GRCh38,
+      GRCm39, etc.); planner re-runs.
+  - id: substitute_compatible_producer
+    risk_class: medium_user_gated
+    applicable_to:
+      - ambiguous_match
+      - contract_gap
+    rationale: |
+      Swap the current producer for an alternative atom selected by
+      re-running the search with the current pick excluded. The
+      SME confirms before the alternative replaces the original.
+  - id: query_registry_for_match
+    risk_class: medium_user_gated
+    applicable_to:
+      - missing_producer
+    rationale: |
+      Issue an external-registry lookup for a producer matching the
+      consumer's required semantic type. Accept dispatches the
+      query; the registry result re-enters the planner.
+  - id: rewrite_upstream_contract
+    risk_class: high_credentialed_review
+    applicable_to:
+      - annotation_mismatch
+      - version_mismatch
+      - contract_gap
+    required_credentials:
+      - bioinformatics_lead
+    rationale: |
+      Tighten the producer's declared port contract to match the
+      consumer's narrower requirements (e.g. pin a previously
+      unconstrained `annotation_version`). Rewrites the producer's
+      promise rather than inserting an adapter — credentialed
+      review required.

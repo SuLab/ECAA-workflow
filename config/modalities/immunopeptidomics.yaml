@@ -1,0 +1,33 @@
+schema_version: "0.1"
+id: immunopeptidomics
+display_name: Immunopeptidomics (HLA / MHC)
+keywords:
+- immunopeptidomics
+- hla peptidomics
+- hla-peptidomics
+- mhc bound peptide
+- mhc-bound peptide
+- mhc class i
+- mhc class ii
+- hla class i
+- hla class ii
+- netmhcpan
+- netmhc
+- neoantigen
+- neoepitope
+- w6/32
+- w6-32
+edam_topic: topic:0121
+edam_operation: operation:3767
+archetype_id: hla_peptidomics
+taxonomy_path: stage-taxonomies/proteomics.yaml
+semantic_equivalence_bounds:
+  - metric: peptide_jaccard
+    operator: ">="
+    threshold: 0.85
+    applies_to: "results/tables/peptides_*.csv"
+    rationale: "HLA-eluted peptide-set Jaccard ≥ 0.85 between runs at matched FDR threshold"
+  - metric: cv_max
+    operator: "<"
+    threshold: 0.20
+    rationale: "Max CV for quantified peptides < 20% (shared with proteomics QC bound)"

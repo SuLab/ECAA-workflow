@@ -1,0 +1,4 @@
+Bulk RNA-seq differential expression analysis on human liver samples, comparing
+treated vs control conditions with DESeq2. This is the parent intake for the
+amendment-re-emit edge case: subsequent amendment swaps DESeq2 for limma-voom and
+re-emits, exercising the cross-version diff + lineage forward-slice invalidation.

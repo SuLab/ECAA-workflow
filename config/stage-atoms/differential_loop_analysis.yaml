@@ -1,0 +1,69 @@
+id: differential_loop_analysis
+version: "1.0.0"
+role: operation
+description: |
+  Test for differential chromatin-loop strength between conditions.
+  Takes per-condition loop call sets (BEDPE) + raw contact-matrix
+  counts and reports loops with statistically-different strength
+  via DESeq2-on-contact-counts or diffloop.
+edam_operation: "operation:3223"
+edam_data: "swfc:differential_loop_table"
+edam_format: "format:3475"
+assignee: agent
+depends_on:
+  - chromatin_loop_calling
+expected_artifacts:
+  - differential_loops.tsv
+  - loop_summary.json
+  - manifest.json
+  - result.json
+plot_stage_id: chromatin_loops
+required_figures:
+  - loop_volcano
+  - differential_loop_arc
+attributes:
+  candidate_tools:
+    - diffloop
+    - hicdcplus
+    - deseq2
+resource_profile:
+  cpu: moderate
+  memory: medium
+  gpu: false
+  runtime_class: minutes
+claim_boundary: |
+  Differential loop calls are statistical association — effect
+  size + adjusted p-value on contact-count differences. Mechanistic
+  inference about loop function requires orthogonal evidence
+  (anchor TF perturbation, paired expression / ChIP).
+inputs:
+  - name: chromatin_loops_per_condition
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: chromatin_loop_table
+      proposed_parent_terms:
+        - "data:1255"
+      definition: "Per-condition chromatin loop call table"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3003"
+      label: "BED"
+    privacy_class: internal
+outputs:
+  - name: differential_loops
+    semantic_type:
+      kind: local_extension
+      namespace: swfc
+      id: differential_loop_table
+      proposed_parent_terms:
+        - "data:0951"
+      definition: "Per-loop differential chromatin contact strength table: effect size + adjusted p-value between conditions"
+      maturity:
+        stage: minted
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    statistical_state: "de_tested"
+    privacy_class: internal

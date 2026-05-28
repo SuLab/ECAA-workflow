@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scripps-workflow/config/project-classes/_project_class.schema.json",
+  "title": "ProjectClassDefinition",
+  "description": "Plan §A.S4 — schema for `config/project-classes/<id>.yaml`. The ProjectClassRegistry loader validates each YAML against this schema before deserialization. Each class declares its display name, the prompt addendum surfaced after `prompt_role.txt`, optional per-role addenda, and the routing metadata downstream consumers (taxonomy loader, container policy, BCO emit) read.",
+  "type": "object",
+  "required": ["id", "display_name"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+      "description": "Stable class id (e.g. `clinical_trial`, `time_series_forecast`). Lowercase + underscores. Matches the wire format the closed `ProjectClass` enum's `as_str()` returns; the file stem must equal this id."
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable name surfaced in SME-facing UI (e.g. \"Bioinformatics\", \"Clinical Trial\")."
+    },
+    "prompt_addendum_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional path (relative to the crate root) of the class-specific prompt addendum that the conversation crate appends after `prompt_role.txt`. When omitted, no addendum is loaded. The path resolves at registry-load time so missing files surface as a typed error."
+    },
+    "taxonomy_pattern": {
+      "type": "string",
+      "minLength": 1,
+      "description": "glob pattern (relative to `config/stage-taxonomies/`) the taxonomy loader uses when looking up taxonomies for this class."
+    },
+    "requires_container": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, taxonomies in this class must declare a `preferred_container`. Bio is grandfathered (false); clinical_trial / time_series_forecast typically declare a hardened image."
+    },
+    "auto_bco": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, the emitter unconditionally writes a Biocompute Object alongside the package. Default false."
+    },
+    "interpretation_policy_override": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional path of a per-class `interpretation-policy.<class>.json` that overrides the default policy. When omitted, the loader uses the modality-level policy."
+    },
+    "role_addenda": {
+      "type": "object",
+      "description": "Plan §A.S4 Decision 2 — per-role prompt fragments. Keys are AtomRole variants in PascalCase (e.g. `Validation`, `Pilot`); values are paths to addendum files. The conversation crate concatenates the per-role addendum onto the per-class block when an atom of that role is in the composition.",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

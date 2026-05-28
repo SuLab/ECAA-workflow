@@ -1,0 +1,107 @@
+id: 25_harness_blocker_routed_to_sme
+category: harness_progress
+description: |
+  Harness blocker scenario. After the package is emitted and execution
+  starts, one task hits a blocked state (e.g. an SME-required clarification
+  the package didn't pre-resolve). The harness fires a `task_blocked`
+  progress event which the batcher collapses into a synthetic assistant
+  turn; the operator then injects an InfraError to put the whole session
+  in Blocked so the BlockerCard appears in the UI. The SME unblocks via
+  the deterministic Unblock button.
+
+  This fixture combines all three round-7 runner extensions —
+  EnqueueHarnessEvent, InjectInfraError, and the existing Unblock — to
+  cover the "harness blocker routed to SME" path the plan §3.5 calls out.
+
+  Verifies:
+    - A task_blocked harness event drives the batcher to surface a
+      synthetic assistant turn with blocker phrasing
+    - InjectInfraError lifts the session into Blocked when the operator
+      decides the harness blocker needs explicit user attention
+    - The Unblock path RESTORES the session to Emitted (not Intake)
+      when a package has been emitted, so subsequent harness blocker
+      events can still transition the session to Blocked via
+      `service::block_from_harness`'s Emitted-only guard. Regression
+      target: an IVD live e2e in which the second discovery blocker
+      was silently dropped because the unblock had demoted the session
+      to Intake. See commit 91fed40.
+
+flow:
+  - kind: user
+    text: |
+      Single-cell scRNA-seq from 12 IVD donors, comparing degenerated
+      vs healthy.
+  - kind: confirm
+  - kind: user
+    text: "(confirmed — please continue)"
+  # Harness emits a task_blocked event mid-execution
+  - kind: enqueue_harness_event
+    event_kind: task_blocked
+    task_id: discover_batch_correction
+    detail: "Cannot determine whether to apply batch correction without SME input on study heterogeneity"
+  - kind: wait
+    ms: 200
+  # Operator decides this needs explicit Blocked-state attention
+  - kind: inject_infra_error
+    reason: "harness blocker: discover_batch_correction needs SME decision on cross-study heterogeneity"
+  # SME clicks the Unblock recovery button
+  - kind: unblock
+
+mock_responses:
+  - kind: tool_use
+    tool:
+      tool_name: append_intake_prose
+      prose: |
+        single-cell scRNA-seq from 12 IVD donors, degenerated vs healthy
+  - kind: tool_use
+    tool:
+      tool_name: propose_summary_confirmation
+      summary_markdown: |
+        Plan: single-cell IVD comparison, 12 donors, degenerated vs
+        healthy. Reports cell-state and abundance differences as
+        statistical associations. Confirm or correct.
+  - kind: text
+    text: "Confirm or correct when ready."
+  - kind: tool_use
+    tool:
+      tool_name: emit_package
+      output_dir: "{tempdir}"
+  - kind: text
+    text: "Package ready. Starting execution."
+
+expected_final_state:
+  state_kind: emitted
+  user_confirmed: true
+  tool_calls_observed:
+    - append_intake_prose
+    - propose_summary_confirmation
+    - emit_package
+  package_artifacts_present:
+    - WORKFLOW.json
+    - PROMPT.md
+    - CONTEXT.md
+    - ro-crate-metadata.json
+    - runtime/intake-conversation.jsonl
+  harness_events_count: 1
+  last_assistant_contains: "paused"
+
+rubric_notes: |
+  The single harness event uses the singular phrasing path
+  (`format_single` in harness_batch.rs), which for `task_blocked` reads
+  "That step is paused: <detail>." — the fixture asserts the substring
+  "paused" survives the deterministic flush.
+
+  After the unblock cycle the session restores Emitted (not Intake).
+  This is the post-emit-preserve-Emitted behavior from commit 91fed40:
+  when the session has an emitted package, OperatorUnblock routes
+  Blocked → Emitted so subsequent harness task_blocked events can
+  transition the session to Blocked again via
+  `service::block_from_harness`'s Emitted-only guard. A pre-emit
+  unblock (no package yet) still falls back to Intake so the SME can
+  keep editing intake prose. `user_confirmed` stays true across the
+  cycle per §5.1: Unblock recovers an existing decision rather than
+  asking for it again.
+
+  The sensitivity-winner pathway uses a DIFFERENT trigger
+  (`SensitivityWinnerSelected`) precisely because it needs Intake
+  post-emit — see fixture 29.

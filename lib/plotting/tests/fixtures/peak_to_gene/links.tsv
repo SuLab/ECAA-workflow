@@ -1,0 +1,7 @@
+peak_id	gene	peak_start	tss	cluster	score
+p1	G1	100	1100	c1	0.85
+p2	G2	2000	3500	c1	0.62
+p3	G3	5000	5800	c2	0.91
+p4	G4	8000	7500	c2	0.55
+p5	G5	100	300	c3	0.78
+p6	G6	200	1500	c1	0.43

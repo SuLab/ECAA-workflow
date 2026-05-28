@@ -1,0 +1,6 @@
+dataset	first_author	year	journal	pmid_or_doi	resource_url	data_type	n_individuals_or_tissues	access_tier	notes
+PGC3_SCZ_wave3_public	Trubetskoy	2022	Nature	35396580	pgc.unc.edu/for-researchers/download-results/	GWAS summary statistics	76755 cases / 243649 controls (two-stage)	public	287 GWS loci; 120 prioritized genes (106 protein-coding); wave3 public file only — DAC-restricted file out of scope
+PGC3_SCZ_wave3_restricted	Trubetskoy	2022	Nature	35396580	PGC DAC	GWAS summary statistics	full cohort with sample-overlap metadata	DAC-gated	EXPLICITLY OUT OF SCOPE for this package
+GTEx_v8_cis_eQTL_allpairs	GTEx Consortium	2020	Science	32913098	gtexportal.org/home/datasets	cis-eQTL summary statistics	838 donors / 15201 RNA-seq samples / 49 tissues	public	tissue-level cis-eQTL allpairs and signif pairs; use 13 brain tissues as primary
+GTEx_v8_individual_level	GTEx Consortium	2020	Science	32913098	dbGaP phs000424.v8.p2	RNA-seq reads and genotypes	838 donors	dbGaP-gated	EXPLICITLY OUT OF SCOPE for this package
+1000G_Phase3_EUR_LD_panel	1000 Genomes Consortium	2015	Nature	26432245	ftp.1000genomes.ebi.ac.uk	genotype reference panel	503 EUR individuals	public	used only as LD reference for coloc and MAGMA
