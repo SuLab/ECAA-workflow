@@ -38,7 +38,7 @@ use ecaa_workflow_harness::scheduler::{
 use ecaa_workflow_harness::scratch_cleanup::cleanup_task_scratch;
 use ecaa_workflow_harness::sme_skip;
 use ecaa_workflow_harness::stall_relay;
-use ecaa_workflow_harness::swfc_io::{read_bytes_capped, read_capped, resolve_max_bytes};
+use ecaa_workflow_harness::ecaa_io::{read_bytes_capped, read_capped, resolve_max_bytes};
 use ecaa_workflow_harness::watchdog::{Watchdog, WatchdogConfig, WatchdogEvent};
 use std::fs::OpenOptions;
 use std::io::Write as _;

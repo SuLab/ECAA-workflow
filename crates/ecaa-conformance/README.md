@@ -12,4 +12,4 @@ in `tests/`:
 | `audit_proof_invariants` | All 6 audit-proof invariants on the corpus |
 | `ablation_contract` | Each of the 6 `ECAA_ABLATE_*` flags suppresses exactly one subgraph |
 
-Run: `cargo test -p ecaa-workflow-ecaa-conformance`.
+Run: `cargo test -p ecaa-workflow-conformance`.

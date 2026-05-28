@@ -28,7 +28,7 @@ pub fn read(package: &Path, task_id: &str) -> Result<Option<ExecutorOverrides>> 
     if !path.exists() {
         return Ok(None);
     }
-    let raw = crate::swfc_io::read_capped(&path, crate::swfc_io::resolve_max_bytes())
+    let raw = crate::ecaa_io::read_capped(&path, crate::ecaa_io::resolve_max_bytes())
         .with_context(|| format!("reading overrides {}", path.display()))?;
     let parsed: ExecutorOverrides = serde_json::from_str(&raw)
         .with_context(|| format!("parsing overrides {}", path.display()))?;

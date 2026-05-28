@@ -7,7 +7,7 @@ use crate::executor::{
     self, enforce_safety_policy, host_probe::resolve_high_water_for, sizing::resolve_instance_type,
     ExecutorArgs,
 };
-use crate::swfc_io::read_capped_default;
+use crate::ecaa_io::read_capped_default;
 use anyhow::Context;
 use ecaa_workflow_core::blocker::BlockerKind;
 use ecaa_workflow_core::dag::{validate_dag_typed, Task, TaskState, DAG};

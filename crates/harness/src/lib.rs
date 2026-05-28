@@ -27,7 +27,7 @@ pub mod scheduler;
 pub mod scratch_cleanup;
 pub mod sme_skip;
 pub mod stall_relay;
-pub mod swfc_io;
+pub mod ecaa_io;
 pub mod validators;
 pub mod watchdog;
 pub mod wrroc_validator_impl;

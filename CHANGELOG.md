@@ -2,7 +2,7 @@
 
 All notable changes to `ECAA-workflow` land here. Format loosely follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-> **Note:** This project was renamed from `ecaa-workflow` during the open-source split. Historical entries below reference docs and paths that lived in the originating repo and may not be present here.
+> **Note:** This project was renamed from `scripps-workflow` during the open-source split. Historical entries below reference docs and paths that lived in the originating repo and may not be present here.
 
 New entries go at the top. One bullet per user-visible change.
 

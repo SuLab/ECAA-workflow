@@ -22,7 +22,7 @@ use ecaa_workflow_core::dag::{BlockedRecord, TaskId, TaskState, DAG};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-use crate::swfc_io::{read_capped, resolve_max_bytes};
+use crate::ecaa_io::{read_capped, resolve_max_bytes};
 
 /// Current on-disk schema version for [`StatePatch`]. Callers that need the
 /// canonical version constant without constructing a patch should call this

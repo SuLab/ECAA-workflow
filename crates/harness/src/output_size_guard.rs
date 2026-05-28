@@ -1,9 +1,9 @@
 //! Aggregate output-directory size cap for completed tasks.
 //!
-//! Complements `swfc_io`'s per-file read cap (100 MiB) with an
+//! Complements `ecaa_io`'s per-file read cap (100 MiB) with an
 //! aggregate-size gate on `runtime/outputs/<task_id>/`:
 //!
-//! - **Per-file cap** (`swfc_io::read_capped_default`): prevents OOM from a
+//! - **Per-file cap** (`ecaa_io::read_capped_default`): prevents OOM from a
 //!   single giant blob (result.json, state.patch.json, error.json,
 //!   WORKFLOW.json).
 //! - **Aggregate cap** (this module): prevents disk exhaustion from many

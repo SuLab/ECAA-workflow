@@ -61,7 +61,7 @@
 //!   protocol; no special case here.
 
 use crate::constants::OUTPUT_TAIL_BYTES;
-use crate::swfc_io::{read_capped, resolve_max_bytes};
+use crate::ecaa_io::{read_capped, resolve_max_bytes};
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs::File;

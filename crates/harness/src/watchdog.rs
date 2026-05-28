@@ -358,9 +358,9 @@ fn run_watchdog_loop(
 /// Read the DAG from `<package_root>/WORKFLOW.json`. Reuses the same
 /// size-capped read the harness main loop uses.
 fn read_dag(package_root: &Path) -> Result<DAG> {
-    let raw = crate::swfc_io::read_capped(
+    let raw = crate::ecaa_io::read_capped(
         &package_root.join("WORKFLOW.json"),
-        crate::swfc_io::resolve_max_bytes(),
+        crate::ecaa_io::resolve_max_bytes(),
     )?;
     serde_json::from_str::<DAG>(&raw).map_err(Into::into)
 }

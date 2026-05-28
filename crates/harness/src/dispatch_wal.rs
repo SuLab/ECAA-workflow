@@ -259,7 +259,7 @@ pub fn wal_path(package_root: &Path) -> std::path::PathBuf {
 /// degrades to tag-only filtering rather than refusing to operate.
 pub fn instance_ids_from_workflow_json(package_root: &Path) -> std::collections::BTreeSet<String> {
     let path = package_root.join("WORKFLOW.json");
-    let Ok(raw) = crate::swfc_io::read_capped(&path, crate::swfc_io::resolve_max_bytes()) else {
+    let Ok(raw) = crate::ecaa_io::read_capped(&path, crate::ecaa_io::resolve_max_bytes()) else {
         return std::collections::BTreeSet::new();
     };
     let Ok(dag) = serde_json::from_str::<DAG>(&raw) else {
