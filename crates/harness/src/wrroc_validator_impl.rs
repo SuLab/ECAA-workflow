@@ -1,6 +1,6 @@
 //! Harness-side adapter for the WRROC v0.5 conformance validator.
 //!
-//! Implements the `scripps_workflow_core::wrroc_validator::WrrocValidator`
+//! Implements the `ecaa_workflow_core::wrroc_validator::WrrocValidator`
 //! trait by shelling out to `scripts/wrroc-validate.py`, which wraps
 //! `runcrate validate` (≥0.5.0) plus four post-validation checks
 //! (RO-Crate 1.1 descriptor + 3 WRROC profile IRIs in `conformsTo`,
@@ -12,7 +12,7 @@
 //! pattern per Bernhardt "Functional Core, Imperative Shell".
 
 use anyhow::{Context, Result};
-use scripps_workflow_core::wrroc_validator::{ValidationReport, WrrocValidator};
+use ecaa_workflow_core::wrroc_validator::{ValidationReport, WrrocValidator};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

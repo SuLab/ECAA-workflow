@@ -1,4 +1,4 @@
-use scripps_workflow_core::plot_affordance::{
+use ecaa_workflow_core::plot_affordance::{
     AffordanceProof, GeneratedReviewStatus, GenericPrimitive, PlotAffordance, PlotSafety,
 };
 

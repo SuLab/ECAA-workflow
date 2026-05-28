@@ -242,7 +242,7 @@ impl OpaqueAggregator {
     }
 }
 
-/// Concrete adapter from `scripps_workflow_core::compatibility::engine::OpaqueObservationSink`
+/// Concrete adapter from `ecaa_workflow_core::compatibility::engine::OpaqueObservationSink`
 /// to the `OpaqueAggregator` JSONL-on-disk store. Holds a single
 /// `Arc<OpaqueAggregator>` so the same instance is reused across the
 /// session's lifetime; IO errors are logged but never propagated
@@ -275,7 +275,7 @@ impl std::fmt::Debug for OpaqueObservationSinkImpl {
     }
 }
 
-impl scripps_workflow_core::compatibility::engine::OpaqueObservationSink
+impl ecaa_workflow_core::compatibility::engine::OpaqueObservationSink
     for OpaqueObservationSinkImpl
 {
     fn record_opaque(

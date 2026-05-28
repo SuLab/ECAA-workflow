@@ -1,13 +1,13 @@
 [package]
-name = "scripps-workflow-conversation"
+name = "ecaa-workflow-conversation"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/SuLab/ECAA-workflow"
-description = "LLM-mediated conversational shell wrapping the scripps-workflow compiler with a closed 19-tool vocabulary."
+description = "LLM-mediated conversational shell wrapping the ecaa-workflow compiler with a closed 19-tool vocabulary."
 
 [dependencies]
-scripps-workflow-core = { version = "0.1", path = "../core" }
+ecaa-workflow-core = { version = "0.1", path = "../core" }
 anyhow.workspace = true
 # Pure-Rust JSON Schema (draft-07) validation for ECAA sidecar shape
 # checks in emit/validation.rs. Workspace-pinned at 0.18 — the API uses
@@ -79,9 +79,9 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 tempfile.workspace = true
 pretty_assertions.workspace = true
 # Layer 5D — schemars_generation drift-detection test imports
-# AuditProofReport from ecaa-types (no other crate currently re-exports
+# AuditProofReport from ecaa-workflow-types (no other crate currently re-exports
 # it conveniently for tests).
-scripps-workflow-ecaa-types = { version = "0.1", path = "../ecaa-types" }
+ecaa-workflow-types = { version = "0.1", path = "../ecaa-types" }
 # Schema-validate the 8 ECAA subgraph sidecars after a real emit
 # (`emit_roundtrip_schema_clean`). Pure-Rust, no external Python deps;
 # version matches the workspace pin used by core + harness.

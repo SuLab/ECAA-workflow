@@ -159,7 +159,7 @@ proptest = "1.5"
 # `[dev-dependencies]` inheritance.
 insta = { version = "1.39", features = ["json", "yaml", "redactions"] }
 
-# R-29 — CLI integration tests. `Command::cargo_bin("scripps-workflow")`
+# R-29 — CLI integration tests. `Command::cargo_bin("ecaa-workflow")`
 # locates the compiled binary so `crates/cli/tests/*.rs` can exec the
 # CLI surface end-to-end (intake / build / dag / chat --help). The
 # crate's own `Assert` helpers (`success()`, `stdout(predicate)`) keep

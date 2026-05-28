@@ -805,6 +805,228 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
+name = "ecaa-workflow-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assert_cmd",
+ "clap",
+ "colored",
+ "ecaa-workflow-conversation",
+ "ecaa-workflow-core",
+ "predicates",
+ "rustyline",
+ "semver",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
+name = "ecaa-workflow-conformance"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ecaa-workflow-core",
+ "ecaa-workflow-harness",
+ "ecaa-workflow-types",
+ "pulldown-cmark",
+ "regex",
+ "serde",
+ "serde_json",
+ "strum",
+ "tempfile",
+ "workspace-hack",
+]
+
+[[package]]
+name = "ecaa-workflow-conversation"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "csv",
+ "dashmap 6.1.0",
+ "ecaa-workflow-core",
+ "ecaa-workflow-types",
+ "futures",
+ "hex",
+ "insta",
+ "jsonschema",
+ "moka",
+ "once_cell",
+ "pretty_assertions",
+ "proptest",
+ "rand 0.8.6",
+ "regex",
+ "reqwest",
+ "schemars",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "serial_test",
+ "sha2",
+ "strum",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "ts-rs",
+ "url",
+ "uuid",
+ "walkdir",
+ "workspace-hack",
+]
+
+[[package]]
+name = "ecaa-workflow-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "cel-interpreter",
+ "chrono",
+ "criterion",
+ "csv",
+ "ecaa-workflow-conversation",
+ "ecaa-workflow-harness",
+ "ecaa-workflow-types",
+ "hex",
+ "hmac",
+ "insta",
+ "jsonschema",
+ "petgraph",
+ "pretty_assertions",
+ "proptest",
+ "rand 0.8.6",
+ "rayon",
+ "regex",
+ "reqwest",
+ "schemars",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "serial_test",
+ "sha2",
+ "strum",
+ "subtle",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "trybuild",
+ "ts-rs",
+ "unicode-normalization",
+ "url",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "ecaa-workflow-harness"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "colored",
+ "csv",
+ "ctrlc",
+ "duct",
+ "ecaa-workflow-core",
+ "flate2",
+ "glob",
+ "json-patch",
+ "jsonschema",
+ "libc",
+ "parking_lot",
+ "rayon",
+ "regex",
+ "rustyline",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+ "tracing-subscriber",
+ "ts-rs",
+ "ureq",
+ "url",
+ "uuid",
+ "wait-timeout",
+ "workspace-hack",
+]
+
+[[package]]
+name = "ecaa-workflow-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-stream",
+ "axum",
+ "chrono",
+ "dashmap 6.1.0",
+ "dotenvy",
+ "ecaa-workflow-conversation",
+ "ecaa-workflow-core",
+ "flate2",
+ "governor",
+ "hex",
+ "http-body-util",
+ "libc",
+ "parking_lot",
+ "proptest",
+ "rand 0.8.6",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yml",
+ "serial_test",
+ "sha2",
+ "shlex",
+ "subtle",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower",
+ "tower-http",
+ "tower_governor",
+ "tracing",
+ "tracing-subscriber",
+ "ts-rs",
+ "unicode-normalization",
+ "url",
+ "uuid",
+ "walkdir",
+ "workspace-hack",
+ "zeroize",
+]
+
+[[package]]
+name = "ecaa-workflow-types"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "schemars",
+ "serde",
+ "serde_json",
+ "strum",
+ "ts-rs",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2665,228 +2887,6 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
-
-[[package]]
-name = "scripps-workflow-cli"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assert_cmd",
- "clap",
- "colored",
- "predicates",
- "rustyline",
- "scripps-workflow-conversation",
- "scripps-workflow-core",
- "semver",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "tokio",
- "workspace-hack",
-]
-
-[[package]]
-name = "scripps-workflow-conversation"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "csv",
- "dashmap 6.1.0",
- "futures",
- "hex",
- "insta",
- "jsonschema",
- "moka",
- "once_cell",
- "pretty_assertions",
- "proptest",
- "rand 0.8.6",
- "regex",
- "reqwest",
- "schemars",
- "scripps-workflow-core",
- "scripps-workflow-ecaa-types",
- "semver",
- "serde",
- "serde_json",
- "serde_yml",
- "serial_test",
- "sha2",
- "strum",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "ts-rs",
- "url",
- "uuid",
- "walkdir",
- "workspace-hack",
-]
-
-[[package]]
-name = "scripps-workflow-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blake3",
- "cel-interpreter",
- "chrono",
- "criterion",
- "csv",
- "hex",
- "hmac",
- "insta",
- "jsonschema",
- "petgraph",
- "pretty_assertions",
- "proptest",
- "rand 0.8.6",
- "rayon",
- "regex",
- "reqwest",
- "schemars",
- "scripps-workflow-conversation",
- "scripps-workflow-ecaa-types",
- "scripps-workflow-harness",
- "semver",
- "serde",
- "serde_json",
- "serde_yml",
- "serial_test",
- "sha2",
- "strum",
- "subtle",
- "tempfile",
- "thiserror 2.0.18",
- "tracing",
- "trybuild",
- "ts-rs",
- "unicode-normalization",
- "url",
- "uuid",
- "workspace-hack",
-]
-
-[[package]]
-name = "scripps-workflow-ecaa-conformance"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "pulldown-cmark",
- "regex",
- "scripps-workflow-core",
- "scripps-workflow-ecaa-types",
- "scripps-workflow-harness",
- "serde",
- "serde_json",
- "strum",
- "tempfile",
- "workspace-hack",
-]
-
-[[package]]
-name = "scripps-workflow-ecaa-types"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "schemars",
- "serde",
- "serde_json",
- "strum",
- "ts-rs",
- "uuid",
- "workspace-hack",
-]
-
-[[package]]
-name = "scripps-workflow-harness"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "colored",
- "csv",
- "ctrlc",
- "duct",
- "flate2",
- "glob",
- "json-patch",
- "jsonschema",
- "libc",
- "parking_lot",
- "rayon",
- "regex",
- "rustyline",
- "scripps-workflow-core",
- "semver",
- "serde",
- "serde_json",
- "serde_yml",
- "tempfile",
- "thiserror 2.0.18",
- "tracing",
- "tracing-subscriber",
- "ts-rs",
- "ureq",
- "url",
- "uuid",
- "wait-timeout",
- "workspace-hack",
-]
-
-[[package]]
-name = "scripps-workflow-server"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-stream",
- "axum",
- "chrono",
- "dashmap 6.1.0",
- "dotenvy",
- "flate2",
- "governor",
- "hex",
- "http-body-util",
- "libc",
- "parking_lot",
- "proptest",
- "rand 0.8.6",
- "regex",
- "scripps-workflow-conversation",
- "scripps-workflow-core",
- "serde",
- "serde_json",
- "serde_yml",
- "serial_test",
- "sha2",
- "shlex",
- "subtle",
- "tar",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "tower",
- "tower-http",
- "tower_governor",
- "tracing",
- "tracing-subscriber",
- "ts-rs",
- "unicode-normalization",
- "url",
- "uuid",
- "walkdir",
- "workspace-hack",
- "zeroize",
-]
 
 [[package]]
 name = "sdd"

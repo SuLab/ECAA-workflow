@@ -166,7 +166,7 @@ impl Staging {
 /// remote so values containing shell metacharacters (newlines, quotes,
 /// `$`) round-trip cleanly without quote-escape gymnastics. KEYS are
 /// validated to match `^[A-Z_][A-Z0-9_]*$` (the
-/// `scripps_workflow_core::env_validator::sanitize_lib_env_suffix`
+/// `ecaa_workflow_core::env_validator::sanitize_lib_env_suffix`
 /// rule) so a hostile key can't break out of the env-var assignment.
 ///
 /// Atomic-ish: writes to a `.partial` sibling and renames into place
@@ -181,7 +181,7 @@ pub fn stage_credentials_file(
     job_tag: &str,
     creds: &[(&str, &str)],
 ) -> Result<String> {
-    use scripps_workflow_core::env_validator;
+    use ecaa_workflow_core::env_validator;
 
     // Validate key shape STRICTLY (no normalization, unlike the
     // `sanitize_lib_env_suffix` permissive variant): credential keys

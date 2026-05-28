@@ -27,7 +27,7 @@
 //! Production never sets this.
 //!
 //! Mirrors the harness-side
-//! [`scripps_workflow_harness::multiprocess_lock::SessionLock`]: same
+//! [`ecaa_workflow_harness::multiprocess_lock::SessionLock`]: same
 //! POSIX `flock(LOCK_EX | LOCK_NB)` semantics, same `.scripps-workflow/
 //! locks/` directory, same bypass-env-var pattern (so an operator
 //! debugging a contention issue can audit both layers with one
@@ -96,7 +96,7 @@ impl ServerSessionStoreLock {
             let err = std::io::Error::last_os_error();
             return Err(anyhow!(
                 "could not acquire server session-store lock {}: {} \
-                 (another scripps-workflow-server pointed at {} is already running; \
+                 (another ecaa-workflow-server pointed at {} is already running; \
                  set SWFC_SERVER_DEBUG_ALLOW_MULTI_PROCESS=1 to bypass for tests)",
                 path.display(),
                 err,

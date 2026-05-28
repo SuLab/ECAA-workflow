@@ -11,11 +11,11 @@
 //! - The archetype-seed alternative carries `RegistryDefault` assumptions.
 //! - The search-seed alternative carries a `SeedHeuristic` assumption.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer_v4::{plan, PlanningContext};
-use scripps_workflow_core::goal_spec::GoalSpec;
-use scripps_workflow_core::workflow_contracts::{
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer_v4::{plan, PlanningContext};
+use ecaa_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::workflow_contracts::{
     data_product::DataProductContract,
     evidence::AssumptionSource,
     workflow_intent::{DesiredOutput, WorkflowIntent},

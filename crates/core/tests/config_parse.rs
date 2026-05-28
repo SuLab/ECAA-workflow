@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use scripps_workflow_core::config::{ChatMode, Config, LitSourceScope, ModalityDriftMode};
+use ecaa_workflow_core::config::{ChatMode, Config, LitSourceScope, ModalityDriftMode};
 
 fn empty() -> HashMap<&'static str, &'static str> {
     HashMap::new()

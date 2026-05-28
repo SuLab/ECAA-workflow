@@ -1,13 +1,13 @@
-//! Integration tests for [`scripps_workflow_conversation::proposal_gate`].
+//! Integration tests for [`ecaa_workflow_conversation::proposal_gate`].
 //!
 //! Covers the gate runner's promotion-pipeline contract:
 //! full pass, validator failure, sandbox refusal, idempotent
 //! re-advance on terminal states, and active-policy-bundle
 //! propagation.
 
-use scripps_workflow_conversation::proposal_gate::advance_proposal;
-use scripps_workflow_conversation::session::Session;
-use scripps_workflow_core::hypothesized_proposal::{
+use ecaa_workflow_conversation::proposal_gate::advance_proposal;
+use ecaa_workflow_conversation::session::Session;
+use ecaa_workflow_core::hypothesized_proposal::{
     HypothesizedProposal, ProposalBlockerReason, ProposalLifecycle,
 };
 
@@ -82,7 +82,7 @@ fn validator_soft_passes_unknown_obligation_with_warning() {
         .find(|o| {
             matches!(
                 o.gate,
-                scripps_workflow_core::hypothesized_proposal::GateName::Validator
+                ecaa_workflow_core::hypothesized_proposal::GateName::Validator
             )
         })
         .expect("validator gate must have run");

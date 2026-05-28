@@ -5,7 +5,7 @@
 
 use super::*;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use scripps_workflow_core::saga::{Saga, SagaStep};
+use ecaa_workflow_core::saga::{Saga, SagaStep};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -80,7 +80,7 @@ async fn branch_session_inner(
         .await
     {
         Ok(id) => id,
-        Err(scripps_workflow_conversation::ServiceError::SessionNotFound) => {
+        Err(ecaa_workflow_conversation::ServiceError::SessionNotFound) => {
             return StatusCode::NOT_FOUND.into_response();
         }
         Err(e) => {
@@ -424,7 +424,7 @@ async fn inherit_branch_artifacts(
 
     // Collect the set of task ids the child considers Completed —
     // these are the inherited prereqs whose artifacts the branch needs.
-    use scripps_workflow_core::dag::TaskState;
+    use ecaa_workflow_core::dag::TaskState;
     let completed: Vec<String> = child_session
         .task_states
         .iter()

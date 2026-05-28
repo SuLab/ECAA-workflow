@@ -111,7 +111,7 @@ async fn merge_preserves_current_dag_task_state_when_workflow_unchanged() {
     // harness progress event mid-turn) is preserved through the
     // merge, even though the local copy still carries the older
     // state snapshot.
-    use scripps_workflow_core::dag::TaskState;
+    use ecaa_workflow_core::dag::TaskState;
     let (svc, _env) = make_service(vec![
         tool_use(Tool::Batchable(BatchableTool::AppendIntakeProse {
             prose: "single cell scRNA-seq human samples".into(),

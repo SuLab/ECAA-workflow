@@ -1,4 +1,4 @@
-use scripps_workflow_core::assumption_policy::*;
+use ecaa_workflow_core::assumption_policy::*;
 
 #[test]
 fn loads_canonical_table() {

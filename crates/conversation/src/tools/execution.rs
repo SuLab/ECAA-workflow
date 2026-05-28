@@ -11,7 +11,7 @@
 use super::{amend::amend_stage_method, ToolContext};
 use crate::errors::{ToolError, ToolResult};
 use crate::session::Session;
-use scripps_workflow_core::ids::TaskId;
+use ecaa_workflow_core::ids::TaskId;
 use std::path::Path;
 
 /// Matches DEFAULT_MAX_ITERATIONS in
@@ -120,11 +120,11 @@ pub(crate) fn rerun_task(
     let mut res = amend_stage_method(session, task_id, &resolved_method, reason, config_dir);
     if !res.is_error {
         session.record_decision(
-            scripps_workflow_core::decision_log::DecisionType::RerunTask {
+            ecaa_workflow_core::decision_log::DecisionType::RerunTask {
                 task_id: TaskId::from(task_id),
                 reason: reason.map(|s| s.to_string()),
             },
-            scripps_workflow_core::decision_log::DecisionActor::Llm,
+            ecaa_workflow_core::decision_log::DecisionActor::Llm,
             reason.map(|s| s.to_string()),
         );
         if let Some(obj) = res.content.as_object_mut() {

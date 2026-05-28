@@ -7,7 +7,7 @@
 use super::{Session, SessionId, SessionLineage as _SessionLineageAlias};
 use chrono::{DateTime, Utc};
 use rand::RngCore;
-use scripps_workflow_core::dag::TaskState;
+use ecaa_workflow_core::dag::TaskState;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use ts_rs::TS;
@@ -23,7 +23,7 @@ use uuid::Uuid;
 /// v3 P7 — wraps the canonical lineage SemVer behind a fn so the
 /// `SemVer` constructor stays at-rest in `core::migration`.
 pub fn session_lineage_schema_version() -> semver::Version {
-    scripps_workflow_core::migration::current_session_lineage_version()
+    ecaa_workflow_core::migration::current_session_lineage_version()
 }
 
 fn default_session_lineage_schema_version() -> semver::Version {
@@ -45,7 +45,7 @@ pub struct SessionLineage {
     /// round-trip without migration.
     #[serde(
         default = "default_session_lineage_schema_version",
-        with = "scripps_workflow_core::migration::schema_version_serde"
+        with = "ecaa_workflow_core::migration::schema_version_serde"
     )]
     #[ts(type = "string")]
     #[schemars(with = "String")]
@@ -318,7 +318,7 @@ impl Session {
             // means this is always the default regardless, but we set
             // it explicitly for symmetry with the other tracked fields.
             affordance_fallback_counter:
-                scripps_workflow_core::plot_affordance::AffordanceFallbackCounter::default(),
+                ecaa_workflow_core::plot_affordance::AffordanceFallbackCounter::default(),
             // v3 P8 — branches start with an empty adjudication queue.
             adjudication_queue: Vec::new(),
             // Atom-safety-policy branches do not inherit

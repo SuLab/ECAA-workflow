@@ -1013,7 +1013,7 @@ fn uuid_prefix_of_path(path: &Path) -> Option<String> {
 /// impact) overlays the stale snapshot.
 async fn reconcile_task_states_from_workflow_json(
     session: &Session,
-) -> Option<Vec<(String, scripps_workflow_core::dag::TaskState)>> {
+) -> Option<Vec<(String, ecaa_workflow_core::dag::TaskState)>> {
     let package_path = session.emitted_package_path.as_ref()?.clone();
     let task_states_snapshot = session.task_states.clone();
     tokio::task::spawn_blocking(move || {
@@ -1037,8 +1037,8 @@ async fn reconcile_task_states_from_workflow_json(
 /// non-terminal can't downgrade a Completed task.
 fn reconcile_task_states_sync(
     package_path: &Path,
-    in_memory: &std::collections::BTreeMap<String, scripps_workflow_core::dag::TaskState>,
-) -> Option<Vec<(String, scripps_workflow_core::dag::TaskState)>> {
+    in_memory: &std::collections::BTreeMap<String, ecaa_workflow_core::dag::TaskState>,
+) -> Option<Vec<(String, ecaa_workflow_core::dag::TaskState)>> {
     let workflow_json = package_path.join("WORKFLOW.json");
     let content = std::fs::read_to_string(&workflow_json).ok()?;
     let value: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -1048,14 +1048,14 @@ fn reconcile_task_states_sync(
         let Some(state_json) = task.get("state") else {
             continue;
         };
-        let on_disk: scripps_workflow_core::dag::TaskState =
+        let on_disk: ecaa_workflow_core::dag::TaskState =
             match serde_json::from_value(state_json.clone()) {
                 Ok(s) => s,
                 Err(_) => continue,
             };
         // Skip the noisy default — a task that's `Pending` on disk
         // doesn't override an in-memory `Pending` (or absent) state.
-        if matches!(on_disk, scripps_workflow_core::dag::TaskState::Pending) {
+        if matches!(on_disk, ecaa_workflow_core::dag::TaskState::Pending) {
             continue;
         }
         match in_memory.get(id) {

@@ -15,8 +15,8 @@
 //! covered by their own per-endpoint tests. This property focuses
 //! on the closed-vocabulary half of F14.
 
-use scripps_workflow_conversation::tool_schemas;
-use scripps_workflow_conversation::tools::Tool;
+use ecaa_workflow_conversation::tool_schemas;
+use ecaa_workflow_conversation::tools::Tool;
 
 #[test]
 fn every_tool_variant_has_a_schema_entry() {

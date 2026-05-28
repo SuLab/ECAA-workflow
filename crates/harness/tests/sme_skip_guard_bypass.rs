@@ -15,7 +15,7 @@
 //! additional tests cover the negative path (no skip → strict guard
 //! applies) and the documented-deviation variant.
 
-use scripps_workflow_harness::sme_skip::{detect_intent, SmeSkipIntent};
+use ecaa_workflow_harness::sme_skip::{detect_intent, SmeSkipIntent};
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;

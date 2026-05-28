@@ -20,7 +20,7 @@ fn repo_root() -> PathBuf {
 
 #[test]
 fn intake_help_succeeds() {
-    Command::cargo_bin("scripps-workflow")
+    Command::cargo_bin("ecaa-workflow")
         .expect("cargo bin scripps-workflow")
         .args(["intake", "--help"])
         .assert()
@@ -44,7 +44,7 @@ fn intake_emits_package_for_minimal_request() {
     let output_dir = tmp.path().join("output-package");
     let config_dir = repo_root().join("config");
 
-    Command::cargo_bin("scripps-workflow")
+    Command::cargo_bin("ecaa-workflow")
         .expect("cargo bin scripps-workflow")
         .args([
             "intake",

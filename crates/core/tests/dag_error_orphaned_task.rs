@@ -6,7 +6,7 @@
 //! §S5.12 typed-error coverage; pairs with the inline `validate_dag_typed_*`
 //! tests in `dag.rs` that exercise the other variants.
 
-use scripps_workflow_core::dag::{
+use ecaa_workflow_core::dag::{
     current_dag_schema_version, validate_dag_typed, Assignee, DagError, ResourceClass, Task,
     TaskId, TaskKind, TaskState, DAG,
 };

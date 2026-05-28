@@ -19,19 +19,19 @@
 //! `HighCredentialedReview` (insert_liftover) proposals are routed
 //! only to `RepairProposed` — auto-application never fires.
 
-use scripps_workflow_core::composer_v4::dag_mutation::{apply_dag_modification, ApplyError};
-use scripps_workflow_core::composer_v4::PlanningContext;
-use scripps_workflow_core::decision_substrate::{
+use ecaa_workflow_core::composer_v4::dag_mutation::{apply_dag_modification, ApplyError};
+use ecaa_workflow_core::composer_v4::PlanningContext;
+use ecaa_workflow_core::decision_substrate::{
     drain, record, stable_id, timestamp, AttemptKind, VerifierDecision,
 };
-use scripps_workflow_core::repair::proposal::{
+use ecaa_workflow_core::repair::proposal::{
     DagModification, FacetMismatch, RepairGap, RepairProposal, RepairRiskClass,
 };
-use scripps_workflow_core::repair::registry::RepairRegistry;
-use scripps_workflow_core::repair::strategy::GapKind;
-use scripps_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
-use scripps_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
-use scripps_workflow_core::workflow_contracts::workflow_intent::WorkflowIntent;
+use ecaa_workflow_core::repair::registry::RepairRegistry;
+use ecaa_workflow_core::repair::strategy::GapKind;
+use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+use ecaa_workflow_core::workflow_contracts::workflow_intent::WorkflowIntent;
 use std::sync::Mutex;
 
 /// Substrate guard — every test that drains the process-wide
@@ -299,11 +299,11 @@ fn apply_dag_modification_returns_unknown_node_for_stale_proposals() {
     };
     let modification = DagModification::InsertConverter {
         converter_node: TaskNode::skeleton("gunzip_x", "decompress"),
-        source_port: scripps_workflow_core::repair::proposal::PortRef {
+        source_port: ecaa_workflow_core::repair::proposal::PortRef {
             node_id: "absent_producer".into(),
             port_name: "out".into(),
         },
-        sink_port: scripps_workflow_core::repair::proposal::PortRef {
+        sink_port: ecaa_workflow_core::repair::proposal::PortRef {
             node_id: "absent_consumer".into(),
             port_name: "in".into(),
         },

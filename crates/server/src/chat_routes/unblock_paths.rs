@@ -32,8 +32,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use scripps_workflow_core::workflow_contracts::outcome::{ComposeOutcome, RefusalReport};
-use scripps_workflow_core::workflow_contracts::unblock_path::UnblockPath;
+use ecaa_workflow_core::workflow_contracts::outcome::{ComposeOutcome, RefusalReport};
+use ecaa_workflow_core::workflow_contracts::unblock_path::UnblockPath;
 
 use super::{BoundedJson, ChatAppState};
 
@@ -192,14 +192,14 @@ pub(super) async fn dispatch_unblock_path(
             // the SME's explicit "attempt repair" intent. The repair
             // endpoint's accept/reject calls record the load-bearing
             // RepairAccepted / RepairRejected rows.
-            scripps_workflow_core::decision_substrate::record(
-                scripps_workflow_core::decision_substrate::VerifierDecision::RepairProposed {
-                    id: scripps_workflow_core::decision_substrate::stable_id(
+            ecaa_workflow_core::decision_substrate::record(
+                ecaa_workflow_core::decision_substrate::VerifierDecision::RepairProposed {
+                    id: ecaa_workflow_core::decision_substrate::stable_id(
                         "repair_dispatch_intent",
                         strategy_id,
                         gap_id,
                     ),
-                    timestamp: scripps_workflow_core::decision_substrate::timestamp(),
+                    timestamp: ecaa_workflow_core::decision_substrate::timestamp(),
                     gap_id: gap_id.clone(),
                     strategy: strategy_id.clone(),
                     risk_class: String::from("dispatched"),

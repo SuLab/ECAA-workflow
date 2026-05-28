@@ -45,19 +45,19 @@ test-fast: ## Run only unit-fast tests (skip integration where possible)
 	cargo test --workspace --lib
 
 test-core: ## Unit + integration for crates/core
-	cargo test -p scripps-workflow-core
+	cargo test -p ecaa-workflow-core
 
 test-conversation: ## Unit + integration for crates/conversation
-	cargo test -p scripps-workflow-conversation
+	cargo test -p ecaa-workflow-conversation
 
 test-harness: ## Unit + integration for crates/harness
-	cargo test -p scripps-workflow-harness
+	cargo test -p ecaa-workflow-harness
 
 test-server: ## Unit + integration for crates/server
-	cargo test -p scripps-workflow-server
+	cargo test -p ecaa-workflow-server
 
 test-cli: ## Unit + integration for crates/cli
-	cargo test -p scripps-workflow-cli
+	cargo test -p ecaa-workflow-cli
 
 test-ui: ## Vitest + axe a11y for ui/
 	cd ui && npm run test
@@ -77,8 +77,8 @@ check: test ## test + TypeScript noEmit
 	cd ui && npx tsc --noEmit
 
 types: ## Regenerate ts-rs TypeScript bindings into ui/src/types/
-	cargo test -p scripps-workflow-core export_bindings
-	cargo test -p scripps-workflow-conversation export_bindings
+	cargo test -p ecaa-workflow-core export_bindings
+	cargo test -p ecaa-workflow-conversation export_bindings
 
 # ── End-to-end ───────────────────────────────────────────────────────────────
 
@@ -90,8 +90,8 @@ e2e-playwright: ## Playwright mocked tier
 
 # ── Dev servers ──────────────────────────────────────────────────────────────
 
-dev-server: ## Run scripps-workflow-server on :3000
-	cargo run -p scripps-workflow-server -- --port 3000
+dev-server: ## Run ecaa-workflow-server on :3000
+	cargo run -p ecaa-workflow-server -- --port 3000
 
 dev-ui: ## Run the Vite dev server on :5173 (proxies /api/* to :3000)
 	cd ui && npx vite
@@ -99,7 +99,7 @@ dev-ui: ## Run the Vite dev server on :5173 (proxies /api/* to :3000)
 # ── Misc ─────────────────────────────────────────────────────────────────────
 
 bench: ## Criterion benches under crates/core
-	cargo bench -p scripps-workflow-core
+	cargo bench -p ecaa-workflow-core
 
 clean: ## Remove build artifacts
 	cargo clean

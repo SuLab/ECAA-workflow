@@ -27,10 +27,10 @@
 //! fold) produces divergent hashes across the 100 calls and this
 //! test fails with the first divergent iteration index.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer;
-use scripps_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer;
+use ecaa_workflow_core::goal_spec::GoalSpec;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 

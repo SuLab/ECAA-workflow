@@ -248,7 +248,7 @@ fn sidecar_schemas() -> [(&'static str, bool, &'static str, SidecarSource); 8] {
 }
 
 fn ablated_sidecar(relpath: &str) -> bool {
-    use scripps_workflow_core::ablation::{AblationFlag, AblationFlagExt};
+    use ecaa_workflow_core::ablation::{AblationFlag, AblationFlagExt};
     match relpath {
         "runtime/decisions.jsonl" => AblationFlag::DecisionRecords.is_active(),
         "runtime/audit-proof-report.json" => AblationFlag::AuditProof.is_active(),

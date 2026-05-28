@@ -7,9 +7,9 @@
 //! and the registry-level gate (lint fires through the consistency
 //! check, error message identifies the rule).
 
-use scripps_workflow_core::atom::{AtomDefinition, CodeExecution, NetworkPolicy, SafetyLevel};
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::atom_safety::{validate_atom_safety, SafetyConsistencyError};
+use ecaa_workflow_core::atom::{AtomDefinition, CodeExecution, NetworkPolicy, SafetyLevel};
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::atom_safety::{validate_atom_safety, SafetyConsistencyError};
 
 #[test]
 fn happy_path_compute_atom_passes() {

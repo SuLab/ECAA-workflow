@@ -29,8 +29,8 @@ use super::spot_policy::is_spot_requested;
 use super::{Executor, ExecutorArgs, IterationOutcome, ResourceRequirements};
 use anyhow::{anyhow, Context, Result};
 use duct::cmd;
-use scripps_workflow_core::dag::{Task, DAG};
-use scripps_workflow_core::remediation::{ExecutorOverrides, ResourceTarget};
+use ecaa_workflow_core::dag::{Task, DAG};
+use ecaa_workflow_core::remediation::{ExecutorOverrides, ResourceTarget};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -218,8 +218,8 @@ impl AwsConfig {
 /// Returns `NetworkPolicy::None` (egress-restricted) iff any
 /// Network/Exec task asks for `None`; otherwise `NetworkPolicy::Bridge`
 /// is the floor (every Bridge requester is satisfied by Bridge).
-pub(super) fn required_network_floor(dag: &DAG) -> scripps_workflow_core::atom::NetworkPolicy {
-    use scripps_workflow_core::atom::{NetworkPolicy, SafetyLevel};
+pub(super) fn required_network_floor(dag: &DAG) -> ecaa_workflow_core::atom::NetworkPolicy {
+    use ecaa_workflow_core::atom::{NetworkPolicy, SafetyLevel};
     let mut union_allowlist: Vec<String> = Vec::new();
     let mut any_restricted = false;
     for task in dag.tasks.values() {
@@ -315,7 +315,7 @@ pub struct AwsExecutor {
     /// memory/cpu/gpu bump survives the harness relaunch that follows
     /// an apply. None when no remediation has been applied.
     pub(super) pending_resources_override:
-        Option<scripps_workflow_core::remediation::ResourceTarget>,
+        Option<ecaa_workflow_core::remediation::ResourceTarget>,
     /// Envelope additions accumulated from `apply_overrides`
     /// (library_pins, env_passthrough). Drained by `do_run_iteration`
     /// before invoking the agent so a remediation reaches the
@@ -354,7 +354,7 @@ pub struct AwsExecutor {
     /// the trait method falls back to `NetworkPolicy::Bridge` in that
     /// pre-provision window so the pre-flight gate doesn't reject
     /// tasks before we know which SG we'll get.
-    pub(super) effective_network: Arc<Mutex<Option<scripps_workflow_core::atom::NetworkPolicy>>>,
+    pub(super) effective_network: Arc<Mutex<Option<ecaa_workflow_core::atom::NetworkPolicy>>>,
 }
 
 /// Emit a `tracing::warn!` once at AwsExecutor construction when the
@@ -572,9 +572,9 @@ impl Executor for AwsExecutor {
             .lock()
             .ok()
             .and_then(|g| g.clone())
-            .unwrap_or(scripps_workflow_core::atom::NetworkPolicy::Bridge);
+            .unwrap_or(ecaa_workflow_core::atom::NetworkPolicy::Bridge);
         super::ExecutorCapabilities {
-            sandbox: scripps_workflow_core::atom::SandboxRequirement::ProcessIsolation,
+            sandbox: ecaa_workflow_core::atom::SandboxRequirement::ProcessIsolation,
             network,
             kind: "aws",
         }
@@ -665,7 +665,7 @@ impl Executor for AwsExecutor {
         &self,
         task_id: &str,
         package_dir: &std::path::Path,
-    ) -> scripps_workflow_core::container_state::ContainerProbeOutcome {
+    ) -> ecaa_workflow_core::container_state::ContainerProbeOutcome {
         self.do_probe_container_state(task_id, package_dir)
     }
 
@@ -707,7 +707,7 @@ impl Executor for AwsExecutor {
             // in the remote bash script; a hostile version value with
             // `\n` escapes the assignment and runs the next line as
             // a command. Refuse anything outside the canonical shape.
-            let Some(suffix) = scripps_workflow_core::env_validator::sanitize_lib_env_suffix(lib)
+            let Some(suffix) = ecaa_workflow_core::env_validator::sanitize_lib_env_suffix(lib)
             else {
                 tracing::warn!(
                     library = %lib,
@@ -715,7 +715,7 @@ impl Executor for AwsExecutor {
                 );
                 continue;
             };
-            if !scripps_workflow_core::env_validator::is_safe_env_value(ver) {
+            if !ecaa_workflow_core::env_validator::is_safe_env_value(ver) {
                 tracing::warn!(
                     library = %lib,
                     value = %ver,
@@ -730,14 +730,14 @@ impl Executor for AwsExecutor {
             // C-8: see comment above. Refuse keys outside the POSIX env
             // name shape and values that include `\n`, `\r`, `,`, `=`,
             // or `\0`.
-            if !scripps_workflow_core::env_validator::is_valid_env_name(k) {
+            if !ecaa_workflow_core::env_validator::is_valid_env_name(k) {
                 tracing::warn!(
                     key = %k,
                     "rejecting invalid env_passthrough key in SSM envelope (C-8 hardening)"
                 );
                 continue;
             }
-            if !scripps_workflow_core::env_validator::is_safe_env_value(v) {
+            if !ecaa_workflow_core::env_validator::is_safe_env_value(v) {
                 tracing::warn!(
                     key = %k,
                     value = %v,
@@ -777,7 +777,7 @@ impl Executor for AwsExecutor {
     /// hadn't persisted the command_id yet).
     fn cancel_task(&self, task_id: &str, dag: &DAG) -> Result<()> {
         let command_id = dag.tasks.get(task_id).and_then(|t| {
-            if let scripps_workflow_core::dag::TaskState::Running { remote, .. } = &t.state {
+            if let ecaa_workflow_core::dag::TaskState::Running { remote, .. } = &t.state {
                 remote.as_ref().and_then(|r| r.command_id.clone())
             } else {
                 None

@@ -4,11 +4,11 @@
 //! Tests that require a real harness state or filesystem writes are
 //! marked `#[ignore]`.
 
-use scripps_workflow_core::backend_emitters::{
+use ecaa_workflow_core::backend_emitters::{
     lower_to_workflow_json, EmitContext, PlotAffordanceRecord,
 };
-use scripps_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
-use scripps_workflow_core::plot_affordance::{AffordanceProof, GenericPrimitive, PlotAffordance};
+use ecaa_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
+use ecaa_workflow_core::plot_affordance::{AffordanceProof, GenericPrimitive, PlotAffordance};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -161,8 +161,8 @@ fn decision_type_plot_affordance_fallback_round_trips() {
 #[test]
 #[ignore = "requires real WorkflowDag fixture"]
 fn sidecar_writer_emits_sorted_jsonl() {
-    use scripps_workflow_core::workflow_contracts::evidence::AssumptionLedger;
-    use scripps_workflow_core::workflow_contracts::task_node::WorkflowDag;
+    use ecaa_workflow_core::workflow_contracts::evidence::AssumptionLedger;
+    use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
 
     let records = vec![
         PlotAffordanceRecord {
@@ -212,8 +212,8 @@ fn sidecar_writer_emits_sorted_jsonl() {
 /// Verifies the sidecar writer is a no-op when emit_affordances is None.
 #[test]
 fn sidecar_writer_noop_when_none() {
-    use scripps_workflow_core::workflow_contracts::evidence::AssumptionLedger;
-    use scripps_workflow_core::workflow_contracts::task_node::WorkflowDag;
+    use ecaa_workflow_core::workflow_contracts::evidence::AssumptionLedger;
+    use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
 
     let dag = WorkflowDag {
         id: "test_noop".into(),

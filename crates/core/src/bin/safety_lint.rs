@@ -15,12 +15,12 @@
 //! Scope: this binary runs ONLY the safety lint (`validate_atom_safety`
 //! per-atom), not the broader `AtomRegistry::validate_consistency`.
 //! Structural validation (dangling deps, version shape, method_choice
-//! references) is exercised by `cargo test -p scripps-workflow-core`.
+//! references) is exercised by `cargo test -p ecaa-workflow-core`.
 
 use std::path::PathBuf;
 
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::atom_safety::validate_atom_safety;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::atom_safety::validate_atom_safety;
 
 fn main() {
     let config_dir = std::env::var("SWFC_CONFIG_DIR").unwrap_or_else(|_| "./config".into());

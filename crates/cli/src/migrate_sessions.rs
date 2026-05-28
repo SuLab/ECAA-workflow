@@ -10,7 +10,7 @@
 
 use anyhow::{Context, Result};
 use clap::Args;
-use scripps_workflow_core::migration::{current_session_version, MigrationRegistry};
+use ecaa_workflow_core::migration::{current_session_version, MigrationRegistry};
 use semver::Version;
 use std::path::PathBuf;
 
@@ -108,7 +108,7 @@ fn migrate_one(
     if !dry_run {
         let serialized = serde_json::to_vec_pretty(&value)
             .with_context(|| format!("serialize {}", path.display()))?;
-        scripps_workflow_core::fs_helpers::atomic_write_bytes_sync(path, &serialized)
+        ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(path, &serialized)
             .with_context(|| format!("atomic write {}", path.display()))?;
     }
     Ok(MigrateOutcome::Migrated)

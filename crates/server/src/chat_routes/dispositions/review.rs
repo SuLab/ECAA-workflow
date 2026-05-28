@@ -52,7 +52,7 @@ pub(super) async fn post_reject(
             .into_response();
     }
     d.status = DispositionStatus::Rejected;
-    d.status_updated_at = Some(scripps_workflow_core::time_helpers::now_rfc3339());
+    d.status_updated_at = Some(ecaa_workflow_core::time_helpers::now_rfc3339());
     persist_disposition(&pkg, &rel_path, &d);
     queue_upsert(&app.dispositions, session_id, rel_path.clone(), d.clone()).await;
     record_rejected_decision(&app, session_id, &rel_path, req.rationale.clone()).await;

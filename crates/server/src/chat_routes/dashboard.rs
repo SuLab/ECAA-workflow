@@ -69,7 +69,7 @@ pub async fn dashboard_index(
         .into_response();
     };
 
-    use scripps_workflow_core::dag::TaskState;
+    use ecaa_workflow_core::dag::TaskState;
     let mut stages: Vec<DashboardStage> = Vec::new();
     // Iterate DAG task order (BTreeMap — deterministic by key) and
     // include every completed task with at least one view_data file.

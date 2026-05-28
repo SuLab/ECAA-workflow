@@ -14,7 +14,7 @@
 //! - Both branches converge on the joint `cross_omics_thematic_comparison`
 //! reporting stage.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use std::path::PathBuf;
 
 fn config_root() -> PathBuf {

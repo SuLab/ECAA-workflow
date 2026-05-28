@@ -6,7 +6,7 @@
 //! and TOTAL drift verification all run on every `cargo test` without
 //! an `ANTHROPIC_API_KEY`.
 
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     score_transcript, BatchableTool, ConversationService, LlmBackend, MetricsStore, MockLlmBackend,
     RubricScore, SessionStore, StopReason, Tool, Turn, TurnResponse, Usage,
 };

@@ -16,9 +16,9 @@
 //! is not present in the codebase; we use `AtomRegistry::load_from_dir`
 //! directly, mirroring `crates/core/tests/composer_v4_determinism.rs`.
 //!
-//! Run: `cargo test -p scripps-workflow-core --test method_choice_self_consistency`.
+//! Run: `cargo test -p ecaa-workflow-core --test method_choice_self_consistency`.
 
-use scripps_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
 use std::path::Path;
 
 #[test]

@@ -14,7 +14,7 @@
 //! input is runtime-realistic.
 
 use anyhow::{Context, Result};
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     score_transcript_with_model, AnthropicClient, LlmBackend, MetricsStore, ModelId, RubricScore,
     Turn,
 };

@@ -6,8 +6,8 @@
 
 #[test]
 fn backward_search_finds_atac_peak_chain_from_fastq() {
-    use scripps_workflow_core::atom_registry::AtomRegistry;
-    use scripps_workflow_core::composer_v4::backward_search::{
+    use ecaa_workflow_core::atom_registry::AtomRegistry;
+    use ecaa_workflow_core::composer_v4::backward_search::{
         search_backward, BackwardSearchInput,
     };
 

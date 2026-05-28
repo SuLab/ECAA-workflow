@@ -25,7 +25,7 @@
 # need a separate review pass.
 
 [build]
-rustflags = ["--remap-path-prefix=/home/runner/work/scripps-workflow/scripps-workflow=."]
+rustflags = ["--remap-path-prefix=/home/runner/work/ecaa-workflow/ecaa-workflow=."]
 
 # Local mold linker (matches CI's rui314/setup-mold step in
 # .github/workflows/rust.yml). With 169 integration-test binaries
@@ -49,7 +49,7 @@ rustflags = ["--remap-path-prefix=/home/runner/work/scripps-workflow/scripps-wor
 # avoid hard-coding clang for contributors who only have gcc.
 [target.x86_64-unknown-linux-gnu]
 rustflags = [
-    "--remap-path-prefix=/home/runner/work/scripps-workflow/scripps-workflow=.",
+    "--remap-path-prefix=/home/runner/work/ecaa-workflow/ecaa-workflow=.",
     "-C", "link-arg=-fuse-ld=mold",
 ]
 

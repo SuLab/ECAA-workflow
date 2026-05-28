@@ -25,10 +25,10 @@
 //! property tests; the Tier-F suite owns the typed-shape invariants.
 
 use proptest::prelude::*;
-use scripps_workflow_core::decision_substrate::{
+use ecaa_workflow_core::decision_substrate::{
     drain, record, stable_id, timestamp, VerifierDecision,
 };
-use scripps_workflow_core::lifecycle_adversarial::{
+use ecaa_workflow_core::lifecycle_adversarial::{
     AdjudicationQueueEntry, AdjudicationStatus, LifecycleTransition,
 };
 use std::sync::Mutex;
@@ -125,7 +125,7 @@ proptest! {
         let t = LifecycleTransition::ForbiddenWaiverAttempt {
             actor,
             assumption_id,
-            policy_rule_id: scripps_workflow_core::workflow_contracts::policy_rule_id::PolicyRuleId::unchecked(rule.clone()),
+            policy_rule_id: ecaa_workflow_core::workflow_contracts::policy_rule_id::PolicyRuleId::unchecked(rule.clone()),
         };
         let json = serde_json::to_string(&t).unwrap();
         let back: LifecycleTransition = serde_json::from_str(&json).unwrap();

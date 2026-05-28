@@ -137,10 +137,10 @@ pub(super) async fn get_compose_outcome(
 }
 
 fn render_compose_outcome(
-    outcome: &scripps_workflow_core::workflow_contracts::outcome::ComposeOutcome,
-    workflow_dag: Option<&scripps_workflow_core::workflow_contracts::task_node::WorkflowDag>,
+    outcome: &ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome,
+    workflow_dag: Option<&ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag>,
 ) -> ComposeOutcomeResponse {
-    use scripps_workflow_core::workflow_contracts::outcome::ComposeOutcome;
+    use ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome;
     let dag_for_metrics = match outcome {
         ComposeOutcome::ValidatedExecutableDag { dag, .. }
         | ComposeOutcome::DraftDag { dag, .. }
@@ -157,7 +157,7 @@ fn render_compose_outcome(
                 .filter(|a| {
                     matches!(
                         a.resolution,
-                        scripps_workflow_core::workflow_contracts::evidence::AssumptionResolution::Unresolved
+                        ecaa_workflow_core::workflow_contracts::evidence::AssumptionResolution::Unresolved
                     )
                 })
                 .count() as u32
@@ -210,7 +210,7 @@ fn render_compose_outcome(
                     .iter()
                     .filter(|a| matches!(
                         a.resolution,
-                        scripps_workflow_core::workflow_contracts::evidence::AssumptionResolution::Unresolved
+                        ecaa_workflow_core::workflow_contracts::evidence::AssumptionResolution::Unresolved
                     ))
                     .count(),
                 dag.nodes.len()
@@ -255,10 +255,10 @@ fn render_compose_outcome(
                     "node_id": node.id,
                     "intent": node.intent,
                     "proposed_parent_terms": node.outputs.iter().map(|p| match &p.semantic_type {
-                        scripps_workflow_core::workflow_contracts::semantic_type::SemanticType::OntologyTerm { iri, .. } => iri.clone(),
-                        scripps_workflow_core::workflow_contracts::semantic_type::SemanticType::LocalExtension { id, .. } => id.clone(),
-                        scripps_workflow_core::workflow_contracts::semantic_type::SemanticType::Opaque { .. } => "opaque".to_string(),
-                        scripps_workflow_core::workflow_contracts::semantic_type::SemanticType::Union { .. } => p.semantic_type.stable_id(),
+                        ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType::OntologyTerm { iri, .. } => iri.clone(),
+                        ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType::LocalExtension { id, .. } => id.clone(),
+                        ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType::Opaque { .. } => "opaque".to_string(),
+                        ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType::Union { .. } => p.semantic_type.stable_id(),
                     }).collect::<Vec<_>>(),
                     "declared_inputs": node.inputs.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
                     "declared_outputs": node.outputs.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
@@ -343,7 +343,7 @@ pub(super) async fn get_compose_alternatives(
                 .filter(|asm| {
                     matches!(
                         asm.resolution,
-                        scripps_workflow_core::workflow_contracts::evidence::AssumptionResolution::Unresolved
+                        ecaa_workflow_core::workflow_contracts::evidence::AssumptionResolution::Unresolved
                     )
                 })
                 .count() as u32;
@@ -366,7 +366,7 @@ pub(super) async fn get_compose_alternatives(
     Json(AlternativesResponse { alternatives }).into_response()
 }
 
-fn derive_reproducibility_score(score: &scripps_workflow_core::composer_v4::ScoringTuple) -> u32 {
+fn derive_reproducibility_score(score: &ecaa_workflow_core::composer_v4::ScoringTuple) -> u32 {
     // The scoring tuple's `reproducibility_penalty` is lower-is-better
     // (0 = perfect repro). Map to a 0..=10 score: 0 penalty → 10,
     // saturating downward. Tunable; the UI legend treats >=8 as
@@ -429,7 +429,7 @@ pub(super) async fn get_assumptions(
 /// rationale / validator_id payloads carry through as separate
 /// `source_detail` / `resolution_detail` fields).
 fn flatten_assumption(
-    a: &scripps_workflow_core::workflow_contracts::evidence::Assumption,
+    a: &ecaa_workflow_core::workflow_contracts::evidence::Assumption,
 ) -> serde_json::Value {
     let value = serde_json::to_value(a).unwrap_or(serde_json::Value::Null);
     flatten_assumption_value(value)

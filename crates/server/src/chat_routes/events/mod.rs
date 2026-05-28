@@ -58,8 +58,8 @@ mod tests {
     #[tokio::test]
     async fn post_progress_completion_writes_authoritative_task_states() {
         use crate::chat_routes::test_support::seed_session_with_completed_task;
-        use scripps_workflow_conversation::SessionState;
-        use scripps_workflow_core::dag::TaskState;
+        use ecaa_workflow_conversation::SessionState;
+        use ecaa_workflow_core::dag::TaskState;
 
         let (router, app) = make_router(vec![]).await;
         let id = seed_session_with_completed_task(&app, "alignment", None).await;
@@ -102,8 +102,8 @@ mod tests {
     #[tokio::test]
     async fn heartbeat_stalled_transitions_session_to_blocked() {
         use crate::chat_routes::test_support::seed_session_with_completed_task;
-        use scripps_workflow_conversation::SessionState;
-        use scripps_workflow_core::blocker::BlockerKind;
+        use ecaa_workflow_conversation::SessionState;
+        use ecaa_workflow_core::blocker::BlockerKind;
 
         let (router, app) = make_router(vec![]).await;
         let id = seed_session_with_completed_task(&app, "alignment", None).await;
@@ -149,7 +149,7 @@ mod tests {
     #[tokio::test]
     async fn task_blocked_with_runtime_substitution_maps_to_typed_variant() {
         use crate::chat_routes::test_support::seed_session_with_completed_task;
-        use scripps_workflow_conversation::SessionState;
+        use ecaa_workflow_conversation::SessionState;
 
         let tmp = tempfile::TempDir::new().unwrap();
         // Seed the agent-written blocker.json on disk so the mapper
@@ -213,7 +213,7 @@ mod tests {
             .expect("session must exist");
         match &session.state {
             SessionState::Blocked { blocker_kind, .. } => match blocker_kind {
-                Some(scripps_workflow_core::blocker::BlockerKind::RuntimeCapabilityMissing {
+                Some(ecaa_workflow_core::blocker::BlockerKind::RuntimeCapabilityMissing {
                     sme_pinned_method,
                     missing_capability,
                     recommended_substitute,
@@ -238,8 +238,8 @@ mod tests {
         // Without this routing the BlockerCard's tool_error arm and
         // the RemediationSuggestionList never render.
         use crate::chat_routes::test_support::seed_session_with_completed_task;
-        use scripps_workflow_conversation::SessionState;
-        use scripps_workflow_core::error_envelope::ToolErrorEnvelope;
+        use ecaa_workflow_conversation::SessionState;
+        use ecaa_workflow_core::error_envelope::ToolErrorEnvelope;
 
         let tmp = tempfile::TempDir::new().unwrap();
         let dir = tmp.path().join("runtime").join("outputs").join("alignment");
@@ -303,7 +303,7 @@ mod tests {
             .expect("session must exist");
         match &session.state {
             SessionState::Blocked { blocker_kind, .. } => match blocker_kind {
-                Some(scripps_workflow_core::blocker::BlockerKind::ToolError { envelope: env }) => {
+                Some(ecaa_workflow_core::blocker::BlockerKind::ToolError { envelope: env }) => {
                     assert_eq!(env.error_class, "OOM");
                     assert_eq!(env.library.as_deref(), Some("STAR"));
                     assert_eq!(env.signal.as_deref(), Some("SIGKILL"));

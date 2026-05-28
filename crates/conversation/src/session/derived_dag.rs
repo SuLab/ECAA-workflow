@@ -21,7 +21,7 @@
 //! `session.dag`. Treating `session.dag` as a derived cache eliminates
 //! the merge-bug class entirely.
 
-use scripps_workflow_core::dag::{TaskState, DAG};
+use ecaa_workflow_core::dag::{TaskState, DAG};
 
 use super::state::Session;
 
@@ -49,7 +49,7 @@ impl Session {
         // `ensure_dag_cached`.
         let workflow_dag = self.workflow_dag.as_ref()?;
         let id = format!("workflow-{}", self.id.as_simple());
-        match scripps_workflow_core::builder::build_dag_from_workflow_dag(workflow_dag, &id) {
+        match ecaa_workflow_core::builder::build_dag_from_workflow_dag(workflow_dag, &id) {
             Ok(mut dag) => {
                 apply_task_states(&mut dag, &self.task_states);
                 Some(dag)
@@ -82,7 +82,7 @@ impl Session {
         }
         let workflow_dag = self.workflow_dag.as_ref()?;
         let id = format!("workflow-{}", self.id.as_simple());
-        match scripps_workflow_core::builder::build_dag_from_workflow_dag(workflow_dag, &id) {
+        match ecaa_workflow_core::builder::build_dag_from_workflow_dag(workflow_dag, &id) {
             Ok(mut dag) => {
                 apply_task_states(&mut dag, &self.task_states);
                 self.dag = Some(dag.clone());
@@ -181,7 +181,7 @@ fn apply_task_states(dag: &mut DAG, task_states: &std::collections::BTreeMap<Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::dag::TaskState;
+    use ecaa_workflow_core::dag::TaskState;
 
     fn fresh_session() -> Session {
         Session::new(false)

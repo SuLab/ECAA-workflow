@@ -13,7 +13,7 @@
 //! static `{cpu_heavy: 1}` — a later iteration makes it dynamic when
 //! the scheduler dispatches K parallel tasks.
 
-use scripps_workflow_core::dag::{ResourceClass, Task, DAG};
+use ecaa_workflow_core::dag::{ResourceClass, Task, DAG};
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -320,7 +320,7 @@ fn probe_memory_gb() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::dag::{
+    use ecaa_workflow_core::dag::{
         Assignee, ResourceClass, Task, TaskId, TaskKind, TaskState, DAG,
     };
     use std::collections::BTreeMap as BT;
@@ -350,7 +350,7 @@ mod tests {
         );
         DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "envelope-test".into(),
             current_task: None,
             tasks,

@@ -1,17 +1,17 @@
 use anyhow::Result;
 use colored::Colorize;
 use rustyline::DefaultEditor;
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::builder::{
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::builder::{
     build_dag_from_composition, build_dag_from_workflow_dag, IntakeMethods, IntakeResolution,
 };
-use scripps_workflow_core::classify::Classifier;
-use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-use scripps_workflow_core::dag::{dag_to_dot, Task, TaskKind, TaskState, DAG};
-use scripps_workflow_core::emitter::{emit_package, EmitConfig};
-use scripps_workflow_core::goal_spec::GoalSpec;
-use scripps_workflow_core::taxonomy::StageTaxonomy;
+use ecaa_workflow_core::classify::Classifier;
+use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::dag::{dag_to_dot, Task, TaskKind, TaskState, DAG};
+use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
+use ecaa_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::taxonomy::StageTaxonomy;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -39,10 +39,10 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
     // (`policies/atom-prereqs/<atom_id>.json`) at emit time. Populated
     // by `process_classification` from `output.composition.atoms`; stays
     // None until the first successful classification.
-    let mut current_atoms: Option<Vec<scripps_workflow_core::atom::AtomDefinition>> = None;
+    let mut current_atoms: Option<Vec<ecaa_workflow_core::atom::AtomDefinition>> = None;
     let mut intake_methods: IntakeMethods = IntakeMethods::new();
     let mut awaiting_confirm = false;
-    let mut pending_classification: Option<scripps_workflow_core::classify::ClassificationResult> =
+    let mut pending_classification: Option<ecaa_workflow_core::classify::ClassificationResult> =
         None;
     // Track last classified modality so we only re-print the banner
     // on modality change, not on every line of added prose (debounce).
@@ -88,9 +88,9 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                     let compute_profiles_opt =
                         compute_profiles_dir.as_deref().filter(|p| p.exists());
                     let intake_facts =
-                        scripps_workflow_core::intake_facts::IntakeFacts::from_classification(&clf);
+                        ecaa_workflow_core::intake_facts::IntakeFacts::from_classification(&clf);
                     let runtime_prereqs = current_taxonomy.as_ref().map(|t| {
-                        scripps_workflow_core::runtime_prereqs::aggregate_taxonomy(t, &[])
+                        ecaa_workflow_core::runtime_prereqs::aggregate_taxonomy(t, &[])
                     });
                     // Per-atom runtime-prereqs map. The harness reads
                     // `policies/atom-prereqs/<atom_id>.json` per task
@@ -101,7 +101,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                     let per_atom_prereqs: Option<
                         std::collections::BTreeMap<
                             String,
-                            scripps_workflow_core::runtime_prereqs::RuntimePrereqs,
+                            ecaa_workflow_core::runtime_prereqs::RuntimePrereqs,
                         >,
                     > = current_atoms.as_ref().map(|atoms| {
                         atoms
@@ -142,7 +142,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                         output.cyan()
                     );
                     println!(
-                        "  Run: scripps-workflow-harness --package {} --agent claude",
+                        "  Run: ecaa-workflow-harness --package {} --agent claude",
                         output
                     );
                 } else {
@@ -259,7 +259,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                 conversation.push_str(&format!("\n{}", line));
                 let new_clf = classifier.classify(&conversation);
                 if new_clf.confidence
-                    >= scripps_workflow_core::classify_gates::CONFIDENCE_GATE_MEDIUM
+                    >= ecaa_workflow_core::classify_gates::CONFIDENCE_GATE_MEDIUM
                     && !new_clf.modality.is_empty()
                     && new_clf.modality != "generic_omics"
                 {
@@ -306,7 +306,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
         }
 
         // Confidence gating: < 0.5 requires SME confirmation
-        if clf_result.confidence < scripps_workflow_core::classify_gates::CONFIDENCE_GATE_MEDIUM
+        if clf_result.confidence < ecaa_workflow_core::classify_gates::CONFIDENCE_GATE_MEDIUM
             && !clf_result.modality.is_empty()
             && clf_result.modality != "generic_omics"
         {
@@ -341,12 +341,12 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
 }
 
 fn process_classification(
-    clf: &scripps_workflow_core::classify::ClassificationResult,
+    clf: &ecaa_workflow_core::classify::ClassificationResult,
     _intake_methods: &IntakeMethods,
     config_path: &Path,
     current_dag: &mut Option<DAG>,
     current_taxonomy: &mut Option<StageTaxonomy>,
-    current_atoms: &mut Option<Vec<scripps_workflow_core::atom::AtomDefinition>>,
+    current_atoms: &mut Option<Vec<ecaa_workflow_core::atom::AtomDefinition>>,
 ) -> Result<()> {
     // Phase B4 — compose through the v4 path.
     let atoms = AtomRegistry::load_from_dir(&config_path.join("stage-atoms"))?;
@@ -460,7 +460,7 @@ fn process_classification(
     // Capture the composer's matched atoms so /ready can build the
     // per-atom runtime-prereqs map for emit. Mirrors `run_intake`'s
     // `composed_atoms` extraction in `crates/cli/src/main.rs:447-468`.
-    let composed_atoms: Vec<scripps_workflow_core::atom::AtomDefinition> = output
+    let composed_atoms: Vec<ecaa_workflow_core::atom::AtomDefinition> = output
         .composition
         .atoms
         .iter()
@@ -542,7 +542,7 @@ fn build_classification_result(
     classifier: &Classifier,
     taxonomy: Option<&StageTaxonomy>,
     _methods: &IntakeMethods,
-) -> scripps_workflow_core::classify::ClassificationResult {
+) -> ecaa_workflow_core::classify::ClassificationResult {
     let mut result = classifier.classify(text);
     if let Some(t) = taxonomy {
         result.domain = t.domain.clone();

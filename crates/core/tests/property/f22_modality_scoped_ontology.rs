@@ -7,8 +7,8 @@
 //! forbidden-ontology proposals.
 
 use proptest::prelude::*;
-use scripps_workflow_core::ontology_scope::{OntologyScopeMatrix, ScopeCheck};
-use scripps_workflow_core::workflow_contracts::workflow_intent::BioinformaticsModality;
+use ecaa_workflow_core::ontology_scope::{OntologyScopeMatrix, ScopeCheck};
+use ecaa_workflow_core::workflow_contracts::workflow_intent::BioinformaticsModality;
 
 proptest! {
     /// Same (modality × prefix) lookup returns the same outcome

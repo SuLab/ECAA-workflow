@@ -6,16 +6,16 @@
 //! must be opted in explicitly with `cargo test -- --ignored`.
 //!
 //! Run the pure tests:
-//! cargo test -p scripps-workflow-harness sandbox_runner
+//! cargo test -p ecaa-workflow-harness sandbox_runner
 //!
 //! Run the spawn tests (requires bwrap on PATH):
-//! cargo test -p scripps-workflow-harness sandbox_runner -- --ignored
+//! cargo test -p ecaa-workflow-harness sandbox_runner -- --ignored
 
 // S5.32 — `unsafe` waiver scoped to env-mutation in test setup/teardown.
 #![allow(unsafe_code)]
 
-use scripps_workflow_core::sandbox_policy::SandboxPolicy;
-use scripps_workflow_harness::sandbox_enforcer::{BubblewrapRunner, SandboxRunnerError};
+use ecaa_workflow_core::sandbox_policy::SandboxPolicy;
+use ecaa_workflow_harness::sandbox_enforcer::{BubblewrapRunner, SandboxRunnerError};
 use std::path::PathBuf;
 
 /// Helper: a strict policy with a specific field overridden.

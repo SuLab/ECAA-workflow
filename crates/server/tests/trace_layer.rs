@@ -10,7 +10,7 @@
 
 use axum::extract::ConnectInfo;
 use axum::{body::Body, http::Request, Router};
-use scripps_workflow_server::build_trace_layer;
+use ecaa_workflow_server::build_trace_layer;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tower::ServiceExt;

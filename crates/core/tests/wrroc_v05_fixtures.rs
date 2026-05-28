@@ -17,8 +17,8 @@
 //! build_dag_from_workflow_dag -> build_metadata -> ro-crate-metadata.json,
 //! then the runcrate wrapper validates each emitted descriptor.
 
-use scripps_workflow_core::wrroc_validator::WrrocValidator;
-use scripps_workflow_harness::wrroc_validator_impl::PythonRuncrateWrrocValidator;
+use ecaa_workflow_core::wrroc_validator::WrrocValidator;
+use ecaa_workflow_harness::wrroc_validator_impl::PythonRuncrateWrrocValidator;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
@@ -76,13 +76,13 @@ fn fixtures_directory_has_23_intakes() {
 /// 6/23 failures). Hard panics on test-infrastructure errors
 /// (unreadable config, malformed fixture JSON).
 fn emit_package_for_fixture(fixture: &IntakeFixture, out_dir: &Path) -> bool {
-    use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-    use scripps_workflow_core::atom_registry::AtomRegistry;
-    use scripps_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
-    use scripps_workflow_core::classify::Classifier;
-    use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-    use scripps_workflow_core::goal_spec::GoalSpec;
-    use scripps_workflow_core::ro_crate::build_metadata;
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::atom_registry::AtomRegistry;
+    use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
+    use ecaa_workflow_core::classify::Classifier;
+    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::goal_spec::GoalSpec;
+    use ecaa_workflow_core::ro_crate::build_metadata;
     use std::collections::BTreeMap;
 
     let config = config_root();
@@ -182,7 +182,7 @@ fn emit_package_for_fixture(fixture: &IntakeFixture, out_dir: &Path) -> bool {
     let metadata = build_metadata(
         &dag,
         &clf,
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     let bytes = match serde_json::to_vec_pretty(&metadata) {
         Ok(b) => b,
@@ -221,7 +221,7 @@ fn emit_package_for_fixture(fixture: &IntakeFixture, out_dir: &Path) -> bool {
 /// or directly:
 ///
 /// ```text
-/// cargo test -p scripps-workflow-core --test wrroc_v05_fixtures \
+/// cargo test -p ecaa-workflow-core --test wrroc_v05_fixtures \
 /// g1_acceptance_at_least_17_of_23_fixtures_validate \
 /// -- --ignored --nocapture
 /// ```

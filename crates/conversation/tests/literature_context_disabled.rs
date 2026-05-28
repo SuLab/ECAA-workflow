@@ -1,4 +1,4 @@
-use scripps_workflow_conversation::tools::literature_context::literature_context_enabled;
+use ecaa_workflow_conversation::tools::literature_context::literature_context_enabled;
 use std::sync::{Mutex, OnceLock};
 
 fn env_lock() -> &'static Mutex<()> {

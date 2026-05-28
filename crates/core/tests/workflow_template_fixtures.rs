@@ -9,10 +9,10 @@
 //! ordering, sorted iteration). Determinism tests on the round
 //! trip pin that contract.
 
-use scripps_workflow_core::workflow_contracts::task_node::{
+use ecaa_workflow_core::workflow_contracts::task_node::{
     ConditionalEdge, IterationDeclaration, ScatterDeclaration, WorkflowTemplate,
 };
-use scripps_workflow_core::workflow_contracts::{
+use ecaa_workflow_core::workflow_contracts::{
     CompatibilityProof, EdgeContract, Implementation, OciImageRef, PortContract, SemanticType,
     TaskNode,
 };

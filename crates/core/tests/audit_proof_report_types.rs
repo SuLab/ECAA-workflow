@@ -1,4 +1,4 @@
-use scripps_workflow_core::audit_proof::{
+use ecaa_workflow_core::audit_proof::{
     AuditProofReport, InvariantId, InvariantStatus, InvariantVerdict,
 };
 

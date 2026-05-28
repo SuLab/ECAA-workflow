@@ -2,8 +2,8 @@
 //! blocker entries so concurrent blockers from different tasks are not
 //! overwritten by the latest event.
 
-use scripps_workflow_conversation::session::{Session, SessionState, StateTrigger};
-use scripps_workflow_core::blocker::BlockerKind;
+use ecaa_workflow_conversation::session::{Session, SessionState, StateTrigger};
+use ecaa_workflow_core::blocker::BlockerKind;
 
 fn seed_emitted_session() -> Session {
     let mut s = Session::new(false);

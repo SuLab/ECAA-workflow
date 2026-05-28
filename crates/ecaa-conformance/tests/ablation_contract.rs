@@ -1,4 +1,4 @@
-use scripps_workflow_core::ablation::AblationFlag;
+use ecaa_workflow_core::ablation::AblationFlag;
 
 #[test]
 fn ablation_contract_one_flag_one_sidecar() {

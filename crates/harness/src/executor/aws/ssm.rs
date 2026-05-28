@@ -10,8 +10,8 @@ use super::sizing::{read_dag, task_id_from_spec, task_stage_class, write_dag};
 use super::AwsExecutor;
 use crate::constants::OUTPUT_TAIL_BYTES;
 use anyhow::{anyhow, Context, Result};
-use scripps_workflow_core::dag::{Task, TaskState};
-use scripps_workflow_core::ids::TaskId;
+use ecaa_workflow_core::dag::{Task, TaskState};
+use ecaa_workflow_core::ids::TaskId;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::ExitStatus;
@@ -276,7 +276,7 @@ impl AwsExecutor {
             if let Some(t) = dag_mut.tasks.get_mut(task_id.as_str()) {
                 t.state = TaskState::Running {
                     started_at: chrono::Utc::now().to_rfc3339(),
-                    remote: Some(scripps_workflow_core::dag::RemoteExecution {
+                    remote: Some(ecaa_workflow_core::dag::RemoteExecution {
                         backend: "aws".to_string(),
                         instance_id: instance.instance_id.clone(),
                         instance_type: instance.instance_type.clone(),
@@ -526,7 +526,7 @@ impl AwsExecutor {
         &self,
         _task: &Task,
         task_id_hint: &str,
-        remote: &Option<scripps_workflow_core::dag::RemoteExecution>,
+        remote: &Option<ecaa_workflow_core::dag::RemoteExecution>,
     ) -> bool {
         let instance_id = remote
             .as_ref()

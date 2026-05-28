@@ -12,7 +12,7 @@ use crate::prompt::build_system_prompt;
 use crate::session::Session;
 use crate::tool_schemas::SCHEMA_VERSION;
 use crate::tools::Tool;
-use scripps_workflow_core::hash_utils::sha256_hex;
+use ecaa_workflow_core::hash_utils::sha256_hex;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -54,7 +54,7 @@ pub(super) fn build_for_session(session: &Session) -> ModelPolicySidecar {
     } else {
         Vec::new()
     };
-    let cache_ttl = if scripps_workflow_core::env_helpers::env_bool("SWFC_ALLOW_1H_CACHE") {
+    let cache_ttl = if ecaa_workflow_core::env_helpers::env_bool("SWFC_ALLOW_1H_CACHE") {
         "ephemeral_1h".to_string()
     } else {
         "ephemeral_5m".to_string()

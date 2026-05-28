@@ -12,7 +12,7 @@
 //! test verifies that two concurrent send_turn calls serialize — both
 //! complete, exactly one emits, and the package is byte-coherent.
 
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     BatchableTool, ConversationService, LlmBackend, MockLlmBackend, SessionStore, StopReason, Tool,
     TurnResponse, Usage,
 };

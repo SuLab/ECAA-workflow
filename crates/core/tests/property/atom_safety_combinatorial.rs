@@ -16,11 +16,11 @@
 //! tuple.
 
 use proptest::prelude::*;
-use scripps_workflow_core::atom::{
+use ecaa_workflow_core::atom::{
     AtomDefinition, CodeExecution, NetworkPolicy, ProvisioningPolicy, SafetyLevel,
     SandboxRequirement,
 };
-use scripps_workflow_core::atom_safety::validate_atom_safety;
+use ecaa_workflow_core::atom_safety::validate_atom_safety;
 
 fn safety_level_strategy() -> impl Strategy<Value = SafetyLevel> {
     prop_oneof![

@@ -5,7 +5,7 @@
 //! write never lands in front of the executor.
 
 use anyhow::{Context, Result};
-use scripps_workflow_core::remediation::ExecutorOverrides;
+use ecaa_workflow_core::remediation::ExecutorOverrides;
 use std::path::{Path, PathBuf};
 
 /// Resolve the on-disk path for a task's overrides file. The directory
@@ -40,7 +40,7 @@ pub fn read(package: &Path, task_id: &str) -> Result<Option<ExecutorOverrides>> 
 pub fn write(package: &Path, task_id: &str, overrides: &ExecutorOverrides) -> Result<()> {
     let path = overrides_path(package, task_id);
     let raw = serde_json::to_string_pretty(overrides).context("serialising overrides")?;
-    scripps_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, raw.as_bytes())
+    ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, raw.as_bytes())
         .with_context(|| format!("atomic write overrides at {}", path.display()))?;
     Ok(())
 }
@@ -48,7 +48,7 @@ pub fn write(package: &Path, task_id: &str, overrides: &ExecutorOverrides) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::remediation::ResourceTarget;
+    use ecaa_workflow_core::remediation::ResourceTarget;
 
     #[test]
     fn read_missing_file_returns_none() {

@@ -33,7 +33,7 @@
 
 use crate::sandbox_enforcer::BubblewrapRunner;
 use crate::validators::{ValidatorOutcome, ValidatorRunner};
-use scripps_workflow_core::sandbox_policy::SandboxPolicy;
+use ecaa_workflow_core::sandbox_policy::SandboxPolicy;
 use std::fs;
 use std::path::{Path, PathBuf};
 

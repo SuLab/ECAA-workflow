@@ -33,7 +33,7 @@ pub fn sanitize_for_sme(text: &str) -> String {
     // Pass 1: translate stage-IDs through the shared label helper.
     let stage_replaced = STAGE_ID_PATTERN
         .replace_all(text, |caps: &regex::Captures| {
-            scripps_workflow_core::stage_labels::stage_id_to_human_label(&caps[0])
+            ecaa_workflow_core::stage_labels::stage_id_to_human_label(&caps[0])
         })
         .into_owned();
 

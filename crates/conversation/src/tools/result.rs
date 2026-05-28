@@ -6,7 +6,7 @@
 
 use crate::errors::{ToolError, ToolResult};
 use crate::session::Session;
-use scripps_workflow_core::dag::TaskState;
+use ecaa_workflow_core::dag::TaskState;
 use serde_json::Value;
 
 /// §3.4 — soft cap on the size of any single text field surfaced back
@@ -29,7 +29,7 @@ pub(super) fn get_session_state(session: &Session) -> ToolResult {
             .iter()
             // Typed role via `derive_role_from_id`.
             .filter(|(id, t)| {
-                scripps_workflow_core::taxonomy::derive_role_from_id(id.as_str()).is_discovery()
+                ecaa_workflow_core::taxonomy::derive_role_from_id(id.as_str()).is_discovery()
                     && matches!(t.state, TaskState::Pending | TaskState::Ready)
             })
             .map(|(id, _)| id.as_str())

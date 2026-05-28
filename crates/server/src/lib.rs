@@ -1,4 +1,4 @@
-//! `scripps-workflow-server` lib target.
+//! `ecaa-workflow-server` lib target.
 //!
 //! Hybrid lib + bin layout. The bin's job (`src/main.rs`) is just to
 //! parse the port arg, install the tracing subscriber, and call
@@ -212,7 +212,7 @@ pub async fn run() {
         // the operator wanted. Refuse to start unless they've explicitly
         // ack'd via SWFC_SERVER_LAN_NO_AUTH=1; the bare warning the
         // previous version emitted was easy to lose in log volume.
-        let allow_unsafe = scripps_workflow_core::env_helpers::env_bool("SWFC_SERVER_LAN_NO_AUTH");
+        let allow_unsafe = ecaa_workflow_core::env_helpers::env_bool("SWFC_SERVER_LAN_NO_AUTH");
         if allow_unsafe {
             tracing::error!(
                 "server binding {} — LAN-exposed without auth (SWFC_SERVER_LAN_NO_AUTH=1 \
@@ -253,8 +253,8 @@ pub async fn run() {
     // the chat itself. For local dev set INTERVAL_MS=10 BURST=10000.
     // 2 s == prior `.per_second(2)` behavior
     let rl_interval_ms: u64 =
-        scripps_workflow_core::env_helpers::env_parse("SWFC_RATE_LIMIT_INTERVAL_MS", 2_000);
-    let rl_burst: u32 = scripps_workflow_core::env_helpers::env_parse("SWFC_RATE_LIMIT_BURST", 30);
+        ecaa_workflow_core::env_helpers::env_parse("SWFC_RATE_LIMIT_INTERVAL_MS", 2_000);
+    let rl_burst: u32 = ecaa_workflow_core::env_helpers::env_parse("SWFC_RATE_LIMIT_BURST", 30);
     let governor_conf = std::sync::Arc::new(
         GovernorConfigBuilder::default()
             .per_millisecond(rl_interval_ms.max(1))
@@ -361,7 +361,7 @@ pub async fn run() {
             ServeDir::new("ui/dist").not_found_service(ServeFile::new("ui/dist/index.html")),
         );
     println!(
-        "scripps-workflow-server listening on http://{} (set SWFC_BIND_ADDR=0.0.0.0 to widen)",
+        "ecaa-workflow-server listening on http://{} (set SWFC_BIND_ADDR=0.0.0.0 to widen)",
         addr
     );
 

@@ -7,7 +7,7 @@
 //! sessions — isolated here so that removal is a one-file diff.
 
 use super::SessionState;
-use scripps_workflow_core::blocker::{BlockerContext, BlockerKind};
+use ecaa_workflow_core::blocker::{BlockerContext, BlockerKind};
 
 impl SessionState {
     /// Resolve the typed `BlockerKind` for a `Blocked` state, falling

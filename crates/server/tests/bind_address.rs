@@ -1,4 +1,4 @@
-use scripps_workflow_server::resolve_bind_addr;
+use ecaa_workflow_server::resolve_bind_addr;
 
 // These tests mutate the process-global `SWFC_BIND_ADDR` env var.
 // `#[serial_test::serial]` (keyed on the var name) prevents them from

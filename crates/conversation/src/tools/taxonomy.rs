@@ -10,7 +10,7 @@ use crate::errors::{ToolError, ToolResult};
 use std::path::Path;
 
 pub(super) fn get_taxonomy_info(modality_id: &str, config_dir: &Path) -> ToolResult {
-    use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
     let archetype_dir = config_dir.join("archetypes");
     let registry = match ArchetypeRegistry::load_cached(&archetype_dir) {
         Ok(r) => r,

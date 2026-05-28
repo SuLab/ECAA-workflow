@@ -18,10 +18,10 @@
 //! (which requires metamorphic min_count: 2 + bio min_count: 2
 //! + statistical_sanity + reproducibility + two approval classes).
 
-use scripps_workflow_core::promotion_gate_policy::{
+use ecaa_workflow_core::promotion_gate_policy::{
     PassingClassCounts, PromotionDecision, PromotionGatePolicy,
 };
-use scripps_workflow_core::workflow_contracts::lifecycle::LifecycleState;
+use ecaa_workflow_core::workflow_contracts::lifecycle::LifecycleState;
 
 fn load_canonical_policy() -> std::sync::Arc<PromotionGatePolicy> {
     PromotionGatePolicy::load_from_file(std::path::Path::new(

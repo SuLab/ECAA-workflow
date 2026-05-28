@@ -6,7 +6,7 @@
 //! metadata to consumers without any code change. Mirrors the
 //! `project_class_registry_synthetic_class` test pattern from S4.
 
-use scripps_workflow_core::modality_registry::ModalityRegistry;
+use ecaa_workflow_core::modality_registry::ModalityRegistry;
 use std::path::Path;
 
 #[test]

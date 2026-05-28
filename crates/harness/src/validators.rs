@@ -742,7 +742,7 @@ mod tests {
     /// obligation source registered by `with_starters`).
     #[test]
     fn default_runners_cover_starter_obligations() {
-        use scripps_workflow_core::validation_obligations::{
+        use ecaa_workflow_core::validation_obligations::{
             renderer_validation_bundle, ValidationRegistry,
         };
 

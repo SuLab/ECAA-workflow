@@ -15,8 +15,8 @@
 //! 5. quote_mismatch_blocks — tampered quote → typed QuoteNotInSource cause
 //! 6. adversarial_concordance — out-of-set concordance_flag → typed cause
 
-use scripps_workflow_core::blocker::{LiteratureClaimFailureKind, ValidationFailureCause};
-use scripps_workflow_harness::literature_validators::{
+use ecaa_workflow_core::blocker::{LiteratureClaimFailureKind, ValidationFailureCause};
+use ecaa_workflow_harness::literature_validators::{
     run_concordance_flag_in_closed_set, run_evidence_quote_substring_match, run_pmid_resolves,
     run_redistributable_or_marked,
 };

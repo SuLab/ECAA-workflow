@@ -12,7 +12,7 @@
 //! `ProjectClass::Bioinformatics` (no `Research` variant exists). This
 //! mirrors the in-crate regression tests around L1160-L1244.
 
-use scripps_workflow_core::{
+use ecaa_workflow_core::{
     classify::{classify_project_class, load_project_class_keywords, ProjectClassKeywordsConfig},
     project_class::ProjectClass,
 };

@@ -8,10 +8,10 @@
 
 #[test]
 fn backward_search_synthesizes_chain_for_mr_goal() {
-    use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-    use scripps_workflow_core::atom_registry::AtomRegistry;
-    use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-    use scripps_workflow_core::goal_spec::GoalSpec;
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::atom_registry::AtomRegistry;
+    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::goal_spec::GoalSpec;
 
     let archetypes = ArchetypeRegistry::load_from_dir(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

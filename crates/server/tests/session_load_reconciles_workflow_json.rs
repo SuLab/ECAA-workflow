@@ -20,9 +20,9 @@
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use scripps_workflow_conversation::{LlmBackend, MockLlmBackend, Session, SessionStore};
-use scripps_workflow_core::dag::TaskState;
-use scripps_workflow_server::chat_routes;
+use ecaa_workflow_conversation::{LlmBackend, MockLlmBackend, Session, SessionStore};
+use ecaa_workflow_core::dag::TaskState;
+use ecaa_workflow_server::chat_routes;
 use std::path::Path;
 use std::sync::Arc;
 use tower::util::ServiceExt;
@@ -43,7 +43,7 @@ async fn make_router_over(sessions_dir: &Path) -> (axum::Router, chat_routes::Ch
     let backend: Arc<dyn LlmBackend> = Arc::new(MockLlmBackend::new(vec![]));
     let app = chat_routes::ChatAppState::with_backend(backend, store, config_dir());
     let router = chat_routes::router(app.clone()).layer(axum::Extension(
-        scripps_workflow_server::auth::RequestPrincipal::test_default(),
+        ecaa_workflow_server::auth::RequestPrincipal::test_default(),
     ));
     (router, app)
 }

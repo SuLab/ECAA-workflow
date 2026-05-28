@@ -5,11 +5,11 @@
 //! running Python is `#[ignore]`; pure-Rust serde + gate tests run
 //! immediately.
 
-use scripps_workflow_core::plot_affordance::promotion::{
+use ecaa_workflow_core::plot_affordance::promotion::{
     promote_renderer, PromotionError, RendererPromotionRequest, ValidationOutcome, ValidationRow,
 };
-use scripps_workflow_core::plot_affordance::sandbox::{check_drafted_renderer, SandboxOutcome};
-use scripps_workflow_core::sandbox_policy::{SandboxPolicy, SandboxRefusal};
+use ecaa_workflow_core::plot_affordance::sandbox::{check_drafted_renderer, SandboxOutcome};
+use ecaa_workflow_core::sandbox_policy::{SandboxPolicy, SandboxRefusal};
 
 // ---------------------------------------------------------------------------
 // DraftedRenderer serde round-trip

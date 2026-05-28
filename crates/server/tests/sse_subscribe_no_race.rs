@@ -10,8 +10,8 @@
 //! path can lose events fired between the steps, and the atomic path
 //! catches them.
 
-use scripps_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore};
-use scripps_workflow_server::chat_routes::{ChatAppState, SsePayload};
+use ecaa_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore};
+use ecaa_workflow_server::chat_routes::{ChatAppState, SsePayload};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

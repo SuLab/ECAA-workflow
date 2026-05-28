@@ -136,7 +136,7 @@ impl GitConfig {
     /// Atomic write: serialize → `.tmp` → fsync → rename → fsync parent.
     pub fn save(&self, path: &Path) -> Result<()> {
         let body = serde_json::to_vec_pretty(self)?;
-        scripps_workflow_core::fs_helpers::atomic_write_bytes_sync(path, &body)?;
+        ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(path, &body)?;
         Ok(())
     }
 

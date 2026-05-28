@@ -9,10 +9,10 @@ use super::classification::load_classifier;
 use super::{rebuild_dag, state_delta, validate_discover_stage};
 use crate::errors::{ToolError, ToolResult};
 use crate::session::Session;
-use scripps_workflow_core::classify::{
+use ecaa_workflow_core::classify::{
     classify_project_class, load_project_class_keywords, ClassificationResult,
 };
-use scripps_workflow_core::taxonomy::StageTaxonomy;
+use ecaa_workflow_core::taxonomy::StageTaxonomy;
 use std::path::Path;
 
 /// Route intake prose to a ProjectClass after each
@@ -29,7 +29,7 @@ use std::path::Path;
 /// truly switching domains. Forward transitions (Bio → non-bio, or
 /// non-bio → other non-bio) still apply.
 fn reclassify_project_class(session: &mut Session, prose: &str, config_dir: &Path) {
-    use scripps_workflow_core::project_class::ProjectClass;
+    use ecaa_workflow_core::project_class::ProjectClass;
     let path = config_dir.join("project-class-keywords.yaml");
     if let Ok(cfg) = load_project_class_keywords(&path) {
         let new_class = classify_project_class(prose, &cfg);
@@ -90,12 +90,12 @@ pub(super) fn set_intake_field(
         .set(stage, None, Some((field.to_string(), parsed.clone())));
 
     session.record_decision(
-        scripps_workflow_core::decision_log::DecisionType::SetIntakeField {
+        ecaa_workflow_core::decision_log::DecisionType::SetIntakeField {
             stage: stage.to_string(),
             field: field.to_string(),
             value: parsed,
         },
-        scripps_workflow_core::decision_log::DecisionActor::Llm,
+        ecaa_workflow_core::decision_log::DecisionActor::Llm,
         None,
     );
 
@@ -158,7 +158,7 @@ pub(super) fn set_intake_excluded_atoms(
         .collect();
     session.excluded_atoms = normalized.clone();
     session.record_decision(
-        scripps_workflow_core::decision_log::DecisionType::SetIntakeField {
+        ecaa_workflow_core::decision_log::DecisionType::SetIntakeField {
             stage: "_session".to_string(),
             field: "excluded_atoms".to_string(),
             value: serde_json::Value::Array(
@@ -168,7 +168,7 @@ pub(super) fn set_intake_excluded_atoms(
                     .collect(),
             ),
         },
-        scripps_workflow_core::decision_log::DecisionActor::Llm,
+        ecaa_workflow_core::decision_log::DecisionActor::Llm,
         None,
     );
     if let Err(e) = rebuild_dag(session, config_dir) {
@@ -209,7 +209,7 @@ pub(super) fn set_intake_modality(
     // the process-wide `load_cached` so repeated tool dispatches in a
     // chat session pay the YAML-parse + schema-validate cost once.
     let modalities_dir = config_dir.join("modalities");
-    let registry = match scripps_workflow_core::modality_registry::ModalityRegistry::load_cached(
+    let registry = match ecaa_workflow_core::modality_registry::ModalityRegistry::load_cached(
         &modalities_dir,
     ) {
         Ok(r) => r,
@@ -286,12 +286,12 @@ pub(super) fn set_intake_modality(
     }
 
     session.record_decision(
-        scripps_workflow_core::decision_log::DecisionType::SetIntakeField {
+        ecaa_workflow_core::decision_log::DecisionType::SetIntakeField {
             stage: "_session".to_string(),
             field: "modality".to_string(),
             value: serde_json::Value::String(trimmed.to_string()),
         },
-        scripps_workflow_core::decision_log::DecisionActor::Llm,
+        ecaa_workflow_core::decision_log::DecisionActor::Llm,
         None,
     );
 
@@ -401,11 +401,11 @@ pub(super) fn set_intake_method(
         .set(stage, Some(method_prose.to_string()), None);
 
     session.record_decision(
-        scripps_workflow_core::decision_log::DecisionType::SetIntakeMethod {
+        ecaa_workflow_core::decision_log::DecisionType::SetIntakeMethod {
             stage: stage.to_string(),
             method_prose: method_prose.to_string(),
         },
-        scripps_workflow_core::decision_log::DecisionActor::Llm,
+        ecaa_workflow_core::decision_log::DecisionActor::Llm,
         None,
     );
 
@@ -544,7 +544,7 @@ pub(crate) fn append_intake_prose(
     {
         let disambig_path = config_dir.join("classifier-disambiguation.yaml");
         if disambig_path.exists() {
-            match scripps_workflow_core::disambiguation::DisambiguationRegistry::load(
+            match ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(
                 &disambig_path,
             ) {
                 Ok(reg) => {
@@ -605,18 +605,18 @@ pub(crate) fn append_intake_prose(
         if let Some(goal) = new_clf.goal.as_ref() {
             let archetype_dir = config_dir.join("archetypes");
             if let Ok(reg) =
-                scripps_workflow_core::archetype_registry::ArchetypeRegistry::load_cached(
+                ecaa_workflow_core::archetype_registry::ArchetypeRegistry::load_cached(
                     &archetype_dir,
                 )
             {
                 let project_class_str = match session.project_class {
-                    scripps_workflow_core::project_class::ProjectClass::Bioinformatics => {
+                    ecaa_workflow_core::project_class::ProjectClass::Bioinformatics => {
                         "bioinformatics"
                     }
-                    scripps_workflow_core::project_class::ProjectClass::ClinicalTrial => {
+                    ecaa_workflow_core::project_class::ProjectClass::ClinicalTrial => {
                         "clinical_trial"
                     }
-                    scripps_workflow_core::project_class::ProjectClass::TimeSeriesForecast => {
+                    ecaa_workflow_core::project_class::ProjectClass::TimeSeriesForecast => {
                         "time_series_forecast"
                     }
                 };
@@ -672,7 +672,7 @@ pub(crate) fn append_intake_prose(
                             project_class_str,
                             &requested,
                             target_kind,
-                            scripps_workflow_core::classify::is_n_way_intent(&new_clf.intake_text),
+                            ecaa_workflow_core::classify::is_n_way_intent(&new_clf.intake_text),
                             &new_clf.intake_text,
                         )
                         .into_iter()
@@ -736,12 +736,12 @@ pub(crate) fn append_intake_prose(
     let modality_changed = prior_modality.as_deref() != Some(new_clf.modality.as_str());
 
     session.record_decision(
-        scripps_workflow_core::decision_log::DecisionType::AppendIntakeProse {
+        ecaa_workflow_core::decision_log::DecisionType::AppendIntakeProse {
             fragment: prose.to_string(),
             classified_modality: new_clf.modality.clone(),
             modality_changed,
         },
-        scripps_workflow_core::decision_log::DecisionActor::Llm,
+        ecaa_workflow_core::decision_log::DecisionActor::Llm,
         None,
     );
 
@@ -781,7 +781,7 @@ fn materialize_workflow_intent(
     classification: &ClassificationResult,
     _latest_prose_fragment: &str,
 ) {
-    use scripps_workflow_core::workflow_contracts::workflow_intent::WorkflowIntent;
+    use ecaa_workflow_core::workflow_contracts::workflow_intent::WorkflowIntent;
 
     let mut legacy = std::collections::BTreeMap::new();
     if !classification.organisms.is_empty() {
@@ -807,20 +807,20 @@ fn materialize_workflow_intent(
     }
 
     let project_class = match session.project_class {
-        scripps_workflow_core::project_class::ProjectClass::Bioinformatics => {
+        ecaa_workflow_core::project_class::ProjectClass::Bioinformatics => {
             Some("research".to_string())
         }
-        scripps_workflow_core::project_class::ProjectClass::ClinicalTrial => {
+        ecaa_workflow_core::project_class::ProjectClass::ClinicalTrial => {
             Some("clinical_trial".to_string())
         }
-        scripps_workflow_core::project_class::ProjectClass::TimeSeriesForecast => {
+        ecaa_workflow_core::project_class::ProjectClass::TimeSeriesForecast => {
             Some("time_series_forecast".to_string())
         }
     };
 
     let intent = WorkflowIntent {
         id: session.id.to_string(),
-        schema_version: scripps_workflow_core::migration::current_workflow_intent_version(),
+        schema_version: ecaa_workflow_core::migration::current_workflow_intent_version(),
         goal: session.intake_prose.clone(),
         modality: Some(classification.modality.clone()),
         project_class,
@@ -882,8 +882,8 @@ fn materialize_workflow_intent(
 /// correct on `Blocked` exits by re-recording the same iri with
 /// `succeeded=false` when it transitions there.
 pub(super) fn route_local_extensions_through_aggregator(session: &mut Session) {
-    use scripps_workflow_core::local_extension_graduation::GraduationConfig;
-    use scripps_workflow_core::workflow_contracts::semantic_type::{
+    use ecaa_workflow_core::local_extension_graduation::GraduationConfig;
+    use ecaa_workflow_core::workflow_contracts::semantic_type::{
         LocalExtensionMaturity, SemanticType,
     };
 
@@ -957,7 +957,7 @@ pub(super) fn route_local_extensions_through_aggregator(session: &mut Session) {
                     unique_sessions: candidacy.unique_sessions,
                     success_rate: candidacy.success_rate,
                     graduation_target_ontology: candidacy.graduation_target_ontology,
-                    proposed_at: scripps_workflow_core::time_helpers::now_rfc3339(),
+                    proposed_at: ecaa_workflow_core::time_helpers::now_rfc3339(),
                 };
             }
         }
@@ -1046,12 +1046,12 @@ fn requested_modalities(classification: &ClassificationResult) -> std::collectio
 /// when no archetype matches.
 fn build_taxonomy_metadata_for_modality(
     modality_id: &str,
-    project_class: scripps_workflow_core::project_class::ProjectClass,
+    project_class: ecaa_workflow_core::project_class::ProjectClass,
     config_dir: &Path,
 ) -> anyhow::Result<StageTaxonomy> {
     use anyhow::{anyhow, Context};
-    use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-    use scripps_workflow_core::project_class::ProjectClass;
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::project_class::ProjectClass;
     let archetype_dir = config_dir.join("archetypes");
     let registry = ArchetypeRegistry::load_cached(&archetype_dir).with_context(|| {
         format!(
@@ -1137,7 +1137,7 @@ fn maybe_clear_pending_disambiguation_from_prose(
         return;
     }
     let Ok(reg) =
-        scripps_workflow_core::disambiguation::DisambiguationRegistry::load(&disambig_path)
+        ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(&disambig_path)
     else {
         return;
     };
@@ -1187,7 +1187,7 @@ pub(crate) fn clear_disambiguation_on_selection(
         return;
     }
     let Ok(reg) =
-        scripps_workflow_core::disambiguation::DisambiguationRegistry::load(&disambig_path)
+        ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(&disambig_path)
     else {
         session.pending_disambiguation = None;
         return;

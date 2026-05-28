@@ -1,17 +1,17 @@
-//! Integration tests for [`scripps_workflow_core::hypothesized_proposal`].
+//! Integration tests for [`ecaa_workflow_core::hypothesized_proposal`].
 //!
 //! Covers the transient / materialized synthesis helpers and the
 //! `record_gate` mutation contract.
 
-use scripps_workflow_core::atom::AtomRole;
-use scripps_workflow_core::hypothesized_proposal::{
+use ecaa_workflow_core::atom::AtomRole;
+use ecaa_workflow_core::hypothesized_proposal::{
     promoted_proposal_to_atom_definition, proposal_to_materialized_task_node,
     proposal_to_transient_task_node, GateName, GateOutcome, HypothesizedProposal,
     ProposalBlockerReason, ProposalLifecycle,
 };
-use scripps_workflow_core::workflow_contracts::implementation::Implementation;
-use scripps_workflow_core::workflow_contracts::lifecycle::{LifecycleState, PromotionAuthority};
-use scripps_workflow_core::workflow_contracts::semantic_type::SemanticType;
+use ecaa_workflow_core::workflow_contracts::implementation::Implementation;
+use ecaa_workflow_core::workflow_contracts::lifecycle::{LifecycleState, PromotionAuthority};
+use ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType;
 
 fn sample_proposal() -> HypothesizedProposal {
     HypothesizedProposal::new(

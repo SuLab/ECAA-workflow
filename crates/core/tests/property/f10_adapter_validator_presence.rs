@@ -7,7 +7,7 @@
 //! in its `validators` field. Site-local YAML adapters that fail the
 //! invariant will fail this gate at registry-build time.
 
-use scripps_workflow_core::adapter_registry::{AdapterRegistry, AdapterSafety};
+use ecaa_workflow_core::adapter_registry::{AdapterRegistry, AdapterSafety};
 
 #[test]
 fn every_lossless_starter_carries_at_least_one_validator() {

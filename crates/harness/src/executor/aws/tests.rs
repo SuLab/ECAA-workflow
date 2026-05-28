@@ -18,7 +18,7 @@
 // scoped to this file.
 #![allow(unsafe_code)]
 use super::*;
-use scripps_workflow_core::dag::TaskState;
+use ecaa_workflow_core::dag::TaskState;
 use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
@@ -470,7 +470,7 @@ fn scan_orphans_filters_live_peer_session() {
 
 // Pilot + stall monitor tests
 
-use scripps_workflow_core::dag::{Assignee, ResourceClass, Task as DagTask, TaskId, TaskKind};
+use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task as DagTask, TaskId, TaskKind};
 use std::collections::BTreeMap as BT;
 
 /// Build an AwsExecutor whose args.package points at `pkg_path`.
@@ -544,7 +544,7 @@ fn pilot_dag() -> DAG {
     );
     DAG {
         version: "1".into(),
-        schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+        schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
         workflow_id: "pilot-test".into(),
         current_task: None,
         tasks: t,
@@ -561,7 +561,7 @@ fn single_stage_dag(stage: &str) -> DAG {
     );
     DAG {
         version: "1".into(),
-        schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+        schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
         workflow_id: "single-stage".into(),
         current_task: None,
         tasks: t,
@@ -1044,7 +1044,7 @@ fn is_task_stale_caches_ssm_result_within_ttl() {
         kind: TaskKind::Computation,
         state: TaskState::Running {
             started_at: started,
-            remote: Some(scripps_workflow_core::dag::RemoteExecution {
+            remote: Some(ecaa_workflow_core::dag::RemoteExecution {
                 backend: "aws".into(),
                 instance_id: "i-test".into(),
                 instance_type: "r6i.4xlarge".into(),
@@ -1102,7 +1102,7 @@ fn invalidate_ssm_stale_cache_forces_requery() {
         kind: TaskKind::Computation,
         state: TaskState::Running {
             started_at: started,
-            remote: Some(scripps_workflow_core::dag::RemoteExecution {
+            remote: Some(ecaa_workflow_core::dag::RemoteExecution {
                 backend: "aws".into(),
                 instance_id: "i-test".into(),
                 instance_type: "r6i.4xlarge".into(),

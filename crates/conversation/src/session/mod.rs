@@ -21,7 +21,7 @@
 
 use chrono::Utc;
 use rand::RngCore;
-use scripps_workflow_core::builder::IntakeMethods;
+use ecaa_workflow_core::builder::IntakeMethods;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -88,7 +88,7 @@ impl IntakeMethodsSerde {
     pub fn to_core(&self) -> IntakeMethods {
         let mut out = IntakeMethods::new();
         for (k, v) in &self.0 {
-            let mut res = scripps_workflow_core::builder::IntakeResolution::new(v.method.clone());
+            let mut res = ecaa_workflow_core::builder::IntakeResolution::new(v.method.clone());
             for (fk, fv) in &v.fields {
                 res = res.with_field(fk.clone(), fv.clone());
             }
@@ -153,7 +153,7 @@ impl Session {
             // `schema_version` is the migration rail for the session
             // schema. Today's value is the current SemVer pin; the serde
             // adapter on the field accepts legacy `u64` reads.
-            schema_version: scripps_workflow_core::migration::current_session_version(),
+            schema_version: ecaa_workflow_core::migration::current_session_version(),
             // `composer_version` pins the composer this session
             // committed to. `read_composer_version` consults SWFC_COMPOSER
             // to pick between v1 (legacy taxonomy), v2 (archetype), v3
@@ -257,7 +257,7 @@ impl Session {
             // events as they occur. `#[serde(skip)]` on the field means it
             // is never persisted and always resets to empty on load/restart.
             affordance_fallback_counter:
-                scripps_workflow_core::plot_affordance::AffordanceFallbackCounter::default(),
+                ecaa_workflow_core::plot_affordance::AffordanceFallbackCounter::default(),
             // v3 P8 — adjudication queue starts empty.
             adjudication_queue: Vec::new(),
             // Atom-safety-policy no runtime-package
@@ -306,7 +306,7 @@ impl Session {
     /// shape. The D3 security-policy sidecar treats the empty case as
     /// "minimal valid manifest" (package_max_safety_level defaults to
     /// Compute, etc.).
-    pub fn atoms_in_use(&self) -> Vec<scripps_workflow_core::atom::AtomDefinition> {
+    pub fn atoms_in_use(&self) -> Vec<ecaa_workflow_core::atom::AtomDefinition> {
         Vec::new()
     }
 

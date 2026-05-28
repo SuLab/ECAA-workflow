@@ -2,7 +2,7 @@ use axum::{
     body::Body,
     http::{Request, StatusCode},
 };
-use scripps_workflow_server::auth::{auth_middleware, AuthConfig};
+use ecaa_workflow_server::auth::{auth_middleware, AuthConfig};
 use tower::ServiceExt;
 
 fn app(cfg: AuthConfig) -> axum::Router {
@@ -90,7 +90,7 @@ async fn wrong_bearer_returns_401() {
 #[tokio::test]
 async fn cors_rejects_unknown_origin() {
     use axum::http::Method;
-    use scripps_workflow_server::cors::build_cors;
+    use ecaa_workflow_server::cors::build_cors;
     let layer = build_cors();
     // Tower layer compile check; full CORS-roundtrip lives in chat_routes::cors_tests.
     let _ = layer;

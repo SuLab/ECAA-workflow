@@ -15,9 +15,9 @@
 
 use axum::body::{to_bytes, Body};
 use axum::http::{Request, StatusCode};
-use scripps_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore};
-use scripps_workflow_server::chat_routes::ChatAppState;
-use scripps_workflow_server::git_routes;
+use ecaa_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore};
+use ecaa_workflow_server::chat_routes::ChatAppState;
+use ecaa_workflow_server::git_routes;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -155,7 +155,7 @@ async fn post_session_push_returns_conflict_when_disabled() {
 /// (`config.rs::tests::effective_enabled_respects_kill_switch`).
 #[test]
 fn git_config_is_reachable_from_lib_boundary() {
-    use scripps_workflow_server::git_routes::GitConfig;
+    use ecaa_workflow_server::git_routes::GitConfig;
     let cfg = GitConfig {
         enabled: false,
         ..GitConfig::default()

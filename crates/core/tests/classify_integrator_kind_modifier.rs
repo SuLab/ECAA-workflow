@@ -3,7 +3,7 @@
 //! cross-omics discriminator at `composer/dispatch.rs:412` picks the
 //! correct archetype variant (DIABLO vs MOFA vs SNF vs generic).
 
-use scripps_workflow_core::classify::Classifier;
+use ecaa_workflow_core::classify::Classifier;
 use std::path::Path;
 
 fn classifier() -> Classifier {

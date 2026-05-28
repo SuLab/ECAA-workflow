@@ -12,7 +12,7 @@ use crate::session::Turn;
 use crate::tools::Tool;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
-use scripps_workflow_core::resilient_client::{ResilientClient, ResilientClientConfig};
+use ecaa_workflow_core::resilient_client::{ResilientClient, ResilientClientConfig};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -1477,7 +1477,7 @@ mod tests {
         // Phase B4 — synthesize a minimal StageTaxonomy metadata holder
         // for the cache-marker budget regression. Pre-B4 this loaded
         // `config/stage-taxonomies/single-cell.yaml`; the YAMLs are gone.
-        let tax = scripps_workflow_core::taxonomy::StageTaxonomy {
+        let tax = ecaa_workflow_core::taxonomy::StageTaxonomy {
             id: "single_cell".into(),
             domain: "computational biology".into(),
             description: "single-cell RNA-seq composition (synthesized for client tests)".into(),
@@ -1531,15 +1531,15 @@ mod tests {
         // must stay ≤ 4 markers in the mid-tool-loop shape.
         // Phase B4 — synthesize a clinical-trial StageTaxonomy metadata
         // holder for the cache-marker budget regression.
-        let tax = scripps_workflow_core::taxonomy::StageTaxonomy {
+        let tax = ecaa_workflow_core::taxonomy::StageTaxonomy {
             id: "clinical_trial".into(),
             domain: "clinical research".into(),
             description: "clinical trial analysis (synthesized for client tests)".into(),
-            project_class: Some(scripps_workflow_core::project_class::ProjectClass::ClinicalTrial),
+            project_class: Some(ecaa_workflow_core::project_class::ProjectClass::ClinicalTrial),
             ..Default::default()
         };
         let mut session = crate::session::Session::new(false);
-        session.project_class = scripps_workflow_core::project_class::ProjectClass::ClinicalTrial;
+        session.project_class = ecaa_workflow_core::project_class::ProjectClass::ClinicalTrial;
         session.taxonomy = Some(tax);
 
         let system_prompt = crate::prompt::build_system_prompt(&session);

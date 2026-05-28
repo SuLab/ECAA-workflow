@@ -22,7 +22,7 @@ pub(super) struct ChatConfig {
     pub auto_title_enabled: bool,
     /// Minimum non-system turn count required before the auto-title
     /// route will succeed (matches
-    /// `scripps_workflow_conversation::side_calls::AUTO_TITLE_MIN_TURNS`).
+    /// `ecaa_workflow_conversation::side_calls::AUTO_TITLE_MIN_TURNS`).
     /// The UI disables the button below this threshold so users don't
     /// click it just to see the 400 response.
     pub auto_title_min_turns: usize,
@@ -35,7 +35,7 @@ pub(super) async fn get_config(State(app): State<ChatAppState>) -> impl IntoResp
     let auto_title_enabled = app.auto_title_enabled();
     Json(ChatConfig {
         auto_title_enabled,
-        auto_title_min_turns: scripps_workflow_conversation::side_calls::AUTO_TITLE_MIN_TURNS,
+        auto_title_min_turns: ecaa_workflow_conversation::side_calls::AUTO_TITLE_MIN_TURNS,
     })
     .into_response()
 }

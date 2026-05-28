@@ -11,7 +11,7 @@ use predicates::str;
 
 #[test]
 fn chat_help_succeeds() {
-    Command::cargo_bin("scripps-workflow")
+    Command::cargo_bin("ecaa-workflow")
         .expect("cargo bin scripps-workflow")
         .args(["chat", "--help"])
         .assert()
@@ -22,7 +22,7 @@ fn chat_help_succeeds() {
 
 #[test]
 fn top_level_help_lists_subcommands() {
-    Command::cargo_bin("scripps-workflow")
+    Command::cargo_bin("ecaa-workflow")
         .expect("cargo bin scripps-workflow")
         .arg("--help")
         .assert()

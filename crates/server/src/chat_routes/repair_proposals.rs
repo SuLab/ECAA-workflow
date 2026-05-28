@@ -23,8 +23,8 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use scripps_workflow_core::decision_substrate;
-use scripps_workflow_core::repair::proposal::RepairProposal;
+use ecaa_workflow_core::decision_substrate;
+use ecaa_workflow_core::repair::proposal::RepairProposal;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use uuid::Uuid;

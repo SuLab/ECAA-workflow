@@ -6,7 +6,7 @@
 //! `{"kind":"data_shape_mismatch",... }` — which is forward-compatible
 //! with adding new payload fields per variant.
 //!
-//! Re-exported from `scripps_workflow_core::blocker` for backward
+//! Re-exported from `ecaa_workflow_core::blocker` for backward
 //! compatibility with existing call sites. Variant payload types that
 //! live elsewhere in this crate (`NetworkPolicy`, `SandboxRequirement`,
 //! `ToolErrorEnvelope`) are pulled in from the sibling modules.

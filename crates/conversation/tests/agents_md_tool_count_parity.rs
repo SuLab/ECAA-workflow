@@ -2,7 +2,7 @@
 //! verified Tool::COUNT = 22 across BatchableTool (14 variants) and
 //! HighImpactTool (8 variants).
 
-use scripps_workflow_conversation::Tool;
+use ecaa_workflow_conversation::Tool;
 
 #[test]
 fn tool_count_is_22() {

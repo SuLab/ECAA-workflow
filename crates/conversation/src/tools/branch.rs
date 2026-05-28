@@ -147,7 +147,7 @@ pub(super) fn branch_session(session: &Session, rationale: Option<&str>) -> Tool
 mod tests {
     use super::*;
     use crate::session::{Session, SessionState};
-    use scripps_workflow_core::blocker::{BlockerEntry, BlockerKind};
+    use ecaa_workflow_core::blocker::{BlockerEntry, BlockerKind};
 
     fn blocked_state() -> SessionState {
         let entry = BlockerEntry::new(

@@ -10,7 +10,7 @@
 //!    `us-east-1` (our reference region).
 //! 2. Update the `INSTANCE_PRICES_USD_PER_HOUR` array below.
 //! 3. Bump `PRICING_TABLE_REVISION` to today's date.
-//! 4. Run `cargo test -p scripps-workflow-harness pricing` to verify the
+//! 4. Run `cargo test -p ecaa-workflow-harness pricing` to verify the
 //!    sanity invariants below still hold.
 //! 5. Commit with message `chore(harness): refresh AWS pricing table YYYY-MM-DD`.
 //!

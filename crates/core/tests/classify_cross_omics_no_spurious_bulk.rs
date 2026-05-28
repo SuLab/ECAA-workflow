@@ -5,7 +5,7 @@
 //! positive that set-equality-mismatches the right cross-omics
 //! archetype.
 
-use scripps_workflow_core::classify::Classifier;
+use ecaa_workflow_core::classify::Classifier;
 use std::path::Path;
 
 fn classifier() -> Classifier {

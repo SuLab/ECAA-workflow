@@ -8,7 +8,7 @@
 //! variant payload — extracting the struct lets the canonical
 //! `BlockerKind` binding stand alone.
 //!
-//! Re-exported from `scripps_workflow_core::error_envelope` for backward
+//! Re-exported from `ecaa_workflow_core::error_envelope` for backward
 //! compatibility with existing call sites.
 
 use serde::{Deserialize, Serialize};

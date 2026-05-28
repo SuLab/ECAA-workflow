@@ -16,8 +16,8 @@
 //! These tests document the four canonical edge cases so future changes
 //! to the comparison formula can't accidentally regress them.
 
-use scripps_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
-use scripps_workflow_core::claim_verifier::{verify_claims, ClaimStatus};
+use ecaa_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
+use ecaa_workflow_core::claim_verifier::{verify_claims, ClaimStatus};
 use serde_json::json;
 use tempfile::tempdir;
 

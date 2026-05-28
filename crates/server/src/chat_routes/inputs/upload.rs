@@ -16,7 +16,7 @@ use super::ChatAppState;
 use axum::extract::Path;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
-use scripps_workflow_conversation::{UserInput, UserInputFile, UserInputKind};
+use ecaa_workflow_conversation::{UserInput, UserInputFile, UserInputKind};
 use std::path::{Path as StdPath, PathBuf};
 use uuid::Uuid;
 
@@ -791,7 +791,7 @@ mod tests {
         assert_eq!(session.inputs.len(), 1);
         assert_eq!(
             session.inputs[0].kind,
-            scripps_workflow_conversation::UserInputKind::UploadedFiles,
+            ecaa_workflow_conversation::UserInputKind::UploadedFiles,
         );
     }
 

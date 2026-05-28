@@ -10,7 +10,7 @@
 //! Tests load penalty values from the live policy JSON so future threshold
 //! changes propagate automatically.
 
-use scripps_workflow_core::composite_score::{
+use ecaa_workflow_core::composite_score::{
     apply_quality_gate_penalties, check_default_eligibility, CandidateMetadata, Confidence,
     GateSeverity, QualityGatePenalties, QualityGateResult,
 };
@@ -347,7 +347,7 @@ fn empty_criteria_list_always_passes() {
 
 #[test]
 fn blocking_gate_lowers_score_and_fails_eligibility() {
-    use scripps_workflow_core::composite_score::{
+    use ecaa_workflow_core::composite_score::{
         compute_composite_score, AxisScores, CompositeScoreWeights,
     };
 

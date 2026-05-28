@@ -17,7 +17,7 @@
 
 use super::{execution, ChatAppState, EnvelopedEvent, SsePayload};
 use dashmap::DashMap;
-use scripps_workflow_conversation::{ServiceEventSink, SessionId};
+use ecaa_workflow_conversation::{ServiceEventSink, SessionId};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -119,7 +119,7 @@ impl ServiceEventSink for BroadcastEventSink {
     fn state_advanced(
         &self,
         id: SessionId,
-        new_state: &scripps_workflow_conversation::SessionState,
+        new_state: &ecaa_workflow_conversation::SessionState,
     ) {
         self.fanout(
             id,
@@ -129,7 +129,7 @@ impl ServiceEventSink for BroadcastEventSink {
         );
     }
 
-    fn turn_appended(&self, id: SessionId, turn: &scripps_workflow_conversation::Turn) {
+    fn turn_appended(&self, id: SessionId, turn: &ecaa_workflow_conversation::Turn) {
         // Fan the new turn out to SSE subscribers so the UI can append
         // it locally. The 60s transcript poll is still the
         // reconciliation fallback.
@@ -152,7 +152,7 @@ impl ServiceEventSink for BroadcastEventSink {
     fn proposal_received(
         &self,
         id: SessionId,
-        proposal_id: &scripps_workflow_core::hypothesized_proposal::ProposalId,
+        proposal_id: &ecaa_workflow_core::hypothesized_proposal::ProposalId,
         node_id: &str,
     ) {
         self.fanout(
@@ -167,8 +167,8 @@ impl ServiceEventSink for BroadcastEventSink {
     fn proposal_gate_advanced(
         &self,
         id: SessionId,
-        proposal_id: &scripps_workflow_core::hypothesized_proposal::ProposalId,
-        gate: scripps_workflow_core::hypothesized_proposal::GateName,
+        proposal_id: &ecaa_workflow_core::hypothesized_proposal::ProposalId,
+        gate: ecaa_workflow_core::hypothesized_proposal::GateName,
         passed: bool,
     ) {
         self.fanout(

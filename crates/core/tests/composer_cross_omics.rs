@@ -12,13 +12,13 @@
 //! or 1 entries, behavior is identical to the existing single-
 //! modality `compose_with_version_and_modality`.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::builder::build_dag_from_composition;
-use scripps_workflow_core::composer::{
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::builder::build_dag_from_composition;
+use ecaa_workflow_core::composer::{
     compose_with_version_and_modalities, compose_with_version_and_modality,
 };
-use scripps_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::path::PathBuf;
 
 fn config_root() -> PathBuf {

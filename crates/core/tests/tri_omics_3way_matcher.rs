@@ -10,7 +10,7 @@
 
 #[test]
 fn tri_omics_matcher_picks_3way_archetype_via_subset() {
-    use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
     let archetypes = ArchetypeRegistry::load_from_dir(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -51,7 +51,7 @@ fn tri_omics_matcher_refuses_superset_without_intent() {
     // NOT rescue the 3-way archetype — falling through to the generic
     // multi-modal synthesizer is the correct conservative path when
     // the SME hasn't named n-way intent.
-    use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
     let archetypes = ArchetypeRegistry::load_from_dir(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -90,7 +90,7 @@ fn tri_omics_matcher_refuses_superset_without_intent() {
 
 #[test]
 fn is_n_way_intent_detects_tri_omics_phrasings() {
-    use scripps_workflow_core::classify::is_n_way_intent;
+    use ecaa_workflow_core::classify::is_n_way_intent;
     assert!(is_n_way_intent("we want a tri-omics analysis"));
     assert!(is_n_way_intent("Three-way analysis of RNA+ATAC+ChIP."));
     assert!(is_n_way_intent("Tri omics integration pipeline."));

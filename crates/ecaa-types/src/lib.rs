@@ -18,7 +18,7 @@
 //!   `StallAction`, `BlockerContext`, `BlockerEntry`).
 //! - [`AblationFlag`] (6 variants) + [`all_flags`] — the SWFC_ABLATE_*
 //!   contract enum. The runtime `is_active()` check is in
-//!   `scripps-workflow-core::ablation::AblationFlagExt` (kept there to
+//!   `ecaa-workflow-core::ablation::AblationFlagExt` (kept there to
 //!   avoid coupling this crate to env-var access).
 //! - [`consts`] — canonical const arrays for cross-doc consistency.
 

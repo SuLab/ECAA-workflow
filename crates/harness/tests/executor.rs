@@ -16,10 +16,10 @@
 // integration test target.
 #![allow(unsafe_code)]
 
-use scripps_workflow_core::dag::{
+use ecaa_workflow_core::dag::{
     Assignee, BlockedRecord, RemoteExecution, ResourceClass, Task, TaskId, TaskKind, TaskState, DAG,
 };
-use scripps_workflow_harness::executor::{aws::AwsExecutor, build, Executor, ExecutorArgs};
+use ecaa_workflow_harness::executor::{aws::AwsExecutor, build, Executor, ExecutorArgs};
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -362,7 +362,7 @@ fn seed_ready_dag(pkg: &Path, task_id: &str) {
     );
     let dag = DAG {
         version: "1.0".into(),
-        schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+        schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
         workflow_id: "dry-run".into(),
         current_task: None,
         tasks,

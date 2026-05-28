@@ -7,10 +7,10 @@
 //! requirement.
 
 use anyhow::Result;
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::classify::Classifier;
-use scripps_workflow_core::composer::compose_with_version_and_modality;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::classify::Classifier;
+use ecaa_workflow_core::composer::compose_with_version_and_modality;
 use std::path::Path;
 
 fn registries_and_classifier() -> Result<(AtomRegistry, ArchetypeRegistry, Classifier)> {
@@ -36,7 +36,7 @@ fn survival_genomics_emits_generic_summary() -> Result<()> {
     let cls = classifier.classify(prompt);
     let goal = classifier
         .extract_goal(prompt)
-        .unwrap_or_else(|| scripps_workflow_core::goal_spec::GoalSpec::default());
+        .unwrap_or_else(|| ecaa_workflow_core::goal_spec::GoalSpec::default());
     let result = compose_with_version_and_modality(
         &goal,
         "bioinformatics",

@@ -710,7 +710,7 @@ pub fn generate_ssh_key(req: &GenerateSshKeyRequest) -> Result<GenerateSshKeyRes
         p.push(".pub");
         PathBuf::from(p)
     };
-    let public_key = scripps_workflow_core::fs_helpers::read_to_string_ctx(&pub_path)?;
+    let public_key = ecaa_workflow_core::fs_helpers::read_to_string_ctx(&pub_path)?;
     Ok(GenerateSshKeyResponse {
         private_key_path: target.to_string_lossy().to_string(),
         public_key: public_key.trim().to_string(),

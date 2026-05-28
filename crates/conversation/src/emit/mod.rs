@@ -36,9 +36,9 @@ pub use ro_crate::{emit_ro_crate, emit_ro_crate_shareable};
 
 use crate::session::Session;
 use anyhow::{anyhow, Context, Result};
-use scripps_workflow_core::ablation::AblationFlagExt;
-use scripps_workflow_core::classify::ClassificationResult;
-use scripps_workflow_core::emitter::{emit_package, EmitConfig};
+use ecaa_workflow_core::ablation::AblationFlagExt;
+use ecaa_workflow_core::classify::ClassificationResult;
+use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
 use std::path::Path;
 use tracing::instrument;
 
@@ -73,7 +73,7 @@ pub async fn emit_with_conversation_log(
         session,
         output_dir,
         config_dir,
-        scripps_workflow_core::provenance_tiers::ProvenanceTier::Private,
+        ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private,
     )
     .await
 }
@@ -103,7 +103,7 @@ pub async fn emit_with_conversation_log_tiered(
     session: &mut Session,
     output_dir: &Path,
     config_dir: &Path,
-    tier: scripps_workflow_core::provenance_tiers::ProvenanceTier,
+    tier: ecaa_workflow_core::provenance_tiers::ProvenanceTier,
 ) -> Result<()> {
     let parent = output_dir
         .parent()
@@ -174,7 +174,7 @@ async fn emit_steps(
     session: &mut Session,
     output_dir: &Path,
     config_dir: &Path,
-    tier: scripps_workflow_core::provenance_tiers::ProvenanceTier,
+    tier: ecaa_workflow_core::provenance_tiers::ProvenanceTier,
 ) -> Result<()> {
     // Aim 3A Arm B″ branch. When `SWFC_ECAA_MODE=conventional`, emit
     // a competent conventional-documentation envelope (README +
@@ -189,8 +189,8 @@ async fn emit_steps(
     // wanting the typed value have it.
     #[allow(clippy::disallowed_methods)]
     let raw_mode = std::env::var("SWFC_ECAA_MODE").ok();
-    let mode = scripps_workflow_core::emit_mode::EcaaMode::from_env_str(raw_mode.as_deref());
-    if mode == scripps_workflow_core::emit_mode::EcaaMode::Conventional {
+    let mode = ecaa_workflow_core::emit_mode::EcaaMode::from_env_str(raw_mode.as_deref());
+    if mode == ecaa_workflow_core::emit_mode::EcaaMode::Conventional {
         // Intent summary: prefer the SME's raw intake prose; fall back
         // to a literal placeholder when the session was constructed
         // without prose (e.g. test fixtures that bypass AppendIntakeProse).
@@ -261,7 +261,7 @@ async fn emit_steps(
     // stay byte-identical to the baseline.
     let compute_profiles_dir = policies_dir.parent().map(|p| p.join("compute-profiles"));
     let intake_facts =
-        scripps_workflow_core::intake_facts::IntakeFacts::from_classification(&classification);
+        ecaa_workflow_core::intake_facts::IntakeFacts::from_classification(&classification);
     // If the SME just amended a stage, thread the
     // amendment context through to the core emitter so it can write
     // `prov:wasDerivedFrom`, the `UpdateAction` entity, and
@@ -270,10 +270,10 @@ async fn emit_steps(
     // rationale)` at AmendStart-time on `session.pending_amendment`;
     // we move it onto a transient `AmendContext` for this emit and
     // clear the session field at the end of a successful emit.
-    let amend_ctx_owned: Option<scripps_workflow_core::emitter::AmendContext> = session
+    let amend_ctx_owned: Option<ecaa_workflow_core::emitter::AmendContext> = session
         .pending_amendment
         .as_ref()
-        .map(|p| scripps_workflow_core::emitter::AmendContext {
+        .map(|p| ecaa_workflow_core::emitter::AmendContext {
             reason: p.rationale.clone(),
             amended_stage: p.target_stage.clone(),
             invalidated_tasks: p.invalidated_tasks.clone(),
@@ -304,7 +304,7 @@ async fn emit_steps(
     // composer-driven path on composer_version >= 2). Empty baseline
     // produces an empty-but-valid manifest, which the harness pre-
     // flight short-circuits on.
-    let runtime_prereqs = scripps_workflow_core::runtime_prereqs::aggregate_taxonomy(taxonomy, &[]);
+    let runtime_prereqs = ecaa_workflow_core::runtime_prereqs::aggregate_taxonomy(taxonomy, &[]);
 
     // Per-atom runtime prereqs. The harness reads
     // `policies/atom-prereqs/<atom_id>.json` per task under
@@ -321,11 +321,11 @@ async fn emit_steps(
     // in `crates/cli/src/main.rs` (:462-487, :736-757) and the
     // deterministic CLI chat REPL in `crates/cli/src/chat.rs`.
     let per_atom_prereqs_owned: Option<
-        std::collections::BTreeMap<String, scripps_workflow_core::runtime_prereqs::RuntimePrereqs>,
+        std::collections::BTreeMap<String, ecaa_workflow_core::runtime_prereqs::RuntimePrereqs>,
     > = if let Some(workflow_dag) = session.workflow_dag.as_ref() {
         let atoms_dir = config_dir.join("stage-atoms");
         if atoms_dir.exists() {
-            match scripps_workflow_core::atom_registry::AtomRegistry::load_from_dir(&atoms_dir) {
+            match ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(&atoms_dir) {
                 Ok(registry) => Some(
                     workflow_dag
                         .nodes
@@ -407,7 +407,7 @@ async fn emit_steps(
     // Threads a Clock so the sidecar's `confirmed_at` field uses the
     // deterministic emit-time path (C6) rather than wall-clock Utc::now,
     // matching the byte-reproducibility contract on emitted packages.
-    let clock: &dyn scripps_workflow_core::clock::Clock = &scripps_workflow_core::clock::WallClock;
+    let clock: &dyn ecaa_workflow_core::clock::Clock = &ecaa_workflow_core::clock::WallClock;
     apply_checkpoint_mode_auto_advances(session, output_dir, clock)?;
 
     // P3-4 — per-task verification sidecars. For every Completed task
@@ -544,9 +544,9 @@ async fn emit_steps(
     // `runtime/audit-proof-report.json`. Warn-only: a serialization or
     // I/O failure must not abort the emit. Suppressed under
     // SWFC_ABLATE_AUDIT_PROOF for the Arm B′ ablation control.
-    if !scripps_workflow_core::ablation::AblationFlag::AuditProof.is_active() {
-        let validator = scripps_workflow_core::wrroc_validator::NoopWrrocValidator;
-        match scripps_workflow_core::audit_proof::run_audit_proof(output_dir, &validator) {
+    if !ecaa_workflow_core::ablation::AblationFlag::AuditProof.is_active() {
+        let validator = ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
+        match ecaa_workflow_core::audit_proof::run_audit_proof(output_dir, &validator) {
             Ok(report) => {
                 let path = output_dir.join("runtime").join("audit-proof-report.json");
                 match serde_json::to_string_pretty(&report) {
@@ -628,7 +628,7 @@ async fn write_backend_capability_report(
     session: &crate::session::Session,
     output_dir: &Path,
 ) -> Result<()> {
-    use scripps_workflow_core::backend_emitters::{
+    use ecaa_workflow_core::backend_emitters::{
         workflow_json::WorkflowJsonEmitter, EmitContext,
     };
 
@@ -716,7 +716,7 @@ async fn write_figure_diff(
     if !parent_path.exists() {
         return Ok(());
     }
-    let report = match scripps_workflow_core::figure_diff::diff_figures(&parent_path, &child) {
+    let report = match ecaa_workflow_core::figure_diff::diff_figures(&parent_path, &child) {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(error = %e, "figure_diff failed");
@@ -835,9 +835,9 @@ async fn write_user_inputs_artifacts(session: &Session, output_dir: &Path) -> Re
 fn apply_checkpoint_mode_auto_advances(
     session: &mut Session,
     output_dir: &Path,
-    clock: &dyn scripps_workflow_core::clock::Clock,
+    clock: &dyn ecaa_workflow_core::clock::Clock,
 ) -> Result<()> {
-    use scripps_workflow_core::checkpoint_mode::{CheckpointLevel, CheckpointMode};
+    use ecaa_workflow_core::checkpoint_mode::{CheckpointLevel, CheckpointMode};
     let mode: CheckpointMode = session.checkpoint_mode;
     // Gated is the only mode that never auto-advances — skip the walk.
     if matches!(mode, CheckpointMode::Gated) {
@@ -894,11 +894,11 @@ fn apply_checkpoint_mode_auto_advances(
     // the borrow checker is happy with session.record_decision.
     for (stage, mode_name) in auto_advanced {
         session.record_decision(
-            scripps_workflow_core::decision_log::DecisionType::AutoAdvanced {
+            ecaa_workflow_core::decision_log::DecisionType::AutoAdvanced {
                 stage,
                 mode: mode_name,
             },
-            scripps_workflow_core::decision_log::DecisionActor::Llm,
+            ecaa_workflow_core::decision_log::DecisionActor::Llm,
             None,
         );
     }
@@ -989,15 +989,15 @@ mod tests {
         // service layer is what normally records these, so we fake them
         // here since the test driver doesn't go through the service.
         session.record_decision(
-            scripps_workflow_core::decision_log::DecisionType::Confirm { summary_hash: None },
-            scripps_workflow_core::decision_log::DecisionActor::Sme,
+            ecaa_workflow_core::decision_log::DecisionType::Confirm { summary_hash: None },
+            ecaa_workflow_core::decision_log::DecisionActor::Sme,
             Some("looks good — proceed".into()),
         );
         session.record_decision(
-            scripps_workflow_core::decision_log::DecisionType::EmitPackage {
+            ecaa_workflow_core::decision_log::DecisionType::EmitPackage {
                 output_dir: "/tmp/fake-package-dir".into(),
             },
-            scripps_workflow_core::decision_log::DecisionActor::Llm,
+            ecaa_workflow_core::decision_log::DecisionActor::Llm,
             None,
         );
 
@@ -1060,8 +1060,8 @@ mod tests {
         )
         .await;
         session.record_decision(
-            scripps_workflow_core::decision_log::DecisionType::Confirm { summary_hash: None },
-            scripps_workflow_core::decision_log::DecisionActor::Sme,
+            ecaa_workflow_core::decision_log::DecisionType::Confirm { summary_hash: None },
+            ecaa_workflow_core::decision_log::DecisionActor::Sme,
             None,
         );
 
@@ -1132,7 +1132,7 @@ mod tests {
             tmp.path(),
             vec![],
             vec![],
-            scripps_workflow_core::provenance_tiers::ProvenanceTier::Private,
+            ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private,
         )
         .await
         .unwrap();
@@ -1247,7 +1247,7 @@ mod tests {
                 tmp.path(),
                 vec![],
                 vec![],
-                scripps_workflow_core::provenance_tiers::ProvenanceTier::Private,
+                ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private,
             )
             .await
             .unwrap();
@@ -1648,11 +1648,11 @@ mod tests {
     ///
     /// Marked `#[ignore]` because it requires a full emit (config/ dir,
     /// tempdir, tokio). Run with:
-    /// cargo test -p scripps-workflow-conversation -- --ignored affordance
+    /// cargo test -p ecaa-workflow-conversation -- --ignored affordance
     #[tokio::test]
     #[ignore]
     async fn affordance_sidecars_written_and_provisional_flags_stamped() {
-        use scripps_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord;
+        use ecaa_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord;
 
         let mut session = Session::new(false);
         let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
@@ -1789,7 +1789,7 @@ mod tests {
     /// - `runtime/plot_affordances.jsonl`
     ///
     /// Marked `#[ignore]` to keep CI fast. Run with:
-    /// cargo test -p scripps-workflow-conversation -- --ignored v4_default_emits_sidecars
+    /// cargo test -p ecaa-workflow-conversation -- --ignored v4_default_emits_sidecars
     #[tokio::test]
     #[ignore]
     async fn v4_default_emits_sidecars() {

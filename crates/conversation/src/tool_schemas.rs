@@ -178,7 +178,7 @@ pub fn tool_schemas_for_state(state: &SessionState) -> Vec<serde_json::Value> {
         let awaiting_sme_selection = matches!(
             state.resolved_blocker(),
             Some((
-                scripps_workflow_core::blocker::BlockerKind::AwaitingSmeSelection { .. },
+                ecaa_workflow_core::blocker::BlockerKind::AwaitingSmeSelection { .. },
                 _,
             ))
         );

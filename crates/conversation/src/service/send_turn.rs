@@ -446,7 +446,7 @@ impl ConversationService {
         // time without opening the UI. Warns on suspicious ratios
         // (<30% after 3+ turns on the session) — the canonical
         // silent-cache-invalidation signal.
-        if scripps_workflow_core::env_helpers::env_bool("SWFC_DEBUG_TOKEN_BURN") {
+        if ecaa_workflow_core::env_helpers::env_bool("SWFC_DEBUG_TOKEN_BURN") {
             if let Some(snap) = self.metrics_store().snapshot(id).await {
                 let billed =
                     snap.total_input_tokens + snap.cache_read_tokens + snap.cache_creation_tokens;
@@ -538,7 +538,7 @@ impl ConversationService {
                         .iter_mut()
                         .find(|a| a.id == assumption_id)
                     {
-                        use scripps_workflow_core::workflow_contracts::evidence::AssumptionResolution;
+                        use ecaa_workflow_core::workflow_contracts::evidence::AssumptionResolution;
                         entry.resolution = match decision_resolution.as_str() {
                             "accepted" => AssumptionResolution::Accepted {
                                 rationale: rationale.clone().unwrap_or_default(),
@@ -554,7 +554,7 @@ impl ConversationService {
                 // Append an audit-log entry. Mirrors the design §6 work
                 // item 4 contract that AssumptionLedger lives as a typed
                 // projection over decisions.jsonl.
-                use scripps_workflow_core::decision_log::{
+                use ecaa_workflow_core::decision_log::{
                     DecisionActor, DecisionRecord, DecisionType,
                 };
                 let decision = DecisionRecord::new(
@@ -603,7 +603,7 @@ impl ConversationService {
         store.get(id).await.ok_or(ServiceError::SessionNotFound)?;
         let saved = store
             .update(id, |session| {
-                use scripps_workflow_core::decision_log::{
+                use ecaa_workflow_core::decision_log::{
                     DecisionActor, DecisionRecord, DecisionType,
                 };
                 let record = DecisionRecord::new(
@@ -650,7 +650,7 @@ impl ConversationService {
         store.get(id).await.ok_or(ServiceError::SessionNotFound)?;
         let saved = store
             .update(id, |session| {
-                use scripps_workflow_core::decision_log::{
+                use ecaa_workflow_core::decision_log::{
                     DecisionActor, DecisionRecord, DecisionType,
                 };
                 let record = DecisionRecord::new(
@@ -697,7 +697,7 @@ impl ConversationService {
         store.get(id).await.ok_or(ServiceError::SessionNotFound)?;
         let saved = store
             .update(id, |session| {
-                use scripps_workflow_core::decision_log::{
+                use ecaa_workflow_core::decision_log::{
                     DecisionActor, DecisionRecord, DecisionType,
                 };
                 let record = DecisionRecord::new(
@@ -896,7 +896,7 @@ impl Drop for AutoTitleInFlightGuard {
 /// with one median computation per stage_class.
 fn project_remaining_cost(
     per_task: &[crate::metrics::PerTaskAgentSnapshot],
-    dag: Option<&scripps_workflow_core::dag::DAG>,
+    dag: Option<&ecaa_workflow_core::dag::DAG>,
 ) -> f64 {
     use std::collections::BTreeMap;
     let Some(dag) = dag else {
@@ -932,7 +932,7 @@ fn project_remaining_cost(
     for task in dag.tasks.values() {
         let is_completed = matches!(
             task.state,
-            scripps_workflow_core::dag::TaskState::Completed { .. }
+            ecaa_workflow_core::dag::TaskState::Completed { .. }
         );
         if is_completed {
             continue;

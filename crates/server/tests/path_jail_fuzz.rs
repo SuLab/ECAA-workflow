@@ -7,7 +7,7 @@
 //! helper.
 
 use proptest::prelude::*;
-use scripps_workflow_server::chat_routes::{
+use ecaa_workflow_server::chat_routes::{
     assert_under_root, safe_relative_join, safe_segment_join,
 };
 use std::path::{Path, PathBuf};

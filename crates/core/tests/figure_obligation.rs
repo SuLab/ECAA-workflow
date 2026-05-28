@@ -6,9 +6,9 @@
 //!
 //! Runs as part of `make test`.
 
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::plot_affordance::check_all;
-use scripps_workflow_core::plot_affordance::registry::YamlPlotAffordanceRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::plot_affordance::check_all;
+use ecaa_workflow_core::plot_affordance::registry::YamlPlotAffordanceRegistry;
 use std::path::Path;
 
 #[test]

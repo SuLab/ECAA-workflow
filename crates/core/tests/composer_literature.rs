@@ -10,13 +10,13 @@
 //! path where `required: false` atoms from the matched archetype ARE
 //! included in the composition result before the gate runs.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer::{
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer::{
     compose_with_intake, compose_with_version, compose_with_version_and_modality, IntakeContext,
     LITERATURE_OPT_IN_ATOM_IDS,
 };
-use scripps_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -156,7 +156,7 @@ fn compose_with_intake_opts_out_of_literature_by_default() {
 /// This directly tests the filter logic in `compose_with_intake`.
 #[test]
 fn v2_compose_with_intake_includes_literature_when_requested() {
-    use scripps_workflow_core::composer::CompositionResult;
+    use ecaa_workflow_core::composer::CompositionResult;
 
     let (atoms, archs) = registries();
     if atoms.is_empty() || archs.is_empty() {

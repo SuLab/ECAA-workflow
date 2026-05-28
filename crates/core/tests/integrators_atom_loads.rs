@@ -3,9 +3,9 @@
 //! atom registry, and the base cross-omics archetype carries an
 //! `integrator` slot that supplies DIABLO/MOFA/SNF/generic variants.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom::AtomRole;
-use scripps_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom::AtomRole;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
 use std::path::PathBuf;
 
 fn config_root() -> PathBuf {

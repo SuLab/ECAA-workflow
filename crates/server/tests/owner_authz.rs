@@ -21,12 +21,12 @@ use axum::{
     middleware::from_fn_with_state,
     Router,
 };
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     anthropic::{StopReason, TurnResponse, Usage},
     LlmBackend, MockLlmBackend, SessionStore,
 };
-use scripps_workflow_server::auth::verify_owner_middleware;
-use scripps_workflow_server::chat_routes::{router as chat_router, ChatAppState};
+use ecaa_workflow_server::auth::verify_owner_middleware;
+use ecaa_workflow_server::chat_routes::{router as chat_router, ChatAppState};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower::ServiceExt;

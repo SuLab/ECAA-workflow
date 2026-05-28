@@ -6,8 +6,8 @@
 //! acknowledgment and fabricating "backend classifier unavailable"
 //! excuses.
 
-use scripps_workflow_conversation::anthropic::{build_messages_payload, ToolChoice, TurnRequest};
-use scripps_workflow_conversation::model_policy::ModelId;
+use ecaa_workflow_conversation::anthropic::{build_messages_payload, ToolChoice, TurnRequest};
+use ecaa_workflow_conversation::model_policy::ModelId;
 use std::sync::Arc;
 
 fn empty_request() -> TurnRequest {

@@ -7,8 +7,8 @@
 
 use axum::body::to_bytes;
 use axum::http::{Request, StatusCode};
-use scripps_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore};
-use scripps_workflow_server::chat_routes::{health_router, ChatAppState};
+use ecaa_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore};
+use ecaa_workflow_server::chat_routes::{health_router, ChatAppState};
 use std::sync::Arc;
 use tower::ServiceExt;
 

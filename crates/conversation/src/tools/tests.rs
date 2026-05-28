@@ -132,8 +132,8 @@ fn classify_intake_output_round_trips_goal_block() {
     // changes the wrapper's serde flatten semantics regresses the
     // contract.
     use super::classification::ClassifyIntakeOutput;
-    use scripps_workflow_core::classify::ClassificationResult;
-    use scripps_workflow_core::goal_spec::GoalSpec;
+    use ecaa_workflow_core::classify::ClassificationResult;
+    use ecaa_workflow_core::goal_spec::GoalSpec;
     use std::collections::BTreeMap;
 
     let goal = GoalSpec {
@@ -381,7 +381,7 @@ async fn set_intake_method_refuses_without_sme_signal() {
     assert!(
         !s.decisions.iter().any(|d| matches!(
             &d.decision,
-            scripps_workflow_core::decision_log::DecisionType::SetIntakeMethod { .. }
+            ecaa_workflow_core::decision_log::DecisionType::SetIntakeMethod { .. }
         )),
         "refused set_intake_method must NOT leave a decision-log record"
     );
@@ -421,7 +421,7 @@ async fn set_intake_method_accepts_with_sme_signal() {
     assert!(
         s.decisions.iter().any(|d| matches!(
             &d.decision,
-            scripps_workflow_core::decision_log::DecisionType::SetIntakeMethod { stage, .. } if stage == "alignment"
+            ecaa_workflow_core::decision_log::DecisionType::SetIntakeMethod { stage, .. } if stage == "alignment"
         )),
         "successful set_intake_method must land a decision-log record"
     );
@@ -818,7 +818,7 @@ async fn confirmatory_amend_of_prespecified_stage_requires_rationale() {
         .as_ref()
         .and_then(|d| d.tasks.keys().next().cloned())
         .unwrap();
-    s.mode = scripps_workflow_core::session_mode::SessionMode::Confirmatory {
+    s.mode = ecaa_workflow_core::session_mode::SessionMode::Confirmatory {
         prespecified_stages: vec![target.to_string()],
         prespecified_parameters: std::collections::BTreeMap::new(),
     };
@@ -855,7 +855,7 @@ async fn confirmatory_amend_with_rationale_writes_post_hoc_deviation_record() {
         .as_ref()
         .and_then(|d| d.tasks.keys().next().cloned())
         .unwrap();
-    s.mode = scripps_workflow_core::session_mode::SessionMode::Confirmatory {
+    s.mode = ecaa_workflow_core::session_mode::SessionMode::Confirmatory {
         prespecified_stages: vec![target.to_string()],
         prespecified_parameters: std::collections::BTreeMap::new(),
     };
@@ -877,7 +877,7 @@ async fn confirmatory_amend_with_rationale_writes_post_hoc_deviation_record() {
     let has_deviation = s.decisions.iter().any(|d| {
         matches!(
             d.decision,
-            scripps_workflow_core::decision_log::DecisionType::PostHocDeviation { .. }
+            ecaa_workflow_core::decision_log::DecisionType::PostHocDeviation { .. }
         )
     });
     assert!(has_deviation, "expected a PostHocDeviation record");
@@ -916,7 +916,7 @@ async fn exploratory_amend_never_writes_post_hoc_deviation() {
     let any_deviation = s.decisions.iter().any(|d| {
         matches!(
             d.decision,
-            scripps_workflow_core::decision_log::DecisionType::PostHocDeviation { .. }
+            ecaa_workflow_core::decision_log::DecisionType::PostHocDeviation { .. }
         )
     });
     assert!(!any_deviation);
@@ -1097,7 +1097,7 @@ async fn select_sensitivity_winner_requires_awaiting_selection_state() {
 
 #[tokio::test]
 async fn select_sensitivity_winner_rejects_non_candidate() {
-    use scripps_workflow_core::blocker::{BlockerContext, BlockerKind};
+    use ecaa_workflow_core::blocker::{BlockerContext, BlockerKind};
     let mut s = crate::session::Session::new(false);
     dispatch_one(
         &Tool::Batchable(BatchableTool::AppendIntakeProse {
@@ -1139,7 +1139,7 @@ async fn select_sensitivity_winner_rejects_non_candidate() {
 
 #[tokio::test]
 async fn select_sensitivity_winner_records_and_unblocks() {
-    use scripps_workflow_core::blocker::{BlockerContext, BlockerKind};
+    use ecaa_workflow_core::blocker::{BlockerContext, BlockerKind};
     let mut s = crate::session::Session::new(false);
     dispatch_one(
         &Tool::Batchable(BatchableTool::AppendIntakeProse {
@@ -1300,8 +1300,8 @@ async fn get_task_result_for_pending_task_reports_precondition() {
         .find(|(_, t)| {
             matches!(
                 t.state,
-                scripps_workflow_core::dag::TaskState::Pending
-                    | scripps_workflow_core::dag::TaskState::Ready
+                ecaa_workflow_core::dag::TaskState::Pending
+                    | ecaa_workflow_core::dag::TaskState::Ready
             )
         })
         .map(|(id, _)| id.to_string())
@@ -1538,7 +1538,7 @@ fn high_impact_variants_are_always_alone_in_turn() {
 
 #[test]
 fn checkpoint_mode_fast_auto_advances_everything() {
-    use scripps_workflow_core::checkpoint_mode::CheckpointMode;
+    use ecaa_workflow_core::checkpoint_mode::CheckpointMode;
     let mode = CheckpointMode::Fast;
     assert!(mode.auto_advances(true));
     assert!(mode.auto_advances(false));
@@ -1546,7 +1546,7 @@ fn checkpoint_mode_fast_auto_advances_everything() {
 
 #[test]
 fn checkpoint_mode_selective_auto_advances_only_non_required() {
-    use scripps_workflow_core::checkpoint_mode::CheckpointMode;
+    use ecaa_workflow_core::checkpoint_mode::CheckpointMode;
     let mode = CheckpointMode::Selective;
     assert!(mode.auto_advances(false));
     assert!(!mode.auto_advances(true));
@@ -1568,7 +1568,7 @@ async fn time_series_prose_loads_time_series_taxonomy() {
     .await;
     assert_eq!(
         s.project_class,
-        scripps_workflow_core::project_class::ProjectClass::TimeSeriesForecast,
+        ecaa_workflow_core::project_class::ProjectClass::TimeSeriesForecast,
         "time-series vocabulary must route to TimeSeriesForecast"
     );
     let taxonomy = s.taxonomy.as_ref().expect("time-series taxonomy loaded");
@@ -1609,7 +1609,7 @@ async fn clinical_trial_prose_loads_clinical_taxonomy() {
     .await;
     assert_eq!(
         s.project_class,
-        scripps_workflow_core::project_class::ProjectClass::ClinicalTrial,
+        ecaa_workflow_core::project_class::ProjectClass::ClinicalTrial,
         "clinical vocabulary must route to ClinicalTrial"
     );
     let taxonomy = s.taxonomy.as_ref().expect("clinical-trial taxonomy loaded");
@@ -1692,7 +1692,7 @@ async fn append_intake_prose_snapshots_archetype_when_goal_matches_unique_winner
         // precise gap.
         let goal = s.classification.as_ref().unwrap().goal.as_ref().unwrap();
         let archetype_dir = config_dir().join("archetypes");
-        let reg = scripps_workflow_core::archetype_registry::ArchetypeRegistry::load_from_dir(
+        let reg = ecaa_workflow_core::archetype_registry::ArchetypeRegistry::load_from_dir(
             &archetype_dir,
         )
         .expect("load archetype registry from config");
@@ -2294,8 +2294,8 @@ async fn latest_session_shape_composes_three_branches_then_allows_scope_reset() 
 /// regression).
 #[test]
 fn enqueue_adjudication_emits_substrate_pair() {
-    use scripps_workflow_core::decision_substrate::{drain, VerifierDecision};
-    use scripps_workflow_core::lifecycle_adversarial::LifecycleTransition;
+    use ecaa_workflow_core::decision_substrate::{drain, VerifierDecision};
+    use ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition;
 
     // Drain so the test reads only its own emissions. The substrate
     // buffer is process-wide; other tests in this binary may have
@@ -2484,10 +2484,10 @@ mod state_machine_centralization {
     #[test]
     fn rebuild_dag_reinject_wires_promoted_to_promoted_chain() {
         use crate::session::Session;
-        use scripps_workflow_core::hypothesized_proposal::{
+        use ecaa_workflow_core::hypothesized_proposal::{
             HypothesizedProposal, ProposalLifecycle,
         };
-        use scripps_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         let mut s = Session::new(false);
 
@@ -2601,10 +2601,10 @@ mod state_machine_centralization {
     #[test]
     fn rebuild_dag_reinject_wires_promoted_to_generic_summary() {
         use crate::session::Session;
-        use scripps_workflow_core::hypothesized_proposal::{
+        use ecaa_workflow_core::hypothesized_proposal::{
             HypothesizedProposal, ProposalLifecycle,
         };
-        use scripps_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         let mut s = Session::new(false);
 
@@ -2687,10 +2687,10 @@ mod state_machine_centralization {
     #[test]
     fn reinject_promoted_refreshes_lowered_dag_cache() {
         use crate::session::Session;
-        use scripps_workflow_core::hypothesized_proposal::{
+        use ecaa_workflow_core::hypothesized_proposal::{
             HypothesizedProposal, ProposalLifecycle,
         };
-        use scripps_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         let mut s = Session::new(false);
 
@@ -2739,7 +2739,7 @@ mod state_machine_centralization {
             assumptions: Default::default(),
             source_template: None,
         };
-        let stale_cache = scripps_workflow_core::builder::build_dag_from_workflow_dag(
+        let stale_cache = ecaa_workflow_core::builder::build_dag_from_workflow_dag(
             &stub_wf,
             "wf-defect-2026-05-19",
         )
@@ -2810,8 +2810,8 @@ mod state_machine_centralization {
     #[test]
     fn intake_fact_gate_prunes_authoritative_workflow_dag_and_cache() {
         use crate::session::Session;
-        use scripps_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
-        use scripps_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+        use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         fn edge(from: &str, to: &str) -> EdgeContract {
             EdgeContract {
@@ -2940,8 +2940,8 @@ mod state_machine_centralization {
     #[test]
     fn workflow_dag_prune_splices_chain_middle_drops() {
         use crate::session::Session;
-        use scripps_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
-        use scripps_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+        use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         fn edge(from: &str, to: &str) -> EdgeContract {
             EdgeContract {
@@ -3037,13 +3037,13 @@ mod d11_proposal_signoff_freshness {
     use super::*;
     use crate::persistence::SessionStore;
     use crate::session::Session;
-    use scripps_workflow_core::hypothesized_proposal::{HypothesizedProposal, ProposalLifecycle};
+    use ecaa_workflow_core::hypothesized_proposal::{HypothesizedProposal, ProposalLifecycle};
 
     fn seed_proposal(
         session: &mut Session,
         node_id: &str,
         lifecycle: ProposalLifecycle,
-    ) -> scripps_workflow_core::hypothesized_proposal::ProposalId {
+    ) -> ecaa_workflow_core::hypothesized_proposal::ProposalId {
         let mut p = HypothesizedProposal::new(
             node_id,
             "intent",

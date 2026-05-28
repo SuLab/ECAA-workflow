@@ -5,7 +5,7 @@
 //! the harness isn't blocked on wiring the affordance resolver
 //! call-site.
 
-use scripps_workflow_core::plot_affordance::{AffordanceFallbackCounter, AffordanceFallbackRecord};
+use ecaa_workflow_core::plot_affordance::{AffordanceFallbackCounter, AffordanceFallbackRecord};
 
 /// Basic record + aggregation: three events on two distinct keys.
 /// - `gaps_above(2)` should return only the key that hit the threshold.

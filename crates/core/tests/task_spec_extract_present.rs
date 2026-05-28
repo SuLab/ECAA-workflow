@@ -3,11 +3,11 @@
 //! shape so the executor agent can read its focused slice without parsing
 //! the full 40+ KB WORKFLOW.json on turn 1.
 
-use scripps_workflow_core::classify::ClassificationResult;
-use scripps_workflow_core::dag::{
+use ecaa_workflow_core::classify::ClassificationResult;
+use ecaa_workflow_core::dag::{
     current_dag_schema_version, Assignee, ResourceClass, Task, TaskId, TaskKind, TaskState, DAG,
 };
-use scripps_workflow_core::emitter::{emit_package, EmitConfig};
+use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
 use std::collections::BTreeMap;
 use tempfile::TempDir;
 

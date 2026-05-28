@@ -1,4 +1,4 @@
-use scripps_workflow_core::audit_proof::{
+use ecaa_workflow_core::audit_proof::{
     invariants::claim_completeness::check_claim_completeness, loader::LoadedPackage,
     InvariantStatus,
 };
@@ -79,7 +79,7 @@ fn claim_completeness_unverified_when_no_claim_file() {
     assert_eq!(v.status, InvariantStatus::Unverified);
 }
 
-use scripps_workflow_core::audit_proof::invariants::decision_justification::check_decision_justification;
+use ecaa_workflow_core::audit_proof::invariants::decision_justification::check_decision_justification;
 
 fn fixture_with_decisions(decisions: Vec<serde_json::Value>) -> LoadedPackage {
     LoadedPackage {
@@ -136,7 +136,7 @@ fn decision_justification_ignores_non_method_decisions() {
     assert_eq!(v.status, InvariantStatus::Unverified);
 }
 
-use scripps_workflow_core::audit_proof::invariants::evidence_coverage::check_evidence_coverage;
+use ecaa_workflow_core::audit_proof::invariants::evidence_coverage::check_evidence_coverage;
 
 fn pkg_with(
     claims: Option<serde_json::Value>,
@@ -211,7 +211,7 @@ fn evidence_coverage_warns_when_no_claims_file() {
     assert_eq!(v.status, InvariantStatus::Warn);
 }
 
-use scripps_workflow_core::audit_proof::invariants::equivalence_failure::check_equivalence_failure;
+use ecaa_workflow_core::audit_proof::invariants::equivalence_failure::check_equivalence_failure;
 
 fn pkg_with_q(
     verifier: Vec<serde_json::Value>,
@@ -261,7 +261,7 @@ fn equivalence_failure_passes_when_acknowledged() {
     assert_eq!(v.status, InvariantStatus::Pass);
 }
 
-use scripps_workflow_core::audit_proof::invariants::cross_graph_integrity::check_cross_graph_integrity;
+use ecaa_workflow_core::audit_proof::invariants::cross_graph_integrity::check_cross_graph_integrity;
 
 #[test]
 fn cross_graph_passes_when_all_refs_resolve() {
@@ -320,8 +320,8 @@ fn cross_graph_fails_when_assumption_dangling() {
     assert_eq!(v.status, InvariantStatus::Fail);
 }
 
-use scripps_workflow_core::audit_proof::invariants::substrate_validity::check_substrate_validity;
-use scripps_workflow_core::wrroc_validator::NoopWrrocValidator;
+use ecaa_workflow_core::audit_proof::invariants::substrate_validity::check_substrate_validity;
+use ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
 
 #[test]
 fn substrate_validity_with_noop_validator_passes_on_present_descriptor() {

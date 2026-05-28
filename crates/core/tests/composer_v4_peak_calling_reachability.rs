@@ -21,13 +21,13 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer_v4::{plan as v4_plan, PlanningContext};
-use scripps_workflow_core::goal_spec::GoalSpec;
-use scripps_workflow_core::workflow_contracts::data_product::DataProductContract;
-use scripps_workflow_core::workflow_contracts::outcome::ComposeOutcome;
-use scripps_workflow_core::workflow_contracts::workflow_intent::{DesiredOutput, WorkflowIntent};
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer_v4::{plan as v4_plan, PlanningContext};
+use ecaa_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::workflow_contracts::data_product::DataProductContract;
+use ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome;
+use ecaa_workflow_core::workflow_contracts::workflow_intent::{DesiredOutput, WorkflowIntent};
 
 const ATOMS_DIR: &str = "../../config/stage-atoms";
 const ARCHETYPES_DIR: &str = "../../config/archetypes";
@@ -186,7 +186,7 @@ fn goal_pattern_iri_matches_peak_calling_output_iri() {
 /// with the comment ("EDAM data:3002 = Annotation track").
 #[test]
 fn classifier_chip_seq_peak_calling_prose_matches_atom_output() {
-    use scripps_workflow_core::classify::Classifier;
+    use ecaa_workflow_core::classify::Classifier;
     let keywords_path = Path::new("../../config/modality-keywords.yaml");
     let classifier = Classifier::load(keywords_path).expect("load modality-keywords.yaml");
     let prose = "Align reads with BWA, call narrow peaks with MACS2 against matched input controls";
@@ -215,8 +215,8 @@ fn classifier_chip_seq_peak_calling_prose_matches_atom_output() {
 /// `GoalUnreachable`).
 #[test]
 fn production_dispatch_reaches_peak_calling_for_chip_seq() {
-    use scripps_workflow_core::classify::Classifier;
-    use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::classify::Classifier;
+    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
 
     let atom_reg = AtomRegistry::load_from_dir(Path::new(ATOMS_DIR))
         .expect("AtomRegistry must load from config/stage-atoms");

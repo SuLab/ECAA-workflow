@@ -5,7 +5,7 @@
 //! 2. `check_bound` correctness across all five operators.
 //! 3. `load_bounds_for_modality` round-trips through the schema-extended YAML.
 
-use scripps_workflow_core::modality_bounds::{
+use ecaa_workflow_core::modality_bounds::{
     check_bound, load_bounds_for_modality, BoundOperator, SemanticEquivalenceBound,
 };
 use std::path::Path;

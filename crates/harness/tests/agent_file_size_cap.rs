@@ -1,5 +1,5 @@
 //! Integration tests for the agent-file size cap
-//! plumbed through `scripps_workflow_harness::swfc_io::read_capped`.
+//! plumbed through `ecaa_workflow_harness::swfc_io::read_capped`.
 //!
 //! Validates that:
 //! - A small file passes the cap and returns its contents verbatim.
@@ -11,7 +11,7 @@
 //!   harness would historically have read this into memory and OOM'd
 //!   on the JSON parse.
 
-use scripps_workflow_harness::swfc_io::{
+use ecaa_workflow_harness::swfc_io::{
     read_bytes_capped, read_capped, read_capped_default, ENV_AGENT_FILE_MAX_MB,
 };
 use std::io::Write;

@@ -10,7 +10,7 @@
 //! before they reach a fixture.
 
 use proptest::prelude::*;
-use scripps_workflow_core::classify::Classifier;
+use ecaa_workflow_core::classify::Classifier;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 

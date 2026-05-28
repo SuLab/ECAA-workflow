@@ -5,7 +5,7 @@
 //! (3) `resolve_slot_value` keyword matching picks the first matching
 //! value (or falls back to default).
 
-use scripps_workflow_core::archetype_slots::{SlotManifest, SlotValue};
+use ecaa_workflow_core::archetype_slots::{SlotManifest, SlotValue};
 
 #[test]
 fn slot_manifest_parses_from_yaml() {
@@ -37,7 +37,7 @@ values:
 
 #[test]
 fn registry_loads_slot_sidecar() {
-    use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
     let tmp = tempfile::tempdir().unwrap();
     let p = tmp.path();
     std::fs::write(
@@ -83,7 +83,7 @@ fn slot_sidecar_does_not_load_as_primary_archetype() {
     // A `.slots.yaml` file with no matching primary archetype must not
     // become its own archetype. The filter excludes `.slots.yaml` from
     // the primary-archetype scan.
-    use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
     let tmp = tempfile::tempdir().unwrap();
     let p = tmp.path();
     // Orphan sidecar — no corresponding orphan.yaml.
@@ -129,7 +129,7 @@ values:
 
 #[test]
 fn resolve_slot_picks_keyword_match() {
-    use scripps_workflow_core::archetype_slots::{resolve_slot_value, SlotManifest};
+    use ecaa_workflow_core::archetype_slots::{resolve_slot_value, SlotManifest};
     let m: SlotManifest = serde_yml::from_str(
         r#"
 slot_name: integrator
@@ -152,8 +152,8 @@ values:
 
 #[test]
 fn expand_atoms_appends_slot_extras() {
-    use scripps_workflow_core::archetype::ArchetypeAtomRef;
-    use scripps_workflow_core::archetype_slots::{expand_atoms, SlotManifest};
+    use ecaa_workflow_core::archetype::ArchetypeAtomRef;
+    use ecaa_workflow_core::archetype_slots::{expand_atoms, SlotManifest};
     let m: SlotManifest = serde_yml::from_str(
         r#"
 slot_name: integrator

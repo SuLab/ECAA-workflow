@@ -296,12 +296,12 @@ pub async fn post_impact_preview(
             "description": desc,
             "stage_class": stage_class,
             "current_status": task.map(|t| match &t.state {
-                scripps_workflow_core::dag::TaskState::Pending => "pending",
-                scripps_workflow_core::dag::TaskState::Ready => "ready",
-                scripps_workflow_core::dag::TaskState::Running { .. } => "running",
-                scripps_workflow_core::dag::TaskState::Completed { .. } => "completed",
-                scripps_workflow_core::dag::TaskState::Blocked { .. } => "blocked",
-                scripps_workflow_core::dag::TaskState::Failed { .. } => "failed",
+                ecaa_workflow_core::dag::TaskState::Pending => "pending",
+                ecaa_workflow_core::dag::TaskState::Ready => "ready",
+                ecaa_workflow_core::dag::TaskState::Running { .. } => "running",
+                ecaa_workflow_core::dag::TaskState::Completed { .. } => "completed",
+                ecaa_workflow_core::dag::TaskState::Blocked { .. } => "blocked",
+                ecaa_workflow_core::dag::TaskState::Failed { .. } => "failed",
             }),
             "est_cost_usd_min": cost_min,
             "est_cost_usd_max": cost_max,
@@ -370,7 +370,7 @@ mod tests {
 
     #[tokio::test]
     async fn impact_preview_returns_forward_slice_and_cost_ranges() {
-        use scripps_workflow_core::dag::{
+        use ecaa_workflow_core::dag::{
             Assignee, ResourceClass, Task, TaskId, TaskKind, TaskState, DAG,
         };
         let (router, app) = make_router(vec![]).await;
@@ -410,7 +410,7 @@ mod tests {
                 }
                 s.dag = Some(DAG {
                     version: "test".into(),
-                    schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+                    schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
                     workflow_id: "wf-test".into(),
                     current_task: None,
                     tasks,

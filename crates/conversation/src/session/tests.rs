@@ -2,7 +2,7 @@
 //! public session surface.
 
 use super::*;
-use scripps_workflow_core::blocker::{BlockerContext, BlockerKind};
+use ecaa_workflow_core::blocker::{BlockerContext, BlockerKind};
 
 #[test]
 fn greeting_to_intake_on_first_prose() {
@@ -372,8 +372,8 @@ fn branch_from_inherits_intake_state_and_resets_run_state() {
 
 #[test]
 fn branch_from_task_inherits_authoritative_workflow_dag_and_resets_target() {
-    use scripps_workflow_core::dag::TaskState;
-    use scripps_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+    use ecaa_workflow_core::dag::TaskState;
+    use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
     let mut parent = Session::new(false);
     parent.state = SessionState::Emitted;
@@ -505,7 +505,7 @@ fn blocked_unblocks_to_emitted_when_package_emitted() {
     // Before this fix, the first blocker cycle worked but every
     // subsequent blocker was silently dropped by the service-layer
     // guard because the session was sitting in Intake.
-    use scripps_workflow_core::blocker::BlockerKind;
+    use ecaa_workflow_core::blocker::BlockerKind;
     let mut s = Session::new(false);
     s.try_transition(StateTrigger::AppendProse).unwrap();
     s.try_transition(StateTrigger::ProposeSummaryConfirmation)
@@ -616,7 +616,7 @@ fn intake_methods_serde_roundtrip_to_core() {
 /// version.
 #[test]
 fn archetype_snapshot_defaults_to_none_and_inherits_through_branch() {
-    use scripps_workflow_core::archetype::ArchetypeDefinition;
+    use ecaa_workflow_core::archetype::ArchetypeDefinition;
     use std::collections::BTreeMap;
 
     let mut parent = Session::new(false);
@@ -628,7 +628,7 @@ fn archetype_snapshot_defaults_to_none_and_inherits_through_branch() {
     // Pin a snapshot on the parent (composer would do this at first
     // archetype-match emit).
     let snapshot = ArchetypeDefinition {
-        schema_version: scripps_workflow_core::archetype::CURRENT_ARCHETYPE_SCHEMA_VERSION.into(),
+        schema_version: ecaa_workflow_core::archetype::CURRENT_ARCHETYPE_SCHEMA_VERSION.into(),
         id: "single_cell_de".into(),
         version: "1.0.0".into(),
         description: "Test archetype".into(),

@@ -10,7 +10,7 @@
 use super::{ChatAppState, LlmRateBuckets};
 use axum::extract::Path;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use scripps_workflow_conversation::side_calls::summary as summary_side_call;
+use ecaa_workflow_conversation::side_calls::summary as summary_side_call;
 use serde::Serialize;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -81,7 +81,7 @@ pub(super) async fn post_dashboard_summary(
     }
 }
 
-pub(super) fn build_source(session: &scripps_workflow_conversation::Session) -> String {
+pub(super) fn build_source(session: &ecaa_workflow_conversation::Session) -> String {
     use std::fmt::Write;
     let mut out = String::new();
     // Intake prose is a decent reason-for-being orientation.
@@ -95,11 +95,11 @@ pub(super) fn build_source(session: &scripps_workflow_conversation::Session) -> 
         .filter(|d| {
             matches!(
                 d.decision,
-                scripps_workflow_core::decision_log::DecisionType::Confirm { .. }
-                    | scripps_workflow_core::decision_log::DecisionType::AmendStage { .. }
-                    | scripps_workflow_core::decision_log::DecisionType::RerunTask { .. }
-                    | scripps_workflow_core::decision_log::DecisionType::SelectSensitivityWinner { .. }
-                    | scripps_workflow_core::decision_log::DecisionType::UserNote { .. }
+                ecaa_workflow_core::decision_log::DecisionType::Confirm { .. }
+                    | ecaa_workflow_core::decision_log::DecisionType::AmendStage { .. }
+                    | ecaa_workflow_core::decision_log::DecisionType::RerunTask { .. }
+                    | ecaa_workflow_core::decision_log::DecisionType::SelectSensitivityWinner { .. }
+                    | ecaa_workflow_core::decision_log::DecisionType::UserNote { .. }
             )
         })
         .take(40)
@@ -112,9 +112,9 @@ pub(super) fn build_source(session: &scripps_workflow_conversation::Session) -> 
                 "- {} [{}]: {:?}",
                 d.timestamp.format("%Y-%m-%d %H:%M"),
                 match d.actor {
-                    scripps_workflow_core::decision_log::DecisionActor::Sme => "SME",
-                    scripps_workflow_core::decision_log::DecisionActor::Llm => "assistant",
-                    scripps_workflow_core::decision_log::DecisionActor::Harness => "system",
+                    ecaa_workflow_core::decision_log::DecisionActor::Sme => "SME",
+                    ecaa_workflow_core::decision_log::DecisionActor::Llm => "assistant",
+                    ecaa_workflow_core::decision_log::DecisionActor::Harness => "system",
                 },
                 d.decision,
             );
@@ -127,12 +127,12 @@ pub(super) fn build_source(session: &scripps_workflow_conversation::Session) -> 
         out.push_str("TASK STATUS:\n");
         for (tid, task) in &dag.tasks {
             let status = match task.state {
-                scripps_workflow_core::dag::TaskState::Completed { .. } => "completed",
-                scripps_workflow_core::dag::TaskState::Running { .. } => "running",
-                scripps_workflow_core::dag::TaskState::Failed { .. } => "failed",
-                scripps_workflow_core::dag::TaskState::Blocked { .. } => "blocked",
-                scripps_workflow_core::dag::TaskState::Ready => "ready",
-                scripps_workflow_core::dag::TaskState::Pending => "pending",
+                ecaa_workflow_core::dag::TaskState::Completed { .. } => "completed",
+                ecaa_workflow_core::dag::TaskState::Running { .. } => "running",
+                ecaa_workflow_core::dag::TaskState::Failed { .. } => "failed",
+                ecaa_workflow_core::dag::TaskState::Blocked { .. } => "blocked",
+                ecaa_workflow_core::dag::TaskState::Ready => "ready",
+                ecaa_workflow_core::dag::TaskState::Pending => "pending",
             };
             let _ = writeln!(out, "- {} ({}): {}", tid, status, task.description,);
         }

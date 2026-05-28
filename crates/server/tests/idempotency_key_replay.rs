@@ -19,7 +19,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use scripps_workflow_server::chat_routes;
+use ecaa_workflow_server::chat_routes;
 use tower::util::ServiceExt;
 use uuid::Uuid;
 
@@ -27,7 +27,7 @@ use uuid::Uuid;
 /// of the in-crate `test_support::make_router` helper but reachable
 /// from an integration test.
 async fn make_router() -> chat_routes::ChatAppState {
-    use scripps_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore};
+    use ecaa_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore};
     use std::path::Path;
     use std::sync::Arc;
 

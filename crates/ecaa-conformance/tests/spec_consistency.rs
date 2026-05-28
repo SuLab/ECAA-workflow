@@ -11,10 +11,10 @@
 //!      match the emit-side paths and the loader-side paths.
 //!
 //! Canonical type-set definitions live in
-//! `scripps-workflow-ecaa-types::consts`; this test imports them as the
+//! `ecaa-workflow-types::consts`; this test imports them as the
 //! single source of truth.
 
-use scripps_workflow_ecaa_types::consts::{
+use ecaa_workflow_types::consts::{
     EDGE_PREDICATES as EXPECTED_EDGE_PREDICATES, INVARIANT_IDS as EXPECTED_INVARIANT_IDS,
     NODE_TYPES as EXPECTED_NODE_TYPES, SIDECAR_PATHS as EXPECTED_SIDECARS,
 };
@@ -209,7 +209,7 @@ fn blocker_variants_match_appendix_b() {
     }
     // Cross-check against the strum::EnumCount macro (compile-time count).
     assert_eq!(
-        scripps_workflow_core::blocker::BlockerKind::COUNT,
+        ecaa_workflow_core::blocker::BlockerKind::COUNT,
         47,
         "design + spec assume 47 BlockerKind variants; update this assertion AND the spec if the impl drifts"
     );

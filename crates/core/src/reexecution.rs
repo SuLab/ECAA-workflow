@@ -27,9 +27,9 @@ use std::path::Path;
 
 /// The five re-execution buckets per PAR-26-040 §Aim 3A primary endpoint.
 ///
-/// Canonical definition lives in `scripps-workflow-ecaa-types::reexecution`.
+/// Canonical definition lives in `ecaa-workflow-types::reexecution`.
 /// Re-exported here for backward compatibility with existing call sites.
-pub use scripps_workflow_ecaa_types::ReexecutionBucket;
+pub use ecaa_workflow_types::ReexecutionBucket;
 
 /// Report aggregating per-artifact bucket assignments across a replay pair.
 ///

@@ -52,7 +52,7 @@ fn policy_without_excludes() -> serde_json::Value {
 /// Common-noun acronyms must be excluded; true gene symbols must survive.
 #[test]
 fn denylist_excludes_common_noun_acronyms_but_keeps_gene_symbols() {
-    use scripps_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
+    use ecaa_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
 
     let cfg = ExtractorConfig::from_policy(&policy_with_excludes()).unwrap();
 
@@ -107,7 +107,7 @@ fn denylist_excludes_common_noun_acronyms_but_keeps_gene_symbols() {
 /// Additional single-letter + all-caps gene symbols must survive (MYC, JUN, FOS, RAS).
 #[test]
 fn gene_symbols_without_digits_survive_denylist() {
-    use scripps_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
+    use ecaa_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
 
     let cfg = ExtractorConfig::from_policy(&policy_with_excludes()).unwrap();
 
@@ -128,7 +128,7 @@ fn gene_symbols_without_digits_survive_denylist() {
 /// confirms the test is non-trivial — the denylist is what filters them).
 #[test]
 fn without_denylist_common_nouns_are_present() {
-    use scripps_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
+    use ecaa_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
 
     let cfg = ExtractorConfig::from_policy(&policy_without_excludes()).unwrap();
 
@@ -153,7 +153,7 @@ fn without_denylist_common_nouns_are_present() {
 /// `entityNameExcludePatterns` loads successfully with an empty denylist.
 #[test]
 fn missing_field_loads_with_empty_denylist() {
-    use scripps_workflow_core::claim_extractor::ExtractorConfig;
+    use ecaa_workflow_core::claim_extractor::ExtractorConfig;
 
     let result = ExtractorConfig::from_policy(&policy_without_excludes());
     assert!(
@@ -166,7 +166,7 @@ fn missing_field_loads_with_empty_denylist() {
 /// MS/MS2/MS3 (mass-spec abbreviations) must be excludable via the denylist.
 #[test]
 fn mass_spec_abbreviations_excluded() {
-    use scripps_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
+    use ecaa_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
 
     let cfg = ExtractorConfig::from_policy(&policy_with_excludes()).unwrap();
 

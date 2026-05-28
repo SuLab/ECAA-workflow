@@ -9,7 +9,7 @@
 //! server crate into the conversation crate's dep arrow.
 //!
 //! Why a separate type from
-//! `scripps_workflow_core::decision_log::DecisionActor`? `DecisionActor`
+//! `ecaa_workflow_core::decision_log::DecisionActor`? `DecisionActor`
 //! is a coarse classifier (Sme / Llm / Harness) keyed for the
 //! `runtime/decisions.jsonl` audit log; `AuditActor` carries the actual
 //! identity string (e.g. the SME's owner-user) so a confirmation token

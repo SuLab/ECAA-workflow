@@ -11,8 +11,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::workflow_contracts::{
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::workflow_contracts::{
     Implementation, LifecycleState, NodeStatus, TaskNode, TrustLevel,
 };
 
@@ -109,12 +109,12 @@ fn sme_atoms_become_manual_protocol_implementations() {
         let node = TaskNode::from_atom(atom);
         match (&atom.assignee, &node.implementation) {
             (
-                scripps_workflow_core::atom::AtomAssignee::Sme,
+                ecaa_workflow_core::atom::AtomAssignee::Sme,
                 Implementation::ManualProtocol { .. },
             ) => {
                 sme_count += 1;
             }
-            (scripps_workflow_core::atom::AtomAssignee::Sme, other) => {
+            (ecaa_workflow_core::atom::AtomAssignee::Sme, other) => {
                 panic!(
                     "SME-assignee atom {} converted to {:?}, expected ManualProtocol",
                     atom.id, other
@@ -136,7 +136,7 @@ fn agent_atoms_with_container_become_container_command() {
         let node = TaskNode::from_atom(atom);
         if matches!(
             atom.assignee,
-            scripps_workflow_core::atom::AtomAssignee::Agent
+            ecaa_workflow_core::atom::AtomAssignee::Agent
         ) && atom.preferred_container.is_some()
         {
             assert!(
@@ -229,7 +229,7 @@ fn aggregator_atoms_have_no_input_ports() {
         let node = TaskNode::from_atom(atom);
         if matches!(
             atom.role.default_behavior_class(),
-            scripps_workflow_core::atom::AtomRole::Aggregator
+            ecaa_workflow_core::atom::AtomRole::Aggregator
         ) {
             assert!(
                 node.inputs.is_empty(),

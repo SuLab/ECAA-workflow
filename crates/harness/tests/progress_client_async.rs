@@ -16,7 +16,7 @@
 
 use std::time::{Duration, Instant};
 
-use scripps_workflow_harness::progress_client::ProgressClient;
+use ecaa_workflow_harness::progress_client::ProgressClient;
 
 /// Port 1 is reserved and refuses connections immediately on Linux.
 /// We use it (rather than a random unbound port) so the OS rejects
@@ -59,7 +59,7 @@ fn progress_client_task_blocked_does_not_block_main_thread_on_server_outage() {
 
 #[test]
 fn progress_client_set_task_state_does_not_block_main_thread_on_server_outage() {
-    use scripps_workflow_core::dag::TaskState;
+    use ecaa_workflow_core::dag::TaskState;
     let pc = ProgressClient::new("session-state-mirror", UNREACHABLE_BASE_URL);
     let state = TaskState::Ready;
     let start = Instant::now();

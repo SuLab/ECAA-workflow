@@ -9,11 +9,11 @@ use super::{
 use axum::http::StatusCode;
 use dashmap::{DashMap, DashSet};
 use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     AnthropicClient, BatcherConfig, ConversationService, HarnessBatcher, LlmBackend,
     MockLlmBackend, ServiceEventSink, SessionId, SessionStore,
 };
-use scripps_workflow_core::config::Config;
+use ecaa_workflow_core::config::Config;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
@@ -407,7 +407,7 @@ pub type ScorerCache = Arc<
             (
                 usize,
                 std::time::Instant,
-                scripps_workflow_conversation::RubricScore,
+                ecaa_workflow_conversation::RubricScore,
             ),
         >,
     >,
@@ -428,8 +428,8 @@ impl ChatAppState {
         let session_dir = config.chat_sessions_dir.clone();
         let store = SessionStore::open(&session_dir).await?;
         let llm: Arc<dyn LlmBackend> = if config.chat_mode
-            == scripps_workflow_core::config::ChatMode::Offline
-            || scripps_workflow_conversation::anthropic_api_key().is_none()
+            == ecaa_workflow_core::config::ChatMode::Offline
+            || ecaa_workflow_conversation::anthropic_api_key().is_none()
         {
             // Offline kill switch — empty mock means /turn returns the
             // exhausted error, so the front end can fall back to the
@@ -750,20 +750,20 @@ mod tests {
     /// Config is present and the config_dir matches what was passed in.
     #[test]
     fn with_backend_config_field_is_populated() {
-        use scripps_workflow_conversation::MockLlmBackend;
+        use ecaa_workflow_conversation::MockLlmBackend;
         use std::sync::Arc;
         use tempfile::tempdir;
 
         let tmp = tempdir().unwrap();
         let store = tokio::runtime::Runtime::new()
             .unwrap()
-            .block_on(scripps_workflow_conversation::SessionStore::open(
+            .block_on(ecaa_workflow_conversation::SessionStore::open(
                 tmp.path(),
             ))
             .unwrap();
         let config_dir = tmp.path().join("config");
         std::fs::create_dir_all(&config_dir).unwrap();
-        let llm: Arc<dyn scripps_workflow_conversation::LlmBackend> =
+        let llm: Arc<dyn ecaa_workflow_conversation::LlmBackend> =
             Arc::new(MockLlmBackend::new(vec![]));
         let state = ChatAppState::with_backend(llm, store, config_dir.clone());
         // The config field must be present (not panicking means Arc is set).

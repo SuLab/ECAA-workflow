@@ -19,7 +19,7 @@
 use crate::errors::{ToolError, ToolResult};
 use crate::session::{Session, ToolCallRecord};
 use chrono::Utc;
-use scripps_workflow_core::dag::TaskState;
+use ecaa_workflow_core::dag::TaskState;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -66,7 +66,7 @@ pub(crate) use intake::append_intake_prose;
 /// `hypothesized_renderer::propose_hypothesized_renderer` exactly.
 pub fn hypothesized_renderer_dispatch(
     session: &mut Session,
-    registry: &dyn scripps_workflow_core::plot_affordance::PlotAffordanceRegistry,
+    registry: &dyn ecaa_workflow_core::plot_affordance::PlotAffordanceRegistry,
     target_semantic_type: &str,
     proposed_parent_terms: &[String],
     proposed_figure_ids: &[String],
@@ -1727,9 +1727,9 @@ async fn dispatch_high_impact(
             // radius minimal). Falls back to an empty registry on load
             // error so the tool can still reject with a clear error
             // rather than panicking.
-            use scripps_workflow_core::plot_affordance::YamlPlotAffordanceRegistry;
+            use ecaa_workflow_core::plot_affordance::YamlPlotAffordanceRegistry;
             let plot_dir = ctx.config_dir.join("plot-affordances");
-            let registry: Box<dyn scripps_workflow_core::plot_affordance::PlotAffordanceRegistry> =
+            let registry: Box<dyn ecaa_workflow_core::plot_affordance::PlotAffordanceRegistry> =
                 match YamlPlotAffordanceRegistry::from_dir(&plot_dir) {
                     Ok(r) => Box::new(r),
                     Err(e) => {
@@ -1911,7 +1911,7 @@ pub(crate) fn rebuild_dag(
     // derive from the task id. Once Task gains a typed role field,
     // switch this to `t.role.is_discovery()`.
     let has_unresolved = dag.tasks.iter().any(|(id, t)| {
-        scripps_workflow_core::taxonomy::derive_role_from_id(id.as_str()).is_discovery()
+        ecaa_workflow_core::taxonomy::derive_role_from_id(id.as_str()).is_discovery()
             && matches!(t.state, TaskState::Pending | TaskState::Ready)
     });
 
@@ -2006,7 +2006,7 @@ pub(crate) fn rebuild_dag(
                 if already {
                     continue;
                 }
-                let proof = scripps_workflow_core::workflow_contracts::edge::CompatibilityProof {
+                let proof = ecaa_workflow_core::workflow_contracts::edge::CompatibilityProof {
                     rationale: Some(
                         "rewired to data_acquisition because upstream atom(s) were excluded by SME"
                             .to_string(),
@@ -2014,7 +2014,7 @@ pub(crate) fn rebuild_dag(
                     ..Default::default()
                 };
                 wf.edges.push(
-                    scripps_workflow_core::workflow_contracts::edge::EdgeContract {
+                    ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
                         from_node,
                         from_port: "_excluded_rewire".into(),
                         to_node,
@@ -2032,7 +2032,7 @@ pub(crate) fn rebuild_dag(
             );
             let id = workflow_id(&session.id);
             if let Ok(rebuilt) =
-                scripps_workflow_core::builder::build_dag_from_workflow_dag(wf, &id)
+                ecaa_workflow_core::builder::build_dag_from_workflow_dag(wf, &id)
             {
                 session.dag = Some(rebuilt);
             }
@@ -2079,7 +2079,7 @@ pub(crate) fn rebuild_dag(
 /// current DAG" warning, lowering `depends_on=[]` despite the proposal
 /// correctly naming the upstream.
 pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
-    use scripps_workflow_core::hypothesized_proposal::{
+    use ecaa_workflow_core::hypothesized_proposal::{
         proposal_to_materialized_task_node, ProposalLifecycle,
     };
     let to_inject: Vec<(String, _)> = session
@@ -2088,7 +2088,7 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
         .filter_map(|p| {
             if let ProposalLifecycle::Promoted { task_node_id } = &p.lifecycle {
                 let authority =
-                    scripps_workflow_core::workflow_contracts::lifecycle::PromotionAuthority {
+                    ecaa_workflow_core::workflow_contracts::lifecycle::PromotionAuthority {
                         kind: "rebuild_reinject".into(),
                         id: p
                             .gate_outcomes
@@ -2096,7 +2096,7 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
                             .rev()
                             .find_map(|g| {
                                 if g.gate
-                                    == scripps_workflow_core::hypothesized_proposal::GateName::SmeSignoff
+                                    == ecaa_workflow_core::hypothesized_proposal::GateName::SmeSignoff
                                 {
                                     g.details.first().cloned()
                                 } else {
@@ -2169,7 +2169,7 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
             if already_edged {
                 continue;
             }
-            let proof = scripps_workflow_core::workflow_contracts::edge::CompatibilityProof {
+            let proof = ecaa_workflow_core::workflow_contracts::edge::CompatibilityProof {
                 rationale: Some(format!(
                     "promoted hypothesized node `{}` declared upstream `{}` via propose_hypothesized_node",
                     task_node_id, upstream_id
@@ -2177,7 +2177,7 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
                 ..Default::default()
             };
             dag.edges.push(
-                scripps_workflow_core::workflow_contracts::edge::EdgeContract {
+                ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
                     from_node: upstream_id.clone(),
                     from_port: "_promoted_upstream".into(),
                     to_node: task_node_id.clone(),
@@ -2215,7 +2215,7 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
                 .iter()
                 .any(|e| e.from_node == *task_node_id && e.to_node == d);
             if !already {
-                let proof = scripps_workflow_core::workflow_contracts::edge::CompatibilityProof {
+                let proof = ecaa_workflow_core::workflow_contracts::edge::CompatibilityProof {
                     rationale: Some(format!(
                         "default downstream wiring: promoted hypothesized atom `{}` feeds `{}`",
                         task_node_id, d
@@ -2223,7 +2223,7 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
                     ..Default::default()
                 };
                 dag.edges.push(
-                    scripps_workflow_core::workflow_contracts::edge::EdgeContract {
+                    ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
                         from_node: task_node_id.clone(),
                         from_port: "_promoted_output".into(),
                         to_node: d,
@@ -2236,10 +2236,10 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
             }
         }
         // Validate-wrapper synthesis.
-        use scripps_workflow_core::workflow_contracts::evidence::ValidatorRef;
-        use scripps_workflow_core::workflow_contracts::implementation::Implementation;
-        use scripps_workflow_core::workflow_contracts::lifecycle::LifecycleState;
-        use scripps_workflow_core::workflow_contracts::task_node::TaskNode;
+        use ecaa_workflow_core::workflow_contracts::evidence::ValidatorRef;
+        use ecaa_workflow_core::workflow_contracts::implementation::Implementation;
+        use ecaa_workflow_core::workflow_contracts::lifecycle::LifecycleState;
+        use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
         let validate_id = format!("validate_{task_node_id}");
         if !dag.nodes.iter().any(|n| n.id == validate_id) {
             let mut validator_node = TaskNode::skeleton(
@@ -2265,12 +2265,12 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
             .iter()
             .any(|e| e.from_node == *task_node_id && e.to_node == validate_id);
         if !validate_edge_wired {
-            let proof = scripps_workflow_core::workflow_contracts::edge::CompatibilityProof {
+            let proof = ecaa_workflow_core::workflow_contracts::edge::CompatibilityProof {
                 rationale: Some("validator wrapper for promoted hypothesized atom".to_string()),
                 ..Default::default()
             };
             dag.edges.push(
-                scripps_workflow_core::workflow_contracts::edge::EdgeContract {
+                ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
                     from_node: task_node_id.clone(),
                     from_port: "_promoted_output".into(),
                     to_node: validate_id,
@@ -2309,7 +2309,7 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
     if wf_dirty {
         if let Some(wf) = session.workflow_dag.as_ref() {
             let id = workflow_id(&session.id);
-            match scripps_workflow_core::builder::build_dag_from_workflow_dag(wf, &id) {
+            match ecaa_workflow_core::builder::build_dag_from_workflow_dag(wf, &id) {
                 Ok(rebuilt) => {
                     session.dag = Some(rebuilt);
                 }
@@ -2348,8 +2348,8 @@ pub(super) fn workflow_id(session_id: &uuid::Uuid) -> String {
 /// (logged as warning).
 fn resolve_policy_bundle(
     bundle_id: &str,
-) -> Option<scripps_workflow_core::policy_context::PolicyContext> {
-    use scripps_workflow_core::policy_context::PolicyContext;
+) -> Option<ecaa_workflow_core::policy_context::PolicyContext> {
+    use ecaa_workflow_core::policy_context::PolicyContext;
     let ctx = PolicyContext::empty();
     match bundle_id {
         "clinical_trial" => Some(ctx.with_bundle(PolicyContext::clinical_trial_bundle())),
@@ -2367,13 +2367,13 @@ fn resolve_policy_bundle(
 fn try_build_via_composer(
     session: &mut crate::session::Session,
     config_dir: &std::path::Path,
-) -> Option<scripps_workflow_core::dag::DAG> {
-    use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-    use scripps_workflow_core::atom_registry::AtomRegistry;
-    use scripps_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
-    use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-    use scripps_workflow_core::goal_spec::GoalSpec;
-    use scripps_workflow_core::project_class::ProjectClass;
+) -> Option<ecaa_workflow_core::dag::DAG> {
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::atom_registry::AtomRegistry;
+    use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
+    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::goal_spec::GoalSpec;
+    use ecaa_workflow_core::project_class::ProjectClass;
 
     let classification = session.classification.as_ref()?;
     // Thread the
@@ -2470,9 +2470,9 @@ fn try_build_via_composer(
         // like "Cox proportional-hazards model", "STRAIN-level", and
         // "single-cell ATAC" all map to the canonical token list.
         let prose_norm =
-            scripps_workflow_core::classify::normalize_for_match(&classification.intake_text);
+            ecaa_workflow_core::classify::normalize_for_match(&classification.intake_text);
         let novel_hit = NOVEL_METHOD_TOKENS.iter().find(|t| {
-            let needle = scripps_workflow_core::classify::normalize_for_match(t);
+            let needle = ecaa_workflow_core::classify::normalize_for_match(t);
             !needle.is_empty() && prose_norm.contains(&needle)
         });
         if let Some(token) = novel_hit {
@@ -2524,7 +2524,7 @@ fn try_build_via_composer(
     // whether the test harness sets CWD to the workspace root or a
     // per-crate dir. Reading SWFC_CONFIG_DIR with a "./config"
     // fallback here would break under `cargo test -p
-    // scripps-workflow-conversation` (the per-crate CWD has no
+    // ecaa-workflow-conversation` (the per-crate CWD has no
     // `config/` sibling) and mask real composer dispatch errors.
     let atom_dir = config_dir.join("stage-atoms");
     let archetype_dir = config_dir.join("archetypes");
@@ -2568,11 +2568,11 @@ fn try_build_via_composer(
     // (the helper returns `None`); when no proposals are Promoted,
     // the overlay is empty and the returned registry is a clone
     // equivalent to the original.
-    let promoted_overlay: Vec<scripps_workflow_core::atom::AtomDefinition> = session
+    let promoted_overlay: Vec<ecaa_workflow_core::atom::AtomDefinition> = session
         .proposals
         .values()
         .filter_map(
-            scripps_workflow_core::hypothesized_proposal::promoted_proposal_to_atom_definition,
+            ecaa_workflow_core::hypothesized_proposal::promoted_proposal_to_atom_definition,
         )
         .collect();
     let atoms = atoms.with_promoted_overlay(promoted_overlay);
@@ -2679,9 +2679,9 @@ fn try_build_via_composer(
         // network fusion"). Without normalization, hyphenated SME
         // prose missed token matches.
         let prose_norm =
-            scripps_workflow_core::classify::normalize_for_match(&classification.intake_text);
+            ecaa_workflow_core::classify::normalize_for_match(&classification.intake_text);
         for (phrase, canonical) in INTEGRATOR_TOKENS {
-            let needle = scripps_workflow_core::classify::normalize_for_match(phrase);
+            let needle = ecaa_workflow_core::classify::normalize_for_match(phrase);
             if !needle.is_empty() && prose_norm.contains(&needle) {
                 if paired_protocol_negated && matches!(*canonical, "share_seq" | "multiome") {
                     continue;
@@ -2727,9 +2727,9 @@ fn try_build_via_composer(
             ("multiome", "multiome_arc"),
         ];
         let prose_norm =
-            scripps_workflow_core::classify::normalize_for_match(&classification.intake_text);
+            ecaa_workflow_core::classify::normalize_for_match(&classification.intake_text);
         for (phrase, canonical) in PROTOCOL_TOKENS {
-            let needle = scripps_workflow_core::classify::normalize_for_match(phrase);
+            let needle = ecaa_workflow_core::classify::normalize_for_match(phrase);
             if !needle.is_empty() && prose_norm.contains(&needle) {
                 if paired_protocol_negated && matches!(*canonical, "share_seq" | "multiome_arc") {
                     continue;
@@ -2750,7 +2750,7 @@ fn try_build_via_composer(
     // ["n_way_intent"] — the planner's prose reconstruction then
     // sees a strong-marker value and `find_match_cross_omics(n_way:
     // true)` unlocks subset matching for 3-way archetypes.
-    if scripps_workflow_core::classify::is_n_way_intent(&classification.intake_text) {
+    if ecaa_workflow_core::classify::is_n_way_intent(&classification.intake_text) {
         goal.modifiers
             .entry("n_way_intent".to_string())
             .or_insert_with(|| "three way analysis".to_string());
@@ -2782,7 +2782,7 @@ fn try_build_via_composer(
         if goal.modifiers.contains_key(&slots.slot_name) {
             continue;
         }
-        let chosen = scripps_workflow_core::archetype_slots::resolve_slot_value(
+        let chosen = ecaa_workflow_core::archetype_slots::resolve_slot_value(
             slots,
             &classification.intake_text,
         );
@@ -2949,7 +2949,7 @@ fn try_build_via_composer(
         aggregator_path,
     ));
     let opaque_sink: std::sync::Arc<
-        dyn scripps_workflow_core::compatibility::engine::OpaqueObservationSink + Send + Sync,
+        dyn ecaa_workflow_core::compatibility::engine::OpaqueObservationSink + Send + Sync,
     > = std::sync::Arc::new(
         crate::session::opaque_aggregator::OpaqueObservationSinkImpl::new(aggregator),
     );
@@ -3052,7 +3052,7 @@ fn try_build_via_composer(
             let dropped_lit = apply_literature_opt_in_gate(&mut dag);
             let dropped_fastq = apply_counts_only_input_gate(&mut dag, session);
             if let Some(wf) = workflow_dag_for_session.as_mut() {
-                use scripps_workflow_core::composer::LITERATURE_OPT_IN_ATOM_IDS;
+                use ecaa_workflow_core::composer::LITERATURE_OPT_IN_ATOM_IDS;
                 let wf_dropped_lit =
                     prune_workflow_dag_roots_with_companions(wf, LITERATURE_OPT_IN_ATOM_IDS);
                 let wf_dropped_fastq = prune_counts_only_input_workflow_dag(wf, session);
@@ -3146,15 +3146,15 @@ fn try_build_via_composer(
 /// Returns the actually-dropped task ids (filtered to ones that
 /// existed) for audit logging.
 fn apply_literature_opt_in_gate(
-    dag: &mut scripps_workflow_core::dag::DAG,
-) -> std::collections::BTreeSet<scripps_workflow_core::dag::TaskId> {
+    dag: &mut ecaa_workflow_core::dag::DAG,
+) -> std::collections::BTreeSet<ecaa_workflow_core::dag::TaskId> {
     // Until v4 threads intake_facts through, default to opt-out
     // (matching slot_fill's default behavior — review_prior_work only
     // surfaces when the SME explicitly opts in). The single source of
     // truth for which atoms are "literature opt-in" lives in
     // `composer::slot_fill::LITERATURE_OPT_IN_ATOM_IDS`; mirror its set
     // here to keep the gate behavior consistent across composer paths.
-    use scripps_workflow_core::composer::LITERATURE_OPT_IN_ATOM_IDS;
+    use ecaa_workflow_core::composer::LITERATURE_OPT_IN_ATOM_IDS;
     let present: Vec<&str> = LITERATURE_OPT_IN_ATOM_IDS
         .iter()
         .filter(|id| dag.tasks.contains_key(**id))
@@ -3201,7 +3201,7 @@ fn companion_base_id(task_id: &str) -> &str {
 /// surviving-parent → surviving-child edge. Validators are excluded
 /// from being promoted to data sources during splicing.
 fn prune_workflow_dag_roots_with_companions(
-    workflow_dag: &mut scripps_workflow_core::workflow_contracts::task_node::WorkflowDag,
+    workflow_dag: &mut ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
     roots: &[&str],
 ) -> std::collections::BTreeSet<String> {
     let root_ids: std::collections::BTreeSet<&str> = roots.iter().copied().collect();
@@ -3273,7 +3273,7 @@ fn prune_workflow_dag_roots_with_companions(
     // Splice surviving (parent → child) edges. Walk consecutive
     // dropped nodes transitively in both directions so multi-atom
     // runs collapse to a single bridging edge.
-    use scripps_workflow_core::workflow_contracts::edge::EdgeContract;
+    use ecaa_workflow_core::workflow_contracts::edge::EdgeContract;
     let mut spliced_edges: Vec<EdgeContract> = Vec::new();
     for d in &dropped {
         let parents = transitive_surviving_workflow_parents(d, &dropped, &parents_of);
@@ -3379,7 +3379,7 @@ fn counts_only_inputs(session: &crate::session::Session) -> bool {
 }
 
 fn prune_counts_only_input_workflow_dag(
-    workflow_dag: &mut scripps_workflow_core::workflow_contracts::task_node::WorkflowDag,
+    workflow_dag: &mut ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
     session: &crate::session::Session,
 ) -> std::collections::BTreeSet<String> {
     if !counts_only_inputs(session) {
@@ -3402,9 +3402,9 @@ fn prune_counts_only_input_workflow_dag(
 /// does NOT fire — the SME may be operating against public-repo
 /// accessions whose FASTQs the data_acquisition stage will materialize.
 fn apply_counts_only_input_gate(
-    dag: &mut scripps_workflow_core::dag::DAG,
+    dag: &mut ecaa_workflow_core::dag::DAG,
     session: &crate::session::Session,
-) -> std::collections::BTreeSet<scripps_workflow_core::dag::TaskId> {
+) -> std::collections::BTreeSet<ecaa_workflow_core::dag::TaskId> {
     if !counts_only_inputs(session) {
         return std::collections::BTreeSet::new();
     }
@@ -3443,12 +3443,12 @@ fn apply_counts_only_input_gate(
 /// counts as an upstream contract change. Precise contract-graph
 /// diffing is a future follow-up.
 fn cascade_invalidate_assumptions(
-    prior: &scripps_workflow_core::workflow_contracts::task_node::WorkflowDag,
-    new: &mut scripps_workflow_core::workflow_contracts::task_node::WorkflowDag,
+    prior: &ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
+    new: &mut ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
     session: &mut Session,
 ) {
-    use scripps_workflow_core::decision_log::{DecisionActor, DecisionType};
-    use scripps_workflow_core::workflow_contracts::evidence::AssumptionResolution;
+    use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
+    use ecaa_workflow_core::workflow_contracts::evidence::AssumptionResolution;
 
     let mut invalidated: Vec<(String, String)> = Vec::new();
     for new_a in &mut new.assumptions.entries {
@@ -3481,8 +3481,8 @@ fn cascade_invalidate_assumptions(
 /// between the prior and new assumption. Precise change detection
 /// (port-shape diff, edge-set diff) lands later.
 fn contract_changed_under(
-    prior_a: &scripps_workflow_core::workflow_contracts::evidence::Assumption,
-    new_a: &scripps_workflow_core::workflow_contracts::evidence::Assumption,
+    prior_a: &ecaa_workflow_core::workflow_contracts::evidence::Assumption,
+    new_a: &ecaa_workflow_core::workflow_contracts::evidence::Assumption,
 ) -> bool {
     prior_a.affects_nodes != new_a.affects_nodes || prior_a.source != new_a.source
 }
@@ -3491,8 +3491,8 @@ fn contract_changed_under(
 /// assumption between prior and new DAGs. Recorded on the
 /// `AssumptionInvalidated` decision-log entry.
 fn describe_assumption_change(
-    prior_a: &scripps_workflow_core::workflow_contracts::evidence::Assumption,
-    new_a: &scripps_workflow_core::workflow_contracts::evidence::Assumption,
+    prior_a: &ecaa_workflow_core::workflow_contracts::evidence::Assumption,
+    new_a: &ecaa_workflow_core::workflow_contracts::evidence::Assumption,
 ) -> String {
     format!(
         "affects_nodes: {:?} → {:?}; source: {:?} → {:?}",
@@ -3503,11 +3503,11 @@ fn describe_assumption_change(
 /// V3 detect the five non-monotonic lifecycle edges that
 /// `cascade_invalidate_assumptions` does NOT already handle.
 pub(crate) fn detect_lifecycle_adversarial_edges(
-    prior: Option<&scripps_workflow_core::workflow_contracts::task_node::WorkflowDag>,
-    new: &scripps_workflow_core::workflow_contracts::task_node::WorkflowDag,
+    prior: Option<&ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag>,
+    new: &ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
     session: &mut Session,
 ) {
-    use scripps_workflow_core::lifecycle_adversarial::LifecycleTransition;
+    use ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition;
 
     let mut transitions: Vec<LifecycleTransition> = Vec::new();
     transitions.extend(detect_same_user_contradiction(&session.decisions));
@@ -3522,10 +3522,10 @@ pub(crate) fn detect_lifecycle_adversarial_edges(
 }
 
 pub(crate) fn detect_same_user_contradiction(
-    decisions: &[scripps_workflow_core::decision_log::DecisionRecord],
-) -> Vec<scripps_workflow_core::lifecycle_adversarial::LifecycleTransition> {
-    use scripps_workflow_core::decision_log::{DecisionActor, DecisionType};
-    use scripps_workflow_core::lifecycle_adversarial::LifecycleTransition;
+    decisions: &[ecaa_workflow_core::decision_log::DecisionRecord],
+) -> Vec<ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition> {
+    use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
+    use ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition;
 
     let mut by_actor_and_assumption: std::collections::BTreeMap<
         (String, String),
@@ -3569,10 +3569,10 @@ pub(crate) fn detect_same_user_contradiction(
 }
 
 pub(crate) fn detect_cross_user_conflict(
-    decisions: &[scripps_workflow_core::decision_log::DecisionRecord],
-) -> Vec<scripps_workflow_core::lifecycle_adversarial::LifecycleTransition> {
-    use scripps_workflow_core::decision_log::{DecisionActor, DecisionType};
-    use scripps_workflow_core::lifecycle_adversarial::LifecycleTransition;
+    decisions: &[ecaa_workflow_core::decision_log::DecisionRecord],
+) -> Vec<ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition> {
+    use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
+    use ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition;
 
     let mut by_assumption: std::collections::BTreeMap<String, Vec<(String, String, String)>> =
         std::collections::BTreeMap::new();
@@ -3623,10 +3623,10 @@ pub(crate) fn detect_cross_user_conflict(
 }
 
 pub(crate) fn detect_forbidden_waiver(
-    decisions: &[scripps_workflow_core::decision_log::DecisionRecord],
-) -> Vec<scripps_workflow_core::lifecycle_adversarial::LifecycleTransition> {
-    use scripps_workflow_core::decision_log::{DecisionActor, DecisionType};
-    use scripps_workflow_core::lifecycle_adversarial::LifecycleTransition;
+    decisions: &[ecaa_workflow_core::decision_log::DecisionRecord],
+) -> Vec<ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition> {
+    use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
+    use ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition;
 
     let mut out = Vec::new();
     for d in decisions {
@@ -3654,11 +3654,11 @@ pub(crate) fn detect_forbidden_waiver(
 }
 
 pub(crate) fn detect_verifier_unresolvability(
-    prior: Option<&scripps_workflow_core::workflow_contracts::task_node::WorkflowDag>,
-    new: &scripps_workflow_core::workflow_contracts::task_node::WorkflowDag,
-) -> Vec<scripps_workflow_core::lifecycle_adversarial::LifecycleTransition> {
-    use scripps_workflow_core::lifecycle_adversarial::LifecycleTransition;
-    use scripps_workflow_core::workflow_contracts::evidence::{
+    prior: Option<&ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag>,
+    new: &ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
+) -> Vec<ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition> {
+    use ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition;
+    use ecaa_workflow_core::workflow_contracts::evidence::{
         AssumptionResolution, AssumptionSource,
     };
 
@@ -3695,10 +3695,10 @@ pub(crate) fn detect_verifier_unresolvability(
 }
 
 pub(crate) fn detect_production_revocation(
-    prior: Option<&scripps_workflow_core::workflow_contracts::task_node::WorkflowDag>,
-    new: &scripps_workflow_core::workflow_contracts::task_node::WorkflowDag,
-) -> Vec<scripps_workflow_core::lifecycle_adversarial::LifecycleTransition> {
-    use scripps_workflow_core::workflow_contracts::lifecycle::production_revocation_cascade;
+    prior: Option<&ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag>,
+    new: &ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
+) -> Vec<ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition> {
+    use ecaa_workflow_core::workflow_contracts::lifecycle::production_revocation_cascade;
 
     let prior_dag = match prior {
         Some(p) => p,
@@ -3726,13 +3726,13 @@ pub(crate) fn detect_production_revocation(
 
 pub(crate) fn enqueue_adjudication(
     session: &mut Session,
-    transition: scripps_workflow_core::lifecycle_adversarial::LifecycleTransition,
+    transition: ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition,
 ) {
-    use scripps_workflow_core::decision_log::{DecisionActor, DecisionType};
-    use scripps_workflow_core::decision_substrate::{
+    use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
+    use ecaa_workflow_core::decision_substrate::{
         record, stable_id, timestamp, VerifierDecision,
     };
-    use scripps_workflow_core::lifecycle_adversarial::{
+    use ecaa_workflow_core::lifecycle_adversarial::{
         AdjudicationQueueEntry, AdjudicationStatus, LifecycleTransition,
     };
 
@@ -3821,7 +3821,7 @@ pub(crate) fn enqueue_adjudication(
 
     session.adjudication_queue.push(AdjudicationQueueEntry {
         id: entry_id.clone(),
-        created_at: scripps_workflow_core::time_helpers::now_rfc3339(),
+        created_at: ecaa_workflow_core::time_helpers::now_rfc3339(),
         transition,
         status: AdjudicationStatus::Open,
     });
@@ -3859,11 +3859,11 @@ fn is_blocking_policy_rule(rule_id: &str) -> bool {
 }
 
 fn infer_goal_for_modalities(
-    archetype_reg: &scripps_workflow_core::archetype_registry::ArchetypeRegistry,
+    archetype_reg: &ecaa_workflow_core::archetype_registry::ArchetypeRegistry,
     project_class: &str,
     modalities: &[&str],
     source_prose: &str,
-) -> Option<scripps_workflow_core::goal_spec::GoalSpec> {
+) -> Option<ecaa_workflow_core::goal_spec::GoalSpec> {
     if let Some(goal) =
         infer_exact_cross_omics_goal(archetype_reg, project_class, modalities, source_prose)
     {
@@ -3921,11 +3921,11 @@ fn infer_goal_for_modalities(
 }
 
 fn infer_exact_cross_omics_goal(
-    archetype_reg: &scripps_workflow_core::archetype_registry::ArchetypeRegistry,
+    archetype_reg: &ecaa_workflow_core::archetype_registry::ArchetypeRegistry,
     project_class: &str,
     modalities: &[&str],
     source_prose: &str,
-) -> Option<scripps_workflow_core::goal_spec::GoalSpec> {
+) -> Option<ecaa_workflow_core::goal_spec::GoalSpec> {
     if modalities.len() < 2 {
         return None;
     }
@@ -3952,14 +3952,14 @@ fn infer_exact_cross_omics_goal(
 }
 
 fn goal_from_archetype(
-    archetype: &scripps_workflow_core::archetype::ArchetypeDefinition,
+    archetype: &ecaa_workflow_core::archetype::ArchetypeDefinition,
     source_prose: &str,
-) -> scripps_workflow_core::goal_spec::GoalSpec {
+) -> ecaa_workflow_core::goal_spec::GoalSpec {
     let mut modifiers = std::collections::BTreeMap::new();
     if let Some(kind) = &archetype.goal_kind_hint {
         modifiers.insert("kind".to_string(), kind.clone());
     }
-    scripps_workflow_core::goal_spec::GoalSpec {
+    ecaa_workflow_core::goal_spec::GoalSpec {
         edam_data: archetype.goal_data.clone(),
         edam_format: archetype.goal_format.clone(),
         modifiers,

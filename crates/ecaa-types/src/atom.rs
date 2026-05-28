@@ -8,7 +8,7 @@
 //! AtomDefinition / ContainerSpec catalog and has no place in a
 //! downstream-consumer crate).
 //!
-//! Re-exported from `scripps_workflow_core::atom` for backward
+//! Re-exported from `ecaa_workflow_core::atom` for backward
 //! compatibility with existing call sites.
 
 use serde::{Deserialize, Serialize};

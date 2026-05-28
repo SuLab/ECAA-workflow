@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex};
 /// attribute to the caller — this test establishes the baseline.
 #[test]
 fn path_jail_unwrap_panic_location_is_caller_not_helper() {
-    use scripps_workflow_server::chat_routes::safe_segment_join;
+    use ecaa_workflow_server::chat_routes::safe_segment_join;
 
     let captured: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let hook_captured = captured.clone();
@@ -109,7 +109,7 @@ fn lock_recover_pattern_succeeds_on_poisoned_mutex() {
 /// attribute is not breaking visibility or compilation.
 #[test]
 fn path_jail_helpers_are_callable_and_correct() {
-    use scripps_workflow_server::chat_routes::{
+    use ecaa_workflow_server::chat_routes::{
         assert_under_root, safe_relative_join, safe_segment_join,
     };
 

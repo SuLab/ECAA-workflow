@@ -10,10 +10,10 @@
 #[path = "common/mod.rs"]
 mod common;
 
-use scripps_workflow_conversation::session::lineage::SessionLineage;
-use scripps_workflow_conversation::session::Session;
-use scripps_workflow_conversation::tools::branch::branch_session_with_task;
-use scripps_workflow_core::dag::{TaskState, DAG};
+use ecaa_workflow_conversation::session::lineage::SessionLineage;
+use ecaa_workflow_conversation::session::Session;
+use ecaa_workflow_conversation::tools::branch::branch_session_with_task;
+use ecaa_workflow_core::dag::{TaskState, DAG};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,7 +54,7 @@ fn make_linear_dag() -> DAG {
 /// Build a session with the 3-task linear DAG.
 fn session_with_dag() -> Session {
     let mut s = Session::new(false);
-    s.state = scripps_workflow_conversation::session::SessionState::Emitted;
+    s.state = ecaa_workflow_conversation::session::SessionState::Emitted;
     s.dag = Some(make_linear_dag());
     s
 }
@@ -136,7 +136,7 @@ fn branch_with_bogus_task_id_returns_tool_error() {
 #[test]
 fn branch_at_task_without_dag_returns_error() {
     let mut parent = Session::new(false);
-    parent.state = scripps_workflow_conversation::session::SessionState::Emitted;
+    parent.state = ecaa_workflow_conversation::session::SessionState::Emitted;
     // No dag set.
     let result = branch_session_with_task(&parent, Some("b"), None);
     assert!(

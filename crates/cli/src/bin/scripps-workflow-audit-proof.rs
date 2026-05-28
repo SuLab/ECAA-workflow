@@ -4,8 +4,8 @@
 //! Exit codes: 0 = all Pass/Warn/Unverified; 1 = at least one Fail
 //! (only when --strict). Without --strict always exits 0 (warn-only).
 
-use scripps_workflow_core::audit_proof::{run_audit_proof, InvariantStatus};
-use scripps_workflow_core::wrroc_validator::{NoopWrrocValidator, WrrocValidator};
+use ecaa_workflow_core::audit_proof::{run_audit_proof, InvariantStatus};
+use ecaa_workflow_core::wrroc_validator::{NoopWrrocValidator, WrrocValidator};
 use std::path::PathBuf;
 
 fn main() -> anyhow::Result<()> {

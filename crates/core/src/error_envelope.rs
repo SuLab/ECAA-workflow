@@ -18,11 +18,11 @@ use std::collections::BTreeMap;
 // `ToolErrorEnvelope` lives at `crates/ecaa-types/src/error_envelope.rs`
 // so the canonical `BlockerKind` binding can stand alone without
 // pulling the synthesis pipeline. The wire-shape struct is re-exported
-// here for backward compatibility with `scripps_workflow_core::error_envelope::ToolErrorEnvelope`
+// here for backward compatibility with `ecaa_workflow_core::error_envelope::ToolErrorEnvelope`
 // consumers; envelope synthesis (`synthesize`, `classify_error`,
 // `EnvelopeInput`, the line-tail bound constants) stays in core because
 // it is harness-side glue.
-pub use scripps_workflow_ecaa_types::error_envelope::ToolErrorEnvelope;
+pub use ecaa_workflow_types::error_envelope::ToolErrorEnvelope;
 
 /// Maximum lines retained in `stderr_tail`. Most real-world failures
 /// have their causal frame within the last ~30 lines; 50 leaves

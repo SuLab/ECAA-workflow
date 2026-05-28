@@ -24,7 +24,7 @@ use crate::metrics::MetricsStore;
 use crate::persistence::SessionStore;
 use crate::session::{Session, SessionId};
 use dashmap::{DashMap, DashSet};
-use scripps_workflow_core::llm_availability::LlmAvailability;
+use ecaa_workflow_core::llm_availability::LlmAvailability;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
@@ -81,7 +81,7 @@ pub trait ServiceEventSink: Send + Sync {
     fn proposal_received(
         &self,
         _session_id: SessionId,
-        _proposal_id: &scripps_workflow_core::hypothesized_proposal::ProposalId,
+        _proposal_id: &ecaa_workflow_core::hypothesized_proposal::ProposalId,
         _node_id: &str,
     ) {
     }
@@ -96,8 +96,8 @@ pub trait ServiceEventSink: Send + Sync {
     fn proposal_gate_advanced(
         &self,
         _session_id: SessionId,
-        _proposal_id: &scripps_workflow_core::hypothesized_proposal::ProposalId,
-        _gate: scripps_workflow_core::hypothesized_proposal::GateName,
+        _proposal_id: &ecaa_workflow_core::hypothesized_proposal::ProposalId,
+        _gate: ecaa_workflow_core::hypothesized_proposal::GateName,
         _passed: bool,
     ) {
     }

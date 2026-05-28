@@ -15,7 +15,7 @@
 //! successful exit path. That bump-or-reset based on the turn's final
 //! state matches the plan's "4 consecutive followup turns" wording.
 
-use scripps_workflow_conversation::{build_system_prompt, Session, SessionState};
+use ecaa_workflow_conversation::{build_system_prompt, Session, SessionState};
 
 /// `Session::intake_followup_streak` starts at 0 on a fresh session.
 #[test]

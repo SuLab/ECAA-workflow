@@ -8,38 +8,38 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use colored::Colorize;
 use progress_client::ProgressClient;
-use scripps_workflow_core::clock::{Clock, WallClock};
-use scripps_workflow_core::dag::{TaskId, TaskState, DAG};
-use scripps_workflow_harness::dag_patch::{
+use ecaa_workflow_core::clock::{Clock, WallClock};
+use ecaa_workflow_core::dag::{TaskId, TaskState, DAG};
+use ecaa_workflow_harness::dag_patch::{
     apply_pending_patches, apply_pending_patches_strict, PickedDispatch,
 };
-use scripps_workflow_harness::dispatch_wal::{
+use ecaa_workflow_harness::dispatch_wal::{
     append_dispatch, generate_harness_run_id, read_dispatches,
     recover_orphaned_dispatches_with_denylist, truncate_wal, AlwaysDeadProbe, DispatchRecord,
     HeartbeatLivenessProbe, LivenessProbe,
 };
-use scripps_workflow_harness::executor::hardware_envelope::{
+use ecaa_workflow_harness::executor::hardware_envelope::{
     render_envelope, HardwareEnvelopeInputs,
 };
-use scripps_workflow_harness::executor::host_probe::{
+use ecaa_workflow_harness::executor::host_probe::{
     allocate_for_picks, resolve_high_water_for, OverheadPolicy,
 };
-use scripps_workflow_harness::executor::pilot::PilotConfig;
-use scripps_workflow_harness::executor::stall_monitor::{StallSignal, StallThresholds};
-use scripps_workflow_harness::executor::{self, Executor, ExecutorArgs};
-use scripps_workflow_harness::finalize_probe::{probe_one_task, ProbeOutcome};
-use scripps_workflow_harness::multiprocess_lock::SessionLock;
-use scripps_workflow_harness::required_artifacts::verify_required_artifacts;
-use scripps_workflow_harness::scheduler::{
+use ecaa_workflow_harness::executor::pilot::PilotConfig;
+use ecaa_workflow_harness::executor::stall_monitor::{StallSignal, StallThresholds};
+use ecaa_workflow_harness::executor::{self, Executor, ExecutorArgs};
+use ecaa_workflow_harness::finalize_probe::{probe_one_task, ProbeOutcome};
+use ecaa_workflow_harness::multiprocess_lock::SessionLock;
+use ecaa_workflow_harness::required_artifacts::verify_required_artifacts;
+use ecaa_workflow_harness::scheduler::{
     count_concurrent_peers_by_class, filter_picks_respecting_sme_gate, lane_mode_from_env,
     pause_dependent_tasks, pick_ready_respecting_budgets, pick_ready_with_lanes,
     read_confirmed_review_stages, ConcurrencyMode, SchedulerBudget,
 };
-use scripps_workflow_harness::scratch_cleanup::cleanup_task_scratch;
-use scripps_workflow_harness::sme_skip;
-use scripps_workflow_harness::stall_relay;
-use scripps_workflow_harness::swfc_io::{read_bytes_capped, read_capped, resolve_max_bytes};
-use scripps_workflow_harness::watchdog::{Watchdog, WatchdogConfig, WatchdogEvent};
+use ecaa_workflow_harness::scratch_cleanup::cleanup_task_scratch;
+use ecaa_workflow_harness::sme_skip;
+use ecaa_workflow_harness::stall_relay;
+use ecaa_workflow_harness::swfc_io::{read_bytes_capped, read_capped, resolve_max_bytes};
+use ecaa_workflow_harness::watchdog::{Watchdog, WatchdogConfig, WatchdogEvent};
 use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -57,11 +57,11 @@ use std::time::Duration;
 fn write_tool_error_envelope(
     package: &Path,
     task_id: &str,
-    capture: &scripps_workflow_harness::executor::IterationCapture,
+    capture: &ecaa_workflow_harness::executor::IterationCapture,
 ) -> Result<()> {
-    use scripps_workflow_core::error_envelope::{synthesize, EnvelopeInput};
-    use scripps_workflow_core::remediation::ExecutorOverrides;
-    use scripps_workflow_harness::executor::overrides_io;
+    use ecaa_workflow_core::error_envelope::{synthesize, EnvelopeInput};
+    use ecaa_workflow_core::remediation::ExecutorOverrides;
+    use ecaa_workflow_harness::executor::overrides_io;
 
     let outputs_dir = package.join("runtime").join("outputs").join(task_id);
     if let Err(e) = std::fs::create_dir_all(&outputs_dir) {
@@ -121,13 +121,13 @@ fn write_tool_error_envelope(
         input_summary: Default::default(),
         executor: executor_name,
         executor_context: ctx,
-        captured_at: scripps_workflow_core::time_helpers::now_rfc3339(),
+        captured_at: ecaa_workflow_core::time_helpers::now_rfc3339(),
         attempt,
     });
 
     let raw = serde_json::to_string_pretty(&envelope)
         .with_context(|| format!("serialising envelope for {}", task_id))?;
-    scripps_workflow_core::fs_helpers::atomic_write_bytes_sync(&target, raw.as_bytes())
+    ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&target, raw.as_bytes())
         .with_context(|| format!("atomic write envelope at {}", target.display()))?;
     Ok(())
 }
@@ -137,7 +137,7 @@ fn write_tool_error_envelope(
 /// classes between attempts so the proposer can see which fix worked
 /// and which produced a new failure mode.
 fn read_existing_envelope_error_class(package: &Path, task_id: &str) -> Option<String> {
-    use scripps_workflow_core::error_envelope::ToolErrorEnvelope;
+    use ecaa_workflow_core::error_envelope::ToolErrorEnvelope;
     let p = package
         .join("runtime")
         .join("outputs")
@@ -156,9 +156,9 @@ fn read_existing_envelope_error_class(package: &Path, task_id: &str) -> Option<S
 fn update_overrides_outcome(
     package: &Path,
     task_id: &str,
-    outcome: scripps_workflow_core::remediation::RemediationOutcome,
+    outcome: ecaa_workflow_core::remediation::RemediationOutcome,
 ) {
-    use scripps_workflow_harness::executor::overrides_io;
+    use ecaa_workflow_harness::executor::overrides_io;
     let mut ov = match overrides_io::read(package, task_id) {
         Ok(Some(o)) => o,
         _ => return,
@@ -167,7 +167,7 @@ fn update_overrides_outcome(
         return;
     }
     if let Some(last) = ov.history.last() {
-        if last.outcome != scripps_workflow_core::remediation::RemediationOutcome::NotYetAttempted {
+        if last.outcome != ecaa_workflow_core::remediation::RemediationOutcome::NotYetAttempted {
             // Already recorded by an earlier observation. Don't
             // overwrite — outcome is monotonic per remediation entry.
             return;
@@ -200,8 +200,8 @@ fn update_overrides_outcome(
 fn touch_heartbeat(package_root: &Path, task_id: &str) -> std::io::Result<()> {
     let dir = package_root.join("runtime/outputs").join(task_id);
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        scripps_workflow_harness::_observability::note_silent_skip(
-            scripps_workflow_harness::_observability::SkipCategory::HeartbeatWriteFailed,
+        ecaa_workflow_harness::_observability::note_silent_skip(
+            ecaa_workflow_harness::_observability::SkipCategory::HeartbeatWriteFailed,
             &format!("mkdir {} failed: {}", dir.display(), e),
             Some(task_id),
         );
@@ -221,10 +221,10 @@ fn touch_heartbeat(package_root: &Path, task_id: &str) -> std::io::Result<()> {
         .open(&path)
     {
         Ok(mut f) => {
-            let body = scripps_workflow_core::time_helpers::now_rfc3339();
+            let body = ecaa_workflow_core::time_helpers::now_rfc3339();
             if let Err(e) = f.write_all(body.as_bytes()) {
-                scripps_workflow_harness::_observability::note_silent_skip(
-                    scripps_workflow_harness::_observability::SkipCategory::HeartbeatWriteFailed,
+                ecaa_workflow_harness::_observability::note_silent_skip(
+                    ecaa_workflow_harness::_observability::SkipCategory::HeartbeatWriteFailed,
                     &format!("write {} failed: {}", path.display(), e),
                     Some(task_id),
                 );
@@ -239,8 +239,8 @@ fn touch_heartbeat(package_root: &Path, task_id: &str) -> std::io::Result<()> {
             Ok(())
         }
         Err(e) => {
-            scripps_workflow_harness::_observability::note_silent_skip(
-                scripps_workflow_harness::_observability::SkipCategory::HeartbeatWriteFailed,
+            ecaa_workflow_harness::_observability::note_silent_skip(
+                ecaa_workflow_harness::_observability::SkipCategory::HeartbeatWriteFailed,
                 &format!("open {} failed: {}", path.display(), e),
                 Some(task_id),
             );
@@ -275,7 +275,7 @@ fn heartbeat_age_secs(package_root: &Path, task_id: &str) -> Option<u64> {
 /// 900s = 15 minutes). Set to `0` to disable the detector entirely
 /// and keep legacy behavior.
 fn heartbeat_stall_threshold_secs() -> u64 {
-    use scripps_workflow_harness::constants::HEARTBEAT_STALL_THRESHOLD_SECS_DEFAULT;
+    use ecaa_workflow_harness::constants::HEARTBEAT_STALL_THRESHOLD_SECS_DEFAULT;
     std::env::var("SWFC_TASK_HEARTBEAT_STALL_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
@@ -293,7 +293,7 @@ fn heartbeat_stall_threshold_secs() -> u64 {
 /// so a typo can't either neuter the safety net or ignore real
 /// crashes for hours.
 fn heartbeat_liveness_window_secs() -> u64 {
-    use scripps_workflow_harness::constants::{
+    use ecaa_workflow_harness::constants::{
         HEARTBEAT_LIVENESS_WINDOW_SECS_DEFAULT, HEARTBEAT_LIVENESS_WINDOW_SECS_MAX,
     };
     let raw = std::env::var("SWFC_HEARTBEAT_LIVENESS_SECS")
@@ -311,7 +311,7 @@ fn heartbeat_liveness_window_secs() -> u64 {
 /// typo can't either tight-loop or freeze the harness for hours.
 /// Set to `0` to disable the settle sleep entirely.
 fn settle_interval_secs() -> u64 {
-    use scripps_workflow_harness::constants::{
+    use ecaa_workflow_harness::constants::{
         HARNESS_SETTLE_INTERVAL_SECS_DEFAULT, HARNESS_SETTLE_INTERVAL_SECS_MAX,
         HARNESS_SETTLE_INTERVAL_SECS_MIN,
     };
@@ -395,8 +395,8 @@ fn collect_sandbox_refusals(
     package_root: &Path,
     pick_ids: &[String],
 ) -> std::collections::BTreeMap<String, String> {
-    use scripps_workflow_core::sandbox_policy::SandboxPolicy;
-    use scripps_workflow_core::workflow_contracts::task_node::TaskNode;
+    use ecaa_workflow_core::sandbox_policy::SandboxPolicy;
+    use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
 
     let mut refusals = std::collections::BTreeMap::new();
     let runtime = package_root.join("runtime");
@@ -438,7 +438,7 @@ fn collect_sandbox_refusals(
             continue;
         }
         if let Some(refusal) =
-            scripps_workflow_harness::sandbox_enforcer::pre_dispatch_check(node, &policy)
+            ecaa_workflow_harness::sandbox_enforcer::pre_dispatch_check(node, &policy)
         {
             // Emit a structured semicolon-separated
             // payload that round-trips through
@@ -467,7 +467,7 @@ fn collect_sandbox_refusals(
 }
 
 /// Dispatch-time safety-policy gate. Runs
-/// [`scripps_workflow_harness::executor::enforce_safety_policy`] over
+/// [`ecaa_workflow_harness::executor::enforce_safety_policy`] over
 /// every pick against the executor's capability profile and returns a
 /// map of `task_id → BlockerKind` for tasks that should flip to
 /// `Blocked` instead of dispatching. Empty map = nothing to refuse.
@@ -491,9 +491,9 @@ fn collect_sandbox_refusals(
 fn collect_safety_policy_refusals(
     dag: &DAG,
     pick_ids: &[String],
-    caps: &scripps_workflow_harness::executor::ExecutorCapabilities,
-) -> std::collections::BTreeMap<String, scripps_workflow_core::blocker::BlockerKind> {
-    use scripps_workflow_harness::executor::enforce_safety_policy;
+    caps: &ecaa_workflow_harness::executor::ExecutorCapabilities,
+) -> std::collections::BTreeMap<String, ecaa_workflow_core::blocker::BlockerKind> {
+    use ecaa_workflow_harness::executor::enforce_safety_policy;
     let mut refusals = std::collections::BTreeMap::new();
     for id in pick_ids {
         let Some(task) = dag.tasks.get(id.as_str()) else {
@@ -521,7 +521,7 @@ fn collect_safety_policy_refusals(
             let attempted_call = format!("agent_executor:{}", caps.kind);
             refusals.insert(
                 id.clone(),
-                scripps_workflow_core::blocker::BlockerKind::ControlledAccessViolation {
+                ecaa_workflow_core::blocker::BlockerKind::ControlledAccessViolation {
                     task_id: id.clone(),
                     port_name,
                     attempted_call,
@@ -550,7 +550,7 @@ fn collect_safety_policy_refusals(
 fn append_validation_reports_sidecar(
     package_root: &Path,
     task_id: &str,
-    summary: &scripps_workflow_harness::validators::ValidationReportSummary,
+    summary: &ecaa_workflow_harness::validators::ValidationReportSummary,
 ) {
     if summary.rows.is_empty() {
         return;
@@ -605,7 +605,7 @@ fn stamp_dispatch_identity(
 /// time to select source-scope tier, NCBI rate limit, evidence storage
 /// cap, and institutional-access opt-in.
 fn stamp_literature_scope(env: &mut std::collections::BTreeMap<String, String>) {
-    let cfg = scripps_workflow_harness::literature_scope::LiteratureScopeConfig::from_env();
+    let cfg = ecaa_workflow_harness::literature_scope::LiteratureScopeConfig::from_env();
     for (k, v) in cfg.agent_env_vars() {
         env.insert(k, v);
     }
@@ -655,7 +655,7 @@ fn stamp_provisioning_policy(
         return;
     }
     let policy_path = out_dir.join("provisioning.json");
-    match scripps_workflow_harness::safety_render::render_provisioning_json(
+    match ecaa_workflow_harness::safety_render::render_provisioning_json(
         task,
         declared.clone(),
         &policy_path,
@@ -703,8 +703,8 @@ fn stamp_safety_network(
     dag: &DAG,
     task_id: &str,
 ) {
-    use scripps_workflow_core::atom::NetworkPolicy;
-    use scripps_workflow_core::dag::TaskKind;
+    use ecaa_workflow_core::atom::NetworkPolicy;
+    use ecaa_workflow_core::dag::TaskKind;
     let Some(task) = dag.tasks.get(task_id) else {
         return;
     };
@@ -740,7 +740,7 @@ fn load_declared_per_registry(package: &Path) -> std::collections::BTreeMap<Stri
             return std::collections::BTreeMap::new();
         }
     };
-    match serde_json::from_str::<scripps_workflow_core::runtime_prereqs::RuntimePrereqs>(&raw) {
+    match serde_json::from_str::<ecaa_workflow_core::runtime_prereqs::RuntimePrereqs>(&raw) {
         Ok(p) => p.declared_per_registry(),
         Err(e) => {
             eprintln!(
@@ -774,7 +774,7 @@ fn append_progress_log(package_root: &Path, task_id: &str, message: &str) {
         Ok(mut f) => {
             let line = format!(
                 "[{}] {}\n",
-                scripps_workflow_core::time_helpers::now_rfc3339(),
+                ecaa_workflow_core::time_helpers::now_rfc3339(),
                 message
             );
             if let Err(e) = f.write_all(line.as_bytes()) {
@@ -797,7 +797,7 @@ fn append_progress_log(package_root: &Path, task_id: &str, message: &str) {
 
 #[derive(Parser)]
 #[command(
-    name = "scripps-workflow-harness",
+    name = "ecaa-workflow-harness",
     about = "Run an agent against a workflow package"
 )]
 struct Args {
@@ -814,7 +814,7 @@ struct Args {
     max_iterations: usize,
 
     /// Seconds before a Running task is considered stale and reset to Ready
-    #[arg(long, default_value_t = scripps_workflow_harness::constants::TASK_TIMEOUT_SECS_DEFAULT)]
+    #[arg(long, default_value_t = ecaa_workflow_harness::constants::TASK_TIMEOUT_SECS_DEFAULT)]
     task_timeout: u64,
 
     /// When set, write a waiting_for_sme log entry instead of prompting stdin.
@@ -874,7 +874,7 @@ fn main() -> Result<()> {
     // handler's `kill(-pgid, …)` reaches every descendant. Idempotent
     // when the server-spawned path already called `setsid()` in
     // `pre_exec` (this becomes EPERM, ignored). The CLI-direct path
-    // (`scripps-workflow-harness --package …` invoked from a shell)
+    // (`ecaa-workflow-harness --package …` invoked from a shell)
     // gets a fresh group here, so a Ctrl+C tears down agent-claude.sh
     // and its npm/claude descendants instead of leaving them as
     // init-orphan zombies eating tokens.
@@ -903,7 +903,7 @@ fn main() -> Result<()> {
         let env_filter =
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
                 tracing_subscriber::EnvFilter::new(
-                    "info,scripps_workflow_harness=info,scripps_workflow_core=info",
+                    "info,ecaa_workflow_harness=info,ecaa_workflow_core=info",
                 )
             });
 
@@ -993,7 +993,7 @@ fn main() -> Result<()> {
     // DAG, prints a per-task summary, and returns the desired exit code.
     if args.plan_only {
         let resolved_mode = std::env::var("SWFC_EXECUTOR_MODE").unwrap_or_else(|_| "local".into());
-        let code = scripps_workflow_harness::plan_only::run(path, &resolved_mode)?;
+        let code = ecaa_workflow_harness::plan_only::run(path, &resolved_mode)?;
         std::process::exit(code);
     }
 
@@ -1036,7 +1036,7 @@ fn main() -> Result<()> {
     // held until `run_loop` returns so the thread's lifetime matches the
     // harness's active window.
     let _eviction_guard = {
-        use scripps_workflow_harness::cache_eviction::{eviction_period_from_env, CacheEvictor};
+        use ecaa_workflow_harness::cache_eviction::{eviction_period_from_env, CacheEvictor};
         // Run the startup one-shot sweep, then arm the periodic thread.
         // Two separate `from_env()` calls are cheap (env-var reads only).
         if let Some(startup) = CacheEvictor::from_env() {
@@ -1061,7 +1061,7 @@ fn main() -> Result<()> {
 
     println!(
         "{} Starting harness for {}",
-        "scripps-workflow-harness".cyan().bold(),
+        "ecaa-workflow-harness".cyan().bold(),
         args.package.cyan()
     );
     println!(
@@ -1694,9 +1694,9 @@ fn run_loop(
                 for (tid, task) in dag.tasks.iter_mut() {
                     if matches!(
                         task.state,
-                        scripps_workflow_core::dag::TaskState::Running { .. }
+                        ecaa_workflow_core::dag::TaskState::Running { .. }
                     ) {
-                        task.state = scripps_workflow_core::dag::TaskState::Ready;
+                        task.state = ecaa_workflow_core::dag::TaskState::Ready;
                         touched.push(tid.to_string());
                     }
                 }
@@ -1783,7 +1783,7 @@ fn run_loop(
             // between detection and a successful server round-trip does
             // not silently drop the signal. The write is best-effort;
             // failure is logged by the helper and never blocks dispatch.
-            scripps_workflow_harness::executor::stall_monitor::append_stall_signal_record(
+            ecaa_workflow_harness::executor::stall_monitor::append_stall_signal_record(
                 path, &signal,
             );
             let suggested = signal.suggested_action();
@@ -1797,7 +1797,7 @@ fn run_loop(
                 guard.current_instance_type()
             };
             let resize_to = current_instance.as_deref().and_then(|current| {
-                scripps_workflow_harness::executor::stall_monitor::suggest_resize(&signal, current)
+                ecaa_workflow_harness::executor::stall_monitor::suggest_resize(&signal, current)
             });
             println!(
                 "  {} Stall observed on {}: forwarding to session",
@@ -1928,7 +1928,7 @@ fn run_loop(
         // the timestamp threshold.
         let mut dag = read_dag(path)?;
         let now = chrono::Utc::now().timestamp() as u64;
-        let mut stale_recovered: Vec<scripps_workflow_core::ids::TaskId> = Vec::new();
+        let mut stale_recovered: Vec<ecaa_workflow_core::ids::TaskId> = Vec::new();
         {
             let guard = executor.lock().unwrap_or_else(|p| p.into_inner());
             for (tid, task) in dag.tasks.iter_mut() {
@@ -2058,7 +2058,7 @@ fn run_loop(
                         );
                         if let Some(t) = dag_for_cancel.tasks.get_mut(tid.as_str()) {
                             t.state = TaskState::Blocked {
-                                record: scripps_workflow_core::dag::BlockedRecord {
+                                record: ecaa_workflow_core::dag::BlockedRecord {
                                     reason: blocker_reason.clone(),
                                     attempts: vec![],
                                 },
@@ -2109,7 +2109,7 @@ fn run_loop(
                         // Step (c): mirror each cancellation to the server's task_states.
                         for tid in &cancelled {
                             let new_state = TaskState::Blocked {
-                                record: scripps_workflow_core::dag::BlockedRecord {
+                                record: ecaa_workflow_core::dag::BlockedRecord {
                                     reason: format!(
                                         "[cancelled_by_amendment] task={} target_stage={}",
                                         tid, target_stage
@@ -2164,7 +2164,7 @@ fn run_loop(
                 Ok(d) => d,
                 Err(_) => dag.clone(),
             };
-            let blocked_ids: std::collections::HashSet<scripps_workflow_core::ids::TaskId> =
+            let blocked_ids: std::collections::HashSet<ecaa_workflow_core::ids::TaskId> =
                 dag_for_pause
                     .tasks
                     .iter()
@@ -2212,7 +2212,7 @@ fn run_loop(
             // so refuse to dispatch ANY task — not just transitively-
             // dependent ones. Otherwise an unreachable-server window
             // would still spawn agents whose POSTs immediately 404.
-            let raw_picks: Vec<scripps_workflow_core::ids::TaskId> =
+            let raw_picks: Vec<ecaa_workflow_core::ids::TaskId> =
                 if dispatch_gate_failed_this_iter {
                     Vec::new()
                 } else if session_pausing {
@@ -2278,7 +2278,7 @@ fn run_loop(
             //   slot_exhausted     — Ready but not reached by budget picker
             {
                 use picker_decisions::{append_picker_decisions, PickerDecisionRecord};
-                use scripps_workflow_core::blocker::BlockerKind;
+                use ecaa_workflow_core::blocker::BlockerKind;
 
                 let now_ts = chrono::Utc::now().to_rfc3339();
                 // Re-run the budget picker (pure read over in-memory dag;
@@ -2372,10 +2372,10 @@ fn run_loop(
                     // `core::blocker::parse_agent_blocker_kind`
                     // round-trips into the typed variant for the UI.
                     let block_reason =
-                        scripps_workflow_core::blocker::format_safety_policy_marker(blocker)
+                        ecaa_workflow_core::blocker::format_safety_policy_marker(blocker)
                             .unwrap_or_else(|| format!("{blocker:?}"));
                     t.state = TaskState::Blocked {
-                        record: scripps_workflow_core::dag::BlockedRecord {
+                        record: ecaa_workflow_core::dag::BlockedRecord {
                             reason: block_reason,
                             attempts: vec![],
                         },
@@ -2404,7 +2404,7 @@ fn run_loop(
                     // pieces unambiguously on `;`.
                     let block_reason = format!("[sandbox_refused] {}", reason);
                     t.state = TaskState::Blocked {
-                        record: scripps_workflow_core::dag::BlockedRecord {
+                        record: ecaa_workflow_core::dag::BlockedRecord {
                             reason: block_reason,
                             attempts: vec![],
                         },
@@ -2425,7 +2425,7 @@ fn run_loop(
             for id in &picks {
                 if let Some(t) = dag_mut.tasks.get_mut(id.as_str()) {
                     t.state = TaskState::Running {
-                        started_at: scripps_workflow_core::time_helpers::now_rfc3339(),
+                        started_at: ecaa_workflow_core::time_helpers::now_rfc3339(),
                         remote: None,
                     };
                 }
@@ -2476,7 +2476,7 @@ fn run_loop(
                 // dispatch with no liveness signal.
                 if touch_heartbeat(path, id).is_err() {
                     if let Some(t) = dag_mut.tasks.get_mut(id.as_str()) {
-                        t.state = scripps_workflow_core::dag::TaskState::Ready;
+                        t.state = ecaa_workflow_core::dag::TaskState::Ready;
                     }
                     append_progress_log(
                         path,
@@ -2492,7 +2492,7 @@ fn run_loop(
                 let now = clock.now();
                 let rec = DispatchRecord {
                     schema_version:
-                        scripps_workflow_harness::dispatch_wal::dispatch_wal_schema_version(),
+                        ecaa_workflow_harness::dispatch_wal::dispatch_wal_schema_version(),
                     task_id: id.clone(),
                     epoch,
                     harness_run_id: harness_run_id.to_string(),
@@ -2591,13 +2591,13 @@ fn run_loop(
             // `declared_only` enforcement is dispatch-stable.
             let declared = load_declared_per_registry(path);
             if dynamic {
-                let host = scripps_workflow_harness::executor::host_probe::probe();
+                let host = ecaa_workflow_harness::executor::host_probe::probe();
                 let overhead = OverheadPolicy::from_env();
-                let requested: Vec<(scripps_workflow_core::ids::TaskId, _)> = picks
+                let requested: Vec<(ecaa_workflow_core::ids::TaskId, _)> = picks
                     .iter()
                     .map(|id| {
                         (
-                            scripps_workflow_core::ids::TaskId::from(id.as_str()),
+                            ecaa_workflow_core::ids::TaskId::from(id.as_str()),
                             resolve_high_water_for(path, dag_snapshot, id),
                         )
                     })
@@ -2606,9 +2606,9 @@ fn run_loop(
                 picks
                     .iter()
                     .map(|id| {
-                        let task_id_key = scripps_workflow_core::ids::TaskId::from(id.as_str());
+                        let task_id_key = ecaa_workflow_core::ids::TaskId::from(id.as_str());
                         let alloc = allocations.get(&task_id_key).cloned().unwrap_or_else(|| {
-                            scripps_workflow_harness::executor::host_probe::AgentAllocation::cpu_only(
+                            ecaa_workflow_harness::executor::host_probe::AgentAllocation::cpu_only(
                                 host.free_vcpus_estimate.max(1),
                                 host.free_memory_gb.max(2),
                             )
@@ -2646,7 +2646,7 @@ fn run_loop(
 
         // Snapshot task kinds before thread::scope so each spawn can
         // decide its routing without re-locking the DAG.
-        let task_kinds: std::collections::BTreeMap<String, scripps_workflow_core::dag::TaskKind> =
+        let task_kinds: std::collections::BTreeMap<String, ecaa_workflow_core::dag::TaskKind> =
             picks
                 .iter()
                 .filter_map(|id| {
@@ -2669,7 +2669,7 @@ fn run_loop(
                 let envelope = envelopes.get(id).cloned().unwrap_or_default();
                 let is_validation = matches!(
                     task_kinds.get(id),
-                    Some(scripps_workflow_core::dag::TaskKind::Validation)
+                    Some(ecaa_workflow_core::dag::TaskKind::Validation)
                 );
                 let exec_ref = match (validation_executor, is_validation) {
                     (Some(ve), true) => ve.clone(),
@@ -2688,7 +2688,7 @@ fn run_loop(
                         // process picks the file up here. Read failures
                         // are logged but never abort dispatch — a
                         // malformed file shouldn't strand the task.
-                        match scripps_workflow_harness::executor::overrides_io::read(
+                        match ecaa_workflow_harness::executor::overrides_io::read(
                             &path_buf,
                             &task_id_for_overrides,
                         ) {
@@ -2709,8 +2709,8 @@ fn run_loop(
                                 // overrides files shows up in
                                 // `harness-health.json` even when no
                                 // single line is alarming on its own.
-                                scripps_workflow_harness::_observability::note_silent_skip(
-                                    scripps_workflow_harness::_observability::SkipCategory::OverridesUnreadable,
+                                ecaa_workflow_harness::_observability::note_silent_skip(
+                                    ecaa_workflow_harness::_observability::SkipCategory::OverridesUnreadable,
                                     &format!("{:#}", e),
                                     Some(&task_id_for_overrides),
                                 );
@@ -2751,9 +2751,9 @@ fn run_loop(
                             if let Some(prior) = prior_class {
                                 let new_class = read_existing_envelope_error_class(path, &tid);
                                 let outcome = if new_class.as_deref() == Some(prior.as_str()) {
-                                    scripps_workflow_core::remediation::RemediationOutcome::Recurred
+                                    ecaa_workflow_core::remediation::RemediationOutcome::Recurred
                                 } else {
-                                    scripps_workflow_core::remediation::RemediationOutcome::NewError
+                                    ecaa_workflow_core::remediation::RemediationOutcome::NewError
                                 };
                                 update_overrides_outcome(path, &tid, outcome);
                             }
@@ -2767,7 +2767,7 @@ fn run_loop(
                         update_overrides_outcome(
                             path,
                             &tid,
-                            scripps_workflow_core::remediation::RemediationOutcome::Resolved,
+                            ecaa_workflow_core::remediation::RemediationOutcome::Resolved,
                         );
                     }
                     Ok((tid, Err(e), _capture)) => {
@@ -2802,11 +2802,11 @@ fn run_loop(
         // Oversized tasks are removed from the dispatch list so
         // apply_pending_patches_strict ignores their patch files.
         let picked_dispatches = {
-            use scripps_workflow_core::dag::BlockedRecord;
+            use ecaa_workflow_core::dag::BlockedRecord;
             let mut kept = Vec::with_capacity(picked_dispatches.len());
             let mut size_blocked: Vec<String> = Vec::new();
             for dispatch in picked_dispatches {
-                match scripps_workflow_harness::output_size_guard::check_output_size(
+                match ecaa_workflow_harness::output_size_guard::check_output_size(
                     path,
                     dispatch.task_id.as_str(),
                 ) {
@@ -2983,7 +2983,7 @@ fn run_loop(
                         )
                     };
                     task.state = TaskState::Blocked {
-                        record: scripps_workflow_core::dag::BlockedRecord {
+                        record: ecaa_workflow_core::dag::BlockedRecord {
                             reason: reason_hint,
                             attempts: vec![],
                         },
@@ -3004,7 +3004,7 @@ fn run_loop(
                             tid, e
                         );
                         task.state = TaskState::Blocked {
-                            record: scripps_workflow_core::dag::BlockedRecord {
+                            record: ecaa_workflow_core::dag::BlockedRecord {
                                 reason,
                                 attempts: vec![],
                             },
@@ -3023,7 +3023,7 @@ fn run_loop(
                         missing.join(","),
                     );
                     task.state = TaskState::Blocked {
-                        record: scripps_workflow_core::dag::BlockedRecord {
+                        record: ecaa_workflow_core::dag::BlockedRecord {
                             reason,
                             attempts: vec![],
                         },
@@ -3051,8 +3051,8 @@ fn run_loop(
                     // runtime/outputs/<task_id>/ so the artifact path
                     // matches `verify_required_artifacts` above.
                     let artifact_path = path.join("runtime/outputs").join(tid.as_str());
-                    let runners = scripps_workflow_harness::validators::default_runners();
-                    let summary = scripps_workflow_harness::validators::evaluate_validation(
+                    let runners = ecaa_workflow_harness::validators::default_runners();
+                    let summary = ecaa_workflow_harness::validators::evaluate_validation(
                         tid.as_str(),
                         &obligations,
                         &runners,
@@ -3066,7 +3066,7 @@ fn run_loop(
                             summary.human_summary(),
                         );
                         task.state = TaskState::Blocked {
-                            record: scripps_workflow_core::dag::BlockedRecord {
+                            record: ecaa_workflow_core::dag::BlockedRecord {
                                 reason,
                                 attempts: vec![],
                             },
@@ -3333,7 +3333,7 @@ fn run_loop(
                     "blocked_tasks": blocked.iter().map(|tid| {
                         serde_json::json!({"task_id": tid, "task": &after.tasks[*tid]})
                     }).collect::<Vec<_>>(),
-                    "timestamp": scripps_workflow_core::time_helpers::now_rfc3339()
+                    "timestamp": ecaa_workflow_core::time_helpers::now_rfc3339()
                 });
                 append_log(path, &entry)?;
                 println!(
@@ -3349,7 +3349,7 @@ fn run_loop(
             // Interactive SME resolution via rustyline
             let mut rl = rustyline::DefaultEditor::new()?;
             let mut dag_mut = read_dag(path)?;
-            let mut resolved_ids: Vec<scripps_workflow_core::ids::TaskId> = Vec::new();
+            let mut resolved_ids: Vec<ecaa_workflow_core::ids::TaskId> = Vec::new();
             for tid in &blocked {
                 let prompt = format!("  resolve {} > ", tid);
                 if let Ok(decision) = rl.readline(&prompt) {
@@ -3405,7 +3405,7 @@ fn run_loop(
         let threshold = heartbeat_stall_threshold_secs();
         if threshold > 0 {
             let mut any_flipped = false;
-            let mut hb_flipped_ids: Vec<scripps_workflow_core::ids::TaskId> = Vec::new();
+            let mut hb_flipped_ids: Vec<ecaa_workflow_core::ids::TaskId> = Vec::new();
             let mut dag_for_hb = read_dag(path)?;
             for (tid, task) in dag_for_hb.tasks.iter_mut() {
                 let TaskState::Running { started_at, .. } = &task.state else {
@@ -3437,7 +3437,7 @@ fn run_loop(
                     // default-return NoSignal so this stays a no-op for
                     // host-mode runs.
                     let probe = {
-                        use scripps_workflow_core::container_state::ContainerProbeOutcome;
+                        use ecaa_workflow_core::container_state::ContainerProbeOutcome;
                         let outcome = match executor.lock() {
                             Ok(guard) => guard.probe_container_state(tid.as_str(), path),
                             Err(poisoned) => {
@@ -3464,7 +3464,7 @@ fn run_loop(
                         ),
                     };
                     task.state = TaskState::Blocked {
-                        record: scripps_workflow_core::dag::BlockedRecord {
+                        record: ecaa_workflow_core::dag::BlockedRecord {
                             reason,
                             attempts: vec![],
                         },
@@ -3962,7 +3962,7 @@ fn block_agent_contract_violation(dag: &mut DAG, task_ids: &[String], detail: &s
             continue;
         };
         task.state = TaskState::Blocked {
-            record: scripps_workflow_core::dag::BlockedRecord {
+            record: ecaa_workflow_core::dag::BlockedRecord {
                 reason: format!(
                     "[agent_contract_violation] task={} {}; the harness restored WORKFLOW.json to the pre-dispatch snapshot. Agents must write runtime/outputs/{}/state.patch.json with matching SWFC_HARNESS_RUN_ID and SWFC_DISPATCH_EPOCH.",
                     task_id, detail, task_id
@@ -4016,7 +4016,7 @@ fn restore_agent_workflow_edits(
                 for task_id in &picked_edits {
                     if let Some(prev) = baseline.tasks.get(task_id.as_str()) {
                         restored.tasks.insert(
-                            scripps_workflow_core::ids::TaskId::from(task_id.as_str()),
+                            ecaa_workflow_core::ids::TaskId::from(task_id.as_str()),
                             prev.clone(),
                         );
                     }
@@ -4135,7 +4135,7 @@ fn enforce_validation_contract(
     // Typed role via `derive_role_from_id`.
     let task_ids: Vec<String> = dag.tasks.keys().map(|id| id.to_string()).collect();
     for tid in task_ids {
-        if !scripps_workflow_core::taxonomy::derive_role_from_id(&tid).is_validation() {
+        if !ecaa_workflow_core::taxonomy::derive_role_from_id(&tid).is_validation() {
             continue;
         }
         let task = dag.tasks.get(tid.as_str()).unwrap();
@@ -4184,7 +4184,7 @@ fn enforce_validation_contract(
             );
             if let Some(t) = dag.tasks.get_mut(tid.as_str()) {
                 t.state = TaskState::Blocked {
-                    record: scripps_workflow_core::dag::BlockedRecord {
+                    record: ecaa_workflow_core::dag::BlockedRecord {
                         reason: reason.clone(),
                         attempts: vec![],
                     },
@@ -4193,7 +4193,7 @@ fn enforce_validation_contract(
             // Re-block the parent
             if let Some(t) = dag.tasks.get_mut(parent_id.as_str()) {
                 t.state = TaskState::Blocked {
-                    record: scripps_workflow_core::dag::BlockedRecord {
+                    record: ecaa_workflow_core::dag::BlockedRecord {
                         reason: format!(
                             "Harness validation-contract check (from validate_{}): required assertion(s) unsatisfied: {}. Remediate and re-run.",
                             parent_id,
@@ -4479,7 +4479,7 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
     }
 
     let report = serde_json::json!({
-        "probed_at": scripps_workflow_core::time_helpers::now_rfc3339(),
+        "probed_at": ecaa_workflow_core::time_helpers::now_rfc3339(),
         "harness_version": env!("CARGO_PKG_VERSION"),
         "host_os": std::env::consts::OS,
         "capabilities": {
@@ -4577,10 +4577,10 @@ mod write_dag_tests {
     use super::*;
 
     fn running_fixture() -> DAG {
-        use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
         let mut dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "contract_test".into(),
             current_task: None,
             tasks: std::collections::BTreeMap::new(),
@@ -4644,7 +4644,7 @@ mod write_dag_tests {
     /// task.
     #[test]
     fn restore_agent_workflow_edits_preserves_non_picked_server_state_changes() {
-        use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
         let mut baseline = running_fixture();
@@ -4654,7 +4654,7 @@ mod write_dag_tests {
             Task {
                 kind: TaskKind::Computation,
                 state: TaskState::Blocked {
-                    record: scripps_workflow_core::dag::BlockedRecord {
+                    record: ecaa_workflow_core::dag::BlockedRecord {
                         reason: "iter-1 blocker".into(),
                         attempts: vec![],
                     },
@@ -4711,12 +4711,12 @@ mod write_dag_tests {
     /// in-progress write.
     #[test]
     fn write_dag_is_atomic_against_concurrent_readers() {
-        use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
         let mut dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "atomic_test".into(),
             current_task: None,
             tasks: std::collections::BTreeMap::new(),
@@ -4760,12 +4760,12 @@ mod write_dag_tests {
     /// the next successful write_dag clobbers the stale tmp.
     #[test]
     fn write_dag_recovers_from_leftover_tmp_after_crash() {
-        use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
         let mut dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "leftover".into(),
             current_task: None,
             tasks: std::collections::BTreeMap::new(),
@@ -4857,7 +4857,7 @@ mod read_dag_tests {
         // Repaired task ends up Blocked with a placeholder reason.
         let broken = dag.tasks.get("broken_task").unwrap();
         match &broken.state {
-            scripps_workflow_core::dag::TaskState::Blocked { record } => {
+            ecaa_workflow_core::dag::TaskState::Blocked { record } => {
                 assert!(record.reason.contains("harness could not parse"));
                 assert!(record.attempts.is_empty());
             }
@@ -4867,7 +4867,7 @@ mod read_dag_tests {
         let healthy = dag.tasks.get("healthy_task").unwrap();
         assert!(matches!(
             healthy.state,
-            scripps_workflow_core::dag::TaskState::Ready
+            ecaa_workflow_core::dag::TaskState::Ready
         ));
         // And a fresh read hits the fast path (the repair got persisted).
         let dag2 = read_dag(tmp.path()).expect("second read on repaired file");
@@ -4888,7 +4888,7 @@ mod read_dag_tests {
         // Fixture package with a completed compute task + validator,
         // plus a contract that requires a present artifact that
         // doesn't exist. Enforcement must flip both to blocked.
-        use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
         std::fs::create_dir_all(pkg.join("policies")).unwrap();
@@ -4961,7 +4961,7 @@ mod read_dag_tests {
         );
         let mut dag = DAG {
             version: "1.0".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "t".into(),
             current_task: None,
             tasks,
@@ -4985,7 +4985,7 @@ mod read_dag_tests {
 
     #[test]
     fn validation_contract_passes_when_artifact_present() {
-        use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
         std::fs::create_dir_all(pkg.join("policies")).unwrap();
@@ -5058,7 +5058,7 @@ mod read_dag_tests {
         );
         let mut dag = DAG {
             version: "1.0".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "t".into(),
             current_task: None,
             tasks,
@@ -5101,10 +5101,10 @@ mod read_dag_tests {
     /// can mutate the task's safety policy + kind without depending on
     /// `write_dag_tests::running_fixture` (different module scope).
     fn one_compute_task_dag() -> DAG {
-        use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
         let mut dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "stamp_safety_network_test".into(),
             current_task: None,
             tasks: std::collections::BTreeMap::new(),
@@ -5154,7 +5154,7 @@ mod read_dag_tests {
         // declares a non-empty allowlist (the safety-lint treats this
         // as still-None-effectively). The stamp must respect the
         // explicit isolation, not upgrade to bridge.
-        use scripps_workflow_core::atom::NetworkPolicy;
+        use ecaa_workflow_core::atom::NetworkPolicy;
         let mut dag = one_compute_task_dag();
         dag.tasks.get_mut("compute").unwrap().safety.network = NetworkPolicy::None {
             allowlist: vec!["pypi.org".into()],
@@ -5172,7 +5172,7 @@ mod read_dag_tests {
         // Validators / discover / gate / review tasks don't run user
         // code that installs libraries; their default isolation
         // ("none") must NOT be upgraded.
-        use scripps_workflow_core::dag::TaskKind;
+        use ecaa_workflow_core::dag::TaskKind;
         let mut dag = one_compute_task_dag();
         dag.tasks.get_mut("compute").unwrap().kind = TaskKind::Validation;
         let mut env: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
@@ -5185,7 +5185,7 @@ mod read_dag_tests {
 
     #[test]
     fn stamp_safety_network_passes_through_explicit_bridge() {
-        use scripps_workflow_core::atom::NetworkPolicy;
+        use ecaa_workflow_core::atom::NetworkPolicy;
         let mut dag = one_compute_task_dag();
         dag.tasks.get_mut("compute").unwrap().safety.network = NetworkPolicy::Bridge;
         let mut env: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
@@ -5274,7 +5274,7 @@ mod read_dag_tests {
 
     #[test]
     fn detects_empty_completion_sentinel() {
-        use scripps_workflow_core::dag::TaskState;
+        use ecaa_workflow_core::dag::TaskState;
         let result = serde_json::json!({
             "method": "pseudobulk_deseq2",
             "overall_de_not_run": true,
@@ -5301,7 +5301,7 @@ mod read_dag_tests {
 
     #[test]
     fn does_not_flip_healthy_completion() {
-        use scripps_workflow_core::dag::TaskState;
+        use ecaa_workflow_core::dag::TaskState;
         let result = serde_json::json!({
             "method": "seurat_v5_cca",
             "cells_total_integrated": 403868,
@@ -5408,7 +5408,7 @@ mod read_dag_tests {
         // The task must be Ready (from the committed copy), not Blocked.
         let task = dag.tasks.get("my_task").unwrap();
         assert!(
-            matches!(task.state, scripps_workflow_core::dag::TaskState::Ready),
+            matches!(task.state, ecaa_workflow_core::dag::TaskState::Ready),
             "expected Ready from git HEAD, got {:?}",
             task.state
         );
@@ -5452,7 +5452,7 @@ mod read_dag_tests {
         let dag = read_dag(pkg).expect("read_dag must fall through to per-task repair");
         let task = dag.tasks.get("broken_task").unwrap();
         match &task.state {
-            scripps_workflow_core::dag::TaskState::Blocked { record } => {
+            ecaa_workflow_core::dag::TaskState::Blocked { record } => {
                 assert!(
                     record.reason.contains("harness could not parse"),
                     "expected placeholder reason, got {:?}",
@@ -5526,7 +5526,7 @@ mod read_dag_tests {
         let dag = read_dag(pkg).expect("read_dag must fall through to per-task repair");
         let task = dag.tasks.get("already_bad").unwrap();
         match &task.state {
-            scripps_workflow_core::dag::TaskState::Blocked { record } => {
+            ecaa_workflow_core::dag::TaskState::Blocked { record } => {
                 assert!(
                     record.reason.contains("harness could not parse"),
                     "expected placeholder reason, got {:?}",
@@ -5546,7 +5546,7 @@ mod settle_tests {
     //! re-iterating. These tests cover the predicate + helpers; the
     //! full sleep wiring is exercised by the integration smoke runs.
     use super::*;
-    use scripps_workflow_core::dag::{
+    use ecaa_workflow_core::dag::{
         Assignee, BlockedRecord, ResourceClass, Task, TaskId, TaskKind,
     };
     use std::collections::BTreeMap;
@@ -5580,7 +5580,7 @@ mod settle_tests {
         }
         DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks: t,
@@ -5867,7 +5867,7 @@ mod sse_ordering_tests {
 #[cfg(test)]
 mod watchdog_event_relevance_tests {
     use super::*;
-    use scripps_workflow_core::dag::{
+    use ecaa_workflow_core::dag::{
         Assignee, ResourceClass, Task, TaskId, TaskKind, TaskState, DAG,
     };
     use std::collections::BTreeMap;
@@ -5896,7 +5896,7 @@ mod watchdog_event_relevance_tests {
         tasks.insert(TaskId::from(task_id), task_with_state(state));
         let dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks,
@@ -5949,8 +5949,8 @@ mod amend_cancel_tests {
     //! `CancelledByAmendment` blocker variant serialisation independently
     //! of the full harness loop so they run without a live server or
     //! real executor subprocess.
-    use scripps_workflow_core::blocker::BlockerKind;
-    use scripps_workflow_core::dag::{
+    use ecaa_workflow_core::blocker::BlockerKind;
+    use ecaa_workflow_core::dag::{
         Assignee, BlockedRecord, ResourceClass, Task, TaskId, TaskKind, TaskState, DAG,
     };
     use std::collections::BTreeMap;
@@ -5981,7 +5981,7 @@ mod amend_cancel_tests {
         }
         DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks: map,

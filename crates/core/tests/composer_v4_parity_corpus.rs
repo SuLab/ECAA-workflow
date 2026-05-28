@@ -22,14 +22,14 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
-use scripps_workflow_core::classify::Classifier;
-use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-use scripps_workflow_core::dag::DAG;
-use scripps_workflow_core::goal_spec::GoalSpec;
-use scripps_workflow_core::project_class::ProjectClass;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
+use ecaa_workflow_core::classify::Classifier;
+use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::dag::DAG;
+use ecaa_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::project_class::ProjectClass;
 
 const SCENARIOS: &[&str] = &[
     "bulk-rnaseq",
@@ -140,10 +140,10 @@ fn classify_scenario(request_text: &str) -> Result<ClassifiedScenario, String> {
 
     let project_class_cfg_path = config_root().join("project-class-keywords.yaml");
     let project_class_cfg =
-        scripps_workflow_core::classify::load_project_class_keywords(&project_class_cfg_path)
+        ecaa_workflow_core::classify::load_project_class_keywords(&project_class_cfg_path)
             .map_err(|e| format!("load_project_class_keywords: {e}"))?;
     let project_class =
-        scripps_workflow_core::classify::classify_project_class(request_text, &project_class_cfg);
+        ecaa_workflow_core::classify::classify_project_class(request_text, &project_class_cfg);
     let project_class_str = project_class_to_str(project_class);
 
     let goal = classification
@@ -268,8 +268,8 @@ fn emit_v4(
     archetypes: &ArchetypeRegistry,
     workflow_id: &str,
 ) -> Result<V4Emission, String> {
-    use scripps_workflow_core::composer_v4::{plan as v4_plan, PlanningContext};
-    use scripps_workflow_core::workflow_contracts::workflow_intent::{
+    use ecaa_workflow_core::composer_v4::{plan as v4_plan, PlanningContext};
+    use ecaa_workflow_core::workflow_contracts::workflow_intent::{
         DesiredOutput, WorkflowIntent,
     };
 
@@ -343,7 +343,7 @@ fn emit_v4(
         atoms,
         archetypes,
     );
-    use scripps_workflow_core::workflow_contracts::outcome::ComposeOutcome;
+    use ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome;
     let workflow_dag = match &result.primary {
         ComposeOutcome::ValidatedExecutableDag { dag, .. } => Some(dag.clone()),
         ComposeOutcome::DraftDag { dag, .. } => Some(dag.clone()),
@@ -390,7 +390,7 @@ fn emit_v4(
         Err(validation_err) => {
             // Lower again, this time skipping the validate_dag gate
             // by reusing the lower_to_workflow_json artifact.
-            use scripps_workflow_core::backend_emitters::workflow_json::{
+            use ecaa_workflow_core::backend_emitters::workflow_json::{
                 lower_to_workflow_json, EmitContext,
             };
             let mut ctx = EmitContext::defaults();
@@ -416,7 +416,7 @@ fn emit_v4(
 }
 
 fn finalize_v4_dag(
-    output: &scripps_workflow_core::composer::ComposerOutput,
+    output: &ecaa_workflow_core::composer::ComposerOutput,
     workflow_id: &str,
 ) -> Result<DAG, String> {
     if let Some(workflow_dag) = output.workflow_dag.as_ref() {
@@ -438,8 +438,8 @@ fn finalize_v4_dag(
 /// starves v4's forward search.
 fn scenario_available_data(
     modalities: &[String],
-) -> Vec<scripps_workflow_core::workflow_contracts::data_product::DataProductContract> {
-    use scripps_workflow_core::workflow_contracts::data_product::DataProductContract;
+) -> Vec<ecaa_workflow_core::workflow_contracts::data_product::DataProductContract> {
+    use ecaa_workflow_core::workflow_contracts::data_product::DataProductContract;
     let mut data = Vec::new();
     for modality in modalities {
         match modality.as_str() {
@@ -636,7 +636,7 @@ fn regenerate_baselines() {
 ///
 /// Readiness is gated on every scenario reaching GREEN.
 ///
-/// Run via `cargo test -p scripps-workflow-core --test
+/// Run via `cargo test -p ecaa-workflow-core --test
 /// composer_v4_parity_corpus -- --ignored
 /// v4_parity_corpus_matches_v2_baseline`.
 #[test]

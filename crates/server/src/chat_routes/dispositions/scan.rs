@@ -281,7 +281,7 @@ mod tests {
     use crate::chat_routes::test_support::{make_router, seed_session_with_completed_task};
     use axum::body::Body;
     use axum::http::Request;
-    use scripps_workflow_core::decision_log::DecisionType;
+    use ecaa_workflow_core::decision_log::DecisionType;
     use tower::util::ServiceExt;
 
     fn write_disposition(pkg: &std::path::Path, task_id: &str, body: serde_json::Value) -> PathBuf {

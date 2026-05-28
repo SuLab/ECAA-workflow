@@ -19,7 +19,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use scripps_workflow_core::dag::TaskState;
+use ecaa_workflow_core::dag::TaskState;
 use serde::Deserialize;
 use std::path::Path as StdPath;
 use std::sync::Arc;
@@ -138,7 +138,7 @@ pub(crate) async fn post_set_task_state(
 }
 
 /// Bucket name for the ProgressSummary counters. Mirrors the bucket
-/// assignment in `scripps_workflow_core::dag::DAG::progress` so the
+/// assignment in `ecaa_workflow_core::dag::DAG::progress` so the
 /// incremental update stays consistent with the canonical recompute:
 /// `Running` rolls into `ready` (counted as active), `Failed` rolls
 /// into `blocked` (counted as needing attention).
@@ -165,7 +165,7 @@ mod tests {
     use crate::chat_routes::test_support::{make_router, seed_session_with_completed_task};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use scripps_workflow_core::dag::TaskState;
+    use ecaa_workflow_core::dag::TaskState;
     use tower::util::ServiceExt;
 
     #[tokio::test]

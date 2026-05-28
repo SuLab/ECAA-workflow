@@ -12,7 +12,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use scripps_workflow_conversation::session::Session;
+use ecaa_workflow_conversation::session::Session;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 

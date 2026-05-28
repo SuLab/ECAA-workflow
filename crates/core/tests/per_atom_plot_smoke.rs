@@ -21,7 +21,7 @@
 //!   `python3 scripts/enumerate_plot_atoms.py > runtime/plot-atoms-enumeration.json`
 //!
 //! Run with:
-//!   cargo test -p scripps-workflow-core --test per_atom_plot_smoke -- --nocapture
+//!   cargo test -p ecaa-workflow-core --test per_atom_plot_smoke -- --nocapture
 //! Or via `make atoms-l2`.
 
 use std::collections::BTreeMap;

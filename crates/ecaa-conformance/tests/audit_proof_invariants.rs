@@ -1,4 +1,4 @@
-use scripps_workflow_ecaa_conformance::{run_audit_proof, InvariantStatus, NoopWrrocValidator};
+use ecaa_workflow_conformance::{run_audit_proof, InvariantStatus, NoopWrrocValidator};
 use std::path::PathBuf;
 
 #[test]

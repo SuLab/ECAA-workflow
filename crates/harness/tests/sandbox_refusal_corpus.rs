@@ -31,8 +31,8 @@
 
 use std::path::{Path, PathBuf};
 
-use scripps_workflow_core::sandbox_policy::SandboxPolicy;
-use scripps_workflow_harness::sandbox_enforcer::BubblewrapRunner;
+use ecaa_workflow_core::sandbox_policy::SandboxPolicy;
+use ecaa_workflow_harness::sandbox_enforcer::BubblewrapRunner;
 
 fn scenarios_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/sandbox_scenarios")

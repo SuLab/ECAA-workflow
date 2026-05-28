@@ -4,7 +4,7 @@
 //! every response.
 
 use axum::{body::Body, http::Request};
-use scripps_workflow_server::security_headers::security_headers_middleware;
+use ecaa_workflow_server::security_headers::security_headers_middleware;
 use tower::ServiceExt;
 
 #[tokio::test]

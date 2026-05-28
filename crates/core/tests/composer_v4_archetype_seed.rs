@@ -11,11 +11,11 @@
 //! the archetype seed. The test populates both so each path has
 //! material to work with.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer_v4::{plan, PlanningContext};
-use scripps_workflow_core::goal_spec::GoalSpec;
-use scripps_workflow_core::workflow_contracts::{
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer_v4::{plan, PlanningContext};
+use ecaa_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::workflow_contracts::{
     data_product::DataProductContract,
     workflow_intent::{DesiredOutput, WorkflowIntent},
 };

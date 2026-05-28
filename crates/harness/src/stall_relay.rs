@@ -44,7 +44,7 @@ pub struct StallSignalBody {
 
 impl StallSignalBody {
     fn from_signal(signal: &StallSignal) -> Self {
-        use scripps_workflow_core::blocker::StallAction;
+        use ecaa_workflow_core::blocker::StallAction;
         let task_id = signal.task_id().to_string();
         let suggested_action = match signal.suggested_action() {
             StallAction::Retry => "retry",

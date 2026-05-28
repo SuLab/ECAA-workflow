@@ -20,12 +20,12 @@
 // scoped to this integration test target.
 #![allow(unsafe_code)]
 
-use scripps_workflow_core::atom::{
+use ecaa_workflow_core::atom::{
     CodeExecution, NetworkPolicy, ProvisioningPolicy, SafetyLevel, SafetyPolicy, SandboxRequirement,
 };
-use scripps_workflow_core::blocker::BlockerKind;
-use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
-use scripps_workflow_harness::executor::{
+use ecaa_workflow_core::blocker::BlockerKind;
+use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+use ecaa_workflow_harness::executor::{
     enforce_safety_policy, local::LocalExecutor, Executor, ExecutorArgs,
 };
 use std::sync::Mutex;
@@ -238,11 +238,11 @@ fn local_passes_compute_atom_anywhere() {
 #[cfg(feature = "slurm")]
 mod slurm_safety {
     use super::*;
-    use scripps_workflow_harness::executor::slurm::sizing::{
+    use ecaa_workflow_harness::executor::slurm::sizing::{
         ResourceClass as SlurmResourceClass, SlurmMapping,
     };
-    use scripps_workflow_harness::executor::slurm::ssh::FakeSshSession;
-    use scripps_workflow_harness::executor::slurm::{SlurmConfig, SlurmExecutor};
+    use ecaa_workflow_harness::executor::slurm::ssh::FakeSshSession;
+    use ecaa_workflow_harness::executor::slurm::{SlurmConfig, SlurmExecutor};
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
@@ -404,7 +404,7 @@ mod slurm_safety {
 
 mod aws_safety {
     use super::*;
-    use scripps_workflow_harness::executor::aws::AwsExecutor;
+    use ecaa_workflow_harness::executor::aws::AwsExecutor;
 
     /// Populate every required SWFC_AWS_* env var so AwsExecutor::new
     /// succeeds. The values are placeholders — capabilities() doesn't
@@ -526,7 +526,7 @@ fn safety_policy_marker_roundtrips_through_blocker_parser() {
     // (`parse_agent_blocker_kind`) reads that line and reconstructs
     // the typed variant. Test the round-trip directly so a regression
     // in either side surfaces immediately.
-    use scripps_workflow_core::blocker::{format_safety_policy_marker, parse_agent_blocker_kind};
+    use ecaa_workflow_core::blocker::{format_safety_policy_marker, parse_agent_blocker_kind};
 
     let original = BlockerKind::SandboxRequired {
         atom_id: "test_atom".into(),

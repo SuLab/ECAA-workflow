@@ -71,7 +71,7 @@ impl SlurmMapping {
     /// path disables validation — useful in tests but not in prod;
     /// the executor's `from_env` constructor wires up both).
     pub fn load(yaml_path: &Path, schema_path: Option<&Path>) -> Result<Self> {
-        let as_json = scripps_workflow_core::fs_helpers::read_yaml_as_json(yaml_path)?;
+        let as_json = ecaa_workflow_core::fs_helpers::read_yaml_as_json(yaml_path)?;
 
         if let Some(schema_path) = schema_path {
             validate_against_schema(schema_path, yaml_path, &as_json)?;
@@ -117,7 +117,7 @@ fn validate_against_schema(
     as_json: &serde_json::Value,
 ) -> Result<()> {
     let compiled =
-        scripps_workflow_core::schema_helpers::compile_schema_from_path_cached(schema_path)?;
+        ecaa_workflow_core::schema_helpers::compile_schema_from_path_cached(schema_path)?;
     let messages: Vec<String> = match compiled.validate(as_json) {
         Ok(()) => return Ok(()),
         Err(errs) => errs

@@ -10,7 +10,7 @@
 //! prompt-addendum + container-policy + BCO-routing surface that
 //! used to require per-class match arms.
 
-use scripps_workflow_core::project_class_registry::ProjectClassRegistry;
+use ecaa_workflow_core::project_class_registry::ProjectClassRegistry;
 use std::path::Path;
 
 #[test]

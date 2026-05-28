@@ -53,11 +53,11 @@
 //! - No live network reads; no LLM calls; no clock reads. Standard
 //! composer-determinism contract applies (S7.15).
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom::{AtomAssignee, AtomDefinition, AtomRole};
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer::{self, compose_with_version, CompositionError};
-use scripps_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom::{AtomAssignee, AtomDefinition, AtomRole};
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer::{self, compose_with_version, CompositionError};
+use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -203,7 +203,7 @@ fn empty_archetypes() -> ArchetypeRegistry {
 /// UnfilledRequiredSlot, InputUnsatisfied, archetype-level
 /// ExclusionConflict) go through this helper.
 fn synth_archetypes(
-    archetypes: Vec<scripps_workflow_core::archetype::ArchetypeDefinition>,
+    archetypes: Vec<ecaa_workflow_core::archetype::ArchetypeDefinition>,
 ) -> ArchetypeRegistry {
     let tmp = tempfile::tempdir().expect("tempdir");
     for arch in &archetypes {
@@ -225,8 +225,8 @@ fn synth_archetype(
     goal_format: Option<&str>,
     project_class: &str,
     atoms: Vec<&str>,
-) -> scripps_workflow_core::archetype::ArchetypeDefinition {
-    use scripps_workflow_core::archetype::{
+) -> ecaa_workflow_core::archetype::ArchetypeDefinition {
+    use ecaa_workflow_core::archetype::{
         ArchetypeAtomRef, ArchetypeDefinition, CURRENT_ARCHETYPE_SCHEMA_VERSION,
     };
     ArchetypeDefinition {
@@ -674,7 +674,7 @@ const CASES: &[AdversarialCase] = &[
         description: "Operation atom defers a method choice to a discovery atom that \
              isn't a transitive dep. Validation rule 5 fires.",
         runner: || -> Outcome {
-            use scripps_workflow_core::atom::MethodChoiceRef;
+            use ecaa_workflow_core::atom::MethodChoiceRef;
             let mut a = synth_atom(
                 "deferred",
                 AtomRole::Operation,
@@ -709,7 +709,7 @@ const CASES: &[AdversarialCase] = &[
              validation rule 5 fails — only a Discovery atom can resolve a \
              method choice. Catches the role-confusion mistake.",
         runner: || -> Outcome {
-            use scripps_workflow_core::atom::MethodChoiceRef;
+            use ecaa_workflow_core::atom::MethodChoiceRef;
             let mut producer = synth_atom(
                 "primary",
                 AtomRole::Operation,
@@ -743,7 +743,7 @@ const CASES: &[AdversarialCase] = &[
              Validation rule 7 fires — multimodal joint analyses can't silently \
              stitch mismatched runs.",
         runner: || -> Outcome {
-            use scripps_workflow_core::atom::JointlyWithConstraint;
+            use ecaa_workflow_core::atom::JointlyWithConstraint;
             let mut consumer = synth_atom(
                 "joint_consumer",
                 AtomRole::Operation,
@@ -786,7 +786,7 @@ const CASES: &[AdversarialCase] = &[
              `None`-vs-concrete and fires JointSourceMismatch. Documents that \
              `joint_with` is opt-in on both producers (not just the consumer).",
         runner: || -> Outcome {
-            use scripps_workflow_core::atom::JointlyWithConstraint;
+            use ecaa_workflow_core::atom::JointlyWithConstraint;
             let mut consumer = synth_atom(
                 "joint2",
                 AtomRole::Operation,
@@ -893,7 +893,7 @@ const CASES: &[AdversarialCase] = &[
              and accepts. Documents the contract: method_choice + Discovery \
              role is the runtime-resolution pattern.",
         runner: || -> Outcome {
-            use scripps_workflow_core::atom::MethodChoiceRef;
+            use ecaa_workflow_core::atom::MethodChoiceRef;
             let mut op = synth_atom(
                 "with_choice",
                 AtomRole::Operation,
@@ -966,7 +966,7 @@ const CASES: &[AdversarialCase] = &[
              chance to run. Documents that detect_cycle is the gate, not \
              validate_composition rule 5. Pinned to v3 (see cycle/two-node-symmetric).",
         runner: || -> Outcome {
-            use scripps_workflow_core::atom::MethodChoiceRef;
+            use ecaa_workflow_core::atom::MethodChoiceRef;
             let mut op = synth_atom(
                 "method_choice_op",
                 AtomRole::Operation,
@@ -1091,7 +1091,7 @@ const CASES: &[AdversarialCase] = &[
              the chain (no fuzzy resolution); the typo fires \
              MethodChoiceUnresolved. Catches the most common authoring slip.",
         runner: || -> Outcome {
-            use scripps_workflow_core::atom::MethodChoiceRef;
+            use ecaa_workflow_core::atom::MethodChoiceRef;
             let mut op = synth_atom(
                 "typo_op",
                 AtomRole::Operation,
@@ -1126,7 +1126,7 @@ const CASES: &[AdversarialCase] = &[
              method-choice contract requires the resolver to be a \
              transitive dep, not just a registered atom.",
         runner: || -> Outcome {
-            use scripps_workflow_core::atom::MethodChoiceRef;
+            use ecaa_workflow_core::atom::MethodChoiceRef;
             let mut op = synth_atom(
                 "in_chain_op",
                 AtomRole::Operation,
@@ -1160,7 +1160,7 @@ const CASES: &[AdversarialCase] = &[
              Documents that joint_with isn't a multi-valued aggregator — \
              it's a per-pair equality.",
         runner: || -> Outcome {
-            use scripps_workflow_core::atom::JointlyWithConstraint;
+            use ecaa_workflow_core::atom::JointlyWithConstraint;
             let mut consumer = synth_atom(
                 "tri_consumer",
                 AtomRole::Operation,
@@ -1218,7 +1218,7 @@ const CASES: &[AdversarialCase] = &[
              values directly — empty != \"run_one\" — so JointSourceMismatch \
              fires. Documents that `\"\"` is NOT silently treated as missing.",
         runner: || -> Outcome {
-            use scripps_workflow_core::atom::JointlyWithConstraint;
+            use ecaa_workflow_core::atom::JointlyWithConstraint;
             let mut consumer = synth_atom(
                 "empty_src_consumer",
                 AtomRole::Operation,
@@ -1384,7 +1384,7 @@ const CASES: &[AdversarialCase] = &[
              Documents the contract for legal multimodal joint analyses \
              — composer permits joint_with when both sides agree.",
         runner: || -> Outcome {
-            use scripps_workflow_core::atom::JointlyWithConstraint;
+            use ecaa_workflow_core::atom::JointlyWithConstraint;
             let mut consumer = synth_atom(
                 "ok_consumer",
                 AtomRole::Operation,

@@ -38,11 +38,11 @@ use std::collections::BTreeSet;
 use std::io::Write as _;
 use std::path::PathBuf;
 
-pub use scripps_workflow_core::sandbox_policy::{
+pub use ecaa_workflow_core::sandbox_policy::{
     check_generated_code_node, check_workflow_dag, SandboxPolicy, SandboxRefusal,
 };
-use scripps_workflow_core::workflow_contracts::implementation::Implementation;
-use scripps_workflow_core::workflow_contracts::task_node::TaskNode;
+use ecaa_workflow_core::workflow_contracts::implementation::Implementation;
+use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
 
 /// Runtime-shaped flags the harness can pass to a container engine
 /// (docker / apptainer / podman). The local executor renders them as
@@ -569,7 +569,7 @@ pub fn append_sandbox_run_record(
         "task_id": task_id,
         "policy_digest": BubblewrapRunner::policy_digest(policy),
         "bwrap_args": bwrap_args,
-        "start_time": scripps_workflow_core::time_helpers::now_rfc3339(),
+        "start_time": ecaa_workflow_core::time_helpers::now_rfc3339(),
         "exit_code": exit_code,
     });
     let mut line = serde_json::to_string(&record).unwrap_or_default();
@@ -628,7 +628,7 @@ pub fn enforce_output_schema_validation(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::workflow_contracts::implementation::ReviewStatus;
+    use ecaa_workflow_core::workflow_contracts::implementation::ReviewStatus;
 
     #[test]
     fn policy_to_flags_round_trips() {

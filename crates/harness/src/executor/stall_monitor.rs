@@ -24,7 +24,7 @@ use crate::constants::{
     STALL_MEM_MAX_PCT_DEFAULT, STALL_MEM_WINDOW_MINS_DEFAULT,
     STALL_RUNTIME_OVER_EXPECTED_MULT_DEFAULT, STALL_SAMPLE_INTERVAL_SECS_DEFAULT,
 };
-use scripps_workflow_core::blocker::{StallAction, StallSignalWire};
+use ecaa_workflow_core::blocker::{StallAction, StallSignalWire};
 use std::env;
 use std::io::Write as _;
 
@@ -419,7 +419,7 @@ pub fn append_stall_signal_record(package_root: &std::path::Path, signal: &Stall
     };
 
     let record = serde_json::json!({
-        "ts": scripps_workflow_core::time_helpers::now_rfc3339(),
+        "ts": ecaa_workflow_core::time_helpers::now_rfc3339(),
         "task_id": signal.task_id(),
         "kind": kind,
         "measurements": measurements,

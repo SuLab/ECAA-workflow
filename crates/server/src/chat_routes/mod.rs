@@ -19,7 +19,7 @@
 #[allow(unused_imports)]
 use axum::{extract::Path, Router};
 #[allow(unused_imports)]
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     AnthropicClient, BatcherConfig, ConversationService, HarnessBatcher, LlmBackend,
     MockLlmBackend, ServiceEventSink, SessionId, SessionStore, Turn,
 };
@@ -250,7 +250,7 @@ mod wire_types;
 // `pub` visibility (not `pub(crate)`) is load-bearing: the
 // `crates/server/tests/path_jail_fuzz.rs` integration test reaches the
 // helpers through the same import path the production handlers use, so
-// they need to be reachable as `scripps_workflow_server::chat_routes::*`.
+// they need to be reachable as `ecaa_workflow_server::chat_routes::*`.
 pub use _path_jail::{
     assert_under_root, runtime_outputs_for_task, safe_relative_join, safe_segment_join,
     PathJailError,

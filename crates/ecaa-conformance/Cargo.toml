@@ -1,5 +1,5 @@
 [package]
-name = "scripps-workflow-ecaa-conformance"
+name = "ecaa-workflow-conformance"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -9,14 +9,14 @@ description = "ECAA v0.1 conformance suite — second-impl validation harness"
 [dependencies]
 anyhow = { workspace = true }
 serde_json = { workspace = true }
-scripps-workflow-core = { version = "0.1", path = "../core" }
+ecaa-workflow-core = { version = "0.1", path = "../core" }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tempfile = "3"
 serde = { workspace = true, features = ["derive"] }
-scripps-workflow-harness = { version = "0.1", path = "../harness" }
-scripps-workflow-ecaa-types = { version = "0.1", path = "../ecaa-types" }
+ecaa-workflow-harness = { version = "0.1", path = "../harness" }
+ecaa-workflow-types = { version = "0.1", path = "../ecaa-types" }
 strum = { workspace = true }
 pulldown-cmark = { version = "0.10", default-features = false }
 regex = "1"

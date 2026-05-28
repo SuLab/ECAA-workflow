@@ -9,11 +9,11 @@
 //!
 //! Run:
 //! ```bash
-//! cargo test -p scripps-workflow-core --test plot_affordance_catalog_audit
+//! cargo test -p ecaa-workflow-core --test plot_affordance_catalog_audit
 //! ```
 
-use scripps_workflow_core::plot_affordance::registry::YamlPlotAffordanceRegistry;
-use scripps_workflow_core::plot_affordance::PlotAffordanceRegistry;
+use ecaa_workflow_core::plot_affordance::registry::YamlPlotAffordanceRegistry;
+use ecaa_workflow_core::plot_affordance::PlotAffordanceRegistry;
 use std::path::Path;
 
 #[test]

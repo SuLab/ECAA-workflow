@@ -27,13 +27,13 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer_v4::{plan as v4_plan, PlanningContext};
-use scripps_workflow_core::goal_spec::GoalSpec;
-use scripps_workflow_core::workflow_contracts::data_product::DataProductContract;
-use scripps_workflow_core::workflow_contracts::outcome::ComposeOutcome;
-use scripps_workflow_core::workflow_contracts::workflow_intent::{DesiredOutput, WorkflowIntent};
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer_v4::{plan as v4_plan, PlanningContext};
+use ecaa_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::workflow_contracts::data_product::DataProductContract;
+use ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome;
+use ecaa_workflow_core::workflow_contracts::workflow_intent::{DesiredOutput, WorkflowIntent};
 
 const ATOMS_DIR: &str = "../../config/stage-atoms";
 const ARCHETYPES_DIR: &str = "../../config/archetypes";

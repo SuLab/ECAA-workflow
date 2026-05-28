@@ -30,8 +30,8 @@
 //!   checks `SWFC_AUTO_APPLY_DISPOSITIONS=1 && disposition.auto_apply`.
 
 use super::*;
-use scripps_workflow_core::decision_log::{DecisionActor, DecisionType};
-use scripps_workflow_core::disposition::{
+use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
+use ecaa_workflow_core::disposition::{
     normalize, Action, Disposition, DispositionStatus, DISPOSITION_SCHEMA_VERSION,
 };
 use serde::Serialize;
@@ -60,7 +60,7 @@ pub(crate) type DispositionQueue = Arc<RwLock<BTreeMap<SessionId, BTreeMap<PathB
 /// operator consent and agent consent are required before the server
 /// applies without an SME click.
 pub(crate) fn auto_apply_enabled_globally() -> bool {
-    scripps_workflow_core::env_helpers::env_bool("SWFC_AUTO_APPLY_DISPOSITIONS")
+    ecaa_workflow_core::env_helpers::env_bool("SWFC_AUTO_APPLY_DISPOSITIONS")
 }
 
 /// Load + normalize a disposition file on disk. Returns Err with a
@@ -242,7 +242,7 @@ pub(super) async fn record_proposed_decision(
     let created_at = d
         .created_at
         .clone()
-        .unwrap_or_else(scripps_workflow_core::time_helpers::now_rfc3339);
+        .unwrap_or_else(ecaa_workflow_core::time_helpers::now_rfc3339);
     let task_id = d.task_id.clone();
     let action_count = d.actions.len();
     let _ = app
@@ -519,7 +519,7 @@ pub(crate) async fn apply_actions(
     } else {
         DispositionStatus::Applied
     };
-    d.status_updated_at = Some(scripps_workflow_core::time_helpers::now_rfc3339());
+    d.status_updated_at = Some(ecaa_workflow_core::time_helpers::now_rfc3339());
     if d.schema_version == 0 {
         d.schema_version = DISPOSITION_SCHEMA_VERSION;
     }
@@ -589,8 +589,8 @@ pub(crate) fn routes() -> axum::Router<ChatAppState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::dag::TaskId;
-    use scripps_workflow_core::disposition::{
+    use ecaa_workflow_core::dag::TaskId;
+    use ecaa_workflow_core::disposition::{
         Disposition as CoreDisposition, DispositionStatus as CoreStatus,
     };
 

@@ -13,9 +13,9 @@
 //!    records before exiting, every line in `runtime/dispatches.jsonl`
 //!    parses as a valid `DispatchRecord` — there are no torn writes.
 //!
-//! The tests are skipped when `CARGO_BIN_EXE_scripps-workflow-harness` is
+//! The tests are skipped when `CARGO_BIN_EXE_ecaa-workflow-harness` is
 //! unavailable (e.g. when the test suite is invoked with `cargo test --lib`
-//! on a machine that has never run `cargo build -p scripps-workflow-harness`).
+//! on a machine that has never run `cargo build -p ecaa-workflow-harness`).
 //!
 //! # Why this is important
 //!
@@ -27,18 +27,18 @@
 //! (typically ~200 bytes each) and catches any future regression where the
 //! serialization produces records exceeding `PIPE_BUF`.
 
-use scripps_workflow_harness::dispatch_wal::{read_dispatches, wal_path};
+use ecaa_workflow_harness::dispatch_wal::{read_dispatches, wal_path};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 // ── binary path ──────────────────────────────────────────────────────────────
 
-/// Return the path to the compiled `scripps-workflow-harness` binary, or
+/// Return the path to the compiled `ecaa-workflow-harness` binary, or
 /// `None` when the test is being run in a context where the binary wasn't
 /// built (e.g. `cargo test --lib`).
 ///
-/// `env!("CARGO_BIN_EXE_scripps-workflow-harness")` is set by `cargo test`
+/// `env!("CARGO_BIN_EXE_ecaa-workflow-harness")` is set by `cargo test`
 /// when it also builds the binary targets in the same crate. When the macro
 /// expands to an empty string (which cargo never does) or when the resolved
 /// path does not exist, we treat the binary as unavailable.
@@ -47,7 +47,7 @@ fn harness_bin_path() -> Option<PathBuf> {
     // `CARGO_BIN_EXE_*` is always set by `cargo test` when building tests
     // for a crate that has a `[[bin]]` target, but the binary may not yet
     // exist on disk if the user ran `cargo test --lib` without building first.
-    let raw = env!("CARGO_BIN_EXE_scripps-workflow-harness");
+    let raw = env!("CARGO_BIN_EXE_ecaa-workflow-harness");
     let p = PathBuf::from(raw);
     if p.exists() {
         Some(p)
@@ -148,9 +148,9 @@ fn two_harnesses_same_session_id_lock_exclusion() {
     let Some(bin) = harness_bin_path() else {
         eprintln!(
             "[wal_multiprocess_race] SKIP: harness binary not found at \
-             CARGO_BIN_EXE_scripps-workflow-harness. \
-             Build with `cargo build -p scripps-workflow-harness` first, \
-             or run via `cargo test -p scripps-workflow-harness`."
+             CARGO_BIN_EXE_ecaa-workflow-harness. \
+             Build with `cargo build -p ecaa-workflow-harness` first, \
+             or run via `cargo test -p ecaa-workflow-harness`."
         );
         return;
     };
@@ -253,9 +253,9 @@ fn two_harnesses_concurrent_wal_writes_no_torn_lines() {
     let Some(bin) = harness_bin_path() else {
         eprintln!(
             "[wal_multiprocess_race] SKIP: harness binary not found at \
-             CARGO_BIN_EXE_scripps-workflow-harness. \
-             Build with `cargo build -p scripps-workflow-harness` first, \
-             or run via `cargo test -p scripps-workflow-harness`."
+             CARGO_BIN_EXE_ecaa-workflow-harness. \
+             Build with `cargo build -p ecaa-workflow-harness` first, \
+             or run via `cargo test -p ecaa-workflow-harness`."
         );
         return;
     };
@@ -340,7 +340,7 @@ fn two_harnesses_concurrent_wal_writes_no_torn_lines() {
 /// This test does NOT require the harness binary.
 #[test]
 fn concurrent_append_dispatch_no_torn_lines() {
-    use scripps_workflow_harness::dispatch_wal::{append_dispatch, DispatchRecord};
+    use ecaa_workflow_harness::dispatch_wal::{append_dispatch, DispatchRecord};
     use std::sync::{Arc, Barrier};
 
     let tmp = tempfile::tempdir().unwrap();
@@ -353,7 +353,7 @@ fn concurrent_append_dispatch_no_torn_lines() {
     let barrier = Arc::new(Barrier::new(n_threads));
     let dir_arc = Arc::new(dir.clone());
 
-    let schema_ver = scripps_workflow_harness::dispatch_wal::dispatch_wal_schema_version();
+    let schema_ver = ecaa_workflow_harness::dispatch_wal::dispatch_wal_schema_version();
 
     let handles: Vec<_> = (0..n_threads)
         .map(|t| {
@@ -421,7 +421,7 @@ fn concurrent_append_dispatch_no_torn_lines() {
 /// discrepancy.
 fn verify_wal_no_torn_lines(
     raw_wal: &str,
-    parsed_records: &[scripps_workflow_harness::dispatch_wal::DispatchRecord],
+    parsed_records: &[ecaa_workflow_harness::dispatch_wal::DispatchRecord],
 ) {
     let nonempty_lines: Vec<&str> = raw_wal.lines().filter(|l| !l.trim().is_empty()).collect();
 
@@ -429,7 +429,7 @@ fn verify_wal_no_torn_lines(
         .iter()
         .enumerate()
         .filter(|(_, line)| {
-            serde_json::from_str::<scripps_workflow_harness::dispatch_wal::DispatchRecord>(line)
+            serde_json::from_str::<ecaa_workflow_harness::dispatch_wal::DispatchRecord>(line)
                 .is_err()
         })
         .map(|(i, line)| (i + 1, *line))

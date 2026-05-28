@@ -31,16 +31,16 @@
 
 use std::collections::BTreeSet;
 
-use scripps_workflow_core::hypothesized_proposal::{
+use ecaa_workflow_core::hypothesized_proposal::{
     now_ts, proposal_to_transient_task_node, GateName, GateOutcome, HypothesizedProposal,
     ProposalBlockerReason, ProposalLifecycle,
 };
-use scripps_workflow_core::sandbox_policy::{
+use ecaa_workflow_core::sandbox_policy::{
     check_generated_code_node, SandboxPolicy, SandboxRefusal,
 };
-use scripps_workflow_core::validation_obligations::ValidationRegistry;
-use scripps_workflow_core::workflow_contracts::implementation::{Implementation, ReviewStatus};
-use scripps_workflow_core::workflow_contracts::task_node::TaskNode;
+use ecaa_workflow_core::validation_obligations::ValidationRegistry;
+use ecaa_workflow_core::workflow_contracts::implementation::{Implementation, ReviewStatus};
+use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
 
 use crate::session::Session;
 
@@ -252,7 +252,7 @@ pub fn preview_sandbox_refusals(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::hypothesized_proposal::HypothesizedProposal;
+    use ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal;
 
     fn sample_proposal_valid() -> HypothesizedProposal {
         HypothesizedProposal::new(

@@ -7,14 +7,14 @@
 //! `MeetResult` variants — fully `Connected`, `PartiallyConnected`, or
 //! `Disconnected` — and a `WorkflowDag` carrying proof-bearing edges.
 
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer_v4::{
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer_v4::{
     backward_search::backward_search,
     forward_search::forward_search,
     meet_in_middle::{meet_in_the_middle, MeetResult},
 };
-use scripps_workflow_core::workflow_contracts::data_product::DataProductContract;
-use scripps_workflow_core::workflow_contracts::workflow_intent::{DesiredOutput, WorkflowIntent};
+use ecaa_workflow_core::workflow_contracts::data_product::DataProductContract;
+use ecaa_workflow_core::workflow_contracts::workflow_intent::{DesiredOutput, WorkflowIntent};
 
 /// Meet-in-the-middle must produce a `WorkflowDag` with proof-carrying
 /// edges. We don't pin specific atom names — atom-registry coverage and

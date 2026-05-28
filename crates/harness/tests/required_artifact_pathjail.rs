@@ -1,8 +1,8 @@
 //! Regression: required_artifacts paths must stay inside the task output
 //! directory.
 
-use scripps_workflow_core::dag::RequiredArtifact;
-use scripps_workflow_harness::required_artifacts::verify_required_artifacts;
+use ecaa_workflow_core::dag::RequiredArtifact;
+use ecaa_workflow_harness::required_artifacts::verify_required_artifacts;
 
 fn artifact(path: &str) -> RequiredArtifact {
     RequiredArtifact {

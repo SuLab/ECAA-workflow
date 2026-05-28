@@ -6,10 +6,10 @@
 
 #![cfg(feature = "slurm")]
 
-use scripps_workflow_core::blocker::BlockerKind;
-use scripps_workflow_harness::executor::slurm::polling::{query_job, JobState};
-use scripps_workflow_harness::executor::slurm::sbatch::{parse_job_id, submit_sbatch};
-use scripps_workflow_harness::executor::slurm::ssh::{FakeSshSession, SshOutcome, SshSession};
+use ecaa_workflow_core::blocker::BlockerKind;
+use ecaa_workflow_harness::executor::slurm::polling::{query_job, JobState};
+use ecaa_workflow_harness::executor::slurm::sbatch::{parse_job_id, submit_sbatch};
+use ecaa_workflow_harness::executor::slurm::ssh::{FakeSshSession, SshOutcome, SshSession};
 
 // ── helpers ───────────────────────────────────────────────────────────────
 

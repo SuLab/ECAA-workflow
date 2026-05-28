@@ -1,7 +1,7 @@
 //! Sync HTTP client wrapper enforcing HTTPS-or-loopback scheme.
 //!
 //! Sync analogue of
-//! `scripps_workflow_core::resilient_client::ResilientClient`, using
+//! `ecaa_workflow_core::resilient_client::ResilientClient`, using
 //! ureq (matches the harness's existing HTTP stack).
 
 use thiserror::Error;
@@ -41,7 +41,7 @@ impl Default for ResilientSyncConfig {
         Self {
             base_url: Url::parse("https://localhost").expect("constant"),
             timeout: std::time::Duration::from_secs(30),
-            user_agent: format!("scripps-workflow-harness/{}", env!("CARGO_PKG_VERSION")),
+            user_agent: format!("ecaa-workflow-harness/{}", env!("CARGO_PKG_VERSION")),
         }
     }
 }

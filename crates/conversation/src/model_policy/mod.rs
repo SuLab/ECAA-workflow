@@ -207,7 +207,7 @@ pub fn model_serde_name(m: ModelId) -> String {
 mod tests {
     use super::*;
     use crate::session::{Session, SessionState};
-    use scripps_workflow_core::classify::ClassificationResult;
+    use ecaa_workflow_core::classify::ClassificationResult;
 
     #[test]
     fn careful_mode_forces_opus() {
@@ -287,7 +287,7 @@ mod tests {
         s.try_transition(StateTrigger::HarnessTaskBlocked {
             task_id: "preprocessing".into(),
             detail: "disk full".into(),
-            blocker_kind: scripps_workflow_core::blocker::BlockerKind::HostError {
+            blocker_kind: ecaa_workflow_core::blocker::BlockerKind::HostError {
                 message: "disk full".into(),
             },
         })

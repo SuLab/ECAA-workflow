@@ -16,7 +16,7 @@
 //! Invariant: `Completed` and `Failed` are terminal. All other current
 //! variants (`Pending`, `Ready`, `Running`, `Blocked`) are non-terminal.
 
-use scripps_workflow_core::dag::{BlockedRecord, TaskState};
+use ecaa_workflow_core::dag::{BlockedRecord, TaskState};
 
 /// Asserts the expected `is_terminal()` return value for every
 /// `TaskState` variant by name.

@@ -1,5 +1,5 @@
 //! AblationFlag enum + all_flags() — the 6-variant SWFC_ABLATE_* contract.
-//! The is_active() runtime check is in scripps-workflow-core::ablation
+//! The is_active() runtime check is in ecaa-workflow-core::ablation
 //! as an extension trait `AblationFlagExt` to keep env-var coupling there.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, schemars::JsonSchema)]

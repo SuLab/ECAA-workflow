@@ -22,9 +22,9 @@
 #![allow(unsafe_code)]
 
 use async_trait::async_trait;
-use scripps_workflow_conversation::anthropic::{LlmBackend, TurnRequest, TurnResponse, Usage};
-use scripps_workflow_conversation::model_policy::ModelId;
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::anthropic::{LlmBackend, TurnRequest, TurnResponse, Usage};
+use ecaa_workflow_conversation::model_policy::ModelId;
+use ecaa_workflow_conversation::{
     ConversationService, SessionId, SessionStore, StopReason, Tool,
 };
 use std::path::PathBuf;
@@ -98,7 +98,7 @@ impl LlmBackend for CountingMockBackend {
     async fn send_turn_streaming(
         &self,
         req: TurnRequest,
-        _on_delta: scripps_workflow_conversation::anthropic::delta_sink::DeltaSink,
+        _on_delta: ecaa_workflow_conversation::anthropic::delta_sink::DeltaSink,
     ) -> anyhow::Result<TurnResponse> {
         self.send_turn(req).await
     }
@@ -130,12 +130,12 @@ fn tool_use(t: Tool) -> TurnResponse {
 /// `store.update` rather than driving live turns — keeps the fixture
 /// tight and the test deterministic.
 async fn seed_auto_title_ready_session(svc: &ConversationService) -> SessionId {
-    use scripps_workflow_core::classify::ClassificationResult;
+    use ecaa_workflow_core::classify::ClassificationResult;
     let (id, _) = svc.start_session(false).await.unwrap();
     let store = svc.store_handle();
     store
         .update(id, |s| {
-            use scripps_workflow_conversation::session::Turn;
+            use ecaa_workflow_conversation::session::Turn;
             // Six non-system turns: alternating user / assistant.
             for i in 0..6 {
                 let t = if i % 2 == 0 {

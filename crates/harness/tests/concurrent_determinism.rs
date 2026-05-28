@@ -25,16 +25,16 @@
 //!
 //! Run pure tests:
 //! ```text
-//! cargo test -p scripps-workflow-harness concurrent_determinism
+//! cargo test -p ecaa-workflow-harness concurrent_determinism
 //! ```
 //!
 //! Run live parallel tests (requires python on PATH):
 //! ```text
-//! cargo test -p scripps-workflow-harness concurrent_determinism -- --ignored
+//! cargo test -p ecaa-workflow-harness concurrent_determinism -- --ignored
 //! ```
 
-use scripps_workflow_harness::renderer_validators::DeterminismRunner;
-use scripps_workflow_harness::validators::{ValidatorOutcome, ValidatorRunner};
+use ecaa_workflow_harness::renderer_validators::DeterminismRunner;
+use ecaa_workflow_harness::validators::{ValidatorOutcome, ValidatorRunner};
 use std::fs;
 use std::sync::{Arc, Barrier};
 use tempfile::TempDir;

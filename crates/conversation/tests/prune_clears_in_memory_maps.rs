@@ -10,7 +10,7 @@
 //! fires the hook so the service can clear its own per-session state.
 
 use chrono::{Duration, Utc};
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     ConversationService, LlmBackend, MockLlmBackend, SessionStore,
 };
 use std::path::PathBuf;

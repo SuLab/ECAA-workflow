@@ -28,10 +28,10 @@
 //! `stall_monitor_integration_test.rs`. The watchdog-only test case
 //! runs on all platforms.
 
-use scripps_workflow_core::clock::FrozenClock;
-use scripps_workflow_harness::executor::stall_monitor::{StallSignal, StallThresholds};
-use scripps_workflow_harness::executor::{Executor, ExecutorArgs};
-use scripps_workflow_harness::watchdog::{Watchdog, WatchdogConfig, WatchdogEvent};
+use ecaa_workflow_core::clock::FrozenClock;
+use ecaa_workflow_harness::executor::stall_monitor::{StallSignal, StallThresholds};
+use ecaa_workflow_harness::executor::{Executor, ExecutorArgs};
+use ecaa_workflow_harness::watchdog::{Watchdog, WatchdogConfig, WatchdogEvent};
 use serde_json::json;
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
@@ -100,7 +100,7 @@ fn write_dispatch_wal(root: &std::path::Path) {
     writeln!(f, "{}", record).unwrap();
 }
 
-fn frozen_clock_past_deadline() -> Arc<dyn scripps_workflow_core::clock::Clock + Send + Sync> {
+fn frozen_clock_past_deadline() -> Arc<dyn ecaa_workflow_core::clock::Clock + Send + Sync> {
     let at: chrono::DateTime<chrono::Utc> = CLOCK_NOW.parse().expect("parse CLOCK_NOW");
     Arc::new(FrozenClock { at })
 }
@@ -219,7 +219,7 @@ fn stall_and_watchdog_both_fire_dedup_is_server_side() {
         agent: agent.to_string_lossy().to_string(),
         task_timeout_secs: 300,
     };
-    let mut exec = scripps_workflow_harness::executor::local::LocalExecutor::new(&args);
+    let mut exec = ecaa_workflow_harness::executor::local::LocalExecutor::new(&args);
 
     let (stall_tx, stall_rx): (mpsc::Sender<StallSignal>, mpsc::Receiver<StallSignal>) =
         mpsc::channel();

@@ -20,8 +20,8 @@
 
 use crate::errors::{ToolError, ToolResult};
 use crate::session::Session;
-use scripps_workflow_core::classify::{ClassificationResult, Classifier};
-use scripps_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::classify::{ClassificationResult, Classifier};
+use ecaa_workflow_core::goal_spec::GoalSpec;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -146,7 +146,7 @@ pub(super) fn get_classification_evidence(session: &Session) -> ToolResult {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::classify::ClassificationResult;
+    use ecaa_workflow_core::classify::ClassificationResult;
 
     fn empty_classification() -> ClassificationResult {
         ClassificationResult {

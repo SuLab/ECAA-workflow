@@ -28,7 +28,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use scripps_workflow_core::local_extension_graduation::{
+use ecaa_workflow_core::local_extension_graduation::{
     ExistingLocalExtension, GraduationCandidacy, GraduationThresholds,
 };
 

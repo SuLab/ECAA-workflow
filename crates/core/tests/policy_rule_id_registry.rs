@@ -6,8 +6,8 @@
 //! registry at construction time use [`PolicyRuleId::unchecked`] (see
 //! [`crate::workflow_contracts::policy_rule_id`]).
 
-use scripps_workflow_core::assumption_policy::AssumptionPolicyTable;
-use scripps_workflow_core::workflow_contracts::policy_rule_id::PolicyRuleId;
+use ecaa_workflow_core::assumption_policy::AssumptionPolicyTable;
+use ecaa_workflow_core::workflow_contracts::policy_rule_id::PolicyRuleId;
 use std::path::Path;
 
 #[test]

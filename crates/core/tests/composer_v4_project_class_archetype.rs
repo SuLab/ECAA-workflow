@@ -21,10 +21,10 @@
 
 use std::collections::BTreeSet;
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-use scripps_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::goal_spec::GoalSpec;
 
 const ATOMS_DIR: &str = "../../config/stage-atoms";
 const ARCHETYPES_DIR: &str = "../../config/archetypes";
@@ -227,7 +227,7 @@ fn gwas_modality_overrides_false_clinical_project_class() {
 /// load-bearing assertion is that no bulk-rnaseq scaffolding leaks in.
 #[test]
 fn time_series_does_not_use_bulk_rnaseq_archetype() {
-    use scripps_workflow_core::composer::CompositionError;
+    use ecaa_workflow_core::composer::CompositionError;
 
     let (atom_reg, archetype_reg) = load_registries();
     let goal = time_series_goal();

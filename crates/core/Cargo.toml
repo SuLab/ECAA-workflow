@@ -1,5 +1,5 @@
 [package]
-name = "scripps-workflow-core"
+name = "ecaa-workflow-core"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
@@ -7,7 +7,7 @@ repository = "https://github.com/SuLab/ECAA-workflow"
 description = "Deterministic offline compiler for natural-language bioinformatics workflow descriptions (RO-Crate emitter)."
 
 [dependencies]
-scripps-workflow-ecaa-types = { version = "0.1", path = "../ecaa-types" }
+ecaa-workflow-types = { version = "0.1", path = "../ecaa-types" }
 serde.workspace = true
 serde_json.workspace = true
 serde_yml = { workspace = true }
@@ -130,20 +130,20 @@ criterion = { version = "0.5", default-features = false, features = ["html_repor
 # F-invariant assertions.
 proptest = { workspace = true }
 # v3 P10 — F13/F14 property tests pin the closed-tool vocabulary on
-# `scripps-workflow-conversation::tools::Tool`. Circular dev-dep with
+# `ecaa-workflow-conversation::tools::Tool`. Circular dev-dep with
 # the conversation crate (which depends on core for IR types) is fine
 # — Cargo treats dev-deps as a separate graph, same pattern as the
 # eval-adapters dev-dep above.
-scripps-workflow-conversation = { version = "0.1", path = "../conversation" }
+ecaa-workflow-conversation = { version = "0.1", path = "../conversation" }
 # Functional-core boundary (C22 / R-7): the `python3 scripts/wrroc-validate.py`
 # subprocess lives in the harness adapter
-# (`scripps_workflow_harness::wrroc_validator_impl::PythonRuncrateWrrocValidator`)
+# (`ecaa_workflow_harness::wrroc_validator_impl::PythonRuncrateWrrocValidator`)
 # so core stays I/O-free. The `tests/wrroc_v05_fixtures.rs` integration
 # test still needs the real Python runner, so harness is dev-dep'd here.
 # Cargo treats dev-deps as a separate graph (same pattern as the
 # conversation / eval-adapters dev-deps above), so this doesn't perturb
 # the production dep order.
-scripps-workflow-harness = { version = "0.1", path = "../harness" }
+ecaa-workflow-harness = { version = "0.1", path = "../harness" }
 # v4 P8 (D1 / F23) — `trybuild` drives the compile-fail harness under
 # `tests/compile_fail/`. The fixture there attempts a
 # `#[derive(Serialize)] struct ShouldNotCompile(AlignedReads<GRCh38>);`

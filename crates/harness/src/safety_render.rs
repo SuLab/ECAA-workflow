@@ -14,8 +14,8 @@
 //! ordering comes from `RuntimePrereqs::declared_per_registry()`
 //! (BTreeMap) + `BTreeSet`-derived package lists.
 
-use scripps_workflow_core::atom::ProvisioningPolicy;
-use scripps_workflow_core::dag::Task;
+use ecaa_workflow_core::atom::ProvisioningPolicy;
+use ecaa_workflow_core::dag::Task;
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -100,11 +100,11 @@ pub fn render_provisioning_json(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::atom::{
+    use ecaa_workflow_core::atom::{
         CodeExecution, NetworkPolicy, ProvisioningPolicy, SafetyLevel, SafetyPolicy,
         SandboxRequirement,
     };
-    use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+    use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
 
     fn task_with_provisioning(p: ProvisioningPolicy) -> Task {
         Task {

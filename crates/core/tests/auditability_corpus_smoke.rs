@@ -21,8 +21,8 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use scripps_workflow_core::claim_contract::ClaimContract;
-use scripps_workflow_core::claim_extractor::classify_contract;
+use ecaa_workflow_core::claim_contract::ClaimContract;
+use ecaa_workflow_core::claim_extractor::classify_contract;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]

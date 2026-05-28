@@ -22,7 +22,7 @@
 
 use super::sizing::{merge_resource_requirements_max, ComputeProfiles, SizingIntakeFacts};
 use super::{GpuRequirement, ResourceRequirements};
-use scripps_workflow_core::dag::{TaskId, DAG};
+use ecaa_workflow_core::dag::{TaskId, DAG};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -497,7 +497,7 @@ fn _gpu_requirement_used() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+    use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
     use serde_json::json;
 
     fn host(total_vcpus: u32, free_vcpus: u32, total_mem: u32, free_mem: u32) -> HostState {
@@ -807,7 +807,7 @@ mod tests {
         );
         let dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks,

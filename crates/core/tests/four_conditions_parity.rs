@@ -3,7 +3,7 @@
 //! canonical Rust const and the grant prose. Test fails if either
 //! drifts without the other.
 
-use scripps_workflow_core::emission_invariants::FOUR_CONDITIONS_PREVENTING_EMISSION;
+use ecaa_workflow_core::emission_invariants::FOUR_CONDITIONS_PREVENTING_EMISSION;
 use std::path::PathBuf;
 
 fn grant_path() -> PathBuf {

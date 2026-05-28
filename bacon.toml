@@ -22,11 +22,11 @@ command = ["cargo", "nextest", "run", "--workspace", "--profile", "fast", "--col
 need_stdout = true
 
 [jobs.test-core]
-command = ["cargo", "nextest", "run", "-p", "scripps-workflow-core", "--color", "always"]
+command = ["cargo", "nextest", "run", "-p", "ecaa-workflow-core", "--color", "always"]
 need_stdout = true
 
 [jobs.test-conversation]
-command = ["cargo", "nextest", "run", "-p", "scripps-workflow-conversation", "--color", "always"]
+command = ["cargo", "nextest", "run", "-p", "ecaa-workflow-conversation", "--color", "always"]
 need_stdout = true
 
 [jobs.clippy]

@@ -16,10 +16,10 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     HarnessEvent, LlmBackend, MockLlmBackend, SessionStore, ShareToken, Turn, TurnRole,
 };
-use scripps_workflow_server::chat_routes;
+use ecaa_workflow_server::chat_routes;
 use std::path::Path;
 use std::sync::Arc;
 use tower::util::ServiceExt;
@@ -46,7 +46,7 @@ async fn make_app() -> chat_routes::ChatAppState {
 /// cleanly under integration tests that don't run the production
 /// `auth::extract_principal` middleware.
 fn make_router(app: chat_routes::ChatAppState) -> axum::Router {
-    use scripps_workflow_server::auth::RequestPrincipal;
+    use ecaa_workflow_server::auth::RequestPrincipal;
     chat_routes::router(app).layer(axum::Extension(RequestPrincipal::test_default()))
 }
 

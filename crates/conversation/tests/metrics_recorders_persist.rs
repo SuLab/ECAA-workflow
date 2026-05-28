@@ -16,7 +16,7 @@
 //!    `SessionMetrics`.
 //! 5. Assert the counter survived.
 
-use scripps_workflow_conversation::{MetricsStore, SessionId};
+use ecaa_workflow_conversation::{MetricsStore, SessionId};
 use std::path::Path;
 use tempfile::TempDir;
 use uuid::Uuid;
@@ -212,7 +212,7 @@ async fn record_iteration_max_hit_persists() {
 
 #[tokio::test]
 async fn record_opus_escalation_persists() {
-    use scripps_workflow_conversation::model_policy::EscalationReason;
+    use ecaa_workflow_conversation::model_policy::EscalationReason;
     let tmp = TempDir::new().unwrap();
     let store = MetricsStore::new().with_persist_dir(tmp.path().to_path_buf());
     let id: SessionId = Uuid::new_v4();

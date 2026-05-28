@@ -22,7 +22,7 @@
 //! All mocks are hand-rolled via `std::net::TcpListener` — no additional
 //! crate dependencies required.
 
-use scripps_workflow_harness::progress_client::{HarnessProgressEvent, ProgressClient};
+use ecaa_workflow_harness::progress_client::{HarnessProgressEvent, ProgressClient};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -77,7 +77,7 @@ fn make_event(task_id: &str) -> HarnessProgressEvent {
     // convenience methods.
     HarnessProgressEvent {
         schema_version:
-            scripps_workflow_harness::progress_client::harness_progress_event_schema_version(),
+            ecaa_workflow_harness::progress_client::harness_progress_event_schema_version(),
         kind: "task_started".into(),
         task_id: task_id.into(),
         status: "running".into(),

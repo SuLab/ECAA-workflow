@@ -5,7 +5,7 @@
 //! TypeScript (`ts-rs::TS` re-exports drive the browser-side type
 //! definitions).
 
-use scripps_workflow_conversation::{SessionId, Turn};
+use ecaa_workflow_conversation::{SessionId, Turn};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -89,7 +89,7 @@ pub struct SessionStateSnapshot {
     #[ts(type = "string")]
     pub session_id: SessionId,
     /// Current state-machine state.
-    pub state: scripps_workflow_conversation::SessionState,
+    pub state: ecaa_workflow_conversation::SessionState,
     /// Whether the SME has clicked the Confirm button.
     pub user_confirmed: bool,
     /// Timestamp of the most recent activity in this session.
@@ -135,7 +135,7 @@ pub struct SessionStateSnapshot {
     /// (and elided from the JSON when empty so callers that don't
     /// know about this field stay happy).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub pending_input_hints: Vec<scripps_workflow_conversation::intake_path_hints::InputPathHint>,
+    pub pending_input_hints: Vec<ecaa_workflow_conversation::intake_path_hints::InputPathHint>,
 }
 
 /// Aggregated task-state counts for the `SessionStateSnapshot.progress` field.
@@ -198,7 +198,7 @@ pub enum SsePayload {
     /// The session state machine advanced to a new state.
     StateAdvanced {
         /// The state the session transitioned into.
-        new_state: scripps_workflow_conversation::SessionState,
+        new_state: ecaa_workflow_conversation::SessionState,
     },
     /// A harness lifecycle event (task started/completed/failed/blocked/stalled).
     HarnessProgress {
@@ -258,9 +258,9 @@ pub enum SsePayload {
         /// Task that stalled.
         task_id: String,
         /// Stall signal payload from the stall monitor.
-        signal: scripps_workflow_core::blocker::StallSignalWire,
+        signal: ecaa_workflow_core::blocker::StallSignalWire,
         /// Recommended operator action.
-        suggested_action: scripps_workflow_core::blocker::StallAction,
+        suggested_action: ecaa_workflow_core::blocker::StallAction,
     },
     /// Optional follow-up when the stall monitor's projection suggests
     /// a resize would resolve the stall.
@@ -346,7 +346,7 @@ pub enum SsePayload {
     /// tool acceptance.
     ProposalReceived {
         /// Identifier of the accepted proposal.
-        proposal_id: scripps_workflow_core::hypothesized_proposal::ProposalId,
+        proposal_id: ecaa_workflow_core::hypothesized_proposal::ProposalId,
         /// DAG node identifier assigned to the proposal.
         node_id: String,
     },
@@ -355,9 +355,9 @@ pub enum SsePayload {
     /// transitioned to `Blocked`.
     ProposalGateAdvanced {
         /// Proposal that advanced.
-        proposal_id: scripps_workflow_core::hypothesized_proposal::ProposalId,
+        proposal_id: ecaa_workflow_core::hypothesized_proposal::ProposalId,
         /// Which gate produced the outcome.
-        gate: scripps_workflow_core::hypothesized_proposal::GateName,
+        gate: ecaa_workflow_core::hypothesized_proposal::GateName,
         /// True when the gate passed; false when it blocked.
         passed: bool,
     },
@@ -365,14 +365,14 @@ pub enum SsePayload {
     /// proposal into the executable DAG.
     ProposalPromoted {
         /// Proposal that was promoted.
-        proposal_id: scripps_workflow_core::hypothesized_proposal::ProposalId,
+        proposal_id: ecaa_workflow_core::hypothesized_proposal::ProposalId,
         /// DAG task node id created by promotion.
         task_node_id: String,
     },
     /// SME rejected the proposal. Terminal.
     ProposalRejected {
         /// Proposal that was rejected.
-        proposal_id: scripps_workflow_core::hypothesized_proposal::ProposalId,
+        proposal_id: ecaa_workflow_core::hypothesized_proposal::ProposalId,
         /// Optional SME-supplied reason for the rejection.
         rationale: Option<String>,
     },
@@ -439,10 +439,10 @@ pub struct HarnessProgressEvent {
     pub artifacts: Option<Vec<ArtifactRef>>,
     /// Stall signal for `kind == "task_stalled"`.
     #[serde(default)]
-    pub stall_signal: Option<scripps_workflow_core::blocker::StallSignalWire>,
+    pub stall_signal: Option<ecaa_workflow_core::blocker::StallSignalWire>,
     /// Suggested recovery action for `kind == "task_stalled"`.
     #[serde(default)]
-    pub suggested_action: Option<scripps_workflow_core::blocker::StallAction>,
+    pub suggested_action: Option<ecaa_workflow_core::blocker::StallAction>,
     /// Pilot-lifecycle payload for `sizing_pilot_*` kinds.
     #[serde(default)]
     pub pilot_report: Option<serde_json::Value>,
@@ -572,10 +572,10 @@ pub struct CheckpointDecisionRequest {
     pub stage: Option<String>,
     /// Optional `SessionMode` from the Confirmation card.
     #[serde(default)]
-    pub mode: Option<scripps_workflow_core::session_mode::SessionMode>,
+    pub mode: Option<ecaa_workflow_core::session_mode::SessionMode>,
     /// Optional `CheckpointMode` from the Confirmation card.
     #[serde(default)]
-    pub checkpoint_mode: Option<scripps_workflow_core::checkpoint_mode::CheckpointMode>,
+    pub checkpoint_mode: Option<ecaa_workflow_core::checkpoint_mode::CheckpointMode>,
     /// Task boundary for task-scoped branch (M1.3). When set, the child
     /// DAG is snapshotted with this task reset to Ready and its transitive
     /// successors reset to Pending. Only consumed by the `/branch` endpoint.
@@ -630,9 +630,9 @@ pub struct ExecutionStatusResponse {
 /// Used by callers that need a stable string key without depending on
 /// serde's tag representation.
 pub(crate) fn session_state_kind(
-    state: &scripps_workflow_conversation::SessionState,
+    state: &ecaa_workflow_conversation::SessionState,
 ) -> &'static str {
-    use scripps_workflow_conversation::SessionState as S;
+    use ecaa_workflow_conversation::SessionState as S;
     match state {
         S::Greeting => "greeting",
         S::Intake => "intake",

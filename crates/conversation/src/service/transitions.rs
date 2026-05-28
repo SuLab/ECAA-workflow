@@ -149,10 +149,10 @@ impl ConversationService {
                     // before the transaction's tail-write persists the
                     // parent atomically.
                     parent.record_decision(
-                        scripps_workflow_core::decision_log::DecisionType::Branch {
+                        ecaa_workflow_core::decision_log::DecisionType::Branch {
                             child_session_id: child_id.to_string(),
                         },
-                        scripps_workflow_core::decision_log::DecisionActor::Sme,
+                        ecaa_workflow_core::decision_log::DecisionActor::Sme,
                         rationale,
                     );
                     let mut guard = child_id_writer.lock().unwrap_or_else(|p| p.into_inner());
@@ -209,7 +209,7 @@ impl ConversationService {
         &self,
         id: SessionId,
         rationale: Option<String>,
-        mode: Option<scripps_workflow_core::session_mode::SessionMode>,
+        mode: Option<ecaa_workflow_core::session_mode::SessionMode>,
     ) -> Result<(), ServiceError> {
         self.confirm_with_modes(id, rationale, mode, None).await
     }
@@ -219,8 +219,8 @@ impl ConversationService {
         &self,
         id: SessionId,
         rationale: Option<String>,
-        mode: Option<scripps_workflow_core::session_mode::SessionMode>,
-        checkpoint_mode: Option<scripps_workflow_core::checkpoint_mode::CheckpointMode>,
+        mode: Option<ecaa_workflow_core::session_mode::SessionMode>,
+        checkpoint_mode: Option<ecaa_workflow_core::checkpoint_mode::CheckpointMode>,
     ) -> Result<(), ServiceError> {
         self.store_handle()
             .update(id, |s| {
@@ -232,7 +232,7 @@ impl ConversationService {
                 let is_first_confirm = !s.mode_locked;
                 if is_first_confirm
                     && s.project_class
-                        == scripps_workflow_core::project_class::ProjectClass::ClinicalTrial
+                        == ecaa_workflow_core::project_class::ProjectClass::ClinicalTrial
                     && mode.is_none()
                 {
                     return Err(anyhow::anyhow!(
@@ -321,8 +321,8 @@ impl ConversationService {
                     .find_map(|t| t.confirmation_card.as_ref().map(|c| c.summary_hash.clone()))
                     .filter(|h| !h.is_empty());
                 s.record_decision(
-                    scripps_workflow_core::decision_log::DecisionType::Confirm { summary_hash },
-                    scripps_workflow_core::decision_log::DecisionActor::Sme,
+                    ecaa_workflow_core::decision_log::DecisionType::Confirm { summary_hash },
+                    ecaa_workflow_core::decision_log::DecisionActor::Sme,
                     rationale,
                 );
                 Ok(())
@@ -527,8 +527,8 @@ impl ConversationService {
                 s.clear_confirmation();
                 s.pending_emission_id = None;
                 s.record_decision(
-                    scripps_workflow_core::decision_log::DecisionType::Reject,
-                    scripps_workflow_core::decision_log::DecisionActor::Sme,
+                    ecaa_workflow_core::decision_log::DecisionType::Reject,
+                    ecaa_workflow_core::decision_log::DecisionActor::Sme,
                     rationale,
                 );
                 Ok(())
@@ -555,8 +555,8 @@ impl ConversationService {
                 s.try_transition(StateTrigger::OperatorUnblock)
                     .map_err(|e| anyhow::anyhow!("{}", e))?;
                 s.record_decision(
-                    scripps_workflow_core::decision_log::DecisionType::Unblock,
-                    scripps_workflow_core::decision_log::DecisionActor::Sme,
+                    ecaa_workflow_core::decision_log::DecisionType::Unblock,
+                    ecaa_workflow_core::decision_log::DecisionActor::Sme,
                     rationale,
                 );
                 Ok(())
@@ -584,7 +584,7 @@ impl ConversationService {
         id: SessionId,
         task_id: String,
         detail: String,
-        blocker_kind: scripps_workflow_core::blocker::BlockerKind,
+        blocker_kind: ecaa_workflow_core::blocker::BlockerKind,
     ) -> Result<(), ServiceError> {
         // Capture the blocker-kind variant name before the
         // sync closure consumes `blocker_kind`. Debug repr of struct
@@ -772,11 +772,11 @@ impl ConversationService {
         self.store_handle()
             .update(id, move |s| {
                 s.record_decision(
-                    scripps_workflow_core::decision_log::DecisionType::UndoneAmendment {
+                    ecaa_workflow_core::decision_log::DecisionType::UndoneAmendment {
                         stage: stage.clone(),
                         reverted_to: reverted_copy.clone(),
                     },
-                    scripps_workflow_core::decision_log::DecisionActor::Sme,
+                    ecaa_workflow_core::decision_log::DecisionActor::Sme,
                     None,
                 );
                 Ok(())
@@ -954,12 +954,12 @@ impl ConversationService {
                     }
                 }
                 s.record_decision(
-                    scripps_workflow_core::decision_log::DecisionType::RuntimePackageAdded {
+                    ecaa_workflow_core::decision_log::DecisionType::RuntimePackageAdded {
                         atom_id: atom_id_owned.clone().into(),
                         package: pkg_for_closure.clone(),
                         registry: registry_for_closure.clone(),
                     },
-                    scripps_workflow_core::decision_log::DecisionActor::Sme,
+                    ecaa_workflow_core::decision_log::DecisionActor::Sme,
                     None,
                 );
                 Ok(())
@@ -1092,7 +1092,7 @@ fn patch_runtime_prereqs_file(
     registry: &str,
     package: &str,
 ) -> anyhow::Result<()> {
-    use scripps_workflow_core::runtime_prereqs::RuntimePrereqs;
+    use ecaa_workflow_core::runtime_prereqs::RuntimePrereqs;
     let mut manifest: RuntimePrereqs = if manifest_path.exists() {
         let bytes = std::fs::read(manifest_path)?;
         serde_json::from_slice(&bytes)?
@@ -1136,6 +1136,6 @@ fn patch_runtime_prereqs_file(
     let json = serde_json::to_string_pretty(&manifest)?;
     //.tmp + fsync + atomic rename so a crash mid-write doesn't leave
     // a corrupted manifest the harness pre-flight would refuse to parse.
-    scripps_workflow_core::fs_helpers::atomic_write_bytes_sync(manifest_path, json.as_bytes())?;
+    ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(manifest_path, json.as_bytes())?;
     Ok(())
 }

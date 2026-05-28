@@ -2,9 +2,9 @@
 //! `SessionStore::update`. A direct save of an old snapshot can replace the
 //! in-memory handle and lose a concurrent progress mutation.
 
-use scripps_workflow_conversation::persistence::SessionStore;
-use scripps_workflow_conversation::session::{HarnessEvent, Session};
-use scripps_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
+use ecaa_workflow_conversation::persistence::SessionStore;
+use ecaa_workflow_conversation::session::{HarnessEvent, Session};
+use ecaa_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
 use std::sync::Arc;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

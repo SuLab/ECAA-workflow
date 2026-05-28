@@ -139,11 +139,11 @@ pub(crate) fn amend_stage_method(
     let _ = config_dir; // placeholder for future policy reloads
 
     session.record_decision(
-        scripps_workflow_core::decision_log::DecisionType::AmendStage {
+        ecaa_workflow_core::decision_log::DecisionType::AmendStage {
             stage: stage.to_string(),
             method_prose: prose_owned.clone(),
         },
-        scripps_workflow_core::decision_log::DecisionActor::Llm,
+        ecaa_workflow_core::decision_log::DecisionActor::Llm,
         None,
     );
 
@@ -152,13 +152,13 @@ pub(crate) fn amend_stage_method(
     // record that claim demotion reads off of.
     if is_prespecified {
         session.record_decision(
-            scripps_workflow_core::decision_log::DecisionType::PostHocDeviation {
+            ecaa_workflow_core::decision_log::DecisionType::PostHocDeviation {
                 target_stage: stage.to_string(),
                 prior_method: prior_method.clone(),
                 new_method: prose_owned.clone(),
                 reason: rationale_trimmed.clone(),
             },
-            scripps_workflow_core::decision_log::DecisionActor::Sme,
+            ecaa_workflow_core::decision_log::DecisionActor::Sme,
             Some(rationale_trimmed.clone()),
         );
     }

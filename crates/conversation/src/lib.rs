@@ -119,6 +119,6 @@ pub use tools::{dispatch_batch, dispatch_one, BatchableTool, HighImpactTool, Too
 
 // Re-export the v4 dispatch types so downstream callers
 // (CLI, eval-adapters) can consume them without reaching directly
-// into `scripps_workflow_core::composer`.
-pub use scripps_workflow_core::composer::{ComposerOutput, PolicyDecisionRecord};
-pub use scripps_workflow_core::composer_v4::RankedAlternative;
+// into `ecaa_workflow_core::composer`.
+pub use ecaa_workflow_core::composer::{ComposerOutput, PolicyDecisionRecord};
+pub use ecaa_workflow_core::composer_v4::RankedAlternative;

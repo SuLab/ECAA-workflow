@@ -74,7 +74,7 @@ pub(super) async fn write_decision_log(session: &Session, output_dir: &Path) -> 
     write_decision_log_tiered(
         session,
         output_dir,
-        scripps_workflow_core::provenance_tiers::ProvenanceTier::Private,
+        ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private,
     )
     .await
 }
@@ -98,17 +98,17 @@ pub(super) async fn write_decision_log(session: &Session, output_dir: &Path) -> 
 pub(super) async fn write_decision_log_tiered(
     session: &Session,
     output_dir: &Path,
-    tier: scripps_workflow_core::provenance_tiers::ProvenanceTier,
+    tier: ecaa_workflow_core::provenance_tiers::ProvenanceTier,
 ) -> Result<()> {
     // Grant v19 §Aim 3A Arm B′ — short-circuit emission when the
     // operator has set SWFC_ABLATE_DECISION_RECORDS=1 (or any truthy
     // value). The Arm B′ control package carries no decisions.jsonl;
     // every other emit-site stays active.
-    use scripps_workflow_core::ablation::AblationFlagExt;
-    if scripps_workflow_core::ablation::AblationFlag::DecisionRecords.is_active() {
+    use ecaa_workflow_core::ablation::AblationFlagExt;
+    if ecaa_workflow_core::ablation::AblationFlag::DecisionRecords.is_active() {
         return Ok(());
     }
-    use scripps_workflow_core::provenance_tiers::{redact_record, RedactionPolicy};
+    use ecaa_workflow_core::provenance_tiers::{redact_record, RedactionPolicy};
     let runtime = output_dir.join("runtime");
     let policy = RedactionPolicy::default_policy();
     let redacted: Vec<_> = session
@@ -131,7 +131,7 @@ pub(super) async fn write_decision_log_tiered(
 /// Write `runtime/decisions.jsonl.mac`: one lowercase-hex HMAC-SHA256
 /// per line, aligned 1-to-1 with `runtime/decisions.jsonl`.
 ///
-/// Uses [`scripps_workflow_core::audit_writer::AuditWriter`] reconstructed
+/// Uses [`ecaa_workflow_core::audit_writer::AuditWriter`] reconstructed
 /// from `session.audit_writer_secret`. The sidecar is verified
 /// row-by-row with the same key; a mismatch indicates tampering or
 /// a secret rotation across emits.
@@ -140,7 +140,7 @@ async fn write_decisions_mac_sidecar(
     runtime: &Path,
     records: &[impl serde::Serialize],
 ) -> Result<()> {
-    use scripps_workflow_core::audit_writer::AuditWriter;
+    use ecaa_workflow_core::audit_writer::AuditWriter;
     let writer = AuditWriter::with_secret(session.audit_writer_secret);
     let mac_path = runtime.join("decisions.jsonl.mac");
     let tmp_path = runtime.join("decisions.jsonl.mac.tmp");
@@ -208,7 +208,7 @@ pub(super) async fn write_conversation_log(session: &Session, output_dir: &Path)
 pub(super) async fn write_schema_versions_manifest(output_dir: &std::path::Path) -> Result<()> {
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
-    let manifest = scripps_workflow_core::migration::SchemaVersionsManifest::current();
+    let manifest = ecaa_workflow_core::migration::SchemaVersionsManifest::current();
     let bytes =
         serde_json::to_vec_pretty(&manifest).context("serializing runtime/schema-versions.json")?;
     let path = runtime.join("schema-versions.json");
@@ -230,7 +230,7 @@ pub(super) async fn write_schema_versions_manifest(output_dir: &std::path::Path)
 pub(super) async fn write_phase16_sidecars(
     session: &Session,
     output_dir: &Path,
-    tier: scripps_workflow_core::provenance_tiers::ProvenanceTier,
+    tier: ecaa_workflow_core::provenance_tiers::ProvenanceTier,
 ) -> Result<()> {
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
@@ -240,8 +240,8 @@ pub(super) async fn write_phase16_sidecars(
         let proofs_jsonl = build_proofs_jsonl(workflow_dag);
         if !proofs_jsonl.is_empty() {
             let redacted = match tier {
-                scripps_workflow_core::provenance_tiers::ProvenanceTier::Private => proofs_jsonl,
-                _ => scripps_workflow_core::provenance_tiers::redact_proofs_jsonl(
+                ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private => proofs_jsonl,
+                _ => ecaa_workflow_core::provenance_tiers::redact_proofs_jsonl(
                     &proofs_jsonl,
                     tier,
                 ),
@@ -255,7 +255,7 @@ pub(super) async fn write_phase16_sidecars(
         // 2. assumptions.jsonl — one entry per AssumptionLedger entry.
         let assumptions_jsonl = build_assumptions_jsonl(workflow_dag);
         if !assumptions_jsonl.is_empty() {
-            let redacted = scripps_workflow_core::provenance_tiers::redact_assumptions_jsonl(
+            let redacted = ecaa_workflow_core::provenance_tiers::redact_assumptions_jsonl(
                 assumptions_jsonl,
                 tier,
             );
@@ -339,8 +339,8 @@ pub(super) async fn write_phase14_sidecars(session: &Session, output_dir: &Path)
 /// Returns `None` for unrecognized bundle ids.
 fn sandbox_policy_for_bundle(
     bundle_id: &str,
-) -> Option<scripps_workflow_core::sandbox_policy::SandboxPolicy> {
-    use scripps_workflow_core::sandbox_policy::SandboxPolicy;
+) -> Option<ecaa_workflow_core::sandbox_policy::SandboxPolicy> {
+    use ecaa_workflow_core::sandbox_policy::SandboxPolicy;
     match bundle_id {
         "clinical_trial" => Some(SandboxPolicy::default_strict()),
         "phi_strict" => {
@@ -358,9 +358,9 @@ fn sandbox_policy_for_bundle(
 /// `backend_emitters::workflow_json::emit_proofs_jsonl` so the
 /// emit-time write produces the same shape as the lowering pass.
 fn build_proofs_jsonl(
-    dag: &scripps_workflow_core::workflow_contracts::task_node::WorkflowDag,
+    dag: &ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
 ) -> String {
-    let mut sorted: Vec<&scripps_workflow_core::workflow_contracts::edge::EdgeContract> =
+    let mut sorted: Vec<&ecaa_workflow_core::workflow_contracts::edge::EdgeContract> =
         dag.edges.iter().collect();
     sorted.sort_by(|a, b| {
         a.from_node
@@ -381,9 +381,9 @@ fn build_proofs_jsonl(
 
 /// Build `runtime/assumptions.jsonl` content from a `WorkflowDag`.
 fn build_assumptions_jsonl(
-    dag: &scripps_workflow_core::workflow_contracts::task_node::WorkflowDag,
+    dag: &ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
 ) -> String {
-    let mut sorted: Vec<&scripps_workflow_core::workflow_contracts::evidence::Assumption> =
+    let mut sorted: Vec<&ecaa_workflow_core::workflow_contracts::evidence::Assumption> =
         dag.assumptions.entries.iter().collect();
     sorted.sort_by(|a, b| a.id.cmp(&b.id));
     let mut out = String::new();
@@ -436,15 +436,15 @@ pub(super) async fn write_affordance_sidecars(
     session: &mut Session,
     output_dir: &Path,
     config_dir: &Path,
-) -> Result<Vec<scripps_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord>> {
-    use scripps_workflow_core::atom_registry::AtomRegistry;
-    use scripps_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord;
-    use scripps_workflow_core::plot_affordance::telemetry::AffordanceFallbackRecord;
-    use scripps_workflow_core::plot_affordance::{
+) -> Result<Vec<ecaa_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord>> {
+    use ecaa_workflow_core::atom_registry::AtomRegistry;
+    use ecaa_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord;
+    use ecaa_workflow_core::plot_affordance::telemetry::AffordanceFallbackRecord;
+    use ecaa_workflow_core::plot_affordance::{
         resolve_affordance, AffordanceFallbackCounter, PhysicalShape, PlotAffordance,
         PlotAffordanceRegistry, PortDescriptor, YamlPlotAffordanceRegistry,
     };
-    use scripps_workflow_core::workflow_contracts::semantic_type::SemanticType;
+    use ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType;
 
     let dag = match session.current_dag() {
         Some(d) => d,
@@ -643,7 +643,7 @@ pub(super) async fn write_affordance_sidecars(
 mod tests {
     use super::*;
     use crate::session::Session;
-    use scripps_workflow_core::audit_writer::AuditWriter;
+    use ecaa_workflow_core::audit_writer::AuditWriter;
 
     /// E23 — `write_decisions_mac_sidecar` writes one hex HMAC per
     /// decision record and each line verifies against the session secret.

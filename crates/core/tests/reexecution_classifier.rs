@@ -13,10 +13,10 @@
 //! the `ReexecutionReport::empty` helper — because the emit-side
 //! suppression that writes the file lives in the conversation crate.
 
-use scripps_workflow_core::determinism_shim::{
+use ecaa_workflow_core::determinism_shim::{
     DeterminismShimSidecar, EnvCapture, SeedPolicy, TempPathPolicy,
 };
-use scripps_workflow_core::reexecution::{
+use ecaa_workflow_core::reexecution::{
     classify_reexecution, ReexecutionBucket, ReexecutionReport,
 };
 use std::collections::BTreeMap;

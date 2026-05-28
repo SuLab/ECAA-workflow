@@ -3,7 +3,7 @@
 //!
 //! Spike 16.0.C showed the failure mode: the server spawns a harness
 //! for `--session-id foo`, the operator simultaneously runs a manual
-//! `cargo run -p scripps-workflow-harness -- --session-id foo`, and
+//! `cargo run -p ecaa-workflow-harness -- --session-id foo`, and
 //! the two processes race on `WORKFLOW.json` (split-brain DAG patch
 //! merges), the dispatch WAL (cross-process write collisions), and
 //! AWS instance tags (each process believes the other's instance is
@@ -132,7 +132,7 @@ impl SessionLock {
             format!(
                 "{} {}\n",
                 std::process::id(),
-                scripps_workflow_core::time_helpers::now_rfc3339()
+                ecaa_workflow_core::time_helpers::now_rfc3339()
             ),
         );
         Ok(Self {

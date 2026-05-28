@@ -12,10 +12,10 @@
 //!  1. session_pausing=true  → picks contain C and D; B absent.
 //!  2. session_pausing=false → picks contain B, C, D (normal budget).
 
-use scripps_workflow_core::dag::{
+use ecaa_workflow_core::dag::{
     Assignee, BlockedRecord, ResourceClass, Task, TaskId, TaskKind, TaskState, DAG,
 };
-use scripps_workflow_harness::scheduler::{
+use ecaa_workflow_harness::scheduler::{
     pause_dependent_tasks, pick_ready_respecting_budgets, pick_ready_with_lanes, LaneBudget,
     SchedulerBudget,
 };
@@ -50,7 +50,7 @@ fn build_dag(tasks: Vec<(TaskId, Task)>) -> DAG {
     }
     let mut dag = DAG {
         version: "1".into(),
-        schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+        schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
         workflow_id: "test-pause".into(),
         current_task: None,
         tasks: map,

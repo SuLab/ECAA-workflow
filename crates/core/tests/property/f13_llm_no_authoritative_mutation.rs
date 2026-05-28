@@ -20,7 +20,7 @@
 //! invariant that makes the dispatcher's `is_alone_in_turn`-based
 //! refusal sound.
 
-use scripps_workflow_conversation::tools::Tool;
+use ecaa_workflow_conversation::tools::Tool;
 use strum::EnumCount;
 
 /// The six alone-in-turn / high-impact tools per CLAUDE.md

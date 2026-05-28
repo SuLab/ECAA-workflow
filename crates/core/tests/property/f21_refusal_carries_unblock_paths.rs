@@ -21,10 +21,10 @@
 //! empty vec).
 
 use proptest::prelude::*;
-use scripps_workflow_core::sandbox_refusal_category::SandboxRefusalCategory;
-use scripps_workflow_core::workflow_contracts::outcome::{RefusalReport, RefusalValidationError};
-use scripps_workflow_core::workflow_contracts::refusal_kind::RefusalKind;
-use scripps_workflow_core::workflow_contracts::unblock_path::{ProjectedOutcome, UnblockPath};
+use ecaa_workflow_core::sandbox_refusal_category::SandboxRefusalCategory;
+use ecaa_workflow_core::workflow_contracts::outcome::{RefusalReport, RefusalValidationError};
+use ecaa_workflow_core::workflow_contracts::refusal_kind::RefusalKind;
+use ecaa_workflow_core::workflow_contracts::unblock_path::{ProjectedOutcome, UnblockPath};
 
 /// Strategy over non-hard refusal kinds. The property below asserts
 /// that none of these admit an empty `unblock_paths` vec.

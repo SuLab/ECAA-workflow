@@ -15,12 +15,12 @@
 //! - Cycle detection rejects A inherits B inherits A.
 //! - Depth cap (4) rejects deeper chains.
 
-use scripps_workflow_core::archetype::{
+use ecaa_workflow_core::archetype::{
     ArchetypeAtomRef, ArchetypeDefinition, ComposePosition, ComposeRef,
     CURRENT_ARCHETYPE_SCHEMA_VERSION,
 };
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::composer::{
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::composer::{
     resolve_inheritance, CompositionError, INHERITANCE_DEPTH_CAP,
 };
 use std::collections::BTreeMap;

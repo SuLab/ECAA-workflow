@@ -21,10 +21,10 @@
 //! This file constructs the literals explicitly to match the live
 //! shape.
 
-use scripps_workflow_core::atom::SafetyPolicy;
-use scripps_workflow_core::classify::ClassificationResult;
-use scripps_workflow_core::dag::{Assignee, Task, TaskId, TaskKind, TaskState, DAG};
-use scripps_workflow_core::ro_crate::build_metadata;
+use ecaa_workflow_core::atom::SafetyPolicy;
+use ecaa_workflow_core::classify::ClassificationResult;
+use ecaa_workflow_core::dag::{Assignee, Task, TaskId, TaskKind, TaskState, DAG};
+use ecaa_workflow_core::ro_crate::build_metadata;
 use std::collections::BTreeMap;
 
 fn task(id: &str, depends_on: &[&str]) -> (TaskId, Task) {
@@ -57,7 +57,7 @@ fn dag_from_tasks(workflow_id: &str, tasks: Vec<(TaskId, Task)>) -> DAG {
     DAG {
         workflow_id: workflow_id.into(),
         version: "1.0.0".into(),
-        schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+        schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
         current_task: None,
         tasks: map,
         reverse_deps: BTreeMap::new(),
@@ -148,7 +148,7 @@ fn prov_o_scenario_1_linear() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid(&m, "linear");
 }
@@ -167,7 +167,7 @@ fn prov_o_scenario_2_fan_out() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid(&m, "fan_out");
 }
@@ -186,7 +186,7 @@ fn prov_o_scenario_3_fan_in() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid(&m, "fan_in");
 }
@@ -205,7 +205,7 @@ fn prov_o_scenario_4_diamond() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid(&m, "diamond");
 }
@@ -225,7 +225,7 @@ fn prov_o_scenario_5_iterate() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid(&m, "iterate");
 }
@@ -236,7 +236,7 @@ fn prov_o_scenario_6_single_task() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid(&m, "single_task");
 }
@@ -255,7 +255,7 @@ fn prov_o_scenario_7_long_chain() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid(&m, "long_chain");
 }
@@ -277,7 +277,7 @@ fn prov_o_scenario_8_parallel_chains() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid(&m, "parallel_chains");
 }
@@ -297,7 +297,7 @@ fn prov_o_scenario_9_wide_fan_out_in() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid(&m, "wide_fan");
 }
@@ -315,7 +315,7 @@ fn prov_o_scenario_10_validation_chain() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "validation_chain", Some(edges));
 }
@@ -352,7 +352,7 @@ fn prov_o_scenario_11_empty_dag() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "empty", Some(0));
 }
@@ -375,7 +375,7 @@ fn prov_o_scenario_12_bipartite_pairs() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "bipartite_pairs", Some(edges));
 }
@@ -398,7 +398,7 @@ fn prov_o_scenario_13_three_way_fan_in() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "three_way_fan_in", Some(edges));
 }
@@ -420,7 +420,7 @@ fn prov_o_scenario_14_five_way_fan_in() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "five_way_fan_in", Some(edges));
 }
@@ -441,7 +441,7 @@ fn prov_o_scenario_15_parallel_validation() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "parallel_validation", Some(edges));
 }
@@ -468,7 +468,7 @@ fn prov_o_scenario_16_long_iterate() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "long_iterate", Some(edges));
 }
@@ -492,7 +492,7 @@ fn prov_o_scenario_17_deep_diamond() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "deep_diamond", Some(edges));
 }
@@ -516,7 +516,7 @@ fn prov_o_scenario_18_hub_spoke() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "hub_spoke", Some(edges));
 }
@@ -539,7 +539,7 @@ fn prov_o_scenario_19_sensitivity_fan() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "sensitivity_fan", Some(edges));
 }
@@ -569,7 +569,7 @@ fn prov_o_scenario_20_review_after_validation() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "review_after_validation", Some(edges));
 }
@@ -613,7 +613,7 @@ fn prov_o_scenario_21_cross_modality_join() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "cross_modality_join", Some(edges));
 }
@@ -639,7 +639,7 @@ fn prov_o_scenario_22_branch_derived_chain() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "branch_derived_chain", Some(edges));
 }
@@ -668,7 +668,7 @@ fn prov_o_scenario_23_hypothesized_node_attached() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "hypothesized_node_attached", Some(edges));
 }
@@ -705,7 +705,7 @@ fn prov_o_scenario_24_conditional_skip_sensitivity() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "conditional_skip_sensitivity", Some(edges));
 }
@@ -727,7 +727,7 @@ fn prov_o_scenario_25_opmw_long_chain() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "opmw_long_chain", Some(edges));
 }
@@ -755,7 +755,7 @@ fn prov_o_scenario_26_bipartite_pairs_3_tier() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "bipartite_pairs_3_tier", Some(edges));
 }
@@ -776,7 +776,7 @@ fn prov_o_scenario_27_diamond_with_validator() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "diamond_with_validator", Some(edges));
 }
@@ -810,7 +810,7 @@ fn prov_o_scenario_28_deep_validation_pipeline() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "deep_validation_pipeline", Some(edges));
 }
@@ -844,7 +844,7 @@ fn prov_o_scenario_29_multi_hub() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "multi_hub", Some(edges));
 }
@@ -877,7 +877,7 @@ fn prov_o_scenario_30_split_merge_butterfly() {
     let m = build_metadata(
         &dag,
         &default_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     assert_prov_o_valid_with_edges(&m, "split_merge_butterfly", Some(edges));
 }

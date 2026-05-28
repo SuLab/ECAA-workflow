@@ -12,7 +12,7 @@ use axum::extract::{ConnectInfo, Path};
 use axum::http::HeaderMap;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
-use scripps_workflow_core::decision_log::{DecisionActor, DecisionType};
+use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use uuid::Uuid;
@@ -160,7 +160,7 @@ mod tests {
         let has_budget_decision = session.decisions.iter().any(|d| {
             matches!(
                 d.decision,
-                scripps_workflow_core::decision_log::DecisionType::BudgetChanged { .. }
+                ecaa_workflow_core::decision_log::DecisionType::BudgetChanged { .. }
             )
         });
         assert!(
@@ -218,7 +218,7 @@ mod tests {
             .find(|d| {
                 matches!(
                     d.decision,
-                    scripps_workflow_core::decision_log::DecisionType::BudgetChanged { .. }
+                    ecaa_workflow_core::decision_log::DecisionType::BudgetChanged { .. }
                 )
             })
             .expect("BudgetChanged decision must be recorded");

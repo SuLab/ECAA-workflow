@@ -6,9 +6,9 @@
 //! `max_branches` (per-depth emission cap). Output is sorted by
 //! `(depth, atom_id, port_index)` so the frontier is byte-deterministic.
 
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer_v4::forward_search::forward_search;
-use scripps_workflow_core::workflow_contracts::{
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer_v4::forward_search::forward_search;
+use ecaa_workflow_core::workflow_contracts::{
     data_product::DataProductContract, workflow_intent::WorkflowIntent,
 };
 

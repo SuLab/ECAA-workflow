@@ -5,7 +5,7 @@
 
 use super::{ChatAppState, Router};
 use axum::body::{to_bytes, Body};
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     anthropic::{StopReason, TurnResponse, Usage},
     LlmBackend, MockLlmBackend, SessionStore, Tool,
 };
@@ -103,7 +103,7 @@ pub async fn seed_session_with_completed_task(
     task_id: &str,
     package_root: Option<std::path::PathBuf>,
 ) -> uuid::Uuid {
-    use scripps_workflow_core::dag::{
+    use ecaa_workflow_core::dag::{
         Assignee, ResourceClass, Task, TaskId, TaskKind, TaskState, DAG,
     };
     let (id, _) = app.conversation.start_session(false).await.unwrap();
@@ -135,7 +135,7 @@ pub async fn seed_session_with_completed_task(
             );
             s.dag = Some(DAG {
                 version: "test".into(),
-                schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+                schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
                 workflow_id: "workflow-test".into(),
                 current_task: None,
                 tasks,

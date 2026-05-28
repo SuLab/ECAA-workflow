@@ -19,7 +19,7 @@
 //! `scrub_agent_trace_logs_walks_runtime_outputs` inside
 //! `provenance_tiers.rs` (which runs as part of crate `cargo test`).
 
-use scripps_workflow_core::provenance_tiers::{scrub_agent_trace_logs, scrub_secrets};
+use ecaa_workflow_core::provenance_tiers::{scrub_agent_trace_logs, scrub_secrets};
 
 /// All five known patterns from a single trace blob disappear after a
 /// single scrub pass.

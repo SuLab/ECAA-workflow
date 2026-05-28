@@ -21,8 +21,8 @@ use crate::model_policy::ModelPolicy;
 use crate::prompt::SystemPromptBlock;
 use crate::session::{SessionId, Turn};
 use anyhow::{anyhow, Context, Result};
-use scripps_workflow_core::error_envelope::ToolErrorEnvelope;
-use scripps_workflow_core::remediation::{
+use ecaa_workflow_core::error_envelope::ToolErrorEnvelope;
+use ecaa_workflow_core::remediation::{
     AppliedRemediation, RemediationSuggestion, MAX_REMEDIATION_ATTEMPTS,
 };
 use std::sync::Arc;
@@ -207,8 +207,8 @@ mod tests {
     use crate::anthropic::{TurnResponse, Usage};
     use crate::model_policy::ModelId;
     use async_trait::async_trait;
-    use scripps_workflow_core::error_envelope::synthesize;
-    use scripps_workflow_core::error_envelope::EnvelopeInput;
+    use ecaa_workflow_core::error_envelope::synthesize;
+    use ecaa_workflow_core::error_envelope::EnvelopeInput;
     use std::sync::Mutex as StdMutex;
 
     struct StubBackend {
@@ -343,12 +343,12 @@ mod tests {
         for i in 0..MAX_REMEDIATION_ATTEMPTS {
             ctx.prior_attempts.push(AppliedRemediation {
                 suggestion_id: format!("a{}", i),
-                kind: scripps_workflow_core::remediation::RemediationKind::RetryAsIs {
+                kind: ecaa_workflow_core::remediation::RemediationKind::RetryAsIs {
                     reason: "x".into(),
                 },
                 applied_at: "now".into(),
                 applied_by: "sme".into(),
-                outcome: scripps_workflow_core::remediation::RemediationOutcome::Recurred,
+                outcome: ecaa_workflow_core::remediation::RemediationOutcome::Recurred,
             });
         }
         let err = propose_remediations(backend, &metrics, id, &oom_envelope(), &ctx)

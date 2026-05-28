@@ -61,10 +61,10 @@
 //! deserialization and dispatch — those are the leaks the security
 //! review investigates.
 
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     dispatch_batch, dispatch_one, Session, SessionState, Tool, ToolContext,
 };
-use scripps_workflow_core::blocker::{BlockerContext, BlockerKind};
+use ecaa_workflow_core::blocker::{BlockerContext, BlockerKind};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -141,7 +141,7 @@ fn fixture_session_in(state: TargetSessionState) -> Session {
             s.pending_emission_id = Some(uuid::Uuid::new_v4());
             let _ = s.mint_confirmation_token(
                 chrono::Utc::now(),
-                scripps_workflow_conversation::audit_actor::AuditActor::User("test".into()),
+                ecaa_workflow_conversation::audit_actor::AuditActor::User("test".into()),
             );
             s.emitted_package_path = Some(PathBuf::from("/tmp/parent-package"));
             s.state = SessionState::Amending {

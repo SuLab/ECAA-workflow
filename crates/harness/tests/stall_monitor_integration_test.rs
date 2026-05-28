@@ -5,8 +5,8 @@
 //! `/proc/<pid>/stat` and `/proc/meminfo`, which are unavailable on
 //! macOS and Windows.
 
-use scripps_workflow_harness::executor::stall_monitor::{StallSignal, StallThresholds};
-use scripps_workflow_harness::executor::{Executor, ExecutorArgs};
+use ecaa_workflow_harness::executor::stall_monitor::{StallSignal, StallThresholds};
+use ecaa_workflow_harness::executor::{Executor, ExecutorArgs};
 use std::os::unix::fs::PermissionsExt;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
@@ -52,7 +52,7 @@ fn local_stall_monitor_fires_on_idle_subprocess() {
         agent: agent.to_string_lossy().to_string(),
         task_timeout_secs: 300,
     };
-    let mut exec = scripps_workflow_harness::executor::local::LocalExecutor::new(&args);
+    let mut exec = ecaa_workflow_harness::executor::local::LocalExecutor::new(&args);
 
     let (tx, rx): (mpsc::Sender<StallSignal>, mpsc::Receiver<StallSignal>) = mpsc::channel();
     exec.start_stall_monitor(&thresholds, tx)

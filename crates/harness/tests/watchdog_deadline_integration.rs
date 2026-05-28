@@ -25,8 +25,8 @@
 //!   Those downstream behaviors are NOT tested here — this test is scoped to
 //!   the watchdog's event-emission contract only.
 
-use scripps_workflow_core::clock::FrozenClock;
-use scripps_workflow_harness::watchdog::{Watchdog, WatchdogConfig, WatchdogEvent};
+use ecaa_workflow_core::clock::FrozenClock;
+use ecaa_workflow_harness::watchdog::{Watchdog, WatchdogConfig, WatchdogEvent};
 use serde_json::json;
 use std::io::Write;
 use std::sync::{mpsc, Arc};
@@ -93,7 +93,7 @@ fn write_dispatch_wal(root: &std::path::Path) {
 }
 
 /// Build a `FrozenClock` pinned to `CLOCK_NOW`.
-fn frozen_clock_past_deadline() -> Arc<dyn scripps_workflow_core::clock::Clock + Send + Sync> {
+fn frozen_clock_past_deadline() -> Arc<dyn ecaa_workflow_core::clock::Clock + Send + Sync> {
     let at: chrono::DateTime<chrono::Utc> = CLOCK_NOW.parse().expect("parse CLOCK_NOW");
     Arc::new(FrozenClock { at })
 }

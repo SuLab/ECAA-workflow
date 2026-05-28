@@ -29,8 +29,8 @@ use crate::constants::{
 };
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
-use scripps_workflow_core::dag::{Task, TaskState, DAG};
-use scripps_workflow_core::remediation::{ExecutorOverrides, ResourceTarget};
+use ecaa_workflow_core::dag::{Task, TaskState, DAG};
+use ecaa_workflow_core::remediation::{ExecutorOverrides, ResourceTarget};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -599,7 +599,7 @@ fn apply_overrides_to_spec(spec: &mut SbatchSpec, ov: &ExecutorOverrides) {
         // `foo,LD_PRELOAD=/tmp/x.so`) or injects directives. Refuse
         // anything outside `^[A-Z_][A-Z0-9_]*$` after normalization,
         // and refuse values containing `\n` / `\r` / `,` / `=` / `\0`.
-        let Some(suffix) = scripps_workflow_core::env_validator::sanitize_lib_env_suffix(lib)
+        let Some(suffix) = ecaa_workflow_core::env_validator::sanitize_lib_env_suffix(lib)
         else {
             tracing::warn!(
                 library = %lib,
@@ -607,7 +607,7 @@ fn apply_overrides_to_spec(spec: &mut SbatchSpec, ov: &ExecutorOverrides) {
             );
             continue;
         };
-        if !scripps_workflow_core::env_validator::is_safe_env_value(ver) {
+        if !ecaa_workflow_core::env_validator::is_safe_env_value(ver) {
             tracing::warn!(
                 library = %lib,
                 value = %ver,
@@ -623,14 +623,14 @@ fn apply_overrides_to_spec(spec: &mut SbatchSpec, ov: &ExecutorOverrides) {
         // remediation payloads from chat-side proposals reach here as
         // arbitrary strings. Refuse keys that aren't POSIX env names
         // and values that would break the sbatch directive parser.
-        if !scripps_workflow_core::env_validator::is_valid_env_name(k) {
+        if !ecaa_workflow_core::env_validator::is_valid_env_name(k) {
             tracing::warn!(
                 key = %k,
                 "rejecting invalid env_passthrough key in SLURM export (C-9 hardening)"
             );
             continue;
         }
-        if !scripps_workflow_core::env_validator::is_safe_env_value(v) {
+        if !ecaa_workflow_core::env_validator::is_safe_env_value(v) {
             tracing::warn!(
                 key = %k,
                 value = %v,
@@ -826,15 +826,15 @@ impl Executor for SlurmExecutor {
     // on the SLURM apptainer pull path — but it is honored on the
     // local docker login path via `registry_login_if_configured`).
     fn capabilities(&self) -> super::ExecutorCapabilities {
-        let sandbox = if scripps_workflow_core::env_helpers::env_bool("SWFC_SLURM_NATIVE_CONTAINER")
+        let sandbox = if ecaa_workflow_core::env_helpers::env_bool("SWFC_SLURM_NATIVE_CONTAINER")
         {
-            scripps_workflow_core::atom::SandboxRequirement::ProcessIsolation
+            ecaa_workflow_core::atom::SandboxRequirement::ProcessIsolation
         } else {
-            scripps_workflow_core::atom::SandboxRequirement::None
+            ecaa_workflow_core::atom::SandboxRequirement::None
         };
         super::ExecutorCapabilities {
             sandbox,
-            network: scripps_workflow_core::atom::NetworkPolicy::None { allowlist: vec![] },
+            network: ecaa_workflow_core::atom::NetworkPolicy::None { allowlist: vec![] },
             kind: "slurm",
         }
     }
@@ -1142,7 +1142,7 @@ impl Executor for SlurmExecutor {
         &self,
         task_id: &str,
         package_dir: &std::path::Path,
-    ) -> scripps_workflow_core::container_state::ContainerProbeOutcome {
+    ) -> ecaa_workflow_core::container_state::ContainerProbeOutcome {
         polling::probe_container_state(self.ssh.as_ref(), task_id, &package_dir.to_string_lossy())
     }
 
@@ -1315,7 +1315,7 @@ mod tests {
     #![allow(unsafe_code)]
     use super::ssh::{FakeSshSession, RsyncDirection, SshOutcome};
     use super::*;
-    use scripps_workflow_core::remediation::GpuTarget;
+    use ecaa_workflow_core::remediation::GpuTarget;
     use std::collections::BTreeMap;
 
     #[test]
@@ -1470,14 +1470,14 @@ mod tests {
             "enrichment_01".into(),
             Task {
                 description: "enrichment".into(),
-                kind: scripps_workflow_core::dag::TaskKind::Computation,
+                kind: ecaa_workflow_core::dag::TaskKind::Computation,
                 state: TaskState::Ready,
                 depends_on: vec![],
-                assignee: scripps_workflow_core::dag::Assignee::Agent,
+                assignee: ecaa_workflow_core::dag::Assignee::Agent,
                 spec: Some(serde_json::json!({ "stage_class": "enrichment" })),
                 resolution: None,
                 result_ref: None,
-                resource_class: scripps_workflow_core::dag::ResourceClass::CpuHeavy,
+                resource_class: ecaa_workflow_core::dag::ResourceClass::CpuHeavy,
                 requires_sme_review: false,
                 required_artifacts: vec![],
                 container: None,
@@ -1487,7 +1487,7 @@ mod tests {
         );
         let dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks,
@@ -2031,17 +2031,17 @@ mod tests {
         );
         let task_step = Task {
             description: "step".into(),
-            kind: scripps_workflow_core::dag::TaskKind::Computation,
+            kind: ecaa_workflow_core::dag::TaskKind::Computation,
             state: TaskState::Running {
                 started_at: "2026-05-14T00:00:00Z".into(),
                 remote: None,
             },
             depends_on: vec![],
-            assignee: scripps_workflow_core::dag::Assignee::Agent,
+            assignee: ecaa_workflow_core::dag::Assignee::Agent,
             spec: Some(serde_json::json!({ "task_id": "step" })),
             resolution: None,
             result_ref: None,
-            resource_class: scripps_workflow_core::dag::ResourceClass::CpuHeavy,
+            resource_class: ecaa_workflow_core::dag::ResourceClass::CpuHeavy,
             requires_sme_review: false,
             required_artifacts: vec![],
             container: None,

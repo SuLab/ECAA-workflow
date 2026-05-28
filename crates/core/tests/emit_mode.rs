@@ -1,6 +1,6 @@
 //! Unit tests for the `EcaaMode` parser (Aim 3A Arm B″ wiring).
 
-use scripps_workflow_core::emit_mode::EcaaMode;
+use ecaa_workflow_core::emit_mode::EcaaMode;
 
 #[test]
 fn default_mode_is_full() {

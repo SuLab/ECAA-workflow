@@ -15,8 +15,8 @@
 //! schema-required field and the chat path silently fell through to
 //! `emit_package` before tripping the precondition gate.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
 use std::path::{Path, PathBuf};
 
 fn config_root() -> PathBuf {

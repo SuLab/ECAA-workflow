@@ -455,7 +455,7 @@ pub async fn get_state(
 /// shows more non-pending tasks — that's the one the agent is
 /// actually advancing.
 async fn reconciled_progress_and_blocked(
-    session: &scripps_workflow_conversation::Session,
+    session: &ecaa_workflow_conversation::Session,
 ) -> Option<(ProgressSummary, Vec<String>)> {
     let state_path = session.emitted_package_path.as_ref()?.clone();
     tokio::task::spawn_blocking(move || reconciled_progress_and_blocked_sync(state_path))
@@ -464,8 +464,8 @@ async fn reconciled_progress_and_blocked(
         .flatten()
 }
 
-fn dag_blocked_tasks(dag: &scripps_workflow_core::dag::DAG) -> Vec<String> {
-    use scripps_workflow_core::dag::TaskState;
+fn dag_blocked_tasks(dag: &ecaa_workflow_core::dag::DAG) -> Vec<String> {
+    use ecaa_workflow_core::dag::TaskState;
     dag.tasks
         .iter()
         .filter(|(_, t)| matches!(t.state, TaskState::Blocked { .. }))
@@ -659,7 +659,7 @@ pub async fn score_session(
     }
 
     let backend = app.conversation.llm_for_scoring();
-    match scripps_workflow_conversation::score_transcript(
+    match ecaa_workflow_conversation::score_transcript(
         backend,
         app.conversation.metrics(),
         session_id,
@@ -730,7 +730,7 @@ mod tests {
     use crate::chat_routes::test_support::{assistant, body_json, make_router, tool_use};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use scripps_workflow_conversation::{BatchableTool, Tool};
+    use ecaa_workflow_conversation::{BatchableTool, Tool};
     use tower::util::ServiceExt;
 
     // ── harness-events endpoint ───────────────────────────────────────────
@@ -785,7 +785,7 @@ mod tests {
             .store_handle()
             .update(id, |s| {
                 s.harness_events
-                    .push(scripps_workflow_conversation::HarnessEvent {
+                    .push(ecaa_workflow_conversation::HarnessEvent {
                         kind: "task_started".into(),
                         task_id: "t_demo".into(),
                         status: "running".into(),
@@ -794,7 +794,7 @@ mod tests {
                         timestamp: chrono::Utc::now(),
                     });
                 s.harness_events
-                    .push(scripps_workflow_conversation::HarnessEvent {
+                    .push(ecaa_workflow_conversation::HarnessEvent {
                         kind: "task_completed".into(),
                         task_id: "t_demo".into(),
                         status: "completed".into(),
@@ -956,7 +956,7 @@ mod tests {
             Some("bulk_rnaseq")
         );
         assert!(session.conversation.iter().any(|turn| {
-            turn.role == scripps_workflow_conversation::TurnRole::User
+            turn.role == ecaa_workflow_conversation::TurnRole::User
                 && turn.content.contains("Desired outputs")
         }));
 

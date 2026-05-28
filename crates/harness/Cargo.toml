@@ -1,21 +1,21 @@
 [package]
-name = "scripps-workflow-harness"
+name = "ecaa-workflow-harness"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/SuLab/ECAA-workflow"
-description = "Sync orchestrator that loops an agent subprocess against ready tasks in an emitted scripps-workflow package."
+description = "Sync orchestrator that loops an agent subprocess against ready tasks in an emitted ecaa-workflow package."
 
 [lib]
-name = "scripps_workflow_harness"
+name = "ecaa_workflow_harness"
 path = "src/lib.rs"
 
 [[bin]]
-name = "scripps-workflow-harness"
+name = "ecaa-workflow-harness"
 path = "src/main.rs"
 
 [dependencies]
-scripps-workflow-core = { version = "0.1", path = "../core" }
+ecaa-workflow-core = { version = "0.1", path = "../core" }
 clap = { workspace = true }
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

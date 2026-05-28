@@ -8,7 +8,7 @@
 
 use super::{Session, SessionState};
 use chrono::Utc;
-use scripps_workflow_core::blocker::{BlockerContext, BlockerEntry, BlockerKind};
+use ecaa_workflow_core::blocker::{BlockerContext, BlockerEntry, BlockerKind};
 
 /// Typed inputs that drive the session state-machine.
 ///

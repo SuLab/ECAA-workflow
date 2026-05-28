@@ -1,4 +1,4 @@
-use scripps_workflow_core::cost::{Cost, MAX_CALL_MICRO_USD};
+use ecaa_workflow_core::cost::{Cost, MAX_CALL_MICRO_USD};
 
 #[test]
 fn realistic_anthropic_input_token_pricing() {

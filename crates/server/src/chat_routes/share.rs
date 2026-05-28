@@ -16,8 +16,8 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::{Duration, Utc};
 use rand::rngs::OsRng;
 use rand::RngCore;
-use scripps_workflow_conversation::ShareToken;
-use scripps_workflow_core::hash_utils::sha256_hex;
+use ecaa_workflow_conversation::ShareToken;
+use ecaa_workflow_core::hash_utils::sha256_hex;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -89,7 +89,7 @@ pub async fn resolve_share_token_principal(
 }
 
 fn feature_enabled() -> bool {
-    scripps_workflow_core::env_helpers::env_bool("SWFC_SHARED_URLS_ENABLED")
+    ecaa_workflow_core::env_helpers::env_bool("SWFC_SHARED_URLS_ENABLED")
 }
 
 /// Request body for `POST /api/chat/session/:id/share-token`.
@@ -355,7 +355,7 @@ mod tests {
     use crate::chat_routes::test_support::{body_json, make_router};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use scripps_workflow_conversation::ShareToken;
+    use ecaa_workflow_conversation::ShareToken;
     use tower::util::ServiceExt;
     use uuid::Uuid;
 

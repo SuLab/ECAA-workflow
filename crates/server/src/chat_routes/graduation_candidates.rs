@@ -27,10 +27,10 @@ use axum::{
     response::{IntoResponse, Json},
     Router,
 };
-use scripps_workflow_conversation::session::cross_session_aggregator::{
+use ecaa_workflow_conversation::session::cross_session_aggregator::{
     CrossSessionAggregator, GraduationCandidateSummary,
 };
-use scripps_workflow_core::local_extension_graduation::{GraduationConfig, GraduationThresholds};
+use ecaa_workflow_core::local_extension_graduation::{GraduationConfig, GraduationThresholds};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -170,14 +170,14 @@ pub(super) async fn annotate_for_upstream(
                  (submission_ref={submission_ref}): {rationale}",
             );
             s.decisions
-                .push(scripps_workflow_core::decision_log::DecisionRecord::new(
+                .push(ecaa_workflow_core::decision_log::DecisionRecord::new(
                     session_id_str.clone(),
-                    scripps_workflow_core::decision_log::DecisionType::UserNote {
+                    ecaa_workflow_core::decision_log::DecisionType::UserNote {
                         task_id: format!("graduation_annotate:{iri_for_record}").into(),
                         body,
                         author: annotated_by.clone(),
                     },
-                    scripps_workflow_core::decision_log::DecisionActor::Sme,
+                    ecaa_workflow_core::decision_log::DecisionActor::Sme,
                     if rationale.trim().is_empty() {
                         None
                     } else {

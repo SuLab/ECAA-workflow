@@ -1,8 +1,8 @@
 //! V4 loader integration tests for the modality-ontology
 //! coverage matrix.
 
-use scripps_workflow_core::ontology_scope::*;
-use scripps_workflow_core::workflow_contracts::workflow_intent::BioinformaticsModality;
+use ecaa_workflow_core::ontology_scope::*;
+use ecaa_workflow_core::workflow_contracts::workflow_intent::BioinformaticsModality;
 
 #[test]
 fn loads_canonical_matrix() {

@@ -2,18 +2,18 @@
 //! per-task result surface.
 //!
 //! The verifier itself is policy-driven and lives in
-//! [`scripps_workflow_core::claim_verifier`]; this helper just locates
+//! [`ecaa_workflow_core::claim_verifier`]; this helper just locates
 //! the narrative artifact inside a package's `runtime/<task_id>/`
 //! directory, loads the relevant interpretation policy, and wires the
 //! two together. Called by `get_task_result` in `chat_routes/tasks.rs`
 //! so the UI's `ResultReviewTurnCard` can render the verification badge.
 
-use scripps_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
-use scripps_workflow_core::claim_verifier::{
+use ecaa_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
+use ecaa_workflow_core::claim_verifier::{
     demote_claims_from_deviations, verify_claims, ClaimVerificationReport,
 };
-use scripps_workflow_core::decision_log::DecisionRecord;
-use scripps_workflow_core::project_class::ProjectClass;
+use ecaa_workflow_core::decision_log::DecisionRecord;
+use ecaa_workflow_core::project_class::ProjectClass;
 use std::path::{Path, PathBuf};
 
 /// Result of running verification for a single task.
@@ -267,8 +267,8 @@ mod tests {
         // session and a PostHocDeviation record covers the stage, the
         // claim's `strength` field must be demoted from the default
         // Prespecified to PostHoc.
-        use scripps_workflow_core::claim_verifier::ClaimStrength;
-        use scripps_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
+        use ecaa_workflow_core::claim_verifier::ClaimStrength;
+        use ecaa_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
 
         let pkg = tempdir().unwrap();
         let cfg = tempdir().unwrap();
@@ -318,8 +318,8 @@ mod tests {
     #[test]
     fn exploratory_session_never_demotes() {
         // Same narrative + deviation, but is_confirmatory=false.
-        use scripps_workflow_core::claim_verifier::ClaimStrength;
-        use scripps_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
+        use ecaa_workflow_core::claim_verifier::ClaimStrength;
+        use ecaa_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
 
         let pkg = tempdir().unwrap();
         let cfg = tempdir().unwrap();

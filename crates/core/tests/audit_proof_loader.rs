@@ -1,4 +1,4 @@
-use scripps_workflow_core::audit_proof::loader::LoadedPackage;
+use ecaa_workflow_core::audit_proof::loader::LoadedPackage;
 use std::path::PathBuf;
 
 fn fixture_root(name: &str) -> PathBuf {

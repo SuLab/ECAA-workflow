@@ -25,11 +25,11 @@
 //! narrowing).
 
 use proptest::prelude::*;
-use scripps_workflow_core::compatibility::engine::{
+use ecaa_workflow_core::compatibility::engine::{
     CompatibilityEngine, CompatibilityResult, DeterministicCompatibilityEngine, PlanningContext,
 };
-use scripps_workflow_core::workflow_contracts::port::PortContract;
-use scripps_workflow_core::workflow_contracts::semantic_type::{
+use ecaa_workflow_core::workflow_contracts::port::PortContract;
+use ecaa_workflow_core::workflow_contracts::semantic_type::{
     LocalExtensionMaturity, SemanticType,
 };
 

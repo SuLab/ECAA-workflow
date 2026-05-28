@@ -26,13 +26,13 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use scripps_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
+use ecaa_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
 
 use super::BoundedJson;
-use scripps_workflow_core::hypothesized_proposal::{
+use ecaa_workflow_core::hypothesized_proposal::{
     proposal_to_materialized_task_node, HypothesizedProposal, ProposalId, ProposalLifecycle,
 };
-use scripps_workflow_core::workflow_contracts::lifecycle::PromotionAuthority;
+use ecaa_workflow_core::workflow_contracts::lifecycle::PromotionAuthority;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -122,7 +122,7 @@ pub(super) async fn signoff_proposal(
     let authority = PromotionAuthority {
         kind: "human".into(),
         id: sme_initials,
-        at: scripps_workflow_core::time_helpers::now_rfc3339(),
+        at: ecaa_workflow_core::time_helpers::now_rfc3339(),
     };
 
     // outcome_cell carries the materialized node + final lifecycle out
@@ -189,7 +189,7 @@ pub(super) async fn signoff_proposal(
                 // dependency") because there's no real port-type
                 // subsumption to prove — the SME authored the
                 // dependency via propose_hypothesized_node.
-                use scripps_workflow_core::workflow_contracts::edge::{
+                use ecaa_workflow_core::workflow_contracts::edge::{
                     CompatibilityProof, EdgeContract,
                 };
                 for upstream in &proposal.upstream_atom_ids {
@@ -277,10 +277,10 @@ pub(super) async fn signoff_proposal(
                 // `validators` list and an edge from parent → wrapper
                 // gives the workflow_json lowering the `depends_on:
                 // [<id>]` shape it expects.
-                use scripps_workflow_core::workflow_contracts::implementation::Implementation;
-                use scripps_workflow_core::workflow_contracts::lifecycle::LifecycleState;
-                use scripps_workflow_core::workflow_contracts::task_node::TaskNode;
-                use scripps_workflow_core::workflow_contracts::evidence::ValidatorRef;
+                use ecaa_workflow_core::workflow_contracts::implementation::Implementation;
+                use ecaa_workflow_core::workflow_contracts::lifecycle::LifecycleState;
+                use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
+                use ecaa_workflow_core::workflow_contracts::evidence::ValidatorRef;
                 let validate_id = format!("validate_{task_node_id}");
                 if !dag.nodes.iter().any(|n| n.id == validate_id) {
                     let mut validator_node = TaskNode::skeleton(
@@ -339,7 +339,7 @@ pub(super) async fn signoff_proposal(
                     task_node_id: task_node_id.clone(),
                 };
                 p_mut.last_transition_at =
-                    scripps_workflow_core::hypothesized_proposal::now_ts();
+                    ecaa_workflow_core::hypothesized_proposal::now_ts();
             }
             let _ = outcome_writer.set(SignoffOutcome::Promoted(Box::new(PromotedPayload {
                 task_node_id,
@@ -499,7 +499,7 @@ pub(super) async fn reject_proposal(
                 p_mut.lifecycle = ProposalLifecycle::Rejected {
                     rationale: rationale_for_update.clone(),
                 };
-                p_mut.last_transition_at = scripps_workflow_core::hypothesized_proposal::now_ts();
+                p_mut.last_transition_at = ecaa_workflow_core::hypothesized_proposal::now_ts();
             }
             // Audit record — push a `ProposalRejected` decision log entry.
             session.decisions.push(DecisionRecord::new(
@@ -574,7 +574,7 @@ enum SignoffOutcome {
 struct PromotedPayload {
     task_node_id: String,
     package_path: Option<std::path::PathBuf>,
-    new_state: scripps_workflow_conversation::SessionState,
+    new_state: ecaa_workflow_conversation::SessionState,
     title: Option<String>,
 }
 
@@ -626,8 +626,8 @@ mod tests {
     use crate::chat_routes::test_support::{body_json, make_router};
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use scripps_workflow_core::hypothesized_proposal::HypothesizedProposal;
-    use scripps_workflow_core::workflow_contracts::task_node::WorkflowDag;
+    use ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal;
+    use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
     use tower::util::ServiceExt;
 
     /// Seed a session with a proposal in the requested lifecycle. The
@@ -1001,8 +1001,8 @@ mod tests {
                     .insert(proposal_for_closure.id.clone(), proposal_for_closure);
                 // Seed the dag with one pre-existing node so we can
                 // assert both the original AND the new node survive.
-                use scripps_workflow_core::hypothesized_proposal::proposal_to_transient_task_node;
-                use scripps_workflow_core::workflow_contracts::task_node::WorkflowDag;
+                use ecaa_workflow_core::hypothesized_proposal::proposal_to_transient_task_node;
+                use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
                 // Build a sentinel node whose id we can check later.
                 let sentinel = {
                     let mut p2 = HypothesizedProposal::new(
@@ -1124,8 +1124,8 @@ mod tests {
     /// test below.
     #[tokio::test]
     async fn signoff_bare_splice_leaves_cache_stale_documents_rc18_bug() {
-        use scripps_workflow_conversation::session::Session;
-        use scripps_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+        use ecaa_workflow_conversation::session::Session;
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         let mut s = Session::new(false);
         s.workflow_dag = Some(WorkflowDag {
@@ -1165,8 +1165,8 @@ mod tests {
     /// `workflow_dag_mut` would not exist.
     #[tokio::test]
     async fn signoff_guarded_splice_invalidates_derived_dag_cache() {
-        use scripps_workflow_conversation::session::Session;
-        use scripps_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+        use ecaa_workflow_conversation::session::Session;
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         let mut s = Session::new(false);
         s.workflow_dag = Some(WorkflowDag {

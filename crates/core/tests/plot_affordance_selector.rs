@@ -1,7 +1,7 @@
-use scripps_workflow_core::plot_affordance::registry::{
+use ecaa_workflow_core::plot_affordance::registry::{
     PlotAffordanceRegistry, RegisteredAffordance,
 };
-use scripps_workflow_core::plot_affordance::{
+use ecaa_workflow_core::plot_affordance::{
     resolve_affordance, GenericPrimitive, PhysicalShape, PlotAffordance, PortDescriptor,
 };
 use std::collections::BTreeMap;

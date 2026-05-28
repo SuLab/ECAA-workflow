@@ -7,8 +7,8 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
-use scripps_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore};
-use scripps_workflow_server::chat_routes;
+use ecaa_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore};
+use ecaa_workflow_server::chat_routes;
 use std::path::Path;
 use std::sync::Arc;
 use tower::util::ServiceExt;
@@ -32,7 +32,7 @@ async fn make_app() -> chat_routes::ChatAppState {
 /// `nest_service` reuses the same canonical router under the hood, so
 /// the extension propagates through the rewrite path as well.
 fn make_router(app: chat_routes::ChatAppState) -> axum::Router {
-    use scripps_workflow_server::auth::RequestPrincipal;
+    use ecaa_workflow_server::auth::RequestPrincipal;
     chat_routes::router(app).layer(axum::Extension(RequestPrincipal::test_default()))
 }
 

@@ -25,7 +25,7 @@ use uuid::Uuid;
 use crate::chat_routes::ChatAppState;
 
 fn feature_enabled() -> bool {
-    scripps_workflow_core::env_helpers::env_bool("SWFC_SHARED_URLS_ENABLED")
+    ecaa_workflow_core::env_helpers::env_bool("SWFC_SHARED_URLS_ENABLED")
 }
 
 /// Tokens are 64-char lowercase hex (sha256 of 32 random bytes; see
@@ -161,7 +161,7 @@ mod tests {
         Router,
     };
     use chrono::Duration;
-    use scripps_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore, ShareToken};
+    use ecaa_workflow_conversation::{LlmBackend, MockLlmBackend, SessionStore, ShareToken};
     use std::path::PathBuf;
     use std::sync::Arc;
     use tower::ServiceExt;

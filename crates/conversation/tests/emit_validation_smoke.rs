@@ -13,7 +13,7 @@
 //! (`SWFC_VALIDATE_ON_EMIT`, `SWFC_VALIDATION_BLOCK_ON_FAIL`) that the
 //! validator reads on every call.
 
-use scripps_workflow_conversation::emit::validation::{
+use ecaa_workflow_conversation::emit::validation::{
     validate_emitted_package, write_validation_summary, ExternalCheckOutcome, ValidationMode,
 };
 use serial_test::serial;

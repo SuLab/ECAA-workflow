@@ -109,7 +109,7 @@ fn write_executable(path: &std::path::Path, body: &str) {
 }
 
 fn harness_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_scripps-workflow-harness"))
+    PathBuf::from(env!("CARGO_BIN_EXE_ecaa-workflow-harness"))
 }
 
 fn seed_minimal_package(pkg: &std::path::Path, task_id: &str) {

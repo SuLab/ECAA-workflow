@@ -37,7 +37,7 @@
 //! warning live for new code.
 
 use crate::session::Session;
-use scripps_workflow_core::workflow_contracts::task_node::WorkflowDag;
+use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
 
 /// RAII guard returned by [`Session::workflow_dag_mut`]. While the
 /// guard is alive, callers can take `&mut WorkflowDag` via
@@ -105,7 +105,7 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::workflow_contracts::task_node::TaskNode;
+    use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
 
     fn fresh_session_with_dag() -> Session {
         let mut s = Session::new(false);

@@ -16,15 +16,15 @@
 //! `#[ignore]` because it requires the full emit chain (config/, tempdir, tokio).
 //!
 //! **Why these tests live in crates/core**: the resolution logic and the
-//! `PlotAffordanceRecord` type are both in `scripps_workflow_core`. The
+//! `PlotAffordanceRecord` type are both in `ecaa_workflow_core`. The
 //! conversation crate's `write_affordance_sidecars` is a thin orchestrator
 //! over this core logic; exercising it separately keeps test scope minimal.
 
-use scripps_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord;
-use scripps_workflow_core::plot_affordance::registry::{
+use ecaa_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord;
+use ecaa_workflow_core::plot_affordance::registry::{
     PlotAffordanceRegistry, RegisteredAffordance,
 };
-use scripps_workflow_core::plot_affordance::{
+use ecaa_workflow_core::plot_affordance::{
     resolve_affordance, AffordanceFallbackCounter, GenericPrimitive, PhysicalShape, PlotAffordance,
     PortDescriptor,
 };
@@ -246,7 +246,7 @@ fn fallback_counter_increments_on_structural_fallback_only() {
 
 #[test]
 fn provisional_flag_matches_non_registered_variants() {
-    use scripps_workflow_core::plot_affordance::affordance::AffordanceProof;
+    use ecaa_workflow_core::plot_affordance::affordance::AffordanceProof;
 
     let proof = AffordanceProof {
         source_semantic_type: "test".into(),
@@ -306,7 +306,7 @@ fn provisional_flag_matches_non_registered_variants() {
 // 2. A real package directory produced by `core::emit_package`, and
 // 3. The `tokio` async runtime.
 //
-// Run with: cargo test -p scripps-workflow-conversation -- --ignored
+// Run with: cargo test -p ecaa-workflow-conversation -- --ignored
 // See `crates/conversation/src/emit/mod.rs::tests::
 // affordance_sidecars_written_and_provisional_flags_stamped`.
 #[test]

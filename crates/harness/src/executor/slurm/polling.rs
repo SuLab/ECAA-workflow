@@ -9,8 +9,8 @@ use super::super::_id_validator::package_dir_is_safe;
 use super::ssh::SshSession;
 use anyhow::{anyhow, Result};
 use parking_lot::Mutex;
-use scripps_workflow_core::blocker::BlockerKind;
-use scripps_workflow_core::container_state::{ContainerProbeOutcome, ContainerState};
+use ecaa_workflow_core::blocker::BlockerKind;
+use ecaa_workflow_core::container_state::{ContainerProbeOutcome, ContainerState};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 

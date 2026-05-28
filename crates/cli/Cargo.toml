@@ -1,22 +1,22 @@
 [package]
-name = "scripps-workflow-cli"
+name = "ecaa-workflow-cli"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/SuLab/ECAA-workflow"
-description = "Command-line front-end for the scripps-workflow compiler (chat / intake / build / dag / serve)."
+description = "Command-line front-end for the ecaa-workflow compiler (chat / intake / build / dag / serve)."
 
 [[bin]]
-name = "scripps-workflow"
+name = "ecaa-workflow"
 path = "src/main.rs"
 
 [[bin]]
-name = "scripps-workflow-audit-proof"
+name = "ecaa-workflow-audit-proof"
 path = "src/bin/scripps-workflow-audit-proof.rs"
 
 [dependencies]
-scripps-workflow-core = { version = "0.1", path = "../core" }
-scripps-workflow-conversation = { version = "0.1", path = "../conversation" }
+ecaa-workflow-core = { version = "0.1", path = "../core" }
+ecaa-workflow-conversation = { version = "0.1", path = "../conversation" }
 clap = { workspace = true }
 rustyline = "14"
 colored = "2"
@@ -33,7 +33,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 [dev-dependencies]
 # `migrate_sessions` unit tests stage temp dirs.
 tempfile.workspace = true
-# `Command::cargo_bin("scripps-workflow")` locator + `Assert` helpers for
+# `Command::cargo_bin("ecaa-workflow")` locator + `Assert` helpers for
 # `tests/*_cli.rs` integration tests, so CLI subcommands have unit-level
 # coverage rather than only Makefile / shell-script end-to-end paths.
 assert_cmd = { workspace = true }

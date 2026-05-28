@@ -7,7 +7,7 @@
 
 use super::{Executor, IterationOutcome, RemoteExecutionInfo};
 use anyhow::Result;
-use scripps_workflow_core::dag::{Task, TaskState, DAG};
+use ecaa_workflow_core::dag::{Task, TaskState, DAG};
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::ExitStatus;
@@ -24,7 +24,7 @@ pub struct MockExecutor {
     /// payload arrives intact.
     pub apply_overrides_log: Vec<(
         String,
-        scripps_workflow_core::remediation::ExecutorOverrides,
+        ecaa_workflow_core::remediation::ExecutorOverrides,
     )>,
 }
 
@@ -127,7 +127,7 @@ impl Executor for MockExecutor {
     fn apply_overrides(
         &mut self,
         task_id: &str,
-        ov: &scripps_workflow_core::remediation::ExecutorOverrides,
+        ov: &ecaa_workflow_core::remediation::ExecutorOverrides,
     ) -> Result<()> {
         self.apply_overrides_log
             .push((task_id.to_string(), ov.clone()));
@@ -147,7 +147,7 @@ mod tests {
     fn empty_dag() -> DAG {
         DAG {
             version: "1.0".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "mock".into(),
             current_task: None,
             tasks: Default::default(),
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn apply_overrides_records_invocation() {
-        use scripps_workflow_core::remediation::{ExecutorOverrides, ResourceTarget};
+        use ecaa_workflow_core::remediation::{ExecutorOverrides, ResourceTarget};
         let mut m = MockExecutor::with_successes(0);
         let ov = ExecutorOverrides {
             resources: Some(ResourceTarget {

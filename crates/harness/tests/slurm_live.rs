@@ -11,7 +11,7 @@
 //! export SWFC_SLURM_HOST=login.cluster.example.org
 //! export SWFC_SLURM_STAGING_DIR=/scratch/$USER/scripps
 //! export SWFC_SLURM_DEFAULT_PARTITION=normal
-//! cargo test -p scripps-workflow-harness --features slurm \
+//! cargo test -p ecaa-workflow-harness --features slurm \
 //! --test slurm_live -- --ignored
 //! ```
 //!
@@ -25,9 +25,9 @@
 
 #![cfg(feature = "slurm")]
 
-use scripps_workflow_harness::executor::slurm::polling::{query_job, JobState};
-use scripps_workflow_harness::executor::slurm::sbatch::{parse_job_id, submit_sbatch};
-use scripps_workflow_harness::executor::slurm::ssh::{SshSession, SystemSshSession};
+use ecaa_workflow_harness::executor::slurm::polling::{query_job, JobState};
+use ecaa_workflow_harness::executor::slurm::sbatch::{parse_job_id, submit_sbatch};
+use ecaa_workflow_harness::executor::slurm::ssh::{SshSession, SystemSshSession};
 
 /// Submits a trivial `sbatch` job, polls `sacct` to terminal state,
 /// and asserts it reached `COMPLETED`. Cancels the job on timeout.

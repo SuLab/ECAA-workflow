@@ -8,7 +8,7 @@
 //! surfaces them as candidates for ontology / extension promotion.
 
 use chrono::Utc;
-use scripps_workflow_conversation::session::opaque_aggregator::OpaqueAggregator;
+use ecaa_workflow_conversation::session::opaque_aggregator::OpaqueAggregator;
 use tempfile::TempDir;
 
 #[test]

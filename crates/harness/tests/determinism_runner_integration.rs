@@ -17,13 +17,13 @@
 //! environment is guaranteed to have a compatible Python + Pillow install.
 //!
 //! Run pure tests:
-//! cargo test -p scripps-workflow-harness determinism_runner
+//! cargo test -p ecaa-workflow-harness determinism_runner
 //!
 //! Run live spawn tests (requires python on PATH):
-//! cargo test -p scripps-workflow-harness determinism_runner -- --ignored
+//! cargo test -p ecaa-workflow-harness determinism_runner -- --ignored
 
-use scripps_workflow_harness::renderer_validators::DeterminismRunner;
-use scripps_workflow_harness::validators::{ValidatorOutcome, ValidatorRunner};
+use ecaa_workflow_harness::renderer_validators::DeterminismRunner;
+use ecaa_workflow_harness::validators::{ValidatorOutcome, ValidatorRunner};
 use std::fs;
 use tempfile::TempDir;
 

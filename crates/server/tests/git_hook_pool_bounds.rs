@@ -12,7 +12,7 @@
 //! still completes promptly. Without the bounded pool the foreign job
 //! would block behind the saturated blocking pool.
 
-use scripps_workflow_server::chat_routes::GitHookPool;
+use ecaa_workflow_server::chat_routes::GitHookPool;
 use std::sync::Arc;
 // Use std's blocking Barrier here (not tokio::sync::Barrier) because
 // the GitHookPool's spawn() takes a sync `FnOnce() -> Result<()>` —

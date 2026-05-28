@@ -393,7 +393,7 @@ impl ModelRoutingTable {
 mod tests {
     use super::*;
     use crate::session::Session;
-    use scripps_workflow_core::classify::ClassificationResult;
+    use ecaa_workflow_core::classify::ClassificationResult;
 
     #[test]
     fn parses_predicate_dsl_each_kind() {

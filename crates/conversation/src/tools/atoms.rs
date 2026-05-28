@@ -16,9 +16,9 @@
 //! call (matches `get_taxonomy_info`'s discipline — no global cache).
 
 use crate::errors::{ToolError, ToolResult};
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom::AtomRole;
-use scripps_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom::AtomRole;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::Path;

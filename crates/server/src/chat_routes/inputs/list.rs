@@ -14,7 +14,7 @@ use super::ChatAppState;
 use axum::extract::Path;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use chrono::Utc;
-use scripps_workflow_conversation::{UserInput, UserInputFile, UserInputKind};
+use ecaa_workflow_conversation::{UserInput, UserInputFile, UserInputKind};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::io::Read;
@@ -75,21 +75,21 @@ pub(super) fn allowlisted_roots(owner_user: &str) -> Vec<PathBuf> {
 }
 
 pub(super) fn max_file_bytes() -> u64 {
-    scripps_workflow_core::env_helpers::env_parse(
+    ecaa_workflow_core::env_helpers::env_parse(
         "SWFC_INPUT_MAX_FILE_BYTES",
         DEFAULT_MAX_FILE_BYTES,
     )
 }
 
 pub(super) fn max_total_bytes() -> u64 {
-    scripps_workflow_core::env_helpers::env_parse(
+    ecaa_workflow_core::env_helpers::env_parse(
         "SWFC_INPUT_MAX_TOTAL_BYTES",
         DEFAULT_MAX_TOTAL_BYTES,
     )
 }
 
 pub(super) fn max_files() -> usize {
-    scripps_workflow_core::env_helpers::env_parse("SWFC_INPUT_MAX_FILES", DEFAULT_MAX_FILES)
+    ecaa_workflow_core::env_helpers::env_parse("SWFC_INPUT_MAX_FILES", DEFAULT_MAX_FILES)
 }
 
 /// Returns Ok(canonicalized_path) if the supplied path exists, is a

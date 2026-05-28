@@ -243,7 +243,7 @@ pub(super) async fn post_apply_one(
             } else {
                 d.status
             };
-            d.status_updated_at = Some(scripps_workflow_core::time_helpers::now_rfc3339());
+            d.status_updated_at = Some(ecaa_workflow_core::time_helpers::now_rfc3339());
             persist_disposition(&pkg, &rel_path, &d);
             queue_upsert(&app.dispositions, session_id, rel_path.clone(), d.clone()).await;
             crate::chat_routes::execution::maybe_auto_relaunch_harness(
@@ -451,7 +451,7 @@ mod tests {
         app.conversation
             .store_handle()
             .update(id, |s| {
-                use scripps_workflow_conversation::SessionState;
+                use ecaa_workflow_conversation::SessionState;
                 s.state = SessionState::Emitted;
                 Ok(())
             })

@@ -7,10 +7,10 @@
 //! is exhausted or the queue empties. Bounded by `max_branches`. Output
 //! is sorted by `(atom_id, port_index, depth)` for byte-stable replay.
 
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer_v4::backward_search::{backward_search, BackwardRequirement};
-use scripps_workflow_core::workflow_contracts::data_product::DataProductContract;
-use scripps_workflow_core::workflow_contracts::workflow_intent::{DesiredOutput, WorkflowIntent};
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer_v4::backward_search::{backward_search, BackwardRequirement};
+use ecaa_workflow_core::workflow_contracts::data_product::DataProductContract;
+use ecaa_workflow_core::workflow_contracts::workflow_intent::{DesiredOutput, WorkflowIntent};
 
 /// Backward search from a DE-table goal must surface the canonical
 /// bulk RNA-seq chain: `differential_expression` is the immediate

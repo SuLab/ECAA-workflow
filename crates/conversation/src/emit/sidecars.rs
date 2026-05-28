@@ -29,7 +29,7 @@
 
 use crate::session::Session;
 use anyhow::{Context, Result};
-use scripps_workflow_core::ablation::{AblationFlag, AblationFlagExt};
+use ecaa_workflow_core::ablation::{AblationFlag, AblationFlagExt};
 use std::path::Path;
 
 /// D1 — write `runtime/claim-verification.json`.
@@ -98,7 +98,7 @@ pub(super) async fn write_determinism_shim(output_dir: &Path) -> Result<()> {
     tokio::fs::create_dir_all(&runtime).await?;
     let path = runtime.join("determinism-shim.json");
 
-    let payload = scripps_workflow_core::determinism_shim::serialize_active_settings();
+    let payload = ecaa_workflow_core::determinism_shim::serialize_active_settings();
     let body = serde_json::to_vec_pretty(&payload).context("serializing determinism-shim.json")?;
 
     tokio::fs::write(&path, body)
@@ -126,9 +126,9 @@ pub(super) async fn write_security_policy(session: &Session, output_dir: &Path) 
     let path = runtime.join("security-policy.json");
 
     let atoms = session.atoms_in_use();
-    let atom_refs: Vec<&scripps_workflow_core::atom::AtomDefinition> = atoms.iter().collect();
+    let atom_refs: Vec<&ecaa_workflow_core::atom::AtomDefinition> = atoms.iter().collect();
     let digests = session.container_image_digests();
-    let payload = scripps_workflow_core::atom_safety::aggregate_for_package(&atom_refs, digests);
+    let payload = ecaa_workflow_core::atom_safety::aggregate_for_package(&atom_refs, digests);
     let body = serde_json::to_vec_pretty(&payload).context("serializing security-policy.json")?;
 
     tokio::fs::write(&path, body)
@@ -232,7 +232,7 @@ pub(super) async fn write_reexecution_sidecar(session: &Session, output_dir: &Pa
     // blocking the async executor — all file reads in core are blocking.
     let output_dir_owned = output_dir.to_path_buf();
     let report = tokio::task::spawn_blocking(move || {
-        scripps_workflow_core::reexecution::classify_reexecution(
+        ecaa_workflow_core::reexecution::classify_reexecution(
             &parent_path,
             &output_dir_owned,
             None,

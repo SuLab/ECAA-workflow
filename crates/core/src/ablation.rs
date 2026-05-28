@@ -1,13 +1,13 @@
 //! Runtime SWFC_ABLATE_* env-var flag readers.
 //!
 //! The closed `AblationFlag` enum + `all_flags()` are canonical in
-//! `scripps-workflow-ecaa-types::ablation`. The `is_active()` extension
+//! `ecaa-workflow-types::ablation`. The `is_active()` extension
 //! trait lives here to keep env-var coupling in core. Existing call
 //! sites using `Foo.is_active()` method syntax keep working iff they
-//! `use scripps_workflow_core::ablation::AblationFlagExt;` (or any
+//! `use ecaa_workflow_core::ablation::AblationFlagExt;` (or any
 //! glob-import that pulls the trait into scope).
 
-pub use scripps_workflow_ecaa_types::ablation::{all_flags, AblationFlag};
+pub use ecaa_workflow_types::ablation::{all_flags, AblationFlag};
 
 /// Extension trait providing the env-var-coupled `is_active()` check
 /// outside ecaa-types (which is intentionally env-free / std-only).

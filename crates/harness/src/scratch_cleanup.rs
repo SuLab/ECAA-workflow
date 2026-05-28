@@ -28,7 +28,7 @@ use std::path::Path;
 /// stale scratch directory is undesirable but never load-bearing for
 /// task state.
 pub fn cleanup_task_scratch(package_root: &Path, task_id: &str) -> bool {
-    if scripps_workflow_core::env_helpers::env_bool("SWFC_SCRATCH_KEEP") {
+    if ecaa_workflow_core::env_helpers::env_bool("SWFC_SCRATCH_KEEP") {
         return false;
     }
     let scratch = package_root.join("runtime").join("scratch").join(task_id);

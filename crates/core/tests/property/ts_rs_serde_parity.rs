@@ -10,9 +10,9 @@
 //! (these types either lack `Arbitrary` or have payload fields that
 //! reference other crates whose construction is non-trivial).
 
-use scripps_workflow_conversation::session::SessionState;
-use scripps_workflow_conversation::tools::{BatchableTool, HighImpactTool, Tool};
-use scripps_workflow_core::blocker::{BlockerContext, BlockerKind};
+use ecaa_workflow_conversation::session::SessionState;
+use ecaa_workflow_conversation::tools::{BatchableTool, HighImpactTool, Tool};
+use ecaa_workflow_core::blocker::{BlockerContext, BlockerKind};
 
 #[test]
 fn session_state_roundtrips() {

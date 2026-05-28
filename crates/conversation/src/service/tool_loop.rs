@@ -407,7 +407,7 @@ impl ConversationService {
             // ceiling. Backends that don't implement count_tokens
             // (mock, older clients) return None and the preflight
             // is a no-op.
-            if budget != 0 && scripps_workflow_core::env_helpers::env_bool("SWFC_BUDGET_HARD_STOP")
+            if budget != 0 && ecaa_workflow_core::env_helpers::env_bool("SWFC_BUDGET_HARD_STOP")
             {
                 let warm_up_threshold = (budget as f64 * 0.8) as u64;
                 let prior_input = pre_turn_tokens + (accumulated_usage.input_tokens as u64);

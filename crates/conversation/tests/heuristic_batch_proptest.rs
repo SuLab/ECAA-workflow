@@ -22,7 +22,7 @@
 //!
 
 use proptest::prelude::*;
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     dispatch_batch, BatchableTool, HighImpactTool, Session, Tool, ToolContext,
 };
 use std::path::PathBuf;

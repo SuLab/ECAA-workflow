@@ -8,7 +8,7 @@
 
 use super::super::sizing::{BaseRequirements, ComputeProfiles, DefaultProfile, SizingIntakeFacts};
 use anyhow::{Context, Result};
-use scripps_workflow_core::dag::{Task, DAG};
+use ecaa_workflow_core::dag::{Task, DAG};
 use std::path::Path;
 
 /// Load compute profiles for AWS executor paths. Returns a default
@@ -26,7 +26,7 @@ pub(super) fn load_aws_profiles(package: &Path) -> Result<ComputeProfiles> {
             method_overrides: Default::default(),
         });
     }
-    let v: serde_json::Value = scripps_workflow_core::fs_helpers::read_json(&profiles_path)?;
+    let v: serde_json::Value = ecaa_workflow_core::fs_helpers::read_json(&profiles_path)?;
     let yaml = serde_yml::to_string(&v)?;
     serde_yml::from_str::<ComputeProfiles>(&yaml).map_err(Into::into)
 }
@@ -68,7 +68,7 @@ pub(super) fn task_id_from_spec(task: &Task) -> Option<String> {
 }
 
 pub(super) fn read_dag(dir: &Path) -> Result<DAG> {
-    scripps_workflow_core::fs_helpers::read_json(&dir.join("WORKFLOW.json"))
+    ecaa_workflow_core::fs_helpers::read_json(&dir.join("WORKFLOW.json"))
 }
 
 pub(super) fn write_dag(dir: &Path, dag: &DAG) -> Result<()> {

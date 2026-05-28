@@ -4,14 +4,14 @@
 //! through `IntoResponse`.
 //!
 //! Lives in `crates/server/tests/` so it exercises the public
-//! [`scripps_workflow_server::error::ApiError`] surface the rest of
+//! [`ecaa_workflow_server::error::ApiError`] surface the rest of
 //! the codebase will consume.
 
 use axum::body::Body;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use http_body_util::BodyExt;
-use scripps_workflow_server::error::ApiError;
+use ecaa_workflow_server::error::ApiError;
 
 async fn body_json(b: Body) -> serde_json::Value {
     let bytes = b.collect().await.unwrap().to_bytes();

@@ -119,7 +119,7 @@ fn assert_or_regen(filename: &str, generated: Value) {
     assert_eq!(
         generated, committed,
         "Schema {} drifted from #[derive(JsonSchema)]. Regenerate with: \
-         SCHEMARS_REGEN=1 cargo test -p scripps-workflow-conversation \
+         SCHEMARS_REGEN=1 cargo test -p ecaa-workflow-conversation \
          --test schemars_generation",
         filename
     );
@@ -134,11 +134,11 @@ fn assert_or_regen(filename: &str, generated: Value) {
 #[test]
 fn intent_schema_matches_derive() {
     let turn = serde_json::to_value(schema_for!(
-        scripps_workflow_conversation::session::state::Turn
+        ecaa_workflow_conversation::session::state::Turn
     ))
     .expect("serialize Turn schema");
     let tool_call = serde_json::to_value(schema_for!(
-        scripps_workflow_conversation::session::state::ToolCallRecord
+        ecaa_workflow_conversation::session::state::ToolCallRecord
     ))
     .expect("serialize ToolCallRecord schema");
     assert_or_regen("intent.schema.json", jsonl_wrap_oneof(&[turn, tool_call]));
@@ -147,9 +147,9 @@ fn intent_schema_matches_derive() {
 // ───── decision.schema.json (JSONL: DecisionRecord) ─────────────────────
 #[test]
 fn decision_schema_matches_derive() {
-    // TODO: confirm path — `scripps_workflow_core::decision_log::DecisionRecord`.
+    // TODO: confirm path — `ecaa_workflow_core::decision_log::DecisionRecord`.
     let item = serde_json::to_value(schema_for!(
-        scripps_workflow_core::decision_log::DecisionRecord
+        ecaa_workflow_core::decision_log::DecisionRecord
     ))
     .expect("serialize DecisionRecord schema");
     assert_or_regen("decision.schema.json", jsonl_wrap(item));
@@ -159,9 +159,9 @@ fn decision_schema_matches_derive() {
 #[test]
 fn execution_schema_matches_derive() {
     // TODO: confirm path — likely
-    // `scripps_workflow_core::workflow_contracts::outcome::ValidationReport`.
+    // `ecaa_workflow_core::workflow_contracts::outcome::ValidationReport`.
     let item = serde_json::to_value(schema_for!(
-        scripps_workflow_core::workflow_contracts::outcome::ValidationReport
+        ecaa_workflow_core::workflow_contracts::outcome::ValidationReport
     ))
     .expect("serialize ValidationReport schema");
     assert_or_regen("execution.schema.json", jsonl_wrap(item));
@@ -171,7 +171,7 @@ fn execution_schema_matches_derive() {
 #[test]
 fn evidence_schema_matches_derive() {
     let item = serde_json::to_value(schema_for!(
-        scripps_workflow_core::workflow_contracts::edge::EdgeContract
+        ecaa_workflow_core::workflow_contracts::edge::EdgeContract
     ))
     .expect("serialize EdgeContract schema");
     assert_or_regen("evidence.schema.json", jsonl_wrap(item));
@@ -180,9 +180,9 @@ fn evidence_schema_matches_derive() {
 // ───── claim.schema.json (single doc: ClaimVerificationReport) ──────────
 #[test]
 fn claim_schema_matches_derive() {
-    // TODO: confirm path — `scripps_workflow_core::claim_verifier::ClaimVerificationReport`.
+    // TODO: confirm path — `ecaa_workflow_core::claim_verifier::ClaimVerificationReport`.
     let generated = serde_json::to_value(schema_for!(
-        scripps_workflow_core::claim_verifier::ClaimVerificationReport
+        ecaa_workflow_core::claim_verifier::ClaimVerificationReport
     ))
     .expect("serialize ClaimVerificationReport schema");
     assert_or_regen("claim.schema.json", single_doc_wrap(generated));
@@ -192,7 +192,7 @@ fn claim_schema_matches_derive() {
 #[test]
 fn equivalence_schema_matches_derive() {
     let item = serde_json::to_value(schema_for!(
-        scripps_workflow_core::decision_substrate::VerifierDecision
+        ecaa_workflow_core::decision_substrate::VerifierDecision
     ))
     .expect("serialize VerifierDecision schema");
     assert_or_regen("equivalence.schema.json", jsonl_wrap(item));
@@ -203,7 +203,7 @@ fn equivalence_schema_matches_derive() {
 fn failure_schema_matches_derive() {
     // Assumption is in workflow_contracts/evidence.rs (per grep).
     let item = serde_json::to_value(schema_for!(
-        scripps_workflow_core::workflow_contracts::evidence::Assumption
+        ecaa_workflow_core::workflow_contracts::evidence::Assumption
     ))
     .expect("serialize Assumption schema");
     assert_or_regen("failure.schema.json", jsonl_wrap(item));
@@ -213,7 +213,7 @@ fn failure_schema_matches_derive() {
 #[test]
 fn audit_proof_schema_matches_derive() {
     let generated =
-        serde_json::to_value(schema_for!(scripps_workflow_ecaa_types::AuditProofReport))
+        serde_json::to_value(schema_for!(ecaa_workflow_types::AuditProofReport))
             .expect("serialize AuditProofReport schema");
     assert_or_regen("audit-proof.schema.json", single_doc_wrap(generated));
 }

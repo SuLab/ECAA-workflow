@@ -7,7 +7,7 @@
 //! `propose_quick_replies` rather than silently picking via
 //! `max_by_key`.
 
-use scripps_workflow_core::classify::Classifier;
+use ecaa_workflow_core::classify::Classifier;
 use std::path::PathBuf;
 
 fn config_root() -> PathBuf {

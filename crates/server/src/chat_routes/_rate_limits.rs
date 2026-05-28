@@ -37,7 +37,7 @@ impl LlmEndpointRateLimits {
 }
 
 fn env_u32(key: &str, default: u32) -> u32 {
-    scripps_workflow_core::env_helpers::env_parse(key, default)
+    ecaa_workflow_core::env_helpers::env_parse(key, default)
 }
 
 #[cfg(test)]

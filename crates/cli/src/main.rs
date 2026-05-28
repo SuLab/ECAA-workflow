@@ -1,4 +1,4 @@
-//! `scripps-workflow` — CLI front-end for the deterministic bioinformatics
+//! `ecaa-workflow` — CLI front-end for the deterministic bioinformatics
 //! compiler and package emitter.
 //!
 //! Dispatches subcommands: `chat`, `chat-llm`, `intake`, `build`, `dag`, `serve`,
@@ -13,12 +13,12 @@ mod migrate_sessions;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use scripps_workflow_core::dag::dag_to_dot;
+use ecaa_workflow_core::dag::dag_to_dot;
 
 #[derive(Parser)]
 #[command(
-    name = "scripps-workflow",
-    about = "Scripps workflow compiler and package emitter"
+    name = "ecaa-workflow",
+    about = "ECAA-workflow compiler and package emitter"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -185,7 +185,7 @@ fn run_list(kind: ListKind, config: &str, as_json: bool) -> Result<()> {
         ListKind::Archetypes => {
             let dir = config_dir.join("archetypes");
             let registry =
-                scripps_workflow_core::archetype_registry::ArchetypeRegistry::load_from_dir(&dir)?;
+                ecaa_workflow_core::archetype_registry::ArchetypeRegistry::load_from_dir(&dir)?;
             if as_json {
                 #[derive(serde::Serialize)]
                 struct Row<'a> {
@@ -231,7 +231,7 @@ fn run_list(kind: ListKind, config: &str, as_json: bool) -> Result<()> {
         }
         ListKind::Atoms => {
             let dir = config_dir.join("stage-atoms");
-            let registry = scripps_workflow_core::atom_registry::AtomRegistry::load_from_dir(&dir)?;
+            let registry = ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(&dir)?;
             if as_json {
                 #[derive(serde::Serialize)]
                 struct Row<'a> {
@@ -283,13 +283,13 @@ fn run_list(kind: ListKind, config: &str, as_json: bool) -> Result<()> {
 
 fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
     use colored::Colorize;
-    use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-    use scripps_workflow_core::atom_registry::AtomRegistry;
-    use scripps_workflow_core::bco::emit_bco;
-    use scripps_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
-    use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-    use scripps_workflow_core::emitter::{emit_package, EmitConfig};
-    use scripps_workflow_core::goal_spec::GoalSpec;
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::atom_registry::AtomRegistry;
+    use ecaa_workflow_core::bco::emit_bco;
+    use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
+    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
+    use ecaa_workflow_core::goal_spec::GoalSpec;
     use std::collections::BTreeMap;
     use std::path::Path;
 
@@ -418,7 +418,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
             .cross_omics_modalities
             .iter()
             .skip(1)
-            .map(|m| scripps_workflow_core::classify::ModalityCandidate {
+            .map(|m| ecaa_workflow_core::classify::ModalityCandidate {
                 modality: m.clone(),
                 taxonomy_path: String::new(),
                 edam_topic: String::new(),
@@ -428,7 +428,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
             })
             .collect()
     };
-    let clf = scripps_workflow_core::classify::ClassificationResult {
+    let clf = ecaa_workflow_core::classify::ClassificationResult {
         modality: primary_modality,
         taxonomy_path: String::new(),
         domain: "computational biology".into(),
@@ -456,7 +456,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
     } else {
         None
     };
-    let intake_facts = scripps_workflow_core::intake_facts::IntakeFacts::from_classification(&clf);
+    let intake_facts = ecaa_workflow_core::intake_facts::IntakeFacts::from_classification(&clf);
     // Aggregate runtime prereqs from the archetype's baseline + composed atoms.
     let composed_atoms: Vec<_> = output_compose
         .composition
@@ -464,7 +464,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
         .iter()
         .map(|ca| ca.atom.clone())
         .collect();
-    let runtime_prereqs = scripps_workflow_core::runtime_prereqs::aggregate_archetype(
+    let runtime_prereqs = ecaa_workflow_core::runtime_prereqs::aggregate_archetype(
         &archetype_obj,
         &composed_atoms,
     );
@@ -474,7 +474,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
     // time so the package surface stays minimal for legacy modalities.
     let per_atom_prereqs: std::collections::BTreeMap<
         String,
-        scripps_workflow_core::runtime_prereqs::RuntimePrereqs,
+        ecaa_workflow_core::runtime_prereqs::RuntimePrereqs,
     > = composed_atoms
         .iter()
         .map(|a| (a.id.clone(), a.runtime_packages.clone()))
@@ -518,7 +518,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
 
     println!("{} Package emitted → {}", "✓".green().bold(), output.cyan());
     println!(
-        "  Run: scripps-workflow-harness --package {} --agent claude",
+        "  Run: ecaa-workflow-harness --package {} --agent claude",
         output
     );
     Ok(())
@@ -526,7 +526,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
 
 fn run_dag(package: &str, dot: bool) -> Result<()> {
     use colored::Colorize;
-    use scripps_workflow_core::dag::{TaskState, DAG};
+    use ecaa_workflow_core::dag::{TaskState, DAG};
     use std::path::Path;
 
     let wf_path = Path::new(package).join("WORKFLOW.json");
@@ -570,15 +570,15 @@ fn run_dag(package: &str, dot: bool) -> Result<()> {
 
 fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> Result<()> {
     use colored::Colorize;
-    use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-    use scripps_workflow_core::atom_registry::AtomRegistry;
-    use scripps_workflow_core::bco::emit_bco;
-    use scripps_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
-    use scripps_workflow_core::classify::Classifier;
-    use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-    use scripps_workflow_core::emitter::{emit_package, EmitConfig};
-    use scripps_workflow_core::goal_spec::GoalSpec;
-    use scripps_workflow_core::project_class::ProjectClass;
+    use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+    use ecaa_workflow_core::atom_registry::AtomRegistry;
+    use ecaa_workflow_core::bco::emit_bco;
+    use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
+    use ecaa_workflow_core::classify::Classifier;
+    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
+    use ecaa_workflow_core::goal_spec::GoalSpec;
+    use ecaa_workflow_core::project_class::ProjectClass;
     use std::collections::BTreeMap;
     use std::path::Path;
 
@@ -646,8 +646,8 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     // Determine project class via keyword classifier (best-effort).
     let project_class_path = config_path.join("project-class-keywords.yaml");
     let project_class = if project_class_path.exists() {
-        match scripps_workflow_core::classify::load_project_class_keywords(&project_class_path) {
-            Ok(cfg) => scripps_workflow_core::classify::classify_project_class(&intake_text, &cfg),
+        match ecaa_workflow_core::classify::load_project_class_keywords(&project_class_path) {
+            Ok(cfg) => ecaa_workflow_core::classify::classify_project_class(&intake_text, &cfg),
             Err(_) => ProjectClass::Bioinformatics,
         }
     } else {
@@ -716,7 +716,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         .unwrap_or_else(|| clf.workflow_description.clone());
 
     // Build full classification result with archetype metadata.
-    let full_clf = scripps_workflow_core::classify::ClassificationResult {
+    let full_clf = ecaa_workflow_core::classify::ClassificationResult {
         domain: "computational biology".into(),
         workflow_description: archetype_description,
         archetype_id: Some(archetype_id),
@@ -731,7 +731,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         None
     };
     let intake_facts =
-        scripps_workflow_core::intake_facts::IntakeFacts::from_classification(&full_clf);
+        ecaa_workflow_core::intake_facts::IntakeFacts::from_classification(&full_clf);
     let composed_atoms: Vec<_> = output_compose
         .composition
         .atoms
@@ -739,15 +739,15 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         .map(|ca| ca.atom.clone())
         .collect();
     let runtime_prereqs = if let Some((_, a)) = archetype_obj {
-        scripps_workflow_core::runtime_prereqs::aggregate_archetype(a, &composed_atoms)
+        ecaa_workflow_core::runtime_prereqs::aggregate_archetype(a, &composed_atoms)
     } else {
-        scripps_workflow_core::runtime_prereqs::RuntimePrereqs::new()
+        ecaa_workflow_core::runtime_prereqs::RuntimePrereqs::new()
     };
     // Per-atom prereqs map for the SWFC_PER_TASK_IMAGES path. See
     // sibling site in the chat-driven intake above for the wiring rationale.
     let per_atom_prereqs: std::collections::BTreeMap<
         String,
-        scripps_workflow_core::runtime_prereqs::RuntimePrereqs,
+        ecaa_workflow_core::runtime_prereqs::RuntimePrereqs,
     > = composed_atoms
         .iter()
         .map(|a| (a.id.clone(), a.runtime_packages.clone()))
@@ -792,7 +792,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         output.cyan()
     );
     println!(
-        "  Run: scripps-workflow-harness --package {} --agent claude\n",
+        "  Run: ecaa-workflow-harness --package {} --agent claude\n",
         output
     );
     Ok(())
@@ -803,7 +803,7 @@ fn run_serve(port: u16) -> Result<()> {
     use std::process::Command;
 
     // Locate the server binary — try PATH first, then cargo run
-    let server_bin = "scripps-workflow-server";
+    let server_bin = "ecaa-workflow-server";
     let status = Command::new(server_bin)
         .arg("--port")
         .arg(port.to_string())
@@ -826,7 +826,7 @@ fn run_serve(port: u16) -> Result<()> {
                 .args([
                     "run",
                     "-p",
-                    "scripps-workflow-server",
+                    "ecaa-workflow-server",
                     "--",
                     "--port",
                     &port.to_string(),
@@ -858,6 +858,6 @@ fn workflow_id_from_intake(intake: &str) -> String {
 fn workflow_id_from_bytes(bytes: &[u8]) -> String {
     // 12 hex chars = 48 bits — collision-resistant enough for a
     // build-tag without bloating the WORKFLOW.json.
-    let hex = scripps_workflow_core::hash_utils::sha256_short(bytes, 12);
+    let hex = ecaa_workflow_core::hash_utils::sha256_short(bytes, 12);
     format!("workflow-{}", hex)
 }

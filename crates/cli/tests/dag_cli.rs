@@ -10,7 +10,7 @@ use predicates::str;
 
 #[test]
 fn dag_help_succeeds() {
-    Command::cargo_bin("scripps-workflow")
+    Command::cargo_bin("ecaa-workflow")
         .expect("cargo bin scripps-workflow")
         .args(["dag", "--help"])
         .assert()
@@ -38,7 +38,7 @@ fn dag_lists_tasks_for_emitted_package() {
         .join("config");
 
     // First emit a package so dag has something to inspect.
-    Command::cargo_bin("scripps-workflow")
+    Command::cargo_bin("ecaa-workflow")
         .expect("cargo bin scripps-workflow")
         .args([
             "intake",
@@ -54,7 +54,7 @@ fn dag_lists_tasks_for_emitted_package() {
 
     // dag inspection. At least the workflow id surfaces — every emitted
     // package writes a non-empty WORKFLOW.json with one or more tasks.
-    Command::cargo_bin("scripps-workflow")
+    Command::cargo_bin("ecaa-workflow")
         .expect("cargo bin scripps-workflow")
         .args(["dag", "--package", output_dir.to_str().unwrap()])
         .assert()

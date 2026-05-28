@@ -7,7 +7,7 @@
 //! session-scoped `proposals` registry, and synchronously invokes
 //! [`crate::proposal_gate::advance_proposal`] to run the validator
 //! and sandbox gates against a transient
-//! [`scripps_workflow_core::workflow_contracts::task_node::TaskNode`]
+//! [`ecaa_workflow_core::workflow_contracts::task_node::TaskNode`]
 //! synthesized from the proposal. A `DecisionType::ProposedHypothesizedNode`
 //! audit record is appended in the same call so the long-term
 //! decision log keeps its existing shape; rejections
@@ -28,8 +28,8 @@
 use crate::errors::{ToolError, ToolResult};
 use crate::session::Session;
 use crate::tools::ToolContext;
-use scripps_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
-use scripps_workflow_core::hypothesized_proposal::HypothesizedProposal;
+use ecaa_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
+use ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn propose_hypothesized_node(
@@ -91,7 +91,7 @@ pub(super) fn propose_hypothesized_node(
 
     // ── Schema validation: parent term IRI shape ──
     for term in parent_terms {
-        if !scripps_workflow_core::goal_spec::is_valid_edam_iri(term) {
+        if !ecaa_workflow_core::goal_spec::is_valid_edam_iri(term) {
             return ToolResult::err(ToolError::PreconditionFailure {
                 reason: format!("parent_term `{}` is not a valid EDAM / swfc IRI", term),
                 hint: "Use `data:NNNN`, `format:NNNN`, `operation:NNNN`, `topic:NNNN`, or \

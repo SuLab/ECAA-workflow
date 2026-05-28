@@ -18,8 +18,8 @@
 //! *previous* harness run (same task, different tokens) from being applied
 //! by the new run. This test verifies that layer survives concurrent writes.
 
-use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskId, TaskKind, TaskState, DAG};
-use scripps_workflow_harness::dag_patch::{apply_pending_patches_strict, PickedDispatch};
+use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskId, TaskKind, TaskState, DAG};
+use ecaa_workflow_harness::dag_patch::{apply_pending_patches_strict, PickedDispatch};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, Barrier};
@@ -57,7 +57,7 @@ fn seed_workflow(dir: &Path, task_ids: &[&str]) {
     }
     let dag = DAG {
         version: "1".into(),
-        schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+        schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
         workflow_id: "concurrent-agents-test".into(),
         current_task: None,
         tasks,

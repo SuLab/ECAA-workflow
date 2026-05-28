@@ -5,7 +5,7 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use rustyline::DefaultEditor;
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     AnthropicClient, ConversationService, LlmBackend, SessionStore,
 };
 use std::path::PathBuf;

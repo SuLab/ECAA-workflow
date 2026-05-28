@@ -3,7 +3,7 @@
 //! from CSVs to their source artifacts, and strips redistributable=false
 //! content from the shareable export while preserving its metadata.
 
-use scripps_workflow_conversation::emit::{emit_ro_crate, emit_ro_crate_shareable};
+use ecaa_workflow_conversation::emit::{emit_ro_crate, emit_ro_crate_shareable};
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;

@@ -4,7 +4,7 @@
 //! each referencing policy before schema validation, producing
 //! byte-identical resolved values across all consumers.
 
-use scripps_workflow_core::policy_schema::load_and_validate;
+use ecaa_workflow_core::policy_schema::load_and_validate;
 use std::fs;
 use std::path::{Path, PathBuf};
 

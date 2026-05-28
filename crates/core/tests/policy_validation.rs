@@ -5,7 +5,7 @@
 //! 2. A mutated copy missing the required `schemaVersion` field fails
 //! validation with a message pointing at the offending path.
 
-use scripps_workflow_core::policy_schema::load_and_validate;
+use ecaa_workflow_core::policy_schema::load_and_validate;
 use std::fs;
 use std::path::{Path, PathBuf};
 

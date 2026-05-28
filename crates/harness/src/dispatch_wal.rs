@@ -48,8 +48,8 @@
 //! v4 with `agent_pid`) closes the remaining false-negative window.
 
 use anyhow::Result;
-use scripps_workflow_core::clock::Clock;
-use scripps_workflow_core::dag::{BlockedRecord, TaskState, DAG};
+use ecaa_workflow_core::clock::Clock;
+use ecaa_workflow_core::dag::{BlockedRecord, TaskState, DAG};
 use serde::{Deserialize, Serialize};
 use std::fs::OpenOptions;
 use std::io::{BufRead, BufReader, Write};
@@ -184,7 +184,7 @@ impl LivenessProbe for AlwaysDeadProbe {
 /// v3 P7 — promoted to a SemVer constructor so the canonical version
 /// lives alongside the other IR types in `core::migration`.
 pub fn dispatch_wal_schema_version() -> semver::Version {
-    scripps_workflow_core::migration::current_dispatch_wal_version()
+    ecaa_workflow_core::migration::current_dispatch_wal_version()
 }
 
 /// One dispatch log entry. Serialized as a single JSON Lines row.
@@ -202,7 +202,7 @@ pub struct DispatchRecord {
     /// canonical SemVer string.
     #[serde(
         default = "default_dispatch_wal_schema_version",
-        with = "scripps_workflow_core::migration::schema_version_serde"
+        with = "ecaa_workflow_core::migration::schema_version_serde"
     )]
     pub schema_version: semver::Version,
     /// Task id being dispatched.
@@ -537,8 +537,8 @@ pub fn recover_orphaned_dispatches_with_denylist(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::clock::{FrozenClock, WallClock};
-    use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind};
+    use ecaa_workflow_core::clock::{FrozenClock, WallClock};
+    use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind};
     use std::collections::BTreeMap;
 
     fn running_task() -> Task {
@@ -612,7 +612,7 @@ mod tests {
         // with a freshly-spawned new harness.
         let mut dag = DAG {
             version: "v1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks: {
@@ -654,7 +654,7 @@ mod tests {
     fn recovery_reblocks_prior_run_tasks() {
         let mut dag = DAG {
             version: "v1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks: {
@@ -714,7 +714,7 @@ mod tests {
         // outlives a harness's --max-iterations exit.
         let mut dag = DAG {
             version: "v1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks: {
@@ -757,7 +757,7 @@ mod tests {
         // crashes where the agent + its heartbeat fork both died.
         let mut dag = DAG {
             version: "v1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks: {
@@ -882,7 +882,7 @@ mod tests {
     fn recovery_ignores_current_run_tasks() {
         let mut dag = DAG {
             version: "v1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks: {
@@ -921,7 +921,7 @@ mod tests {
     /// from before the kill).
     #[test]
     fn denylist_short_circuits_liveness_probe() {
-        use scripps_workflow_core::dag::RemoteExecution;
+        use ecaa_workflow_core::dag::RemoteExecution;
 
         struct AlwaysLive;
         impl LivenessProbe for AlwaysLive {
@@ -943,7 +943,7 @@ mod tests {
         };
         let mut dag = DAG {
             version: "v1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks: {
@@ -1022,7 +1022,7 @@ mod tests {
         let task = running_task(); // remote=None
         let mut dag = DAG {
             version: "v1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks: {
@@ -1111,7 +1111,7 @@ mod tests {
 
         let mut dag_before = DAG {
             version: "v1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "wf".into(),
             current_task: None,
             tasks: {

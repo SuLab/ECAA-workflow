@@ -1,4 +1,4 @@
-//! scripps-workflow-server — Axum HTTP + SSE host for the web UI.
+//! ecaa-workflow-server — Axum HTTP + SSE host for the web UI.
 //!
 //! Bin shim. The lib at `lib.rs::run` does the actual
 //! work; this file only parses the env, installs the tracing
@@ -17,7 +17,7 @@ fn main() {
     // tracing-opentelemetry once we ship that dep.
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
         tracing_subscriber::EnvFilter::new(
-            "info,scripps_workflow_conversation=info,scripps_workflow_server=info,reqwest=warn,hyper=warn",
+            "info,ecaa_workflow_conversation=info,ecaa_workflow_server=info,reqwest=warn,hyper=warn",
         )
     });
     tracing_subscriber::fmt()
@@ -63,5 +63,5 @@ fn main() {
         .thread_stack_size(8 * 1024 * 1024)
         .build()
         .expect("build tokio runtime");
-    runtime.block_on(scripps_workflow_server::run());
+    runtime.block_on(ecaa_workflow_server::run());
 }

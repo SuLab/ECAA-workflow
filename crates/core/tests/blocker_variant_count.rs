@@ -16,7 +16,7 @@
 //! 3. update CLAUDE.md to reflect the new variant count,
 //! 4. bump the constant in this file.
 
-use scripps_workflow_core::blocker::BlockerKind;
+use ecaa_workflow_core::blocker::BlockerKind;
 use strum::EnumCount;
 
 #[test]

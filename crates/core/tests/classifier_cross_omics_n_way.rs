@@ -6,7 +6,7 @@
 //! proteomics, and metabolomics") so SMEs who drop the closing "and"
 //! still get cross-omics surfacing.
 
-use scripps_workflow_core::classify::Classifier;
+use ecaa_workflow_core::classify::Classifier;
 use std::path::PathBuf;
 
 fn config_root() -> PathBuf {

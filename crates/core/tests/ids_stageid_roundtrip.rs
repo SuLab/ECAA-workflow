@@ -1,6 +1,6 @@
 //! StageId serde + BTreeMap roundtrip.
 
-use scripps_workflow_core::ids::StageId;
+use ecaa_workflow_core::ids::StageId;
 
 #[test]
 fn stageid_serializes_as_bare_string() {

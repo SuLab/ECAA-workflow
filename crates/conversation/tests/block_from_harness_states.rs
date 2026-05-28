@@ -2,10 +2,10 @@
 //! same execution-side states as the state-machine's HarnessTaskBlocked
 //! trigger, not only the older Emitted/Intake whitelist.
 
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     ConversationService, LlmBackend, MockLlmBackend, Session, SessionState, SessionStore,
 };
-use scripps_workflow_core::blocker::BlockerKind;
+use ecaa_workflow_core::blocker::BlockerKind;
 use std::path::PathBuf;
 use std::sync::Arc;
 

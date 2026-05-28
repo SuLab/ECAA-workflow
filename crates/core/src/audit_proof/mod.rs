@@ -5,13 +5,13 @@
 //! Invariants are warn-only at emission time: `Fail` is preserved
 //! in the report but never blocks `emit_package`.
 //!
-//! Canonical types live in `scripps-workflow-ecaa-types::invariants`.
+//! Canonical types live in `ecaa-workflow-types::invariants`.
 //! Re-exported below for backward compatibility with existing call sites.
 
 pub mod invariants;
 pub mod loader;
 
-pub use scripps_workflow_ecaa_types::{
+pub use ecaa_workflow_types::{
     AuditProofReport, InvariantId, InvariantStatus, InvariantVerdict,
 };
 

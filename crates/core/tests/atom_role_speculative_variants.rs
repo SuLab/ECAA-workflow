@@ -7,7 +7,7 @@
 //! consumers don't need to add new arms until a real specialization
 //! appears.
 
-use scripps_workflow_core::atom::{AtomDefinition, AtomRole};
+use ecaa_workflow_core::atom::{AtomDefinition, AtomRole};
 
 fn try_parse_role(role_yaml: &str) -> Result<AtomDefinition, serde_yml::Error> {
     let yaml = format!(

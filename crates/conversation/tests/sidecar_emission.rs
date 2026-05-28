@@ -7,9 +7,9 @@
 //! `emit_package`), runs the public emit entrypoint, and asserts the
 //! sidecar exists with a minimal-but-valid schema.
 
-use scripps_workflow_conversation::emit::emit_with_conversation_log;
-use scripps_workflow_conversation::session::Session;
-use scripps_workflow_conversation::tools::{dispatch_one, BatchableTool, Tool, ToolContext};
+use ecaa_workflow_conversation::emit::emit_with_conversation_log;
+use ecaa_workflow_conversation::session::Session;
+use ecaa_workflow_conversation::tools::{dispatch_one, BatchableTool, Tool, ToolContext};
 use std::path::PathBuf;
 use tempfile::tempdir;
 

@@ -7,7 +7,7 @@
 //!    the correct task id.
 //! 4. An unanchored diff defaults to `anchor_kind = "package-pair"`.
 
-use scripps_workflow_core::cross_version_diff::CrossVersionReport;
+use ecaa_workflow_core::cross_version_diff::CrossVersionReport;
 
 /// CrossVersionReport with a task anchor carries the correct fields.
 #[test]

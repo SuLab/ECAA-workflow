@@ -1,6 +1,6 @@
 #[test]
 fn disambiguation_registry_loads_diablo_vs_mofa() {
-    use scripps_workflow_core::disambiguation::DisambiguationRegistry;
+    use ecaa_workflow_core::disambiguation::DisambiguationRegistry;
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()

@@ -11,7 +11,7 @@
 //! The production module retains `scrub_secrets` (pure-string redaction)
 //! tests inline — those don't touch the filesystem.
 
-use scripps_workflow_core::provenance_tiers::scrub_agent_trace_logs;
+use ecaa_workflow_core::provenance_tiers::scrub_agent_trace_logs;
 
 #[test]
 fn scrub_agent_trace_logs_walks_runtime_outputs() {

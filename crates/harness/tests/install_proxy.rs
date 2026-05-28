@@ -9,11 +9,11 @@
 //! `declared_packages`, `allowed_registries`); any rename here is a
 //! breaking change.
 
-use scripps_workflow_core::atom::{
+use ecaa_workflow_core::atom::{
     CodeExecution, NetworkPolicy, ProvisioningPolicy, SafetyLevel, SafetyPolicy, SandboxRequirement,
 };
-use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
-use scripps_workflow_harness::safety_render::render_provisioning_json;
+use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+use ecaa_workflow_harness::safety_render::render_provisioning_json;
 use std::collections::BTreeMap;
 
 fn task_with(provisioning: ProvisioningPolicy, atom_id: &str) -> Task {

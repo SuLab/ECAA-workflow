@@ -7,7 +7,7 @@
 //! intake, and a multi-paragraph clinical-trial-flavored intake) so
 //! regressions in any of the three are visible separately.
 //!
-//! Run with: `cargo bench -p scripps-workflow-core --bench classifier`.
+//! Run with: `cargo bench -p ecaa-workflow-core --bench classifier`.
 //! Outputs to `target/criterion/classifier/<test-name>/report/index.html`.
 //!
 //! Per Round-4 §2, this benchmark is opt-in (not gated by `make all`)
@@ -16,7 +16,7 @@
 //! laptop.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use scripps_workflow_core::classify::Classifier;
+use ecaa_workflow_core::classify::Classifier;
 use std::path::PathBuf;
 
 fn config_path() -> PathBuf {

@@ -11,7 +11,7 @@
 //! - `v1-semver-current` — manifest with all `1.0.0` versions; replay
 //! against current is a trivial pass.
 
-use scripps_workflow_core::migration::{
+use ecaa_workflow_core::migration::{
     replay_provenance, MigrationRegistry, ReplayError, SchemaVersionsManifest,
 };
 use semver::Version;

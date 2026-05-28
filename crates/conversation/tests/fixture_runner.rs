@@ -9,7 +9,7 @@
 //! argument, the runner substitutes a fresh temp directory at load
 //! time so each fixture writes into an isolated location.
 
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::{
     BatchStrategy, BatcherConfig, ConversationService, HarnessBatcher, HarnessEvent,
     HeuristicMockBackend, LlmBackend, MockLlmBackend, SessionId, SessionState, SessionStore,
     StopReason, Tool, TurnResponse, Usage,
@@ -492,7 +492,7 @@ async fn drive_fixture(fixture: &Fixture, _tempdir: &tempfile::TempDir) -> Sessi
                     .expect("EnqueueHarnessEvent flow step requires make_service_with_batcher");
                 let remote = backend.as_ref().and_then(|b| {
                     instance_type.as_ref().map(|t| {
-                        scripps_workflow_conversation::session::RemoteExecutionInfo {
+                        ecaa_workflow_conversation::session::RemoteExecutionInfo {
                             backend: b.clone(),
                             instance_id: instance_id.clone().unwrap_or_default(),
                             instance_type: t.clone(),
@@ -516,7 +516,7 @@ async fn drive_fixture(fixture: &Fixture, _tempdir: &tempfile::TempDir) -> Sessi
                 stage_id,
                 candidates,
             } => {
-                use scripps_workflow_core::blocker::{BlockerContext, BlockerKind};
+                use ecaa_workflow_core::blocker::{BlockerContext, BlockerKind};
                 let stage_id = stage_id.clone();
                 let candidates = candidates.clone();
                 let store = service.store_handle();
@@ -593,7 +593,7 @@ async fn drive_fixture(fixture: &Fixture, _tempdir: &tempfile::TempDir) -> Sessi
     session_id
 }
 
-fn assert_session_matches(fixture: &Fixture, session: &scripps_workflow_conversation::Session) {
+fn assert_session_matches(fixture: &Fixture, session: &ecaa_workflow_conversation::Session) {
     let expected = &fixture.expected_final_state;
 
     // Map serde tag → SessionState variant for comparison
@@ -710,7 +710,7 @@ fn assert_session_matches(fixture: &Fixture, session: &scripps_workflow_conversa
             .find(|t| {
                 matches!(
                     t.role,
-                    scripps_workflow_conversation::TurnRole::Assistant
+                    ecaa_workflow_conversation::TurnRole::Assistant
                 )
             })
             .unwrap_or_else(|| {

@@ -4,7 +4,7 @@
 //! return a goal with empty `edam_data` + a `kind` modifier so the
 //! composer's cross-omics discriminator can still route correctly.
 
-use scripps_workflow_core::classify::Classifier;
+use ecaa_workflow_core::classify::Classifier;
 use std::path::Path;
 
 fn classifier() -> Classifier {

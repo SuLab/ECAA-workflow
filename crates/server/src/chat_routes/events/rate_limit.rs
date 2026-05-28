@@ -22,7 +22,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use scripps_workflow_conversation::HarnessEvent;
+use ecaa_workflow_conversation::HarnessEvent;
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -192,7 +192,7 @@ pub async fn post_progress(
             .await
             .and_then(|s| s.emitted_package_path.clone());
         let blocker_kind = if event.kind == "heartbeat_stalled" {
-            scripps_workflow_core::blocker::BlockerKind::HeartbeatStalled {
+            ecaa_workflow_core::blocker::BlockerKind::HeartbeatStalled {
                 task_id: event.task_id.clone(),
                 last_heartbeat_secs_ago: event.heartbeat_age_secs.unwrap_or(0),
             }
@@ -219,7 +219,7 @@ pub async fn post_progress(
             event
                 .remote
                 .as_ref()
-                .map(|r| scripps_workflow_core::dag::RemoteExecution {
+                .map(|r| ecaa_workflow_core::dag::RemoteExecution {
                     backend: r.backend.clone(),
                     instance_id: r.instance_id.clone(),
                     instance_type: r.instance_type.clone(),
@@ -229,7 +229,7 @@ pub async fn post_progress(
         let heartbeat_age_secs = event.heartbeat_age_secs.unwrap_or(0);
         let result = store
             .update(session_id, move |s| {
-                use scripps_workflow_core::dag::{BlockedRecord, TaskState};
+                use ecaa_workflow_core::dag::{BlockedRecord, TaskState};
                 // Sync task state into Session::task_states (the
                 // authoritative map) and the eager DAG cache through the
                 // session API. Directly mutating `s.dag` loses the state
@@ -237,7 +237,7 @@ pub async fn post_progress(
                 if !task_id.is_empty() {
                     let new_state = match kind.as_str() {
                         "task_started" => Some(TaskState::Running {
-                            started_at: scripps_workflow_core::time_helpers::now_rfc3339(),
+                            started_at: ecaa_workflow_core::time_helpers::now_rfc3339(),
                             remote: remote_state.clone(),
                         }),
                         "task_completed" => Some(TaskState::Completed {
@@ -273,7 +273,7 @@ pub async fn post_progress(
                     // for truly-illegal sources (Greeting/Intake/etc.)
                     // so it's safe to always try.
                     match s.try_transition(
-                        scripps_workflow_conversation::session::StateTrigger::HarnessTaskBlocked {
+                        ecaa_workflow_conversation::session::StateTrigger::HarnessTaskBlocked {
                             task_id: task_id.clone(),
                             detail: if kind == "heartbeat_stalled" && detail.is_empty() {
                                 format!("heartbeat stale for {} seconds", heartbeat_age_secs)
@@ -310,7 +310,7 @@ pub async fn post_progress(
             } else if matches!(event.kind.as_str(), "task_blocked" | "heartbeat_stalled")
                 && matches!(
                     saved.state,
-                    scripps_workflow_conversation::SessionState::Blocked { .. }
+                    ecaa_workflow_conversation::SessionState::Blocked { .. }
                 )
             {
                 // Belt-and-suspenders: keep the original guard for
@@ -392,7 +392,7 @@ pub async fn post_progress(
         let stall_signal = event.stall_signal.clone();
         let suggested_action = event
             .suggested_action
-            .unwrap_or(scripps_workflow_core::blocker::StallAction::Resize);
+            .unwrap_or(ecaa_workflow_core::blocker::StallAction::Resize);
         let task_id = event.task_id.clone();
         if let Some(signal) = stall_signal.clone() {
             let store = app.conversation.store_handle();
@@ -402,15 +402,15 @@ pub async fn post_progress(
                 .update(session_id, move |s| {
                     if matches!(
                         s.state,
-                        scripps_workflow_conversation::SessionState::Emitted
-                            | scripps_workflow_conversation::SessionState::Emitting
+                        ecaa_workflow_conversation::SessionState::Emitted
+                            | ecaa_workflow_conversation::SessionState::Emitting
                     ) {
-                        let blocker_kind = scripps_workflow_core::blocker::BlockerKind::Stalled {
+                        let blocker_kind = ecaa_workflow_core::blocker::BlockerKind::Stalled {
                             task_id: task_for_closure.clone(),
                             signal: signal_for_closure.clone(),
                             suggested_action,
                         };
-                        let trigger = scripps_workflow_conversation::session::StateTrigger::HarnessTaskBlocked {
+                        let trigger = ecaa_workflow_conversation::session::StateTrigger::HarnessTaskBlocked {
                             task_id: task_for_closure,
                             detail: "stalled".into(),
                             blocker_kind,
@@ -579,7 +579,7 @@ pub async fn post_progress(
     // and enqueue into the batcher so the events also collapse into a single
     // assistant turn after the quiet window.
     let remote_session = event.remote.as_ref().map(|r| {
-        scripps_workflow_conversation::session::RemoteExecutionInfo {
+        ecaa_workflow_conversation::session::RemoteExecutionInfo {
             backend: r.backend.clone(),
             instance_id: r.instance_id.clone(),
             instance_type: r.instance_type.clone(),
@@ -648,7 +648,7 @@ pub async fn post_progress(
                     // ~95% per Anthropic-side observability.
                     let mut last_err = None;
                     for attempt in 0..2u32 {
-                        match scripps_workflow_conversation::side_calls::summary::generate_dashboard_summary(
+                        match ecaa_workflow_conversation::side_calls::summary::generate_dashboard_summary(
                             backend.clone(), &metrics.clone(), session_id, &source, &fingerprint,
                         )
                         .await

@@ -34,7 +34,7 @@
 
 use axum::http::{header::ETAG, HeaderMap, HeaderValue, StatusCode};
 use axum::response::IntoResponse;
-use scripps_workflow_conversation::Session;
+use ecaa_workflow_conversation::Session;
 use sha2::Digest;
 
 /// Compute the session ETag from its state and transcript length.
@@ -138,11 +138,11 @@ pub fn precondition_failed_response(server: &str, client: &str) -> axum::respons
     response
 }
 
-/// Variant-name slice for [`scripps_workflow_conversation::SessionState`].
+/// Variant-name slice for [`ecaa_workflow_conversation::SessionState`].
 /// Stable across `Debug` impl changes — we don't want a derive tweak
 /// to silently invalidate every outstanding ETag.
-fn state_kind(state: &scripps_workflow_conversation::SessionState) -> &'static str {
-    use scripps_workflow_conversation::SessionState as S;
+fn state_kind(state: &ecaa_workflow_conversation::SessionState) -> &'static str {
+    use ecaa_workflow_conversation::SessionState as S;
     match state {
         S::Greeting => "Greeting",
         S::Intake => "Intake",
@@ -178,7 +178,7 @@ mod tests {
     fn etag_changes_when_state_changes() {
         let mut s = fake_session();
         let before = etag_for_session(&s);
-        s.state = scripps_workflow_conversation::SessionState::Emitted;
+        s.state = ecaa_workflow_conversation::SessionState::Emitted;
         let after = etag_for_session(&s);
         assert_ne!(
             before, after,
@@ -191,7 +191,7 @@ mod tests {
         let mut s = fake_session();
         let before = etag_for_session(&s);
         let conv = std::sync::Arc::make_mut(&mut s.conversation);
-        conv.push(scripps_workflow_conversation::Turn::user("hi"));
+        conv.push(ecaa_workflow_conversation::Turn::user("hi"));
         let after = etag_for_session(&s);
         assert_ne!(before, after, "etag must change when transcript grows");
     }

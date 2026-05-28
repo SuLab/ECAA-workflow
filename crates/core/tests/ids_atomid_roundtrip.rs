@@ -1,5 +1,5 @@
 //! AtomId serde + BTreeMap roundtrip.
-use scripps_workflow_core::ids::AtomId;
+use ecaa_workflow_core::ids::AtomId;
 
 #[test]
 fn atomid_serializes_as_bare_string() {

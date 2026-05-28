@@ -22,15 +22,15 @@
 
 use std::collections::BTreeMap;
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-use scripps_workflow_core::composer_v4::{plan as v4_plan, planning_context_for_goal_with_intake};
-use scripps_workflow_core::goal_spec::GoalSpec;
-use scripps_workflow_core::workflow_contracts::data_product::DataProductContract;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::composer_v4::{plan as v4_plan, planning_context_for_goal_with_intake};
+use ecaa_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::workflow_contracts::data_product::DataProductContract;
 
 /// Workspace-relative paths so the test runs under `cargo test
-/// -p scripps-workflow-core`.
+/// -p ecaa-workflow-core`.
 const ATOMS_DIR: &str = "../../config/stage-atoms";
 const ARCHETYPES_DIR: &str = "../../config/archetypes";
 
@@ -94,7 +94,7 @@ fn planner_with_threaded_intent_produces_search_and_archetype_alternatives() {
     // Primary must be DAG-bearing — Task A's whole job is to prevent
     // the no-alternative `PartialDag { unresolved_gaps: [no producer
     //...] }` outcome.
-    use scripps_workflow_core::workflow_contracts::outcome::ComposeOutcome;
+    use ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome;
     match &result.primary {
         ComposeOutcome::ValidatedExecutableDag { dag, .. }
         | ComposeOutcome::DraftDag { dag, .. }
@@ -220,7 +220,7 @@ fn dispatch_v4_threads_modality_through_public_entry_point() {
         None,
     );
 
-    use scripps_workflow_core::composer::CompositionError;
+    use ecaa_workflow_core::composer::CompositionError;
     match result {
         Ok(output) => {
             // Tasks A + B + C unblocked the production dispatch path:

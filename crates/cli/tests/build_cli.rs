@@ -10,7 +10,7 @@ use predicates::str;
 
 #[test]
 fn build_help_succeeds() {
-    Command::cargo_bin("scripps-workflow")
+    Command::cargo_bin("ecaa-workflow")
         .expect("cargo bin scripps-workflow")
         .args(["build", "--help"])
         .assert()

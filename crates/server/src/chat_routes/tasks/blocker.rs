@@ -70,7 +70,7 @@ const FALLBACK_AUTO_APPROVE_ALLOW: &[&str] = &[
 fn compute_allow_deny(config_dir: &std::path::Path) -> (Vec<String>, Vec<String>) {
     let stage_atoms_dir = config_dir.join("stage-atoms");
     let allow_from_registry: Vec<String> =
-        match scripps_workflow_core::atom_registry::AtomRegistry::load_from_dir(&stage_atoms_dir) {
+        match ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(&stage_atoms_dir) {
             Ok(reg) => reg
                 .discover_axes()
                 .into_iter()
@@ -182,7 +182,7 @@ pub async fn post_sme_selection(
     }
     let body = serde_json::json!({
         "chosen": req.chosen,
-        "timestamp": scripps_workflow_core::time_helpers::now_rfc3339(),
+        "timestamp": ecaa_workflow_core::time_helpers::now_rfc3339(),
     });
     if let Err(e) = std::fs::write(&path, serde_json::to_vec_pretty(&body).unwrap_or_default()) {
         return (
@@ -231,7 +231,7 @@ pub async fn post_sme_selection(
     }
     let sidecar_body = serde_json::json!({
         "stage": task_id,
-        "confirmed_at": scripps_workflow_core::time_helpers::now_rfc3339(),
+        "confirmed_at": ecaa_workflow_core::time_helpers::now_rfc3339(),
         "via": "sme_selection",
         "chosen": req.chosen,
     });
@@ -429,7 +429,7 @@ pub async fn post_sme_decisions(
     }
     let body = serde_json::json!({
         "task_id": task_id,
-        "timestamp": scripps_workflow_core::time_helpers::now_rfc3339(),
+        "timestamp": ecaa_workflow_core::time_helpers::now_rfc3339(),
         "decisions": req.decisions.iter().map(|d| {
             let mut obj = serde_json::json!({
                 "id": d.id,
@@ -462,7 +462,7 @@ pub async fn post_sme_decisions(
         }
     };
     if let Err(e) =
-        scripps_workflow_core::fs_helpers::atomic_write_bytes_sync(&final_path, &payload)
+        ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&final_path, &payload)
     {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -485,12 +485,12 @@ pub async fn post_sme_decisions(
         .update(session_id, move |s| {
             for a in &answers {
                 s.record_decision(
-                    scripps_workflow_core::decision_log::DecisionType::AppliedStructuredDecision {
+                    ecaa_workflow_core::decision_log::DecisionType::AppliedStructuredDecision {
                         task_id: task_id_clone.clone().into(),
                         decision_point_id: a.id.clone(),
                         chosen: a.chosen.clone(),
                     },
-                    scripps_workflow_core::decision_log::DecisionActor::Sme,
+                    ecaa_workflow_core::decision_log::DecisionActor::Sme,
                     a.rationale.clone().or_else(|| session_rationale.clone()),
                 );
             }
@@ -1038,7 +1038,7 @@ mod tests {
                 .filter(|d| {
                     matches!(
                     d.decision,
-                    scripps_workflow_core::decision_log::DecisionType::AppliedStructuredDecision {
+                    ecaa_workflow_core::decision_log::DecisionType::AppliedStructuredDecision {
                         ..
                     }
                 )

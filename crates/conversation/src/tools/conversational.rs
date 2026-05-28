@@ -7,7 +7,7 @@
 
 use crate::errors::{ToolError, ToolResult};
 use crate::session::Session;
-use scripps_workflow_core::hash_utils::sha256_hex;
+use ecaa_workflow_core::hash_utils::sha256_hex;
 use std::path::Path;
 use uuid::Uuid;
 
@@ -114,7 +114,7 @@ pub(super) fn propose_quick_replies(
     if let Some(pair_id) = &session.pending_disambiguation {
         let disambig_path = config_dir.join("classifier-disambiguation.yaml");
         if disambig_path.exists() {
-            match scripps_workflow_core::disambiguation::DisambiguationRegistry::load(
+            match ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(
                 &disambig_path,
             ) {
                 Ok(reg) => {
@@ -174,7 +174,7 @@ pub(super) fn propose_quick_replies(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::hypothesized_proposal::{HypothesizedProposal, ProposalLifecycle};
+    use ecaa_workflow_core::hypothesized_proposal::{HypothesizedProposal, ProposalLifecycle};
 
     fn fresh_session() -> Session {
         Session::new(false)
@@ -223,7 +223,7 @@ mod tests {
             &mut s,
             "grn_inference",
             ProposalLifecycle::Blocked {
-                reason: scripps_workflow_core::hypothesized_proposal::ProposalBlockerReason::ValidatorFailed {
+                reason: ecaa_workflow_core::hypothesized_proposal::ProposalBlockerReason::ValidatorFailed {
                     failures: vec!["unknown_check".into()],
                 },
             },

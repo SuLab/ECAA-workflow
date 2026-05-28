@@ -152,7 +152,7 @@ pub async fn get_task_result(
         return (StatusCode::NOT_FOUND, "task not found").into_response();
     };
 
-    use scripps_workflow_core::dag::TaskState;
+    use ecaa_workflow_core::dag::TaskState;
     let (status_label, extra) = match &task.state {
         TaskState::Completed { result } => ("completed", serde_json::json!({ "result": result })),
         TaskState::Failed { reason } => ("failed", serde_json::json!({ "reason": reason })),
@@ -189,7 +189,7 @@ pub async fn get_task_result(
                 .join(format!("{}.json", task_id));
             if let Ok(bytes) = tokio::fs::read(&sidecar).await {
                 serde_json::from_slice::<
-                    scripps_workflow_core::claim_verifier::ClaimVerificationReport,
+                    ecaa_workflow_core::claim_verifier::ClaimVerificationReport,
                 >(&bytes)
                 .ok()
             } else {
@@ -248,7 +248,7 @@ pub async fn get_task_result(
     // Present only after the task has actually run; absent for tasks
     // that have never been dispatched. Bounded read to avoid pinning
     // memory on a pathologically large prompt.
-    let agent_code: Option<scripps_workflow_core::agent_code::AgentCodeRecord> =
+    let agent_code: Option<ecaa_workflow_core::agent_code::AgentCodeRecord> =
         match &session.emitted_package_path {
             Some(root) => {
                 let outputs_dir =
@@ -264,7 +264,7 @@ pub async fn get_task_result(
                                 .await
                             {
                                 Ok(_) => serde_json::from_slice::<
-                                    scripps_workflow_core::agent_code::AgentCodeRecord,
+                                    ecaa_workflow_core::agent_code::AgentCodeRecord,
                                 >(&buf)
                                 .ok(),
                                 Err(_) => None,
@@ -419,12 +419,12 @@ pub async fn post_task_note(
     let result = store
         .update(session_id, move |s| {
             s.record_decision(
-                scripps_workflow_core::decision_log::DecisionType::UserNote {
+                ecaa_workflow_core::decision_log::DecisionType::UserNote {
                     task_id: task_id_for_closure.clone().into(),
                     body: body.clone(),
                     author: author.clone(),
                 },
-                scripps_workflow_core::decision_log::DecisionActor::Sme,
+                ecaa_workflow_core::decision_log::DecisionActor::Sme,
                 None,
             );
             Ok(())
@@ -641,7 +641,7 @@ pub async fn get_active_tasks(
         }
     };
 
-    use scripps_workflow_core::dag::TaskState;
+    use ecaa_workflow_core::dag::TaskState;
     let now = chrono::Utc::now();
     let mut summaries: Vec<ActiveTaskSummary> = Vec::new();
     let step_re = regex::Regex::new(r"\[\s*[Ss][Tt][Ee][Pp]\s+(\d+)\s*/\s*(\d+)\s*\]").ok();
@@ -1379,7 +1379,7 @@ mod tests {
         let pkg = tempfile::tempdir().unwrap();
         let runtime_dir = pkg.path().join("runtime").join("outputs").join("t_demo");
         std::fs::create_dir_all(&runtime_dir).unwrap();
-        let rec = scripps_workflow_core::agent_code::AgentCodeRecord::new(
+        let rec = ecaa_workflow_core::agent_code::AgentCodeRecord::new(
             "my prompt".to_string(),
             "2026-05-22T10:00:00Z".to_string(),
             "2026-05-22T10:05:00Z".to_string(),

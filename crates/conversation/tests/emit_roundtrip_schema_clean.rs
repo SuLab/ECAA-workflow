@@ -5,7 +5,7 @@
 //! defined in `docs/ecaa-spec/subgraph-schemas/*.schema.json`.
 //!
 //! Layer 3: continuously enforce in CI. The test runs in the default
-//! `cargo test` discovery for `scripps-workflow-conversation` so the
+//! `cargo test` discovery for `ecaa-workflow-conversation` so the
 //! standard `make test` / `make all` gate sees a schema regression
 //! immediately.
 //!
@@ -35,9 +35,9 @@
 //! at emit-time and validates cleanly against the spec's `type: array`.
 
 use jsonschema::JSONSchema;
-use scripps_workflow_conversation::emit::emit_with_conversation_log;
-use scripps_workflow_conversation::session::Session;
-use scripps_workflow_conversation::tools::{dispatch_one, BatchableTool, Tool, ToolContext};
+use ecaa_workflow_conversation::emit::emit_with_conversation_log;
+use ecaa_workflow_conversation::session::Session;
+use ecaa_workflow_conversation::tools::{dispatch_one, BatchableTool, Tool, ToolContext};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;

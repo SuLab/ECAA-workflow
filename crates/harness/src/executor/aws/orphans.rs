@@ -5,7 +5,7 @@
 //! Cohesive unit: `scan_orphans` / `scan_orphans_verified` /
 //! `describe_instance_state` / `scan_orphan_candidates` plus the
 //! `OrphanReapSummary` shape they return. They share three things:
-//! - the `BuiltBy=scripps-workflow-harness` tag filter shape,
+//! - the `BuiltBy=ecaa-workflow-harness` tag filter shape,
 //! - the `SWFC_AWS_ORPHAN_POLICY` env-var dispatch (`warn` / `dry-run`
 //!   / `reap` / `none`),
 //! - the `ScrippsWorkflowHarnessSessionId` tag-namespacing so a
@@ -18,7 +18,7 @@
 
 use super::{AwsExecutor, OrphanReapSummary};
 use anyhow::{anyhow, Context, Result};
-use scripps_workflow_core::container_state::{ContainerProbeOutcome, ContainerState};
+use ecaa_workflow_core::container_state::{ContainerProbeOutcome, ContainerState};
 use serde::Deserialize;
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
@@ -221,7 +221,7 @@ impl AwsExecutor {
             "ec2",
             "describe-instances",
             "--filters",
-            "Name=tag:BuiltBy,Values=scripps-workflow-harness",
+            "Name=tag:BuiltBy,Values=ecaa-workflow-harness",
             "Name=instance-state-name,Values=running,pending",
             "--query",
             "Reservations[].Instances[].{Id:InstanceId,Tags:Tags}",
@@ -287,7 +287,7 @@ impl AwsExecutor {
     /// Defense-in-depth — WAL cross-check (tag-spoof guard):
     ///
     /// Tag-based filtering alone is insufficient: an attacker or
-    /// misconfigured tool could write both `BuiltBy=scripps-workflow-harness`
+    /// misconfigured tool could write both `BuiltBy=ecaa-workflow-harness`
     /// and `ScrippsWorkflowHarnessSessionId=<sid>` onto an unrelated
     /// instance, causing the reaper to terminate it. The WAL cross-check
     /// adds a second layer: only instances whose instance_id appears in
@@ -414,7 +414,7 @@ impl AwsExecutor {
         session_id_tag: Option<&str>,
     ) -> Result<Vec<String>> {
         let mut filters: Vec<String> = vec![
-            "Name=tag:BuiltBy,Values=scripps-workflow-harness".into(),
+            "Name=tag:BuiltBy,Values=ecaa-workflow-harness".into(),
             "Name=instance-state-name,Values=running,pending".into(),
         ];
         if let Some(sid) = session_id_tag {
@@ -726,7 +726,7 @@ impl AwsExecutor {
 #[cfg(test)]
 mod probe_envelope_tests {
     use super::classify_probe_envelope;
-    use scripps_workflow_core::container_state::ContainerProbeOutcome;
+    use ecaa_workflow_core::container_state::ContainerProbeOutcome;
 
     #[test]
     fn empty_body_no_signal() {

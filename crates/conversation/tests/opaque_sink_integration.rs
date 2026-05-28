@@ -22,8 +22,8 @@
 //! tightening can construct a deliberately Opaque-surfacing fixture.
 //! IF the file exists, every entry's attribution MUST be correct.
 
-use scripps_workflow_conversation::session::opaque_aggregator::OpaqueAggregator;
-use scripps_workflow_conversation::{
+use ecaa_workflow_conversation::session::opaque_aggregator::OpaqueAggregator;
+use ecaa_workflow_conversation::{
     BatchableTool, ConversationService, LlmBackend, MockLlmBackend, SessionStore, StopReason, Tool,
     TurnResponse, Usage,
 };

@@ -3,9 +3,9 @@
 //! with the expected schema_version + 6 verdicts, and that
 //! `SWFC_ABLATE_AUDIT_PROOF` suppresses the sidecar entirely.
 
-use scripps_workflow_conversation::emit::emit_with_conversation_log;
-use scripps_workflow_conversation::session::Session;
-use scripps_workflow_conversation::tools::{dispatch_one, BatchableTool, Tool, ToolContext};
+use ecaa_workflow_conversation::emit::emit_with_conversation_log;
+use ecaa_workflow_conversation::session::Session;
+use ecaa_workflow_conversation::tools::{dispatch_one, BatchableTool, Tool, ToolContext};
 use serial_test::serial;
 use std::path::PathBuf;
 use tempfile::tempdir;

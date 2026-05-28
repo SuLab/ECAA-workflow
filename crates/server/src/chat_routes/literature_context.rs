@@ -9,7 +9,7 @@
 
 use super::*;
 use axum::{extract::Query, extract::State, http::StatusCode, response::IntoResponse, Json};
-use scripps_workflow_conversation::tools::literature_context::{
+use ecaa_workflow_conversation::tools::literature_context::{
     read_literature_context, EntityKind, LiteratureContextError,
 };
 use serde::Deserialize;

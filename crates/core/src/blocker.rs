@@ -1,7 +1,7 @@
 //! Closed taxonomy of reasons a task or chat session can land in a
 //! Blocked state. Types live in `crates/ecaa-types/src/blocker.rs` (the
 //! canonical ECAA v0.1 binding) and are re-exported here so existing
-//! `scripps_workflow_core::blocker::*` consumers continue to compile
+//! `ecaa_workflow_core::blocker::*` consumers continue to compile
 //! unchanged.
 //!
 //! Helper functions that map the agent's free-form reason text into a
@@ -10,7 +10,7 @@
 //! compiler-side glue, not part of the wire-shape binding the spec
 //! crate ships.
 
-pub use scripps_workflow_ecaa_types::blocker::{
+pub use ecaa_workflow_types::blocker::{
     BlockerContext, BlockerEntry, BlockerKind, ExcludedPath, LiteratureClaimFailureKind,
     SandboxRefusalRecord, StallAction, StallSignalWire, ValidationFailureCause,
 };

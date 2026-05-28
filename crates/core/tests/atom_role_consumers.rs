@@ -3,8 +3,8 @@
 //! consumers branching on `default_behavior_class()` produce the
 //! same answers the old `starts_with` checks did.
 
-use scripps_workflow_core::atom::AtomRole;
-use scripps_workflow_core::taxonomy::derive_role_from_id;
+use ecaa_workflow_core::atom::AtomRole;
+use ecaa_workflow_core::taxonomy::derive_role_from_id;
 
 #[test]
 fn discover_prefix_maps_to_discovery_role() {

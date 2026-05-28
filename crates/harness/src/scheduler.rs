@@ -10,7 +10,7 @@
 //! No tokio here — the harness stays sync (see
 //! `memory:feedback_simplicity`).
 
-use scripps_workflow_core::dag::{ResourceClass, TaskId, TaskKind, TaskState, DAG};
+use ecaa_workflow_core::dag::{ResourceClass, TaskId, TaskKind, TaskState, DAG};
 
 /// Per-iteration semaphore budget. The earlier static
 /// `{cpu_heavy: 1}` becomes dynamic here — `pick_ready_respecting_budgets`
@@ -196,7 +196,7 @@ pub fn pick_ready_with_lanes(dag: &DAG, budget: LaneBudget) -> Vec<TaskId> {
     let mut picks: Vec<TaskId> = Vec::new();
 
     let is_validation =
-        |task: &scripps_workflow_core::dag::Task| matches!(task.kind, TaskKind::Validation);
+        |task: &ecaa_workflow_core::dag::Task| matches!(task.kind, TaskKind::Validation);
 
     // Pass 1: validators claim the validation lane (id-sorted).
     for (id, task) in dag.tasks.iter() {
@@ -490,7 +490,7 @@ pub fn count_concurrent_peers_by_class(dag: &DAG) -> std::collections::BTreeMap<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::dag::{Assignee, Task, TaskKind};
+    use ecaa_workflow_core::dag::{Assignee, Task, TaskKind};
     use std::collections::BTreeMap as BT;
 
     fn task(id: &str, state: TaskState, rc: ResourceClass) -> (TaskId, Task) {
@@ -523,7 +523,7 @@ mod tests {
         }
         DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "w".into(),
             current_task: None,
             tasks: t,

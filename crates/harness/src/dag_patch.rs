@@ -17,8 +17,8 @@
 //! harness is the only writer to `WORKFLOW.json`.
 
 use anyhow::{Context, Result};
-use scripps_workflow_core::blocker::BlockerKind;
-use scripps_workflow_core::dag::{BlockedRecord, TaskId, TaskState, DAG};
+use ecaa_workflow_core::blocker::BlockerKind;
+use ecaa_workflow_core::dag::{BlockedRecord, TaskId, TaskState, DAG};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -28,7 +28,7 @@ use crate::swfc_io::{read_capped, resolve_max_bytes};
 /// canonical version constant without constructing a patch should call this
 /// directly; the `#[serde(default)]` annotation on the field delegates here.
 pub fn state_patch_schema_version() -> semver::Version {
-    scripps_workflow_core::migration::current_state_patch_version()
+    ecaa_workflow_core::migration::current_state_patch_version()
 }
 
 fn default_state_patch_schema_version() -> semver::Version {
@@ -58,7 +58,7 @@ pub struct StatePatch {
     /// the canonical SemVer string.
     #[serde(
         default = "default_state_patch_schema_version",
-        with = "scripps_workflow_core::migration::schema_version_serde"
+        with = "ecaa_workflow_core::migration::schema_version_serde"
     )]
     pub schema_version: semver::Version,
     /// Optional sanity check: expected current status tag (e.g.
@@ -263,7 +263,7 @@ fn maybe_quarantine_malformed(
         return None;
     }
 
-    let ts = scripps_workflow_core::time_helpers::now_compact_filename();
+    let ts = ecaa_workflow_core::time_helpers::now_compact_filename();
     let rejected_name = format!("state.patch.json.rejected-{}", ts);
     let rejected_path = patch_path
         .parent()
@@ -567,7 +567,7 @@ fn write_last_agent_check_sidecar(patch_path: &Path, task_id: &str, note: Option
     let Some(dir) = patch_path.parent() else {
         return;
     };
-    let now = scripps_workflow_core::time_helpers::now_rfc3339();
+    let now = ecaa_workflow_core::time_helpers::now_rfc3339();
     let payload = serde_json::json!({
         "task_id": task_id,
         "checked_at": now,
@@ -605,7 +605,7 @@ fn touch_heartbeat_for(patch_path: &Path) {
         return;
     };
     let hb = dir.join(".heartbeat");
-    let now = scripps_workflow_core::time_helpers::now_rfc3339();
+    let now = ecaa_workflow_core::time_helpers::now_rfc3339();
     let _ = std::fs::write(&hb, now);
 }
 
@@ -632,7 +632,7 @@ fn is_agent_target(state: &TaskState) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::dag::{Assignee, BlockedRecord, ResourceClass, Task, TaskKind};
+    use ecaa_workflow_core::dag::{Assignee, BlockedRecord, ResourceClass, Task, TaskKind};
     use std::collections::BTreeMap;
 
     fn fixture_dag() -> DAG {
@@ -661,7 +661,7 @@ mod tests {
         );
         DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "w".into(),
             current_task: None,
             tasks: t,
@@ -1320,7 +1320,7 @@ mod tests {
         );
         DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "w".into(),
             current_task: None,
             tasks: t,

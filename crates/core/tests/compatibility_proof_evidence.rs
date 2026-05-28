@@ -6,13 +6,13 @@
 //! claim (E30): `CompatibilityProof.evidence` must be populated at
 //! construction time by the engine, not left empty in production.
 
-use scripps_workflow_core::compatibility::engine::{
+use ecaa_workflow_core::compatibility::engine::{
     AdapterPolicy, CompatibilityEngine, CompatibilityResult, DeterministicCompatibilityEngine,
     PlanningContext,
 };
-use scripps_workflow_core::workflow_contracts::edge::ProofEvidence;
-use scripps_workflow_core::workflow_contracts::port::PortContract;
-use scripps_workflow_core::workflow_contracts::semantic_type::SemanticType;
+use ecaa_workflow_core::workflow_contracts::edge::ProofEvidence;
+use ecaa_workflow_core::workflow_contracts::port::PortContract;
+use ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType;
 
 fn port(iri: &str) -> PortContract {
     PortContract {

@@ -15,10 +15,10 @@
 //! the prompt below 4096 tokens) fail loudly the next time an operator
 //! runs this target.
 
-use scripps_workflow_conversation::prompt::build_system_prompt;
-use scripps_workflow_conversation::session::Session;
-use scripps_workflow_conversation::tool_schemas::tool_schemas_for_state;
-use scripps_workflow_core::taxonomy::StageTaxonomy;
+use ecaa_workflow_conversation::prompt::build_system_prompt;
+use ecaa_workflow_conversation::session::Session;
+use ecaa_workflow_conversation::tool_schemas::tool_schemas_for_state;
+use ecaa_workflow_core::taxonomy::StageTaxonomy;
 
 const OPUS_47_MIN_TOKENS: u32 = 4096;
 const SONNET_46_MIN_TOKENS: u32 = 2048;
@@ -31,7 +31,7 @@ async fn measure_cacheable_prefix_tokens() {
         Some("1"),
         "SWFC_LIVE_API=1 required (this test hits the live Anthropic count_tokens endpoint)"
     );
-    let api_key = scripps_workflow_conversation::anthropic_api_key()
+    let api_key = ecaa_workflow_conversation::anthropic_api_key()
         .expect("SWFC_ANTHROPIC_API_KEY required (count_tokens is not billed but still needs auth). Legacy ANTHROPIC_API_KEY also accepted.");
 
     // Worst-case prefix shape: bio session with a loaded taxonomy.

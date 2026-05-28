@@ -6,7 +6,7 @@
 //! read. Each test in this file feeds one shape into one IR type's
 //! deserializer and asserts the resulting `schema_version` value.
 
-use scripps_workflow_core::workflow_contracts::workflow_intent::WorkflowIntent;
+use ecaa_workflow_core::workflow_contracts::workflow_intent::WorkflowIntent;
 use semver::Version;
 
 /// Legacy u32 → `<n>.0.0` SemVer.
@@ -57,7 +57,7 @@ fn workflow_intent_default_schema_version_matches_canonical_constant() {
     let intent = WorkflowIntent::default();
     assert_eq!(
         intent.schema_version,
-        scripps_workflow_core::migration::current_workflow_intent_version()
+        ecaa_workflow_core::migration::current_workflow_intent_version()
     );
 }
 
@@ -72,6 +72,6 @@ fn workflow_intent_missing_field_uses_default() {
         serde_json::from_str(without_version).expect("missing field deserializes");
     assert_eq!(
         intent.schema_version,
-        scripps_workflow_core::migration::current_workflow_intent_version()
+        ecaa_workflow_core::migration::current_workflow_intent_version()
     );
 }

@@ -21,10 +21,10 @@
 //! to the atac_seq_peaks goal pair and dispatch succeeds. Without
 //! the modality filter the dispatch errors with `GoalUnreachable`.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-use scripps_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::collections::BTreeMap;
 use std::path::Path;
 

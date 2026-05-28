@@ -2,7 +2,7 @@
 //!
 //! Spike 16.0.C showed that two harness processes can legitimately
 //! share a `session_id` (server-spawned dispatch + a manual CLI
-//! `cargo run -p scripps-workflow-harness -- --session-id...`).
+//! `cargo run -p ecaa-workflow-harness -- --session-id...`).
 //! Both then race on `WORKFLOW.json`, the dispatch WAL, and the
 //! AWS instance tags.
 //!
@@ -11,7 +11,7 @@
 //! second concurrent caller for the same id must fail; once the first
 //! is dropped, the third caller succeeds.
 
-use scripps_workflow_harness::multiprocess_lock::SessionLock;
+use ecaa_workflow_harness::multiprocess_lock::SessionLock;
 use std::sync::Mutex;
 
 // All tests mutate HOME + (in one case) SWFC_HARNESS_DEBUG_ALLOW_MULTI_PROCESS,

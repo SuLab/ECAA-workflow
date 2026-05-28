@@ -1,22 +1,22 @@
 [package]
-name = "scripps-workflow-server"
+name = "ecaa-workflow-server"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/SuLab/ECAA-workflow"
-description = "Axum HTTP + SSE chat / git-provenance backend for the scripps-workflow web UI."
+description = "Axum HTTP + SSE chat / git-provenance backend for the ecaa-workflow web UI."
 
 [lib]
-name = "scripps_workflow_server"
+name = "ecaa_workflow_server"
 path = "src/lib.rs"
 
 [[bin]]
-name = "scripps-workflow-server"
+name = "ecaa-workflow-server"
 path = "src/main.rs"
 
 [dependencies]
-scripps-workflow-core = { version = "0.1", path = "../core" }
-scripps-workflow-conversation = { version = "0.1", path = "../conversation" }
+ecaa-workflow-core = { version = "0.1", path = "../core" }
+ecaa-workflow-conversation = { version = "0.1", path = "../conversation" }
 axum = "0.7"
 tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6", features = ["cors", "fs", "limit", "timeout", "trace"] }

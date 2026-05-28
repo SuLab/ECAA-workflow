@@ -5,7 +5,7 @@
 //!  2. ts-rs binding presence: `ui/src/types/AgentCodeRecord.ts` must exist
 //!     after `make types` (or `TS_RS_EXPORT_DIR=… cargo test export_bindings`).
 
-use scripps_workflow_core::agent_code::AgentCodeRecord;
+use ecaa_workflow_core::agent_code::AgentCodeRecord;
 
 // ── 1. JSON round-trip ───────────────────────────────────────────────────────
 

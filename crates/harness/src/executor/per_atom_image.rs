@@ -28,7 +28,7 @@
 //! entry (one build, two envelope entries).
 
 use anyhow::{Context, Result};
-use scripps_workflow_core::runtime_prereqs::RuntimePrereqs;
+use ecaa_workflow_core::runtime_prereqs::RuntimePrereqs;
 use std::path::{Path, PathBuf};
 
 /// Resolve the per-atom build root from env or the default
@@ -86,7 +86,7 @@ pub fn warm_per_atom_image(package_dir: &Path, atom_id: &str) -> Result<Option<S
     if !manifest_path.exists() {
         return Ok(None);
     }
-    let raw = scripps_workflow_core::fs_helpers::read_to_string_ctx(&manifest_path)?;
+    let raw = ecaa_workflow_core::fs_helpers::read_to_string_ctx(&manifest_path)?;
     let prereqs: RuntimePrereqs = serde_json::from_str(&raw)
         .with_context(|| format!("parsing per-atom manifest at {}", manifest_path.display()))?;
     if !prereqs.is_buildable() {
@@ -95,7 +95,7 @@ pub fn warm_per_atom_image(package_dir: &Path, atom_id: &str) -> Result<Option<S
         return Ok(None);
     }
 
-    let hash = scripps_workflow_core::derived_image::content_hash_from_file(&manifest_path)
+    let hash = ecaa_workflow_core::derived_image::content_hash_from_file(&manifest_path)
         .with_context(|| format!("hashing per-atom manifest at {}", manifest_path.display()))?;
     let tag = format!("{}:{hash}", tag_prefix());
 
@@ -113,7 +113,7 @@ pub fn warm_per_atom_image(package_dir: &Path, atom_id: &str) -> Result<Option<S
             build_dir.display()
         )
     })?;
-    let dockerfile = scripps_workflow_core::derived_image::render_dockerfile(&prereqs)
+    let dockerfile = ecaa_workflow_core::derived_image::render_dockerfile(&prereqs)
         .context("rendering per-atom Dockerfile")?;
     std::fs::write(
         build_dir.join("runtime/derived-image.Dockerfile"),
@@ -213,7 +213,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::runtime_prereqs::{RuntimePrereqs, SystemPackages};
+    use ecaa_workflow_core::runtime_prereqs::{RuntimePrereqs, SystemPackages};
 
     // Shared with `local::tests`. Serializes tests that mutate the
     // per-atom-image env vars across both modules so parallel

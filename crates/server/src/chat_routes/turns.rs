@@ -53,7 +53,7 @@ pub async fn send_turn(
             if let Some(s) = app.conversation.get_session(session_id).await {
                 let now_emitted = matches!(
                     s.state,
-                    scripps_workflow_conversation::SessionState::Emitted
+                    ecaa_workflow_conversation::SessionState::Emitted
                 );
                 if now_emitted {
                     if let Some(pkg) = &s.emitted_package_path {
@@ -78,8 +78,8 @@ pub async fn send_turn(
                 // Emitted, no commit) or a non-emission turn.
                 let was_pre_emission = matches!(
                     pre_state,
-                    Some(scripps_workflow_conversation::SessionState::ReadyToEmit)
-                        | Some(scripps_workflow_conversation::SessionState::Emitting)
+                    Some(ecaa_workflow_conversation::SessionState::ReadyToEmit)
+                        | Some(ecaa_workflow_conversation::SessionState::Emitting)
                 );
                 if was_pre_emission && now_emitted {
                     if let Some(pkg) = s.emitted_package_path.clone() {
@@ -180,7 +180,7 @@ async fn confirm_inner(
                 };
                 let body = serde_json::json!({
                     "stage": stage_id,
-                    "confirmed_at": scripps_workflow_core::time_helpers::now_rfc3339(),
+                    "confirmed_at": ecaa_workflow_core::time_helpers::now_rfc3339(),
                     "rationale": rationale.clone(),
                 });
                 // Best-effort; a write failure surfaces
@@ -288,7 +288,7 @@ async fn confirm_inner(
                 if auto_emit.is_some()
                     && matches!(
                         s.state,
-                        scripps_workflow_conversation::SessionState::Emitted
+                        ecaa_workflow_conversation::SessionState::Emitted
                     )
                 {
                     if let Some(pkg) = &s.emitted_package_path {
@@ -430,7 +430,7 @@ pub async fn unblock(
                             // shape before re-running the stalled task.
                             let path = pkg.join("runtime").join("resize-request.json");
                             let body = serde_json::json!({
-                                "requested_at": scripps_workflow_core::time_helpers::now_rfc3339(),
+                                "requested_at": ecaa_workflow_core::time_helpers::now_rfc3339(),
                             });
                             if let Some(parent) = path.parent() {
                                 let _ = tokio::fs::create_dir_all(parent).await;
@@ -607,7 +607,7 @@ mod tests {
     };
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use scripps_workflow_conversation::{BatchableTool, Tool};
+    use ecaa_workflow_conversation::{BatchableTool, Tool};
     use tower::util::ServiceExt;
 
     struct EnvVarGuard {
@@ -826,7 +826,7 @@ mod tests {
         app.conversation
             .store_handle()
             .update(sid, |s| {
-                s.project_class = scripps_workflow_core::project_class::ProjectClass::ClinicalTrial;
+                s.project_class = ecaa_workflow_core::project_class::ProjectClass::ClinicalTrial;
                 Ok(())
             })
             .await
@@ -890,7 +890,7 @@ mod tests {
         let store = app.conversation.store_handle();
         store
             .update(id, |s| {
-                s.state = scripps_workflow_conversation::SessionState::Blocked {
+                s.state = ecaa_workflow_conversation::SessionState::Blocked {
                     blockers: vec![],
                     reason: "mock".into(),
                     recovery_hint: "unblock to resume".into(),
@@ -953,7 +953,7 @@ mod tests {
         let store = app.conversation.store_handle();
         store
             .update(id, |s| {
-                s.state = scripps_workflow_conversation::SessionState::Blocked {
+                s.state = ecaa_workflow_conversation::SessionState::Blocked {
                     blockers: vec![],
                     reason: "stalled".into(),
                     recovery_hint: "resize to resume".into(),
@@ -1023,7 +1023,7 @@ mod tests {
         let store = app.conversation.store_handle();
         store
             .update(id, |s| {
-                s.state = scripps_workflow_conversation::SessionState::Blocked {
+                s.state = ecaa_workflow_conversation::SessionState::Blocked {
                     blockers: vec![],
                     reason: "stalled".into(),
                     recovery_hint: "abort to stop retrying".into(),

@@ -15,11 +15,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use scripps_workflow_conversation::anthropic::client::{
+use ecaa_workflow_conversation::anthropic::client::{
     CONTEXT_MANAGEMENT_BETA, CONTEXT_MGMT_KEEP_TOOL_USES, CONTEXT_MGMT_TRIGGER_TOOL_USES,
 };
-use scripps_workflow_conversation::harness_batch::HARNESS_BATCH_MAX_EVENTS;
-use scripps_workflow_conversation::service::{
+use ecaa_workflow_conversation::harness_batch::HARNESS_BATCH_MAX_EVENTS;
+use ecaa_workflow_conversation::service::{
     greeting_turn, SOFT_LANDING_ITERATION, TOOL_LOOP_CAP, TOOL_PILL_THRESHOLD,
 };
 
@@ -349,7 +349,7 @@ fn container_env_vars_documented_in_claude_md() {
 #[test]
 #[ignore = "CLAUDE.md not in OSS repo"]
 fn claude_md_does_not_hard_code_tool_count_integer() {
-    use scripps_workflow_conversation::Tool;
+    use ecaa_workflow_conversation::Tool;
     let claude = read_to_string(&repo_root().join("CLAUDE.md"));
 
     // The forbidden literals — only these specific phrasings are

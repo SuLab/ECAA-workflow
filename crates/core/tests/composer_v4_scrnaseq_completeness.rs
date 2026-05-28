@@ -11,10 +11,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-use scripps_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::goal_spec::GoalSpec;
 
 const ATOMS_DIR: &str = "../../config/stage-atoms";
 const ARCHETYPES_DIR: &str = "../../config/archetypes";

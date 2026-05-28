@@ -1,6 +1,6 @@
 //! Integration tests for the audit-writer tamper-rejection contract.
 
-use scripps_workflow_core::audit_writer::{AuditError, AuditWriter};
+use ecaa_workflow_core::audit_writer::{AuditError, AuditWriter};
 
 #[test]
 fn agent_forged_row_rejected_at_read() {

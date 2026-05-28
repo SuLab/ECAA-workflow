@@ -1,5 +1,5 @@
 [package]
-name = "scripps-workflow-ecaa-types"
+name = "ecaa-workflow-types"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"

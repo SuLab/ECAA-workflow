@@ -15,8 +15,8 @@
 use crate::errors::{ToolError, ToolResult};
 use crate::prompt::CONFIRMATION_CARD_TOTAL_MAX_CHARS;
 use crate::session::Session;
-use scripps_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
-use scripps_workflow_core::plot_affordance::PlotAffordanceRegistry;
+use ecaa_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
+use ecaa_workflow_core::plot_affordance::PlotAffordanceRegistry;
 
 /// Reserved namespace prefixes that the SME's `target_semantic_type` must
 /// not use as the local-extension namespace (reserved for catalog-controlled
@@ -205,7 +205,7 @@ pub(super) fn propose_hypothesized_renderer(
 mod tests {
     use super::*;
     use crate::session::Session;
-    use scripps_workflow_core::plot_affordance::{PlotAffordanceRegistry, RegisteredAffordance};
+    use ecaa_workflow_core::plot_affordance::{PlotAffordanceRegistry, RegisteredAffordance};
 
     /// Minimal in-memory registry for unit tests.
     struct MockRegistry {

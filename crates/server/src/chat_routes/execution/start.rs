@@ -505,7 +505,7 @@ pub(crate) async fn maybe_auto_relaunch_harness(
     let package_dir = session.emitted_package_path.clone();
     let session_is_blocked = matches!(
         session.state,
-        scripps_workflow_conversation::SessionState::Blocked { .. }
+        ecaa_workflow_conversation::SessionState::Blocked { .. }
     );
 
     let (existing_started, existing_exited) = match app.executions.get(&session_id) {
@@ -612,7 +612,7 @@ pub(crate) async fn maybe_auto_relaunch_harness(
     // budget cap *and* the operator opted in to hard-stop semantics
     // via `SWFC_BUDGET_HARD_STOP=1`. Default is soft (warn-only +
     // confirm modal at UI layer).
-    if scripps_workflow_core::env_helpers::env_bool("SWFC_BUDGET_HARD_STOP") {
+    if ecaa_workflow_core::env_helpers::env_bool("SWFC_BUDGET_HARD_STOP") {
         if let Some(cap) = session.budget_usd {
             if let Some(metrics) = app.conversation.metrics_snapshot(session_id).await {
                 if metrics.projected_finish_usd > cap {
@@ -728,7 +728,7 @@ async fn spawn_harness_for_session_reserved(
     max_iterations: Option<u32>,
 ) -> Result<ExecutionHandle, SpawnHarnessError> {
     let harness_bin = std::env::var("SWFC_HARNESS_BIN_PATH")
-        .unwrap_or_else(|_| "scripps-workflow-harness".to_string());
+        .unwrap_or_else(|_| "ecaa-workflow-harness".to_string());
     // C-3: the agent path is hard-allowlisted to known
     // scripts under `SWFC_SCRIPTS_DIR`. The LLM tool no longer accepts
     // an override; the REST surface still does for CLI/test flexibility
@@ -747,7 +747,7 @@ async fn spawn_harness_for_session_reserved(
         }
     };
     let max_iter = max_iterations.unwrap_or_else(|| {
-        scripps_workflow_core::env_helpers::env_parse(
+        ecaa_workflow_core::env_helpers::env_parse(
             "SWFC_DEFAULT_MAX_ITERATIONS",
             DEFAULT_MAX_ITERATIONS,
         )
@@ -1012,7 +1012,7 @@ mod tests {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use chrono::{Duration, Utc};
-    use scripps_workflow_conversation::{BatchableTool, Tool};
+    use ecaa_workflow_conversation::{BatchableTool, Tool};
     use std::path::PathBuf;
     use tempfile::TempDir;
     use tower::util::ServiceExt;
@@ -1611,7 +1611,7 @@ mod tests {
             .store_handle()
             .update(id, move |s| {
                 s.emitted_package_path = Some(pkg_path.clone());
-                s.state = scripps_workflow_conversation::SessionState::Blocked {
+                s.state = ecaa_workflow_conversation::SessionState::Blocked {
                     blockers: vec![],
                     reason: "test blocker".into(),
                     recovery_hint: "click unblock".into(),

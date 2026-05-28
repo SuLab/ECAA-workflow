@@ -6,7 +6,7 @@
 //! atoms used downstream (long-read DTU emits `data:0951`),
 //! (d) truncation behavior with `max_results`.
 
-use scripps_workflow_conversation::{dispatch_one, Session, Tool, ToolContext};
+use ecaa_workflow_conversation::{dispatch_one, Session, Tool, ToolContext};
 use std::path::{Path, PathBuf};
 
 fn config_dir() -> PathBuf {

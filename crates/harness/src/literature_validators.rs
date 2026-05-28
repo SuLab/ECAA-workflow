@@ -1,6 +1,6 @@
 //! Phase C of the literature-atom plan — runner implementations for the five
 //! literature validator obligations registered in
-//! `scripps_workflow_core::validation_obligations::literature_obligations`.
+//! `ecaa_workflow_core::validation_obligations::literature_obligations`.
 //!
 //! Runners are pure functions over `(artifact_path, evidence_manifest_path)`
 //! that return Ok(()) on success or Err(ValidationFailureCause::LiteratureClaim)
@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use scripps_workflow_core::blocker::{LiteratureClaimFailureKind, ValidationFailureCause};
+use ecaa_workflow_core::blocker::{LiteratureClaimFailureKind, ValidationFailureCause};
 use serde::Deserialize;
 
 /// Canonical normalization applied to source text before substring-match.

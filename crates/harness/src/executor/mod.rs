@@ -33,7 +33,7 @@ pub mod sizing;
 // SLURM is research-tier; the module is gated behind the `slurm` cargo feature;
 // product builds compile
 // without it. Build the full surface via
-// `cargo build -p scripps-workflow-harness --features slurm` or
+// `cargo build -p ecaa-workflow-harness --features slurm` or
 // `cargo build --workspace --all-features`.
 #[cfg(feature = "slurm")]
 pub mod slurm;
@@ -41,11 +41,11 @@ pub mod spot_policy;
 pub mod stall_monitor;
 
 use anyhow::Result;
-use scripps_workflow_core::atom::{NetworkPolicy, SafetyLevel, SandboxRequirement};
-use scripps_workflow_core::blocker::BlockerKind;
-use scripps_workflow_core::container_state::ContainerProbeOutcome;
-use scripps_workflow_core::dag::{Task, DAG};
-use scripps_workflow_core::remediation::ExecutorOverrides;
+use ecaa_workflow_core::atom::{NetworkPolicy, SafetyLevel, SandboxRequirement};
+use ecaa_workflow_core::blocker::BlockerKind;
+use ecaa_workflow_core::container_state::ContainerProbeOutcome;
+use ecaa_workflow_core::dag::{Task, DAG};
+use ecaa_workflow_core::remediation::ExecutorOverrides;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::ExitStatus;
@@ -576,7 +576,7 @@ pub fn build(mode: &str, args: &ExecutorArgs) -> Result<Box<dyn Executor>> {
         "slurm" => anyhow::bail!(
             "SWFC_EXECUTOR_MODE=slurm requires the 'slurm' cargo feature \
              (research-tier per F16-3); rebuild the harness with \
-             `cargo build -p scripps-workflow-harness --features slurm` \
+             `cargo build -p ecaa-workflow-harness --features slurm` \
              or use SWFC_EXECUTOR_MODE=local|aws on a product build."
         ),
         #[cfg(feature = "dry-run")]
@@ -586,7 +586,7 @@ pub fn build(mode: &str, args: &ExecutorArgs) -> Result<Box<dyn Executor>> {
         #[cfg(not(feature = "dry-run"))]
         "mock" => anyhow::bail!(
             "SWFC_EXECUTOR_MODE=mock requires the 'dry-run' cargo feature; \
-             rebuild with `cargo build -p scripps-workflow-harness --features dry-run` \
+             rebuild with `cargo build -p ecaa-workflow-harness --features dry-run` \
              or use SWFC_EXECUTOR_MODE=local|aws|slurm."
         ),
         other => anyhow::bail!(
@@ -913,11 +913,11 @@ mod safety_tests {
     //! atom on a sandbox-capable executor (passes), and a Compute atom
     //! (passes unconditionally — no sandbox / network gate).
     use super::*;
-    use scripps_workflow_core::atom::{
+    use ecaa_workflow_core::atom::{
         CodeExecution, NetworkPolicy, ProvisioningPolicy, SafetyLevel, SafetyPolicy,
         SandboxRequirement,
     };
-    use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+    use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
 
     fn task_with_safety(level: SafetyLevel, sandbox: SandboxRequirement) -> Task {
         // Task has no constructor / `test_default` — build it via struct

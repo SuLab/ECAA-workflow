@@ -14,12 +14,12 @@
 //!
 //! See Task B.3 in the DAG 100-percent-closure design for the full spec.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::backend_emitters::{lower_to_workflow_json, EmitContext};
-use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-use scripps_workflow_core::dag::{DiscoveryKind, TaskKind};
-use scripps_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::backend_emitters::{lower_to_workflow_json, EmitContext};
+use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::dag::{DiscoveryKind, TaskKind};
+use ecaa_workflow_core::goal_spec::GoalSpec;
 
 #[test]
 fn v4_dag_emits_discover_companion_for_method_choice_atoms() {
@@ -148,8 +148,8 @@ fn synthesized_discover_companions_lower_to_best_practice_and_sme_review() {
     let dag = artifact.dag;
 
     let discover_tasks: Vec<(
-        &scripps_workflow_core::dag::TaskId,
-        &scripps_workflow_core::dag::Task,
+        &ecaa_workflow_core::dag::TaskId,
+        &ecaa_workflow_core::dag::Task,
     )> = dag
         .tasks
         .iter()

@@ -237,7 +237,7 @@ fn api_reference_response_shapes_match_wire_types() {
 /// remediation (update the wire type, then the doc).
 #[test]
 fn send_turn_request_field_is_message_not_text() {
-    use scripps_workflow_server::chat_routes::SendTurnRequest;
+    use ecaa_workflow_server::chat_routes::SendTurnRequest;
 
     // `message` (correct) — must deserialize.
     let good = r#"{ "message": "hi" }"#;

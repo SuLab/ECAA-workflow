@@ -17,9 +17,9 @@
 //!    `user_confirmed` through any tool, so the snapshot value is
 //!    always stale-or-equal and never authoritative.
 
-use scripps_workflow_conversation::persistence::SessionStore;
-use scripps_workflow_conversation::session::Session;
-use scripps_workflow_conversation::tools::ToolContext;
+use ecaa_workflow_conversation::persistence::SessionStore;
+use ecaa_workflow_conversation::session::Session;
+use ecaa_workflow_conversation::tools::ToolContext;
 use std::sync::Arc;
 
 /// `transaction` runs an async closure under the per-session lock and
@@ -74,7 +74,7 @@ async fn concurrent_transactions_on_same_session_serialize() {
             Box::pin(async move {
                 tokio::task::yield_now().await;
                 Arc::make_mut(&mut s.conversation)
-                    .push(scripps_workflow_conversation::session::Turn::user("a"));
+                    .push(ecaa_workflow_conversation::session::Turn::user("a"));
                 Ok(())
             })
         })
@@ -86,7 +86,7 @@ async fn concurrent_transactions_on_same_session_serialize() {
             Box::pin(async move {
                 tokio::task::yield_now().await;
                 Arc::make_mut(&mut s.conversation)
-                    .push(scripps_workflow_conversation::session::Turn::user("b"));
+                    .push(ecaa_workflow_conversation::session::Turn::user("b"));
                 Ok(())
             })
         })
@@ -132,7 +132,7 @@ async fn user_confirmed_reject_wins_over_stale_snapshot() {
     session.pending_emission_id = Some(uuid::Uuid::new_v4());
     let _ = session.mint_confirmation_token(
         chrono::Utc::now(),
-        scripps_workflow_conversation::audit_actor::AuditActor::User("test".into()),
+        ecaa_workflow_conversation::audit_actor::AuditActor::User("test".into()),
     );
     let id = session.id;
     store.save(&session).await.unwrap();

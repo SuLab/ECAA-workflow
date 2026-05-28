@@ -8,7 +8,7 @@
 //! HTTP server. Keeps the same shape as
 //! `progress_client::tests::set_task_state_posts_to_task_state_endpoint_with_expected_body`.
 
-use scripps_workflow_harness::progress_client::ProgressClient;
+use ecaa_workflow_harness::progress_client::ProgressClient;
 
 #[test]
 #[ignore = "env-var test races with sibling tests in parallel execution; passes with --test-threads=1"]

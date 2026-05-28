@@ -15,11 +15,11 @@
 //! `cross_platform_hashes_match_baseline` runs on every Tier F nightly
 //! matrix entry and fails on platform divergence.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer_v4::{plan, PlannerResult, PlanningContext};
-use scripps_workflow_core::goal_spec::GoalSpec;
-use scripps_workflow_core::workflow_contracts::{
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer_v4::{plan, PlannerResult, PlanningContext};
+use ecaa_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::workflow_contracts::{
     data_product::DataProductContract,
     workflow_intent::{DesiredOutput, WorkflowIntent},
 };
@@ -100,8 +100,8 @@ fn sha256_helper_is_deterministic() {
     let a = sha256(&"hello world");
     let b = sha256(&"hello world");
     assert_eq!(a, b);
-    let _: PlannerResult = scripps_workflow_core::composer_v4::PlannerResult {
-        primary: scripps_workflow_core::workflow_contracts::outcome::ComposeOutcome::PartialDag {
+    let _: PlannerResult = ecaa_workflow_core::composer_v4::PlannerResult {
+        primary: ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome::PartialDag {
             dag: Default::default(),
             unresolved_gaps: Vec::new(),
         },
@@ -227,7 +227,7 @@ fn emit_canonical_hashes(modalities: &[&str]) -> BTreeMap<String, String> {
 ///
 /// Invocation:
 /// ```bash
-/// cargo test -p scripps-workflow-core --test composer_v4_determinism \
+/// cargo test -p ecaa-workflow-core --test composer_v4_determinism \
 /// --ignored emit_baseline_hashes -- --nocapture
 /// ```
 #[test]
@@ -283,7 +283,7 @@ fn cross_platform_hashes_match_baseline() {
     let baseline_path = Path::new(BASELINE_PATH);
     assert!(
         baseline_path.exists(),
-        "baseline file missing at {}; regenerate via `cargo test -p scripps-workflow-core \
+        "baseline file missing at {}; regenerate via `cargo test -p ecaa-workflow-core \
          --test composer_v4_determinism --ignored emit_baseline_hashes -- --nocapture`",
         baseline_path.display()
     );

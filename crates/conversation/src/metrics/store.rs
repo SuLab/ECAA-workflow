@@ -19,7 +19,7 @@ use super::pricing;
 use super::session_metrics::SessionMetrics;
 use crate::model_policy::ModelId;
 use crate::session::SessionId;
-use scripps_workflow_core::cost::Cost;
+use ecaa_workflow_core::cost::Cost;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;

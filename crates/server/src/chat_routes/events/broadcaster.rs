@@ -127,8 +127,8 @@ pub(super) fn synthesize_missing_decision_json(package_root: &std::path::Path, d
 /// BlockerKind. The mock agent emits JSON-shaped detail so the UI gets
 /// a precise recovery affordance; production agents that emit plain
 /// strings fall through to DataShapeMismatch (the most common case).
-fn parse_harness_blocker_kind(detail: &str) -> scripps_workflow_core::blocker::BlockerKind {
-    use scripps_workflow_core::blocker::BlockerKind;
+fn parse_harness_blocker_kind(detail: &str) -> ecaa_workflow_core::blocker::BlockerKind {
+    use ecaa_workflow_core::blocker::BlockerKind;
     // Case 1 (legacy happy path): detail is a serialized BlockerKind
     // JSON — deserialize directly.
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(detail) {
@@ -155,7 +155,7 @@ fn parse_harness_blocker_kind(detail: &str) -> scripps_workflow_core::blocker::B
 /// agent-written `runtime/outputs/<task>/blocker.json` (the
 /// authoritative source of `blocker_kind` + structured decision
 /// points) and runs it through
-/// `scripps_workflow_core::blocker::parse_agent_blocker_kind` so the
+/// `ecaa_workflow_core::blocker::parse_agent_blocker_kind` so the
 /// UI gets a typed variant instead of the lossy `DataShapeMismatch`
 /// fallback that collapsed every `runtime_substitution` /
 /// `awaiting_sme_input` blocker to "The data doesn't match the
@@ -165,11 +165,11 @@ pub(super) fn parse_harness_blocker_kind_with_file(
     detail: &str,
     package_dir: Option<&std::path::Path>,
     task_id: &str,
-) -> scripps_workflow_core::blocker::BlockerKind {
-    use scripps_workflow_core::blocker::{
+) -> ecaa_workflow_core::blocker::BlockerKind {
+    use ecaa_workflow_core::blocker::{
         parse_agent_blocker_kind, parse_agent_blocker_kind_with_envelope, BlockerKind,
     };
-    use scripps_workflow_core::error_envelope::ToolErrorEnvelope;
+    use ecaa_workflow_core::error_envelope::ToolErrorEnvelope;
 
     // The TypedBlockers ablation (SWFC_ABLATE_TYPED_BLOCKERS) is
     // emit-only: suppression happens in

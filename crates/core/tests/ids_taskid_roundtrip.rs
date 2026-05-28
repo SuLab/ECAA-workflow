@@ -1,6 +1,6 @@
 //! Verifies TaskId round-trips through serde as a string.
 
-use scripps_workflow_core::ids::TaskId;
+use ecaa_workflow_core::ids::TaskId;
 
 #[test]
 fn taskid_serializes_as_bare_string() {

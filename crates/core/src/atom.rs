@@ -837,7 +837,7 @@ pub struct ContainerSpec {
 // `NetworkPolicy` lives in `crates/ecaa-types/src/atom.rs` so the
 // canonical `BlockerKind` binding can stand alone without pulling
 // the rest of this file. Re-exported below from the v0.1 spec crate.
-pub use scripps_workflow_ecaa_types::atom::NetworkPolicy;
+pub use ecaa_workflow_types::atom::NetworkPolicy;
 
 /// Typed `ContainerSpec.source` discriminator. `Image` is the historical
 /// default and matches the pre-S15.1 wire shape (atom YAMLs that only
@@ -949,7 +949,7 @@ pub enum CodeExecution {
 // `SandboxRequirement` lives in `crates/ecaa-types/src/atom.rs` so
 // the canonical `BlockerKind` binding can stand alone without pulling
 // the rest of this file. Re-exported below from the v0.1 spec crate.
-pub use scripps_workflow_ecaa_types::atom::SandboxRequirement;
+pub use ecaa_workflow_types::atom::SandboxRequirement;
 
 /// Runtime package-install policy.
 #[derive(

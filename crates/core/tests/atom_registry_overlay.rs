@@ -1,5 +1,5 @@
 //! Integration tests for
-//! [`scripps_workflow_core::atom_registry::AtomRegistry::with_promoted_overlay`].
+//! [`ecaa_workflow_core::atom_registry::AtomRegistry::with_promoted_overlay`].
 //!
 //! The overlay constructor stitches
 //! synthesized AtomDefinitions onto a base registry without mutating
@@ -19,8 +19,8 @@
 //! matching how `try_build_via_composer` invokes the constructor in
 //! production.
 
-use scripps_workflow_core::atom::{AtomAssignee, AtomDefinition, AtomRole};
-use scripps_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::atom::{AtomAssignee, AtomDefinition, AtomRole};
+use ecaa_workflow_core::atom_registry::AtomRegistry;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;

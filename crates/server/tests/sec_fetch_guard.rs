@@ -2,7 +2,7 @@ use axum::{
     body::Body,
     http::{Method, Request, StatusCode},
 };
-use scripps_workflow_server::sec_fetch::sec_fetch_guard;
+use ecaa_workflow_server::sec_fetch::sec_fetch_guard;
 use tower::ServiceExt;
 
 fn app() -> axum::Router {

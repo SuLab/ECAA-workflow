@@ -92,7 +92,7 @@ pub(crate) fn write_verification_sidecars(
             continue;
         }
         if let Some(report) =
-            scripps_workflow_core::claim_verifier::verify_task_with_context_emit_time(
+            ecaa_workflow_core::claim_verifier::verify_task_with_context_emit_time(
                 package_root,
                 task_id,
                 config_dir,

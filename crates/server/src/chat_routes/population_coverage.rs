@@ -24,9 +24,9 @@ use axum::{
     response::{IntoResponse, Json},
     Router,
 };
-use scripps_workflow_core::assumption_policy::AssumptionPolicyTable;
-use scripps_workflow_core::population_coverage::{PopulationCoverageStatement, PopulationWaiver};
-use scripps_workflow_core::workflow_contracts::policy_rule_id::PolicyRuleId;
+use ecaa_workflow_core::assumption_policy::AssumptionPolicyTable;
+use ecaa_workflow_core::population_coverage::{PopulationCoverageStatement, PopulationWaiver};
+use ecaa_workflow_core::workflow_contracts::policy_rule_id::PolicyRuleId;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use uuid::Uuid;
@@ -179,9 +179,9 @@ pub(super) async fn post_population_waiver(
     match store
         .update(session_id, move |s| {
             s.decisions
-                .push(scripps_workflow_core::decision_log::DecisionRecord::new(
+                .push(ecaa_workflow_core::decision_log::DecisionRecord::new(
                     session_id_str.clone(),
-                    scripps_workflow_core::decision_log::DecisionType::UserNote {
+                    ecaa_workflow_core::decision_log::DecisionType::UserNote {
                         task_id: format!("population_waiver:{workflow_id}").into(),
                         body: format!(
                             "Population-coverage waiver: workflow `{workflow_id}` signed \
@@ -193,7 +193,7 @@ pub(super) async fn post_population_waiver(
                         ),
                         author: waiver_for_record.waiving_authority.clone(),
                     },
-                    scripps_workflow_core::decision_log::DecisionActor::Sme,
+                    ecaa_workflow_core::decision_log::DecisionActor::Sme,
                     Some(waiver_for_record.rationale.clone()),
                 ));
             Ok(())

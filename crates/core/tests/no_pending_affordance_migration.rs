@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use scripps_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
 
 #[test]
 fn no_atom_carries_pending_affordance_migration() {

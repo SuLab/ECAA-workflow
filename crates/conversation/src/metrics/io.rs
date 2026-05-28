@@ -35,7 +35,7 @@ pub fn write_cost_ledger_row(
         + metrics.side_call_cost_usd;
     let row = serde_json::json!({
         "session_id": session_id.to_string(),
-        "emitted_at": scripps_workflow_core::time_helpers::now_rfc3339(),
+        "emitted_at": ecaa_workflow_core::time_helpers::now_rfc3339(),
         "chat_cost_usd": metrics.chat_cost_usd,
         "agent_cost_usd": metrics.agent_cost_usd,
         "scorer_cost_usd": metrics.scorer_cost_usd,

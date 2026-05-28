@@ -9,7 +9,7 @@
 use super::ChatAppState;
 use axum::extract::{Path, Query};
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use scripps_workflow_core::decision_substrate::VerifierDecision;
+use ecaa_workflow_core::decision_substrate::VerifierDecision;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -47,7 +47,7 @@ pub(super) async fn get_verifier_decisions(
         return empty();
     };
     let runtime_dir = pkg_root.join("runtime");
-    match scripps_workflow_conversation::emit::read_verifier_decisions(&runtime_dir) {
+    match ecaa_workflow_conversation::emit::read_verifier_decisions(&runtime_dir) {
         Ok(decisions) => {
             let offset = q.offset.unwrap_or(0).min(decisions.len());
             let raw_limit = q.limit.unwrap_or(DEFAULT_LIMIT);

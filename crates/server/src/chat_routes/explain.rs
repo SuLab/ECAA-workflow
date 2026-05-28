@@ -10,7 +10,7 @@
 use super::{ChatAppState, LlmRateBuckets};
 use axum::extract::Path;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use scripps_workflow_conversation::side_calls::explain as explain_side_call;
+use ecaa_workflow_conversation::side_calls::explain as explain_side_call;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

@@ -53,10 +53,10 @@ pub(super) async fn write_cross_version_diff(
         .await
         .unwrap_or_else(|_| serde_json::Value::Object(Default::default()));
     let diff_cfg =
-        scripps_workflow_core::cross_version_diff::CrossVersionConfig::from_policy(&policy_json);
+        ecaa_workflow_core::cross_version_diff::CrossVersionConfig::from_policy(&policy_json);
 
     // 3. Run the diff (sync, pure Rust).
-    let report = scripps_workflow_core::cross_version_diff::diff_packages(
+    let report = ecaa_workflow_core::cross_version_diff::diff_packages(
         &parent_path,
         output_dir,
         &diff_cfg,
@@ -114,15 +114,15 @@ pub(super) async fn write_cross_version_diff(
     let n_discordant: usize = report.tables.iter().map(|t| t.n_discordant).sum();
     session
         .decisions
-        .push(scripps_workflow_core::decision_log::DecisionRecord::new(
+        .push(ecaa_workflow_core::decision_log::DecisionRecord::new(
             session.id.to_string(),
-            scripps_workflow_core::decision_log::DecisionType::CrossVersionDiff {
+            ecaa_workflow_core::decision_log::DecisionType::CrossVersionDiff {
                 parent_package: report.parent_package.clone(),
                 child_package: report.child_package.clone(),
                 overall_concordance: report.overall_concordance,
                 n_discordant,
             },
-            scripps_workflow_core::decision_log::DecisionActor::Harness,
+            ecaa_workflow_core::decision_log::DecisionActor::Harness,
             None,
         ));
 

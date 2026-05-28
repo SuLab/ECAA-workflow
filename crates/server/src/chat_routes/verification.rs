@@ -307,12 +307,12 @@ pub async fn verify_task_endpoint(
         .store_handle()
         .update(session_id, move |s| {
             s.record_decision(
-                scripps_workflow_core::decision_log::DecisionType::ClaimVerification {
+                ecaa_workflow_core::decision_log::DecisionType::ClaimVerification {
                     task_id: claim_task_id.into(),
                     n_verified,
                     n_mismatch,
                 },
-                scripps_workflow_core::decision_log::DecisionActor::Harness,
+                ecaa_workflow_core::decision_log::DecisionActor::Harness,
                 None,
             );
             Ok(())
@@ -331,7 +331,7 @@ pub async fn verify_task_endpoint(
             .find(|v| {
                 matches!(
                     &v.status,
-                    scripps_workflow_core::claim_verifier::ClaimStatus::Mismatch { .. }
+                    ecaa_workflow_core::claim_verifier::ClaimStatus::Mismatch { .. }
                 )
             })
             .map(|v| v.claim.entity.clone())
@@ -340,7 +340,7 @@ pub async fn verify_task_endpoint(
             "{} claim mismatch(es) detected while verifying task {} (first: {})",
             verified.report.n_mismatch, task_id, first_mismatch
         );
-        let kind = scripps_workflow_core::blocker::BlockerKind::ValidationFailed {
+        let kind = ecaa_workflow_core::blocker::BlockerKind::ValidationFailed {
             check: format!("claim_verification:{}", task_id),
             message: detail.clone(),
             cause: None,

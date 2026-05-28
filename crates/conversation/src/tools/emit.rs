@@ -269,10 +269,10 @@ pub(super) async fn emit_package(
             // inside emit_with_conversation_log sees it next time (on the
             // amendment re-emit, the previous record is already on disk).
             session.record_decision(
-                scripps_workflow_core::decision_log::DecisionType::EmitPackage {
+                ecaa_workflow_core::decision_log::DecisionType::EmitPackage {
                     output_dir: out.to_string_lossy().to_string(),
                 },
-                scripps_workflow_core::decision_log::DecisionActor::Llm,
+                ecaa_workflow_core::decision_log::DecisionActor::Llm,
                 None,
             );
             ToolResult::ok(serde_json::json!({
@@ -304,7 +304,7 @@ mod output_dir_safety_tests {
 
     fn session_with_modality() -> Session {
         let mut s = Session::new(false);
-        s.classification = Some(scripps_workflow_core::classify::ClassificationResult {
+        s.classification = Some(ecaa_workflow_core::classify::ClassificationResult {
             modality: "bulk_rnaseq".into(),
             ..Default::default()
         });

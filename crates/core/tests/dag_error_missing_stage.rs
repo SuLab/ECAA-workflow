@@ -8,7 +8,7 @@
 //! variant's Display contract is also locked in so the blocker UI keeps
 //! rendering the same operator-visible string.
 
-use scripps_workflow_core::dag::DagError;
+use ecaa_workflow_core::dag::DagError;
 
 #[test]
 fn missing_stage_variant_matches_with_stage_id_payload() {

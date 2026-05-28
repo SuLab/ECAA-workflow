@@ -7,10 +7,10 @@
 //! (`cross_omics_rnaseq_atac_chip`) composes via `compose:`
 //! inheritance rather than inlining the three branches.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer::{compose_with_version_and_modalities, resolve_inheritance};
-use scripps_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer::{compose_with_version_and_modalities, resolve_inheritance};
+use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::path::PathBuf;
 
 fn config_root() -> PathBuf {

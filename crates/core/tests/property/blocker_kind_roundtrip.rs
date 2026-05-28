@@ -14,7 +14,7 @@
 //! the UI dispatch table.
 
 use proptest::prelude::*;
-use scripps_workflow_core::blocker::{BlockerKind, ExcludedPath, StallAction, StallSignalWire};
+use ecaa_workflow_core::blocker::{BlockerKind, ExcludedPath, StallAction, StallSignalWire};
 
 /// Strategy for `StallSignalWire` so the `Stalled` variant round-trips
 /// across all four sub-shapes.

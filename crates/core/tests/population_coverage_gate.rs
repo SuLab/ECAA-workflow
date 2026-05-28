@@ -14,14 +14,14 @@
 //! user's identity (framing constraint per v3 §11.X). A `PopulationWaiver`
 //! in any active bundle suppresses the refusal.
 
-use scripps_workflow_core::composer_v4::scoring::{ScoringTuple, ScoringValue};
-use scripps_workflow_core::composer_v4::PlanningContext;
-use scripps_workflow_core::policy_context::PolicyContext;
-use scripps_workflow_core::population_coverage::{CohortDescriptor, PopulationWaiver};
-use scripps_workflow_core::workflow_contracts::outcome::ComposeOutcome;
-use scripps_workflow_core::workflow_contracts::refusal_kind::RefusalKind;
-use scripps_workflow_core::workflow_contracts::task_node::WorkflowDag;
-use scripps_workflow_core::workflow_contracts::workflow_intent::WorkflowIntent;
+use ecaa_workflow_core::composer_v4::scoring::{ScoringTuple, ScoringValue};
+use ecaa_workflow_core::composer_v4::PlanningContext;
+use ecaa_workflow_core::policy_context::PolicyContext;
+use ecaa_workflow_core::population_coverage::{CohortDescriptor, PopulationWaiver};
+use ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome;
+use ecaa_workflow_core::workflow_contracts::refusal_kind::RefusalKind;
+use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
+use ecaa_workflow_core::workflow_contracts::workflow_intent::WorkflowIntent;
 
 /// Build a tmpdir + one coverage statement file inside it. Returns
 /// the dir and the workflow_id used in the file.
@@ -126,7 +126,7 @@ fn clinical_workflow_refuses_uncovered_cohort() {
     let ctx = build_ctx(dir.path().to_path_buf(), Some(uncovered_cohort()));
     let dag = dag_with_archetype("rnaseq-de-clinical");
     let policy = clinical_policy_context();
-    let outcome = scripps_workflow_core::composer_v4::planner::classify_outcome_with_policy(
+    let outcome = ecaa_workflow_core::composer_v4::planner::classify_outcome_with_policy(
         &dag,
         &neutral_score(),
         &policy,
@@ -160,7 +160,7 @@ fn clinical_workflow_admits_covered_cohort() {
     let ctx = build_ctx(dir.path().to_path_buf(), Some(covered_cohort()));
     let dag = dag_with_archetype("rnaseq-de-clinical");
     let policy = clinical_policy_context();
-    let outcome = scripps_workflow_core::composer_v4::planner::classify_outcome_with_policy(
+    let outcome = ecaa_workflow_core::composer_v4::planner::classify_outcome_with_policy(
         &dag,
         &neutral_score(),
         &policy,
@@ -170,7 +170,7 @@ fn clinical_workflow_admits_covered_cohort() {
         !matches!(
             outcome,
             ComposeOutcome::Refusal {
-                report: scripps_workflow_core::workflow_contracts::outcome::RefusalReport {
+                report: ecaa_workflow_core::workflow_contracts::outcome::RefusalReport {
                     kind: RefusalKind::PopulationOutOfCoverage { .. },
                     ..
                 }
@@ -198,7 +198,7 @@ fn waiver_overrides_refusal() {
     });
     let policy = PolicyContext::empty().with_bundle(clinical);
 
-    let outcome = scripps_workflow_core::composer_v4::planner::classify_outcome_with_policy(
+    let outcome = ecaa_workflow_core::composer_v4::planner::classify_outcome_with_policy(
         &dag,
         &neutral_score(),
         &policy,
@@ -208,7 +208,7 @@ fn waiver_overrides_refusal() {
         !matches!(
             outcome,
             ComposeOutcome::Refusal {
-                report: scripps_workflow_core::workflow_contracts::outcome::RefusalReport {
+                report: ecaa_workflow_core::workflow_contracts::outcome::RefusalReport {
                     kind: RefusalKind::PopulationOutOfCoverage { .. },
                     ..
                 }
@@ -227,7 +227,7 @@ fn non_clinical_session_skips_gate() {
     let ctx = build_ctx(dir.path().to_path_buf(), Some(uncovered_cohort()));
     let dag = dag_with_archetype("rnaseq-de-clinical");
     let policy = non_clinical_policy_context();
-    let outcome = scripps_workflow_core::composer_v4::planner::classify_outcome_with_policy(
+    let outcome = ecaa_workflow_core::composer_v4::planner::classify_outcome_with_policy(
         &dag,
         &neutral_score(),
         &policy,
@@ -237,7 +237,7 @@ fn non_clinical_session_skips_gate() {
         !matches!(
             outcome,
             ComposeOutcome::Refusal {
-                report: scripps_workflow_core::workflow_contracts::outcome::RefusalReport {
+                report: ecaa_workflow_core::workflow_contracts::outcome::RefusalReport {
                     kind: RefusalKind::PopulationOutOfCoverage { .. },
                     ..
                 }
@@ -255,7 +255,7 @@ fn unset_sample_cohort_skips_gate() {
     let ctx = build_ctx(dir.path().to_path_buf(), None);
     let dag = dag_with_archetype("rnaseq-de-clinical");
     let policy = clinical_policy_context();
-    let outcome = scripps_workflow_core::composer_v4::planner::classify_outcome_with_policy(
+    let outcome = ecaa_workflow_core::composer_v4::planner::classify_outcome_with_policy(
         &dag,
         &neutral_score(),
         &policy,
@@ -265,7 +265,7 @@ fn unset_sample_cohort_skips_gate() {
         !matches!(
             outcome,
             ComposeOutcome::Refusal {
-                report: scripps_workflow_core::workflow_contracts::outcome::RefusalReport {
+                report: ecaa_workflow_core::workflow_contracts::outcome::RefusalReport {
                     kind: RefusalKind::PopulationOutOfCoverage { .. },
                     ..
                 }
@@ -286,7 +286,7 @@ fn missing_coverage_file_short_circuits() {
     let ctx = build_ctx(dir.path().to_path_buf(), Some(uncovered_cohort()));
     let dag = dag_with_archetype("rnaseq-de-clinical");
     let policy = clinical_policy_context();
-    let outcome = scripps_workflow_core::composer_v4::planner::classify_outcome_with_policy(
+    let outcome = ecaa_workflow_core::composer_v4::planner::classify_outcome_with_policy(
         &dag,
         &neutral_score(),
         &policy,
@@ -296,7 +296,7 @@ fn missing_coverage_file_short_circuits() {
         !matches!(
             outcome,
             ComposeOutcome::Refusal {
-                report: scripps_workflow_core::workflow_contracts::outcome::RefusalReport {
+                report: ecaa_workflow_core::workflow_contracts::outcome::RefusalReport {
                     kind: RefusalKind::PopulationOutOfCoverage { .. },
                     ..
                 }
@@ -322,7 +322,7 @@ fn search_only_dag_has_no_archetype_id_and_skips_gate() {
         ..Default::default()
     };
     let policy = clinical_policy_context();
-    let outcome = scripps_workflow_core::composer_v4::planner::classify_outcome_with_policy(
+    let outcome = ecaa_workflow_core::composer_v4::planner::classify_outcome_with_policy(
         &dag,
         &neutral_score(),
         &policy,
@@ -332,7 +332,7 @@ fn search_only_dag_has_no_archetype_id_and_skips_gate() {
         !matches!(
             outcome,
             ComposeOutcome::Refusal {
-                report: scripps_workflow_core::workflow_contracts::outcome::RefusalReport {
+                report: ecaa_workflow_core::workflow_contracts::outcome::RefusalReport {
                     kind: RefusalKind::PopulationOutOfCoverage { .. },
                     ..
                 }
@@ -345,7 +345,7 @@ fn search_only_dag_has_no_archetype_id_and_skips_gate() {
 
 #[test]
 fn refusal_report_validates_with_unblock_paths() {
-    use scripps_workflow_core::workflow_contracts::outcome::RefusalReport;
+    use ecaa_workflow_core::workflow_contracts::outcome::RefusalReport;
     // The constructor must produce a report that passes F21 validation.
     let report = RefusalReport::population_out_of_coverage(
         "rnaseq-de-clinical",

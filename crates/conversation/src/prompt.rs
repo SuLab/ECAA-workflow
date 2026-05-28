@@ -1,7 +1,7 @@
 //! System prompt assembly with prompt-cache markers.
 
 use crate::session::Session;
-use scripps_workflow_core::project_class::ProjectClass;
+use ecaa_workflow_core::project_class::ProjectClass;
 
 /// Confirmation-card total character budget. The LLM is instructed in
 /// `prompt_role.txt` to keep `card_body` within this; the validator below
@@ -152,7 +152,7 @@ pub fn build_system_prompt(session: &Session) -> Vec<SystemPromptBlock> {
     blocks
 }
 
-fn format_taxonomy_info(tax: &scripps_workflow_core::taxonomy::StageTaxonomy) -> String {
+fn format_taxonomy_info(tax: &ecaa_workflow_core::taxonomy::StageTaxonomy) -> String {
     let mut out = String::from("LOADED TAXONOMY:\n");
     out.push_str(&format!("  id: {}\n", tax.id));
     out.push_str(&format!("  domain: {}\n", tax.domain));
@@ -182,7 +182,7 @@ fn format_taxonomy_info(tax: &scripps_workflow_core::taxonomy::StageTaxonomy) ->
 }
 
 fn slim_taxonomy_enabled() -> bool {
-    scripps_workflow_core::env_helpers::env_bool("SWFC_SLIM_TAXONOMY")
+    ecaa_workflow_core::env_helpers::env_bool("SWFC_SLIM_TAXONOMY")
 }
 
 fn format_session_state(session: &Session) -> String {
@@ -338,8 +338,8 @@ mod tests {
     /// `config/stage-taxonomies/single-cell.yaml`; the YAMLs are
     /// gone, so the test now constructs the minimal metadata shape
     /// the prompt-block path consumes.
-    fn synthetic_single_cell_taxonomy() -> scripps_workflow_core::taxonomy::StageTaxonomy {
-        scripps_workflow_core::taxonomy::StageTaxonomy {
+    fn synthetic_single_cell_taxonomy() -> ecaa_workflow_core::taxonomy::StageTaxonomy {
+        ecaa_workflow_core::taxonomy::StageTaxonomy {
             id: "single_cell".into(),
             domain: "computational biology".into(),
             description: "single-cell RNA-seq composition (synthesized for prompt tests)".into(),
@@ -355,8 +355,8 @@ mod tests {
         }
     }
 
-    fn synthetic_clinical_trial_taxonomy() -> scripps_workflow_core::taxonomy::StageTaxonomy {
-        scripps_workflow_core::taxonomy::StageTaxonomy {
+    fn synthetic_clinical_trial_taxonomy() -> ecaa_workflow_core::taxonomy::StageTaxonomy {
+        ecaa_workflow_core::taxonomy::StageTaxonomy {
             id: "clinical_trial".into(),
             domain: "clinical research".into(),
             description: "clinical trial analysis (synthesized for prompt tests)".into(),
@@ -418,7 +418,7 @@ mod tests {
         // stage id (no description), shrinking the taxonomy block.
         // Post-B4 the metadata holder carries no stages so the test
         // synthesizes a couple of `StageSpec`s explicitly.
-        use scripps_workflow_core::taxonomy::{DiscoveryRequirement, StageCardinality, StageSpec};
+        use ecaa_workflow_core::taxonomy::{DiscoveryRequirement, StageCardinality, StageSpec};
         let mut tax = synthetic_single_cell_taxonomy();
         tax.stages = vec![
             StageSpec {

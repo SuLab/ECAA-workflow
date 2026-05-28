@@ -4,7 +4,7 @@
 //! accessors / audit-trail ops belong here too.
 
 use super::Session;
-use scripps_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
+use ecaa_workflow_core::decision_log::{DecisionActor, DecisionRecord, DecisionType};
 
 impl Session {
     /// Append one decision record to the audit trail. Called by the

@@ -12,7 +12,7 @@
 //! `config/downstream-policy/best-practice-scoring-policy.json` so any
 //! future weight changes automatically propagate here.
 
-use scripps_workflow_core::composite_score::{
+use ecaa_workflow_core::composite_score::{
     compute_composite_score, AxisScores, CompositeScoreWeights,
 };
 use std::path::Path;

@@ -15,7 +15,7 @@
 
 use super::ChatAppState;
 use axum::{response::Json, Router};
-use scripps_workflow_core::llm_availability::LlmAvailability;
+use ecaa_workflow_core::llm_availability::LlmAvailability;
 
 /// Handler — pure env detection. No state needed; the `ChatAppState`
 /// generic is only kept for router-merge compatibility.

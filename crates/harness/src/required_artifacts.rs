@@ -1,7 +1,7 @@
 //! Required-artifact verification shared by the harness binary and tests.
 
 use anyhow::{anyhow, Context, Result};
-use scripps_workflow_core::dag::RequiredArtifact;
+use ecaa_workflow_core::dag::RequiredArtifact;
 use std::path::{Component, Path};
 
 /// Verify that every required artifact exists under

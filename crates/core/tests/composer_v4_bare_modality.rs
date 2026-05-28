@@ -12,10 +12,10 @@
 //! modality-only fallback in `try_archetype_seed` must engage and
 //! return the primary archetype for the requested modality.
 
-use scripps_workflow_core::archetype_registry::ArchetypeRegistry;
-use scripps_workflow_core::atom_registry::AtomRegistry;
-use scripps_workflow_core::composer::compose_with_version_and_modalities_full;
-use scripps_workflow_core::goal_spec::GoalSpec;
+use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::path::Path;
 
 fn workspace_config() -> (AtomRegistry, ArchetypeRegistry) {

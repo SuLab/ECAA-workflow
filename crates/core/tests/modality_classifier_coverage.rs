@@ -15,7 +15,7 @@
 //! The gate test `modality_test_coverage.rs` will fail if additional
 //! modalities later acquire zero coverage — add new entries here in that case.
 
-use scripps_workflow_core::classify::Classifier;
+use ecaa_workflow_core::classify::Classifier;
 use std::path::PathBuf;
 
 fn config_root() -> PathBuf {

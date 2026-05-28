@@ -126,7 +126,7 @@ pub(super) async fn auto_title(
     // pinned one via S6.9) so the auto-title surfaces as
     // `"<summary> — <archetype_id>"`.
     let archetype_id = session.archetype_snapshot.as_ref().map(|a| a.id.clone());
-    match scripps_workflow_conversation::side_calls::generate_session_title(
+    match ecaa_workflow_conversation::side_calls::generate_session_title(
         backend,
         metrics,
         session_id,
@@ -196,8 +196,8 @@ pub(super) fn auto_title_min_turns() -> Option<usize> {
     // to the env-var read directly. Routes that DO have ChatAppState
     // use `ChatAppState::auto_title_enabled` which prefers the test
     // override + falls back to `config.auto_title`.
-    scripps_workflow_core::env_helpers::env_bool("SWFC_AUTO_TITLE")
-        .then_some(scripps_workflow_conversation::side_calls::AUTO_TITLE_MIN_TURNS)
+    ecaa_workflow_core::env_helpers::env_bool("SWFC_AUTO_TITLE")
+        .then_some(ecaa_workflow_conversation::side_calls::AUTO_TITLE_MIN_TURNS)
 }
 
 /// Route inventory for the doc-as-contract gate +
@@ -280,7 +280,7 @@ mod tests {
         let store = app.conversation.store_handle();
         store
             .update(id, |s| {
-                use scripps_workflow_conversation::Turn;
+                use ecaa_workflow_conversation::Turn;
                 let mut turns: Vec<Turn> = Vec::new();
                 for i in 0..n {
                     if i % 2 == 0 {
@@ -292,7 +292,7 @@ mod tests {
                 s.conversation = std::sync::Arc::new(turns);
                 if with_classification {
                     s.classification =
-                        Some(scripps_workflow_core::classify::ClassificationResult {
+                        Some(ecaa_workflow_core::classify::ClassificationResult {
                             modality: "single_cell_rnaseq".into(),
                             taxonomy_path: String::new(),
                             domain: String::new(),

@@ -14,8 +14,8 @@
 use super::{BoundedJson, ChatAppState};
 use axum::extract::Path;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use scripps_workflow_core::decision_log::{DecisionActor, DecisionType};
-use scripps_workflow_core::lifecycle_adversarial::{AdjudicationQueueEntry, AdjudicationStatus};
+use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
+use ecaa_workflow_core::lifecycle_adversarial::{AdjudicationQueueEntry, AdjudicationStatus};
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -83,7 +83,7 @@ pub(super) async fn resolve(
                     entry.status = AdjudicationStatus::Resolved {
                         decided_by: decided_by.clone(),
                         decision: decision.clone(),
-                        decided_at: scripps_workflow_core::time_helpers::now_rfc3339(),
+                        decided_at: ecaa_workflow_core::time_helpers::now_rfc3339(),
                     };
                     let payload = serde_json::to_string(&entry.transition)
                         .unwrap_or_else(|_| String::from("{}"));

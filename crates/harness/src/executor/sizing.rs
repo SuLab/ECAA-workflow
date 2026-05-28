@@ -183,7 +183,7 @@ pub struct MethodOverride {
 
 /// Subset of `crates/core::intake_facts::IntakeFacts` the sizing layer
 /// actually reads. Kept as a separate struct so the harness doesn't
-/// cycle-depend on `scripps-workflow-core::intake_facts`'s ts-rs
+/// cycle-depend on `ecaa-workflow-core::intake_facts`'s ts-rs
 /// derivation when all we need are six scalar fields.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SizingIntakeFacts {
@@ -209,7 +209,7 @@ pub struct SizingIntakeFacts {
 impl ComputeProfiles {
     /// Load and deserialize `profiles.yaml` from `path`.
     pub fn load(path: &Path) -> Result<Self> {
-        scripps_workflow_core::fs_helpers::read_yaml(path)
+        ecaa_workflow_core::fs_helpers::read_yaml(path)
     }
 }
 
@@ -1008,8 +1008,8 @@ mod tests {
         // structured-capture card emits, then feed the four scaling
         // fields into the sizing layer and assert the high-water
         // calculation produces the expected shape.
-        use scripps_workflow_core::classify::{ClassificationResult, OrganismInfo};
-        use scripps_workflow_core::intake_facts::IntakeFacts;
+        use ecaa_workflow_core::classify::{ClassificationResult, OrganismInfo};
+        use ecaa_workflow_core::intake_facts::IntakeFacts;
         use std::collections::BTreeMap;
 
         let clf = ClassificationResult {

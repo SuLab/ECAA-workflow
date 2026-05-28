@@ -8,9 +8,9 @@
 //! CI path.
 
 #![allow(unreachable_pub)]
-use scripps_workflow_core::blocker::{BlockerKind, StallAction, StallSignalWire};
-use scripps_workflow_core::clock::{Clock, WallClock};
-use scripps_workflow_core::dag::TaskState;
+use ecaa_workflow_core::blocker::{BlockerKind, StallAction, StallSignalWire};
+use ecaa_workflow_core::clock::{Clock, WallClock};
+use ecaa_workflow_core::dag::TaskState;
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -23,7 +23,7 @@ use std::time::Duration;
 /// only the public lib surface — can pin the wire-format version they
 /// produce in their event fixtures.
 pub fn harness_progress_event_schema_version() -> semver::Version {
-    scripps_workflow_core::migration::current_harness_progress_event_version()
+    ecaa_workflow_core::migration::current_harness_progress_event_version()
 }
 
 fn default_harness_progress_event_schema_version() -> semver::Version {
@@ -32,7 +32,7 @@ fn default_harness_progress_event_schema_version() -> semver::Version {
 
 /// Current on-disk schema version for [`OrphanReapWire`].
 pub(crate) fn orphan_reap_wire_schema_version() -> semver::Version {
-    scripps_workflow_core::migration::current_orphan_reap_wire_version()
+    ecaa_workflow_core::migration::current_orphan_reap_wire_version()
 }
 
 fn default_orphan_reap_wire_schema_version() -> semver::Version {
@@ -122,7 +122,7 @@ pub struct HarnessProgressEvent {
     /// values and canonical SemVer strings; always writes canonical SemVer.
     #[serde(
         default = "default_harness_progress_event_schema_version",
-        with = "scripps_workflow_core::migration::schema_version_serde"
+        with = "ecaa_workflow_core::migration::schema_version_serde"
     )]
     pub schema_version: semver::Version,
     /// Event category string (e.g. "task_started", "task_completed", "heartbeat_stalled").
@@ -212,7 +212,7 @@ pub struct OrphanReapWire {
     /// payloads that predate this field deserializing as `0.1.0`.
     #[serde(
         default = "default_orphan_reap_wire_schema_version",
-        with = "scripps_workflow_core::migration::schema_version_serde"
+        with = "ecaa_workflow_core::migration::schema_version_serde"
     )]
     pub schema_version: semver::Version,
     /// Total candidates the reaper tried to terminate.
@@ -316,7 +316,7 @@ enum SenderJob {
     /// 17.2.3 task-state mirror endpoint.
     SetTaskState {
         task_id: String,
-        state: scripps_workflow_core::dag::TaskState,
+        state: ecaa_workflow_core::dag::TaskState,
     },
 }
 
@@ -673,7 +673,7 @@ impl ProgressClient {
         let runtime_dir = dir.join("runtime");
         let target = runtime_dir.join("harness-health.json");
         let body = serde_json::to_vec_pretty(snap).map_err(std::io::Error::other)?;
-        scripps_workflow_core::fs_helpers::atomic_write_bytes_sync(&target, &body)?;
+        ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&target, &body)?;
         Ok(())
     }
 

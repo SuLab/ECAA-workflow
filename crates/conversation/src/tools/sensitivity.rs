@@ -24,7 +24,7 @@ pub(super) fn select_sensitivity_winner(
     rationale: Option<&str>,
     config_dir: &std::path::Path,
 ) -> ToolResult {
-    use scripps_workflow_core::blocker::BlockerKind;
+    use ecaa_workflow_core::blocker::BlockerKind;
 
     // Precondition: session is Blocked with AwaitingSmeSelection, or
     // the resolved_blocker() helper surfaces one (for legacy sessions
@@ -112,12 +112,12 @@ pub(super) fn select_sensitivity_winner(
         .cloned()
         .collect();
     session.record_decision(
-        scripps_workflow_core::decision_log::DecisionType::SelectSensitivityWinner {
+        ecaa_workflow_core::decision_log::DecisionType::SelectSensitivityWinner {
             stage: stage.to_string(),
             winner: winner.to_string(),
             rejected_candidates,
         },
-        scripps_workflow_core::decision_log::DecisionActor::Llm,
+        ecaa_workflow_core::decision_log::DecisionActor::Llm,
         rationale.map(|s| s.to_string()),
     );
 

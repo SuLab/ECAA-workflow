@@ -17,9 +17,9 @@
 //! `swfc:contentOmittedFromExport: true`.
 
 use anyhow::{anyhow, bail, Context, Result};
-use scripps_workflow_core::ablation::AblationFlagExt;
-use scripps_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord;
-use scripps_workflow_core::provenance_tiers::{detect_phi_leak, ProvenanceTier};
+use ecaa_workflow_core::ablation::AblationFlagExt;
+use ecaa_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord;
+use ecaa_workflow_core::provenance_tiers::{detect_phi_leak, ProvenanceTier};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -166,7 +166,7 @@ fn register_literature_evidence(
                 "@type": ["File", "CreativeWork", "Dataset"],
                 "encodingFormat": "text/csv",
             });
-            if !scripps_workflow_core::ablation::AblationFlag::AmendmentProvenance.is_active() {
+            if !ecaa_workflow_core::ablation::AblationFlag::AmendmentProvenance.is_active() {
                 entry
                     .as_object_mut()
                     .expect("constructed as object literal above")
@@ -225,9 +225,9 @@ fn emit_ro_crate_inner(package_root: &Path, shareable: bool) -> Result<serde_jso
 /// variant. Matches the serde `rename_all = "snake_case"` tag attribute
 /// on `PlotAffordance`. Used to stamp figure entities in the RO-Crate graph.
 fn affordance_variant_tag(
-    affordance: &scripps_workflow_core::plot_affordance::PlotAffordance,
+    affordance: &ecaa_workflow_core::plot_affordance::PlotAffordance,
 ) -> &'static str {
-    use scripps_workflow_core::plot_affordance::PlotAffordance;
+    use ecaa_workflow_core::plot_affordance::PlotAffordance;
     match affordance {
         PlotAffordance::Registered { .. } => "registered",
         PlotAffordance::InheritedViaOntology { .. } => "inherited_via_ontology",

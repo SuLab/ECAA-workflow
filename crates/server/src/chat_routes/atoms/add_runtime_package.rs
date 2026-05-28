@@ -203,7 +203,7 @@ mod tests {
         // Side-effect 2: decision was recorded.
         let has_decision = session.decisions.iter().any(|r| matches!(
             &r.decision,
-            scripps_workflow_core::decision_log::DecisionType::RuntimePackageAdded { atom_id, package, registry }
+            ecaa_workflow_core::decision_log::DecisionType::RuntimePackageAdded { atom_id, package, registry }
                 if atom_id.as_str() == "align_reads" && package == "samtools" && registry == "apt"
         ));
         assert!(
@@ -253,7 +253,7 @@ mod tests {
             .filter(|r| {
                 matches!(
                     &r.decision,
-                    scripps_workflow_core::decision_log::DecisionType::RuntimePackageAdded { .. }
+                    ecaa_workflow_core::decision_log::DecisionType::RuntimePackageAdded { .. }
                 )
             })
             .count();
@@ -393,7 +393,7 @@ mod tests {
         std::fs::create_dir_all(pkg.join("policies")).unwrap();
         // Seed an existing manifest so we can prove the patch
         // merges rather than overwrites.
-        let mut existing = scripps_workflow_core::runtime_prereqs::RuntimePrereqs::new();
+        let mut existing = ecaa_workflow_core::runtime_prereqs::RuntimePrereqs::new();
         existing.system_packages.apt.insert("git".into());
         std::fs::write(
             pkg.join("policies").join("runtime-prereqs.json"),
@@ -424,7 +424,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::NO_CONTENT);
 
         let bytes = std::fs::read(pkg.join("policies").join("runtime-prereqs.json")).unwrap();
-        let patched: scripps_workflow_core::runtime_prereqs::RuntimePrereqs =
+        let patched: ecaa_workflow_core::runtime_prereqs::RuntimePrereqs =
             serde_json::from_slice(&bytes).unwrap();
         assert!(
             patched.system_packages.apt.contains("samtools"),

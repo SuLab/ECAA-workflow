@@ -9,8 +9,8 @@ use crate::executor::{
 };
 use crate::swfc_io::read_capped_default;
 use anyhow::Context;
-use scripps_workflow_core::blocker::BlockerKind;
-use scripps_workflow_core::dag::{validate_dag_typed, Task, TaskState, DAG};
+use ecaa_workflow_core::blocker::BlockerKind;
+use ecaa_workflow_core::dag::{validate_dag_typed, Task, TaskState, DAG};
 use std::path::Path;
 
 /// Process exit codes. Returned by `run` and exit-mapped by the caller.
@@ -213,11 +213,11 @@ fn blocker_variant_name(b: &BlockerKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::atom::{
+    use ecaa_workflow_core::atom::{
         NetworkPolicy, SafetyLevel, SafetyPolicy, SandboxRequirement,
     };
-    use scripps_workflow_core::dag::{Assignee, Task, TaskKind, TaskState, DAG};
-    use scripps_workflow_core::ids::TaskId;
+    use ecaa_workflow_core::dag::{Assignee, Task, TaskKind, TaskState, DAG};
+    use ecaa_workflow_core::ids::TaskId;
     use std::collections::BTreeMap;
     use std::fs::File;
     use std::io::Write;
@@ -244,7 +244,7 @@ mod tests {
     fn make_dag(tasks: BTreeMap<TaskId, Task>) -> DAG {
         DAG {
             version: "1.0".to_string(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "test-plan-only".to_string(),
             current_task: None,
             tasks,
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn clean_dag_returns_zero() {
-        use scripps_workflow_core::ids::TaskId;
+        use ecaa_workflow_core::ids::TaskId;
         let dir = tempfile::tempdir().unwrap();
         let mut tasks = BTreeMap::new();
         let task_a = empty_task();
@@ -280,7 +280,7 @@ mod tests {
 
     #[test]
     fn cyclic_dag_returns_two() {
-        use scripps_workflow_core::ids::TaskId;
+        use ecaa_workflow_core::ids::TaskId;
         let dir = tempfile::tempdir().unwrap();
         let mut tasks = BTreeMap::new();
         let mut a = empty_task();
@@ -298,7 +298,7 @@ mod tests {
 
     #[test]
     fn dangling_dep_returns_two() {
-        use scripps_workflow_core::ids::TaskId;
+        use ecaa_workflow_core::ids::TaskId;
         let dir = tempfile::tempdir().unwrap();
         let mut tasks = BTreeMap::new();
         let mut a = empty_task();
@@ -313,7 +313,7 @@ mod tests {
 
     #[test]
     fn safety_mismatch_returns_three() {
-        use scripps_workflow_core::ids::TaskId;
+        use ecaa_workflow_core::ids::TaskId;
         // Force LocalExecutor's sandbox capability to None so an Exec
         // atom requesting HardwareEnclave is guaranteed unsatisfiable
         // regardless of the host's bwrap presence.

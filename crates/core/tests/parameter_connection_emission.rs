@@ -5,15 +5,15 @@
 //! tests live elsewhere; this file covers the conformance-IRI check
 //! only.
 
-use scripps_workflow_core::classify::ClassificationResult;
-use scripps_workflow_core::dag::DAG;
-use scripps_workflow_core::ro_crate::build_metadata;
+use ecaa_workflow_core::classify::ClassificationResult;
+use ecaa_workflow_core::dag::DAG;
+use ecaa_workflow_core::ro_crate::build_metadata;
 use std::collections::BTreeMap;
 
 fn fixture_dag() -> DAG {
     DAG {
         version: "1.0.0".into(),
-        schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+        schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
         workflow_id: "test_wf".into(),
         current_task: None,
         tasks: BTreeMap::new(),
@@ -49,7 +49,7 @@ fn conforms_to_asserts_wrroc_v05() {
     let metadata = build_metadata(
         &dag,
         &fixture_classification(),
-        &scripps_workflow_core::clock::FrozenClock::default(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
     );
     let graph = metadata["@graph"]
         .as_array()

@@ -13,8 +13,8 @@ use super::stall_monitor::{
 use super::{Executor, ExecutorArgs, IterationCapture, IterationOutcome};
 use anyhow::{Context, Result};
 use parking_lot::Mutex;
-use scripps_workflow_core::dag::{Task, TaskState, DAG};
-use scripps_workflow_core::remediation::ExecutorOverrides;
+use ecaa_workflow_core::dag::{Task, TaskState, DAG};
+use ecaa_workflow_core::remediation::ExecutorOverrides;
 use std::collections::{BTreeMap, VecDeque};
 use std::path::Path;
 use std::sync::{mpsc, Arc};
@@ -281,8 +281,8 @@ fn maybe_wrap_with_bwrap(
     task_id: &str,
 ) -> Result<Option<std::process::Command>, crate::sandbox_enforcer::SandboxRunnerError> {
     use crate::sandbox_enforcer::{append_sandbox_run_record, BubblewrapRunner};
-    use scripps_workflow_core::workflow_contracts::implementation::Implementation;
-    use scripps_workflow_core::workflow_contracts::task_node::TaskNode;
+    use ecaa_workflow_core::workflow_contracts::implementation::Implementation;
+    use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
 
     // Build the runner (checks SWFC_LOCAL_SANDBOX and bwrap existence).
     let runner = match BubblewrapRunner::from_env(package.to_path_buf()) {
@@ -311,7 +311,7 @@ fn maybe_wrap_with_bwrap(
             return Ok(None);
         }
     };
-    let policy: scripps_workflow_core::sandbox_policy::SandboxPolicy =
+    let policy: ecaa_workflow_core::sandbox_policy::SandboxPolicy =
         match serde_json::from_slice(&policy_bytes) {
             Ok(p) => p,
             Err(e) => {
@@ -400,7 +400,7 @@ fn record_sandbox_run(package: &Path, task_id: &str, exit_code: Option<i32>) {
             return;
         }
     };
-    let policy: scripps_workflow_core::sandbox_policy::SandboxPolicy =
+    let policy: ecaa_workflow_core::sandbox_policy::SandboxPolicy =
         match serde_json::from_slice(&policy_bytes) {
             Ok(p) => p,
             Err(e) => {
@@ -523,7 +523,7 @@ impl LocalExecutor {
                 manifest_path.display()
             )
         })?;
-        let prereqs: scripps_workflow_core::runtime_prereqs::RuntimePrereqs =
+        let prereqs: ecaa_workflow_core::runtime_prereqs::RuntimePrereqs =
             serde_json::from_str(&raw).with_context(|| {
                 format!(
                     "parsing runtime-prereqs manifest at {}",
@@ -555,7 +555,7 @@ impl LocalExecutor {
         // computes. The in-memory `content_hash(&prereqs)` would hash
         // the compact serialization — different bytes, different
         // hash — and the cache hit in the script would never resolve.
-        let hash = scripps_workflow_core::derived_image::content_hash_from_file(&manifest_path)
+        let hash = ecaa_workflow_core::derived_image::content_hash_from_file(&manifest_path)
             .with_context(|| {
                 format!(
                     "hashing runtime-prereqs manifest at {}",
@@ -647,7 +647,7 @@ impl LocalExecutor {
 /// The warn fires at most once per process lifetime via `std::sync::Once`.
 /// Operators who explicitly set `SWFC_LOCAL_SANDBOX=off` bypass this
 /// function entirely and see no warning.
-fn detect_default_sandbox() -> scripps_workflow_core::atom::SandboxRequirement {
+fn detect_default_sandbox() -> ecaa_workflow_core::atom::SandboxRequirement {
     // One-shot warn so long-running harness loops don't spam logs.
     static WARN_ONCE: std::sync::Once = std::sync::Once::new();
 
@@ -658,7 +658,7 @@ fn detect_default_sandbox() -> scripps_workflow_core::atom::SandboxRequirement {
         .unwrap_or(false);
 
     if bwrap_found {
-        scripps_workflow_core::atom::SandboxRequirement::ProcessIsolation
+        ecaa_workflow_core::atom::SandboxRequirement::ProcessIsolation
     } else {
         WARN_ONCE.call_once(|| {
             tracing::warn!(
@@ -668,7 +668,7 @@ fn detect_default_sandbox() -> scripps_workflow_core::atom::SandboxRequirement {
                  SWFC_LOCAL_SANDBOX=off explicitly to suppress this warning."
             );
         });
-        scripps_workflow_core::atom::SandboxRequirement::None
+        ecaa_workflow_core::atom::SandboxRequirement::None
     }
 }
 
@@ -691,8 +691,8 @@ impl Executor for LocalExecutor {
         // unlikely in practice — but the match below still rejects loudly
         // via tracing::warn! so the regression isn't silent.
         let sandbox = match std::env::var("SWFC_LOCAL_SANDBOX").as_deref() {
-            Ok("bubblewrap") => scripps_workflow_core::atom::SandboxRequirement::ProcessIsolation,
-            Ok("off") | Ok("") => scripps_workflow_core::atom::SandboxRequirement::None,
+            Ok("bubblewrap") => ecaa_workflow_core::atom::SandboxRequirement::ProcessIsolation,
+            Ok("off") | Ok("") => ecaa_workflow_core::atom::SandboxRequirement::None,
             Ok(other) => {
                 tracing::warn!(
                     target: "local_sandbox",
@@ -701,14 +701,14 @@ impl Executor for LocalExecutor {
                      using SandboxRequirement::None (the build-time validator should have caught \
                      this — operator likely mutated the env mid-run)"
                 );
-                scripps_workflow_core::atom::SandboxRequirement::None
+                ecaa_workflow_core::atom::SandboxRequirement::None
             }
             // Unset: probe for bwrap and smart-default.
             Err(_) => detect_default_sandbox(),
         };
         super::ExecutorCapabilities {
             sandbox,
-            network: scripps_workflow_core::atom::NetworkPolicy::Bridge,
+            network: ecaa_workflow_core::atom::NetworkPolicy::Bridge,
             kind: "local",
         }
     }
@@ -795,7 +795,7 @@ impl Executor for LocalExecutor {
         // hits cost zero rebuild work, but per-dispatch caching also
         // avoids spawning a redundant subprocess.
         let package_dir = std::path::Path::new(&self.package).to_path_buf();
-        if scripps_workflow_core::derived_image::per_task_images_enabled() {
+        if ecaa_workflow_core::derived_image::per_task_images_enabled() {
             eprintln!(
                 "  ◇ SWFC_PER_TASK_IMAGES=1 — per-atom build path active \
                  (skipping session-wide union build)"
@@ -1224,7 +1224,7 @@ impl Executor for LocalExecutor {
             // agent shell. Refuse anything outside the canonical shape
             // so a hostile library_pins entry can't smuggle a shell
             // payload into the local agent env.
-            let Some(suffix) = scripps_workflow_core::env_validator::sanitize_lib_env_suffix(lib)
+            let Some(suffix) = ecaa_workflow_core::env_validator::sanitize_lib_env_suffix(lib)
             else {
                 tracing::warn!(
                     library = %lib,
@@ -1232,7 +1232,7 @@ impl Executor for LocalExecutor {
                 );
                 continue;
             };
-            if !scripps_workflow_core::env_validator::is_safe_env_value(ver) {
+            if !ecaa_workflow_core::env_validator::is_safe_env_value(ver) {
                 tracing::warn!(
                     library = %lib,
                     value = %ver,
@@ -1244,14 +1244,14 @@ impl Executor for LocalExecutor {
             env.insert(key, ver.clone());
         }
         for (k, v) in &ov.env_passthrough {
-            if !scripps_workflow_core::env_validator::is_valid_env_name(k) {
+            if !ecaa_workflow_core::env_validator::is_valid_env_name(k) {
                 tracing::warn!(
                     key = %k,
                     "rejecting invalid env_passthrough key in local env (C-8/C-9 hardening)"
                 );
                 continue;
             }
-            if !scripps_workflow_core::env_validator::is_safe_env_value(v) {
+            if !ecaa_workflow_core::env_validator::is_safe_env_value(v) {
                 tracing::warn!(
                     key = %k,
                     value = %v,
@@ -1305,7 +1305,7 @@ fn merge_stage_params(
     }
     let raw = serde_json::to_string_pretty(&serde_json::Value::Object(existing))
         .context("serialising merged params")?;
-    scripps_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, raw.as_bytes())
+    ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, raw.as_bytes())
         .context("atomic write params.json")?;
     Ok(())
 }
@@ -1746,7 +1746,7 @@ fn local_context() -> std::collections::BTreeMap<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::dag::{Assignee, BlockedRecord, ResourceClass, TaskKind};
+    use ecaa_workflow_core::dag::{Assignee, BlockedRecord, ResourceClass, TaskKind};
 
     fn args(timeout: u64) -> ExecutorArgs {
         ExecutorArgs {
@@ -1807,7 +1807,7 @@ mod tests {
         let mut e = LocalExecutor::new(&args(300));
         let dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "w".into(),
             current_task: None,
             tasks: std::collections::BTreeMap::new(),
@@ -1824,7 +1824,7 @@ mod tests {
 
     #[test]
     fn pilot_runs_and_writes_artifacts_with_echo_agent() {
-        use scripps_workflow_core::dag::{Assignee, ResourceClass, TaskKind};
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, TaskKind};
         use serde_json::json;
         let tmp = tempfile::tempdir().unwrap();
         let package = tmp.path().to_path_buf();
@@ -1885,7 +1885,7 @@ mod tests {
         );
         let dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "w".into(),
             current_task: None,
             tasks,
@@ -1930,7 +1930,7 @@ mod tests {
 
     #[test]
     fn apply_overrides_sets_memory_cap_env_and_pins() {
-        use scripps_workflow_core::remediation::{ExecutorOverrides, ResourceTarget};
+        use ecaa_workflow_core::remediation::{ExecutorOverrides, ResourceTarget};
 
         let tmp = tempfile::tempdir().unwrap();
         let mut e = LocalExecutor {
@@ -1974,7 +1974,7 @@ mod tests {
 
     #[test]
     fn drain_envelope_additions_returns_pending_then_clears() {
-        use scripps_workflow_core::remediation::{ExecutorOverrides, ResourceTarget};
+        use ecaa_workflow_core::remediation::{ExecutorOverrides, ResourceTarget};
         let tmp = tempfile::tempdir().unwrap();
         let mut e = LocalExecutor {
             task_timeout_secs: 300,
@@ -2005,7 +2005,7 @@ mod tests {
 
     #[test]
     fn apply_overrides_writes_stage_parameters_atomically() {
-        use scripps_workflow_core::remediation::ExecutorOverrides;
+        use ecaa_workflow_core::remediation::ExecutorOverrides;
 
         let tmp = tempfile::tempdir().unwrap();
         let mut e = LocalExecutor {
@@ -2368,7 +2368,7 @@ mod tests {
     use crate::executor::SWFC_PER_TASK_IMAGE_ENV_LOCK as PER_TASK_ENV_LOCK;
 
     fn write_atom_prereqs_manifest(package_dir: &Path, atom_id: &str, apt: &[&str]) {
-        use scripps_workflow_core::runtime_prereqs::{RuntimePrereqs, SystemPackages};
+        use ecaa_workflow_core::runtime_prereqs::{RuntimePrereqs, SystemPackages};
         let mut m = RuntimePrereqs::new();
         m.base_image = Some("ghcr.io/test/base:1".into());
         m.system_packages = SystemPackages {
@@ -2383,7 +2383,7 @@ mod tests {
     }
 
     fn make_task(source_atom_id: Option<&str>) -> Task {
-        use scripps_workflow_core::dag::{Assignee, ResourceClass, TaskKind};
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, TaskKind};
         Task {
             kind: TaskKind::Computation,
             state: TaskState::Ready,
@@ -2435,7 +2435,7 @@ mod tests {
         tasks.insert("task_no_manifest".into(), make_task(Some("atom_missing")));
         let dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "w".into(),
             current_task: None,
             tasks,
@@ -2520,7 +2520,7 @@ mod tests {
         tasks.insert("task_two".into(), make_task(Some("atom_shared")));
         let dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "w".into(),
             current_task: None,
             tasks,
@@ -2573,7 +2573,7 @@ mod tests {
         tasks.insert("task_x".into(), make_task(Some("atom_x")));
         let dag = DAG {
             version: "1".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "w".into(),
             current_task: None,
             tasks,

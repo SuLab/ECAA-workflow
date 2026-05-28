@@ -2,7 +2,7 @@
 //!
 //! `crates/core` is the deterministic, I/O-free compiler. Shelling out
 //! to `python3` (the original `runcrate validate` wrapper at
-//! `scripps-workflow-core::wrroc_validator::validate_packages`) violates
+//! `ecaa-workflow-core::wrroc_validator::validate_packages`) violates
 //! the "no I/O outside the emitter" invariant asserted by CLAUDE.md, so
 //! the subprocess impl now lives in
 //! `crates/harness/src/wrroc_validator_impl.rs` under the

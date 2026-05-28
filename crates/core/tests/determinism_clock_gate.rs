@@ -3,7 +3,7 @@
 //! migration happens in a downstream task); this test only verifies the
 //! Clock + deterministic_emit_time contract is intact.
 
-use scripps_workflow_core::clock::{deterministic_emit_time, Clock, FrozenClock, WallClock};
+use ecaa_workflow_core::clock::{deterministic_emit_time, Clock, FrozenClock, WallClock};
 
 #[test]
 fn frozen_clock_emit_path_is_deterministic_under_identical_hashes() {

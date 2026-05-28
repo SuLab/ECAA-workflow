@@ -78,8 +78,8 @@ pub(super) async fn post_propose_hypothesized_renderer(
         .unwrap_or_else(|_| PathBuf::from("config"));
     let plot_dir = config_dir.join("plot-affordances");
 
-    use scripps_workflow_core::plot_affordance::registry::PlotAffordanceRegistry;
-    use scripps_workflow_core::plot_affordance::YamlPlotAffordanceRegistry;
+    use ecaa_workflow_core::plot_affordance::registry::PlotAffordanceRegistry;
+    use ecaa_workflow_core::plot_affordance::YamlPlotAffordanceRegistry;
 
     let registry: Arc<dyn PlotAffordanceRegistry> =
         match YamlPlotAffordanceRegistry::from_dir(&plot_dir) {
@@ -103,7 +103,7 @@ pub(super) async fn post_propose_hypothesized_renderer(
 
     // outcome_cell carries the tool result out of the update closure.
     let outcome_cell: std::sync::Arc<
-        std::sync::Mutex<Option<scripps_workflow_conversation::ToolResult>>,
+        std::sync::Mutex<Option<ecaa_workflow_conversation::ToolResult>>,
     > = std::sync::Arc::new(std::sync::Mutex::new(None));
     let outcome_writer = outcome_cell.clone();
 
@@ -111,7 +111,7 @@ pub(super) async fn post_propose_hypothesized_renderer(
         .conversation
         .store_handle()
         .update(session_id, move |session| {
-            let result = scripps_workflow_conversation::tools::hypothesized_renderer_dispatch(
+            let result = ecaa_workflow_conversation::tools::hypothesized_renderer_dispatch(
                 session,
                 registry.as_ref(),
                 &target_semantic_type,
@@ -139,8 +139,8 @@ pub(super) async fn post_propose_hypothesized_renderer(
         .unwrap_or_else(|p| p.into_inner())
         .take()
         .unwrap_or_else(|| {
-            scripps_workflow_conversation::ToolResult::err(
-                scripps_workflow_conversation::ToolError::InternalError {
+            ecaa_workflow_conversation::ToolResult::err(
+                ecaa_workflow_conversation::ToolError::InternalError {
                     reason: "handler did not produce a result".into(),
                 },
             )

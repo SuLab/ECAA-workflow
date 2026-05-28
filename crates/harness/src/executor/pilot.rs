@@ -17,7 +17,7 @@
 use super::sizing::{ComputeProfiles, SizingIntakeFacts};
 use super::ResourceRequirements;
 use anyhow::{Context, Result};
-use scripps_workflow_core::dag::{TaskState, DAG};
+use ecaa_workflow_core::dag::{TaskState, DAG};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
@@ -232,8 +232,8 @@ pub fn select_pilot_tasks(
     facts: &SizingIntakeFacts,
     cfg: &PilotConfig,
 ) -> Vec<String> {
-    use scripps_workflow_core::ids::TaskId;
-    let mut ready: Vec<(&TaskId, &scripps_workflow_core::dag::Task)> = dag
+    use ecaa_workflow_core::ids::TaskId;
+    let mut ready: Vec<(&TaskId, &ecaa_workflow_core::dag::Task)> = dag
         .tasks
         .iter()
         .filter(|(_, t)| matches!(t.state, TaskState::Ready))
@@ -245,7 +245,7 @@ pub fn select_pilot_tasks(
         return ready
             .into_iter()
             .filter(|(id, _)| {
-                !scripps_workflow_core::taxonomy::derive_role_from_id(id.as_str()).is_discovery()
+                !ecaa_workflow_core::taxonomy::derive_role_from_id(id.as_str()).is_discovery()
             })
             .take(cfg.task_count)
             .map(|(id, _)| id.to_string())
@@ -352,7 +352,7 @@ pub fn project_requirements(
 /// Read a task's `stage_class` out of its spec JSON payload, matching
 /// the `aws.rs::task_stage_class` helper. Kept local so the pilot
 /// module doesn't depend on aws.rs internals.
-fn task_stage_class(task: &scripps_workflow_core::dag::Task) -> String {
+fn task_stage_class(task: &ecaa_workflow_core::dag::Task) -> String {
     task.spec
         .as_ref()
         .and_then(|s| s.get("stage_class"))
@@ -462,7 +462,7 @@ mod tests {
     // `mod tests` block.
     #![allow(unsafe_code)]
     use super::*;
-    use scripps_workflow_core::dag::{Assignee, ResourceClass, Task, TaskId, TaskKind};
+    use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskId, TaskKind};
     use serde_json::json;
     use std::collections::BTreeMap as BT;
 
@@ -496,7 +496,7 @@ mod tests {
         }
         DAG {
             version: "1.0".into(),
-            schema_version: scripps_workflow_core::dag::current_dag_schema_version(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
             workflow_id: "test".into(),
             current_task: None,
             tasks: t,

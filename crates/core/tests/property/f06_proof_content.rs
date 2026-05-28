@@ -17,8 +17,8 @@
 //! opaque-hash bucket id.
 
 use proptest::prelude::*;
-use scripps_workflow_core::compatibility::proof_builder::ontology_path_for_semantic_type;
-use scripps_workflow_core::workflow_contracts::semantic_type::{
+use ecaa_workflow_core::compatibility::proof_builder::ontology_path_for_semantic_type;
+use ecaa_workflow_core::workflow_contracts::semantic_type::{
     LocalExtensionMaturity, SemanticType,
 };
 

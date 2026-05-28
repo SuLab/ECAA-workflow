@@ -27,9 +27,9 @@ use axum::{
     response::IntoResponse,
     Json,
 };
-use scripps_workflow_conversation::SessionId;
-use scripps_workflow_core::error_envelope::ToolErrorEnvelope;
-use scripps_workflow_core::remediation::{
+use ecaa_workflow_conversation::SessionId;
+use ecaa_workflow_core::error_envelope::ToolErrorEnvelope;
+use ecaa_workflow_core::remediation::{
     ExecutorOverrides, RemediationKind, RemediationSuggestion, ToolBinding,
 };
 use serde::{Deserialize, Serialize};
@@ -166,13 +166,13 @@ pub(super) async fn get_remediation_suggestions(
         .and_then(|d| d.tasks.get(task_id.as_str()).cloned())
         .map(|t| t.description);
 
-    let ctx = scripps_workflow_conversation::side_calls::remediation_proposer::ProposerContext {
+    let ctx = ecaa_workflow_conversation::side_calls::remediation_proposer::ProposerContext {
         stage_description,
         intake_summary: None,
         prior_attempts,
     };
     let suggestions =
-        match scripps_workflow_conversation::side_calls::remediation_proposer::propose_remediations(
+        match ecaa_workflow_conversation::side_calls::remediation_proposer::propose_remediations(
             app.conversation.llm_for_scoring(),
             app.conversation.metrics(),
             session_id,
@@ -247,7 +247,7 @@ pub(super) async fn post_apply_remediation(
     };
 
     let mut overrides = read_overrides(&package_path, &task_id).unwrap_or_default();
-    let applied_at = scripps_workflow_core::time_helpers::now_rfc3339();
+    let applied_at = ecaa_workflow_core::time_helpers::now_rfc3339();
     let applied_by = "sme".to_string();
     if let Err(e) = overrides.merge(&suggestion, applied_at, applied_by) {
         return (
@@ -262,7 +262,7 @@ pub(super) async fn post_apply_remediation(
         // sbatch `--export=` invocations will quote into a shell-
         // interpolated command. Refuse newlines, commas, equals signs,
         // and NULs that could break the envelope shape.
-        if !scripps_workflow_core::env_validator::is_safe_env_value(reason) {
+        if !ecaa_workflow_core::env_validator::is_safe_env_value(reason) {
             return (
                 StatusCode::BAD_REQUEST,
                 "rationale contains characters unsafe for env_passthrough (newline / comma / equals / NUL)",
@@ -280,14 +280,14 @@ pub(super) async fn post_apply_remediation(
     // the SME a 400 with an actionable message instead of letting the
     // override write succeed and then silently no-op at dispatch.
     for (lib, ver) in &overrides.library_pins {
-        if scripps_workflow_core::env_validator::sanitize_lib_env_suffix(lib).is_none() {
+        if ecaa_workflow_core::env_validator::sanitize_lib_env_suffix(lib).is_none() {
             return (
                 StatusCode::BAD_REQUEST,
                 format!("library_pins key {lib:?} is not a valid library identifier (POSIX env-name rules apply after `-`/`.` → `_` normalization)"),
             )
                 .into_response();
         }
-        if !scripps_workflow_core::env_validator::is_safe_env_value(ver) {
+        if !ecaa_workflow_core::env_validator::is_safe_env_value(ver) {
             return (
                 StatusCode::BAD_REQUEST,
                 format!("library_pins value for {lib:?} contains characters unsafe for env passthrough (newline / comma / equals / NUL)"),
@@ -296,14 +296,14 @@ pub(super) async fn post_apply_remediation(
         }
     }
     for (k, v) in &overrides.env_passthrough {
-        if !scripps_workflow_core::env_validator::is_valid_env_name(k) {
+        if !ecaa_workflow_core::env_validator::is_valid_env_name(k) {
             return (
                 StatusCode::BAD_REQUEST,
                 format!("env_passthrough key {k:?} is not a valid POSIX env name"),
             )
                 .into_response();
         }
-        if !scripps_workflow_core::env_validator::is_safe_env_value(v) {
+        if !ecaa_workflow_core::env_validator::is_safe_env_value(v) {
             return (
                 StatusCode::BAD_REQUEST,
                 format!("env_passthrough value for {k:?} contains characters unsafe for env passthrough (newline / comma / equals / NUL)"),
@@ -531,7 +531,7 @@ fn write_overrides(
     super::_path_jail::assert_under_root(package, &path)
         .map_err(|e| anyhow::anyhow!("path escapes package root: {e}"))?;
     let raw = serde_json::to_string_pretty(overrides)?;
-    scripps_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, raw.as_bytes())?;
+    ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, raw.as_bytes())?;
     Ok(())
 }
 
@@ -585,7 +585,7 @@ pub(super) fn routes() -> axum::Router<ChatAppState> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::remediation::{
+    use ecaa_workflow_core::remediation::{
         RemediationKind, RemediationSuggestion, ResourceTarget, SuggestionConfidence, ToolBinding,
     };
 
@@ -681,7 +681,7 @@ mod tests {
                 stage_id: "x".into(),
                 from: "a".into(),
                 to: "b".into(),
-                switch_kind: scripps_workflow_core::remediation::MethodSwitchKind::Algorithm,
+                switch_kind: ecaa_workflow_core::remediation::MethodSwitchKind::Algorithm,
             },
             RemediationKind::PinLibraryVersion {
                 library: "x".into(),
@@ -698,7 +698,7 @@ mod tests {
                 field: "f".into(),
                 from: None,
                 to: "x".into(),
-                swap_kind: scripps_workflow_core::remediation::InputSwapKind::Reference,
+                swap_kind: ecaa_workflow_core::remediation::InputSwapKind::Reference,
             },
             RemediationKind::RerunUpstream {
                 producer_task_id: "p".into(),

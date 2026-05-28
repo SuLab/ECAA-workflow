@@ -2,7 +2,7 @@
 //!
 //! Called from `emit_with_conversation_log_tiered` (next to
 //! `write_phase16_sidecars`). Drains the process-wide substrate buffer
-//! exposed by `scripps_workflow_core::decision_substrate` and writes one
+//! exposed by `ecaa_workflow_core::decision_substrate` and writes one
 //! JSON object per line.
 //!
 //! Atomicity: write to `<filename>.tmp` then rename so a panic mid-write
@@ -10,7 +10,7 @@
 //! established by `audit_log::write_jsonl` for the conversation/
 //! decision logs.
 
-use scripps_workflow_core::decision_substrate::{drain, VerifierDecision};
+use ecaa_workflow_core::decision_substrate::{drain, VerifierDecision};
 use std::path::Path;
 
 /// Drain the substrate buffer and write one JSON line per decision to
@@ -87,7 +87,7 @@ pub fn read_verifier_decisions(runtime_dir: &Path) -> std::io::Result<Vec<Verifi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scripps_workflow_core::decision_substrate::{
+    use ecaa_workflow_core::decision_substrate::{
         record, IncompatibilityReason as SubstrateIncompatibility, VerifierDecision,
     };
     use std::sync::Mutex;
@@ -102,7 +102,7 @@ mod tests {
         let _guard = SUBSTRATE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         // Drain anything left from earlier tests so this test is
         // hermetic on the shared process-wide buffer.
-        let _ = scripps_workflow_core::decision_substrate::drain();
+        let _ = ecaa_workflow_core::decision_substrate::drain();
         record(VerifierDecision::UnificationAttempted {
             id: "u1".into(),
             timestamp: "0".into(),
@@ -140,7 +140,7 @@ mod tests {
     #[test]
     fn empty_buffer_writes_zero_byte_file() {
         let _guard = SUBSTRATE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
-        let _ = scripps_workflow_core::decision_substrate::drain();
+        let _ = ecaa_workflow_core::decision_substrate::drain();
         let dir = tempfile::tempdir().unwrap();
         let n = write_verifier_decisions(dir.path()).unwrap();
         assert_eq!(n, 0);

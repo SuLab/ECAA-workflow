@@ -16,7 +16,7 @@
 //! asserts only that this file fails to compile — F23's invariant
 //! is preserved regardless of which arm fires.
 
-use scripps_workflow_core::compile_time_discipline::reference_genome::{AlignedReads, GRCh38};
+use ecaa_workflow_core::compile_time_discipline::reference_genome::{AlignedReads, GRCh38};
 use serde::Serialize;
 
 #[derive(Serialize)]

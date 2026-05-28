@@ -9,8 +9,8 @@ use super::super::sizing::{compute_high_water, merge_resource_requirements_max, 
 use super::sizing::{load_aws_facts, load_aws_profiles, task_stage_class};
 use super::{AwsExecutor, ProvisionedInstance};
 use anyhow::{anyhow, Context, Result};
-use scripps_workflow_core::dag::DAG;
-use scripps_workflow_core::remediation::ResourceTarget;
+use ecaa_workflow_core::dag::DAG;
+use ecaa_workflow_core::remediation::ResourceTarget;
 use std::path::Path;
 use std::sync::Once;
 use std::time::Duration;
@@ -346,10 +346,10 @@ impl AwsExecutor {
         // a permissive SG.
         let net_floor = super::required_network_floor(dag);
         let (sg_id, effective_net) = match (&net_floor, &self.config.restricted_security_group) {
-            (scripps_workflow_core::atom::NetworkPolicy::None { .. }, Some(restricted_sg)) => {
+            (ecaa_workflow_core::atom::NetworkPolicy::None { .. }, Some(restricted_sg)) => {
                 (restricted_sg.clone(), net_floor.clone())
             }
-            (scripps_workflow_core::atom::NetworkPolicy::None { .. }, None) => {
+            (ecaa_workflow_core::atom::NetworkPolicy::None { .. }, None) => {
                 tracing::warn!(
                     "SWFC_AWS_RESTRICTED_SG_ID is unset but DAG carries a task with \
                      safety.network=None; falling back to permissive SG. Affected tasks \
@@ -357,12 +357,12 @@ impl AwsExecutor {
                 );
                 (
                     self.config.security_group.clone(),
-                    scripps_workflow_core::atom::NetworkPolicy::Bridge,
+                    ecaa_workflow_core::atom::NetworkPolicy::Bridge,
                 )
             }
             _ => (
                 self.config.security_group.clone(),
-                scripps_workflow_core::atom::NetworkPolicy::Bridge,
+                ecaa_workflow_core::atom::NetworkPolicy::Bridge,
             ),
         };
         if let Ok(mut g) = self.effective_network.lock() {
@@ -403,7 +403,7 @@ impl AwsExecutor {
                         .map(|s| format!(",{{Key=ScrippsWorkflowHarnessSessionId,Value={}}}", s))
                         .unwrap_or_default();
                     format!(
-                        "ResourceType=instance,Tags=[{{Key=BuiltBy,Value=scripps-workflow-harness}},{{Key=WorkspaceSha,Value={}}}{}]",
+                        "ResourceType=instance,Tags=[{{Key=BuiltBy,Value=ecaa-workflow-harness}},{{Key=WorkspaceSha,Value={}}}{}]",
                         self.config.workspace_sha, sid_tag
                     )
                 },

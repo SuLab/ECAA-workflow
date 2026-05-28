@@ -10,17 +10,17 @@
 //! assumptions from the artifact's JSONL strings; this test pins
 //! that contract.
 
-use scripps_workflow_core::backend_emitters::{
+use ecaa_workflow_core::backend_emitters::{
     lower_to_workflow_json, workflow_dag_from_artifact, EmitContext,
 };
-use scripps_workflow_core::workflow_contracts::edge::{
+use ecaa_workflow_core::workflow_contracts::edge::{
     CompatibilityProof, EdgeContract, FacetMatch, FacetMatchKind, ProofEvidence,
 };
-use scripps_workflow_core::workflow_contracts::evidence::{
+use ecaa_workflow_core::workflow_contracts::evidence::{
     Assumption, AssumptionLedger, AssumptionResolution, AssumptionSource, RiskClass,
 };
-use scripps_workflow_core::workflow_contracts::implementation::{Implementation, OciImageRef};
-use scripps_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+use ecaa_workflow_core::workflow_contracts::implementation::{Implementation, OciImageRef};
+use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
 fn align_node() -> TaskNode {
     let mut n = TaskNode::skeleton("align_reads", "Align reads to GRCh38");

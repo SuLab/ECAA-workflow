@@ -114,7 +114,7 @@ pub struct RendererProposal {
 /// reads are handled by `crate::migration::schema_version_serde` on
 /// the `Session::schema_version` field.
 fn default_schema_version() -> semver::Version {
-    scripps_workflow_core::migration::current_session_version()
+    ecaa_workflow_core::migration::current_session_version()
 }
 
 /// Server-side audit of which stages the SME has
@@ -197,13 +197,13 @@ where
     }
 }
 
-use scripps_workflow_core::blocker::{BlockerContext, BlockerEntry, BlockerKind};
-use scripps_workflow_core::classify::ClassificationResult;
-use scripps_workflow_core::dag::DAG;
-use scripps_workflow_core::decision_log::DecisionRecord;
-use scripps_workflow_core::hypothesized_proposal::{HypothesizedProposal, ProposalId};
-use scripps_workflow_core::lifecycle_adversarial::AdjudicationQueueEntry;
-use scripps_workflow_core::taxonomy::StageTaxonomy;
+use ecaa_workflow_core::blocker::{BlockerContext, BlockerEntry, BlockerKind};
+use ecaa_workflow_core::classify::ClassificationResult;
+use ecaa_workflow_core::dag::DAG;
+use ecaa_workflow_core::decision_log::DecisionRecord;
+use ecaa_workflow_core::hypothesized_proposal::{HypothesizedProposal, ProposalId};
+use ecaa_workflow_core::lifecycle_adversarial::AdjudicationQueueEntry;
+use ecaa_workflow_core::taxonomy::StageTaxonomy;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -231,7 +231,7 @@ pub struct Session {
     /// `Session::new`.
     #[serde(
         default = "default_schema_version",
-        with = "scripps_workflow_core::migration::schema_version_serde"
+        with = "ecaa_workflow_core::migration::schema_version_serde"
     )]
     #[ts(type = "string")]
     #[schemars(with = "String")]
@@ -333,18 +333,18 @@ pub struct Session {
     #[serde(default)]
     #[ts(skip)]
     pub workflow_intent:
-        Option<scripps_workflow_core::workflow_contracts::workflow_intent::WorkflowIntent>,
+        Option<ecaa_workflow_core::workflow_contracts::workflow_intent::WorkflowIntent>,
     /// Populated once the classifier has run. Defaults to
     /// `Bioinformatics` so sessions persisted before this field
     /// existed load unchanged. The LLM reads this via
     /// `get_session_state`; it does not author it.
     #[serde(default)]
-    pub project_class: scripps_workflow_core::project_class::ProjectClass,
+    pub project_class: ecaa_workflow_core::project_class::ProjectClass,
     /// Session-level confirmatory/exploratory discipline. Locked at
     /// first `POST /confirm`. Defaults to `Exploratory` so sessions
     /// persisted before this field existed load unchanged.
     #[serde(default)]
-    pub mode: scripps_workflow_core::session_mode::SessionMode,
+    pub mode: ecaa_workflow_core::session_mode::SessionMode,
     /// True once `POST /confirm` has fired, which locks `mode` for the
     /// remainder of the session.
     #[serde(default)]
@@ -352,7 +352,7 @@ pub struct Session {
     /// Project-level checkpoint discipline. Defaults to `Gated` so
     /// sessions persisted before this field existed load unchanged.
     #[serde(default)]
-    pub checkpoint_mode: scripps_workflow_core::checkpoint_mode::CheckpointMode,
+    pub checkpoint_mode: ecaa_workflow_core::checkpoint_mode::CheckpointMode,
     /// Memoization cache for the v4 `workflow_dag` lowered to legacy
     /// `DAG`. Authority is `workflow_dag` + `task_states`. Readers MUST
     /// use [`Session::current_dag`] / [`Session::ensure_dag_cached`];
@@ -366,7 +366,7 @@ pub struct Session {
     /// Blocked here; `current_dag()` overlays onto the lowered DAG.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     #[ts(skip)]
-    pub task_states: std::collections::BTreeMap<String, scripps_workflow_core::dag::TaskState>,
+    pub task_states: std::collections::BTreeMap<String, ecaa_workflow_core::dag::TaskState>,
     /// Per-emit confirmation latch. `None` means the SME has NOT
     /// approved the current plan shape (or never has). `Some(token)`
     /// binds the SME's `/confirm` click to a specific
@@ -539,26 +539,26 @@ pub struct Session {
     /// is `None` (legacy sessions or pre-v4 emit history).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(skip)]
-    pub workflow_dag: Option<scripps_workflow_core::workflow_contracts::task_node::WorkflowDag>,
+    pub workflow_dag: Option<ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag>,
     /// Cached v4 typed compose outcome
     /// (`ValidatedExecutableDag` / `DraftDag` / `PartialDag` /
     /// `NovelNodeSpec` / `Refusal`). See `workflow_dag` above for
     /// persistence rationale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(skip)]
-    pub compose_outcome: Option<scripps_workflow_core::workflow_contracts::outcome::ComposeOutcome>,
+    pub compose_outcome: Option<ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome>,
     /// Top-K ranked alternatives from the v4 planner.
     /// Empty for v1/v2/v3 sessions and v4 sessions with only one
     /// composition produced.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(skip)]
-    pub ranked_alternatives: Vec<scripps_workflow_core::composer_v4::RankedAlternative>,
+    pub ranked_alternatives: Vec<ecaa_workflow_core::composer_v4::RankedAlternative>,
     /// Recorded per-node policy decisions from the v4
     /// planner's policy gate. Empty for non-v4 sessions and v4
     /// sessions with no active policy bundle.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     #[ts(skip)]
-    pub policy_decisions: Vec<scripps_workflow_core::composer::PolicyDecisionRecord>,
+    pub policy_decisions: Vec<ecaa_workflow_core::composer::PolicyDecisionRecord>,
     /// Active policy bundle id for this session.
     /// `None` = no policy enforcement; v4 composition runs the
     /// per-node policy gate against the matching bundle when set.
@@ -608,7 +608,7 @@ pub struct Session {
     /// summary from `composer_decision` records instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(skip)]
-    pub archetype_snapshot: Option<scripps_workflow_core::archetype::ArchetypeDefinition>,
+    pub archetype_snapshot: Option<ecaa_workflow_core::archetype::ArchetypeDefinition>,
     /// Flexible plotting upgrade plan session-scoped registry of
     /// renderer proposals created by `propose_hypothesized_renderer`. Keyed
     /// by `proposal_id`. Persisted via `#[serde(default)]` so existing
@@ -658,7 +658,7 @@ pub struct Session {
     #[serde(skip)]
     #[ts(skip)]
     pub affordance_fallback_counter:
-        scripps_workflow_core::plot_affordance::AffordanceFallbackCounter,
+        ecaa_workflow_core::plot_affordance::AffordanceFallbackCounter,
     /// V3 session-scoped adjudication queue for the six
     /// non-monotonic lifecycle edges from design §7. Populated by
     /// `tools::rebuild_dag` when a non-monotonic lifecycle edge fires.
@@ -1116,7 +1116,7 @@ pub struct ConfirmationCard {
     /// Accept. None for legacy / non-composer paths.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
-    pub resource_estimate: Option<scripps_workflow_core::composer::ResourceEstimate>,
+    pub resource_estimate: Option<ecaa_workflow_core::composer::ResourceEstimate>,
 }
 
 /// Progress event posted by the harness to the server's `/progress` endpoint.

@@ -17,7 +17,7 @@
 //! `diff_packages` and checks the invariants.
 
 use proptest::prelude::*;
-use scripps_workflow_core::cross_version_diff::{
+use ecaa_workflow_core::cross_version_diff::{
     diff_packages, CrossVersionConfig, RowClassification, TableDiffConfig,
 };
 use std::path::Path;

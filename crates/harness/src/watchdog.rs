@@ -27,8 +27,8 @@ use crate::constants::{
 use crate::dispatch_wal::{read_dispatches, DispatchRecord};
 use anyhow::Result;
 use chrono::DateTime;
-use scripps_workflow_core::clock::Clock;
-use scripps_workflow_core::dag::{TaskState, DAG};
+use ecaa_workflow_core::clock::Clock;
+use ecaa_workflow_core::dag::{TaskState, DAG};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, SyncSender};
@@ -173,7 +173,7 @@ impl Watchdog {
     /// `package_root` every `config.period_secs` seconds.
     ///
     /// `clock` is used for all "now" reads so tests can inject a
-    /// [`scripps_workflow_core::clock::FrozenClock`] and advance it
+    /// [`ecaa_workflow_core::clock::FrozenClock`] and advance it
     /// deterministically.
     ///
     /// `event_tx` is a bounded sync-sender; the watchdog calls
@@ -408,7 +408,7 @@ mod tests {
     // are single-threaded test setup; bounded waiver scoped to this mod.
     #![allow(unsafe_code)]
     use super::*;
-    use scripps_workflow_core::clock::FrozenClock;
+    use ecaa_workflow_core::clock::FrozenClock;
     use serde_json::json;
     use std::io::Write;
     use std::sync::mpsc;
