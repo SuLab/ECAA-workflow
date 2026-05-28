@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "$id": "https://scripps-workflow/slurm-mapping.schema.json",
+  "$id": "https://ecaa-workflow/slurm-mapping.schema.json",
   "title": "SLURM Resource Mapping",
   "description": "Schema for config/compute-profiles/slurm-mapping.yaml. Maps abstract ResourceRequirements from the emitted compute-resource-policy.json to SLURM partition/QoS/gres/time flags. Site-specific: each cluster ships its own YAML. Validated at load; drift fails loud at executor startup, not at sbatch time.",
   "type": "object",

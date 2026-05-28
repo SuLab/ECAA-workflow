@@ -2,7 +2,7 @@
 
 /**
  * Cached registry snapshot. Stored on disk under
- * `~/.scripps-workflow/external-snapshots/<registry>/<id>.json`
+ * `~/.ecaa-workflow/external-snapshots/<registry>/<id>.json`
  * so determinism tests can replay against a stable bytes set.
  */
 export type RegistrySnapshot = { 

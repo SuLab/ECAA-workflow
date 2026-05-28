@@ -1,13 +1,13 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
- * Playwright configuration for the scripps-workflow natural-chat UI.
+ * Playwright configuration for the ecaa-workflow natural-chat UI.
  *
  * Two tiers:
  *  - Default (mocked): vite preview serves the built UI; every test mocks
  *  /api/chat/** via page.route() and a fake EventSource. Fast, deterministic,
  *  no API key required.
- *  - Live (PLAYWRIGHT_LIVE=1): boots the real scripps-workflow-server and
+ *  - Live (PLAYWRIGHT_LIVE=1): boots the real ecaa-workflow-server and
  *  drives the IVD walkthrough against the live Anthropic API. Only the
  *  tests/live/** directory runs in this mode.
  */
@@ -21,8 +21,8 @@ const BASE_URL = `http://127.0.0.1:${PORT}`
 const HARNESS_BIN_PATH =
   process.env.ECAA_HARNESS_BIN_PATH ??
   (process.env.CARGO_TARGET_DIR
-    ? `${process.env.CARGO_TARGET_DIR}/debug/scripps-workflow-harness`
-    : `${process.cwd()}/../target/debug/scripps-workflow-harness`)
+    ? `${process.env.CARGO_TARGET_DIR}/debug/ecaa-workflow-harness`
+    : `${process.cwd()}/../target/debug/ecaa-workflow-harness`)
 
 export default defineConfig({
   testDir: LIVE ? './tests/live' : './tests',
@@ -98,7 +98,7 @@ export default defineConfig({
         // POST-only and a GET on /api/chat/session returns 405, which
         // Playwright does not treat as "ready".
         command:
-          'cd .. && ECAA_CHAT_SESSIONS_DIR=/tmp/scripps-e2e-sessions cargo run -q -p scripps-workflow-server -- --port 3737',
+          'cd .. && ECAA_CHAT_SESSIONS_DIR=/tmp/scripps-e2e-sessions cargo run -q -p ecaa-workflow-server -- --port 3737',
         port: PORT,
         // Reuse a pre-started server when one is already listening on
         //:3737. Lets long-running full-DAG specs outlive Playwright —
@@ -113,7 +113,7 @@ export default defineConfig({
           ECAA_CHAT_SESSIONS_DIR: '/tmp/scripps-e2e-sessions',
           // Absolute path so /start-execution finds the harness without
           // relying on PATH. The harness must be pre-built
-          // (cargo build -p scripps-workflow-harness) before running the
+          // (cargo build -p ecaa-workflow-harness) before running the
           // start-execution live spec.
           ECAA_HARNESS_BIN_PATH: HARNESS_BIN_PATH,
           // Individual specs override per-run via ECAA_DEFAULT_AGENT_PATH

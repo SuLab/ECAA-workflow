@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://scripps-workflow/config/project-classes/_project_class.schema.json",
+  "$id": "https://ecaa-workflow/config/project-classes/_project_class.schema.json",
   "title": "ProjectClassDefinition",
   "description": "Plan §A.S4 — schema for `config/project-classes/<id>.yaml`. The ProjectClassRegistry loader validates each YAML against this schema before deserialization. Each class declares its display name, the prompt addendum surfaced after `prompt_role.txt`, optional per-role addenda, and the routing metadata downstream consumers (taxonomy loader, container policy, BCO emit) read.",
   "type": "object",

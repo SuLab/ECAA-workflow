@@ -105,7 +105,7 @@ pub struct GenerateSshKeyRequest {
     /// Target path under the user's home dir. Validated against the
     /// user's actual $HOME; paths outside $HOME are rejected.
     pub path: String,
-    /// Optional comment; defaults to "scripps-workflow-<hostname>".
+    /// Optional comment; defaults to "ecaa-workflow-<hostname>".
     #[serde(default)]
     pub comment: Option<String>,
 }

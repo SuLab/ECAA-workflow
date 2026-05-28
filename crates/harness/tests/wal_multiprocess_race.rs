@@ -162,7 +162,7 @@ fn two_harnesses_same_session_id_lock_exclusion() {
     write_noop_agent(&agent);
 
     // Redirect HOME so the lock files land inside the temp dir (avoids
-    // polluting the developer's ~/.scripps-workflow/locks/).
+    // polluting the developer's ~/.ecaa-workflow/locks/).
     let home = scratch.path().join("home");
     std::fs::create_dir_all(&home).unwrap();
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://scripps-workflow/config/compute-profiles/profiles.schema.json",
+  "$id": "https://ecaa-workflow/config/compute-profiles/profiles.schema.json",
   "title": "Compute Profiles",
   "description": "Per-stage compute profile schema. The AWS executor maps these cloud-agnostic shapes into concrete EC2 instance types. Plan §S15.23 — `default_container` is the optional profile-level container fallback in the composer's resolver chain (atom > archetype > profile > package > host). Schema-validated by `make schemas`.",
   "type": "object",

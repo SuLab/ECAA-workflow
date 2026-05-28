@@ -5,7 +5,7 @@
 //! improvement signal. Designed to be invoked from `make doctor` so
 //! operators see a one-line "you have 4 recurring opaque types — file
 //! a registry-improvement issue" prompt rather than having to grep
-//! `~/.scripps-workflow/sessions/*` themselves.
+//! `~/.ecaa-workflow/sessions/*` themselves.
 //!
 //! Supersession note: both sides of the v3 §4 "persistent Unknown =
 //! registry-improvement signal" commitment now have purpose-built

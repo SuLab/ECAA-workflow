@@ -653,7 +653,7 @@ mod tests {
                 attempted: "https://api.example.com".into(),
             },
             BlockerKind::ContainerCacheCorrupted {
-                path: "~/.scripps-workflow/agent-cache/abc123".into(),
+                path: "~/.ecaa-workflow/agent-cache/abc123".into(),
             },
             BlockerKind::MemoryExhausted {
                 peak_memory_mb: Some(61_440),

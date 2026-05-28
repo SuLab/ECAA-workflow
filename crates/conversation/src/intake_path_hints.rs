@@ -267,7 +267,7 @@ fn validate_candidate(token: &str, allowlisted_roots: &[PathBuf]) -> Option<Inpu
 
     // Step 2: if direct didn't resolve, try joining against each
     // allowlist root in turn. Handles SME-typed `testdata/foo.csv`
-    // when the allowlist contains `/home/<user>/scripps-workflow`.
+    // when the allowlist contains `/home/<user>/ecaa-workflow`.
     let resolved = direct_canonical.or_else(|| {
         for root in allowlisted_roots {
             let candidate = root.join(&candidate);

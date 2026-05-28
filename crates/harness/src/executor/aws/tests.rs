@@ -215,7 +215,7 @@ fn aws_executor_with_shim(scratch: &Path, canned: &str) -> (AwsExecutor, std::pa
     let (bin_dir, log) = install_aws_shim(scratch, canned);
     let prior_path = std::env::var("PATH").unwrap_or_default();
     unsafe { std::env::set_var("PATH", format!("{}:{}", bin_dir.display(), prior_path)) };
-    // `live_peer_sessions` reads `$HOME/.scripps-workflow/locks/`.
+    // `live_peer_sessions` reads `$HOME/.ecaa-workflow/locks/`.
     // Sandbox HOME to the scratch dir so tests don't see real
     // running-harness lockfiles on a dev box.
     unsafe { std::env::set_var("HOME", scratch) };
@@ -431,7 +431,7 @@ fn scan_orphans_verified_filters_by_session_id_and_reaps_only_returned_ids() {
 /// from the candidate list even if AWS returned it. We simulate the
 /// peer by:
 /// - creating a sandboxed HOME pointing at `scratch`
-/// - writing `~/.scripps-workflow/locks/session-peer.lock` with the
+/// - writing `~/.ecaa-workflow/locks/session-peer.lock` with the
 ///   CURRENT PID (alive by definition)
 /// - returning two instances from AWS, one tagged peer's session
 ///
@@ -450,7 +450,7 @@ fn scan_orphans_filters_live_peer_session() {
 
     // Plant a live peer lockfile under the sandboxed HOME. PID is
     // ours so `kill(pid, 0)` returns 0 (alive).
-    let locks_dir = scratch.path().join(".scripps-workflow").join("locks");
+    let locks_dir = scratch.path().join(".ecaa-workflow").join("locks");
     std::fs::create_dir_all(&locks_dir).unwrap();
     std::fs::write(
         locks_dir.join("session-peer.lock"),

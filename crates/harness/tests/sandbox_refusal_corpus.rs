@@ -44,7 +44,7 @@ struct ScenarioResult {
 }
 
 /// Dispatch `script` through the production sandbox: build a
-/// `BubblewrapRunner` rooted at the scripps-workflow scenarios workdir,
+/// `BubblewrapRunner` rooted at the ecaa-workflow scenarios workdir,
 /// then `wrap("/bin/bash", &[script], &SandboxPolicy::default_strict())`.
 ///
 /// This is the same code path the harness takes in

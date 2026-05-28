@@ -22,7 +22,7 @@ trap 'rm -rf "$SCRATCH"' EXIT
 
 echo "[verify-reproducibility] Emitting IVD scenario twice into $SCRATCH"
 for tag in a b; do
-  "$ROOT/target/release/scripps-workflow" intake \
+  "$ROOT/target/release/ecaa-workflow" intake \
     --input testdata/IVD_prompt/ivd-request.md \
     --output "$SCRATCH/ivd-$tag" \
     >/dev/null

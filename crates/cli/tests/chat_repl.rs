@@ -1,4 +1,4 @@
-//! CLI integration test: `scripps-workflow chat`.
+//! CLI integration test: `ecaa-workflow chat`.
 //!
 //! The deterministic chat REPL is line-oriented and would require a
 //! scripted stdin fixture to drive end-to-end; that flow is exercised
@@ -12,7 +12,7 @@ use predicates::str;
 #[test]
 fn chat_help_succeeds() {
     Command::cargo_bin("ecaa-workflow")
-        .expect("cargo bin scripps-workflow")
+        .expect("cargo bin ecaa-workflow")
         .args(["chat", "--help"])
         .assert()
         .success()
@@ -23,7 +23,7 @@ fn chat_help_succeeds() {
 #[test]
 fn top_level_help_lists_subcommands() {
     Command::cargo_bin("ecaa-workflow")
-        .expect("cargo bin scripps-workflow")
+        .expect("cargo bin ecaa-workflow")
         .arg("--help")
         .assert()
         .success()

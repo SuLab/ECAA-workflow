@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://scripps-workflow/config/archetypes/_archetype.schema.json",
+  "$id": "https://ecaa-workflow/config/archetypes/_archetype.schema.json",
   "title": "ArchetypeDefinition",
   "description": "Schema for `config/archetypes/<id>.yaml`. Plan §S6.7 / §S6.8 — validates ArchetypeDefinition shape before deserialization (`include_str!` schema-validate-before-deserialize discipline). Mirrors the `crates/core/src/archetype.rs::ArchetypeDefinition` Rust type. An archetype is a thin composition file: it names atoms by id and wires them into a typed scaffold. Method-selection logic stays in the atom layer's `discovery_*` runtime selection — archetypes pre-select which atoms participate; atoms defer their concrete tool choice. Per plan modularity invariant: archetypes hold scaffold + slot mappings only; no method-selection logic. The version field is bumped on additive changes (new optional slot, new atom in the scaffold) so existing sessions don't silently re-route to a refined archetype mid-amendment ([DEC QX.5]).",
   "type": "object",

@@ -1,4 +1,4 @@
-//! `scripps-workflow chat-llm` — dev/test REPL that exercises the
+//! `ecaa-workflow chat-llm` — dev/test REPL that exercises the
 //! same `ConversationService` as the web UI. Offline-only; end users
 //! interact with the web UI.
 
@@ -38,7 +38,7 @@ async fn run_chat_llm_async(config_dir: &str, output: &str) -> Result<()> {
 
     println!(
         "{}",
-        "Scripps Workflow — chat-llm (LLM-mediated)".bold().cyan()
+        "ECAA-workflow — chat-llm (LLM-mediated)".bold().cyan()
     );
     println!(
         "{}",
@@ -132,7 +132,7 @@ fn sessions_dir() -> PathBuf {
         return PathBuf::from(d);
     }
     if let Some(home) = dirs_home() {
-        return home.join(".scripps-workflow/sessions");
+        return home.join(".ecaa-workflow/sessions");
     }
     PathBuf::from("./.scripps-sessions")
 }

@@ -206,7 +206,7 @@ pub fn stage_credentials_file(
     // base64 -d is present on every Linux cluster we care about (same
     // assumption as `submit_sbatch` in sbatch.rs).
     let mut body = String::new();
-    body.push_str("# scripps-workflow per-job credentials. Sourced by sbatch body.\n");
+    body.push_str("# ecaa-workflow per-job credentials. Sourced by sbatch body.\n");
     body.push_str("# DO NOT EDIT — regenerated each iteration.\n");
     for (k, v) in creds {
         let encoded = super::sbatch::base64_encode_public(v.as_bytes());

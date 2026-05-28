@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "ecaa-workflow-audit-proof"
-path = "src/bin/scripps-workflow-audit-proof.rs"
+path = "src/bin/ecaa-workflow-audit-proof.rs"
 
 [dependencies]
 ecaa-workflow-core = { version = "0.1", path = "../core" }

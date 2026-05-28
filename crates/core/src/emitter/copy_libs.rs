@@ -100,7 +100,7 @@ pub(super) fn locate_r_plotting_library_src() -> Option<std::path::PathBuf> {
 /// emitted tree stays minimal and byte-stable. The harness pre-flight
 /// (`scripts/build-derived-image.sh`) treats the resulting files as
 /// part of the Dockerfile build context and bakes them into
-/// `/opt/scripps-workflow/install-proxy/` inside the image.
+/// `/opt/ecaa-workflow/install-proxy/` inside the image.
 pub(super) fn copy_install_proxy(package_dir: &Path) -> Result<()> {
     let Some(src) = locate_install_proxy_src() else {
         return Ok(());

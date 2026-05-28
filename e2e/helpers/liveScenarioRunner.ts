@@ -1,6 +1,6 @@
 /**
  * Live scenario runner — drives real multi-turn conversations through
- * the actual scripps-workflow-server against the Anthropic API.
+ * the actual ecaa-workflow-server against the Anthropic API.
  *
  * The runner walks the scenario's `beats` array one at a time: send
  * beat[0].user, wait for the model to respond, send beat[1].user, wait,

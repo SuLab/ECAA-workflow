@@ -922,7 +922,7 @@ pub enum SafetyLevel {
     /// External network egress to an explicit allowlist or via Bridge.
     Network,
     /// Heavy computation, vetted container, no network, no untrusted
-    /// code. The dominant case in scripps-workflow. Default.
+    /// code. The dominant case in ecaa-workflow. Default.
     #[default]
     Compute,
     /// Executes generated/dynamic code at runtime. Requires sandbox.

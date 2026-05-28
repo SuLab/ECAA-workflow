@@ -30,7 +30,7 @@
 #  ECAA_DERIVED_IMAGE_TAG_PREFIX — image-tag prefix (default: scripps-derived)
 #  ECAA_BUILDX_CACHE_DIR — buildkit cache root (default:
 #  $ECAA_AGENT_CACHE_DIR/buildkit if
-#  set, else ~/.scripps-workflow/buildkit-cache)
+#  set, else ~/.ecaa-workflow/buildkit-cache)
 #  ECAA_FORCE_IMAGE_REBUILD — set to 1 to skip the local-cache check
 #  ECAA_IMAGE_BUILD_TIMEOUT_SECS — cap build wall time (default: 1800 = 30min)
 
@@ -87,7 +87,7 @@ LOCK="$PACKAGE/runtime/derived-image.lock.json"
 
 TAG_PREFIX="${ECAA_DERIVED_IMAGE_TAG_PREFIX:-scripps-derived}"
 BUILD_TIMEOUT="${ECAA_IMAGE_BUILD_TIMEOUT_SECS:-1800}"
-CACHE_DIR="${ECAA_BUILDX_CACHE_DIR:-${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}/buildkit}"
+CACHE_DIR="${ECAA_BUILDX_CACHE_DIR:-${ECAA_AGENT_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}/buildkit}"
 
 # Serialize concurrent buildx invocations on the
 # same host. Two parallel `docker buildx build` calls writing to the
@@ -238,7 +238,7 @@ if "${TIMEOUT_PREFIX[@]}" "${BUILDER[@]}" \
   MODALITY="$(jq -r '.modality // ""' "$MANIFEST")"
 
   # Post-build smoke check: every shim must be at
-  # /opt/scripps-workflow/install-proxy/ and /usr/local/bin/<tool>
+  # /opt/ecaa-workflow/install-proxy/ and /usr/local/bin/<tool>
   # must be a symlink to its shim. Real binaries (when present in
   # the base) must have moved aside to /usr/local/bin/.real/. A
   # broken bake here would silently let an agent execute denied
@@ -248,15 +248,15 @@ if "${TIMEOUT_PREFIX[@]}" "${BUILDER[@]}" \
     if ! docker run --rm --entrypoint /bin/sh "$TAG" -c '
       set -eu
       for shim in _common.py apt.py pip.py conda.py npm.py rscript.py gem.py; do
-        test -f "/opt/scripps-workflow/install-proxy/$shim" || {
-          echo "missing shim: /opt/scripps-workflow/install-proxy/$shim" >&2
+        test -f "/opt/ecaa-workflow/install-proxy/$shim" || {
+          echo "missing shim: /opt/ecaa-workflow/install-proxy/$shim" >&2
           exit 1
         }
       done
       for tool in apt apt-get pip pip3 conda mamba npm Rscript gem; do
         target="$(readlink -f "/usr/local/bin/$tool" 2>/dev/null || true)"
         case "$target" in
-          /opt/scripps-workflow/install-proxy/*.py) ;;
+          /opt/ecaa-workflow/install-proxy/*.py) ;;
           *)
             echo "tool /usr/local/bin/$tool does not point at install-proxy (got: $target)" >&2
             exit 1

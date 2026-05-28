@@ -1,4 +1,4 @@
-//! CLI integration test: `scripps-workflow build`.
+//! CLI integration test: `ecaa-workflow build`.
 //!
 //! `build --help` smoke-tests the CLI surface without requiring a
 //! fixture. A full `build --archetype <yaml>` run is hard to drive
@@ -11,7 +11,7 @@ use predicates::str;
 #[test]
 fn build_help_succeeds() {
     Command::cargo_bin("ecaa-workflow")
-        .expect("cargo bin scripps-workflow")
+        .expect("cargo bin ecaa-workflow")
         .args(["build", "--help"])
         .assert()
         .success()

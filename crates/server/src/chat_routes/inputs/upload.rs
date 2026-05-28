@@ -505,7 +505,7 @@ pub(crate) async fn finalize_upload(
 ///      `${USER}` substituted.
 ///   2. `<allowlist[0]>/.scripps-uploads` if the allowlist directory
 ///      is writable by the server's effective user (probed).
-///   3. `<XDG_STATE_HOME or ~/.local/state>/scripps-workflow/uploads`
+///   3. `<XDG_STATE_HOME or ~/.local/state>/ecaa-workflow/uploads`
 ///      — always writable for the server user.
 ///
 /// Step 3 avoids the historical "Permission denied" on first upload
@@ -530,7 +530,7 @@ fn upload_root_for(owner_user: &str) -> PathBuf {
                 .map(|h| PathBuf::from(h).join(".local/state"))
         })
         .unwrap_or_else(|| PathBuf::from(format!("/home/{owner_user}/.local/state")));
-    base.join("scripps-workflow").join("uploads")
+    base.join("ecaa-workflow").join("uploads")
 }
 
 /// True when `dir` exists + is a directory + a probe write succeeds.

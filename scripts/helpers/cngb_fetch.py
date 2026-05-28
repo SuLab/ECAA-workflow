@@ -50,7 +50,7 @@ from urllib.error import HTTPError, URLError
 CNGB_API = "https://db.cngb.org/api/v3/projects/{accession}"
 CNGB_PAGE = "https://db.cngb.org/search/project/{accession}/"
 CNGB_FTP_BASE = "https://ftp.cngb.org/pub/CNSA"
-USER_AGENT = "scripps-workflow/cngb_fetch/1.0 (+research pipeline)"
+USER_AGENT = "ecaa-workflow/cngb_fetch/1.0 (+research pipeline)"
 TIMEOUT_S = 45
 MAX_SHARD = 12          # brute-force upper bound on dataN partitions
 CHUNK_BYTES = 1 << 20   # 1 MiB streaming download chunks

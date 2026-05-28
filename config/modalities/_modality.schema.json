@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://scripps-workflow/config/modalities/_modality.schema.json",
+  "$id": "https://ecaa-workflow/config/modalities/_modality.schema.json",
   "title": "ModalityDefinition",
   "description": "Plan §A.S5 — schema for `config/modalities/<id>.yaml`. The single source of truth for modality definition: classifier keywords, EDAM IRI tuple, taxonomy/archetype routing, fixture corpus rows. Replaces the per-modality block in `modality-keywords.yaml`. The `ModalityRegistry` loader (Plan §A.S5) validates each YAML against this schema before deserialization. The file stem must equal the declared id.",
   "type": "object",

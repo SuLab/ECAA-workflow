@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test-e2e.sh — End-to-end smoke test for the Scripps Workflow compiler.
+# test-e2e.sh — End-to-end smoke test for the ECAA-workflow compiler.
 # Tests the compile-time path only — no live agent or server required.
 
 set -euo pipefail
@@ -29,8 +29,8 @@ fi
 # ── Step 2: Unit tests ────────────────────────────────────────────────────────
 
 echo ""
-echo "▸ Step 2: cargo test -p scripps-workflow-core"
-TEST_OUT=$(cargo test -p scripps-workflow-core 2>&1)
+echo "▸ Step 2: cargo test -p ecaa-workflow-core"
+TEST_OUT=$(cargo test -p ecaa-workflow-core 2>&1)
 PASS_COUNT=$(echo "$TEST_OUT" | grep -oP 'test result: ok\. \K[0-9]+' | head -1)
 if echo "$TEST_OUT" | grep -q "FAILED"; then
   fail "core tests FAILED"
@@ -50,7 +50,7 @@ if [[ ! -f "$ARCHETYPE" ]]; then
   exit 1
 fi
 
-if cargo run -q -p scripps-workflow-cli --bin scripps-workflow -- build \
+if cargo run -q -p ecaa-workflow-cli --bin ecaa-workflow -- build \
     --archetype "$ARCHETYPE" \
     --output "$OUT_DIR" 2>&1; then
   ok "CLI build succeeded"

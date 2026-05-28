@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-ROOT="${ECAA_PACKAGE_ROOT:-$HOME/.scripps-workflow/packages}"
+ROOT="${ECAA_PACKAGE_ROOT:-$HOME/.ecaa-workflow/packages}"
 KEEP_LAST=3
 MODE="dry-run"
 

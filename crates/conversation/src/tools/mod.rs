@@ -1807,7 +1807,7 @@ pub(super) fn violation_runtime_root(session: &Session) -> std::path::PathBuf {
     }
     let sessions_dir = std::env::var("ECAA_CHAT_SESSIONS_DIR").unwrap_or_else(|_| {
         std::env::var("HOME")
-            .map(|h| format!("{}/.scripps-workflow/sessions", h))
+            .map(|h| format!("{}/.ecaa-workflow/sessions", h))
             .unwrap_or_else(|_| "/tmp/scripps-violations".to_string())
     });
     std::path::PathBuf::from(sessions_dir)
@@ -2931,7 +2931,7 @@ fn try_build_via_composer(
     // R1/R2 closure (closure-residuals plan Task 1.4) — wire the
     // cross-session opaque-type observation sink from the session's
     // runtime directory. `ECAA_CHAT_SESSIONS_DIR` mirrors the
-    // `SessionStore` default (`~/.scripps-workflow/sessions`); the
+    // `SessionStore` default (`~/.ecaa-workflow/sessions`); the
     // aggregator lives at `<sessions_dir>/<session_id>/_opaque_registry.jsonl`.
     // Bare callers (CLI `intake`, eval-baselines, tests) pass `None,
     // None` and preserve existing log-only behavior.
@@ -2939,8 +2939,8 @@ fn try_build_via_composer(
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| {
             std::env::var("HOME")
-                .map(|h| std::path::PathBuf::from(h).join(".scripps-workflow/sessions"))
-                .unwrap_or_else(|_| std::path::PathBuf::from(".scripps-workflow/sessions"))
+                .map(|h| std::path::PathBuf::from(h).join(".ecaa-workflow/sessions"))
+                .unwrap_or_else(|_| std::path::PathBuf::from(".ecaa-workflow/sessions"))
         });
     let aggregator_path = sessions_dir
         .join(session.id.to_string())

@@ -651,7 +651,7 @@ fn validate_ssh_keygen_comment(comment: &str) -> std::result::Result<(), String>
     }
     // Defense in depth: refuse comments longer than 256 bytes. Longer
     // values would force ssh-keygen to truncate or fail; 256 is plenty
-    // for `scripps-workflow-<hostname>` style markers.
+    // for `ecaa-workflow-<hostname>` style markers.
     if comment.len() > 256 {
         return Err(format!(
             "ssh-keygen comment too long ({} bytes; max 256)",
@@ -678,7 +678,7 @@ pub fn generate_ssh_key(req: &GenerateSshKeyRequest) -> Result<GenerateSshKeyRes
     let comment = req
         .comment
         .clone()
-        .unwrap_or_else(|| format!("scripps-workflow-{}", hostname_or_unknown()));
+        .unwrap_or_else(|| format!("ecaa-workflow-{}", hostname_or_unknown()));
     // Refuse comments that ssh-keygen would
     // re-parse as a flag (leading `-`) or that embed control bytes
     // which break ssh-keygen's argument parser. The `-C <comment>`

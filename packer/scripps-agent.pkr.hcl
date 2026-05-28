@@ -74,7 +74,7 @@ source "amazon-ebs" "scripps-agent" {
     Name          = "scripps-agent-${var.workspace_sha}"
     WorkspaceSha  = var.workspace_sha
     BuiltBy       = "packer"
-    Purpose       = "scripps-workflow-agent"
+    Purpose       = "ecaa-workflow-agent"
   }
 }
 

@@ -13,7 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 HARNESS = (
     Path(os.environ.get("CARGO_TARGET_DIR", REPO / "target"))
     / "debug"
-    / "scripps-workflow-harness"
+    / "ecaa-workflow-harness"
 )
 ALT_HARNESS = None  # operator-local mount fallback removed for OSS distribution
 AGENT = REPO / "scripts" / "agent-fixture-plots.sh"

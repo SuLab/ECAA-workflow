@@ -44,7 +44,7 @@ flate2 = "1"
 # Workspace pin in the root `Cargo.toml`.
 semver = { workspace = true }
 # Host-level `flock(LOCK_EX | LOCK_NB)` on
-# `~/.scripps-workflow/locks/<session_id>.lock` so two harness
+# `~/.ecaa-workflow/locks/<session_id>.lock` so two harness
 # processes can never race on the same chat session. The `libc`
 # crate exposes the syscall directly; `nix` would be heavier and
 # the workspace already uses `libc` in `crates/server`.

@@ -92,7 +92,7 @@ fn unauthorized() -> Response {
         .insert("content-type", "application/json".parse().unwrap());
     resp.headers_mut().insert(
         "www-authenticate",
-        "Bearer realm=\"scripps-workflow\"".parse().unwrap(),
+        "Bearer realm=\"ecaa-workflow\"".parse().unwrap(),
     );
     resp
 }

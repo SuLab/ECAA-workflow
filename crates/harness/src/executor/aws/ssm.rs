@@ -38,7 +38,7 @@ pub(super) const SSM_STALE_CACHE_TTL_SECS: u64 = 30;
 /// keys. The remote agent must obtain them via a different path:
 ///
 ///   * `ECAA_ANTHROPIC_API_KEY` / `ANTHROPIC_API_KEY` — staged onto
-///     the instance under `/etc/scripps-workflow/credentials/`
+///     the instance under `/etc/ecaa-workflow/credentials/`
 ///     (mode 0600, owner ssm-user) by the AMI bootstrap and read by
 ///     `run-task-on-instance.sh` before invoking the agent.
 ///   * `AWS_*` — the EC2 instance profile already supplies these via
@@ -194,9 +194,9 @@ impl AwsExecutor {
         // placeholder values that make the missing configuration
         // obvious in the recorded SSM log.
         let s3_bucket =
-            std::env::var("ECAA_AWS_S3_BUCKET").unwrap_or_else(|_| "scripps-workflow".into());
+            std::env::var("ECAA_AWS_S3_BUCKET").unwrap_or_else(|_| "ecaa-workflow".into());
         let s3_prefix =
-            std::env::var("ECAA_AWS_S3_PREFIX").unwrap_or_else(|_| "scripps-workflow/".into());
+            std::env::var("ECAA_AWS_S3_PREFIX").unwrap_or_else(|_| "ecaa-workflow/".into());
         let package_name = Path::new(package)
             .file_name()
             .and_then(|s| s.to_str())
@@ -224,7 +224,7 @@ impl AwsExecutor {
         // accumulated by `apply_overrides` ride into the envelope here so
         // the remote agent gets `ECAA_LIB_PIN_*` etc. The drain is
         // unconditional — if no overrides are pending the map is empty.
-        let remote_script = "/opt/scripps-workflow/run-task-on-instance.sh";
+        let remote_script = "/opt/ecaa-workflow/run-task-on-instance.sh";
         let mut effective_envelope = envelope.clone();
         for (k, v) in std::mem::take(&mut self.pending_envelope_additions) {
             effective_envelope.entry(k).or_insert(v);
@@ -241,7 +241,7 @@ impl AwsExecutor {
                 env_key = %k,
                 task_id = %task_id,
                 "refusing to ship credential env var via SSM envelope; \
-                 agent must read it from /etc/scripps-workflow/credentials/"
+                 agent must read it from /etc/ecaa-workflow/credentials/"
             );
         }
         let mut command_line = String::new();
@@ -351,7 +351,7 @@ impl AwsExecutor {
                     serde_json::json!({
                         "Status": "TimedOut",
                         "StandardErrorContent": format!(
-                            "scripps-workflow: SSM RunCommand exceeded {}s timeout",
+                            "ecaa-workflow: SSM RunCommand exceeded {}s timeout",
                             timeout_secs
                         ),
                     }),
@@ -367,7 +367,7 @@ impl AwsExecutor {
                     serde_json::json!({
                         "Status": "TimedOut",
                         "StandardErrorContent":
-                            "scripps-workflow: SSM poll interrupted by shutdown signal",
+                            "ecaa-workflow: SSM poll interrupted by shutdown signal",
                     }),
                 );
             }

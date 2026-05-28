@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # test-chat-confirm.sh — Regression test for the awaiting_confirm auto-proceed
-# behavior in scripps-workflow chat.
+# behavior in ecaa-workflow chat.
 #
 # Scenario: an SME starts with a terse, low-keyword intake line that classifies
 # below the 0.5 confidence gate (triggering awaiting_confirm mode), then keeps
@@ -73,7 +73,7 @@ fi
 
 echo ""
 echo "Step 2: Run chat with scripted low-then-high confidence session"
-if cargo run -q -p scripps-workflow-cli --bin scripps-workflow -- chat --output "$OUT_DIR" \
+if cargo run -q -p ecaa-workflow-cli --bin ecaa-workflow -- chat --output "$OUT_DIR" \
     < "$SESSION_FILE" > "$LOG_FILE" 2>&1; then
   ok "chat command exited cleanly"
 else

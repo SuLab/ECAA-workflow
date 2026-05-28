@@ -11,7 +11,7 @@
 //! Deployment-topology constraint enforced by this lock: a given
 //! session-store directory may have at most one live server process
 //! attached. The on-disk lockfile is a host-level flock at
-//! `~/.scripps-workflow/locks/server-store-<hash>.lock` where `<hash>`
+//! `~/.ecaa-workflow/locks/server-store-<hash>.lock` where `<hash>`
 //! is a content hash of the canonicalised session-store path; the
 //! kernel drops the flock when the process exits (even via SIGKILL).
 //!
@@ -28,7 +28,7 @@
 //!
 //! Mirrors the harness-side
 //! [`ecaa_workflow_harness::multiprocess_lock::SessionLock`]: same
-//! POSIX `flock(LOCK_EX | LOCK_NB)` semantics, same `.scripps-workflow/
+//! POSIX `flock(LOCK_EX | LOCK_NB)` semantics, same `.ecaa-workflow/
 //! locks/` directory, same bypass-env-var pattern (so an operator
 //! debugging a contention issue can audit both layers with one
 //! `ls` of the locks dir).
@@ -131,7 +131,7 @@ impl Drop for ServerSessionStoreLock {
     fn drop(&mut self) {
         // The kernel drops the flock when the fd closes; we
         // additionally unlink the file so `ls
-        // ~/.scripps-workflow/locks` doesn't accumulate stale entries.
+        // ~/.ecaa-workflow/locks` doesn't accumulate stale entries.
         if self.file.is_some() && !self.path.as_os_str().is_empty() {
             let _ = std::fs::remove_file(&self.path);
         }
@@ -156,7 +156,7 @@ fn lockfile_path(session_store_dir: &Path) -> PathBuf {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
-    home.join(".scripps-workflow")
+    home.join(".ecaa-workflow")
         .join("locks")
         .join(format!("server-store-{short}.lock"))
 }

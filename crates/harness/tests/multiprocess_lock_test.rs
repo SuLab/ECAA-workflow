@@ -7,7 +7,7 @@
 //! AWS instance tags.
 //!
 //! `SessionLock::acquire` takes a non-blocking POSIX `flock(LOCK_EX |
-//! LOCK_NB)` on `~/.scripps-workflow/locks/<session_id>.lock`. The
+//! LOCK_NB)` on `~/.ecaa-workflow/locks/<session_id>.lock`. The
 //! second concurrent caller for the same id must fail; once the first
 //! is dropped, the third caller succeeds.
 

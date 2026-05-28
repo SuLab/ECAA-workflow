@@ -290,7 +290,7 @@ if [ -n "${ECAA_TASK_ID:-}" ]; then
 fi
 
 if [ "${ECAA_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
-  CACHE_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
+  CACHE_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}"
   CACHE_DIR="$CACHE_BASE/$ECAA_CHAT_SESSION_ID"
   mkdir -p "$CACHE_DIR/pip" "$CACHE_DIR/conda" "$CACHE_DIR/apt" "$CACHE_DIR/R-libs" "$CACHE_DIR/python" 2>/dev/null || true
   export ECAA_SESSION_CACHE_DIR="$CACHE_DIR"
@@ -578,7 +578,7 @@ log_policy_opens "$OUT_LOG"
 # had zero `agent_cost_usd` rollup on the Performance tab. With
 # --output-format=json above, the CLI's terminal result object carries
 # .modelUsage (per-model token + cost breakdown) and.total_cost_usd,
-# from which we emit the same shape scripps-workflow-conversation's
+# from which we emit the same shape ecaa-workflow-conversation's
 # AgentUsageWire expects. See the comment block in scripts/agent-claude.sh
 # For the detail on why we read from modelUsage (not top-level.model)
 # and strip the `[1m]` context-variant suffix.

@@ -2,7 +2,7 @@
 # Scrub-keys-from-traces.sh — redact secret patterns from emitted package traces.
 #
 # Walks every emitted package under $ECAA_PACKAGE_ROOT (default
-# ~/.scripps-workflow/packages) and rewrites `agent-trace.log` files
+# ~/.ecaa-workflow/packages) and rewrites `agent-trace.log` files
 # to redact known secret patterns:
 #
 # - Anthropic API keys (sk-ant-api<N>-...)
@@ -22,7 +22,7 @@
 
 set -euo pipefail
 
-ROOT="${ECAA_PACKAGE_ROOT:-$HOME/.scripps-workflow/packages}"
+ROOT="${ECAA_PACKAGE_ROOT:-$HOME/.ecaa-workflow/packages}"
 if [ ! -d "$ROOT" ]; then
     echo "no package root at $ROOT — nothing to scrub"
     exit 0

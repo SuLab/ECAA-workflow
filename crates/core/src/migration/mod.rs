@@ -24,7 +24,7 @@
 //!    walks the chain and surfaces
 //!    [`ReplayError::MigrationRequired`] when no chain matches.
 //!
-//! The `scripps-workflow migrate-sessions` CLI subcommand calls
+//! The `ecaa-workflow migrate-sessions` CLI subcommand calls
 //! `MigrationRegistry::with_starters()` against
 //! `ECAA_CHAT_SESSIONS_DIR`, applying any starter migrations to
 //! on-disk session JSON in place. `--dry-run` reports counts without
@@ -103,7 +103,7 @@ pub mod schema_version_serde {
 /// The function is read-only on disk by design — it loads the
 /// package's IR artifacts, applies in-memory migrations, and
 /// returns the migrated composition without writing back. Callers
-/// that want a durable migration use `scripps-workflow
+/// that want a durable migration use `ecaa-workflow
 /// migrate-sessions` (sessions) or re-emit the package (everything
 /// else).
 pub fn replay_provenance(

@@ -1,4 +1,4 @@
-//! CLI integration test: `scripps-workflow dag`.
+//! CLI integration test: `ecaa-workflow dag`.
 //!
 //! `dag --help` smoke-tests the surface. Driving `dag --package` end-to-end
 //! would require emitting a package first; the `intake_emits_package_for_minimal_request`
@@ -11,7 +11,7 @@ use predicates::str;
 #[test]
 fn dag_help_succeeds() {
     Command::cargo_bin("ecaa-workflow")
-        .expect("cargo bin scripps-workflow")
+        .expect("cargo bin ecaa-workflow")
         .args(["dag", "--help"])
         .assert()
         .success()
@@ -39,7 +39,7 @@ fn dag_lists_tasks_for_emitted_package() {
 
     // First emit a package so dag has something to inspect.
     Command::cargo_bin("ecaa-workflow")
-        .expect("cargo bin scripps-workflow")
+        .expect("cargo bin ecaa-workflow")
         .args([
             "intake",
             "--input",
@@ -55,7 +55,7 @@ fn dag_lists_tasks_for_emitted_package() {
     // dag inspection. At least the workflow id surfaces — every emitted
     // package writes a non-empty WORKFLOW.json with one or more tasks.
     Command::cargo_bin("ecaa-workflow")
-        .expect("cargo bin scripps-workflow")
+        .expect("cargo bin ecaa-workflow")
         .args(["dag", "--package", output_dir.to_str().unwrap()])
         .assert()
         .success();

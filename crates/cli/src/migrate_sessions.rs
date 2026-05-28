@@ -1,8 +1,8 @@
-//! `scripps-workflow migrate-sessions` — apply v3 P7's `u32 → SemVer`
+//! `ecaa-workflow migrate-sessions` — apply v3 P7's `u32 → SemVer`
 //! migrations to on-disk session JSON in place.
 //!
 //! Walks the session directory (default
-//! `$ECAA_CHAT_SESSIONS_DIR` or `$HOME/.scripps-workflow/sessions`),
+//! `$ECAA_CHAT_SESSIONS_DIR` or `$HOME/.ecaa-workflow/sessions`),
 //! detects each session's current `schema_version` shape, and applies
 //! the registered starter chain (`MigrationRegistry::with_starters()`)
 //! when an upgrade is needed. `--dry-run` reports counts without
@@ -17,7 +17,7 @@ use std::path::PathBuf;
 #[derive(Args, Debug)]
 pub(crate) struct MigrateSessionsArgs {
     /// Override the sessions directory. Default:
-    /// `$ECAA_CHAT_SESSIONS_DIR` or `$HOME/.scripps-workflow/sessions`.
+    /// `$ECAA_CHAT_SESSIONS_DIR` or `$HOME/.ecaa-workflow/sessions`.
     #[arg(long)]
     pub dir: Option<PathBuf>,
     /// Walk + report counts only; do not write back.
@@ -133,7 +133,7 @@ fn default_sessions_dir() -> PathBuf {
         return PathBuf::from(dir);
     }
     let home = std::env::var("HOME").unwrap_or_default();
-    PathBuf::from(home).join(".scripps-workflow/sessions")
+    PathBuf::from(home).join(".ecaa-workflow/sessions")
 }
 
 #[cfg(test)]

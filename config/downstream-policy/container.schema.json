@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://scripps-workflow/container.schema.json",
+  "$id": "https://ecaa-workflow/container.schema.json",
   "title": "Package-wide container pin",
   "description": "Sidecar schema validating the shape of policies/container.json — the package-wide container pin emitted by core::emitter::emit_container_spec. Plan §S15.18 — formalises the shape so registry tampering, malformed taxonomy `preferred_container` declarations, and arch-mismatch errors fail loudly at emit time. The current bio-default emit path writes `{\"image\": null}`; non-bio archetypes (clinical_trial, time_series_forecast) declare a non-null pin in their taxonomy YAML.",
   "type": "object",

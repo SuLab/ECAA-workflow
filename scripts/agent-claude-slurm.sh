@@ -204,7 +204,7 @@ if [ -n "${ECAA_TASK_ID:-}" ]; then
 fi
 
 if [ "${ECAA_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
-  CACHE_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
+  CACHE_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}"
   CACHE_DIR="$CACHE_BASE/$ECAA_CHAT_SESSION_ID"
   mkdir -p "$CACHE_DIR/pip" "$CACHE_DIR/conda" "$CACHE_DIR/apt" "$CACHE_DIR/R-libs" "$CACHE_DIR/python" 2>/dev/null || true
   export ECAA_SESSION_CACHE_DIR="$CACHE_DIR"

@@ -36,7 +36,7 @@ fn warn_legacy_api_key_once() {
     static WARNED: OnceLock<()> = OnceLock::new();
     WARNED.get_or_init(|| {
         eprintln!(
-            "[scripps-workflow] WARNING: ANTHROPIC_API_KEY is set but \
+            "[ecaa-workflow] WARNING: ANTHROPIC_API_KEY is set but \
              ECAA_ANTHROPIC_API_KEY is not. Using ANTHROPIC_API_KEY as a \
              legacy fallback. Please rename in your .env: \
              `ANTHROPIC_API_KEY=…` -> `ECAA_ANTHROPIC_API_KEY=…`. \

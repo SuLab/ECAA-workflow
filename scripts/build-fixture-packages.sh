@@ -5,7 +5,7 @@
 # Each fixture lives at <ROOT>/<name>/intake.json with shape
 #   { "study_id": "...", "intake_prose": "...", ... }
 # We extract `intake_prose` to a temp text file and feed it to
-# `scripps-workflow intake --input` (the CLI takes raw intake text, not JSON).
+# `ecaa-workflow intake --input` (the CLI takes raw intake text, not JSON).
 set -euo pipefail
 ROOT="${1:-testdata/wrroc-fixtures}"
 OUT="${2:-testdata/emitted-packages}"
@@ -28,7 +28,7 @@ for dir in "$ROOT"/*/; do
     echo "FAILED: $name (intake_prose missing or non-string)"
     continue
   fi
-  scripps-workflow intake \
+  ecaa-workflow intake \
     --input "$prose_file" \
     --output "$pkg_dir" \
     --config "$CONFIG_DIR" || echo "FAILED: $name (skipped)"

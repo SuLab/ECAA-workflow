@@ -170,7 +170,7 @@ impl RuntimePrereqs {
     /// Group declared packages by registry. Used by the
     /// install-proxy shims to render the per-task `provisioning.json`
     /// that gets bind-mounted into the container at
-    /// `/etc/scripps-workflow/provisioning.json`.
+    /// `/etc/ecaa-workflow/provisioning.json`.
     ///
     /// Bucketing:
     /// - `system_packages.apt` and `system_packages.dnf` map to their

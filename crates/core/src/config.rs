@@ -182,11 +182,11 @@ pub struct Config {
     /// `ECAA_CHAT_MODE`. `offline` → [`ChatMode::Offline`]; anything else
     /// → [`ChatMode::Online`].
     pub chat_mode: ChatMode,
-    /// `ECAA_CHAT_SESSIONS_DIR`. Default `~/.scripps-workflow/sessions`.
+    /// `ECAA_CHAT_SESSIONS_DIR`. Default `~/.ecaa-workflow/sessions`.
     pub chat_sessions_dir: PathBuf,
     /// `ECAA_CONFIG_DIR`. Default `./config`.
     pub config_dir: PathBuf,
-    /// `ECAA_PACKAGE_ROOT`. Default `~/.scripps-workflow/packages`.
+    /// `ECAA_PACKAGE_ROOT`. Default `~/.ecaa-workflow/packages`.
     pub package_root: PathBuf,
     /// `ECAA_SERVER_AUTH_TOKEN`. Required when the server binds anything
     /// other than `127.0.0.1` / `[::1]`. **Redacted in `Debug`.**
@@ -225,7 +225,7 @@ pub struct Config {
     pub literature: LiteratureConfig,
 
     // Upload / input bounds ----------------------------------------------
-    /// `ECAA_UPLOAD_ROOT`. Default `~/.scripps-workflow/uploads`.
+    /// `ECAA_UPLOAD_ROOT`. Default `~/.ecaa-workflow/uploads`.
     pub upload_root: Option<String>,
     /// `ECAA_UPLOAD_DISK_RESERVE_GB`. Default `50`.
     pub upload_disk_reserve_gb: u64,
@@ -309,12 +309,12 @@ impl Config {
             _ => ChatMode::Online,
         };
         let chat_sessions_dir = parse_pathbuf_with_default(env, "ECAA_CHAT_SESSIONS_DIR", || {
-            home_subdir(".scripps-workflow/sessions")
+            home_subdir(".ecaa-workflow/sessions")
         });
         let config_dir =
             parse_pathbuf_with_default(env, "ECAA_CONFIG_DIR", || PathBuf::from("./config"));
         let package_root = parse_pathbuf_with_default(env, "ECAA_PACKAGE_ROOT", || {
-            home_subdir(".scripps-workflow/packages")
+            home_subdir(".ecaa-workflow/packages")
         });
         let server_auth_token = nonempty_string(env, "ECAA_SERVER_AUTH_TOKEN");
 
@@ -545,8 +545,8 @@ impl std::fmt::Debug for Config {
 ///
 /// The default is intentionally minimal — every field gets the same value
 /// the loader would assign for an empty environment, *except* paths are
-/// rebased on `/tmp/scripps-workflow-test-default` so tests don't write to
-/// `~/.scripps-workflow/...`. Tests should chain `with_*` setters for the
+/// rebased on `/tmp/ecaa-workflow-test-default` so tests don't write to
+/// `~/.ecaa-workflow/...`. Tests should chain `with_*` setters for the
 /// fields they exercise.
 pub struct ConfigBuilder {
     inner: Config,
@@ -556,11 +556,11 @@ impl Default for ConfigBuilder {
     fn default() -> Self {
         // Hard-code the same defaults the empty-env loader would produce.
         // We can't call `Config::from_env_map(&HashMap::new())` here
-        // because that resolves `~/.scripps-workflow/...` paths which
+        // because that resolves `~/.ecaa-workflow/...` paths which
         // makes test output non-deterministic across CI environments.
         let anthropic_base_url = Url::parse(DEFAULT_ANTHROPIC_BASE_URL)
             .expect("DEFAULT_ANTHROPIC_BASE_URL is a valid URL constant");
-        let test_root = PathBuf::from("/tmp/scripps-workflow-test-default");
+        let test_root = PathBuf::from("/tmp/ecaa-workflow-test-default");
         Self {
             inner: Config {
                 anthropic_api_key: None,
@@ -903,7 +903,7 @@ fn parse_pathbuf_with_default<F: FnOnce() -> PathBuf>(
         .unwrap_or_else(default)
 }
 
-/// `$HOME/<rel>` if `$HOME` is set, otherwise `/tmp/scripps-workflow/<rel>`.
+/// `$HOME/<rel>` if `$HOME` is set, otherwise `/tmp/ecaa-workflow/<rel>`.
 /// Mirrors the fall-through documented in CLAUDE.md for the storage roots.
 fn home_subdir(rel: &str) -> PathBuf {
     // Read $HOME via std::env::var — this is one of two intentional reads
@@ -913,7 +913,7 @@ fn home_subdir(rel: &str) -> PathBuf {
     let home = std::env::var("HOME").ok();
     match home {
         Some(h) if !h.is_empty() => PathBuf::from(h).join(rel),
-        _ => PathBuf::from("/tmp/scripps-workflow").join(rel),
+        _ => PathBuf::from("/tmp/ecaa-workflow").join(rel),
     }
 }
 

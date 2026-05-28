@@ -966,7 +966,7 @@ pub(super) fn route_local_extensions_through_aggregator(session: &mut Session) {
 
 /// Resolve the sessions directory the aggregator writes its registry
 /// JSONL into. Honors `ECAA_CHAT_SESSIONS_DIR` so tests can point at a
-/// tmpdir; falls back to `$HOME/.scripps-workflow/sessions`; ultimate
+/// tmpdir; falls back to `$HOME/.ecaa-workflow/sessions`; ultimate
 /// fallback is `./.scripps-sessions` so the unit-test path doesn't
 /// panic on a HOME-less environment.
 fn sessions_dir_for_aggregator() -> std::path::PathBuf {
@@ -974,7 +974,7 @@ fn sessions_dir_for_aggregator() -> std::path::PathBuf {
         return std::path::PathBuf::from(d);
     }
     if let Some(home) = std::env::var_os("HOME") {
-        return std::path::PathBuf::from(home).join(".scripps-workflow/sessions");
+        return std::path::PathBuf::from(home).join(".ecaa-workflow/sessions");
     }
     std::path::PathBuf::from("./.scripps-sessions")
 }

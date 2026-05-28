@@ -24,7 +24,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
     let classifier = Classifier::load(&keywords_path)
         .map_err(|e| anyhow::anyhow!("Cannot load classifier config: {}", e))?;
 
-    println!("{}", "Scripps Workflow Compiler".bold().cyan());
+    println!("{}", "ECAA-workflow Compiler".bold().cyan());
     println!(
         "{}",
         "Describe your workflow. Commands: /dag /ready /resolve /show /quit".dimmed()

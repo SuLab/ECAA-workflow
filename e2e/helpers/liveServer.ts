@@ -1,7 +1,7 @@
 /**
  * Helpers for tier 2 (live) Playwright tests.
  *
- * The live tier boots the real scripps-workflow-server via
+ * The live tier boots the real ecaa-workflow-server via
  * playwright.config.ts `webServer` (only when `PLAYWRIGHT_LIVE=1`).
  * Tests drive the real UI in Chromium against the real Anthropic API.
  *

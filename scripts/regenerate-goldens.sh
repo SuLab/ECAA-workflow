@@ -17,7 +17,7 @@
 # is the only blessed path to bump the goldens.
 #
 # IMPORTANT: this script only regenerates from a freshly built
-# `scripps-workflow` binary. Run after every PR that intentionally
+# `ecaa-workflow` binary. Run after every PR that intentionally
 # changes emit output (atom rename, new stage, schema bump, etc.) and
 # review the diff carefully before committing.
 #
@@ -38,10 +38,10 @@ target="${1:-all}"
 
 # Build a release binary so the goldens are produced by the same
 # binary CI consumes. Cargo memoizes so subsequent runs are fast.
-echo "[regen] building scripps-workflow (release)…"
-cargo build --release --bin scripps-workflow --quiet
+echo "[regen] building ecaa-workflow (release)…"
+cargo build --release --bin ecaa-workflow --quiet
 
-CMD="${REPO_ROOT}/target/release/scripps-workflow"
+CMD="${REPO_ROOT}/target/release/ecaa-workflow"
 
 # 12 archetype ids matching `config/archetypes/*.yaml`.
 ARCHETYPES=(

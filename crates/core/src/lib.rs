@@ -4,7 +4,7 @@
 // shells on the remote side. Failing fast at compile time is friendlier
 // than chasing CRLF and `fork()` surprises in a CI run.
 #[cfg(not(unix))]
-compile_error!("scripps-workflow targets Unix-only (Linux + macOS). Windows is not supported.");
+compile_error!("ecaa-workflow targets Unix-only (Linux + macOS). Windows is not supported.");
 
 pub mod ablation;
 pub mod adapter_registry;

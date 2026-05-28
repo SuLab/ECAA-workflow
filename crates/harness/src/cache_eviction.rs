@@ -3,7 +3,7 @@
 //! `ECAA_AGENT_CACHE_MAX_GB` is documented as a soft ceiling;
 //! this module is the enforcement code. Per-session
 //! caches (`$ECAA_AGENT_CACHE_DIR` rooted at
-//! `~/.scripps-workflow/agent-cache/` by default, with one subdirectory
+//! `~/.ecaa-workflow/agent-cache/` by default, with one subdirectory
 //! per session id) grew unbounded between the 30-day persistence-TTL
 //! sweep. Long-running operators with many sessions hit disk-pressure
 //! before the TTL ever fired.
@@ -58,7 +58,7 @@ impl CacheEvictor {
             .map(PathBuf::from)
             .or_else(|| {
                 std::env::var_os("HOME")
-                    .map(|h| PathBuf::from(h).join(".scripps-workflow/agent-cache"))
+                    .map(|h| PathBuf::from(h).join(".ecaa-workflow/agent-cache"))
             })?;
         // Multiplier in plan/doc text is 1e9 (decimal GB) — matches
         // operator intuition ("50 GB" = 50_000_000_000 bytes). CLAUDE.md

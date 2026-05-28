@@ -12,14 +12,14 @@ use std::path::{Path, PathBuf};
 
 /// Server-controlled package root. Packages land under
 /// `$ECAA_PACKAGE_ROOT` when set, otherwise
-/// `~/.scripps-workflow/packages/`. The SME never chooses this.
+/// `~/.ecaa-workflow/packages/`. The SME never chooses this.
 pub(super) fn default_package_root() -> PathBuf {
     if let Ok(d) = std::env::var("ECAA_PACKAGE_ROOT") {
         return PathBuf::from(d);
     }
     if let Ok(home) = std::env::var("HOME") {
         return PathBuf::from(home)
-            .join(".scripps-workflow")
+            .join(".ecaa-workflow")
             .join("packages");
     }
     PathBuf::from("/tmp/scripps-packages")
@@ -46,7 +46,7 @@ pub(super) fn auto_emit_dir(session: &Session) -> PathBuf {
 /// dropped on the floor — the resolved path always comes from
 /// `auto_emit_dir(session)` and is jailed under
 /// `default_package_root()` (`$ECAA_PACKAGE_ROOT` or
-/// `~/.scripps-workflow/packages`).
+/// `~/.ecaa-workflow/packages`).
 pub(super) fn resolve_emit_output_dir(
     session: &Session,
     caller_supplied: Option<&str>,
@@ -212,7 +212,7 @@ pub(super) async fn emit_package(
     // CLI/test paths must go through a different entry point if they
     // need to override the path. `auto_emit_dir` yields a per-session,
     // per-emit subdir of `default_package_root()` — `$ECAA_PACKAGE_ROOT`
-    // or `~/.scripps-workflow/packages` — which is jailed by the
+    // or `~/.ecaa-workflow/packages` — which is jailed by the
     // operator-controlled env var rather than the model.
     let out: PathBuf = resolve_emit_output_dir(session, None);
     if let Some(parent) = out.parent() {

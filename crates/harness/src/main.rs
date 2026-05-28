@@ -618,7 +618,7 @@ fn stamp_literature_scope(env: &mut std::collections::BTreeMap<String, String>) 
 /// SLURM / AWS / Mock) — no executor-specific bind-mount plumbing
 /// required: the agent script either honours `ECAA_PROVISIONING_POLICY`
 /// directly, or bind-mounts the rendered file into
-/// `/etc/scripps-workflow/provisioning.json` inside the container (the
+/// `/etc/ecaa-workflow/provisioning.json` inside the container (the
 /// fallback path the shim consults when the env var is unset).
 ///
 /// `declared` is the registry → packages map from the package-level
@@ -999,7 +999,7 @@ fn main() -> Result<()> {
 
     // Host-level multi-process guard. When
     // `--session-id` is set, acquire an exclusive flock on
-    // `~/.scripps-workflow/locks/<session_id>.lock`. A peer harness
+    // `~/.ecaa-workflow/locks/<session_id>.lock`. A peer harness
     // holding the same id (server-spawn + manual CLI race) discovers
     // the contention here and exits 2 instead of racing on
     // WORKFLOW.json / dispatch WAL / EC2 tags. Bypass via

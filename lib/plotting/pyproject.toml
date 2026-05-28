@@ -1,5 +1,5 @@
 [project]
-name = "scripps-workflow-plotting"
+name = "ecaa-workflow-plotting"
 version = "0.1.0"
 description = "Renderer modules + plot-affordance dispatch for emitted package figures."
 requires-python = ">=3.10"

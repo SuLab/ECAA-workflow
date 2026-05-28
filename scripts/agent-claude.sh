@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # agent-claude.sh — Invoke Claude Code as a harness execution agent.
-# Called by scripps-workflow-harness as: agent-claude.sh <package_dir>
+# Called by ecaa-workflow-harness as: agent-claude.sh <package_dir>
 #
 # Each invocation picks up ONE ready task, executes it, and writes
 # its state transition to runtime/outputs/<task_id>/state.patch.json.
@@ -213,11 +213,11 @@ fi
 # Per-session subdir prevents cross-session cache poisoning (D-R13);
 # the per-session dir is pruned at session-store TTL (existing 30-day
 # `persistence.rs::load_then_prune`). Default location:
-# `~/.scripps-workflow/agent-cache/<session_id>/{pip,conda,apt,R-libs}`.
+# `~/.ecaa-workflow/agent-cache/<session_id>/{pip,conda,apt,R-libs}`.
 # `ECAA_AGENT_CACHE_DIR` overrides the parent; `ECAA_AGENT_CACHE_DISABLE=1`
 # opts out entirely.
 if [ "${ECAA_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
-  CACHE_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
+  CACHE_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}"
   # `ECAA_AGENT_CACHE_GLOBAL=1` opts into a cross-session-shared cache.
   # Default behavior (off) is per-session isolation to prevent
   # cross-session cache poisoning (D-R13). The global mode trades
@@ -263,7 +263,7 @@ if [ "${ECAA_AGENT_CLAUDE_DISABLE:-0}" != "1" ]; then
   if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
     CLAUDE_CODE_INSTALL_DIR="$ECAA_SESSION_CACHE_DIR/claude-code"
   else
-    CLAUDE_CODE_FALLBACK_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
+    CLAUDE_CODE_FALLBACK_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}"
     CLAUDE_CODE_INSTALL_DIR="$CLAUDE_CODE_FALLBACK_BASE/standalone-$(basename "$PACKAGE")/claude-code"
   fi
   CLAUDE_CODE_PKG_JSON="$CLAUDE_CODE_INSTALL_DIR/node_modules/@anthropic-ai/claude-code/package.json"
@@ -868,7 +868,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     # Fallback for harness invocations without a session id (`make
     # ivd-execute` etc.). Use a per-package directory under the agent
     # cache so multiple ad-hoc runs don't clobber each other.
-    AGENT_FALLBACK_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.scripps-workflow/agent-cache}"
+    AGENT_FALLBACK_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}"
     AGENT_HOME_DIR="$AGENT_FALLBACK_BASE/standalone-$(basename "$PACKAGE")"
   fi
   AGENT_CLAUDE_DIR="$AGENT_HOME_DIR/.claude"

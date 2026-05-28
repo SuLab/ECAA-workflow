@@ -62,16 +62,16 @@ pub(super) struct AnnotateGraduationRequest {
 
 /// Resolve the sessions directory the aggregator looks at. Honors
 /// `ECAA_CHAT_SESSIONS_DIR`; falls back to
-/// `$HOME/.scripps-workflow/sessions`; fallback `./.scripps-sessions`
+/// `$HOME/.ecaa-workflow/sessions`; fallback `./.ecaa-sessions`
 /// so the unit-test path doesn't panic on a HOME-less environment.
 fn sessions_dir() -> PathBuf {
     if let Ok(d) = std::env::var("ECAA_CHAT_SESSIONS_DIR") {
         return PathBuf::from(d);
     }
     if let Some(home) = std::env::var_os("HOME") {
-        return PathBuf::from(home).join(".scripps-workflow/sessions");
+        return PathBuf::from(home).join(".ecaa-workflow/sessions");
     }
-    PathBuf::from("./.scripps-sessions")
+    PathBuf::from("./.ecaa-sessions")
 }
 
 /// Resolve the config dir for `local-extension-graduation.yaml`. Honors
@@ -230,7 +230,7 @@ mod tests {
     #[tokio::test]
     async fn list_candidates_returns_thresholds_for_known_session() {
         // Use a tempdir-backed ECAA_CHAT_SESSIONS_DIR so the test
-        // doesn't read the developer's real ~/.scripps-workflow/sessions
+        // doesn't read the developer's real ~/.ecaa-workflow/sessions
         // registry (and accidentally include in-flight graduation
         // candidates from prior runs). Drop the env var on teardown via
         // a guard so concurrent tests don't trample each other.

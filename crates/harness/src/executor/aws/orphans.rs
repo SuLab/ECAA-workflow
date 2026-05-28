@@ -212,7 +212,7 @@ impl AwsExecutor {
     pub fn scan_orphans(&self) -> Result<Vec<String>> {
         // Include tags in the query so we can
         // exclude instances owned by live peer harnesses (sessions
-        // currently holding a `~/.scripps-workflow/locks/*.lock`).
+        // currently holding a `~/.ecaa-workflow/locks/*.lock`).
         // The legacy InstanceId-only query is preserved as the fallback
         // shape; callers that don't care about peer protection get the
         // same set as before because `live_peer_sessions` returns
@@ -445,7 +445,7 @@ impl AwsExecutor {
             .map(|i| i.instance_id.as_str())
             .unwrap_or("");
         // Resolve the set of live peer harness session ids. Empty when
-        // no other harness holds a `~/.scripps-workflow/locks/*.lock`.
+        // no other harness holds a `~/.ecaa-workflow/locks/*.lock`.
         let peers = super::super::super::multiprocess_lock::live_peer_sessions(session_id_tag);
         Ok(rows
             .into_iter()
@@ -534,7 +534,7 @@ impl AwsExecutor {
     /// 1. `docker ps --filter label=swfc-task=<task_id> --format '{{.ID}}|{{.Image}}'`
     ///    — first row identifies a still-alive container the reaper can
     ///    target without touching the host. Empty stdout = no live row.
-    /// 2. `cat /home/<user>/scripps-workflow/<package>/runtime/outputs/<task_id>/.container-state.json`
+    /// 2. `cat /home/<user>/ecaa-workflow/<package>/runtime/outputs/<task_id>/.container-state.json`
     ///    — best-effort follow-up. Present only after the container exited;
     ///    lets the reaper distinguish "container hung" from "container
     ///    exited cleanly". Path passed by the caller because the package

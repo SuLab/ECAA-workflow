@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://scripps-workflow/config/stage-atoms/_atom.schema.json",
+  "$id": "https://ecaa-workflow/config/stage-atoms/_atom.schema.json",
   "title": "AtomDefinition",
   "description": "Schema for `config/stage-atoms/<id>.yaml`. Plan §S4.3 — validates AtomDefinition shape before deserialization (`include_str!` schema-validate-before-deserialize discipline). Mirrors the `crates/core/src/atom.rs::AtomDefinition` Rust type. Per plan §S4.3: role==discovery requires discovery_kind, no `..` in paths, assignee enum, EDAM IRI regex constrains the operation/data/format namespaces.",
   "type": "object",

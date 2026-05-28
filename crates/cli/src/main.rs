@@ -113,7 +113,7 @@ enum Commands {
     },
     /// v3 P7 — apply schema-version migrations to on-disk session
     /// JSON in place. Walks `$ECAA_CHAT_SESSIONS_DIR` (or
-    /// `$HOME/.scripps-workflow/sessions`) and rewrites legacy
+    /// `$HOME/.ecaa-workflow/sessions`) and rewrites legacy
     /// `schema_version: u32` values to the canonical SemVer string.
     /// `--dry-run` reports counts without writing back.
     MigrateSessions(migrate_sessions::MigrateSessionsArgs),
@@ -169,7 +169,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// `scripps-workflow list archetypes|atoms` lists the
+/// `ecaa-workflow list archetypes|atoms` lists the
 /// discoverable composer surface from `config/`. Writes JSON
 /// (machine-readable, `--json`) or a human-readable summary table.
 /// Reads via `ArchetypeRegistry::load_from_dir` / `AtomRegistry::load_from_dir`
@@ -591,7 +591,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
 
     println!(
         "{}",
-        "Scripps Workflow Compiler — intake mode".bold().cyan()
+        "ECAA-workflow Compiler — intake mode".bold().cyan()
     );
     println!("  Input: {}", input.cyan());
 

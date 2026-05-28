@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://scripps-workflow/config/downstream-policy/runtime-prereqs.schema.json",
+  "$id": "https://ecaa-workflow/config/downstream-policy/runtime-prereqs.schema.json",
   "title": "Runtime Prereqs Manifest",
   "description": "Aggregated system + language packages declared by the selected archetype/taxonomy's `runtime_baseline` block and every reachable atom's `spec_preferred_methods.*.runtime_packages`. The harness pre-flight uses this manifest to derive a content-addressed image from `base_image` + the union before iteration 1. Always emitted (empty manifest is valid). Plan §S15.x derived-image warm-up.",
   "type": "object",

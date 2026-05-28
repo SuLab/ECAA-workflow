@@ -1,9 +1,9 @@
 {
-  "name": "scripps-workflow-e2e",
+  "name": "ecaa-workflow-e2e",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Playwright end-to-end test suite for the scripps-workflow natural-chat UI. Tier 1 (mocked) runs against vite preview with page.route mocking. Tier 2 (live) boots the real server against Anthropic.",
+  "description": "Playwright end-to-end test suite for the ecaa-workflow natural-chat UI. Tier 1 (mocked) runs against vite preview with page.route mocking. Tier 2 (live) boots the real server against Anthropic.",
   "scripts": {
     "test": "playwright test",
     "test:ui": "playwright test --ui",

@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://scripps-workflow/_policy-skeleton.schema.json",
+  "$id": "https://ecaa-workflow/_policy-skeleton.schema.json",
   "title": "Claim-boundary policy skeleton",
   "description": "Shared schema factor used by the claim-boundary policies (interpretation + per-class overlays). Each policy's sidecar layers domain-specific additions on top; the loader validates against the skeleton in addition to the sidecar when the policy shape matches (has `targetStages` + `claimBoundary`). Plan §S2.3 — additionalProperties:false on every nested object so a policy file can't carry stray fields the loader silently ignores.",
   "type": "object",

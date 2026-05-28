@@ -308,7 +308,7 @@ impl Drop for PathGuard {
 fn make_executor(package: &str, timeout_secs: u64) -> AwsExecutor {
     let exec_args = ExecutorArgs {
         package: package.into(),
-        agent: "/opt/scripps-workflow/run-task-on-instance.sh".into(),
+        agent: "/opt/ecaa-workflow/run-task-on-instance.sh".into(),
         task_timeout_secs: timeout_secs,
     };
     AwsExecutor::new(&exec_args).expect("config")
@@ -450,7 +450,7 @@ fn run_iteration_sends_ssm_command_with_expected_parameters() {
     let outcome = exec
         .run_iteration(
             &pkg,
-            "/opt/scripps-workflow/run-task-on-instance.sh",
+            "/opt/ecaa-workflow/run-task-on-instance.sh",
             &std::collections::BTreeMap::new(),
         )
         .expect("run_iteration");
@@ -512,7 +512,7 @@ fn run_iteration_marks_task_failed_on_nonzero_exit() {
     let outcome = exec
         .run_iteration(
             &pkg,
-            "/opt/scripps-workflow/run-task-on-instance.sh",
+            "/opt/ecaa-workflow/run-task-on-instance.sh",
             &std::collections::BTreeMap::new(),
         )
         .expect("run_iteration ok wrapper, failed inner");

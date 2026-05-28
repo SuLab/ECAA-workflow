@@ -409,7 +409,7 @@ fn harness_batch_window_env_var_documented_in_claude_md() {
 /// `crates/` source tree must be documented in `docs/env-vars-reference.md`
 /// (or in `CLAUDE.md`'s daily-contributor / container plumbing block).
 ///
-/// Counterpart to `scripps-workflow/scripts/check-env-vars-documented.sh`
+/// Counterpart to `ecaa-workflow/scripts/check-env-vars-documented.sh`
 /// — that shell script is the operator's local lint; this test is the CI
 /// gate (it runs under `cargo test --workspace` even if the contributor
 /// hasn't installed the local hooks).

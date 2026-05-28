@@ -12,7 +12,7 @@ import type { TabKind } from './types'
 
 export const sel = {
   // ── App shell ───────────────────────────────────────────────────────────
-  titleBar: 'text=Scripps Workflow',
+  titleBar: 'text=ECAA-workflow',
   mobileTablist: '[role="tablist"][aria-label="Mobile view switcher"]',
   mobileTab: (v: 'chat' | 'state') =>
     `[role="tablist"][aria-label="Mobile view switcher"] [role="tab"]:has-text("${

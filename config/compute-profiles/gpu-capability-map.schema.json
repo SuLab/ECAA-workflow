@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "$id": "https://scripps-workflow/gpu-capability-map.schema.json",
+  "$id": "https://ecaa-workflow/gpu-capability-map.schema.json",
   "title": "GPU Capability Map",
   "description": "Schema for config/compute-profiles/gpu-capability-map.yaml. Validated at emit time — if the map drifts from this shape the emitter errors at load rather than the runtime agent misrouting.",
   "type": "object",

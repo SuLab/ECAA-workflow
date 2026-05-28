@@ -10,7 +10,7 @@
 //! an orphan).
 //!
 //! The lock is a POSIX `flock(LOCK_EX | LOCK_NB)` on
-//! `~/.scripps-workflow/locks/<session_id>.lock`. Kernel-managed,
+//! `~/.ecaa-workflow/locks/<session_id>.lock`. Kernel-managed,
 //! per-fd: when the harness process exits — even via SIGKILL or a
 //! crash — the kernel drops the lock and the file is removed in
 //! `Drop`. A peer harness acquiring the same id discovers it
@@ -152,7 +152,7 @@ impl SessionLock {
 impl Drop for SessionLock {
     fn drop(&mut self) {
         // The kernel drops the flock when the fd closes. We additionally
-        // unlink the file so an operator's `ls ~/.scripps-workflow/locks`
+        // unlink the file so an operator's `ls ~/.ecaa-workflow/locks`
         // doesn't accumulate stale entries; if unlink fails (e.g. peer
         // grabbed it after we closed), we ignore the error.
         if self.file.is_some() && !self.path.as_os_str().is_empty() {
@@ -183,7 +183,7 @@ fn lockfile_path(session_id: &str) -> PathBuf {
             }
         })
         .collect();
-    home.join(".scripps-workflow")
+    home.join(".ecaa-workflow")
         .join("locks")
         .join(format!("{}.lock", sanitised))
 }
@@ -194,12 +194,12 @@ pub fn locks_dir() -> PathBuf {
     let home = std::env::var_os("HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
-    home.join(".scripps-workflow").join("locks")
+    home.join(".ecaa-workflow").join("locks")
 }
 
 /// Enumerate session ids of live peer harnesses.
 ///
-/// Reads every `*.lock` file under `~/.scripps-workflow/locks/`,
+/// Reads every `*.lock` file under `~/.ecaa-workflow/locks/`,
 /// extracts the recorded pid from its contents, and checks the pid
 /// is alive via `kill(pid, 0)` (POSIX liveness probe — no signal
 /// delivered, just permission/existence check). Returns the
@@ -323,7 +323,7 @@ mod tests {
         unsafe {
             std::env::set_var("HOME", scratch.path());
         }
-        let locks = scratch.path().join(".scripps-workflow").join("locks");
+        let locks = scratch.path().join(".ecaa-workflow").join("locks");
         std::fs::create_dir_all(&locks).unwrap();
         // Live: our own pid is by definition alive.
         std::fs::write(
@@ -354,7 +354,7 @@ mod tests {
         unsafe {
             std::env::set_var("HOME", scratch.path());
         }
-        let locks = scratch.path().join(".scripps-workflow").join("locks");
+        let locks = scratch.path().join(".ecaa-workflow").join("locks");
         std::fs::create_dir_all(&locks).unwrap();
         std::fs::write(
             locks.join("self-session.lock"),
@@ -391,7 +391,7 @@ mod tests {
             std::env::set_var("HOME", scratch.path());
         }
         let session = "w72-stale-lock-test";
-        let locks = scratch.path().join(".scripps-workflow").join("locks");
+        let locks = scratch.path().join(".ecaa-workflow").join("locks");
         std::fs::create_dir_all(&locks).unwrap();
         // Seed a stale lockfile recording pid=0 (sentinel — never live).
         // No flock is held on it because no process is alive holding the

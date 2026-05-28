@@ -1,4 +1,4 @@
-//! CLI integration test: `scripps-workflow intake`.
+//! CLI integration test: `ecaa-workflow intake`.
 //!
 //! Closes the coverage gap where the `intake` subcommand was
 //! end-to-end tested only via the Makefile (`make ivd`). Exercises
@@ -21,7 +21,7 @@ fn repo_root() -> PathBuf {
 #[test]
 fn intake_help_succeeds() {
     Command::cargo_bin("ecaa-workflow")
-        .expect("cargo bin scripps-workflow")
+        .expect("cargo bin ecaa-workflow")
         .args(["intake", "--help"])
         .assert()
         .success()
@@ -45,7 +45,7 @@ fn intake_emits_package_for_minimal_request() {
     let config_dir = repo_root().join("config");
 
     Command::cargo_bin("ecaa-workflow")
-        .expect("cargo bin scripps-workflow")
+        .expect("cargo bin ecaa-workflow")
         .args([
             "intake",
             "--input",

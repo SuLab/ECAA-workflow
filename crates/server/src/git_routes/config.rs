@@ -1,4 +1,4 @@
-//! Persistent `GitConfig` living at `~/.scripps-workflow/git-config.json`
+//! Persistent `GitConfig` living at `~/.ecaa-workflow/git-config.json`
 //! (override via `ECAA_GIT_CONFIG_PATH`). Atomic saves via `.tmp`
 //! rename. Secrets policy: `ssh_key_path` is a path, never key
 //! contents.
@@ -37,8 +37,7 @@ pub struct GitConfig {
     /// IdentitiesOnly=yes"` per git invocation.
     #[serde(default)]
     pub ssh_key_path: Option<String>,
-    /// `user.name` written into every commit. Defaults to "Scripps
-    /// Workflow".
+    /// `user.name` written into every commit. Defaults to "ECAA-workflow".
     #[serde(default = "default_author_name")]
     pub author_name: String,
     /// `user.email` written into every commit.
@@ -52,7 +51,7 @@ pub struct GitConfig {
     pub commit_on_amend: bool,
     /// On by default — every successful task completion creates a recovery
     /// point for git-aware DAG recovery. Set to false in
-    /// `~/.scripps-workflow/git-config.json` to opt out on systems where
+    /// `~/.ecaa-workflow/git-config.json` to opt out on systems where
     /// filesystem-write-heavy git activity adds unacceptable overhead.
     #[serde(default = "default_true")]
     pub commit_on_task_completed: bool,
@@ -68,11 +67,11 @@ pub struct GitConfig {
 }
 
 fn default_author_name() -> String {
-    "Scripps Workflow".to_string()
+    "ECAA-workflow".to_string()
 }
 
 fn default_author_email() -> String {
-    "noreply@scripps-workflow.local".to_string()
+    "noreply@ecaa-workflow.local".to_string()
 }
 
 fn default_true() -> bool {
@@ -246,7 +245,7 @@ pub fn git_config_path() -> PathBuf {
         return PathBuf::from(p);
     }
     let home = dirs_home().unwrap_or_else(|| PathBuf::from("."));
-    home.join(".scripps-workflow/git-config.json")
+    home.join(".ecaa-workflow/git-config.json")
 }
 
 /// Portable `$HOME` lookup without pulling in the `dirs` crate.

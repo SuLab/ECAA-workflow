@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "$id": "https://scripps-workflow/validation-contract-singlecell.schema.json",
+  "$id": "https://ecaa-workflow/validation-contract-singlecell.schema.json",
   "title": "Validation contract — per-stage required + recommended assertions",
   "type": "object",
   "required": ["contract_id", "stages"],

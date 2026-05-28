@@ -43,7 +43,7 @@ impl Default for ResilientClientConfig {
         Self {
             base_url: Url::parse("https://api.anthropic.com").expect("constant"),
             timeout: std::time::Duration::from_secs(300),
-            user_agent: format!("scripps-workflow/{}", env!("CARGO_PKG_VERSION")),
+            user_agent: format!("ecaa-workflow/{}", env!("CARGO_PKG_VERSION")),
         }
     }
 }

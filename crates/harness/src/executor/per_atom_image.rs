@@ -13,7 +13,7 @@
 //! 2. Hash the on-disk bytes via `derived_image::content_hash_from_file`
 //!    (matches the builder script's `sha256sum`); tag becomes
 //!    `<ECAA_DERIVED_IMAGE_TAG_PREFIX>:<hash>`.
-//! 3. Stage a temp build dir at `~/.scripps-workflow/per-atom-builds/
+//! 3. Stage a temp build dir at `~/.ecaa-workflow/per-atom-builds/
 //! <hash>/` containing `policies/runtime-prereqs.json` (the
 //!    per-atom manifest under the legacy filename the builder script
 //!    already reads) + a rendered `runtime/derived-image.Dockerfile`.
@@ -32,14 +32,14 @@ use ecaa_workflow_core::runtime_prereqs::RuntimePrereqs;
 use std::path::{Path, PathBuf};
 
 /// Resolve the per-atom build root from env or the default
-/// `~/.scripps-workflow/per-atom-builds/`. Falls back to `/tmp` when
+/// `~/.ecaa-workflow/per-atom-builds/`. Falls back to `/tmp` when
 /// `HOME` is unset (CI containers occasionally).
 fn build_root() -> PathBuf {
     if let Ok(v) = std::env::var("ECAA_PER_ATOM_BUILD_ROOT") {
         return PathBuf::from(v);
     }
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home).join(".scripps-workflow/per-atom-builds")
+    PathBuf::from(home).join(".ecaa-workflow/per-atom-builds")
 }
 
 /// Resolve the per-atom image tag prefix from env (default

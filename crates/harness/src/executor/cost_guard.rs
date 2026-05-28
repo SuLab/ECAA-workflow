@@ -187,7 +187,7 @@ impl std::fmt::Display for CostGuardError {
                 "could not read/write the cumulative-spend sidecar: {}. \
                  Fail-closed semantics block provisioning until the sidecar \
                  is readable or the operator manually clears it from \
-                 ~/.scripps-workflow/cumulative_spend/.",
+                 ~/.ecaa-workflow/cumulative_spend/.",
                 msg
             ),
         }
@@ -205,7 +205,7 @@ impl std::error::Error for CostGuardError {}
 // (otherwise an SME-driven crash-loop would zero the running total
 // every restart).
 //
-// File layout: `~/.scripps-workflow/cumulative_spend/<package_id>.json`
+// File layout: `~/.ecaa-workflow/cumulative_spend/<package_id>.json`
 // Format: `{"total_usd_spent_this_run": <f64>}` — single key, easy
 // for an operator to `cat` and reset by hand.
 //
@@ -242,7 +242,7 @@ pub struct CumulativeSpend {
 
 impl CumulativeSpend {
     /// R-21 — construct a tracker for `package_id`. Resolves the
-    /// sidecar path under `$HOME/.scripps-workflow/cumulative_spend/`
+    /// sidecar path under `$HOME/.ecaa-workflow/cumulative_spend/`
     /// and reads the run-total ceiling from
     /// `ECAA_AWS_RUN_TOTAL_CEILING_USD` (default $100). Creates the
     /// directory lazily on first write.
@@ -426,16 +426,16 @@ impl CumulativeSpend {
 }
 
 /// R-21 — default root for cumulative-spend sidecars:
-/// `$HOME/.scripps-workflow/cumulative_spend/`. Falls back to the
+/// `$HOME/.ecaa-workflow/cumulative_spend/`. Falls back to the
 /// current working directory if `$HOME` is unset (rare; CI containers
 /// occasionally elide it).
 fn default_cumulative_root() -> PathBuf {
     if let Ok(home) = env::var("HOME") {
         Path::new(&home)
-            .join(".scripps-workflow")
+            .join(".ecaa-workflow")
             .join("cumulative_spend")
     } else {
-        PathBuf::from(".scripps-workflow/cumulative_spend")
+        PathBuf::from(".ecaa-workflow/cumulative_spend")
     }
 }
 

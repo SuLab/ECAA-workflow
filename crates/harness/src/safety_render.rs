@@ -5,7 +5,7 @@
 //! Each executor calls [`render_provisioning_json`] before invoking the
 //! agent so the per-task policy file is on disk; the shims read it via
 //! the `ECAA_PROVISIONING_POLICY` env var (or fall back to
-//! `/etc/scripps-workflow/provisioning.json` when bind-mounted into the
+//! `/etc/ecaa-workflow/provisioning.json` when bind-mounted into the
 //! container).
 //!
 //! The rendered JSON is byte-stable across emits — the install-proxy

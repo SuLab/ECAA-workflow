@@ -510,7 +510,7 @@ impl ChatAppState {
     /// in-crate unit tests via `chat_routes::test_support::make_router`
     /// and by integration tests under `crates/server/tests/` that need
     /// a working ChatAppState without an `ANTHROPIC_API_KEY` or the
-    /// production `~/.scripps-workflow/sessions` directory.
+    /// production `~/.ecaa-workflow/sessions` directory.
     pub fn with_backend(
         llm: Arc<dyn LlmBackend>,
         store: SessionStore,
@@ -705,9 +705,9 @@ pub(crate) fn sessions_dir() -> PathBuf {
         return PathBuf::from(d);
     }
     if let Some(home) = std::env::var_os("HOME") {
-        return PathBuf::from(home).join(".scripps-workflow/sessions");
+        return PathBuf::from(home).join(".ecaa-workflow/sessions");
     }
-    PathBuf::from("./.scripps-sessions")
+    PathBuf::from("./.ecaa-sessions")
 }
 
 #[cfg(test)]
