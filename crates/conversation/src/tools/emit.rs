@@ -18,9 +18,7 @@ pub(super) fn default_package_root() -> PathBuf {
         return PathBuf::from(d);
     }
     if let Ok(home) = std::env::var("HOME") {
-        return PathBuf::from(home)
-            .join(".ecaa-workflow")
-            .join("packages");
+        return PathBuf::from(home).join(".ecaa-workflow").join("packages");
     }
     PathBuf::from("/tmp/scripps-packages")
 }
@@ -75,6 +73,153 @@ pub(super) fn resolve_emit_output_dir(
     }
 }
 
+/// Run the emit-time precondition gates against the freshest session state
+/// (`fresh` is the store re-read when a store is wired in, else the local
+/// clone). Returns `Some(refusal)` on the first failed gate, `None` when all
+/// pass. The gates, in order:
+/// 1. The per-emit `ConfirmationToken` (`is_confirmed()`) — a confirm-then-amend
+///    race drifts the plan-summary hash and forces re-confirmation.
+/// 2. No proposals still pending SME signoff (belt-and-suspenders against the
+///    LLM racing ahead of proposal approval).
+/// 3. A DAG is built (`ensure_dag_cached` lowers the v4 `workflow_dag` into the
+///    legacy cache so we gate on the derived DAG, not the stale field).
+/// 4. A taxonomy is loaded.
+fn check_emit_preconditions(session: &mut Session, fresh: Option<&Session>) -> Option<ToolResult> {
+    if let Some(r) = gate_confirmed(session, fresh) {
+        return Some(r);
+    }
+    if let Some(r) = gate_no_pending_proposals(session, fresh) {
+        return Some(r);
+    }
+    if let Some(r) = gate_dag_built(session) {
+        return Some(r);
+    }
+    gate_taxonomy(session)
+}
+
+/// Gate 1 — the per-emit `ConfirmationToken`. A confirm-then-amend race drifts
+/// the plan-summary hash so `is_confirmed()` returns false and forces re-confirm.
+fn gate_confirmed(session: &Session, fresh: Option<&Session>) -> Option<ToolResult> {
+    let confirmed = fresh
+        .map(|s| s.is_confirmed())
+        .unwrap_or_else(|| session.is_confirmed());
+    if confirmed {
+        return None;
+    }
+    tracing::warn!(
+        session_id = %session.id,
+        "emit_package_precondition_failure_unconfirmed",
+    );
+    Some(ToolResult::err(ToolError::PreconditionFailure {
+        reason: "SME has not confirmed THIS plan shape; re-confirmation required".into(),
+        hint: "Call propose_summary_confirmation, then wait for the user to click Confirm. \
+               If the plan was amended after confirmation, the latch was cleared and the SME \
+               must re-confirm the new shape."
+            .into(),
+    }))
+}
+
+/// Gate 2 — no proposals still pending SME signoff (belt-and-suspenders against
+/// the LLM racing ahead of proposal approval).
+fn gate_no_pending_proposals(session: &Session, fresh: Option<&Session>) -> Option<ToolResult> {
+    let proposals_source = fresh.map(|s| &s.proposals).unwrap_or(&session.proposals);
+    let pending: Vec<(&str, &str)> = proposals_source
+        .values()
+        .filter(|p| p.lifecycle.is_pending_sme())
+        .map(|p| (p.node_id.as_str(), p.lifecycle.kind_str()))
+        .collect();
+    if pending.is_empty() {
+        return None;
+    }
+    let summary = pending
+        .iter()
+        .map(|(node, kind)| format!("{node} ({kind})"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    tracing::warn!(
+        session_id = %session.id,
+        pending_proposals = %summary,
+        count = pending.len(),
+        "emit_package_precondition_failure_proposals_pending",
+    );
+    Some(ToolResult::err(ToolError::PreconditionFailure {
+        reason: format!(
+            "emit refused: {} proposal(s) still pending SME action: {summary}",
+            pending.len()
+        ),
+        hint: "Approve or reject every proposal card before emitting. \
+               See session.proposals — each entry must be in `Promoted` \
+               or `Rejected` lifecycle."
+            .into(),
+    }))
+}
+
+/// Gate 3 — a DAG is built. `ensure_dag_cached` lowers the v4 `workflow_dag`
+/// into the legacy cache so we gate on the derived DAG, not the stale field.
+fn gate_dag_built(session: &mut Session) -> Option<ToolResult> {
+    if session.ensure_dag_cached().is_some() {
+        return None;
+    }
+    tracing::warn!(
+        session_id = %session.id,
+        "emit_package_precondition_failure_no_dag",
+    );
+    Some(ToolResult::err(ToolError::PreconditionFailure {
+        reason: "no DAG built — nothing to emit".into(),
+        hint: "Append intake prose so the taxonomy can be classified and the DAG built.".into(),
+    }))
+}
+
+/// Gate 4 — a taxonomy is loaded.
+fn gate_taxonomy(session: &Session) -> Option<ToolResult> {
+    if session.taxonomy.is_some() {
+        return None;
+    }
+    tracing::warn!(
+        session_id = %session.id,
+        "emit_package_precondition_failure_no_taxonomy",
+    );
+    Some(ToolResult::err(ToolError::PreconditionFailure {
+        reason: "no taxonomy loaded".into(),
+        hint: "Append intake prose first.".into(),
+    }))
+}
+
+/// Best-effort post-emit telemetry: append the per-emit cost-ledger row and the
+/// SME-experience session-metrics row under `<out>/runtime/`. No-op without a
+/// `MetricsStore` (CLI / unit-test paths). A zero row is still written for
+/// sessions with no recorded turns so the ledger reflects the emit event. Write
+/// failures are logged and swallowed (never block the emit).
+async fn write_emit_metrics(
+    metrics_store: Option<&crate::metrics::MetricsStore>,
+    session: &Session,
+    out: &Path,
+) {
+    let Some(store) = metrics_store else {
+        return;
+    };
+    let snap = store.snapshot(session.id).await;
+    let runtime_dir = out.join("runtime");
+    let metrics = snap.unwrap_or_else(crate::metrics::empty_session_metrics);
+    if let Err(e) = crate::metrics::write_cost_ledger_row(&runtime_dir, session.id, &metrics) {
+        tracing::warn!(
+            "cost-ledger: failed to append row to {}: {} (continuing emit)",
+            runtime_dir.display(),
+            e
+        );
+    }
+    let created_at_ms = session.created_at.timestamp_millis().max(0) as u64;
+    if let Err(e) =
+        crate::metrics::write_session_metrics_row(&runtime_dir, session.id, created_at_ms, &metrics)
+    {
+        tracing::warn!(
+            "session-metrics: failed to append row to {}: {} (continuing emit)",
+            runtime_dir.display(),
+            e
+        );
+    }
+}
+
 pub(super) async fn emit_package(
     session: &mut Session,
     _llm_output_dir: Option<&str>,
@@ -82,120 +227,19 @@ pub(super) async fn emit_package(
     metrics_store: Option<&crate::metrics::MetricsStore>,
     store: Option<&crate::persistence::SessionStore>,
 ) -> ToolResult {
-    // The gates below
-    // were reading from the tool loop's local clone of `session`,
-    // which is seconds-to-minutes stale relative to the persisted
-    // store. A concurrent `/confirm` POST that lands during the loop
-    // would have flipped `user_confirmed = true` in the store but
-    // the local clone still saw `false`, producing a spurious nag
-    // turn. Symmetrically, a concurrent `/proposals/:id/approve`
-    // would have advanced lifecycle past PendingSme in the store
-    // but the local clone still sees PendingSme and refuses to emit.
-    //
-    // Fix: re-read from the store at gate time when one is wired in.
-    // Tests / CLI paths without a store fall back to the local
-    // snapshot (single-threaded, so safe). The local `session` is
-    // still mutated below (`emitted_package_path`) so the tool
-    // loop's merge writes the emit forward.
-    //
-    // The gate is `session.is_confirmed()`, which checks the per-emit
-    // ConfirmationToken against pending_emission_id + the current
-    // plan summary hash. A confirm-then-amend race drifts the summary
-    // hash and `is_confirmed()` returns false even though the token
-    // is still present, forcing the SME to re-confirm. The store
-    // re-read still matters because a concurrent /confirm POST may
-    // have just arrived.
+    // Re-read from the store at gate time when one is wired in, so the
+    // precondition checks see a concurrent `/confirm` or
+    // `/proposals/:id/approve` that landed during this tool loop rather than
+    // the loop's seconds-to-minutes-stale local clone. Tests / CLI paths
+    // without a store fall back to the local snapshot (single-threaded, safe).
     let fresh = if let Some(s) = store {
         s.get(session.id).await
     } else {
         None
     };
-    let confirmed = fresh
-        .as_ref()
-        .map(|s| s.is_confirmed())
-        .unwrap_or_else(|| session.is_confirmed());
-    if !confirmed {
-        tracing::warn!(
-            session_id = %session.id,
-            "emit_package_precondition_failure_unconfirmed",
-        );
-        return ToolResult::err(ToolError::PreconditionFailure {
-            reason: "SME has not confirmed THIS plan shape; re-confirmation required".into(),
-            hint: "Call propose_summary_confirmation, then wait for the user to click Confirm. \
-                   If the plan was amended after confirmation, the latch was cleared and the SME \
-                   must re-confirm the new shape."
-                .into(),
-        });
+    if let Some(refusal) = check_emit_preconditions(session, fresh.as_ref()) {
+        return refusal;
     }
-    // Belt-and-suspenders against the live-session bug
-    // where the LLM raced ahead to emit while proposals were still
-    // pending SME signoff. propose_summary_confirmation now refuses,
-    // so reaching `is_confirmed() == true` with pending proposals
-    // should be impossible; this second check guards against a
-    // future code path that bypasses the conversational tool.
-    //
-    // Consult the freshly-re-read proposals when a store is
-    // wired in. The local clone may show a proposal as PendingSme
-    // even though `/proposals/:id/approve` advanced it to Promoted
-    // during this loop.
-    let proposals_source = fresh
-        .as_ref()
-        .map(|s| &s.proposals)
-        .unwrap_or(&session.proposals);
-    let pending: Vec<(&str, &str)> = proposals_source
-        .values()
-        .filter(|p| p.lifecycle.is_pending_sme())
-        .map(|p| (p.node_id.as_str(), p.lifecycle.kind_str()))
-        .collect();
-    if !pending.is_empty() {
-        let summary = pending
-            .iter()
-            .map(|(node, kind)| format!("{node} ({kind})"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        tracing::warn!(
-            session_id = %session.id,
-            pending_proposals = %summary,
-            count = pending.len(),
-            "emit_package_precondition_failure_proposals_pending",
-        );
-        return ToolResult::err(ToolError::PreconditionFailure {
-            reason: format!(
-                "emit refused: {} proposal(s) still pending SME action: {summary}",
-                pending.len()
-            ),
-            hint: "Approve or reject every proposal card before emitting. \
-                   See session.proposals — each entry must be in `Promoted` \
-                   or `Rejected` lifecycle."
-                .into(),
-        });
-    }
-    // v4 composer fills `session.workflow_dag` and `session.compose_outcome`
-    // but leaves `session.dag` (the legacy DAG cache) empty until a reader
-    // calls `ensure_dag_cached`. Lower-and-cache here so emit_package can
-    // gate on the derived DAG rather than the stale cache field — without
-    // this, every v4 session that hadn't been read through `current_dag()`
-    // failed with "no DAG built" and the state machine flipped to Blocked.
-    if session.ensure_dag_cached().is_none() {
-        tracing::warn!(
-            session_id = %session.id,
-            "emit_package_precondition_failure_no_dag",
-        );
-        return ToolResult::err(ToolError::PreconditionFailure {
-            reason: "no DAG built — nothing to emit".into(),
-            hint: "Append intake prose so the taxonomy can be classified and the DAG built.".into(),
-        });
-    }
-    let Some(_tax) = &session.taxonomy else {
-        tracing::warn!(
-            session_id = %session.id,
-            "emit_package_precondition_failure_no_taxonomy",
-        );
-        return ToolResult::err(ToolError::PreconditionFailure {
-            reason: "no taxonomy loaded".into(),
-            hint: "Append intake prose first.".into(),
-        });
-    };
 
     // `StateTrigger::EmitPackageStart` (ReadyToEmit →
     // Emitting) fires from the dispatcher's pre-handler hook (see
@@ -225,46 +269,7 @@ pub(super) async fn emit_package(
     match result {
         Ok(()) => {
             session.emitted_package_path = Some(out.clone());
-            // Append a
-            // cost-ledger row so Tier 14's real-pipeline reader can
-            // observe per-emit total spend. Best-effort: a write
-            // failure logs and continues; absent MetricsStore (CLI /
-            // unit-test paths) skips silently. Snapshot may legitimately
-            // be `None` for sessions with zero recorded turns; we still
-            // write a zero row so the ledger reflects the emit event.
-            if let Some(store) = metrics_store {
-                let snap = store.snapshot(session.id).await;
-                let runtime_dir = out.join("runtime");
-                let metrics = snap.unwrap_or_else(crate::metrics::empty_session_metrics);
-                if let Err(e) =
-                    crate::metrics::write_cost_ledger_row(&runtime_dir, session.id, &metrics)
-                {
-                    tracing::warn!(
-                        "cost-ledger: failed to append row to {}: {} (continuing emit)",
-                        runtime_dir.display(),
-                        e
-                    );
-                }
-                // Append a session-metrics row so
-                // `runtime/session-metrics.jsonl` is populated with
-                // the four SME-experience fields the Tier 16.x runners
-                // need: `followup_count`, `amendment_count`,
-                // `blockers_encountered`, `is_ambiguous`. Best-effort:
-                // a write failure logs and continues.
-                let created_at_ms = session.created_at.timestamp_millis().max(0) as u64;
-                if let Err(e) = crate::metrics::write_session_metrics_row(
-                    &runtime_dir,
-                    session.id,
-                    created_at_ms,
-                    &metrics,
-                ) {
-                    tracing::warn!(
-                        "session-metrics: failed to append row to {}: {} (continuing emit)",
-                        runtime_dir.display(),
-                        e
-                    );
-                }
-            }
+            write_emit_metrics(metrics_store, session, &out).await;
             // Record the decision *before* returning so the log-dump path
             // inside emit_with_conversation_log sees it next time (on the
             // amendment re-emit, the previous record is already on disk).
