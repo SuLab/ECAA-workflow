@@ -383,7 +383,29 @@ pub fn append_stall_signal_record(package_root: &std::path::Path, signal: &Stall
     }
     let path = runtime.join("stall-signals.jsonl");
 
-    let (kind, measurements) = match signal {
+    let (kind, measurements) = signal_kind_and_measurements(signal);
+    let suggested_action = match signal.suggested_action() {
+        StallAction::Retry => "retry",
+        StallAction::Resize => "resize",
+        StallAction::Abort => "abort",
+    };
+
+    let record = serde_json::json!({
+        "ts": ecaa_workflow_core::time_helpers::now_rfc3339(),
+        "task_id": signal.task_id(),
+        "kind": kind,
+        "measurements": measurements,
+        "suggested_action": suggested_action,
+    });
+    let mut line = serde_json::to_string(&record).unwrap_or_default();
+    line.push('\n');
+
+    append_stall_line(&path, &line);
+}
+
+/// Map a stall signal to its sidecar `(kind, measurements)` pair.
+fn signal_kind_and_measurements(signal: &StallSignal) -> (&'static str, serde_json::Value) {
+    match signal {
         StallSignal::CpuStarvation {
             avg_cpu_pct,
             window_mins,
@@ -410,28 +432,16 @@ pub fn append_stall_signal_record(package_root: &std::path::Path, signal: &Stall
             "runtime_overrun",
             serde_json::json!({ "actual_secs": actual_secs, "expected_secs": expected_secs }),
         ),
-    };
+    }
+}
 
-    let suggested_action = match signal.suggested_action() {
-        StallAction::Retry => "retry",
-        StallAction::Resize => "resize",
-        StallAction::Abort => "abort",
-    };
-
-    let record = serde_json::json!({
-        "ts": ecaa_workflow_core::time_helpers::now_rfc3339(),
-        "task_id": signal.task_id(),
-        "kind": kind,
-        "measurements": measurements,
-        "suggested_action": suggested_action,
-    });
-    let mut line = serde_json::to_string(&record).unwrap_or_default();
-    line.push('\n');
-
+/// Append one pre-serialized JSON line to the stall-signals sidecar.
+/// Best-effort: open/write errors are warned and swallowed.
+fn append_stall_line(path: &std::path::Path, line: &str) {
     match std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&path)
+        .open(path)
     {
         Ok(mut f) => {
             if let Err(e) = f.write_all(line.as_bytes()) {

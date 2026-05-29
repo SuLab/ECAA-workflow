@@ -12,9 +12,9 @@ use super::stall_monitor::{
 };
 use super::{Executor, ExecutorArgs, IterationCapture, IterationOutcome};
 use anyhow::{Context, Result};
-use parking_lot::Mutex;
 use ecaa_workflow_core::dag::{Task, TaskState, DAG};
 use ecaa_workflow_core::remediation::ExecutorOverrides;
+use parking_lot::Mutex;
 use std::collections::{BTreeMap, VecDeque};
 use std::path::Path;
 use std::sync::{mpsc, Arc};
@@ -911,57 +911,19 @@ impl Executor for LocalExecutor {
         // inside the agent subprocess). Agent scripts enforce on their
         // side via `validate_task_id`; this is defense-in-depth so a
         // malformed value never even reaches the spawn.
-        if let Some(task_id_env) =
-            merged_envelope.get(crate::executor::hardware_envelope::TASK_ID_ENV)
-        {
-            crate::executor::_id_validator::sanitize_task_id(task_id_env).map_err(|reason| {
-                anyhow::anyhow!("refusing dispatch: unsafe ECAA_TASK_ID in envelope: {reason}")
-            })?;
-        }
+        validate_envelope_task_id(&merged_envelope)?;
 
-        // Apply the per-task image
-        // override if `provision` derived one for this task's atom.
-        // The override wins on collision: a per-atom tag set in
-        // `per_task_image_overrides[task_id]` replaces any
-        // `ECAA_DEFAULT_CONTAINER_IMAGE` from the session
-        // (per_task_image_overrides is only populated when
-        // ECAA_PER_TASK_IMAGES=1, and in that mode the session-wide
-        // warm-up is skipped — so there's nothing to collide with in
-        // practice, but the precedence is documented here for the
-        // future remediation that swaps task images at runtime).
-        if let Some(task_id_for_image) =
-            merged_envelope.get(crate::executor::hardware_envelope::TASK_ID_ENV)
-        {
-            if let Some(tag) = self.per_task_image_overrides.get(task_id_for_image) {
-                merged_envelope.insert("ECAA_DEFAULT_CONTAINER_IMAGE".into(), tag.clone());
-            }
-        }
+        apply_per_task_image_override(&self.per_task_image_overrides, &mut merged_envelope);
 
-        // Phase C7 — bubblewrap sandbox enforcement.
-        // Read ECAA_TASK_ID from the envelope to know which node to check.
-        // When bubblewrap is active AND the task is GeneratedCode, build a
-        // bwrap-wrapped Command and use the std::process path (regardless of
-        // whether the stall monitor is armed) so we have the child PID.
+        // Phase C7 — bubblewrap sandbox enforcement. When bubblewrap is active
+        // AND the task is GeneratedCode this returns a bwrap-wrapped Command,
+        // forcing the std::process path (regardless of the stall monitor) so
+        // we have the child PID.
         let task_id_for_sandbox = merged_envelope
             .get(crate::executor::hardware_envelope::TASK_ID_ENV)
             .cloned()
             .unwrap_or_default();
-        let sandbox_cmd_opt = if !task_id_for_sandbox.is_empty() {
-            match maybe_wrap_with_bwrap(package, agent_cmd, &task_id_for_sandbox) {
-                Ok(opt) => opt,
-                Err(e) => {
-                    // bwrap explicitly requested but binary is absent — surface
-                    // as a hard error so the SME knows the policy wasn't enforced.
-                    return Err(anyhow::anyhow!(
-                        "[sandbox-enforcer] cannot wrap task {}: {}",
-                        task_id_for_sandbox,
-                        e
-                    ));
-                }
-            }
-        } else {
-            None
-        };
+        let sandbox_cmd_opt = resolve_sandbox_cmd(package, agent_cmd, &task_id_for_sandbox)?;
 
         // Use std::process::Command when either the stall monitor is armed OR
         // the sandbox wrapping is active (both need access to the child PID or
@@ -1208,58 +1170,13 @@ impl Executor for LocalExecutor {
     fn apply_overrides(&mut self, task_id: &str, ov: &ExecutorOverrides) -> Result<()> {
         let mut env: BTreeMap<String, String> = BTreeMap::new();
         if let Some(res) = ov.resources.as_ref() {
-            if let Some(gb) = res.memory_gb {
-                env.insert("ECAA_AGENT_MEMORY_CAP_GB".into(), gb.to_string());
-            }
-            if let Some(secs) = res.wallclock_secs {
-                env.insert("ECAA_AGENT_WALLCLOCK_SECS".into(), secs.to_string());
-            }
-            if let Some(vcpus) = res.vcpus {
-                env.insert("ECAA_HW_NPROC_HINT".into(), vcpus.to_string());
-            }
+            apply_resource_env(&mut env, res);
         }
         for (lib, ver) in &ov.library_pins {
-            // C-8/C-9: same shape constraints as the
-            // remote executors — the value will be exported into the
-            // agent shell. Refuse anything outside the canonical shape
-            // so a hostile library_pins entry can't smuggle a shell
-            // payload into the local agent env.
-            let Some(suffix) = ecaa_workflow_core::env_validator::sanitize_lib_env_suffix(lib)
-            else {
-                tracing::warn!(
-                    library = %lib,
-                    "rejecting invalid library name in local env (C-8/C-9 hardening)"
-                );
-                continue;
-            };
-            if !ecaa_workflow_core::env_validator::is_safe_env_value(ver) {
-                tracing::warn!(
-                    library = %lib,
-                    value = %ver,
-                    "rejecting invalid library version value in local env (C-8/C-9 hardening)"
-                );
-                continue;
-            }
-            let key = format!("ECAA_LIB_PIN_{suffix}");
-            env.insert(key, ver.clone());
+            add_local_library_pin(&mut env, lib, ver);
         }
         for (k, v) in &ov.env_passthrough {
-            if !ecaa_workflow_core::env_validator::is_valid_env_name(k) {
-                tracing::warn!(
-                    key = %k,
-                    "rejecting invalid env_passthrough key in local env (C-8/C-9 hardening)"
-                );
-                continue;
-            }
-            if !ecaa_workflow_core::env_validator::is_safe_env_value(v) {
-                tracing::warn!(
-                    key = %k,
-                    value = %v,
-                    "rejecting invalid env_passthrough value in local env (C-8/C-9 hardening)"
-                );
-                continue;
-            }
-            env.insert(k.clone(), v.clone());
+            add_local_env_passthrough(&mut env, k, v);
         }
         if !ov.stage_parameters.is_empty() {
             merge_stage_params(Path::new(&self.package), task_id, &ov.stage_parameters)?;
@@ -1274,6 +1191,115 @@ impl Executor for LocalExecutor {
     fn release(&mut self) {
         // No-op: no resources to clean up for local subprocess invocations.
     }
+}
+
+/// Defense-in-depth: reject a malformed `ECAA_TASK_ID` in the envelope before
+/// it flows into per-task path composition or the agent spawn. No-op when the
+/// envelope carries no task id.
+fn validate_envelope_task_id(envelope: &BTreeMap<String, String>) -> Result<()> {
+    if let Some(task_id_env) = envelope.get(crate::executor::hardware_envelope::TASK_ID_ENV) {
+        crate::executor::_id_validator::sanitize_task_id(task_id_env).map_err(|reason| {
+            anyhow::anyhow!("refusing dispatch: unsafe ECAA_TASK_ID in envelope: {reason}")
+        })?;
+    }
+    Ok(())
+}
+
+/// Apply the per-task image override if `provision` derived one for this
+/// task's atom. The override wins on collision: a per-atom tag in
+/// `per_task_image_overrides[task_id]` replaces any session-wide
+/// `ECAA_DEFAULT_CONTAINER_IMAGE`. (In practice per-task images are only
+/// populated under `ECAA_PER_TASK_IMAGES=1`, which skips the session-wide
+/// warm-up, so there's nothing to collide with — but the precedence is
+/// documented for a future runtime image-swap remediation.)
+fn apply_per_task_image_override(
+    per_task_image_overrides: &BTreeMap<String, String>,
+    envelope: &mut BTreeMap<String, String>,
+) {
+    if let Some(task_id_for_image) = envelope.get(crate::executor::hardware_envelope::TASK_ID_ENV) {
+        if let Some(tag) = per_task_image_overrides.get(task_id_for_image) {
+            let tag = tag.clone();
+            envelope.insert("ECAA_DEFAULT_CONTAINER_IMAGE".into(), tag);
+        }
+    }
+}
+
+/// Resolve the bubblewrap-wrapped command for `task_id`, if sandbox
+/// enforcement applies. Returns `Ok(None)` when there is no task id or the
+/// task needs no wrapping; `Err` when bwrap was explicitly requested but the
+/// binary is absent (surfaced so the SME knows the policy wasn't met).
+fn resolve_sandbox_cmd(
+    package: &Path,
+    agent_cmd: &str,
+    task_id: &str,
+) -> Result<Option<std::process::Command>> {
+    if task_id.is_empty() {
+        return Ok(None);
+    }
+    maybe_wrap_with_bwrap(package, agent_cmd, task_id)
+        .map_err(|e| anyhow::anyhow!("[sandbox-enforcer] cannot wrap task {}: {}", task_id, e))
+}
+
+/// Translate a [`ResourceTarget`] into the agent env caps the local executor
+/// honours. `None` fields are left unset.
+fn apply_resource_env(
+    env: &mut BTreeMap<String, String>,
+    res: &ecaa_workflow_core::remediation::ResourceTarget,
+) {
+    if let Some(gb) = res.memory_gb {
+        env.insert("ECAA_AGENT_MEMORY_CAP_GB".into(), gb.to_string());
+    }
+    if let Some(secs) = res.wallclock_secs {
+        env.insert("ECAA_AGENT_WALLCLOCK_SECS".into(), secs.to_string());
+    }
+    if let Some(vcpus) = res.vcpus {
+        env.insert("ECAA_HW_NPROC_HINT".into(), vcpus.to_string());
+    }
+}
+
+/// Validate and stage one `ECAA_LIB_PIN_*` library pin into the local agent
+/// env. C-8/C-9: the value is exported into the agent shell, so anything
+/// outside the canonical shape is rejected (warned) and skipped.
+fn add_local_library_pin(env: &mut BTreeMap<String, String>, lib: &str, ver: &str) {
+    let Some(suffix) = ecaa_workflow_core::env_validator::sanitize_lib_env_suffix(lib) else {
+        tracing::warn!(
+            library = %lib,
+            "rejecting invalid library name in local env (C-8/C-9 hardening)"
+        );
+        return;
+    };
+    if !ecaa_workflow_core::env_validator::is_safe_env_value(ver) {
+        tracing::warn!(
+            library = %lib,
+            value = %ver,
+            "rejecting invalid library version value in local env (C-8/C-9 hardening)"
+        );
+        return;
+    }
+    let key = format!("ECAA_LIB_PIN_{suffix}");
+    env.insert(key, ver.to_string());
+}
+
+/// Validate and stage one env-passthrough `KEY=value` into the local agent
+/// env. C-8/C-9: refuse keys outside the POSIX env name shape and values with
+/// `\n`, `\r`, `,`, `=`, or `\0` (warned + skipped).
+fn add_local_env_passthrough(env: &mut BTreeMap<String, String>, k: &str, v: &str) {
+    if !ecaa_workflow_core::env_validator::is_valid_env_name(k) {
+        tracing::warn!(
+            key = %k,
+            "rejecting invalid env_passthrough key in local env (C-8/C-9 hardening)"
+        );
+        return;
+    }
+    if !ecaa_workflow_core::env_validator::is_safe_env_value(v) {
+        tracing::warn!(
+            key = %k,
+            value = %v,
+            "rejecting invalid env_passthrough value in local env (C-8/C-9 hardening)"
+        );
+        return;
+    }
+    env.insert(k.to_string(), v.to_string());
 }
 
 /// Merge `params` into `runtime/inputs/<task_id>/params.json`. Creates

