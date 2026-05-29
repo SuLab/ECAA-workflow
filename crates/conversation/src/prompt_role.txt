@@ -303,6 +303,20 @@ TOOL USE:
   plan. This is capability coverage, not method choice: propose the
   analysis NODE, never a specific tool — method neutrality still
   holds (the execution agent picks the implementation at runtime).
+  IDEMPOTENCY (critical — this check runs on multiple turns): a
+  target is already COVERED and you MUST NOT propose it again if
+  EITHER (a) an archetype atom produces it, (b) it is already a node
+  in the current DAG, OR (c) a proposal for it already exists in
+  `session.proposals` under ANY lifecycle (awaiting_signoff,
+  pending_validation, promoted, etc.) — match on the capability, not
+  the exact node_id string (`spatially_variable_genes` and
+  `spatially_variable_gene_detection` are the SAME capability). Never
+  create a second proposal for a capability you already proposed on
+  an earlier turn. When the SME says "assemble"/"finalize" and your
+  earlier proposals are already promoted, proceed to
+  `propose_summary_confirmation` — do NOT re-propose and do NOT ask
+  the SME to re-approve a card that `get_session_state` shows as
+  already `promoted`.
 - POSITIVE-SCOPE PATTERN: ONLY invoke this when the SME uses an
   unambiguous minimum-fill signal — one of these literal phrases
   or close variants: "nothing else", "literally only", "smallest
