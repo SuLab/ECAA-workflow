@@ -74,18 +74,34 @@ fn collect_test_corpus() -> String {
     let root = repo_root();
     let mut corpus = String::new();
 
-    // 1. crates/core/tests/*.rs (one level only)
+    // 1. crates/core/tests/**/*.rs — top level and one subdirectory level
+    //    (covers both the old flat layout and the new themed-group layout
+    //    where each group lives in tests/<group>/*.rs).
     let core_tests = root.join("crates").join("core").join("tests");
     for entry in std::fs::read_dir(&core_tests)
         .unwrap_or_else(|e| panic!("cannot read {}: {}", core_tests.display(), e))
         .flatten()
     {
-        if entry.path().is_file() {
-            if let Some(ext) = entry.path().extension() {
-                if ext == "rs" {
-                    if let Ok(text) = std::fs::read_to_string(entry.path()) {
-                        corpus.push_str(&text);
-                        corpus.push('\n');
+        let path = entry.path();
+        if path.is_file() {
+            if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    corpus.push_str(&text);
+                    corpus.push('\n');
+                }
+            }
+        } else if path.is_dir() {
+            // Descend one level into group subdirectories
+            if let Ok(sub_entries) = std::fs::read_dir(&path) {
+                for sub in sub_entries.flatten() {
+                    let sub_path = sub.path();
+                    if sub_path.is_file()
+                        && sub_path.extension().and_then(|e| e.to_str()) == Some("rs")
+                    {
+                        if let Ok(text) = std::fs::read_to_string(&sub_path) {
+                            corpus.push_str(&text);
+                            corpus.push('\n');
+                        }
                     }
                 }
             }
