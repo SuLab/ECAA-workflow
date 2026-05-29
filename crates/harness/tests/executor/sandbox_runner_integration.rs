@@ -25,10 +25,9 @@ fn policy_with(f: impl FnOnce(&mut SandboxPolicy)) -> SandboxPolicy {
     p
 }
 
-/// Lock for tests that mutate `ECAA_LOCAL_SANDBOX` in the process env.
-/// Without serialisation, parallel `cargo test` runs observe each
-/// other's transient overrides.
-static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+// Tests that mutate `ECAA_LOCAL_SANDBOX` use `crate::ENV_LOCK`
+// (declared in `executor/main.rs`) so they serialize against `executor_safety`
+// module tests that touch the same env var.
 
 // ── Pure render_args tests ────────────────────────────────────────────────
 
@@ -58,7 +57,7 @@ fn no_unshare_net_when_deny_network_false() {
 
 #[test]
 fn unsets_secret_env_vars_when_deny_secrets_true() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     // Plant a recognisable secret var.
     let secret_key = "TEST_ECAA_C7_MY_API_KEY";
     unsafe { std::env::set_var(secret_key, "super-secret") };
@@ -91,7 +90,7 @@ fn unsets_secret_env_vars_when_deny_secrets_true() {
 
 #[test]
 fn deny_secrets_false_does_not_emit_unsetenv() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let runner = BubblewrapRunner::new_for_test(PathBuf::from("/pkg"));
     // Clear allow_envs as well so we're testing deny_secrets in isolation —
     // allow_envs is an independent axis that also emits --unsetenv when
@@ -109,7 +108,7 @@ fn deny_secrets_false_does_not_emit_unsetenv() {
 
 #[test]
 fn passthrough_when_mode_off() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "off") };
     let result = BubblewrapRunner::from_env(PathBuf::from("/pkg"));
     unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
@@ -122,7 +121,7 @@ fn passthrough_when_mode_off() {
 
 #[test]
 fn passthrough_when_mode_unset() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
     let result = BubblewrapRunner::from_env(PathBuf::from("/pkg"));
     assert!(
@@ -134,7 +133,7 @@ fn passthrough_when_mode_unset() {
 
 #[test]
 fn errors_when_bwrap_missing_and_mode_bubblewrap() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap") };
     // Override the bwrap path to a nonexistent location via the
     // test-only constructor. `from_env` hardcodes /usr/bin/bwrap so we
@@ -293,7 +292,7 @@ fn policy_digest_differs_for_different_policies() {
 /// do NOT produce `--unsetenv` for their names.
 #[test]
 fn args_allow_envs_unsets_others() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
 
     // Plant two recognisable non-secret test vars.
     let foo_key = "TEST_ECAA_C14_FOO";
@@ -358,7 +357,7 @@ fn bwrap_spawn_unshare_net_prevents_loopback() {
         return;
     }
 
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let workdir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/tmp"));
     unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap") };
     let runner = BubblewrapRunner::from_env(workdir.clone())
