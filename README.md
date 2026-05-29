@@ -90,7 +90,7 @@ make e2e-playwright  # mocked Playwright tier
 
 ## Configuration
 
-`config/` is the source of truth for modalities, archetypes, atoms, compute profiles, gene panels, plot affordances, and downstream-policy contracts. Each directory has its own README.
+`config/` is the source of truth for modalities, archetypes, atoms, compute profiles, gene panels, plot affordances, and downstream-policy contracts. `config/archetypes/` and `config/stage-atoms/` carry their own READMEs.
 
 ## Documentation
 
