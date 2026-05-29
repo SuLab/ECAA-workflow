@@ -305,13 +305,14 @@ pub enum BlockerKind {
     },
 
     /// The SLURM scheduler reported `TIMEOUT` (the task hit the
-    /// `--time=` wallclock cap) or AWS reported the task exceeded its
-    /// `expected_secs * ECAA_RUNTIME_MULTIPLIER` budget. Distinct from
+    /// `--time=` wallclock cap). Distinct from
     /// `Stalled { signal: RuntimeOverExpected }` which fires *during*
     /// runtime as a heads-up — this kind fires *after* the scheduler
-    /// has already killed the job. `wallclock_secs` is the elapsed time
-    /// at termination; `time_limit_secs` is the cap. SME affordance:
-    /// rerun with a longer `--time=` (the executor offers a one-click
+    /// has already killed the job. Watchdog-enforced wall-clock kills
+    /// on non-SLURM executors surface as `WallClockExceeded`, not this
+    /// variant. `wallclock_secs` is the elapsed time at termination;
+    /// `time_limit_secs` is the cap. SME affordance: rerun with a
+    /// longer `--time=` (the executor offers a one-click
     /// extend-and-rerun action).
     TimeExceeded {
         #[serde(default, skip_serializing_if = "Option::is_none")]
