@@ -101,72 +101,7 @@ impl CacheEvictor {
         let (shutdown_tx, shutdown_rx) = mpsc::channel::<()>();
         let handle = std::thread::Builder::new()
             .name("cache-evictor".into())
-            .spawn(move || {
-                // W1.5: track consecutive sweep failures so an
-                // ongoing problem (permission error on a subtree,
-                // sticky FS error, full disk) escalates to ERROR
-                // and backs off the sweep cadence instead of
-                // hammering the same broken path every period.
-                const ESCALATION_THRESHOLD: u32 = 3;
-                const BACKOFF_PERIOD_MULT: u32 = 4;
-                let mut consecutive_failures: u32 = 0;
-                loop {
-                    // Active wait: under sustained failure, sweep
-                    // less often (BACKOFF_PERIOD_MULT × period). Once
-                    // a sweep succeeds, the counter resets and the
-                    // normal cadence resumes.
-                    let effective_period = if consecutive_failures >= ESCALATION_THRESHOLD {
-                        period.saturating_mul(BACKOFF_PERIOD_MULT)
-                    } else {
-                        period
-                    };
-                    match shutdown_rx.recv_timeout(effective_period) {
-                        // A value was sent — not currently possible
-                        // (sender never sends); treat as shutdown.
-                        Ok(()) => {
-                            tracing::debug!("cache-evictor: shutdown signal received");
-                            break;
-                        }
-                        // Timeout elapsed — run a sweep.
-                        Err(mpsc::RecvTimeoutError::Timeout) => {}
-                        // Sender dropped — harness is exiting.
-                        Err(mpsc::RecvTimeoutError::Disconnected) => {
-                            tracing::debug!("cache-evictor: shutdown channel closed; exiting");
-                            break;
-                        }
-                    }
-                    match self.evict_if_over_cap() {
-                        Ok(()) => {
-                            if consecutive_failures > 0 {
-                                tracing::info!(
-                                    after_failures = consecutive_failures,
-                                    "cache eviction recovered; resuming normal cadence"
-                                );
-                            }
-                            consecutive_failures = 0;
-                        }
-                        Err(e) => {
-                            consecutive_failures = consecutive_failures.saturating_add(1);
-                            if consecutive_failures >= ESCALATION_THRESHOLD {
-                                tracing::error!(
-                                    consecutive = consecutive_failures,
-                                    backoff_mult = BACKOFF_PERIOD_MULT,
-                                    error = %e,
-                                    "cache eviction failed N+ times in a row; escalating to ERROR \
-                                     and backing off sweep cadence — investigate the cache root \
-                                     for permission / FS-full / disk-corruption issues"
-                                );
-                            } else {
-                                tracing::warn!(
-                                    consecutive = consecutive_failures,
-                                    error = %e,
-                                    "periodic cache eviction failed"
-                                );
-                            }
-                        }
-                    }
-                }
-            })
+            .spawn(move || run_eviction_loop(self, &shutdown_rx, period))
             .expect("failed to spawn cache-evictor thread");
         EvictionGuard {
             shutdown_tx: Some(shutdown_tx),
@@ -195,6 +130,29 @@ impl CacheEvictor {
         // pre-fix, entry.metadata() returned all-equal atimes
         // (current wall-clock) regardless of the per-session atime
         // the test set via utimensat.
+        let path_atimes = self.collect_session_atimes()?;
+        let mut entries = size_sessions(path_atimes);
+        let total: u64 = entries.iter().map(|(_, s, _)| *s).sum();
+        if total <= self.max_bytes {
+            tracing::debug!(
+                total_bytes = total,
+                cap_bytes = self.max_bytes,
+                sessions = entries.len(),
+                "cache under cap; no eviction needed",
+            );
+            return Ok(());
+        }
+        self.evict_lru(&mut entries, total);
+        Ok(())
+    }
+
+    /// First pass of `enforce`: collect `(path, atime)` for each session
+    /// subdirectory under the cache root. atime is captured BEFORE the size
+    /// walk because `read_dir` on nested dirs updates their atime (a readdir
+    /// is an access); capturing it after would collapse the LRU sort to read
+    /// order — see `evicts_multiple_sessions_until_under_cap`. Non-directory
+    /// entries and per-entry stat errors are skipped (warned).
+    fn collect_session_atimes(&self) -> Result<Vec<(PathBuf, SystemTime)>> {
         let mut path_atimes: Vec<(PathBuf, SystemTime)> = Vec::new();
         for e in std::fs::read_dir(&self.cache_dir)
             .with_context(|| format!("reading {}", self.cache_dir.display()))?
@@ -224,55 +182,30 @@ impl CacheEvictor {
                 .unwrap_or(SystemTime::UNIX_EPOCH);
             path_atimes.push((path, atime));
         }
-        // Second pass: compute sizes in parallel via rayon. Each
-        // `dir_size` walk is an I/O-bound recursive traversal; the
-        // work-stealing pool fans them out so the wall time is
-        // dominated by the largest session rather than the sum.
-        // Errors per-entry are warned + filtered as in the prior
-        // sequential implementation — a partial walk is still useful.
-        use rayon::prelude::*;
-        let mut entries: Vec<(PathBuf, u64, SystemTime)> = path_atimes
-            .into_par_iter()
-            .filter_map(|(path, atime)| {
-                let size = match dir_size(&path) {
-                    Ok(s) => s,
-                    Err(err) => {
-                        tracing::warn!(?path, error = %err, "dir_size failed; skipping");
-                        return None;
-                    }
-                };
-                eprintln!("[evictor-debug] {:?} size={} atime={:?}", path, size, atime);
-                Some((path, size, atime))
-            })
-            .collect();
-        let total: u64 = entries.iter().map(|(_, s, _)| *s).sum();
-        if total <= self.max_bytes {
-            tracing::debug!(
-                total_bytes = total,
-                cap_bytes = self.max_bytes,
-                sessions = entries.len(),
-                "cache under cap; no eviction needed",
-            );
-            return Ok(());
-        }
-        // Evict oldest-access first.
+        Ok(path_atimes)
+    }
+
+    /// Evict oldest-access sessions until freed bytes cover the overage.
+    /// Per-entry remove errors are warned and skipped (a partial eviction
+    /// still frees space).
+    fn evict_lru(&self, entries: &mut [(PathBuf, u64, SystemTime)], total: u64) {
         entries.sort_by_key(|(_, _, atime)| *atime);
         let need = total - self.max_bytes;
         let mut freed: u64 = 0;
-        for (path, size, _atime) in entries {
+        for (path, size, _atime) in entries.iter() {
             if freed >= need {
                 break;
             }
             tracing::info!(
                 ?path,
-                size_bytes = size,
+                size_bytes = *size,
                 "evicting LRU session cache (total over cap)",
             );
-            if let Err(err) = std::fs::remove_dir_all(&path) {
+            if let Err(err) = std::fs::remove_dir_all(path) {
                 tracing::warn!(?path, error = %err, "evict remove_dir_all failed");
                 continue;
             }
-            freed = freed.saturating_add(size);
+            freed = freed.saturating_add(*size);
         }
         tracing::info!(
             total_before = total,
@@ -280,7 +213,117 @@ impl CacheEvictor {
             cap_bytes = self.max_bytes,
             "cache eviction complete",
         );
-        Ok(())
+    }
+}
+
+/// Second pass of `enforce`: size each session in parallel via rayon. Each
+/// `dir_size` walk is an I/O-bound recursive traversal; the work-stealing
+/// pool fans them out so wall time is dominated by the largest session rather
+/// than the sum. Per-entry errors are warned and filtered — a partial walk is
+/// still useful.
+fn size_sessions(path_atimes: Vec<(PathBuf, SystemTime)>) -> Vec<(PathBuf, u64, SystemTime)> {
+    use rayon::prelude::*;
+    path_atimes
+        .into_par_iter()
+        .filter_map(|(path, atime)| {
+            let size = match dir_size(&path) {
+                Ok(s) => s,
+                Err(err) => {
+                    tracing::warn!(?path, error = %err, "dir_size failed; skipping");
+                    return None;
+                }
+            };
+            Some((path, size, atime))
+        })
+        .collect()
+}
+
+/// Background sweep loop for `spawn_periodic`. Sweeps every `period`; once
+/// `ESCALATION_THRESHOLD` consecutive failures accumulate it escalates logging
+/// to ERROR and backs the cadence off by `BACKOFF_PERIOD_MULT` (an ongoing
+/// problem — permission error, sticky FS error, full disk — stops hammering
+/// the same broken path every period). Exits when the shutdown channel is
+/// signalled or disconnects (the `EvictionGuard` was dropped).
+fn run_eviction_loop(evictor: CacheEvictor, shutdown_rx: &mpsc::Receiver<()>, period: Duration) {
+    const ESCALATION_THRESHOLD: u32 = 3;
+    const BACKOFF_PERIOD_MULT: u32 = 4;
+    let mut consecutive_failures: u32 = 0;
+    loop {
+        // Active wait: under sustained failure, sweep less often. Once a
+        // sweep succeeds the counter resets and normal cadence resumes.
+        let effective_period = if consecutive_failures >= ESCALATION_THRESHOLD {
+            period.saturating_mul(BACKOFF_PERIOD_MULT)
+        } else {
+            period
+        };
+        if eviction_loop_should_exit(shutdown_rx.recv_timeout(effective_period)) {
+            break;
+        }
+        consecutive_failures = record_sweep_outcome(
+            evictor.evict_if_over_cap(),
+            consecutive_failures,
+            ESCALATION_THRESHOLD,
+            BACKOFF_PERIOD_MULT,
+        );
+    }
+}
+
+/// Map a `recv_timeout` result to "should the loop exit?". A sent value (not
+/// currently possible — the sender never sends) or a disconnected channel mean
+/// shutdown; a timeout means "run a sweep".
+fn eviction_loop_should_exit(recv: std::result::Result<(), mpsc::RecvTimeoutError>) -> bool {
+    match recv {
+        Ok(()) => {
+            tracing::debug!("cache-evictor: shutdown signal received");
+            true
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => false,
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
+            tracing::debug!("cache-evictor: shutdown channel closed; exiting");
+            true
+        }
+    }
+}
+
+/// Fold one sweep result into the consecutive-failure counter, emitting the
+/// recovery / warn / escalation logs. Returns the updated counter (reset to 0
+/// on success).
+fn record_sweep_outcome(
+    result: Result<()>,
+    consecutive_failures: u32,
+    escalation_threshold: u32,
+    backoff_mult: u32,
+) -> u32 {
+    match result {
+        Ok(()) => {
+            if consecutive_failures > 0 {
+                tracing::info!(
+                    after_failures = consecutive_failures,
+                    "cache eviction recovered; resuming normal cadence"
+                );
+            }
+            0
+        }
+        Err(e) => {
+            let consecutive = consecutive_failures.saturating_add(1);
+            if consecutive >= escalation_threshold {
+                tracing::error!(
+                    consecutive = consecutive,
+                    backoff_mult = backoff_mult,
+                    error = %e,
+                    "cache eviction failed N+ times in a row; escalating to ERROR \
+                     and backing off sweep cadence — investigate the cache root \
+                     for permission / FS-full / disk-corruption issues"
+                );
+            } else {
+                tracing::warn!(
+                    consecutive = consecutive,
+                    error = %e,
+                    "periodic cache eviction failed"
+                );
+            }
+            consecutive
+        }
     }
 }
 
