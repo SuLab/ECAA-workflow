@@ -77,8 +77,8 @@ pub struct AtomDefinition {
     pub description: String,
 
     /// EDAM operation IRI (e.g. `operation:0292` for Alignment). Use
-    /// `swfc:<slug>` for in-house extensions per ADR 0004 (e.g.
-    /// `swfc:scrnaseq_doublet_detection`). The schema regex enforces
+    /// `ecaax:<slug>` for in-house extensions per ADR 0004 (e.g.
+    /// `ecaax:scrnaseq_doublet_detection`). The schema regex enforces
     /// the pattern; the curated subtype edges in
     /// `crates/core/src/edam.rs` (S4.8) ground "is-a" lookups.
     pub edam_operation: String,
@@ -1206,7 +1206,7 @@ mod tests {
             role: AtomRole::Discovery,
             discovery_kind: Some("method".into()),
             description: "Pick a short-read aligner appropriate to organism + read shape.".into(),
-            edam_operation: "swfc:aligner_choice".into(),
+            edam_operation: "ecaax:aligner_choice".into(),
             edam_data: None,
             edam_format: None,
             assignee: AtomAssignee::Agent,

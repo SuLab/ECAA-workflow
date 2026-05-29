@@ -57,7 +57,7 @@ outputs:
   - name: hla_peptide_hits
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: hla_peptide_table
       proposed_parent_terms:
         - "data:2976"

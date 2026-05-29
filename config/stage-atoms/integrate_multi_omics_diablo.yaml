@@ -12,7 +12,7 @@ description: |
   (unsupervised, similarity-based subtyping). The discover_integration_
   method atom selects between the three based on label availability
   and goal kind.
-edam_operation: "swfc:multi_omics_diablo"
+edam_operation: "ecaax:multi_omics_diablo"
 edam_data: "data:1278"
 edam_format: "format:3464"
 assignee: agent
@@ -67,7 +67,7 @@ outputs:
   - name: diablo_model
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "diablo_model"
       proposed_parent_terms:
         - "data:1278"

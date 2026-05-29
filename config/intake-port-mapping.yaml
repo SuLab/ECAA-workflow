@@ -63,7 +63,7 @@ rules:
     cardinality: single
 
   - intake_field: gene_panel
-    edam_data: swfc:cell_marker_panel
+    edam_data: ecaax:cell_marker_panel
     cardinality: single
 
   # ── Variant fields ───────────────────────────────────────────────
@@ -95,7 +95,7 @@ rules:
 
   # ── Spatial / metagenomics ───────────────────────────────────────
   - intake_field: spatial_coords
-    edam_data: swfc:spatial_coordinates
+    edam_data: ecaax:spatial_coordinates
     cardinality: single
 
   - intake_field: taxonomy_assignment
@@ -115,20 +115,20 @@ rules:
     cardinality: collection
 
   - intake_field: contrast
-    edam_data: swfc:contrast_specification
+    edam_data: ecaax:contrast_specification
     cardinality: single
 
   # ── Clinical-trial fields ────────────────────────────────────────
   - intake_field: arms
-    edam_data: swfc:trial_arm
+    edam_data: ecaax:trial_arm
     cardinality: collection
 
   - intake_field: endpoints
-    edam_data: swfc:trial_endpoint
+    edam_data: ecaax:trial_endpoint
     cardinality: collection
 
   - intake_field: analysis_set
-    edam_data: swfc:trial_analysis_set
+    edam_data: ecaax:trial_analysis_set
     cardinality: single
 
   # ── Time-series fields ───────────────────────────────────────────
@@ -142,5 +142,5 @@ rules:
     cardinality: single
 
   - intake_field: seasonality
-    edam_data: swfc:seasonality_period
+    edam_data: ecaax:seasonality_period
     cardinality: single

@@ -102,7 +102,7 @@ pub enum SemanticType {
     /// `OntologyTermRef` on `PortContract.ontology_terms`.
     OntologyTerm {
         /// Compact IRI (e.g. `data:1383`, `format:2572`,
-        /// `operation:0292`) or `swfc:<slug>` for in-house extensions
+        /// `operation:0292`) or `ecaax:<slug>` for in-house extensions
         /// per ADR 0004.
         iri: String,
         /// Human-readable label for the IRI.
@@ -120,7 +120,7 @@ pub enum SemanticType {
     /// ontology consumer when one of its proposed parents is an
     /// ancestor of the consumer's term.
     LocalExtension {
-        /// Authority namespace (`swfc:` for in-house, `lab:foo` for
+        /// Authority namespace (`ecaax:` for in-house, `lab:foo` for
         /// site-specific extensions).
         namespace: String,
         /// Local id within the namespace.
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn round_trip_local_extension() {
         let st = SemanticType::LocalExtension {
-            namespace: "swfc".into(),
+            namespace: "ecaax".into(),
             id: "scrnaseq_doublet_score".into(),
             proposed_parent_terms: vec!["data:2603".into()],
             definition: "Per-cell doublet probability".into(),
@@ -328,14 +328,14 @@ mod tests {
         let json = serde_json::to_string(&st).unwrap();
         let back: SemanticType = serde_json::from_str(&json).unwrap();
         assert_eq!(st, back);
-        assert_eq!(st.stable_id(), "swfc:scrnaseq_doublet_score");
+        assert_eq!(st.stable_id(), "ecaax:scrnaseq_doublet_score");
     }
 
     #[test]
     fn pre_p6_serde_default_for_maturity() {
         // Pre-v4-P6 sessions don't carry `maturity`; deserialize as
         // `Minted` so reading older session files still works.
-        let json = r#"{"kind":"local_extension","namespace":"swfc","id":"x","proposed_parent_terms":[],"definition":"d"}"#;
+        let json = r#"{"kind":"local_extension","namespace":"ecaax","id":"x","proposed_parent_terms":[],"definition":"d"}"#;
         let st: SemanticType = serde_json::from_str(json).unwrap();
         match st {
             SemanticType::LocalExtension { maturity, .. } => {
@@ -359,7 +359,7 @@ mod tests {
         assert_eq!(SemanticType::edam("a", "b").variant_key(), "ontology_term");
         assert_eq!(
             SemanticType::LocalExtension {
-                namespace: "swfc".into(),
+                namespace: "ecaax".into(),
                 id: "x".into(),
                 proposed_parent_terms: vec![],
                 definition: "".into(),

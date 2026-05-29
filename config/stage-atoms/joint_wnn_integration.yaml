@@ -43,7 +43,7 @@ inputs:
   - name: paired_rna_atac_per_nucleus
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: multiome_paired_per_nucleus
       proposed_parent_terms:
         - "data:3917"
@@ -58,7 +58,7 @@ outputs:
   - name: joint_embedding
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: joint_wnn_embedding
       proposed_parent_terms:
         - "data:3917"

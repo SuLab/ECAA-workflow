@@ -86,8 +86,8 @@ export default function App() {
 
   useEffect(() => {
     const handler = () => setTopView('settings')
-    window.addEventListener('swfc:open-settings', handler)
-    return () => window.removeEventListener('swfc:open-settings', handler)
+    window.addEventListener('ecaax:open-settings', handler)
+    return () => window.removeEventListener('ecaax:open-settings', handler)
   }, [setTopView])
 
   // popstate (browser back/forward) keeps URL ?view= in sync with state.

@@ -29,7 +29,7 @@ use uuid::Uuid;
 #[derive(Debug, Deserialize)]
 pub(super) struct ProposeHypothesizedRendererRequest {
     /// SemanticType IRI of the output port the preferred renderer addresses
-    /// (e.g. `swfc:my_custom_output`). The `EDAM:` namespace is reserved and
+    /// (e.g. `ecaax:my_custom_output`). The `EDAM:` namespace is reserved and
     /// will be rejected.
     pub target_semantic_type: String,
     /// Registered parent-term SemanticType IRIs the proposed renderer inherits
@@ -223,7 +223,7 @@ mod tests {
             .header("content-type", "application/json")
             .body(Body::from(
                 r#"{
-                    "target_semantic_type": "swfc:my_test_plot",
+                    "target_semantic_type": "ecaax:my_test_plot",
                     "proposed_parent_terms": ["EDAM:data_3134"],
                     "proposed_figure_ids": ["my_test_fig"],
                     "sme_intent": "test intent"
@@ -285,7 +285,7 @@ mod tests {
             .header("content-type", "application/json")
             .body(Body::from(
                 r#"{
-                    "target_semantic_type": "swfc:my_test_plot",
+                    "target_semantic_type": "ecaax:my_test_plot",
                     "proposed_parent_terms": [],
                     "proposed_figure_ids": [],
                     "sme_intent": "test intent"

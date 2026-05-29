@@ -306,7 +306,7 @@
       "@id": "#step-variant_filtering",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\nswfc namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
+      "name": "Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\necaax namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
       "position": 16
     },
     {
@@ -369,7 +369,7 @@
       "@id": "#step-validate_variant_filtering",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\nswfc namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
+      "name": "Validate outputs of: Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\necaax namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
       "position": 25
     },
     {

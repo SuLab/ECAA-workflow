@@ -1286,7 +1286,7 @@ mod tests {
         let engine = DeterministicCompatibilityEngine::new();
         let mut producer = p("data:0863");
         producer.semantic_type = SemanticType::LocalExtension {
-            namespace: "swfc".into(),
+            namespace: "ecaax".into(),
             id: "scrnaseq_doublet_score".into(),
             proposed_parent_terms: vec!["data:2603".into()],
             definition: "doublet probability".into(),

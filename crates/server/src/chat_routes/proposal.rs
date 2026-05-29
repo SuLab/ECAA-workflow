@@ -208,9 +208,9 @@ pub(super) async fn signoff_proposal(
                         to_node: task_node_id.clone(),
                         to_port: "default".to_string(),
                         proof: CompatibilityProof {
-                            producer_type: format!("swfc:promoted_upstream_{upstream}"),
+                            producer_type: format!("ecaax:promoted_upstream_{upstream}"),
                             consumer_type: format!(
-                                "swfc:promoted_consumer_{task_node_id}"
+                                "ecaax:promoted_consumer_{task_node_id}"
                             ),
                             rationale: Some(format!(
                                 "SME-declared dependency from propose_hypothesized_node \
@@ -250,10 +250,10 @@ pub(super) async fn signoff_proposal(
                             to_port: "default".to_string(),
                             proof: CompatibilityProof {
                                 producer_type: format!(
-                                    "swfc:promoted_producer_{task_node_id}"
+                                    "ecaax:promoted_producer_{task_node_id}"
                                 ),
                                 consumer_type: format!(
-                                    "swfc:reporting_consumer_{downstream_id}"
+                                    "ecaax:reporting_consumer_{downstream_id}"
                                 ),
                                 rationale: Some(format!(
                                     "Default downstream wiring: promoted \
@@ -311,10 +311,10 @@ pub(super) async fn signoff_proposal(
                         to_port: "default".to_string(),
                         proof: CompatibilityProof {
                             producer_type: format!(
-                                "swfc:promoted_producer_{task_node_id}"
+                                "ecaax:promoted_producer_{task_node_id}"
                             ),
                             consumer_type: format!(
-                                "swfc:validator_consumer_{validate_id}"
+                                "ecaax:validator_consumer_{validate_id}"
                             ),
                             rationale: Some(
                                 "validator wrapper for promoted hypothesized atom"

@@ -28,9 +28,9 @@
         "normalisation"
       ],
       "assignee": "agent",
-      "description": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. swfc namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
+      "description": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
       "spec": {
-        "edam_operation": "swfc:scrnaseq_batch_correction",
+        "edam_operation": "ecaax:scrnaseq_batch_correction",
         "expected_artifacts": [
           "integration_stats.json",
           "corrected_embedding.tsv",
@@ -76,9 +76,9 @@
         "clustering"
       ],
       "assignee": "agent",
-      "description": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "description": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
       "spec": {
-        "edam_operation": "swfc:cell_type_annotation",
+        "edam_operation": "ecaax:cell_type_annotation",
         "expected_artifacts": [
           "celltype_assignments.tsv",
           "marker_panel_audit.json",
@@ -347,7 +347,7 @@
       "assignee": "agent",
       "description": "Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
       "spec": {
-        "edam_operation": "swfc:integration_method_comparison",
+        "edam_operation": "ecaax:integration_method_comparison",
         "stage_class": "aggregator"
       },
       "resource_class": "cpu_heavy"
@@ -450,9 +450,9 @@
         "quantification"
       ],
       "assignee": "agent",
-      "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
       "spec": {
-        "edam_operation": "swfc:scrnaseq_cell_qc",
+        "edam_operation": "ecaax:scrnaseq_cell_qc",
         "expected_artifacts": [
           "qc_summary.json",
           "filtered_cells_index.json",
@@ -684,9 +684,9 @@
         "batch_correction"
       ],
       "assignee": "agent",
-      "description": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. swfc namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
+      "description": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
       "spec": {
-        "edam_operation": "swfc:scrnaseq_batch_correction",
+        "edam_operation": "ecaax:scrnaseq_batch_correction",
         "required_figures": [
           "mixing_score_bar",
           "umap_pre_post"
@@ -704,9 +704,9 @@
         "cell_type_annotation"
       ],
       "assignee": "agent",
-      "description": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "description": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
       "spec": {
-        "edam_operation": "swfc:cell_type_annotation",
+        "edam_operation": "ecaax:cell_type_annotation",
         "required_figures": [
           "umap_by_celltype",
           "celltype_size_bar"
@@ -824,7 +824,7 @@
       "assignee": "agent",
       "description": "Validate outputs of: Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
       "spec": {
-        "edam_operation": "swfc:integration_method_comparison",
+        "edam_operation": "ecaax:integration_method_comparison",
         "stage_class": "aggregator"
       },
       "resource_class": "cpu_heavy"
@@ -879,9 +879,9 @@
         "qc_preprocessing"
       ],
       "assignee": "agent",
-      "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
       "spec": {
-        "edam_operation": "swfc:scrnaseq_cell_qc",
+        "edam_operation": "ecaax:scrnaseq_cell_qc",
         "plot_stage_id": "quality_control",
         "required_figures": [
           "per_sample_metric_violin",

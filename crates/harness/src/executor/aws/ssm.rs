@@ -237,7 +237,7 @@ impl AwsExecutor {
         let (effective_envelope, dropped_secrets) = filter_secrets(&effective_envelope);
         for k in &dropped_secrets {
             tracing::warn!(
-                target: "swfc::aws::ssm",
+                target: "ecaa::aws::ssm",
                 env_key = %k,
                 task_id = %task_id,
                 "refusing to ship credential env var via SSM envelope; \

@@ -6,7 +6,7 @@ description: |
   SeqQA question. ExactMatch case-insensitive scoring is handled by the
   eval-adapter side after the agent returns. The agent reads the
   question from `intake.txt` and writes its answer to `answer.txt`.
-edam_operation: "swfc:lab_bench_query"
+edam_operation: "ecaax:lab_bench_query"
 assignee: agent
 preferred_container:
   image: "ghcr.io/scripps/bio-min"
@@ -28,7 +28,7 @@ inputs:
   - name: query
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "llm_query"
       proposed_parent_terms:
         - "data:0006"
@@ -41,7 +41,7 @@ outputs:
   - name: response
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "llm_response"
       proposed_parent_terms:
         - "data:2526"
@@ -53,7 +53,7 @@ outputs:
   - name: score
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "eval_score"
       proposed_parent_terms:
         - "data:0951"

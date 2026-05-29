@@ -1890,7 +1890,7 @@ impl Classifier {
     ///
     /// Every emitted `GoalSpec` runs through
     /// `is_well_formed()` before being returned. A pattern with
-    /// malformed EDAM IRIs (missing `data:`/`format:`/`swfc:`
+    /// malformed EDAM IRIs (missing `data:`/`format:`/`ecaax:`
     /// prefix, non-numeric id, etc.) drops to `None` rather than
     /// propagating an invalid goal. Defends against config drift +
     /// the LLM-extraction path that piggybacks on this output.

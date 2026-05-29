@@ -92,7 +92,7 @@ impl ContainerState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ContainerProbeOutcome {
-    /// `docker ps --filter label=swfc-task=<id>` returned a row: the
+    /// `docker ps --filter label=ecaa-task=<id>` returned a row: the
     /// container is still alive on the host. Reaper should leave the
     /// host alone and reap the container only (for SLURM: cancel the
     /// step) because the host itself is healthy.

@@ -50,7 +50,7 @@ inputs:
   - name: labeled_cohort
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "labeled_cohort"
       proposed_parent_terms:
         - "data:0006"
@@ -63,7 +63,7 @@ outputs:
   - name: feature_matrix
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "ehr_feature_matrix"
       proposed_parent_terms:
         - "data:3134"

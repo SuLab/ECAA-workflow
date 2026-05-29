@@ -25,7 +25,7 @@
         "discover_batch_correction",
         "normalisation"
       ],
-      "description": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. swfc namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
+      "description": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
       "kind": "computation",
       "resource_class": "memory_heavy",
       "state": {
@@ -38,7 +38,7 @@
         "clustering",
         "discover_cell_type_annotation"
       ],
-      "description": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "description": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
       "kind": "computation",
       "resource_class": "cpu_heavy",
       "state": {
@@ -290,7 +290,7 @@
       "depends_on": [
         "quantification"
       ],
-      "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
       "kind": "computation",
       "resource_class": "cpu_heavy",
       "state": {
@@ -365,7 +365,7 @@
       "depends_on": [
         "batch_correction"
       ],
-      "description": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. swfc namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
+      "description": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "state": {
@@ -377,7 +377,7 @@
       "depends_on": [
         "cell_type_annotation"
       ],
-      "description": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "description": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "state": {
@@ -485,7 +485,7 @@
       "depends_on": [
         "qc_preprocessing"
       ],
-      "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "state": {

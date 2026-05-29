@@ -301,7 +301,7 @@ pub fn render_dockerfile(prereqs: &RuntimePrereqs) -> Option<String> {
     // The default keeps `docker run scripps-derived:<hash>...`
     // (without --user) safe out of the box.
     s.push_str("USER 1000:1000\n");
-    s.push_str(&format!("LABEL swfc-derived-from=\"{base}\"\n"));
+    s.push_str(&format!("LABEL ecaa-derived-from=\"{base}\"\n"));
 
     Some(s)
 }
@@ -429,7 +429,7 @@ mod tests {
         let df = render_dockerfile(&p).expect("buildable");
         assert!(df.contains("FROM ghcr.io/scripps/scripps-bio-base:0.1.0"));
         assert!(df.contains("USER 1000:1000"));
-        assert!(df.contains("LABEL swfc-derived-from="));
+        assert!(df.contains("LABEL ecaa-derived-from="));
     }
 
     #[test]

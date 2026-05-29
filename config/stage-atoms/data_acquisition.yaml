@@ -36,14 +36,14 @@ resource_profile:
   runtime_class: minutes
 # Explicit rich ports.
 # Inputs are SME-declared accessions / paths from intake (modeled as a
-# swfc:accession_descriptor local extension since EDAM lacks a clean
+# ecaax:accession_descriptor local extension since EDAM lacks a clean
 # term for "SRA accession descriptor"). The primary output is raw
 # FASTQ; richer modalities may add per-sample metadata.
 inputs:
   - name: accession_descriptors
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "accession_descriptor"
       proposed_parent_terms:
         - "data:2531"

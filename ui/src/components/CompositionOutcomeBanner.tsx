@@ -79,7 +79,7 @@ export default function CompositionOutcomeBanner({
         type="button"
         onClick={() =>
           window.dispatchEvent(
-            new CustomEvent('swfc:switch-tab', {
+            new CustomEvent('ecaax:switch-tab', {
               detail: { tab: 'composition' },
             }),
           )

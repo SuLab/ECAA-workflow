@@ -106,7 +106,7 @@ pub fn build_bco_at(
         .as_deref()
         .unwrap_or("backward-chain");
     let object_id = format!(
-        "urn:swfc:bco:{}:{}:{}",
+        "urn:ecaax:bco:{}:{}:{}",
         intake.modality,
         archetype_id,
         sha256_prefix(&format!(
@@ -684,7 +684,7 @@ mod tests {
             role: AtomRole::Operation,
             discovery_kind: None,
             description: "QC step.".into(),
-            edam_operation: "swfc:scrnaseq_cell_qc".into(),
+            edam_operation: "ecaax:scrnaseq_cell_qc".into(),
             edam_data: Some("data:3917".into()),
             edam_format: Some("format:3590".into()),
             assignee: AtomAssignee::Agent,

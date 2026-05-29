@@ -42,7 +42,7 @@ inputs:
   - name: joint_embedding
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: joint_wnn_embedding
       proposed_parent_terms:
         - "data:3917"
@@ -57,7 +57,7 @@ outputs:
   - name: peak_to_gene_links
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: peak_to_gene_link_table
       proposed_parent_terms:
         - "data:1255"

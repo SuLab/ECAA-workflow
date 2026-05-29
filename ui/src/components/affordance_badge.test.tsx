@@ -11,7 +11,7 @@ import type { PlotAffordance } from '../types/PlotAffordance'
 // ── Fixture helpers ────────────────────────────────────────────────────────
 
 const proof = {
-  source_semantic_type: 'swfc:de_output',
+  source_semantic_type: 'ecaax:de_output',
   ontology_walk: ['EDAM:data_3134'],
   registry_snapshot_id: 'snap-v1',
   theme_version: '1.0',

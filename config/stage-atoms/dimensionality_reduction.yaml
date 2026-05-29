@@ -31,7 +31,7 @@ resource_profile:
   gpu: false
   runtime_class: minutes
 # Explicit rich ports.
-# Output is a low-dimensional embedding; modeled as a swfc:embedding
+# Output is a low-dimensional embedding; modeled as a ecaax:embedding
 # local extension because EDAM doesn't carry a dedicated "low-dim
 # embedding matrix" term distinct from the input count matrix
 # (data:3917).
@@ -51,7 +51,7 @@ outputs:
   - name: embedding
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "embedding"
       proposed_parent_terms:
         - "data:3917"

@@ -9,7 +9,7 @@ description: |
   Python subprocess bridge owned by the eval adapter (NOT PyO3
   — JSON-over-stdin/stdout to keep biomni env drift independent
   of the host build).
-edam_operation: "swfc:biomni_eval1_query"
+edam_operation: "ecaax:biomni_eval1_query"
 assignee: agent
 preferred_container:
   image: "ghcr.io/scripps/bio-min"
@@ -25,7 +25,7 @@ safety:
     kind: bridge
 # Explicit rich ports.
 # LLM eval-bench atoms model the query / response / score triple as
-# swfc: local extensions parented under EDAM data classes so the
+# ecaax: local extensions parented under EDAM data classes so the
 # composer can route them through the open-world subsumption check.
 figure_exempt:
   reason: "Benchmark evaluation atom; structured eval score output does not map to a visual figure type."
@@ -34,7 +34,7 @@ inputs:
   - name: query
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "llm_query"
       proposed_parent_terms:
         - "data:0006"
@@ -47,7 +47,7 @@ outputs:
   - name: response
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "llm_response"
       proposed_parent_terms:
         - "data:2526"
@@ -59,7 +59,7 @@ outputs:
   - name: score
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "eval_score"
       proposed_parent_terms:
         - "data:0951"

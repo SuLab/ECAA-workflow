@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "swfc:modality-ontology-coverage",
+  "$id": "ecaax:modality-ontology-coverage",
   "type": "object",
   "required": ["version", "coverage"],
   "additionalProperties": false,

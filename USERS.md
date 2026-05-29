@@ -499,7 +499,7 @@ Three data boundaries to keep in mind:
 
 **For regulated data** (HIPAA, CLIA, clinical-trial PII, etc.), confirm with your institution's compliance officer before using the chat surface. The system has a `ECAA_CHAT_MODE=offline` kill switch that degrades gracefully with a mock backend — use it if chat is not acceptable for your environment, but note that no LLM-mediated features work in that mode.
 
-**Network access.** By default the chat server binds `127.0.0.1` only, so the UI works on the same host as the server with no authentication. Operators who expose the server on a LAN (`ECAA_BIND_ADDR=0.0.0.0`) must set `ECAA_SERVER_AUTH_TOKEN` to a long random string; the UI reads the token from a `<meta name="swfc-auth-token">` tag in `ui/index.html`. The dev recipe is to set the token manually in `ui/index.html` for local LAN testing; production deployments template the index from the server at boot.
+**Network access.** By default the chat server binds `127.0.0.1` only, so the UI works on the same host as the server with no authentication. Operators who expose the server on a LAN (`ECAA_BIND_ADDR=0.0.0.0`) must set `ECAA_SERVER_AUTH_TOKEN` to a long random string; the UI reads the token from a `<meta name="ecaa-auth-token">` tag in `ui/index.html`. The dev recipe is to set the token manually in `ui/index.html` for local LAN testing; production deployments template the index from the server at boot.
 
 ### What you can't do
 

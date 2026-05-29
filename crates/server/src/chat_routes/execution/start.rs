@@ -1711,7 +1711,7 @@ mod agent_path_tests {
     }
 
     #[test]
-    fn none_honors_swfc_default_agent_path() {
+    fn none_honors_ecaa_default_agent_path() {
         let p =
             validate_agent_path_with_default(None, Some("scripts/agent-mock-blocker.sh".into()))
                 .expect("env default must resolve through allowlist");

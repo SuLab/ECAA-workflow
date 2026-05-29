@@ -7,7 +7,7 @@ description: |
   (ARIMA / ETS / Prophet / NeuralProphet / TimesNet). Reads
   the engineered feature matrix + horizon spec, picks the
   model based on series length + seasonality.
-edam_operation: "swfc:method_discovery"
+edam_operation: "ecaax:method_discovery"
 assignee: agent
 depends_on:
   - time_series_feature_engineering
@@ -39,7 +39,7 @@ outputs:
   - name: method_choice
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "method_choice"
       proposed_parent_terms:
         - "data:2080"

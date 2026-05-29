@@ -6,9 +6,9 @@ description: |
   between conditions (DTU). Distinct from differential_expression which
   tests gene-level abundance. Methods: DRIMSeq, DEXSeq, IsoformSwitchAnalyzeR.
   Emits per-transcript test statistics + per-gene aggregated results.
-  swfc:differential_transcript_usage — EDAM operation:3223 (DE) is
+  ecaax:differential_transcript_usage — EDAM operation:3223 (DE) is
   gene-level only.
-edam_operation: "swfc:differential_transcript_usage"
+edam_operation: "ecaax:differential_transcript_usage"
 edam_data: "data:0951"
 edam_format: "format:3475"
 assignee: agent
@@ -28,7 +28,7 @@ resource_profile:
 # Explicit rich ports.
 # Input is the transcript-level count matrix produced by isoform_
 # discovery (an isoform_counts.tsv companion to the novel_transcripts
-# annotation). The output table is a DTU swfc local extension because
+# annotation). The output table is a DTU ecaax local extension because
 # EDAM data:0951 (Statistical estimate score) is the closest container
 # but doesn't capture the within-gene relative-abundance test design.
 inputs:
@@ -48,7 +48,7 @@ outputs:
   - name: dtu_results
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "differential_transcript_usage_results"
       proposed_parent_terms:
         - "data:0951"

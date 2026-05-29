@@ -517,7 +517,7 @@ assignee: agent
 version: "1.0.0"
 role: discovery
 description: "x"
-edam_operation: swfc:aligner_choice
+edam_operation: ecaax:aligner_choice
 assignee: agent
 "#,
         );

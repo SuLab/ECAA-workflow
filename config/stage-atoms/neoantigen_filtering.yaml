@@ -45,7 +45,7 @@ inputs:
   - name: binding_predictions
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: hla_binding_table
       proposed_parent_terms:
         - "data:2976"
@@ -60,7 +60,7 @@ outputs:
   - name: neoantigen_catalog
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: neoantigen_catalog
       proposed_parent_terms:
         - "data:2976"

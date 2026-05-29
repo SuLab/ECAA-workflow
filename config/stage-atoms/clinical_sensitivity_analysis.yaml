@@ -58,7 +58,7 @@ inputs:
   - name: endpoint_results
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "clinical_endpoint_results"
       proposed_parent_terms:
         - "data:0951"
@@ -81,7 +81,7 @@ outputs:
   - name: sensitivity_report
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "clinical_sensitivity_report"
       proposed_parent_terms:
         - "data:0951"

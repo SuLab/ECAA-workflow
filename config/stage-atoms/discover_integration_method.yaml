@@ -26,7 +26,7 @@ description: |
   surfaces the choice via `propose_summary_confirmation` for SME
   visibility but commits to the chosen method only after the agent's
   rubric runs.
-edam_operation: "swfc:discover_integration_method"
+edam_operation: "ecaax:discover_integration_method"
 edam_data: "data:1278"
 edam_format: "format:3464"
 assignee: agent

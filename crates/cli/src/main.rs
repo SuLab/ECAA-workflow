@@ -349,7 +349,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
     // proteomics_dia, both sharing modality_hint + goal_data) can pick a
     // single seed instead of returning None to the search path (which
     // then can't satisfy the local-extension parent-walk for
-    // protein_quantification's `swfc:protein_abundance_matrix` →
+    // protein_quantification's `ecaax:protein_abundance_matrix` →
     // `data:2976`).
     let mut goal_modifiers: BTreeMap<String, String> = BTreeMap::new();
     if let Some(kind) = archetype_obj.goal_kind_hint.as_ref() {

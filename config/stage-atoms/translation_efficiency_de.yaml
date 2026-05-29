@@ -9,7 +9,7 @@ description: |
   interaction term selected at runtime; reports per-gene TE
   log2FC and adjusted p-value.
 edam_operation: "operation:3223"
-edam_data: "swfc:te_results"
+edam_data: "ecaax:te_results"
 edam_format: "format:3475"
 assignee: agent
 depends_on:
@@ -68,7 +68,7 @@ outputs:
   - name: te_results
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: te_results
       proposed_parent_terms:
         - "data:0951"

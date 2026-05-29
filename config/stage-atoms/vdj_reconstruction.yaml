@@ -54,7 +54,7 @@ outputs:
   - name: per_cell_vdj
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: vdj_per_cell_table
       proposed_parent_terms:
         - "data:3917"

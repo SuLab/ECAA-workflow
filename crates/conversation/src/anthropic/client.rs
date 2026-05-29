@@ -1354,7 +1354,7 @@ mod tests {
 
     #[test]
     fn missing_api_key_errors_at_new() {
-        let prior_swfc = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
+        let prior_ecaa = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
         let prior_legacy = std::env::var("ANTHROPIC_API_KEY").ok();
         // SAFETY: tests in this module run single-threaded by virtue of
         // accessing the same env var; we restore on drop below.
@@ -1363,7 +1363,7 @@ mod tests {
             std::env::remove_var("ANTHROPIC_API_KEY");
         };
         let r = AnthropicClient::new();
-        if let Some(k) = prior_swfc {
+        if let Some(k) = prior_ecaa {
             unsafe { std::env::set_var("ECAA_ANTHROPIC_API_KEY", k) };
         }
         if let Some(k) = prior_legacy {
@@ -1937,7 +1937,7 @@ mod tests {
         let _g = DUMP_TEST_LOCK.lock().unwrap();
         // Inject a non-https, non-loopback base URL.
         let prior_url = std::env::var("ANTHROPIC_BASE_URL").ok();
-        let prior_swfc = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
+        let prior_ecaa = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
         unsafe {
             std::env::set_var("ANTHROPIC_BASE_URL", "http://api.anthropic.com");
             // Provide a dummy key so the key-check doesn't fire first.
@@ -1950,7 +1950,7 @@ mod tests {
                 Some(v) => std::env::set_var("ANTHROPIC_BASE_URL", v),
                 None => std::env::remove_var("ANTHROPIC_BASE_URL"),
             }
-            match prior_swfc {
+            match prior_ecaa {
                 Some(v) => std::env::set_var("ECAA_ANTHROPIC_API_KEY", v),
                 None => std::env::remove_var("ECAA_ANTHROPIC_API_KEY"),
             }
@@ -1973,7 +1973,7 @@ mod tests {
     fn resilient_client_accepts_loopback_http_base_url() {
         let _g = DUMP_TEST_LOCK.lock().unwrap();
         let prior_url = std::env::var("ANTHROPIC_BASE_URL").ok();
-        let prior_swfc = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
+        let prior_ecaa = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
         unsafe {
             std::env::set_var("ANTHROPIC_BASE_URL", "http://127.0.0.1:8080");
             std::env::set_var("ECAA_ANTHROPIC_API_KEY", "sk-ant-test-dummy");
@@ -1984,7 +1984,7 @@ mod tests {
                 Some(v) => std::env::set_var("ANTHROPIC_BASE_URL", v),
                 None => std::env::remove_var("ANTHROPIC_BASE_URL"),
             }
-            match prior_swfc {
+            match prior_ecaa {
                 Some(v) => std::env::set_var("ECAA_ANTHROPIC_API_KEY", v),
                 None => std::env::remove_var("ECAA_ANTHROPIC_API_KEY"),
             }

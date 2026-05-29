@@ -55,7 +55,7 @@ inputs:
   - name: internal_predictions
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "predicted_probabilities"
       proposed_parent_terms:
         - "data:0951"
@@ -68,7 +68,7 @@ outputs:
   - name: fairness_report
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "fairness_report"
       proposed_parent_terms:
         - "data:0951"

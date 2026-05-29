@@ -3,9 +3,9 @@ version: "1.0.0"
 role: operation
 description: |
   Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.
-  swfc namespace per EDAM audit — operation:3225 (variant classification) is
+  ecaax namespace per EDAM audit — operation:3225 (variant classification) is
   semantic creep for filtering.
-edam_operation: "swfc:variant_filtering"
+edam_operation: "ecaax:variant_filtering"
 edam_data: "data:3498"
 edam_format: "format:3016"
 assignee: agent

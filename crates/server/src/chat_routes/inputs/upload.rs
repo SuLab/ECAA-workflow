@@ -540,7 +540,7 @@ fn dir_is_writable(dir: &StdPath) -> bool {
     if !dir.is_dir() {
         return std::fs::create_dir_all(dir).is_ok();
     }
-    let probe = dir.join(".swfc-write-probe");
+    let probe = dir.join(".ecaa-write-probe");
     match std::fs::write(&probe, b"") {
         Ok(()) => {
             let _ = std::fs::remove_file(&probe);

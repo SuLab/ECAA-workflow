@@ -49,7 +49,7 @@ outputs:
   - name: annotated_peaks
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "peak_annotation_table"
       proposed_parent_terms:
         - "data:1255"

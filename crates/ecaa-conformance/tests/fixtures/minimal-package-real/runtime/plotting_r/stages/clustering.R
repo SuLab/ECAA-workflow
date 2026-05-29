@@ -3,9 +3,9 @@
 # input file conventions, same figure_id catalog.
 
 # Stage modules expect runtime/plotting_r/core.R to be sourced before this
-# file. The dispatcher in core.R::swfc_generate handles that automatically;
+# file. The dispatcher in core.R::ecaa_generate handles that automatically;
 # stand-alone usage should `source("runtime/plotting_r/core.R")` first.
-if (!exists("swfc_register_figure")) {
+if (!exists("ecaa_register_figure")) {
   stop("source runtime/plotting_r/core.R before this stage module")
 }
 
@@ -57,7 +57,7 @@ if (!exists("swfc_register_figure")) {
   NULL
 }
 
-swfc_register_figure("clustering", "umap_clusters", function(ctx) {
+ecaa_register_figure("clustering", "umap_clusters", function(ctx) {
   runs <- .cluster_iter_runs(ctx)
   chosen <- NULL
   for (run in runs) {
@@ -71,7 +71,7 @@ swfc_register_figure("clustering", "umap_clusters", function(ctx) {
   }
   if (is.null(chosen)) stop("no cluster_labels.tsv with x/y columns")
   uniq <- sort(unique(chosen$loaded$cluster))
-  pal <- swfc_palette(length(uniq), name = paste0("clustering.", chosen$id))
+  pal <- ecaa_palette(length(uniq), name = paste0("clustering.", chosen$id))
   df <- data.frame(
     x = chosen$loaded$x, y = chosen$loaded$y,
     cluster = factor(chosen$loaded$cluster, levels = uniq)
@@ -90,14 +90,14 @@ swfc_register_figure("clustering", "umap_clusters", function(ctx) {
     ))
 })
 
-swfc_register_figure("clustering", "cluster_size_bar", function(ctx) {
+ecaa_register_figure("clustering", "cluster_size_bar", function(ctx) {
   runs <- .cluster_iter_runs(ctx)
   for (run in runs) {
     sizes <- .cluster_load_sizes(ctx, run)
     if (!is.null(sizes) && length(sizes) > 0) {
       names_v <- as.character(names(sizes) %||% seq_along(sizes))
       values <- as.numeric(sizes)
-      return(swfc_bar(
+      return(ecaa_bar(
         names = names_v, values = values,
         title = sprintf("Cluster sizes — %s", run$id %||% "run"),
         ylabel = "n members", xlabel = "cluster"

@@ -258,7 +258,7 @@ impl AwsExecutor {
             let (_succeeded, failed) = self.batch_terminate_instances(&orphans);
             for (id, reason) in &failed {
                 tracing::warn!(
-                    target: "swfc::aws::orphans",
+                    target: "ecaa::aws::orphans",
                     instance_id = %id,
                     reason = %reason,
                     "terminate-instances failed for orphan id"
@@ -314,7 +314,7 @@ impl AwsExecutor {
         let (candidates, spoofed) = wal_cross_check(&candidates, &wal_ids);
         for id in &spoofed {
             tracing::warn!(
-                target: "swfc::aws::orphans",
+                target: "ecaa::aws::orphans",
                 instance_id = %id,
                 "orphan candidate {id} has matching tags but not in this harness's WAL — skipping (possible tag spoof)"
             );
@@ -531,7 +531,7 @@ impl AwsExecutor {
     ///
     /// Issue a single `aws ssm send-command` against `instance_id` running:
     ///
-    /// 1. `docker ps --filter label=swfc-task=<task_id> --format '{{.ID}}|{{.Image}}'`
+    /// 1. `docker ps --filter label=ecaa-task=<task_id> --format '{{.ID}}|{{.Image}}'`
     ///    — first row identifies a still-alive container the reaper can
     ///    target without touching the host. Empty stdout = no live row.
     /// 2. `cat /home/<user>/ecaa-workflow/<package>/runtime/outputs/<task_id>/.container-state.json`
@@ -584,7 +584,7 @@ impl AwsExecutor {
         let script = format!(
             "set -u\
              ; LIVE=\"\"; if command -v docker >/dev/null 2>&1; then \
-               LIVE=$(docker ps --filter label=swfc-task={task_id} --format '{{{{.ID}}}}' 2>/dev/null | head -1); \
+               LIVE=$(docker ps --filter label=ecaa-task={task_id} --format '{{{{.ID}}}}' 2>/dev/null | head -1); \
              fi\
              ; SIDECAR=\"\"; SIDECAR_PATH={pkg}/runtime/outputs/{task_id}/.container-state.json\
              ; if [ -f \"$SIDECAR_PATH\" ]; then SIDECAR=$(cat \"$SIDECAR_PATH\" 2>/dev/null); fi\
@@ -815,13 +815,13 @@ mod probe_envelope_tests {
     /// `slurm/polling.rs::classify_slurm_probe_envelope`.
     #[test]
     fn live_apptainer_instance_classifies_as_apptainer() {
-        let body = r#"{"live":"swfc-task-bulk_rnaseq_de_sample_001","sidecar":null}"#;
+        let body = r#"{"live":"ecaa-task-bulk_rnaseq_de_sample_001","sidecar":null}"#;
         match classify_probe_envelope(body) {
             ContainerProbeOutcome::ContainerAlive {
                 container_id,
                 runtime,
             } => {
-                assert_eq!(container_id, "swfc-task-bulk_rnaseq_de_sample_001");
+                assert_eq!(container_id, "ecaa-task-bulk_rnaseq_de_sample_001");
                 assert_eq!(runtime, "apptainer");
             }
             other => panic!("expected ContainerAlive(apptainer), got {other:?}"),

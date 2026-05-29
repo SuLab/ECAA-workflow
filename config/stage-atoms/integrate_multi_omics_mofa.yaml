@@ -12,7 +12,7 @@ description: |
   per modality (MOFA tolerates per-modality dropout — DIABLO does not).
   Selected as the conservative default when discover_integration_method
   can't disambiguate.
-edam_operation: "swfc:multi_omics_mofa"
+edam_operation: "ecaax:multi_omics_mofa"
 edam_data: "data:1278"
 edam_format: "format:3464"
 assignee: agent
@@ -65,7 +65,7 @@ outputs:
   - name: mofa_factors
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "mofa_factors"
       proposed_parent_terms:
         - "data:2603"

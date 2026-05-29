@@ -53,7 +53,7 @@ outputs:
   - name: contact_matrix
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: chromatin_contact_matrix
       proposed_parent_terms:
         - "data:0863"

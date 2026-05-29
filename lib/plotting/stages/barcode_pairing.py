@@ -1,6 +1,6 @@
 """Barcode-pairing renderer — sankey flow of barcodes through pairing steps
 (multiome ARC demultiplex, SHARE-seq barcode match). Both atoms emit the
-same swfc:multiome_paired_per_nucleus IRI; this single renderer covers
+same ecaax:multiome_paired_per_nucleus IRI; this single renderer covers
 both via different figure_id entry points."""
 
 from __future__ import annotations

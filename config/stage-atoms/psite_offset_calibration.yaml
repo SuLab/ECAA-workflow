@@ -53,7 +53,7 @@ outputs:
   - name: psite_offset_table
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: psite_offset_table
       proposed_parent_terms:
         - "data:0863"

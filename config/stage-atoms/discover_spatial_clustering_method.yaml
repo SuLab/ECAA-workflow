@@ -7,7 +7,7 @@ description: |
   (BANKSY / BayesSpace / Squidpy-neighbors / GraphST). Reads
   the spot-level expression matrix + spatial coordinates,
   picks the clustering method based on resolution + smoothing.
-edam_operation: "swfc:method_discovery"
+edam_operation: "ecaax:method_discovery"
 assignee: agent
 depends_on:
   - qc_preprocessing
@@ -39,7 +39,7 @@ outputs:
   - name: method_choice
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "method_choice"
       proposed_parent_terms:
         - "data:2080"

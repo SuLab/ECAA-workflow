@@ -5,9 +5,9 @@ description: |
   Map clinical-trial source data (eCRF + raw lab + central-lab feeds) to CDISC
   SDTM domains (DM, LB, AE, EX, etc.) per the trial's SAP-referenced data
   dictionary. Consumes raw clinical data; emits a SDTM-conformant table set
-  the population_definition stage downstream consumes. swfc:cdisc_mapping
+  the population_definition stage downstream consumes. ecaax:cdisc_mapping
   because EDAM has no operation node for CDISC SDTM mapping today.
-edam_operation: "swfc:cdisc_mapping"
+edam_operation: "ecaax:cdisc_mapping"
 edam_data: "data:2531"
 edam_format: "format:3475"
 assignee: agent
@@ -38,7 +38,7 @@ outputs:
   - name: cdisc_datasets
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "cdisc_dataset"
       proposed_parent_terms:
         - "data:2531"

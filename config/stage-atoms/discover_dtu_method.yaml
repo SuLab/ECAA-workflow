@@ -8,7 +8,7 @@ description: |
   count matrix + sample contrast, picks the analysis tool based
   on cohort size + power, emits a `method_choice.json` artifact
   the downstream DTU atom consumes.
-edam_operation: "swfc:method_discovery"
+edam_operation: "ecaax:method_discovery"
 assignee: agent
 depends_on:
   - isoform_discovery
@@ -40,7 +40,7 @@ outputs:
   - name: method_choice
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "method_choice"
       proposed_parent_terms:
         - "data:2080"

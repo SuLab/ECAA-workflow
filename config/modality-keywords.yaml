@@ -176,7 +176,7 @@ data_source_patterns:
 # match pipeline as `keywords`/`organism_keywords` (lowercase,
 # hyphen + underscore -> space) so SME prose with various
 # punctuation matches. EDAM IRIs follow the `data:N` /
-# `format:N` ontology shorthand (with `swfc:N` reserved for our
+# `format:N` ontology shorthand (with `ecaax:N` reserved for our
 # extensions per S4.8 / S4.9). Composer (S7.2) reads
 # (edam_data, edam_format, modifiers) to seed backward chaining.
 goal_patterns:

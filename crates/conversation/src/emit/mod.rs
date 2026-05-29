@@ -535,7 +535,7 @@ async fn emit_steps(
     // runtime/plot_affordances.jsonl + runtime/affordance_fallbacks.jsonl,
     // and increment session.affordance_fallback_counter for every
     // StructuralFallback resolution. Returns the sorted records so the
-    // RO-Crate patcher (A3) can stamp swfc:provisional on non-Registered
+    // RO-Crate patcher (A3) can stamp ecaax:provisional on non-Registered
     // figure entities without re-reading the sidecar file.
     let affordance_records =
         audit_log::write_affordance_sidecars(session, output_dir, config_dir).await?;
@@ -1636,8 +1636,8 @@ mod tests {
     /// - `runtime/plot_affordances.jsonl` is written with ≥ 1 record.
     /// - Every record deserializes correctly.
     /// - Figure ImageObject entities for tasks with a non-Registered
-    /// affordance carry `swfc:provisional: true` and
-    /// `swfc:affordanceVariant`.
+    /// affordance carry `ecaax:provisional: true` and
+    /// `ecaax:affordanceVariant`.
     /// - Figure ImageObject entities with NO affordance record (if any)
     /// carry NO provisional flag.
     /// - `session.affordance_fallback_counter` is non-empty when at
@@ -1732,37 +1732,37 @@ mod tests {
             let maybe_record = records.iter().find(|r| r.task_id.as_str() == task_id);
             match maybe_record {
                 Some(rec) if rec.provisional => {
-                    // Must carry swfc:provisional: true
+                    // Must carry ecaax:provisional: true
                     assert_eq!(
-                        img.get("swfc:provisional"),
+                        img.get("ecaax:provisional"),
                         Some(&serde_json::Value::Bool(true)),
-                        "Figure entity for provisional task '{}' must have swfc:provisional: true; got: {}",
+                        "Figure entity for provisional task '{}' must have ecaax:provisional: true; got: {}",
                         task_id,
                         img
                     );
-                    // Must carry swfc:affordanceVariant
+                    // Must carry ecaax:affordanceVariant
                     assert!(
-                        img.get("swfc:affordanceVariant")
+                        img.get("ecaax:affordanceVariant")
                             .and_then(|v| v.as_str())
                             .is_some(),
-                        "Figure entity for provisional task '{}' must have swfc:affordanceVariant",
+                        "Figure entity for provisional task '{}' must have ecaax:affordanceVariant",
                         task_id
                     );
                 }
                 Some(rec) if !rec.provisional => {
-                    // Must NOT carry swfc:provisional
+                    // Must NOT carry ecaax:provisional
                     assert!(
-                        img.get("swfc:provisional").is_none(),
-                        "Figure entity for Registered task '{}' must not have swfc:provisional; got: {}",
+                        img.get("ecaax:provisional").is_none(),
+                        "Figure entity for Registered task '{}' must not have ecaax:provisional; got: {}",
                         task_id,
                         img
                     );
                 }
                 None => {
-                    // Legacy task (no affordance record) — must NOT carry swfc:provisional.
+                    // Legacy task (no affordance record) — must NOT carry ecaax:provisional.
                     assert!(
-                        img.get("swfc:provisional").is_none(),
-                        "Figure entity for legacy task '{}' (no affordance record) must not have swfc:provisional; got: {}",
+                        img.get("ecaax:provisional").is_none(),
+                        "Figure entity for legacy task '{}' (no affordance record) must not have ecaax:provisional; got: {}",
                         task_id,
                         img
                     );

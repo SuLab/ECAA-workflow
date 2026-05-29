@@ -6,10 +6,10 @@ description: |
   expression profile. Method choice deferred to discover_* (BANKSY, BayesSpace,
   Squidpy spatial neighbors, GraphST). Emits per-spot region label + adjacency
   graph that downstream neighborhood-enrichment stages consume.
-  swfc:spatial_clustering — EDAM clusters at operation:3432 but spatial
+  ecaax:spatial_clustering — EDAM clusters at operation:3432 but spatial
   modality has additional graph-aware constraints.
-edam_operation: "swfc:spatial_clustering"
-edam_data: "swfc:spatial_coordinates"
+edam_operation: "ecaax:spatial_clustering"
+edam_data: "ecaax:spatial_coordinates"
 edam_format: "format:3590"
 assignee: agent
 depends_on:
@@ -35,13 +35,13 @@ resource_profile:
 # Explicit rich ports.
 # Spatial transcriptomics object (AnnData / SpatialData) carrying
 # per-spot expression + xy/xyz coordinates. EDAM has no first-class
-# class for this; carried as a swfc:spatial_object local extension
+# class for this; carried as a ecaax:spatial_object local extension
 # proposing data:3917 (count matrix) as parent.
 inputs:
   - name: spatial_object
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "spatial_object"
       proposed_parent_terms:
         - "data:3917"
@@ -55,7 +55,7 @@ outputs:
   - name: spatial_domains
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "spatial_domains"
       proposed_parent_terms:
         - "data:3917"

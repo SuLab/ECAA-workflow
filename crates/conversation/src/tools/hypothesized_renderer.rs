@@ -20,12 +20,12 @@ use ecaa_workflow_core::plot_affordance::PlotAffordanceRegistry;
 
 /// Reserved namespace prefixes that the SME's `target_semantic_type` must
 /// not use as the local-extension namespace (reserved for catalog-controlled
-/// terms). `swfc:` is the correct local namespace; `EDAM:` is the ontology
+/// terms). `ecaax:` is the correct local namespace; `EDAM:` is the ontology
 /// namespace.
 const RESERVED_NAMESPACES: &[&str] = &["EDAM:"];
 
 /// The local-extension namespace that *is* valid for renderer proposals.
-const LOCAL_EXTENSION_NS: &str = "swfc:";
+const LOCAL_EXTENSION_NS: &str = "ecaax:";
 
 /// Hex-character length of the truncated UUID slice used to build a
 /// `renderer-proposal-<hex>` id. 12 hex chars = 48 bits of entropy —
@@ -46,7 +46,7 @@ pub(super) fn propose_hypothesized_renderer(
     if target_semantic_type.trim().is_empty() {
         return ToolResult::err(ToolError::PreconditionFailure {
             reason: "target_semantic_type must be non-empty".into(),
-            hint: "Use a SemanticType IRI (e.g. `swfc:my_custom_output`) that identifies the \
+            hint: "Use a SemanticType IRI (e.g. `ecaax:my_custom_output`) that identifies the \
                    output port the renderer addresses."
                 .into(),
         });
@@ -92,7 +92,7 @@ pub(super) fn propose_hypothesized_renderer(
 
     // ── Validation 1: target_semantic_type namespace ──
     // `EDAM:` is reserved for ontology-controlled terms.
-    // `swfc:` is the correct local-extension namespace for renderer proposals.
+    // `ecaax:` is the correct local-extension namespace for renderer proposals.
     for reserved in RESERVED_NAMESPACES {
         if target_semantic_type.starts_with(reserved) {
             return ToolResult::err(ToolError::PreconditionFailure {
@@ -102,7 +102,7 @@ pub(super) fn propose_hypothesized_renderer(
                 ),
                 hint: format!(
                     "Use `{}` for local-extension semantic types \
-                     (e.g. `swfc:my_custom_output`). `EDAM:` is reserved for \
+                     (e.g. `ecaax:my_custom_output`). `EDAM:` is reserved for \
                      ontology-controlled terms.",
                     LOCAL_EXTENSION_NS
                 ),
@@ -263,7 +263,7 @@ mod tests {
         let r = propose_hypothesized_renderer(
             &mut s,
             &reg,
-            "swfc:my_custom_plot",
+            "ecaax:my_custom_plot",
             &["EDAM:data_3134".to_string()],
             &["my_volcano".to_string()],
             "SME wants a volcano plot with custom axis labels",
@@ -275,7 +275,7 @@ mod tests {
         assert!(matches!(
             &s.decisions[0].decision,
             DecisionType::ProposedHypothesizedRenderer { target_semantic_type, .. }
-            if target_semantic_type == "swfc:my_custom_plot"
+            if target_semantic_type == "ecaax:my_custom_plot"
         ));
         // Renderer proposals registry should have one entry.
         assert_eq!(s.renderer_proposals.len(), 1);
@@ -288,7 +288,7 @@ mod tests {
         let r = propose_hypothesized_renderer(
             &mut s,
             &reg,
-            "swfc:my_custom_plot",
+            "ecaax:my_custom_plot",
             &["EDAM:data_3134".to_string()],
             &["my_volcano".to_string()],
             "SME wants a plot",
@@ -307,7 +307,7 @@ mod tests {
         let r = propose_hypothesized_renderer(
             &mut s,
             &reg,
-            "swfc:my_custom_plot",
+            "ecaax:my_custom_plot",
             &["EDAM:data_3134".to_string()],
             &["volcano".to_string()], // shadows registered figure id
             "SME wants to redefine the volcano plot",
@@ -326,7 +326,7 @@ mod tests {
         let r1 = propose_hypothesized_renderer(
             &mut s,
             &reg,
-            "swfc:my_custom_plot",
+            "ecaax:my_custom_plot",
             &["EDAM:data_3134".to_string()],
             &["my_volcano".to_string()],
             "SME wants a volcano plot",
@@ -340,7 +340,7 @@ mod tests {
         let r2 = propose_hypothesized_renderer(
             &mut s,
             &reg,
-            "swfc:my_custom_plot",
+            "ecaax:my_custom_plot",
             &["EDAM:data_3134".to_string()],
             &["my_volcano".to_string()],
             "SME wants a volcano plot",

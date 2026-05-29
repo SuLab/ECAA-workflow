@@ -16,12 +16,12 @@
 //! `EDAM_TABLE_VERSION` when refreshed; consumers can use it for
 //! cache-key invalidation.
 //!
-//! # `swfc:` namespace
+//! # `ecaax:` namespace
 //!
 //! Atoms whose operation has no upstream EDAM coverage live under the
-//! `swfc:` namespace (per `_atom.schema.json` regex + `docs/edam-
+//! `ecaax:` namespace (per `_atom.schema.json` regex + `docs/edam-
 //! extensions.md`). The map below intentionally tracks the
-//! `operation:NNNN → ["swfc:slug",...]` edges so the composer's
+//! `operation:NNNN → ["ecaax:slug",...]` edges so the composer's
 //! "is-a" lookup folds in our extensions transparently.
 
 use std::collections::BTreeMap;
@@ -92,8 +92,8 @@ pub fn edam_subtype_edges() -> BTreeMap<String, Vec<String>> {
         vec![
             "operation:0362".into(),
             "operation:3672".into(),
-            "swfc:cell_type_annotation".into(),
-            "swfc:cell_type_deconvolution".into(),
+            "ecaax:cell_type_annotation".into(),
+            "ecaax:cell_type_deconvolution".into(),
         ],
     );
 
@@ -119,68 +119,68 @@ pub fn edam_subtype_edges() -> BTreeMap<String, Vec<String>> {
     m.insert(
         "operation:3192".into(),
         vec![
-            "swfc:host_decontamination".into(),
-            "swfc:base_quality_recalibration".into(),
+            "ecaax:host_decontamination".into(),
+            "ecaax:base_quality_recalibration".into(),
         ],
     );
 
     // ── operation:3218 (Sequencing quality control) ───────────────────
     m.insert(
         "operation:3218".into(),
-        vec!["swfc:scrnaseq_cell_qc".into()],
+        vec!["ecaax:scrnaseq_cell_qc".into()],
     );
 
     // ── operation:3223 (Differential expression analysis) ─────────────
     m.insert(
         "operation:3223".into(),
         vec![
-            "swfc:differential_transcript_usage".into(),
-            "swfc:spatially_variable_genes".into(),
-            "swfc:isoform_caller_concordance".into(),
-            "swfc:cross_platform_dtu_comparison".into(),
-            "swfc:results_benchmarking".into(),
+            "ecaax:differential_transcript_usage".into(),
+            "ecaax:spatially_variable_genes".into(),
+            "ecaax:isoform_caller_concordance".into(),
+            "ecaax:cross_platform_dtu_comparison".into(),
+            "ecaax:results_benchmarking".into(),
         ],
     );
 
     // ── operation:3225 (Variant classification) ───────────────────────
     m.insert(
         "operation:3225".into(),
-        vec!["swfc:variant_filtering".into()],
+        vec!["ecaax:variant_filtering".into()],
     );
 
     // ── operation:3229 (Imputation; used as coloc parent in YAMLs) ────
     m.insert(
         "operation:3229".into(),
-        vec!["swfc:gwas_colocalization".into()],
+        vec!["ecaax:gwas_colocalization".into()],
     );
 
     // ── operation:3232 (eQTL analysis) ────────────────────────────────
     m.insert(
         "operation:3232".into(),
         vec![
-            "swfc:gwas_locus_windowing".into(),
-            "swfc:tissue_prioritization".into(),
+            "ecaax:gwas_locus_windowing".into(),
+            "ecaax:tissue_prioritization".into(),
         ],
     );
 
     // ── operation:3196 (Genotyping, used as harmonization parent) ─────
     m.insert(
         "operation:3196".into(),
-        vec!["swfc:gwas_summary_harmonization".into()],
+        vec!["ecaax:gwas_summary_harmonization".into()],
     );
 
     // ── operation:3432 (Clustering) ───────────────────────────────────
     m.insert(
         "operation:3432".into(),
-        vec!["swfc:spatial_clustering".into()],
+        vec!["ecaax:spatial_clustering".into()],
     );
 
     // ── operation:3435 (Standardisation and normalisation) ────────────
     m.insert(
         "operation:3435".into(),
         vec![
-            "swfc:scrnaseq_batch_correction".into(),
-            "swfc:trajectory_inference".into(),
+            "ecaax:scrnaseq_batch_correction".into(),
+            "ecaax:trajectory_inference".into(),
         ],
     );
 
@@ -192,19 +192,19 @@ pub fn edam_subtype_edges() -> BTreeMap<String, Vec<String>> {
     // ── operation:3563 (RNA-Seq read count analysis) ──────────────────
     m.insert(
         "operation:3563".into(),
-        vec!["swfc:long_read_isoform_calling".into()],
+        vec!["ecaax:long_read_isoform_calling".into()],
     );
 
     // ── operation:3715 (Metabolomics; used as MS conversion parent) ───
     m.insert(
         "operation:3715".into(),
-        vec!["swfc:ms_raw_conversion".into()],
+        vec!["ecaax:ms_raw_conversion".into()],
     );
 
     // ── operation:2238 (Statistical calculation) ──────────────────────
     m.insert(
         "operation:2238".into(),
-        vec!["swfc:diversity_analysis".into()],
+        vec!["ecaax:diversity_analysis".into()],
     );
 
     m
@@ -284,11 +284,11 @@ mod tests {
     }
 
     #[test]
-    fn is_subtype_handles_swfc_extensions() {
-        // swfc:scrnaseq_batch_correction is a child of
+    fn is_subtype_handles_ecaax_extensions() {
+        // ecaax:scrnaseq_batch_correction is a child of
         // operation:3435 (Standardisation and normalisation).
         assert!(is_subtype_of(
-            "swfc:scrnaseq_batch_correction",
+            "ecaax:scrnaseq_batch_correction",
             "operation:3435"
         ));
     }

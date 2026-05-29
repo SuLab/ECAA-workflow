@@ -2,11 +2,11 @@
 # Mirrors lib/plotting/stages/isoform_calling.py.
 #
 # Plan reference: §S13.6 — long-read RNA-seq isoform figures. The
-# isoform table carries comma-list cells the generic .swfc_load_tsv
+# isoform table carries comma-list cells the generic .ecaa_load_tsv
 # helper can't handle, so the loader here parses them inline (matches
 # the Python `_load_isoforms` function).
 
-if (!exists("swfc_register_figure")) {
+if (!exists("ecaa_register_figure")) {
   stop("source runtime/plotting_r/core.R before this stage module")
 }
 
@@ -48,22 +48,22 @@ if (!exists("swfc_register_figure")) {
   do.call(rbind, rows)
 }
 
-swfc_register_figure("isoform_calling", "isoform_structure", function(ctx) {
-  p <- .swfc_manifest_path(ctx$manifest, ctx$outputs_dir, "isoform_table")
+ecaa_register_figure("isoform_calling", "isoform_structure", function(ctx) {
+  p <- .ecaa_manifest_path(ctx$manifest, ctx$outputs_dir, "isoform_table")
   if (is.null(p)) stop("manifest.isoform_table required")
   df <- .iso_load_isoforms(p)
   if (is.null(df)) stop(sprintf("unparseable isoform table: %s", p))
-  swfc_isoform_structure_r(df, title = "Isoform structure",
+  ecaa_isoform_structure_r(df, title = "Isoform structure",
                             strand_col = "strand")
 })
 
-swfc_register_figure("isoform_calling", "sashimi", function(ctx) {
-  p <- .swfc_manifest_path(ctx$manifest, ctx$outputs_dir, "junction_table")
+ecaa_register_figure("isoform_calling", "sashimi", function(ctx) {
+  p <- .ecaa_manifest_path(ctx$manifest, ctx$outputs_dir, "junction_table")
   if (is.null(p)) stop("manifest.junction_table required")
-  df <- .swfc_load_tsv(p, list(
+  df <- .ecaa_load_tsv(p, list(
     junction = c("junction", "intron", "id"),
     count = c("count", "n_reads", "support")
   ))
   if (is.null(df)) stop(sprintf("unparseable junction table: %s", p))
-  swfc_sashimi_r(df, title = "Splice-junction sashimi")
+  ecaa_sashimi_r(df, title = "Splice-junction sashimi")
 })

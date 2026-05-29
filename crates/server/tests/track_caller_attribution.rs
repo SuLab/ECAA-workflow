@@ -47,7 +47,7 @@ fn path_jail_unwrap_panic_location_is_caller_not_helper() {
         // inside _path_jail.rs. `#[track_caller]` on safe_segment_join
         // means that any future internal panic in the helper would also
         // attribute here.
-        safe_segment_join(Path::new("/tmp/swfc-tc-test"), "../../../etc/passwd").unwrap()
+        safe_segment_join(Path::new("/tmp/ecaa-tc-test"), "../../../etc/passwd").unwrap()
     });
 
     panic::set_hook(prior);
@@ -113,7 +113,7 @@ fn path_jail_helpers_are_callable_and_correct() {
         assert_under_root, safe_relative_join, safe_segment_join,
     };
 
-    let root = Path::new("/tmp/swfc-tc-test-root");
+    let root = Path::new("/tmp/ecaa-tc-test-root");
 
     // safe_segment_join: valid single segment
     let ok = safe_segment_join(root, "task_id_abc");
@@ -133,8 +133,8 @@ fn path_jail_helpers_are_callable_and_correct() {
 
     // assert_under_root: non-existent root returns BadRoot
     let err4 = assert_under_root(
-        Path::new("/tmp/swfc-nonexistent-jail-root-tc"),
-        Path::new("/tmp/swfc-nonexistent-jail-root-tc/sub"),
+        Path::new("/tmp/ecaa-nonexistent-jail-root-tc"),
+        Path::new("/tmp/ecaa-nonexistent-jail-root-tc/sub"),
     );
     assert!(err4.is_err(), "non-existent root must return an error");
 }

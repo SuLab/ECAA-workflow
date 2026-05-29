@@ -101,13 +101,13 @@ def _primary_iri_from_atom(atom: dict) -> str | None:
         if kind == "ontology_term":
             return st.get("iri")
         if kind == "local_extension":
-            ns = st.get("namespace", "swfc")
+            ns = st.get("namespace", "ecaax")
             sid = st.get("id", "")
             return f"{ns}:{sid}"
         if kind == "opaque":
-            return f"swfc:opaque:{atom.get('id', 'unknown')}"
+            return f"ecaax:opaque:{atom.get('id', 'unknown')}"
         # union — skip, treat as opaque
-        return f"swfc:union:{atom.get('id', 'unknown')}"
+        return f"ecaax:union:{atom.get('id', 'unknown')}"
     # Legacy fallback
     return atom.get("edam_data")
 

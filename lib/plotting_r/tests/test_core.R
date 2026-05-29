@@ -31,7 +31,7 @@ passed <- 0; failed <- 0
   if (ok) passed <<- passed + 1 else failed <<- failed + 1
 }
 
-tdir <- tempfile("swfc_r_test_"); dir.create(tdir, recursive = TRUE)
+tdir <- tempfile("ecaa_r_test_"); dir.create(tdir, recursive = TRUE)
 
 # ---------------------------------------------------------------------------
 # Theme + palette
@@ -43,22 +43,22 @@ tdir <- tempfile("swfc_r_test_"); dir.create(tdir, recursive = TRUE)
         !is.null(THEME$palette$sig_up))
 
 .report("Wong palette is 8 colors starting with black",
-        length(swfc_wong_palette()) == 8 &&
-        swfc_wong_palette()[1] == "#000000")
+        length(ecaa_wong_palette()) == 8 &&
+        ecaa_wong_palette()[1] == "#000000")
 
 .report("categorical_palette returns Wong for n<=8",
-        identical(swfc_palette(5), swfc_wong_palette()[1:5]))
+        identical(ecaa_palette(5), ecaa_wong_palette()[1:5]))
 
 .report("categorical_palette extends to glasbey20 for n>8",
-        identical(swfc_palette(15)[9:15], swfc_glasbey20_palette()[9:15]))
+        identical(ecaa_palette(15)[9:15], ecaa_glasbey20_palette()[9:15]))
 
 # ---------------------------------------------------------------------------
 # savefig dual-format
 # ---------------------------------------------------------------------------
 
-p1 <- swfc_bar(names = c("a","b","c"), values = c(1,2,3),
+p1 <- ecaa_bar(names = c("a","b","c"), values = c(1,2,3),
                title = "t", ylabel = "y")
-out1 <- swfc_savefig(p1, file.path(tdir, "bar.png"), stage_id = "test")
+out1 <- ecaa_savefig(p1, file.path(tdir, "bar.png"), stage_id = "test")
 
 .report("PNG produced", file.exists(file.path(tdir, "bar.png")))
 .report("PDF produced alongside PNG", file.exists(file.path(tdir, "bar.pdf")))
@@ -73,9 +73,9 @@ n <- 300
 log_fc <- rnorm(n, sd = 2)
 pvals <- pmax(abs(rnorm(n, sd = 0.15)), 1e-6)
 labs <- sprintf("GENE%d", seq_len(n))
-v <- swfc_volcano(log_fc = log_fc, neg_log10_p = -log10(pvals),
+v <- ecaa_volcano(log_fc = log_fc, neg_log10_p = -log10(pvals),
                   labels = labs, title = "Volcano smoke", label_top_n = 10)
-swfc_savefig(v, file.path(tdir, "volcano.png"), stage_id = "differential_expression")
+ecaa_savefig(v, file.path(tdir, "volcano.png"), stage_id = "differential_expression")
 .report("volcano PNG written",  file.exists(file.path(tdir, "volcano.png")))
 .report("volcano PDF written",  file.exists(file.path(tdir, "volcano.pdf")))
 
@@ -85,10 +85,10 @@ swfc_savefig(v, file.path(tdir, "volcano.png"), stage_id = "differential_express
 
 set.seed(1)
 mat <- matrix(rnorm(20 * 8), nrow = 20)
-h <- swfc_heatmap(mat, row_labels = sprintf("r%d", seq_len(20)),
+h <- ecaa_heatmap(mat, row_labels = sprintf("r%d", seq_len(20)),
                   col_labels = sprintf("c%d", seq_len(8)),
                   title = "heatmap smoke", z_score_rows = TRUE)
-swfc_savefig(h, file.path(tdir, "heatmap.png"), stage_id = "test")
+ecaa_savefig(h, file.path(tdir, "heatmap.png"), stage_id = "test")
 .report("heatmap PNG written",  file.exists(file.path(tdir, "heatmap.png")))
 .report("heatmap PDF written",  file.exists(file.path(tdir, "heatmap.pdf")))
 
@@ -102,8 +102,8 @@ data_list <- list(
   Lo   = rnorm(40, mean = 0.3),
   Hi   = rnorm(40, mean = 2.5)
 )
-v2 <- swfc_violin(data_list, title = "Violin smoke", ylabel = "value")
-swfc_savefig(v2, file.path(tdir, "violin.png"), stage_id = "test")
+v2 <- ecaa_violin(data_list, title = "Violin smoke", ylabel = "value")
+ecaa_savefig(v2, file.path(tdir, "violin.png"), stage_id = "test")
 .report("violin PNG written", file.exists(file.path(tdir, "violin.png")))
 .report("violin PDF written", file.exists(file.path(tdir, "violin.pdf")))
 
@@ -113,12 +113,12 @@ swfc_savefig(v2, file.path(tdir, "violin.png"), stage_id = "test")
 
 dt1 <- file.path(tdir, "det1.png")
 dt2 <- file.path(tdir, "det2.png")
-p_det <- swfc_bar(names = c("a","b","c"), values = c(1,2,3),
+p_det <- ecaa_bar(names = c("a","b","c"), values = c(1,2,3),
                   title = "det", ylabel = "y")
-swfc_savefig(p_det, dt1, stage_id = "test")
-p_det2 <- swfc_bar(names = c("a","b","c"), values = c(1,2,3),
+ecaa_savefig(p_det, dt1, stage_id = "test")
+p_det2 <- ecaa_bar(names = c("a","b","c"), values = c(1,2,3),
                    title = "det", ylabel = "y")
-swfc_savefig(p_det2, dt2, stage_id = "test")
+ecaa_savefig(p_det2, dt2, stage_id = "test")
 h1 <- digest::digest(file = dt1, algo = "sha256")
 h2 <- digest::digest(file = dt2, algo = "sha256")
 .report("PNG byte-determinism across re-renders", h1 == h2,
@@ -141,7 +141,7 @@ hp2 <- digest::digest(file = pdf_det2, algo = "sha256")
 # ---------------------------------------------------------------------------
 
 Sys.setenv(ECAA_PACKAGE_ID = "test-pkg-r", ECAA_GIT_SHA = "abc123def456")
-text <- .swfc_provenance_text("clustering")
+text <- .ecaa_provenance_text("clustering")
 .report("provenance footer carries pkg id, stage, version, sha",
         grepl("test-pkg-r", text) &&
         grepl("clustering", text) &&
@@ -152,11 +152,11 @@ text <- .swfc_provenance_text("clustering")
 # Stage dispatcher: register + generate round-trip
 # ---------------------------------------------------------------------------
 
-swfc_register_figure("test_stage_xyz", "demo", function(ctx) {
-  swfc_bar(names = c("a","b"), values = c(1, 2), title = "demo", ylabel = "y")
+ecaa_register_figure("test_stage_xyz", "demo", function(ctx) {
+  ecaa_bar(names = c("a","b"), values = c(1, 2), title = "demo", ylabel = "y")
 })
 out_dir <- file.path(tdir, "outputs"); dir.create(out_dir)
-mf <- swfc_generate("test_stage_xyz", out_dir, required = "demo")
+mf <- ecaa_generate("test_stage_xyz", out_dir, required = "demo")
 .report("generate() wrote primary figure",
         !is.null(mf$written$demo) && file.exists(mf$written$demo))
 .report("generate() wrote figures/manifest.json",
@@ -198,8 +198,8 @@ expected_modules <- list(
        figs = c("per_sample_metric_violin", "per_sample_metric_bar",
                 "qc_summary_bar"))
 )
-# _shared.R must source first (the others use .swfc_load_tsv /
-# .swfc_manifest_path defined there). Sourcing it twice is idempotent.
+# _shared.R must source first (the others use .ecaa_load_tsv /
+# .ecaa_manifest_path defined there). Sourcing it twice is idempotent.
 shared_path <- file.path(stage_dir, "_shared.R")
 if (file.exists(shared_path)) source(shared_path, local = FALSE)
 
@@ -219,7 +219,7 @@ for (mod in expected_modules) {
     FALSE
   })
   if (!ok) next
-  registered <- swfc_known_figures(mod$stage)
+  registered <- ecaa_known_figures(mod$stage)
   missing <- setdiff(mod$figs, registered)
   .report(
     sprintf("stage %s registers expected figures", mod$stage),

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "swfc:promotion-gate-policy",
+  "$id": "ecaax:promotion-gate-policy",
   "title": "PromotionGatePolicy",
   "description": "v4 alignment Phase 3 (D8 / F19) — validation × lifecycle promotion grid. Loaded into PlanningContext.promotion_gate; consulted by composer_v4::policy_gate::consult_promotion_gate at every promotion attempt. Ad-hoc promotion logic in code is forbidden (F19).",
   "type": "object",

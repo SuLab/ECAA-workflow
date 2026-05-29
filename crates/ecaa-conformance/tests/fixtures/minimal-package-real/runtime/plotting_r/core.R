@@ -10,11 +10,11 @@
 # DPI, and output formats stay synchronized across renderers.
 #
 # Public API:
-#   swfc_apply_theme()                — sets theme_set(theme_swfc())
-#   swfc_palette(n)                   — Wong/Glasbey colorblind-safe palette
-#   swfc_savefig(plot, path, ...)     — dual-format PNG + Cairo PDF writer
-#   swfc_register_figure(stage, id)   — decorator-equivalent for stage modules
-#   swfc_generate(stage, outputs_dir, required) — dispatcher matching Python
+#   ecaa_apply_theme()                — sets theme_set(ecaa_theme())
+#   ecaa_palette(n)                   — Wong/Glasbey colorblind-safe palette
+#   ecaa_savefig(plot, path, ...)     — dual-format PNG + Cairo PDF writer
+#   ecaa_register_figure(stage, id)   — decorator-equivalent for stage modules
+#   ecaa_generate(stage, outputs_dir, required) — dispatcher matching Python
 #
 # Determinism note: PDF output goes through cairo_pdf which is byte-stable
 # given a pinned libcairo + system font cache. The container-image
@@ -33,7 +33,7 @@ suppressPackageStartupMessages({
 # halves pick it up. `%||%` is defined further down; we inline a NULL
 # check here because this constant runs at file-source time, before the
 # helpers below are defined.
-.swfc_read_shared_version <- function() {
+.ecaa_read_shared_version <- function() {
   ofile_dir <- if (!is.null(sys.frame(1)$ofile)) {
     dirname(sys.frame(1)$ofile)
   } else {
@@ -55,7 +55,7 @@ suppressPackageStartupMessages({
   "1.1.0"
 }
 
-ECAA_PLOTTING_R_VERSION <- .swfc_read_shared_version()
+ECAA_PLOTTING_R_VERSION <- .ecaa_read_shared_version()
 
 # ---------------------------------------------------------------------------
 # Theme: read theme.json from the sibling Python plotting dir so both
@@ -64,7 +64,7 @@ ECAA_PLOTTING_R_VERSION <- .swfc_read_shared_version()
 
 `%||%` <- function(a, b) if (is.null(a)) b else a
 
-.swfc_self_dir <- function() {
+.ecaa_self_dir <- function() {
   # Resolve the directory containing this core.R file across the three
   # ways it can be loaded: source(), Rscript core.R, and `R -e`. We
   # check the most reliable signals first.
@@ -88,10 +88,10 @@ ECAA_PLOTTING_R_VERSION <- .swfc_read_shared_version()
   getwd()
 }
 
-.swfc_theme_path <- function() {
+.ecaa_theme_path <- function() {
   # Look first next to the Python plotting library (same package), then
   # next to this file as a fallback for ad-hoc R-only usage.
-  here <- .swfc_self_dir()
+  here <- .ecaa_self_dir()
   cands <- c(
     file.path(here, "..", "plotting", "theme.json"),
     file.path(here, "theme.json")
@@ -102,16 +102,16 @@ ECAA_PLOTTING_R_VERSION <- .swfc_read_shared_version()
   NA_character_
 }
 
-.swfc_load_theme <- function() {
-  p <- .swfc_theme_path()
+.ecaa_load_theme <- function() {
+  p <- .ecaa_theme_path()
   if (is.na(p)) {
-    return(.swfc_default_theme())
+    return(.ecaa_default_theme())
   }
   tryCatch(jsonlite::fromJSON(p, simplifyVector = FALSE),
-           error = function(e) .swfc_default_theme())
+           error = function(e) .ecaa_default_theme())
 }
 
-.swfc_default_theme <- function() {
+.ecaa_default_theme <- function() {
   list(
     schema_version = 1,
     fonts = list(family = "sans-serif",
@@ -130,7 +130,7 @@ ECAA_PLOTTING_R_VERSION <- .swfc_read_shared_version()
   )
 }
 
-THEME <- .swfc_load_theme()
+THEME <- .ecaa_load_theme()
 
 # ---------------------------------------------------------------------------
 # Palette — Wong (Okabe-Ito) for n <= 8, Glasbey20 extension for n <= 20.
@@ -148,19 +148,19 @@ THEME <- .swfc_load_theme()
   "#DC050C", "#B17BA6", "#5289C7", "#882027"
 )
 
-swfc_wong_palette <- function() .WONG_PALETTE
-swfc_glasbey20_palette <- function() .GLASBEY20_PALETTE
+ecaa_wong_palette <- function() .WONG_PALETTE
+ecaa_glasbey20_palette <- function() .GLASBEY20_PALETTE
 
 .ECAA_HIGH_CARD_WARNED <- new.env(parent = emptyenv())
 
-swfc_palette <- function(n, name = NULL) {
+ecaa_palette <- function(n, name = NULL) {
   if (n <= 0) return(character(0))
   base <- if (n <= 8) .WONG_PALETTE else .GLASBEY20_PALETTE
   if (n > 20) {
     key <- if (is.null(name)) "global" else name
     if (!exists(key, envir = .ECAA_HIGH_CARD_WARNED)) {
       assign(key, TRUE, envir = .ECAA_HIGH_CARD_WARNED)
-      warning(sprintf("swfc_palette(%d) exceeds 20 colors; cycling glasbey20. ",
+      warning(sprintf("ecaa_palette(%d) exceeds 20 colors; cycling glasbey20. ",
                       n),
               "At this cardinality, encode category by shape or label as well.",
               call. = FALSE)
@@ -170,10 +170,10 @@ swfc_palette <- function(n, name = NULL) {
 }
 
 # ---------------------------------------------------------------------------
-# theme_swfc — ggplot2 theme that matches Python rcParams.
+# ecaa_theme — ggplot2 theme that matches Python rcParams.
 # ---------------------------------------------------------------------------
 
-theme_swfc <- function(theme_obj = THEME) {
+ecaa_theme <- function(theme_obj = THEME) {
   fonts <- theme_obj$fonts
   axes  <- theme_obj$axes
   base_size <- fonts$body_pt
@@ -195,19 +195,19 @@ theme_swfc <- function(theme_obj = THEME) {
     )
 }
 
-swfc_apply_theme <- function(theme_obj = THEME) {
-  ggplot2::theme_set(theme_swfc(theme_obj))
+ecaa_apply_theme <- function(theme_obj = THEME) {
+  ggplot2::theme_set(ecaa_theme(theme_obj))
   invisible(NULL)
 }
 
 # Apply on source so any caller benefits without remembering the call.
-swfc_apply_theme()
+ecaa_apply_theme()
 
 # ---------------------------------------------------------------------------
 # Provenance footer + savefig (dual-format with metadata strip).
 # ---------------------------------------------------------------------------
 
-.swfc_provenance_text <- function(stage_id) {
+.ecaa_provenance_text <- function(stage_id) {
   pkg <- Sys.getenv("ECAA_PACKAGE_ID", "unknown")
   sha <- Sys.getenv("ECAA_GIT_SHA", "unknown")
   sha_short <- if (nchar(sha) > 0 && sha != "unknown") substr(sha, 1, 7) else "unknown"
@@ -215,16 +215,16 @@ swfc_apply_theme()
           pkg, stage_id, ECAA_PLOTTING_R_VERSION, sha_short)
 }
 
-.swfc_attach_footer <- function(plot, stage_id) {
+.ecaa_attach_footer <- function(plot, stage_id) {
   if (!isTRUE(THEME$provenance_footer)) return(plot)
-  caption <- .swfc_provenance_text(stage_id)
+  caption <- .ecaa_provenance_text(stage_id)
   plot + ggplot2::labs(caption = caption) +
     ggplot2::theme(plot.caption = ggplot2::element_text(
       size = THEME$fonts$footer_pt, color = "#888888", hjust = 1
     ))
 }
 
-swfc_savefig <- function(plot, path,
+ecaa_savefig <- function(plot, path,
                          stage_id = "unknown",
                          dpi = NULL,
                          formats = NULL,
@@ -240,19 +240,19 @@ swfc_savefig <- function(plot, path,
   if (nchar(primary_suffix) == 0) primary_suffix <- "png"
 
   desired <- c(primary_suffix, setdiff(tolower(formats), primary_suffix))
-  decorated <- .swfc_attach_footer(plot, stage_id)
+  decorated <- .ecaa_attach_footer(plot, stage_id)
 
   written <- character()
   for (fmt in desired) {
     out_path <- sub(paste0("\\.[^.]+$"), paste0(".", fmt), path)
     if (!grepl("\\.[^.]+$", path)) out_path <- paste0(path, ".", fmt)
-    .swfc_write_one(decorated, out_path, fmt, dpi, width_in, height_in)
+    .ecaa_write_one(decorated, out_path, fmt, dpi, width_in, height_in)
     written <- c(written, out_path)
   }
   written[1]  # primary path for back-compat
 }
 
-.swfc_write_one <- function(plot, out, fmt, dpi, width_in, height_in) {
+.ecaa_write_one <- function(plot, out, fmt, dpi, width_in, height_in) {
   fmt <- tolower(fmt)
   if (fmt == "png") {
     # ragg::agg_png produces deterministic PNG with stripped metadata.
@@ -281,7 +281,7 @@ swfc_savefig <- function(plot, path,
 
 .ECAA_FIGURE_REGISTRY <- new.env(parent = emptyenv())
 
-swfc_register_figure <- function(stage_id, figure_id, fn) {
+ecaa_register_figure <- function(stage_id, figure_id, fn) {
   bucket <- get0(stage_id, envir = .ECAA_FIGURE_REGISTRY)
   if (is.null(bucket)) {
     bucket <- new.env(parent = emptyenv())
@@ -291,26 +291,26 @@ swfc_register_figure <- function(stage_id, figure_id, fn) {
   invisible(fn)
 }
 
-swfc_lookup_figure <- function(stage_id, figure_id) {
+ecaa_lookup_figure <- function(stage_id, figure_id) {
   bucket <- get0(stage_id, envir = .ECAA_FIGURE_REGISTRY)
   if (is.null(bucket)) return(NULL)
   get0(figure_id, envir = bucket)
 }
 
-swfc_known_figures <- function(stage_id) {
+ecaa_known_figures <- function(stage_id) {
   bucket <- get0(stage_id, envir = .ECAA_FIGURE_REGISTRY)
   if (is.null(bucket)) return(character(0))
   ls(envir = bucket)
 }
 
-.swfc_load_manifest <- function(outputs_dir) {
+.ecaa_load_manifest <- function(outputs_dir) {
   p <- file.path(outputs_dir, "manifest.json")
   if (!file.exists(p)) return(list())
   tryCatch(jsonlite::fromJSON(p, simplifyVector = FALSE),
            error = function(e) list())
 }
 
-.swfc_seed <- function(stage_id, figure_id) {
+.ecaa_seed <- function(stage_id, figure_id) {
   # Mirror the Python deterministic seed: SHA-256 of "stage|fig", first 8 bytes,
   # masked to 31 bits. Use digest if available; fall back to a stable hash of
   # the concatenated string.
@@ -323,7 +323,7 @@ swfc_known_figures <- function(stage_id) {
   }
 }
 
-swfc_generate <- function(stage_id, outputs_dir,
+ecaa_generate <- function(stage_id, outputs_dir,
                           required = NULL,
                           figures_dir = NULL,
                           write_manifest = TRUE,
@@ -335,8 +335,8 @@ swfc_generate <- function(stage_id, outputs_dir,
     source(stage_module, local = FALSE)
   }
 
-  manifest <- .swfc_load_manifest(outputs_dir)
-  known <- swfc_known_figures(stage_id)
+  manifest <- .ecaa_load_manifest(outputs_dir)
+  known <- ecaa_known_figures(stage_id)
   if (is.null(required)) required <- known
 
   written <- list()
@@ -345,19 +345,19 @@ swfc_generate <- function(stage_id, outputs_dir,
   errors  <- list()
 
   for (fig_id in required) {
-    fn <- swfc_lookup_figure(stage_id, fig_id)
+    fn <- ecaa_lookup_figure(stage_id, fig_id)
     if (is.null(fn)) {
       skipped[[fig_id]] <- "not registered in stage module"
       next
     }
-    set.seed(.swfc_seed(stage_id, fig_id))
+    set.seed(.ecaa_seed(stage_id, fig_id))
     target <- file.path(figures_dir, paste0(fig_id, ".png"))
     res <- tryCatch({
       ctx <- list(stage_id = stage_id, figure_id = fig_id,
                   outputs_dir = outputs_dir, manifest = manifest)
       plot_obj <- fn(ctx)
       if (inherits(plot_obj, "ggplot")) {
-        primary <- swfc_savefig(plot_obj, target, stage_id = stage_id)
+        primary <- ecaa_savefig(plot_obj, target, stage_id = stage_id)
         list(primary = primary, error = NULL)
       } else {
         list(primary = NULL, error = "figure function did not return a ggplot")
@@ -399,14 +399,14 @@ swfc_generate <- function(stage_id, outputs_dir,
 # Stage modules call these instead of ggplot+ggsave directly.
 # ---------------------------------------------------------------------------
 
-swfc_bar <- function(names, values,
+ecaa_bar <- function(names, values,
                      ci_lo = NULL, ci_hi = NULL,
                      title = "", ylabel = "", xlabel = "",
                      horizontal = NULL,
                      error_label = "95% CI") {
   n <- length(names)
   if (is.null(horizontal)) horizontal <- n > 12
-  pal <- swfc_palette(n, name = "bar")
+  pal <- ecaa_palette(n, name = "bar")
   df <- data.frame(name = factor(names, levels = names),
                    value = values,
                    color = pal,
@@ -435,7 +435,7 @@ swfc_bar <- function(names, values,
   p
 }
 
-swfc_scatter <- function(x, y, color = NULL,
+ecaa_scatter <- function(x, y, color = NULL,
                          title = "", xlabel = "", ylabel = "",
                          point_size = 1.0) {
   df <- data.frame(x = x, y = y)
@@ -454,7 +454,7 @@ swfc_scatter <- function(x, y, color = NULL,
   p + ggplot2::labs(title = title, x = xlabel, y = ylabel)
 }
 
-swfc_volcano <- function(log_fc, neg_log10_p, labels = NULL,
+ecaa_volcano <- function(log_fc, neg_log10_p, labels = NULL,
                          fc_threshold = 1.0, p_threshold = 1.3,
                          title = "", label_top_n = 10) {
   df <- data.frame(log_fc = log_fc, neg_log_p = neg_log10_p)
@@ -508,7 +508,7 @@ swfc_volcano <- function(log_fc, neg_log10_p, labels = NULL,
   p
 }
 
-swfc_violin <- function(data_list,
+ecaa_violin <- function(data_list,
                         title = "", ylabel = "", x_label = "group",
                         show_points = NULL,
                         show_significance = TRUE) {
@@ -521,7 +521,7 @@ swfc_violin <- function(data_list,
     return(ggplot2::ggplot() + ggplot2::labs(title = title, x = x_label, y = ylabel))
   }
   df$group <- factor(df$group, levels = names(data_list))
-  pal <- swfc_palette(length(levels(df$group)), name = "violin")
+  pal <- ecaa_palette(length(levels(df$group)), name = "violin")
 
   # Annotate group counts on the x-axis labels.
   counts <- tapply(df$value, df$group, length)
@@ -544,7 +544,7 @@ swfc_violin <- function(data_list,
                                   color = "#333333", stroke = 0)
   }
   if (show_significance && length(levels(df$group)) <= 5) {
-    sig <- .swfc_pairwise_significance(df)
+    sig <- .ecaa_pairwise_significance(df)
     if (length(sig) > 0) {
       ymax <- max(df$value, na.rm = TRUE)
       yrange <- diff(range(df$value, na.rm = TRUE))
@@ -568,7 +568,7 @@ swfc_violin <- function(data_list,
   p
 }
 
-.swfc_significance_marker <- function(p) {
+.ecaa_significance_marker <- function(p) {
   if (!is.finite(p)) return("ns")
   if (p < 0.001) return("***")
   if (p < 0.01)  return("**")
@@ -576,7 +576,7 @@ swfc_violin <- function(data_list,
   "ns"
 }
 
-.swfc_pairwise_significance <- function(df) {
+.ecaa_pairwise_significance <- function(df) {
   groups <- levels(df$group)
   if (length(groups) > 5) return(list())
   vals <- split(df$value, df$group)
@@ -594,7 +594,7 @@ swfc_violin <- function(data_list,
         pairs[[length(pairs) + 1]] <- list(
           i = match(names(vals)[ii], groups),
           j = match(names(vals)[jj], groups),
-          p = pv_corr, marker = .swfc_significance_marker(pv_corr)
+          p = pv_corr, marker = .ecaa_significance_marker(pv_corr)
         )
       }, error = function(e) NULL)
     }
@@ -602,7 +602,7 @@ swfc_violin <- function(data_list,
   pairs
 }
 
-swfc_heatmap <- function(matrix, row_labels, col_labels,
+ecaa_heatmap <- function(matrix, row_labels, col_labels,
                          title = "", cbar_label = NULL,
                          center = 0,
                          z_score_rows = FALSE,
@@ -666,8 +666,8 @@ swfc_heatmap <- function(matrix, row_labels, col_labels,
 # ---------------------------------------------------------------------------
 # Phase F (plan §S12.2) — variant + GWAS R parity stubs.
 #
-# Each stub takes a data.frame, applies the swfc theme via theme_set, and
-# returns a ggplot object. Callers pass the result to swfc_savefig() to
+# Each stub takes a data.frame, applies the ecaa theme via theme_set, and
+# returns a ggplot object. Callers pass the result to ecaa_savefig() to
 # get the dual-format PNG + PDF write with the provenance footer.
 #
 # These are skeleton implementations — the headline visuals work for
@@ -676,7 +676,7 @@ swfc_heatmap <- function(matrix, row_labels, col_labels,
 # parity) lands in a follow-up. See TODO comments on each function.
 # ---------------------------------------------------------------------------
 
-.swfc_chrom_order <- function(chrom) {
+.ecaa_chrom_order <- function(chrom) {
   # Numeric-first ordering (1..22, X, Y, MT, then any leftover scaffolds).
   s <- as.character(chrom)
   num <- suppressWarnings(as.integer(s))
@@ -687,7 +687,7 @@ swfc_heatmap <- function(matrix, row_labels, col_labels,
   unique(s[order(rank, s)])
 }
 
-swfc_manhattan_r <- function(df,
+ecaa_manhattan_r <- function(df,
                              title = "",
                              sig_threshold = -log10(5e-8),
                              suggestive_threshold = -log10(1e-5),
@@ -696,9 +696,9 @@ swfc_manhattan_r <- function(df,
   # TODO(plan §S12.2): expand to match Python parity
   # (greedy collision-avoidance labels, full chrom_offset virtualization,
   # rasterize layer when n > rasterize_threshold).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   if (is.null(df$neg_log10_p)) df$neg_log10_p <- -log10(pmax(df$pvalue, 1e-300))
-  chrom_levels <- if (is.null(chrom_order)) .swfc_chrom_order(df$chrom)
+  chrom_levels <- if (is.null(chrom_order)) .ecaa_chrom_order(df$chrom)
                   else as.character(chrom_order)
   df$chrom <- factor(as.character(df$chrom), levels = chrom_levels)
 
@@ -732,15 +732,15 @@ swfc_manhattan_r <- function(df,
                   y = expression(-log[10] ~ italic(p)))
 }
 
-swfc_qq_r <- function(df,
+ecaa_qq_r <- function(df,
                       title = "",
                       ci_level = 0.95,
                       annotate_lambda_gc = TRUE) {
   # TODO(plan §S12.2): expand to match Python parity
   # (Beta theoretical CI band, λ_GC computation parity, observed clipping note).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   if (is.null(df$pvalue) && is.null(df$neg_log10_p)) {
-    stop("swfc_qq_r requires a 'pvalue' or 'neg_log10_p' column")
+    stop("ecaa_qq_r requires a 'pvalue' or 'neg_log10_p' column")
   }
   if (is.null(df$pvalue)) {
     observed <- 10 ^ -df$neg_log10_p
@@ -776,7 +776,7 @@ swfc_qq_r <- function(df,
   p
 }
 
-swfc_miami_r <- function(top_df, bottom_df,
+ecaa_miami_r <- function(top_df, bottom_df,
                          title = "",
                          top_label = "top",
                          bottom_label = "bottom",
@@ -784,7 +784,7 @@ swfc_miami_r <- function(top_df, bottom_df,
   # TODO(plan §S12.2): expand to match Python parity
   # (mirrored y-axis with shared chromosome virtualization across both panels;
   # currently uses two stacked manhattan calls with patchwork-style hint).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   if (is.null(top_df$neg_log10_p))
     top_df$neg_log10_p <- -log10(pmax(top_df$pvalue, 1e-300))
   if (is.null(bottom_df$neg_log10_p))
@@ -807,13 +807,13 @@ swfc_miami_r <- function(top_df, bottom_df,
                   y = expression(-log[10] ~ italic(p)))
 }
 
-swfc_locus_zoom_r <- function(df,
+ecaa_locus_zoom_r <- function(df,
                               title = "",
                               lead_index = NULL) {
   # TODO(plan §S12.2): expand to match Python parity
   # (5-color LD bin scale matched to Python core, gene-track strip below,
   # diamond marker for lead variant, optional recombination-rate axis).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   if (is.null(df$neg_log10_p))
     df$neg_log10_p <- -log10(pmax(df$pvalue, 1e-300))
   if (is.null(lead_index)) lead_index <- which.max(df$neg_log10_p)
@@ -846,13 +846,13 @@ swfc_locus_zoom_r <- function(df,
                     y = expression(-log[10] ~ italic(p)))
 }
 
-swfc_credible_set_track_r <- function(df,
+ecaa_credible_set_track_r <- function(df,
                                       title = "",
                                       pp_threshold = 0.95) {
   # TODO(plan §S12.2): expand to match Python parity
   # (rectangular credible-set shade band over convex hull of CS positions;
   # currently colors stems but skips the ggplot2 annotate("rect") band).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   if (is.null(df$credible_set)) {
     ord <- order(-df$posterior)
     cumulative <- cumsum(df$posterior[ord])
@@ -876,15 +876,15 @@ swfc_credible_set_track_r <- function(df,
                   y = "posterior probability")
 }
 
-swfc_coloc_pp_panel_r <- function(df, title = "") {
+ecaa_coloc_pp_panel_r <- function(df, title = "") {
   # TODO(plan §S12.2): expand to match Python parity
   # (faceted 5-panel layout with H4 in sig-up color and 0.5 reference line;
   # currently uses tidyr::pivot_longer + facet_wrap without the H4 highlight).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c("region", "pp_h0", "pp_h1", "pp_h2", "pp_h3", "pp_h4")
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_coloc_pp_panel_r missing columns: %s",
+    stop(sprintf("ecaa_coloc_pp_panel_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   long <- do.call(rbind, lapply(c("pp_h0", "pp_h1", "pp_h2", "pp_h3", "pp_h4"),
@@ -909,18 +909,18 @@ swfc_coloc_pp_panel_r <- function(df, title = "") {
                   x = "PP", y = NULL)
 }
 
-swfc_forest_r <- function(df,
+ecaa_forest_r <- function(df,
                           title = "",
                           null_value = 0.0,
                           xlabel = "effect size (95% CI)") {
   # TODO(plan §S12.2): expand to match Python parity
   # (weight-proportional marker sizing, "n / N CI excludes null" footer
   # annotation, sig-up vs sig-down color split based on CI exclusion side).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c("label", "effect", "ci_lo", "ci_hi")
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_forest_r missing columns: %s",
+    stop(sprintf("ecaa_forest_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   pal <- THEME$palette
@@ -958,7 +958,7 @@ swfc_forest_r <- function(df,
 # is tracked under TODO(plan §S12.6).
 # ---------------------------------------------------------------------------
 
-swfc_kaplan_meier_r <- function(df,
+ecaa_kaplan_meier_r <- function(df,
                                 title = "",
                                 time_col = "time",
                                 event_col = "event",
@@ -968,11 +968,11 @@ swfc_kaplan_meier_r <- function(df,
   # (per-group number-at-risk table beneath axis matching Python
   # `kaplan_meier`'s grid; censoring tick marks at exact follow-up times;
   # categorical_palette() group colors instead of ggplot2 default).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(time_col, event_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_kaplan_meier_r missing columns: %s",
+    stop(sprintf("ecaa_kaplan_meier_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   # Inline KM estimator: surv = product over event times of (1 - d_i / n_i).
@@ -1012,17 +1012,17 @@ swfc_kaplan_meier_r <- function(df,
                   x = "time", y = "S(t)", color = NULL)
 }
 
-swfc_consort_diagram_r <- function(flow, title = "") {
+ecaa_consort_diagram_r <- function(flow, title = "") {
   # TODO(plan §S12.6): expand to match Python parity
   # (boxes drawn with grid::gpar instead of ggplot2 geom_rect; side-arrow
   # exclusion branches that match Python's right-hand placement; sig_up
   # accent color on exclusion edges).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_keys <- c("enrolled", "randomized", "allocated",
                      "followed_up", "analyzed")
   missing_keys <- setdiff(required_keys, names(flow))
   if (length(missing_keys) > 0) {
-    stop(sprintf("swfc_consort_diagram_r missing keys: %s",
+    stop(sprintf("ecaa_consort_diagram_r missing keys: %s",
                  paste(missing_keys, collapse = ", ")))
   }
   rows <- data.frame(
@@ -1044,7 +1044,7 @@ swfc_consort_diagram_r <- function(flow, title = "") {
                    axis.ticks.x = ggplot2::element_blank())
 }
 
-swfc_cumulative_incidence_r <- function(df,
+ecaa_cumulative_incidence_r <- function(df,
                                         title = "",
                                         time_col = "time",
                                         event_col = "event",
@@ -1053,11 +1053,11 @@ swfc_cumulative_incidence_r <- function(df,
   # TODO(plan §S12.6): expand to match Python parity
   # (per-cause × per-group line styles using linestyle ramp identical to
   # Python core; sig_up / sig_down accent color rotation per cause).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(time_col, event_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_cumulative_incidence_r missing columns: %s",
+    stop(sprintf("ecaa_cumulative_incidence_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   evt <- as.integer(df[[event_col]])
@@ -1114,7 +1114,7 @@ swfc_cumulative_incidence_r <- function(df,
                   x = "time", y = "cumulative incidence")
 }
 
-swfc_spaghetti_r <- function(df,
+ecaa_spaghetti_r <- function(df,
                              title = "",
                              id_col = "id",
                              time_col = "time",
@@ -1125,11 +1125,11 @@ swfc_spaghetti_r <- function(df,
   # (per-group mean overlay using a thicker line; categorical_palette()
   # color split when group_col supplied; Python sets per-subject alpha=0.45
   # — match that exactly).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(id_col, time_col, value_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_spaghetti_r missing columns: %s",
+    stop(sprintf("ecaa_spaghetti_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   if (!is.null(group_col)) {
@@ -1174,7 +1174,7 @@ swfc_spaghetti_r <- function(df,
                     x = "time", y = value_col)
 }
 
-swfc_adverse_event_bar_r <- function(df,
+ecaa_adverse_event_bar_r <- function(df,
                                      title = "",
                                      term_col = "term",
                                      count_col = "count",
@@ -1185,11 +1185,11 @@ swfc_adverse_event_bar_r <- function(df,
   # (greys → sig_up severity-ramp palette identical to Python core; auto
   # horizontal/vertical orientation when n_terms > 10; legend title
   # "severity" when split column present).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(term_col, count_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_adverse_event_bar_r missing columns: %s",
+    stop(sprintf("ecaa_adverse_event_bar_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   # Aggregate per term (and severity when present).
@@ -1245,7 +1245,7 @@ swfc_adverse_event_bar_r <- function(df,
 # severity color ramps).
 # ---------------------------------------------------------------------------
 
-swfc_profile_pileup_r <- function(df,
+ecaa_profile_pileup_r <- function(df,
                                   title = "",
                                   position_col = "position",
                                   signal_col = "signal",
@@ -1253,11 +1253,11 @@ swfc_profile_pileup_r <- function(df,
   # TODO(plan §S13.6): expand to match Python parity
   # (per-group categorical_palette colors, vertical zero reference line,
   # mean per unique position aggregation matching the Python code path).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(position_col, signal_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_profile_pileup_r missing columns: %s",
+    stop(sprintf("ecaa_profile_pileup_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   pal <- THEME$palette
@@ -1280,7 +1280,7 @@ swfc_profile_pileup_r <- function(df,
                   y = "mean signal")
 }
 
-swfc_coverage_track_r <- function(df,
+ecaa_coverage_track_r <- function(df,
                                   title = "",
                                   chrom_col = "chrom",
                                   pos_col = "pos",
@@ -1289,11 +1289,11 @@ swfc_coverage_track_r <- function(df,
   # TODO(plan §S13.6): expand to match Python parity
   # (region clip + most-populated-chromosome auto-default; fill_between-style
   # shaded depth with line overlay; IGV color convention).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(chrom_col, pos_col, depth_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_coverage_track_r missing columns: %s",
+    stop(sprintf("ecaa_coverage_track_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   if (!is.null(region) && length(region) == 3) {
@@ -1318,18 +1318,18 @@ swfc_coverage_track_r <- function(df,
                   x = "position", y = "depth")
 }
 
-swfc_peak_saturation_r <- function(df,
+ecaa_peak_saturation_r <- function(df,
                                    title = "",
                                    depth_col = "depth",
                                    peaks_called_col = "peaks_called",
                                    group_col = NULL) {
   # TODO(plan §S13.6): expand to match Python parity
   # (markersize=3 marker spec, per-group categorical_palette).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(depth_col, peaks_called_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_peak_saturation_r missing columns: %s",
+    stop(sprintf("ecaa_peak_saturation_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   pal <- THEME$palette
@@ -1351,7 +1351,7 @@ swfc_peak_saturation_r <- function(df,
                     x = "read depth (subsampled)", y = "peaks called")
 }
 
-swfc_isoform_structure_r <- function(df,
+ecaa_isoform_structure_r <- function(df,
                                      title = "",
                                      transcript_col = "transcript",
                                      exon_starts_col = "exon_starts",
@@ -1360,11 +1360,11 @@ swfc_isoform_structure_r <- function(df,
   # TODO(plan §S13.6): expand to match Python parity
   # (packed list-column unpacking; intron line + exon rectangle stack;
   # strand arrow at 3' end of every transcript model).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(transcript_col, exon_starts_col, exon_ends_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_isoform_structure_r missing columns: %s",
+    stop(sprintf("ecaa_isoform_structure_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   pal <- THEME$palette
@@ -1380,18 +1380,18 @@ swfc_isoform_structure_r <- function(df,
                   x = "genomic position (bp)", y = NULL)
 }
 
-swfc_sashimi_r <- function(df,
+ecaa_sashimi_r <- function(df,
                            title = "",
                            junction_col = "junction",
                            count_col = "count") {
   # TODO(plan §S13.6): expand to match Python parity
   # (parametric arc draw matching the Python half-ellipse sweep; arc
   # thickness ~ sqrt(count); count label at apex of each arc).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(junction_col, count_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_sashimi_r missing columns: %s",
+    stop(sprintf("ecaa_sashimi_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   parsed <- do.call(rbind, lapply(df[[junction_col]], function(j) {
@@ -1420,18 +1420,18 @@ swfc_sashimi_r <- function(df,
                   x = "genomic position (bp)", y = NULL)
 }
 
-swfc_peptide_coverage_r <- function(df,
+ecaa_peptide_coverage_r <- function(df,
                                     title = "",
                                     position_col = "position",
                                     coverage_col = "coverage") {
   # TODO(plan §S13.6): expand to match Python parity
   # (step-fill_between equivalent via geom_area with step interpolation;
   # coverage percentage in title).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(position_col, coverage_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_peptide_coverage_r missing columns: %s",
+    stop(sprintf("ecaa_peptide_coverage_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   cov_pct <- if (nrow(df) > 0) {
@@ -1449,7 +1449,7 @@ swfc_peptide_coverage_r <- function(df,
                   x = "residue position", y = "coverage")
 }
 
-swfc_ridgeline_r <- function(df,
+ecaa_ridgeline_r <- function(df,
                              title = "",
                              group_col = "group",
                              value_col = "value",
@@ -1458,11 +1458,11 @@ swfc_ridgeline_r <- function(df,
   # TODO(plan §S13.6): expand to match Python parity
   # (manual KDE + per-row scaling with categorical_palette; ggridges::geom_density_ridges
   # is the natural import target but we want zero-runtime-dep parity).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(group_col, value_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_ridgeline_r missing columns: %s",
+    stop(sprintf("ecaa_ridgeline_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   ggplot2::ggplot(df, ggplot2::aes(x = .data[[value_col]],
@@ -1482,7 +1482,7 @@ swfc_ridgeline_r <- function(df,
 # Phase I (plan §S13.4-§S13.5) — metagenomics + spatial transcriptomics R stubs.
 # ---------------------------------------------------------------------------
 
-swfc_taxonomic_stacked_bar_r <- function(df,
+ecaa_taxonomic_stacked_bar_r <- function(df,
                                          title = "",
                                          sample_col = "sample",
                                          taxon_col = "taxon",
@@ -1492,11 +1492,11 @@ swfc_taxonomic_stacked_bar_r <- function(df,
   # TODO(plan §S13.6): expand to match Python parity
   # (top-N taxon retention with "Other" rollup; row-sum normalization for
   # relative abundance; categorical_palette() for taxon segments).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(sample_col, taxon_col, abundance_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_taxonomic_stacked_bar_r missing columns: %s",
+    stop(sprintf("ecaa_taxonomic_stacked_bar_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   agg <- aggregate(df[[abundance_col]],
@@ -1524,18 +1524,18 @@ swfc_taxonomic_stacked_bar_r <- function(df,
   p
 }
 
-swfc_diversity_violin_r <- function(df,
+ecaa_diversity_violin_r <- function(df,
                                     title = "",
                                     group_col = "group",
                                     diversity_col = "diversity") {
   # TODO(plan §S13.6): expand to match Python parity
   # (per-group categorical_palette fill; subtle dashed median/whisker
   # overlay matching Python core).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(group_col, diversity_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_diversity_violin_r missing columns: %s",
+    stop(sprintf("ecaa_diversity_violin_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   ggplot2::ggplot(df, ggplot2::aes(x = .data[[group_col]],
@@ -1553,7 +1553,7 @@ swfc_diversity_violin_r <- function(df,
                   x = group_col, y = diversity_col)
 }
 
-swfc_tissue_overlay_r <- function(coords_df, image,
+ecaa_tissue_overlay_r <- function(coords_df, image,
                                   title = "",
                                   value_col = "value",
                                   x_col = "x",
@@ -1564,11 +1564,11 @@ swfc_tissue_overlay_r <- function(coords_df, image,
   # TODO(plan §S13.6): expand to match Python parity
   # (raster image background draw via grid::rasterGrob underlay; flipped
   # y-axis to match imshow convention; viridis colorbar matching Python).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(x_col, y_col, value_col)
   missing_cols <- setdiff(required_cols, names(coords_df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_tissue_overlay_r missing columns: %s",
+    stop(sprintf("ecaa_tissue_overlay_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   ggplot2::ggplot(coords_df, ggplot2::aes(x = .data[[x_col]],
@@ -1581,7 +1581,7 @@ swfc_tissue_overlay_r <- function(coords_df, image,
                   x = "x", y = "y", color = value_col)
 }
 
-swfc_morans_i_scatter_r <- function(df,
+ecaa_morans_i_scatter_r <- function(df,
                                     title = "",
                                     gene_col = "gene",
                                     morans_i_col = "morans_i",
@@ -1591,11 +1591,11 @@ swfc_morans_i_scatter_r <- function(df,
   # TODO(plan §S13.6): expand to match Python parity
   # (greedy collision-avoidance label placement matching volcano helper;
   # vertical zero reference; sig_up vs non_sig color split below threshold).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(gene_col, morans_i_col, p_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_morans_i_scatter_r missing columns: %s",
+    stop(sprintf("ecaa_morans_i_scatter_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   df$.nlogp <- -log10(pmax(df[[p_col]], 1e-300))
@@ -1620,7 +1620,7 @@ swfc_morans_i_scatter_r <- function(df,
                   y = expression(-log[10] ~ italic(p)))
 }
 
-swfc_neighborhood_enrichment_r <- function(df,
+ecaa_neighborhood_enrichment_r <- function(df,
                                            title = "",
                                            source_col = "source",
                                            target_col = "target",
@@ -1630,11 +1630,11 @@ swfc_neighborhood_enrichment_r <- function(df,
   # TODO(plan §S13.6): expand to match Python parity
   # (symmetric divergent colormap centered on zero; vmax auto-clip from
   # max(|score|); first-seen label ordering across source ∪ target).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(source_col, target_col, score_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_neighborhood_enrichment_r missing columns: %s",
+    stop(sprintf("ecaa_neighborhood_enrichment_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   if (is.null(vmax)) {
@@ -1659,7 +1659,7 @@ swfc_neighborhood_enrichment_r <- function(df,
                                                        hjust = 1))
 }
 
-swfc_forecast_ribbon_r <- function(df,
+ecaa_forecast_ribbon_r <- function(df,
                                    title = "",
                                    time_col = "time",
                                    value_col = "forecast",
@@ -1670,11 +1670,11 @@ swfc_forecast_ribbon_r <- function(df,
   # (sort by time before plotting; sig_up forecast line + sig_down actual
   # overlay; "prediction interval" legend entry on the ribbon; exact
   # alpha=0.30 ribbon shading using non_sig palette color).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(time_col, value_col, lower_col, upper_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_forecast_ribbon_r missing columns: %s",
+    stop(sprintf("ecaa_forecast_ribbon_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   pal <- THEME$palette
@@ -1696,7 +1696,7 @@ swfc_forecast_ribbon_r <- function(df,
                     x = time_col, y = value_col)
 }
 
-swfc_acf_pacf_panel_r <- function(df,
+ecaa_acf_pacf_panel_r <- function(df,
                                   title = "",
                                   value_col = "value",
                                   max_lag = 40,
@@ -1706,11 +1706,11 @@ swfc_acf_pacf_panel_r <- function(df,
   # Bartlett ±z/√n CI band shading via geom_ribbon; sig_up vs non_sig
   # color split on lags exceeding the band; paired ACF/PACF facets sharing
   # the lag axis with hspace=0.15 and shared ylim=(-1.05, 1.05)).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(value_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_acf_pacf_panel_r missing columns: %s",
+    stop(sprintf("ecaa_acf_pacf_panel_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   s <- df[[value_col]]
@@ -1748,7 +1748,7 @@ swfc_acf_pacf_panel_r <- function(df,
     ggplot2::ylim(-1.05, 1.05)
 }
 
-swfc_decomposition_panel_r <- function(df,
+ecaa_decomposition_panel_r <- function(df,
                                        title = "",
                                        time_col = "time",
                                        value_col = "value",
@@ -1759,11 +1759,11 @@ swfc_decomposition_panel_r <- function(df,
   # so edge effects don't corrupt downstream plotting; observed/trend/
   # seasonal/residual stacked in that exact order using the matching
   # palette colors — sig_up trend, sig_down seasonal, non_sig residual).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(time_col, value_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_decomposition_panel_r missing columns: %s",
+    stop(sprintf("ecaa_decomposition_panel_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   n <- nrow(df)
@@ -1809,7 +1809,7 @@ swfc_decomposition_panel_r <- function(df,
                   x = time_col, y = NULL)
 }
 
-swfc_anomaly_timeline_r <- function(df,
+ecaa_anomaly_timeline_r <- function(df,
                                     title = "",
                                     time_col = "time",
                                     value_col = "value",
@@ -1819,11 +1819,11 @@ swfc_anomaly_timeline_r <- function(df,
   # rather than per-point shading so a long incident reads as one block;
   # legend entry "anomaly · n=<count>" only when any anomalies present;
   # sig_up alpha=0.18 fill on rectangles + alpha=1.0 marker color).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(time_col, value_col, anomaly_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_anomaly_timeline_r missing columns: %s",
+    stop(sprintf("ecaa_anomaly_timeline_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   pal <- THEME$palette
@@ -1845,7 +1845,7 @@ swfc_anomaly_timeline_r <- function(df,
                     x = time_col, y = value_col)
 }
 
-swfc_ma_plot_r <- function(df,
+ecaa_ma_plot_r <- function(df,
                            title = "",
                            mean_col = "base_mean",
                            lfc_col = "log2FoldChange",
@@ -1859,11 +1859,11 @@ swfc_ma_plot_r <- function(df,
   # up/down corner counts in sig_up/sig_down bold; horizontal zero +
   # ±fc_threshold guides; matching log10(mean) clip to 1e-9; rasterize
   # at scatter when n > rasterize_threshold_n).
-  swfc_apply_theme()
+  ecaa_apply_theme()
   required_cols <- c(mean_col, lfc_col, padj_col)
   missing_cols <- setdiff(required_cols, names(df))
   if (length(missing_cols) > 0) {
-    stop(sprintf("swfc_ma_plot_r missing columns: %s",
+    stop(sprintf("ecaa_ma_plot_r missing columns: %s",
                  paste(missing_cols, collapse = ", ")))
   }
   pal <- THEME$palette
@@ -1892,25 +1892,25 @@ swfc_ma_plot_r <- function(df,
                   y = expression(log[2] ~ "fold change"))
 }
 
-swfc_dashboard_grid_r <- function(panels,
+ecaa_dashboard_grid_r <- function(panels,
                                   title = "",
                                   layout = c(2L, 2L)) {
   # TODO(plan §S14.6): expand to match Python parity
-  # (route per-panel by `type` to existing swfc_* primitives; numbered
+  # (route per-panel by `type` to existing ecaa_* primitives; numbered
   # subtitles "(N) <subtitle>" via patchwork::plot_annotation tag_levels;
   # unrenderable / error fallbacks render a placeholder ggplot rather
   # than crash the whole grid; deterministic theme inheritance one level
   # up at the patchwork::wrap_plots level).
   if (!requireNamespace("patchwork", quietly = TRUE)) {
-    stop("swfc_dashboard_grid_r requires the 'patchwork' package")
+    stop("ecaa_dashboard_grid_r requires the 'patchwork' package")
   }
   rows <- as.integer(layout[1])
   cols <- as.integer(layout[2])
   if (rows < 1L || cols < 1L) {
-    stop(sprintf("swfc_dashboard_grid_r layout must be positive (got %s)",
+    stop(sprintf("ecaa_dashboard_grid_r layout must be positive (got %s)",
                  paste(layout, collapse = "×")))
   }
-  swfc_apply_theme()
+  ecaa_apply_theme()
   blank <- ggplot2::ggplot() + ggplot2::theme_void()
   plots <- vector("list", rows * cols)
   for (i in seq_len(rows * cols)) {

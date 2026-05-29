@@ -98,7 +98,7 @@ The harness treats missing required figure PNG/PDF files and a missing `figures/
 
 The library owns determinism (Agg backend, stripped metadata, seeded RNG, theme baseline from `runtime/plotting/theme.json`). Output is dual-format: a 300dpi PNG and a vector PDF for every figure. Do NOT import matplotlib directly — go through `runtime.plotting.core` helpers (`violin`, `bar`, `scatter`, `volcano`, `heatmap`) plus `categorical_palette(n)` for any categorical encoding (Wong/Glasbey colorblind-safe; never `tab10`/`tab20`) so every figure across the package is byte-reproducible.
 
-**For R-based tasks** (Seurat / DESeq2 / Bioconductor), source the parallel R-side library at `runtime/plotting_r/core.R` and call `swfc_savefig(plot, path, stage_id=...)`. Both renderers consume the same `theme.json`, the same Wong palette, and produce figures at the same figure_id catalog so the validator's `figures_present` check is renderer-agnostic.
+**For R-based tasks** (Seurat / DESeq2 / Bioconductor), source the parallel R-side library at `runtime/plotting_r/core.R` and call `ecaa_savefig(plot, path, stage_id=...)`. Both renderers consume the same `theme.json`, the same Wong palette, and produce figures at the same figure_id catalog so the validator's `figures_present` check is renderer-agnostic.
 
 ## Hardware-aware execution
 

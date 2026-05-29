@@ -425,7 +425,7 @@ fn build_assumptions_jsonl(
 /// does not resolve to any `AtomDefinition` in the registry (all
 /// legacy taxonomy-built tasks) fall back to:
 /// - `task.spec["edam_operation"]` if present → `OntologyTerm`
-/// - Otherwise → `Opaque` with a synthetic `swfc:opaque:<task_id>`
+/// - Otherwise → `Opaque` with a synthetic `ecaax:opaque:<task_id>`
 ///
 /// Tasks with no spec at all are skipped (no port to resolve).
 ///
@@ -509,7 +509,7 @@ pub(super) async fn write_affordance_sidecars(
         // 2. Atom registry: atom.edam_data (legacy field, non-empty outputs absent)
         // 3. task.spec["edam_operation"] — only for Opaque fallback, not
         // an output port but better than nothing for unmigrated atoms.
-        // 4. Opaque with synthetic swfc:opaque:<task_id>
+        // 4. Opaque with synthetic ecaax:opaque:<task_id>
 
         // Helper closure — build port descriptor + port name.
         // Returns None when there is genuinely nothing to resolve.
@@ -525,11 +525,11 @@ pub(super) async fn write_affordance_sidecars(
                             proposed_parent_terms,
                             ..
                         } => (format!("{namespace}:{id}"), proposed_parent_terms.clone()),
-                        SemanticType::Opaque { .. } => (format!("swfc:opaque:{task_id}"), vec![]),
+                        SemanticType::Opaque { .. } => (format!("ecaax:opaque:{task_id}"), vec![]),
                         SemanticType::Union { .. } => {
                             // Union output ports carry no single IRI; synthesize a
                             // stable id so the audit log entry is non-empty.
-                            (format!("swfc:union:{task_id}"), vec![])
+                            (format!("ecaax:union:{task_id}"), vec![])
                         }
                     };
                     Some((first_out.name.clone(), iri, parents))
@@ -553,7 +553,7 @@ pub(super) async fn write_affordance_sidecars(
                 Some(("out".to_string(), edam_op.to_string(), vec![]))
             } else if task.spec.is_some() {
                 // Task has a spec but no useful IRI — use opaque.
-                Some(("out".to_string(), format!("swfc:opaque:{task_id}"), vec![]))
+                Some(("out".to_string(), format!("ecaax:opaque:{task_id}"), vec![]))
             } else {
                 // No spec, no atom: skip entirely (no port to resolve).
                 None

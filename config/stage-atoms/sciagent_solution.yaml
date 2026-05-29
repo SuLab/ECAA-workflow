@@ -11,7 +11,7 @@ description: |
   Pass-fail thresholds come verbatim from the paper. Container
   must include the bioinformatics evaluation runtime (Python +
   paper's eval_metrics deps); tag pinned in versions.lock.
-edam_operation: "swfc:sciagent_solution"
+edam_operation: "ecaax:sciagent_solution"
 assignee: agent
 preferred_container:
   image: "ghcr.io/scripps/bio-min"
@@ -35,7 +35,7 @@ inputs:
   - name: problem_statement
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "llm_query"
       proposed_parent_terms:
         - "data:0006"
@@ -48,7 +48,7 @@ outputs:
   - name: solution
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "llm_response"
       proposed_parent_terms:
         - "data:2526"
@@ -60,7 +60,7 @@ outputs:
   - name: score
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "eval_score"
       proposed_parent_terms:
         - "data:0951"

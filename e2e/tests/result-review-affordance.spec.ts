@@ -132,7 +132,7 @@ test.describe('Result review affordance badges', () => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              target_semantic_type: 'swfc:normalization_output',
+              target_semantic_type: 'ecaax:normalization_output',
               proposed_parent_terms: ['EDAM:data_3134'],
               proposed_figure_ids: ['my_violin'],
               sme_intent: 'a violin plot grouped by treatment with significance markers',
@@ -151,7 +151,7 @@ test.describe('Result review affordance badges', () => {
       // Verify the captured body has the right snake_case shape.
       expect(capturedRequests).toHaveLength(1)
       const body = capturedRequests[0] as Record<string, unknown>
-      expect(body.target_semantic_type).toBe('swfc:normalization_output')
+      expect(body.target_semantic_type).toBe('ecaax:normalization_output')
       expect(body.proposed_parent_terms).toEqual(['EDAM:data_3134'])
       expect(body.proposed_figure_ids).toEqual(['my_violin'])
       expect(body.sme_intent).toBe(

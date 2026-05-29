@@ -434,7 +434,7 @@ fn harness_batch_window_env_var_documented_in_claude_md() {
 ///   when the wildcard line covers them.
 #[test]
 #[ignore = "docs/env-vars-reference.md not in OSS repo"]
-fn every_swfc_env_var_documented() {
+fn every_ecaa_env_var_documented() {
     use std::collections::BTreeSet;
 
     // Walk crates/ collecting every ECAA_* identifier reference.

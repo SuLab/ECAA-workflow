@@ -1585,7 +1585,7 @@ fn pick_best_port_pair(
     let producer_type = {
         let stable = producer_port.semantic_type.stable_id();
         if stable.is_empty() {
-            "swfc:workflow_ordering".to_string()
+            "ecaax:workflow_ordering".to_string()
         } else {
             stable
         }
@@ -2567,7 +2567,7 @@ fn placeholder_atom(node: &TaskNode) -> AtomDefinition {
         role: crate::atom::AtomRole::Operation,
         discovery_kind: None,
         description: node.intent.clone(),
-        edam_operation: "swfc:hypothesized".into(),
+        edam_operation: "ecaax:hypothesized".into(),
         edam_data: None,
         edam_format: None,
         assignee: crate::atom::AtomAssignee::Agent,

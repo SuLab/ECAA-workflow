@@ -4,9 +4,9 @@ role: operation
 description: |
   Apply count-matrix-level QC: cell or sample filtering by total counts, gene
   detection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`
-  (which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —
+  (which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —
   EDAM operation:3218 conflates raw-read QC with count-matrix QC.
-edam_operation: "swfc:scrnaseq_cell_qc"
+edam_operation: "ecaax:scrnaseq_cell_qc"
 edam_data: "data:3917"
 edam_format: "format:3590"
 assignee: agent
@@ -47,7 +47,7 @@ outputs:
   - name: filtered_count_matrix
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "qc_metrics"
       proposed_parent_terms:
         - "data:3917"

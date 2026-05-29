@@ -11,7 +11,7 @@ description: |
   Best when the SME's goal is patient subtyping or hypothesis-free
   clustering across modalities. Distinct from DIABLO (supervised) and
   MOFA (factor decomposition).
-edam_operation: "swfc:multi_omics_snf"
+edam_operation: "ecaax:multi_omics_snf"
 edam_data: "data:1278"
 edam_format: "format:3464"
 assignee: agent
@@ -50,7 +50,7 @@ inputs:
   - name: similarity_matrices
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "patient_similarity_matrix"
       proposed_parent_terms:
         - "data:1278"
@@ -65,7 +65,7 @@ outputs:
   - name: fused_similarity
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "fused_similarity_matrix"
       proposed_parent_terms:
         - "data:1278"

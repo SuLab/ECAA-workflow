@@ -36,7 +36,7 @@ Each archetype YAML must:
 - reference `atom_id`s that resolve inside `config/stage-atoms/`
   (validated by the loader at composer boot — Phase 2),
 - declare `goal_data` and optional `goal_format` as EDAM IRIs from the
-  [EDAM ontology](https://edamontology.org), or `swfc:<slug>` for
+  [EDAM ontology](https://edamontology.org), or `ecaax:<slug>` for
   in-house extensions per ADR 0004.
 
 ## Layout

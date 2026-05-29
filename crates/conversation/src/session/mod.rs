@@ -381,7 +381,7 @@ impl Session {
         // dashboards can alert on anomalous rates / sources without
         // parsing free-form messages.
         tracing::info!(
-            target: "swfc::confirmation",
+            target: "ecaa::confirmation",
             session_id = %self.id,
             operation = "set",
             emission_id = %pending,
@@ -404,7 +404,7 @@ impl Session {
         // shouldn't pollute the audit-log channel.
         if self.confirmation_token.is_some() {
             tracing::info!(
-                target: "swfc::confirmation",
+                target: "ecaa::confirmation",
                 session_id = %self.id,
                 operation = "clear",
                 emission_id = ?self.pending_emission_id,

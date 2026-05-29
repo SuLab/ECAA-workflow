@@ -80,14 +80,14 @@ impl Saga {
     pub fn execute(self) -> Result<()> {
         let mut completed: Vec<&SagaStep> = Vec::with_capacity(self.steps.len());
         for step in &self.steps {
-            tracing::debug!(target: "swfc::saga", saga_step = step.name, "executing");
+            tracing::debug!(target: "ecaa::saga", saga_step = step.name, "executing");
             match (step.forward)() {
                 Ok(()) => {
                     completed.push(step);
                 }
                 Err(e) => {
                     tracing::warn!(
-                        target: "swfc::saga",
+                        target: "ecaa::saga",
                         saga_step = step.name,
                         error = %e,
                         completed_steps = completed.len(),
@@ -96,7 +96,7 @@ impl Saga {
                     for done in completed.iter().rev() {
                         if let Some(rb) = &done.rollback {
                             tracing::debug!(
-                                target: "swfc::saga",
+                                target: "ecaa::saga",
                                 saga_step = done.name,
                                 "rolling back"
                             );
@@ -105,7 +105,7 @@ impl Saga {
                                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (rb)()));
                             if let Err(panic) = result {
                                 tracing::error!(
-                                    target: "swfc::saga",
+                                    target: "ecaa::saga",
                                     saga_step = done.name,
                                     panic = ?panic,
                                     "rollback panicked; continuing"

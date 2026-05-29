@@ -44,7 +44,7 @@ inputs:
   - name: hla_peptide_hits
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: hla_peptide_table
       proposed_parent_terms:
         - "data:2976"
@@ -59,7 +59,7 @@ outputs:
   - name: binding_predictions
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: hla_binding_table
       proposed_parent_terms:
         - "data:2976"

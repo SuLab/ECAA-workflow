@@ -396,7 +396,7 @@ pub enum HighImpactTool {
     /// the renderer-proposals registry after promotion evidence accumulates.
     ProposeHypothesizedRenderer {
         /// SemanticType IRI of the output port the preferred renderer
-        /// addresses (e.g. `swfc:my_custom_output`). The `EDAM:` namespace
+        /// addresses (e.g. `ecaax:my_custom_output`). The `EDAM:` namespace
         /// is reserved for ontology-controlled terms and is rejected.
         target_semantic_type: String,
         /// Registered parent-term SemanticType IRIs the proposed renderer
@@ -1039,7 +1039,7 @@ impl HighImpactTool {
                 upstream_atom_ids: vec![],
             },
             HighImpactTool::ProposeHypothesizedRenderer {
-                target_semantic_type: "swfc:test_type".into(),
+                target_semantic_type: "ecaax:test_type".into(),
                 proposed_parent_terms: vec!["EDAM:data_3134".into()],
                 proposed_figure_ids: vec!["test_plot".into()],
                 sme_intent: "test intent".into(),

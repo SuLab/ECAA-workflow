@@ -43,12 +43,12 @@
     },
     "goal_data": {
       "type": "string",
-      "pattern": "^((operation|data|format|topic):\\d+|swfc:[a-z][a-z0-9_]*[a-z0-9])$",
+      "pattern": "^((operation|data|format|topic):\\d+|ecaax:[a-z][a-z0-9_]*[a-z0-9])$",
       "description": "EDAM data class IRI of the GoalSpec this archetype produces (per [GoalSpec §S6.1]). Composer matches a goal's `edam_data` against this field for fast-path lookup before falling through to backward-chaining."
     },
     "goal_format": {
       "type": "string",
-      "pattern": "^((operation|data|format|topic):\\d+|swfc:[a-z][a-z0-9_]*[a-z0-9])$",
+      "pattern": "^((operation|data|format|topic):\\d+|ecaax:[a-z][a-z0-9_]*[a-z0-9])$",
       "description": "Optional EDAM format IRI for the goal's primary committed artifact. When present, the composer narrows fast-path matches to archetypes that produce the exact format."
     },
     "atoms": {

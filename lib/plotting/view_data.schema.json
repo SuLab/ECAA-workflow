@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://ecaa-workflow.org/swfc/view-data-v1.json",
+  "$id": "https://ecaa-workflow.org/ecaax/view-data-v1.json",
   "title": "view_data/<id>.json schema",
   "description": "Structured plot-ready data emitted alongside every figure. Frozen schema_version=1. Consumed by the dashboard tab to render interactive views client-side, by snapshot tests to compare across renderers, and by author-overlay scripts that want to re-render a figure with hand-tuned styling without re-running the full analysis.",
   "type": "object",

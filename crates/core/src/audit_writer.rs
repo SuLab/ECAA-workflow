@@ -78,10 +78,10 @@ impl AuditWriter {
     /// Verify a signed row. Returns the row with `_mac` stripped iff
     /// the HMAC validates; otherwise [`AuditError`].
     ///
-    /// Every rejection path emits a `target = "swfc::audit_tamper"`
+    /// Every rejection path emits a `target = "ecaa::audit_tamper"`
     /// warn-level event so operators can alert on non-zero rates via
     /// log scrapers. The conceptual metrics counter is
-    /// `swfc_audit_tamper_total`; the structured-log channel is the
+    /// `ecaa_audit_tamper_total`; the structured-log channel is the
     /// source of truth until a metrics framework is wired in.
     pub fn verify_row(
         &self,
@@ -91,7 +91,7 @@ impl AuditWriter {
             Some(obj) => obj,
             None => {
                 tracing::warn!(
-                    target: "swfc::audit_tamper",
+                    target: "ecaa::audit_tamper",
                     rejection = "not_an_object",
                     "audit-log row failed HMAC verification: payload is not a JSON object"
                 );
@@ -105,7 +105,7 @@ impl AuditWriter {
             Some(mac) => mac,
             None => {
                 tracing::warn!(
-                    target: "swfc::audit_tamper",
+                    target: "ecaa::audit_tamper",
                     rejection = "missing_mac",
                     "audit-log row failed HMAC verification: _mac field absent"
                 );
@@ -124,7 +124,7 @@ impl AuditWriter {
             Ok(inner)
         } else {
             tracing::warn!(
-                target: "swfc::audit_tamper",
+                target: "ecaa::audit_tamper",
                 rejection = "mac_mismatch",
                 "audit-log row failed HMAC verification: \
                  row may have been tampered or written by an unauthorized writer"

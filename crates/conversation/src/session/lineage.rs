@@ -122,7 +122,7 @@ impl Session {
                     }
                     Err(e) => {
                         tracing::warn!(
-                            target: "swfc::branch",
+                            target: "ecaa::branch",
                             task_id = %tid,
                             error = %e,
                             "reset_to_task_boundary on child dag failed; dag kept as-is"

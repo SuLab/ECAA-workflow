@@ -201,7 +201,7 @@ mod tests {
     fn ontology_path_for_local_extension_includes_parents_and_id() {
         use crate::workflow_contracts::semantic_type::LocalExtensionMaturity;
         let st = SemanticType::LocalExtension {
-            namespace: "swfc".into(),
+            namespace: "ecaax".into(),
             id: "novel_thing".into(),
             proposed_parent_terms: vec!["data:0863".into(), "data:1234".into()],
             definition: "test".into(),
@@ -211,7 +211,7 @@ mod tests {
         assert_eq!(path.len(), 3);
         assert!(path.contains(&"data:0863".to_string()));
         assert!(path.contains(&"data:1234".to_string()));
-        assert!(path.contains(&"swfc:novel_thing".to_string()));
+        assert!(path.contains(&"ecaax:novel_thing".to_string()));
     }
 
     #[test]

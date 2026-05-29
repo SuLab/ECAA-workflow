@@ -58,7 +58,7 @@ outputs:
   - name: labeled_cohort
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "labeled_cohort"
       proposed_parent_terms:
         - "data:0006"

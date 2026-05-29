@@ -82,7 +82,7 @@
         "quantification"
       ],
       "assignee": "agent",
-      "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
       "resource_class": "cpu_heavy"
     },
     "quantification": {
@@ -214,7 +214,7 @@
         "qc_preprocessing"
       ],
       "assignee": "agent",
-      "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
       "resource_class": "cpu_heavy"
     },
     "validate_quantification": {

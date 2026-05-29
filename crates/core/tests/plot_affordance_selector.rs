@@ -40,7 +40,7 @@ fn de_table_registry() -> InMemoryRegistry {
     );
     let mut parents = BTreeMap::new();
     parents.insert(
-        "swfc:spatial_de_table".into(),
+        "ecaax:spatial_de_table".into(),
         vec!["EDAM:data_3134".into()],
     );
     InMemoryRegistry {
@@ -71,7 +71,7 @@ fn exact_match_returns_registered() {
 fn declared_parent_returns_inherited() {
     let reg = de_table_registry();
     let port = PortDescriptor {
-        semantic_type_iri: "swfc:novel_de_table",
+        semantic_type_iri: "ecaax:novel_de_table",
         declared_parents: &["EDAM:data_3134".into()],
         physical_shape: PhysicalShape::Numeric2D,
     };
@@ -93,7 +93,7 @@ fn declared_parent_returns_inherited() {
 fn registry_ancestor_walk_returns_inherited() {
     let reg = de_table_registry();
     let port = PortDescriptor {
-        semantic_type_iri: "swfc:spatial_de_table",
+        semantic_type_iri: "ecaax:spatial_de_table",
         declared_parents: &[],
         physical_shape: PhysicalShape::Numeric2D,
     };
@@ -110,7 +110,7 @@ fn registry_ancestor_walk_returns_inherited() {
 fn no_match_falls_back_to_structural() {
     let reg = de_table_registry();
     let port = PortDescriptor {
-        semantic_type_iri: "swfc:totally_novel_thing",
+        semantic_type_iri: "ecaax:totally_novel_thing",
         declared_parents: &[],
         physical_shape: PhysicalShape::Numeric2D,
     };
@@ -127,7 +127,7 @@ fn no_match_falls_back_to_structural() {
 fn unknown_shape_returns_deferred() {
     let reg = de_table_registry();
     let port = PortDescriptor {
-        semantic_type_iri: "swfc:opaque_blob",
+        semantic_type_iri: "ecaax:opaque_blob",
         declared_parents: &[],
         physical_shape: PhysicalShape::Unknown,
     };
@@ -146,7 +146,7 @@ fn unknown_shape_returns_deferred() {
 fn replay_determinism() {
     let reg = de_table_registry();
     let port = PortDescriptor {
-        semantic_type_iri: "swfc:novel_de_table",
+        semantic_type_iri: "ecaax:novel_de_table",
         declared_parents: &["EDAM:data_3134".into()],
         physical_shape: PhysicalShape::Numeric2D,
     };

@@ -186,7 +186,7 @@ impl Watchdog {
     ) -> Self {
         let (shutdown_tx, shutdown_rx) = std::sync::mpsc::sync_channel::<()>(1);
         let handle = thread::Builder::new()
-            .name("swfc-watchdog".into())
+            .name("ecaa-watchdog".into())
             .spawn(move || {
                 run_watchdog_loop(
                     &package_root,

@@ -12,7 +12,7 @@
   },
   {
     "atom_id": "batch_correction",
-    "semantic_type_iri": "swfc:batch_corrected_embedding",
+    "semantic_type_iri": "ecaax:batch_corrected_embedding",
     "renderer_module": "runtime.plotting.stages.batch_correction",
     "figure_ids": [
       "mixing_score_bar",
@@ -31,7 +31,7 @@
   },
   {
     "atom_id": "cdr3_clonotype_clustering",
-    "semantic_type_iri": "swfc:clonotype_table",
+    "semantic_type_iri": "ecaax:clonotype_table",
     "renderer_module": "runtime.plotting.stages.vdj_repertoire",
     "figure_ids": [
       "public_clonotype_size_bar",
@@ -51,7 +51,7 @@
   },
   {
     "atom_id": "chromatin_contact_calling",
-    "semantic_type_iri": "swfc:chromatin_contact_matrix",
+    "semantic_type_iri": "ecaax:chromatin_contact_matrix",
     "renderer_module": "runtime.plotting.stages.chromatin_contacts",
     "figure_ids": [
       "cis_trans_ratio",
@@ -61,7 +61,7 @@
   },
   {
     "atom_id": "chromatin_loop_calling",
-    "semantic_type_iri": "swfc:chromatin_loop_table",
+    "semantic_type_iri": "ecaax:chromatin_loop_table",
     "renderer_module": "runtime.plotting.stages.chromatin_loops",
     "figure_ids": [
       "loop_count_bar",
@@ -71,7 +71,7 @@
   },
   {
     "atom_id": "cis_regulatory_variant_scoring",
-    "semantic_type_iri": "swfc:cis_regulatory_scores",
+    "semantic_type_iri": "ecaax:cis_regulatory_scores",
     "renderer_module": "runtime.plotting.stages.regulatory_variants",
     "figure_ids": [
       "cis_effect_volcano",
@@ -81,7 +81,7 @@
   },
   {
     "atom_id": "clustering",
-    "semantic_type_iri": "swfc:cluster_assignments",
+    "semantic_type_iri": "ecaax:cluster_assignments",
     "renderer_module": "runtime.plotting.stages.clustering",
     "figure_ids": [
       "umap_clusters",
@@ -91,7 +91,7 @@
   },
   {
     "atom_id": "colocalization",
-    "semantic_type_iri": "swfc:colocalization_results",
+    "semantic_type_iri": "ecaax:colocalization_results",
     "renderer_module": "runtime.plotting.stages.colocalization",
     "figure_ids": [
       "manhattan",
@@ -114,7 +114,7 @@
   },
   {
     "atom_id": "differential_accessibility",
-    "semantic_type_iri": "swfc:differential_accessibility_results",
+    "semantic_type_iri": "ecaax:differential_accessibility_results",
     "renderer_module": "runtime.plotting.stages.differential_accessibility",
     "figure_ids": [
       "volcano",
@@ -135,7 +135,7 @@
   },
   {
     "atom_id": "differential_loop_analysis",
-    "semantic_type_iri": "swfc:differential_loop_table",
+    "semantic_type_iri": "ecaax:differential_loop_table",
     "renderer_module": "runtime.plotting.stages.chromatin_loops",
     "figure_ids": [
       "loop_volcano",
@@ -145,7 +145,7 @@
   },
   {
     "atom_id": "differential_transcript_usage",
-    "semantic_type_iri": "swfc:differential_transcript_usage_results",
+    "semantic_type_iri": "ecaax:differential_transcript_usage_results",
     "renderer_module": "runtime.plotting.stages.dtu",
     "figure_ids": [
       "dtu_volcano",
@@ -155,7 +155,7 @@
   },
   {
     "atom_id": "dimensionality_reduction",
-    "semantic_type_iri": "swfc:embedding",
+    "semantic_type_iri": "ecaax:embedding",
     "renderer_module": "runtime.plotting.stages.dimensionality_reduction",
     "figure_ids": [
       "variance_explained_elbow",
@@ -165,7 +165,7 @@
   },
   {
     "atom_id": "diversity_analysis",
-    "semantic_type_iri": "swfc:diversity_metrics",
+    "semantic_type_iri": "ecaax:diversity_metrics",
     "renderer_module": "runtime.plotting.stages.taxonomic_profiling",
     "figure_ids": [
       "diversity_violin"
@@ -174,7 +174,7 @@
   },
   {
     "atom_id": "endpoint_analysis",
-    "semantic_type_iri": "swfc:trial_endpoint",
+    "semantic_type_iri": "ecaax:trial_endpoint",
     "renderer_module": "runtime.plotting.stages.primary_endpoint",
     "figure_ids": [
       "kaplan_meier",
@@ -184,7 +184,7 @@
   },
   {
     "atom_id": "enhancer_activity_calling",
-    "semantic_type_iri": "swfc:enhancer_activity_table",
+    "semantic_type_iri": "ecaax:enhancer_activity_table",
     "renderer_module": "runtime.plotting.stages.enhancer_activity",
     "figure_ids": [
       "rna_vs_dna_scatter",
@@ -194,7 +194,7 @@
   },
   {
     "atom_id": "expression_methylation_correlation",
-    "semantic_type_iri": "swfc:methylation_correlation_table",
+    "semantic_type_iri": "ecaax:methylation_correlation_table",
     "renderer_module": "runtime.plotting.stages.methylation_expression",
     "figure_ids": [
       "methylation_vs_expression_scatter",
@@ -204,7 +204,7 @@
   },
   {
     "atom_id": "final_reporting",
-    "semantic_type_iri": "swfc:final_report",
+    "semantic_type_iri": "ecaax:final_report",
     "renderer_module": "runtime.plotting.stages.final_reporting",
     "figure_ids": [
       "summary_dashboard"
@@ -223,7 +223,7 @@
   },
   {
     "atom_id": "hla_peptide_search",
-    "semantic_type_iri": "swfc:hla_peptide_table",
+    "semantic_type_iri": "ecaax:hla_peptide_table",
     "renderer_module": "runtime.plotting.stages.hla_peptidomics",
     "figure_ids": [
       "peptide_length_distribution",
@@ -233,7 +233,7 @@
   },
   {
     "atom_id": "integrate_multi_omics_diablo",
-    "semantic_type_iri": "swfc:diablo_model",
+    "semantic_type_iri": "ecaax:diablo_model",
     "renderer_module": "runtime.plotting.stages.diablo",
     "figure_ids": [
       "diablo_components_scatter",
@@ -245,7 +245,7 @@
   },
   {
     "atom_id": "integrate_multi_omics_mofa",
-    "semantic_type_iri": "swfc:mofa_factors",
+    "semantic_type_iri": "ecaax:mofa_factors",
     "renderer_module": "runtime.plotting.stages.multi_omics_integration",
     "figure_ids": [
       "modality_concordance_heatmap",
@@ -255,7 +255,7 @@
   },
   {
     "atom_id": "integrate_multi_omics_snf",
-    "semantic_type_iri": "swfc:fused_similarity_matrix",
+    "semantic_type_iri": "ecaax:fused_similarity_matrix",
     "renderer_module": "runtime.plotting.stages.snf",
     "figure_ids": [
       "fused_similarity_heatmap",
@@ -287,7 +287,7 @@
   },
   {
     "atom_id": "joint_wnn_integration",
-    "semantic_type_iri": "swfc:joint_wnn_embedding",
+    "semantic_type_iri": "ecaax:joint_wnn_embedding",
     "renderer_module": "runtime.plotting.stages.joint_wnn",
     "figure_ids": [
       "wnn_umap",
@@ -306,7 +306,7 @@
   },
   {
     "atom_id": "motif_enrichment",
-    "semantic_type_iri": "swfc:motif_enrichment_results",
+    "semantic_type_iri": "ecaax:motif_enrichment_results",
     "renderer_module": "runtime.plotting.stages.motif_enrichment",
     "figure_ids": [
       "motif_enrichment_table",
@@ -316,7 +316,7 @@
   },
   {
     "atom_id": "multiome_arc_demultiplex",
-    "semantic_type_iri": "swfc:multiome_paired_per_nucleus",
+    "semantic_type_iri": "ecaax:multiome_paired_per_nucleus",
     "renderer_module": "runtime.plotting.stages.barcode_pairing",
     "figure_ids": [
       "paired_capture_summary",
@@ -326,7 +326,7 @@
   },
   {
     "atom_id": "neoantigen_filtering",
-    "semantic_type_iri": "swfc:neoantigen_catalog",
+    "semantic_type_iri": "ecaax:neoantigen_catalog",
     "renderer_module": "runtime.plotting.stages.hla_peptidomics",
     "figure_ids": [
       "neoantigen_per_patient_bar",
@@ -336,7 +336,7 @@
   },
   {
     "atom_id": "netmhc_binding_prediction",
-    "semantic_type_iri": "swfc:hla_binding_table",
+    "semantic_type_iri": "ecaax:hla_binding_table",
     "renderer_module": "runtime.plotting.stages.hla_peptidomics",
     "figure_ids": [
       "binder_rank_histogram",
@@ -365,7 +365,7 @@
   },
   {
     "atom_id": "peak_annotation",
-    "semantic_type_iri": "swfc:peak_annotation_table",
+    "semantic_type_iri": "ecaax:peak_annotation_table",
     "renderer_module": "runtime.plotting.stages.peak_annotation",
     "figure_ids": [
       "peak_feature_distribution",
@@ -386,7 +386,7 @@
   },
   {
     "atom_id": "peak_to_gene_linking",
-    "semantic_type_iri": "swfc:peak_to_gene_link_table",
+    "semantic_type_iri": "ecaax:peak_to_gene_link_table",
     "renderer_module": "runtime.plotting.stages.peak_to_gene",
     "figure_ids": [
       "peak_to_gene_arc",
@@ -406,7 +406,7 @@
   },
   {
     "atom_id": "population_definition",
-    "semantic_type_iri": "swfc:trial_analysis_set",
+    "semantic_type_iri": "ecaax:trial_analysis_set",
     "renderer_module": "runtime.plotting.stages.population_definition",
     "figure_ids": [
       "consort_diagram"
@@ -415,7 +415,7 @@
   },
   {
     "atom_id": "protein_quantification",
-    "semantic_type_iri": "swfc:protein_abundance_matrix",
+    "semantic_type_iri": "ecaax:protein_abundance_matrix",
     "renderer_module": "runtime.plotting.stages.quantification",
     "figure_ids": [
       "peptide_coverage",
@@ -425,7 +425,7 @@
   },
   {
     "atom_id": "psite_offset_calibration",
-    "semantic_type_iri": "swfc:psite_offset_table",
+    "semantic_type_iri": "ecaax:psite_offset_table",
     "renderer_module": "runtime.plotting.stages.ribo_seq",
     "figure_ids": [
       "psite_offset_per_length",
@@ -435,7 +435,7 @@
   },
   {
     "atom_id": "qc_preprocessing",
-    "semantic_type_iri": "swfc:qc_metrics",
+    "semantic_type_iri": "ecaax:qc_metrics",
     "renderer_module": "runtime.plotting.stages.quality_control",
     "figure_ids": [
       "per_sample_metric_violin",
@@ -467,7 +467,7 @@
   },
   {
     "atom_id": "repertoire_diversity",
-    "semantic_type_iri": "swfc:repertoire_diversity_table",
+    "semantic_type_iri": "ecaax:repertoire_diversity_table",
     "renderer_module": "runtime.plotting.stages.vdj_repertoire",
     "figure_ids": [
       "clonal_frequency_rank",
@@ -496,7 +496,7 @@
   },
   {
     "atom_id": "sgrna_assignment",
-    "semantic_type_iri": "swfc:sgrna_assignment_table",
+    "semantic_type_iri": "ecaax:sgrna_assignment_table",
     "renderer_module": "runtime.plotting.stages.crispr_screen",
     "figure_ids": [
       "sgrna_umi_histogram",
@@ -506,7 +506,7 @@
   },
   {
     "atom_id": "share_seq_barcode_match",
-    "semantic_type_iri": "swfc:multiome_paired_per_nucleus",
+    "semantic_type_iri": "ecaax:multiome_paired_per_nucleus",
     "renderer_module": "runtime.plotting.stages.barcode_pairing",
     "figure_ids": [
       "paired_capture_summary",
@@ -516,7 +516,7 @@
   },
   {
     "atom_id": "spatial_domain_segmentation",
-    "semantic_type_iri": "swfc:spatial_domains",
+    "semantic_type_iri": "ecaax:spatial_domains",
     "renderer_module": "runtime.plotting.stages.spatial_clustering",
     "figure_ids": [
       "tissue_overlay",
@@ -527,7 +527,7 @@
   },
   {
     "atom_id": "spatially_variable_genes",
-    "semantic_type_iri": "swfc:spatially_variable_genes",
+    "semantic_type_iri": "ecaax:spatially_variable_genes",
     "renderer_module": "runtime.plotting.stages.spatial_clustering",
     "figure_ids": [
       "morans_i_scatter"
@@ -546,7 +546,7 @@
   },
   {
     "atom_id": "time_series_decomposition",
-    "semantic_type_iri": "swfc:time_series_decomposition",
+    "semantic_type_iri": "ecaax:time_series_decomposition",
     "renderer_module": "runtime.plotting.stages.exploratory_analysis",
     "figure_ids": [
       "decomposition_panel",
@@ -556,7 +556,7 @@
   },
   {
     "atom_id": "time_series_forecast_evaluate",
-    "semantic_type_iri": "swfc:time_series_forecast_evaluation",
+    "semantic_type_iri": "ecaax:time_series_forecast_evaluation",
     "renderer_module": "runtime.plotting.stages.forecasting_inference",
     "figure_ids": [
       "forecast_ribbon"
@@ -565,7 +565,7 @@
   },
   {
     "atom_id": "time_series_forecasting",
-    "semantic_type_iri": "swfc:forecast",
+    "semantic_type_iri": "ecaax:forecast",
     "renderer_module": "runtime.plotting.stages.forecasting_inference",
     "figure_ids": [
       "forecast_ribbon",
@@ -575,7 +575,7 @@
   },
   {
     "atom_id": "translation_efficiency_de",
-    "semantic_type_iri": "swfc:te_results",
+    "semantic_type_iri": "ecaax:te_results",
     "renderer_module": "runtime.plotting.stages.ribo_seq",
     "figure_ids": [
       "te_volcano",
@@ -625,7 +625,7 @@
   },
   {
     "atom_id": "vdj_reconstruction",
-    "semantic_type_iri": "swfc:vdj_per_cell_table",
+    "semantic_type_iri": "ecaax:vdj_per_cell_table",
     "renderer_module": "runtime.plotting.stages.vdj_repertoire",
     "figure_ids": [
       "chain_assignment_per_cell_bar",

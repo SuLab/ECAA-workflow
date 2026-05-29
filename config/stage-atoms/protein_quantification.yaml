@@ -57,7 +57,7 @@ outputs:
   - name: protein_abundance
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "protein_abundance_matrix"
       proposed_parent_terms:
         - "data:2976"
