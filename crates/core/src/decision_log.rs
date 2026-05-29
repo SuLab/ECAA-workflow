@@ -857,7 +857,7 @@ mod tests {
             },
             DecisionType::ProposedHypothesizedRenderer {
                 proposal_id: "renderer-proposal-abc123def456".into(),
-                target_semantic_type: "swfc:custom_volcano".into(),
+                target_semantic_type: "ecaax:custom_volcano".into(),
                 sme_intent:
                     "SME wants a volcano plot with highlighted candidate genes and custom axis labels"
                         .into(),

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "swfc:population-coverage",
+  "$id": "ecaax:population-coverage",
   "title": "Population coverage statement",
   "description": "v3 §11.X / v3 Phase 9 — workflow-level statement of which sample cohorts the workflow has been validated on. One file per workflow id at config/population-coverage/<workflow_id>.yaml.",
   "type": "object",

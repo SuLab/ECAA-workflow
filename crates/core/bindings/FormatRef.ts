@@ -7,7 +7,7 @@
  */
 export type FormatRef = { 
 /**
- * EDAM format IRI (e.g. `format:2572` for BAM) or `swfc:<slug>`
+ * EDAM format IRI (e.g. `format:2572` for BAM) or `ecaax:<slug>`
  * for in-house formats.
  */
 iri: string, 

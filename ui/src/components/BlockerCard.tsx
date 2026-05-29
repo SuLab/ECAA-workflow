@@ -1710,7 +1710,7 @@ function SandboxRequiredSection({
         <button
           type="button"
           onClick={() => {
-            window.dispatchEvent(new CustomEvent('swfc:open-settings'))
+            window.dispatchEvent(new CustomEvent('ecaax:open-settings'))
           }}
           data-testid="switch-executor-button-sandbox"
           style={{
@@ -1788,7 +1788,7 @@ function NetworkPolicyMismatchSection({
         <button
           type="button"
           onClick={() => {
-            window.dispatchEvent(new CustomEvent('swfc:open-settings'))
+            window.dispatchEvent(new CustomEvent('ecaax:open-settings'))
           }}
           data-testid="switch-executor-button-network"
           style={{

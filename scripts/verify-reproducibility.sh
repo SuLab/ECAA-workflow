@@ -17,7 +17,7 @@ cd "$ROOT"
 echo "[verify-reproducibility] Building workspace…"
 cargo build --workspace --release --quiet
 
-SCRATCH="$(mktemp -d -t swfc-verify-XXXXXX)"
+SCRATCH="$(mktemp -d -t ecaa-verify-XXXXXX)"
 trap 'rm -rf "$SCRATCH"' EXIT
 
 echo "[verify-reproducibility] Emitting IVD scenario twice into $SCRATCH"

@@ -5,17 +5,17 @@
 # `outputs_dir`, then load specific columns by header-name aliases.
 # Centralising the boilerplate keeps each stage module under ~100 LOC
 # and matches the Python contract: missing tables / unparseable
-# headers raise the same family of errors so `core.R::swfc_generate`
+# headers raise the same family of errors so `core.R::ecaa_generate`
 # records them per-figure.
 
-if (!exists("swfc_register_figure")) {
+if (!exists("ecaa_register_figure")) {
   stop("source runtime/plotting_r/core.R before _shared.R")
 }
 
 # Resolve a manifest entry whose value is a relative path against
 # `outputs_dir`. Returns NULL when any segment is missing or the
 # resolved file does not exist on disk.
-.swfc_manifest_path <- function(manifest, outputs_dir, ...) {
+.ecaa_manifest_path <- function(manifest, outputs_dir, ...) {
   keys <- c(...)
   cur <- manifest
   for (k in keys) {
@@ -33,7 +33,7 @@ if (!exists("swfc_register_figure")) {
 # the canonical column name to a vector of accepted header aliases.
 # Canonical names ending in `?` mark optional columns — when no alias
 # matches, the returned frame omits the column rather than failing.
-.swfc_load_tsv <- function(path, columns) {
+.ecaa_load_tsv <- function(path, columns) {
   df <- tryCatch(
     utils::read.delim(path, stringsAsFactors = FALSE, check.names = FALSE,
                       comment.char = ""),

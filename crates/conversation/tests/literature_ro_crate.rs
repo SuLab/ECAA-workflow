@@ -118,7 +118,7 @@ fn evidence_artifacts_registered_as_creative_work() {
     // Source kind + redistributable + retrieval ts.
     assert!(body.contains("pmc_oa_full_text"), "source_kind missing");
     assert!(
-        body.contains("swfc:redistributable"),
+        body.contains("ecaax:redistributable"),
         "redistributable field missing"
     );
     assert!(
@@ -207,8 +207,8 @@ fn shareable_export_omits_non_redistributable_content_but_keeps_metadata() {
 
     // Must carry the contentOmittedFromExport marker.
     assert!(
-        body.contains("swfc:contentOmittedFromExport"),
-        "swfc:contentOmittedFromExport missing on non-redistributable entry"
+        body.contains("ecaax:contentOmittedFromExport"),
+        "ecaax:contentOmittedFromExport missing on non-redistributable entry"
     );
 
     // Verify the marker is true on the correct entry.
@@ -219,9 +219,9 @@ fn shareable_export_omits_non_redistributable_content_but_keeps_metadata() {
         .expect("PMID:28123458 node must be in @graph");
 
     assert_eq!(
-        non_redist_node.get("swfc:contentOmittedFromExport"),
+        non_redist_node.get("ecaax:contentOmittedFromExport"),
         Some(&serde_json::Value::Bool(true)),
-        "swfc:contentOmittedFromExport must be true on non-redistributable entry"
+        "ecaax:contentOmittedFromExport must be true on non-redistributable entry"
     );
 
     // Redistributable=true entry must NOT have the omission marker.
@@ -231,8 +231,8 @@ fn shareable_export_omits_non_redistributable_content_but_keeps_metadata() {
         .expect("PMID:28123456 node must be in @graph");
 
     assert!(
-        redist_node.get("swfc:contentOmittedFromExport").is_none(),
-        "redistributable entry must NOT have swfc:contentOmittedFromExport"
+        redist_node.get("ecaax:contentOmittedFromExport").is_none(),
+        "redistributable entry must NOT have ecaax:contentOmittedFromExport"
     );
 }
 

@@ -48,7 +48,7 @@ outputs:
   - name: enriched_motifs
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "motif_enrichment_results"
       proposed_parent_terms:
         - "data:1364"

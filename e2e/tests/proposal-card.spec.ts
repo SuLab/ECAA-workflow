@@ -29,7 +29,7 @@ function makeProposal(
     id: 'proposal-abc123def456',
     node_id: 'doublet_score',
     intent: 'Score per-cell doublet probability',
-    parent_terms: ['edam:operation_3198', 'swfc:doublet_detection'],
+    parent_terms: ['edam:operation_3198', 'ecaax:doublet_detection'],
     assumptions: ['Counts matrix is raw, not normalized.'],
     failure_modes: ['False positives on neighbouring multiplets.'],
     validation_tests: ['cell_count_matches', 'no_negative_counts'],

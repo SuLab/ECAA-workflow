@@ -495,15 +495,15 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   fi
 
   # Label the container so the AWS orphan reaper can
-  # probe `docker ps --filter label=swfc-task=<id>` against the
+  # probe `docker ps --filter label=ecaa-task=<id>` against the
   # instance via SSM RunShellScript and tell apart a live container
   # from a hung one (instance still alive but container exited).
   DOCKER_LABEL_ARGS=()
   if [ -n "${ECAA_TASK_ID:-}" ]; then
-    DOCKER_LABEL_ARGS+=("--label" "swfc-task=${ECAA_TASK_ID}")
+    DOCKER_LABEL_ARGS+=("--label" "ecaa-task=${ECAA_TASK_ID}")
   fi
   if [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
-    DOCKER_LABEL_ARGS+=("--label" "swfc-session=${ECAA_CHAT_SESSION_ID}")
+    DOCKER_LABEL_ARGS+=("--label" "ecaa-session=${ECAA_CHAT_SESSION_ID}")
   fi
 
   # Docker isolation hardening. The bind-mounted $PACKAGE stays

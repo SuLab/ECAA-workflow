@@ -3,10 +3,10 @@ version: "1.0.0"
 role: operation
 description: |
   Label each cluster with a cell-identity from marker-gene panels or reference
-  mapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the
+  mapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the
   EDAM audit — operation:0361 (sequence annotation) is a semantic mismatch
   for cell-identity calling on count matrices.
-edam_operation: "swfc:cell_type_annotation"
+edam_operation: "ecaax:cell_type_annotation"
 edam_data: "data:3917"
 edam_format: "format:3475"
 assignee: agent

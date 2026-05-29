@@ -14,7 +14,7 @@ import type { LocalExtensionMaturity } from "./LocalExtensionMaturity";
 export type SemanticType = { "kind": "ontology_term", 
 /**
  * Compact IRI (e.g. `data:1383`, `format:2572`,
- * `operation:0292`) or `swfc:<slug>` for in-house extensions
+ * `operation:0292`) or `ecaax:<slug>` for in-house extensions
  * per ADR 0004.
  */
 iri: string, 
@@ -29,7 +29,7 @@ label: string,
  */
 ontology_version?: string, } | { "kind": "local_extension", 
 /**
- * Authority namespace (`swfc:` for in-house, `lab:foo` for
+ * Authority namespace (`ecaax:` for in-house, `lab:foo` for
  * site-specific extensions).
  */
 namespace: string, 

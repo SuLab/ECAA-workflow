@@ -22,25 +22,25 @@ outputs:
   - name: prior_claims_matrix
     semantic_type:
       kind: ontology_term
-      iri: "swfc:literature_claims_matrix"
+      iri: "ecaax:literature_claims_matrix"
       label: "Literature claims matrix"
-      ontology_version: "swfc-1"
+      ontology_version: "ecaax-1"
     physical_format: { iri: "format:3752", label: "CSV" }
     privacy_class: internal
   - name: literature_search_protocol
     semantic_type:
       kind: ontology_term
-      iri: "swfc:literature_search_protocol"
+      iri: "ecaax:literature_search_protocol"
       label: "Literature search protocol"
-      ontology_version: "swfc-1"
+      ontology_version: "ecaax-1"
     physical_format: { iri: "format:1196", label: "Markdown" }
     privacy_class: internal
   - name: citation_verification_report
     semantic_type:
       kind: ontology_term
-      iri: "swfc:citation_verification_report"
+      iri: "ecaax:citation_verification_report"
       label: "Citation verification report"
-      ontology_version: "swfc-1"
+      ontology_version: "ecaax-1"
     physical_format: { iri: "format:1196", label: "Markdown" }
     privacy_class: internal
 attributes:

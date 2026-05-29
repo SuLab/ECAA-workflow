@@ -88,7 +88,7 @@ pub struct RendererProposal {
     /// Stable id assigned at proposal time (e.g. `renderer-proposal-<12hex>`).
     pub id: String,
     /// The output-port semantic type IRI the renderer addresses
-    /// (e.g. `swfc:my_custom_output`).
+    /// (e.g. `ecaax:my_custom_output`).
     pub target_semantic_type: String,
     /// Registered parent-term IRIs the proposed renderer inherits from
     /// (validated against the `PlotAffordanceRegistry` at proposal time).

@@ -52,7 +52,7 @@ outputs:
   - name: sgrna_per_cell
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: sgrna_assignment_table
       proposed_parent_terms:
         - "data:3917"

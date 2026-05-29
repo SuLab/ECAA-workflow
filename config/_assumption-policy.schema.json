@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "swfc:assumption-policy",
+  "$id": "ecaax:assumption-policy",
   "type": "object",
   "required": ["version", "entries", "policy_rules"],
   "additionalProperties": false,

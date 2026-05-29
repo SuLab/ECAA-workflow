@@ -6,9 +6,9 @@ description: |
   reference annotations (GENCODE, RefSeq) and per-platform truth sets
   (LRGASP, SQANTI3 categories). Emits a category-level confusion matrix
   + per-isoform classification (FSM, ISM, NIC, NNC, etc.) so downstream
-  reporting can flag novel isoforms with low support. swfc:isoform_caller_
+  reporting can flag novel isoforms with low support. ecaax:isoform_caller_
   concordance.
-edam_operation: "swfc:isoform_caller_concordance"
+edam_operation: "ecaax:isoform_caller_concordance"
 edam_data: "data:0951"
 edam_format: "format:3475"
 assignee: agent
@@ -24,7 +24,7 @@ resource_profile:
 # isoform_discovery (per the depends_on edge), not the upstream BAM —
 # this atom benchmarks the *calls* against reference annotations and
 # truth sets, so the isoform GTF is the meaningful input. The output
-# is a swfc local extension for the SQANTI3-style category report;
+# is a ecaax local extension for the SQANTI3-style category report;
 # EDAM data:0951 (statistical estimate) is the closest parent.
 inputs:
   - name: isoform_calls
@@ -42,7 +42,7 @@ outputs:
   - name: benchmark_report
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "isoform_caller_benchmark_report"
       proposed_parent_terms:
         - "data:0951"

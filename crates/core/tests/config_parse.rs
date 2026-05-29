@@ -295,7 +295,7 @@ fn legacy_anthropic_api_key_fallback() {
 }
 
 #[test]
-fn swfc_anthropic_api_key_takes_precedence_over_legacy() {
+fn ecaa_anthropic_api_key_takes_precedence_over_legacy() {
     let mut env = empty();
     env.insert("ECAA_ANTHROPIC_API_KEY", "primary");
     env.insert("ANTHROPIC_API_KEY", "legacy");

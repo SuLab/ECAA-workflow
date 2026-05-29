@@ -215,7 +215,7 @@ pub fn probe_container_state(
     // For package_dir, allow forward slashes (it's an absolute path
     // on the remote host) but each path segment must satisfy the
     // same id-shape rules. This refuses `; rm -rf /tmp` while still
-    // accepting `/scratch/swfc/packages/bulk_rnaseq_20260514T120000`.
+    // accepting `/scratch/ecaa/packages/bulk_rnaseq_20260514T120000`.
     if !package_dir_is_safe(package_dir) {
         return ContainerProbeOutcome::ProbeFailed {
             reason: format!("unsafe package_dir for SSH interpolation: {package_dir:?}"),
@@ -231,7 +231,7 @@ pub fn probe_container_state(
                | sed 's/\"instance\":\"//;s/\"$//'); \
            fi\
          ; if [ -z \"$LIVE\" ] && command -v docker >/dev/null 2>&1; then \
-             LIVE=$(docker ps --filter label=swfc-task={task_id} --format '{{{{.ID}}}}' 2>/dev/null | head -1); \
+             LIVE=$(docker ps --filter label=ecaa-task={task_id} --format '{{{{.ID}}}}' 2>/dev/null | head -1); \
            fi\
          ; SIDECAR=\"\"; SIDECAR_PATH={package_dir}/runtime/outputs/{task_id}/.container-state.json\
          ; if [ -f \"$SIDECAR_PATH\" ]; then SIDECAR=$(cat \"$SIDECAR_PATH\" 2>/dev/null); fi\
@@ -717,7 +717,7 @@ mod tests {
         // Apptainer instance names are arbitrary strings (often the task
         // id with a prefix); docker container ids are 12-hex.
         let apptainer =
-            classify_slurm_probe_envelope(r#"{"live":"swfc-task-qc-12345","sidecar":null}"#);
+            classify_slurm_probe_envelope(r#"{"live":"ecaa-task-qc-12345","sidecar":null}"#);
         match apptainer {
             ContainerProbeOutcome::ContainerAlive { runtime, .. } => {
                 assert_eq!(runtime, "apptainer");
@@ -738,7 +738,7 @@ mod tests {
         let fake = FakeSshSession::new("cluster");
         fake.expect(
             "set -u",
-            SshOutcome::success(r#"{"live":"swfc-qc","sidecar":null}"#),
+            SshOutcome::success(r#"{"live":"ecaa-qc","sidecar":null}"#),
         );
         let outcome = probe_container_state(&fake, "qc", "/tmp/pkg");
         match outcome {
@@ -746,7 +746,7 @@ mod tests {
                 container_id,
                 runtime,
             } => {
-                assert_eq!(container_id, "swfc-qc");
+                assert_eq!(container_id, "ecaa-qc");
                 assert_eq!(runtime, "apptainer");
             }
             other => panic!("expected ContainerAlive, got {other:?}"),
@@ -861,7 +861,7 @@ mod tests {
         // We only check the validator gate; SSH dispatch is exercised by
         // the existing probe tests above.
         assert!(package_dir_is_safe(
-            "/scratch/swfc/packages/bulk_rnaseq_20260514"
+            "/scratch/ecaa/packages/bulk_rnaseq_20260514"
         ));
         assert!(package_dir_is_safe("/tmp/pkg"));
         assert!(package_dir_is_safe("relative/pkg"));

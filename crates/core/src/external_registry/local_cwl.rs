@@ -345,11 +345,11 @@ impl ExternalImporter for LocalCwlImporter {
         let inputs = parse_ports(metadata.get("inputs"));
         let outputs = parse_ports(metadata.get("outputs"));
 
-        // V4 declared modality from metadata (`swfc:modality`
+        // V4 declared modality from metadata (`ecaax:modality`
         // or `s:modality`). When unset, the per-port `modality` field
         // is consulted; absent both, defaults to `GenericOmics`.
         let declared_modality = metadata
-            .get("swfc:modality")
+            .get("ecaax:modality")
             .or_else(|| metadata.get("s:modality"))
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<BioinformaticsModality>().ok());
@@ -431,7 +431,7 @@ fn parse_ports(value: Option<&serde_json::Value>) -> Vec<PortContract> {
                     t.replace("edam:format_", "format:")
                         .replace("edam:data_", "data:")
                 } else {
-                    format!("swfc:cwl_{}", t)
+                    format!("ecaax:cwl_{}", t)
                 }
             });
             let semantic_type = match semantic_iri.as_deref() {

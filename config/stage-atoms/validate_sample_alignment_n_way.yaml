@@ -16,7 +16,7 @@ description: |
   different shapes, NaN propagation, etc.). Surfacing it as a typed
   validation atom upstream lets the typed `BlockerKind::ValidationFailure`
   recovery path apply.
-edam_operation: "swfc:cross_omics_sample_alignment"
+edam_operation: "ecaax:cross_omics_sample_alignment"
 edam_data: "data:1278"
 edam_format: "format:3464"
 assignee: agent
@@ -39,7 +39,7 @@ inputs:
   - name: multi_modal_sample_sheet
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "multi_modal_sample_sheet"
       proposed_parent_terms:
         - "data:1278"
@@ -54,7 +54,7 @@ outputs:
   - name: alignment_report
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "sample_alignment_report"
       proposed_parent_terms:
         - "data:1278"

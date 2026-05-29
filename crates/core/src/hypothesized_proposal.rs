@@ -257,7 +257,7 @@ pub struct HypothesizedProposal {
     /// One-sentence SME intent (what this node should do).
     pub intent: String,
     /// Parent ontology terms the LLM proposed for compatibility
-    /// subsumption (EDAM or `swfc:<slug>`). Drives the synthesized
+    /// subsumption (EDAM or `ecaax:<slug>`). Drives the synthesized
     /// output port's semantic type.
     pub parent_terms: Vec<String>,
     /// LLM-summarized assumptions the proposal relies on. Surfaces
@@ -466,7 +466,7 @@ pub fn proposal_to_materialized_task_node(
 ///   variant is [`crate::atom::AtomRole::Operation`].
 /// - `edam_operation` taken from the first `parent_terms` entry
 ///   that parses as `operation:NNNN`; falls back to a synthetic
-///   `swfc:proposal_<node_id>` slug when no operation IRI is supplied
+///   `ecaax:proposal_<node_id>` slug when no operation IRI is supplied
 ///   (the AtomDefinition field is non-optional).
 /// - `attributes["_proposal_overlay"] = true` marker key so downstream
 ///   code can distinguish overlay atoms from registry atoms.
@@ -484,7 +484,7 @@ pub fn promoted_proposal_to_atom_definition(
     let outputs = proposal_ports(proposal);
     // Pick the first `parent_terms` entry that looks like an EDAM
     // operation IRI (`operation:NNNN`). If none qualifies, mint a
-    // `swfc:` slug rooted on the proposal node id so the field stays
+    // `ecaax:` slug rooted on the proposal node id so the field stays
     // populated (the schema validator the YAML loader runs at registry
     // load is bypassed for overlays — they go in via
     // `with_promoted_overlay`, not `load_from_dir` — but downstream
@@ -494,7 +494,7 @@ pub fn promoted_proposal_to_atom_definition(
         .iter()
         .find(|t| t.starts_with("operation:"))
         .cloned()
-        .unwrap_or_else(|| format!("swfc:proposal_{}", proposal.node_id));
+        .unwrap_or_else(|| format!("ecaax:proposal_{}", proposal.node_id));
     let mut attributes: std::collections::BTreeMap<String, serde_json::Value> =
         std::collections::BTreeMap::new();
     attributes.insert("_proposal_overlay".to_string(), serde_json::json!(true));

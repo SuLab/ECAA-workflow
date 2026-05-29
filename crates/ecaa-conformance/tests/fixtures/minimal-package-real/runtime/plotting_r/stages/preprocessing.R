@@ -12,7 +12,7 @@
 # when manifest.samples[].group is present (matching the Python
 # side's group-aware variant).
 
-if (!exists("swfc_register_figure")) {
+if (!exists("ecaa_register_figure")) {
   stop("source runtime/plotting_r/core.R before this stage module")
 }
 
@@ -39,7 +39,7 @@ if (!exists("swfc_register_figure")) {
   do.call(rbind, rows)
 }
 
-swfc_register_figure("preprocessing", "retention_bar", function(ctx) {
+ecaa_register_figure("preprocessing", "retention_bar", function(ctx) {
   df <- .preprocessing_retention_rows(ctx)
   if (is.null(df)) stop("manifest.samples[].n_in/n_out required")
 
@@ -83,7 +83,7 @@ swfc_register_figure("preprocessing", "retention_bar", function(ctx) {
     p <- p + ggplot2::facet_wrap(~ .data$group, scales = "free_x", nrow = 1L)
   }
 
-  swfc_savefig(p, path = file.path(ctx$outputs_dir, "figures",
+  ecaa_savefig(p, path = file.path(ctx$outputs_dir, "figures",
                                     "retention_bar.png"),
                stage_id = "preprocessing",
                width_in = fig_width, height_in = fig_height)

@@ -48,7 +48,7 @@ outputs:
   - name: cluster_assignments
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "cluster_assignments"
       proposed_parent_terms:
         - "data:3917"

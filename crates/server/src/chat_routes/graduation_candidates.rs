@@ -258,7 +258,7 @@ mod tests {
         let req = Request::builder()
             .method("POST")
             .uri(format!(
-                "/api/chat/session/{}/graduation/swfc:x/annotate",
+                "/api/chat/session/{}/graduation/ecaax:x/annotate",
                 id
             ))
             .header("content-type", "application/json")

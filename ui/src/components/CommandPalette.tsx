@@ -35,7 +35,7 @@ function jumpToTask(taskId: string) {
   window.location.hash = `task=${encodeURIComponent(taskId)}`
 }
 function switchTab(tab: string) {
-  window.dispatchEvent(new CustomEvent('swfc:switch-tab', { detail: { tab } }))
+  window.dispatchEvent(new CustomEvent('ecaax:switch-tab', { detail: { tab } }))
 }
 
 export default function CommandPalette({ sessionId }: Props): JSX.Element | null {
@@ -147,7 +147,7 @@ export default function CommandPalette({ sessionId }: Props): JSX.Element | null
       hint: 'gear',
       category: 'Action',
       perform: () => {
-        window.dispatchEvent(new CustomEvent('swfc:open-settings'))
+        window.dispatchEvent(new CustomEvent('ecaax:open-settings'))
       },
     })
     // Quick-jump shortcuts to the Composition tab's

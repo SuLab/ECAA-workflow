@@ -3,28 +3,28 @@
 #
 # Plan reference: §S14.3 — time-series-forecast exploratory figures.
 
-if (!exists("swfc_register_figure")) {
+if (!exists("ecaa_register_figure")) {
   stop("source runtime/plotting_r/core.R before this stage module")
 }
 
-swfc_register_figure("exploratory_analysis", "decomposition_panel",
+ecaa_register_figure("exploratory_analysis", "decomposition_panel",
                      function(ctx) {
-  p <- .swfc_manifest_path(ctx$manifest, ctx$outputs_dir, "series_table")
+  p <- .ecaa_manifest_path(ctx$manifest, ctx$outputs_dir, "series_table")
   if (is.null(p)) stop("manifest.series_table required")
-  df <- .swfc_load_tsv(p, list(
+  df <- .ecaa_load_tsv(p, list(
     time = c("time", "date", "timestamp", "t"),
     value = c("value", "y", "observation")
   ))
   if (is.null(df)) stop(sprintf("unparseable series table: %s", p))
-  swfc_decomposition_panel_r(df, title = "Series decomposition")
+  ecaa_decomposition_panel_r(df, title = "Series decomposition")
 })
 
-swfc_register_figure("exploratory_analysis", "acf_pacf_panel", function(ctx) {
-  p <- .swfc_manifest_path(ctx$manifest, ctx$outputs_dir, "series_table")
+ecaa_register_figure("exploratory_analysis", "acf_pacf_panel", function(ctx) {
+  p <- .ecaa_manifest_path(ctx$manifest, ctx$outputs_dir, "series_table")
   if (is.null(p)) stop("manifest.series_table required")
-  df <- .swfc_load_tsv(p, list(
+  df <- .ecaa_load_tsv(p, list(
     value = c("value", "y", "observation")
   ))
   if (is.null(df)) stop(sprintf("unparseable series table: %s", p))
-  swfc_acf_pacf_panel_r(df, title = "ACF + PACF")
+  ecaa_acf_pacf_panel_r(df, title = "ACF + PACF")
 })

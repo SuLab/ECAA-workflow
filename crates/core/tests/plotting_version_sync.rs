@@ -7,7 +7,7 @@
 //! 1. The shared file exists and is non-empty.
 //! 2. The Python loader resolves its `__version__` from VERSION.
 //! 3. The R loader resolves `ECAA_PLOTTING_R_VERSION` from VERSION
-//! (path search lives in `.swfc_read_shared_version()` inline).
+//! (path search lives in `.ecaa_read_shared_version()` inline).
 //!
 //! Drift detection: if a developer hard-codes a different version
 //! string in either file, the corresponding regex below fails.
@@ -67,11 +67,11 @@ fn r_core_reads_from_shared_version() {
     let body =
         fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
     assert!(
-        body.contains(".swfc_read_shared_version"),
-        "lib/plotting_r/core.R must define .swfc_read_shared_version() (drift gate F20)"
+        body.contains(".ecaa_read_shared_version"),
+        "lib/plotting_r/core.R must define .ecaa_read_shared_version() (drift gate F20)"
     );
     assert!(
-        body.contains("ECAA_PLOTTING_R_VERSION <- .swfc_read_shared_version()"),
+        body.contains("ECAA_PLOTTING_R_VERSION <- .ecaa_read_shared_version()"),
         "lib/plotting_r/core.R must assign ECAA_PLOTTING_R_VERSION from the shared VERSION"
     );
 }

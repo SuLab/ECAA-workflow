@@ -3,9 +3,9 @@ version: "1.0.0"
 role: operation
 description: |
   Remove technical batch effects between donors / runs / sequencing centres
-  while preserving biological signal. swfc namespace per EDAM audit —
+  while preserving biological signal. ecaax namespace per EDAM audit —
   operation:3435 conflates with normalisation.
-edam_operation: "swfc:scrnaseq_batch_correction"
+edam_operation: "ecaax:scrnaseq_batch_correction"
 edam_data: "data:3917"
 edam_format: "format:3590"
 assignee: agent
@@ -53,7 +53,7 @@ outputs:
   - name: corrected_counts
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "batch_corrected_embedding"
       proposed_parent_terms:
         - "data:3917"

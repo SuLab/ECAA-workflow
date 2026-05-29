@@ -23,7 +23,7 @@ node_id: string,
 intent: string, 
 /**
  * Parent ontology terms the LLM proposed for compatibility
- * subsumption (EDAM or `swfc:<slug>`). Drives the synthesized
+ * subsumption (EDAM or `ecaax:<slug>`). Drives the synthesized
  * output port's semantic type.
  */
 parent_terms: Array<string>, 

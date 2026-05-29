@@ -6,12 +6,12 @@
 # packages when available); when absent we fall through to the
 # image-less overlay shape, matching the Python soft-fallback.
 
-if (!exists("swfc_register_figure")) {
+if (!exists("ecaa_register_figure")) {
   stop("source runtime/plotting_r/core.R before this stage module")
 }
 
 .spatial_load_image <- function(ctx) {
-  p <- .swfc_manifest_path(ctx$manifest, ctx$outputs_dir, "image")
+  p <- .ecaa_manifest_path(ctx$manifest, ctx$outputs_dir, "image")
   if (is.null(p)) return(NULL)
   ext <- tolower(tools::file_ext(p))
   img <- tryCatch({
@@ -26,40 +26,40 @@ if (!exists("swfc_register_figure")) {
   img
 }
 
-swfc_register_figure("spatial_clustering", "tissue_overlay", function(ctx) {
-  p <- .swfc_manifest_path(ctx$manifest, ctx$outputs_dir, "coords_table")
+ecaa_register_figure("spatial_clustering", "tissue_overlay", function(ctx) {
+  p <- .ecaa_manifest_path(ctx$manifest, ctx$outputs_dir, "coords_table")
   if (is.null(p)) stop("manifest.coords_table required")
-  df <- .swfc_load_tsv(p, list(
+  df <- .ecaa_load_tsv(p, list(
     x = c("x", "x_pixel", "imagecol"),
     y = c("y", "y_pixel", "imagerow"),
     value = c("value", "cluster", "domain", "expression")
   ))
   if (is.null(df)) stop(sprintf("unparseable coords table: %s", p))
   image <- .spatial_load_image(ctx)
-  swfc_tissue_overlay_r(df, image = image, title = "Tissue overlay")
+  ecaa_tissue_overlay_r(df, image = image, title = "Tissue overlay")
 })
 
-swfc_register_figure("spatial_clustering", "morans_i_scatter", function(ctx) {
-  p <- .swfc_manifest_path(ctx$manifest, ctx$outputs_dir, "morans_i_table")
+ecaa_register_figure("spatial_clustering", "morans_i_scatter", function(ctx) {
+  p <- .ecaa_manifest_path(ctx$manifest, ctx$outputs_dir, "morans_i_table")
   if (is.null(p)) stop("manifest.morans_i_table required")
-  df <- .swfc_load_tsv(p, list(
+  df <- .ecaa_load_tsv(p, list(
     gene = c("gene", "feature", "symbol"),
     morans_i = c("morans_i", "i", "morans"),
     p_value = c("p_value", "pvalue", "p", "morans_p")
   ))
   if (is.null(df)) stop(sprintf("unparseable morans_i table: %s", p))
-  swfc_morans_i_scatter_r(df, title = "Moran's I")
+  ecaa_morans_i_scatter_r(df, title = "Moran's I")
 })
 
-swfc_register_figure("spatial_clustering", "neighborhood_enrichment",
+ecaa_register_figure("spatial_clustering", "neighborhood_enrichment",
                      function(ctx) {
-  p <- .swfc_manifest_path(ctx$manifest, ctx$outputs_dir, "neighborhood_table")
+  p <- .ecaa_manifest_path(ctx$manifest, ctx$outputs_dir, "neighborhood_table")
   if (is.null(p)) stop("manifest.neighborhood_table required")
-  df <- .swfc_load_tsv(p, list(
+  df <- .ecaa_load_tsv(p, list(
     source = c("source", "source_type", "from"),
     target = c("target", "target_type", "to"),
     score = c("score", "z", "enrichment")
   ))
   if (is.null(df)) stop(sprintf("unparseable neighborhood table: %s", p))
-  swfc_neighborhood_enrichment_r(df, title = "Neighborhood enrichment")
+  ecaa_neighborhood_enrichment_r(df, title = "Neighborhood enrichment")
 })

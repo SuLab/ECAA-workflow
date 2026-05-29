@@ -561,10 +561,10 @@ EOF
       # Same labeling as the local + AWS docker paths.
       DOCKER_LABEL_ARGS=()
       if [ -n "${ECAA_TASK_ID:-}" ]; then
-        DOCKER_LABEL_ARGS+=("--label" "swfc-task=${ECAA_TASK_ID}")
+        DOCKER_LABEL_ARGS+=("--label" "ecaa-task=${ECAA_TASK_ID}")
       fi
       if [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
-        DOCKER_LABEL_ARGS+=("--label" "swfc-session=${ECAA_CHAT_SESSION_ID}")
+        DOCKER_LABEL_ARGS+=("--label" "ecaa-session=${ECAA_CHAT_SESSION_ID}")
       fi
 
       # Docker isolation hardening on the SLURM docker/podman

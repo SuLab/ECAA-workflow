@@ -89,7 +89,7 @@ async fn branch_session_inner(
     };
     if let Err(e) = app.conversation.try_auto_emit_after_confirm(child_id).await {
         tracing::warn!(
-            target: "swfc::branch",
+            target: "ecaa::branch",
             parent = %parent_id,
             child = %child_id,
             error = %e,
@@ -235,7 +235,7 @@ async fn branch_session_inner(
 
     if let Err(e) = saga_result {
         tracing::warn!(
-            target: "swfc::branch",
+            target: "ecaa::branch",
             parent = %parent_id,
             child = %child_id,
             error = %e,
@@ -391,7 +391,7 @@ async fn inherit_branch_artifacts(
 ) -> (usize, usize) {
     let Some(child_session) = app.conversation.get_session(child_id).await else {
         tracing::warn!(
-            target: "swfc::branch::inherit",
+            target: "ecaa::branch::inherit",
             child = %child_id,
             "child session not loadable; skipping artifact inheritance"
         );
@@ -399,7 +399,7 @@ async fn inherit_branch_artifacts(
     };
     let Some(child_pkg) = child_session.emitted_package_path.clone() else {
         tracing::debug!(
-            target: "swfc::branch::inherit",
+            target: "ecaa::branch::inherit",
             child = %child_id,
             "child has no emitted_package_path (intake-phase branch); nothing to inherit"
         );
@@ -407,7 +407,7 @@ async fn inherit_branch_artifacts(
     };
     let Some(parent_session) = app.conversation.get_session(parent_id).await else {
         tracing::warn!(
-            target: "swfc::branch::inherit",
+            target: "ecaa::branch::inherit",
             parent = %parent_id,
             "parent session not loadable; skipping artifact inheritance"
         );
@@ -415,7 +415,7 @@ async fn inherit_branch_artifacts(
     };
     let Some(parent_pkg) = parent_session.emitted_package_path.clone() else {
         tracing::debug!(
-            target: "swfc::branch::inherit",
+            target: "ecaa::branch::inherit",
             parent = %parent_id,
             "parent has no emitted_package_path; nothing to inherit"
         );
@@ -457,7 +457,7 @@ async fn inherit_branch_artifacts(
                     rewrite_inherited_json_paths(&child_task_dir, &parent_pkg, &child_pkg)
                 {
                     tracing::warn!(
-                        target: "swfc::branch::inherit",
+                        target: "ecaa::branch::inherit",
                         parent = %parent_id,
                         child = %child_id,
                         task_id = %tid,
@@ -472,7 +472,7 @@ async fn inherit_branch_artifacts(
             }
             Err(e) => {
                 tracing::warn!(
-                    target: "swfc::branch::inherit",
+                    target: "ecaa::branch::inherit",
                     parent = %parent_id,
                     child = %child_id,
                     task_id = %tid,
@@ -496,7 +496,7 @@ async fn inherit_branch_artifacts(
             Ok(n) => files_inherited += n,
             Err(e) => {
                 tracing::warn!(
-                    target: "swfc::branch::inherit",
+                    target: "ecaa::branch::inherit",
                     parent = %parent_id,
                     child = %child_id,
                     error = %e,
@@ -507,7 +507,7 @@ async fn inherit_branch_artifacts(
     }
 
     tracing::info!(
-        target: "swfc::branch::inherit",
+        target: "ecaa::branch::inherit",
         parent = %parent_id,
         child = %child_id,
         tasks = tasks_inherited,

@@ -10,7 +10,7 @@
 //! `Registered` and `true` for all other variants.
 //!
 //! The full emit integration (write_affordance_sidecars + patch_ro_crate_metadata
-//! stamping `swfc:provisional` on ImageObject entities) is covered by the
+//! stamping `ecaax:provisional` on ImageObject entities) is covered by the
 //! conversation-crate test in `crates/conversation/src/emit/mod.rs::tests::
 //! affordance_sidecars_written_and_provisional_flags_stamped`. That test is
 //! `#[ignore]` because it requires the full emit chain (config/, tempdir, tokio).
@@ -98,7 +98,7 @@ fn registered_semantic_type_resolves_to_registered_affordance() {
 fn opaque_semantic_type_with_unknown_shape_resolves_to_deferred() {
     let registry = two_task_registry();
     let port = PortDescriptor {
-        semantic_type_iri: "swfc:opaque:my_task",
+        semantic_type_iri: "ecaax:opaque:my_task",
         declared_parents: &[],
         physical_shape: PhysicalShape::Unknown,
     };
@@ -118,7 +118,7 @@ fn opaque_semantic_type_with_unknown_shape_resolves_to_deferred() {
 fn opaque_semantic_type_with_numeric2d_shape_resolves_to_structural_fallback() {
     let registry = two_task_registry();
     let port = PortDescriptor {
-        semantic_type_iri: "swfc:opaque:my_matrix_task",
+        semantic_type_iri: "ecaax:opaque:my_matrix_task",
         declared_parents: &[],
         physical_shape: PhysicalShape::Numeric2D,
     };
@@ -153,7 +153,7 @@ fn plot_affordance_records_serialize_to_valid_jsonl() {
         physical_shape: PhysicalShape::Unknown,
     };
     let port_b = PortDescriptor {
-        semantic_type_iri: "swfc:opaque:task_b",
+        semantic_type_iri: "ecaax:opaque:task_b",
         declared_parents: &[],
         physical_shape: PhysicalShape::Unknown,
     };
@@ -221,7 +221,7 @@ fn fallback_counter_increments_on_structural_fallback_only() {
 
     // Opaque port with Numeric2D → StructuralFallback(MatrixOverview).
     let port_opaque = PortDescriptor {
-        semantic_type_iri: "swfc:opaque:matrix_task",
+        semantic_type_iri: "ecaax:opaque:matrix_task",
         declared_parents: &[],
         physical_shape: PhysicalShape::Numeric2D,
     };
@@ -231,13 +231,13 @@ fn fallback_counter_increments_on_structural_fallback_only() {
             .ok()
             .and_then(|v| v.as_str().map(str::to_string))
             .unwrap_or_default();
-        counter.record("swfc:opaque:matrix_task", &prim_str);
+        counter.record("ecaax:opaque:matrix_task", &prim_str);
     }
 
     // Only the Opaque task incremented the counter.
     let gaps = counter.all_gaps_sorted_by_count_desc();
     assert_eq!(gaps.len(), 1, "Expected exactly 1 counter entry");
-    assert_eq!(gaps[0].0, "swfc:opaque:matrix_task");
+    assert_eq!(gaps[0].0, "ecaax:opaque:matrix_task");
     assert_eq!(gaps[0].1, "matrix_overview");
     assert_eq!(gaps[0].2, 1);
 }
@@ -318,6 +318,6 @@ fn full_emit_chain_integration_placeholder() {
     // - Registered-type tasks produce records with provisional: false.
     // - Opaque/StructuralFallback/Deferred tasks produce records with provisional: true.
     // - ImageObject entities in ro-crate-metadata.json for provisional tasks
-    // carry "swfc:provisional": true and "swfc:affordanceVariant": "<tag>".
+    // carry "ecaax:provisional": true and "ecaax:affordanceVariant": "<tag>".
     // - Registered tasks' figure entities carry neither flag.
 }

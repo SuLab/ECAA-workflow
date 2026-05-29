@@ -630,7 +630,7 @@ fn raw_tool_schemas() -> Vec<serde_json::Value> {
                     "parent_terms": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "EDAM / swfc parent terms (e.g. data:2603) so the compatibility engine can subsume."
+                        "description": "EDAM / ecaax parent terms (e.g. data:2603) so the compatibility engine can subsume."
                     },
                     "llm_rationale": {
                         "type": "string",
@@ -669,7 +669,7 @@ fn raw_tool_schemas() -> Vec<serde_json::Value> {
                 "properties": {
                     "target_semantic_type": {
                         "type": "string",
-                        "description": "SemanticType IRI of the output port the preferred renderer addresses (e.g. `swfc:my_custom_output`). The `EDAM:` namespace is reserved and will be rejected."
+                        "description": "SemanticType IRI of the output port the preferred renderer addresses (e.g. `ecaax:my_custom_output`). The `EDAM:` namespace is reserved and will be rejected."
                     },
                     "proposed_parent_terms": {
                         "type": "array",

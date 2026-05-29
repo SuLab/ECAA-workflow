@@ -1028,11 +1028,11 @@ mod tests {
     }
 
     #[test]
-    fn read_api_key_prefers_swfc_prefix() {
+    fn read_api_key_prefers_ecaa_prefix() {
         let mut env = HashMap::new();
-        env.insert("ECAA_ANTHROPIC_API_KEY", "swfc-key");
+        env.insert("ECAA_ANTHROPIC_API_KEY", "ecaa-key");
         env.insert("ANTHROPIC_API_KEY", "legacy-key");
-        assert_eq!(read_api_key(&env), Some("swfc-key".to_string()));
+        assert_eq!(read_api_key(&env), Some("ecaa-key".to_string()));
     }
 
     #[test]

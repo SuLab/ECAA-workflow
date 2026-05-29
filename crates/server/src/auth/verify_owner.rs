@@ -164,10 +164,10 @@ pub async fn verify_owner_middleware(
     // persisted `owner_user`. Mismatch / missing → 403.
     //
     // Every forbid path emits a structured warn on
-    // `target = "swfc::principal_forbidden"` so operators can alert on
+    // `target = "ecaa::principal_forbidden"` so operators can alert on
     // unusual rates; `path` is captured so dashboards can break down
     // attacks by endpoint. Conceptual metrics counter:
-    // `swfc_principal_forbidden_total`.
+    // `ecaa_principal_forbidden_total`.
     let path = req.uri().path().to_string();
     let presented = req
         .headers()
@@ -177,7 +177,7 @@ pub async fn verify_owner_middleware(
         .filter(|s| !s.is_empty());
     let Some(presented) = presented else {
         tracing::warn!(
-            target: "swfc::principal_forbidden",
+            target: "ecaa::principal_forbidden",
             session_id = %session_id,
             owner_user = %session.owner_user,
             reason = "header_missing",
@@ -189,7 +189,7 @@ pub async fn verify_owner_middleware(
     };
     if presented != session.owner_user {
         tracing::warn!(
-            target: "swfc::principal_forbidden",
+            target: "ecaa::principal_forbidden",
             session_id = %session_id,
             owner_user = %session.owner_user,
             presented = %presented,

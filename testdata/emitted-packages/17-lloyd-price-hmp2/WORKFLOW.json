@@ -49,7 +49,7 @@
       "depends_on": [
         "taxonomic_classification"
       ],
-      "description": "Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). swfc namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
+      "description": "Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). ecaax namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
       "kind": "computation",
       "resource_class": "cpu_heavy",
       "state": {
@@ -135,7 +135,7 @@
       "depends_on": [
         "diversity_analysis"
       ],
-      "description": "Validate outputs of: Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). swfc namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
+      "description": "Validate outputs of: Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). ecaax namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "state": {

@@ -474,7 +474,7 @@ pub(super) fn instance_capacity(instance_type: &str) -> (u32, u32) {
 /// r6i.16xlarge so high-vCPU + high-memory tasks no longer cap out
 /// at c6i.4xlarge (16 vCPU) / r6i.8xlarge (256 GB). When the chosen
 /// shape's vCPU count is still below the request, log a
-/// `swfc::sizing_undersized` warn so the operator can act on the
+/// `ecaa::sizing_undersized` warn so the operator can act on the
 /// gap (typically: widen the ECAA_AWS_INSTANCE_TYPE_ALLOWLIST so
 /// the picker can climb further).
 pub fn resolve_instance_type(req: &ResourceRequirements) -> String {
@@ -486,7 +486,7 @@ pub fn resolve_instance_type(req: &ResourceRequirements) -> String {
     // that case to avoid a spurious "picked 0 < requested N" line.
     if picked_vcpus > 0 && req.vcpus > picked_vcpus {
         tracing::warn!(
-            target: "swfc::sizing_undersized",
+            target: "ecaa::sizing_undersized",
             requested_vcpus = req.vcpus,
             picked_vcpus,
             requested_memory_gb = req.memory_gb,
@@ -588,7 +588,7 @@ fn pick_in_family(req: &ResourceRequirements, family: &[&str]) -> Option<String>
 ///   8 GPUs → p4d.24xlarge (8× A100) — covers nvidia-a100 too
 ///
 /// Counts that don't match a fixed shape round UP to the next
-/// available size and emit a `swfc::sizing_undersized` warn so the
+/// available size and emit a `ecaa::sizing_undersized` warn so the
 /// operator can decide whether to override. Falling back at the
 /// kind level when AWS has no exact-count shape preserves the
 /// "give the agent enough capacity" contract (never under-provision)
@@ -608,7 +608,7 @@ fn pick_gpu_instance_type(gpu: &GpuRequirement) -> String {
             // Round up to A100 8× — T4 8-pack doesn't exist in
             // a single shape in our allowlisted regions.
             tracing::warn!(
-                target: "swfc::sizing_undersized",
+                target: "ecaa::sizing_undersized",
                 requested_gpu_kind = "nvidia-t4",
                 requested_gpu_count = count,
                 picked = "p4d.24xlarge",
@@ -626,7 +626,7 @@ fn pick_gpu_instance_type(gpu: &GpuRequirement) -> String {
     if kind == "nvidia-l4" {
         if count > 1 {
             tracing::warn!(
-                target: "swfc::sizing_undersized",
+                target: "ecaa::sizing_undersized",
                 requested_gpu_kind = "nvidia-l4",
                 requested_gpu_count = count,
                 picked = "g6.xlarge",

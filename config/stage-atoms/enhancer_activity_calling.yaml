@@ -67,7 +67,7 @@ outputs:
   - name: enhancer_activity_table
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: enhancer_activity_table
       proposed_parent_terms:
         - "data:1255"

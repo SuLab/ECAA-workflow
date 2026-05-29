@@ -345,18 +345,18 @@ mod tests {
             AggregatorInput {
                 session_id: "s1".into(),
                 last_activity: None,
-                semantic_types: vec![local_ext("swfc", "novel_x", "Novel score X")],
+                semantic_types: vec![local_ext("ecaax", "novel_x", "Novel score X")],
             },
             AggregatorInput {
                 session_id: "s2".into(),
                 last_activity: None,
-                semantic_types: vec![local_ext("swfc", "novel_x", "Novel score X")],
+                semantic_types: vec![local_ext("ecaax", "novel_x", "Novel score X")],
             },
         ];
         let signals = aggregate_unknowns_from_inputs(&inputs, 2);
         assert_eq!(signals.len(), 1);
         assert_eq!(signals[0].variant_key, "local_extension");
-        assert_eq!(signals[0].semantic_type_id, "swfc:novel_x");
+        assert_eq!(signals[0].semantic_type_id, "ecaax:novel_x");
     }
 
     #[test]

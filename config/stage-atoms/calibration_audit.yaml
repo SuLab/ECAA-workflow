@@ -47,7 +47,7 @@ inputs:
   - name: internal_predictions
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "predicted_probabilities"
       proposed_parent_terms:
         - "data:0951"
@@ -60,7 +60,7 @@ outputs:
   - name: calibration_report
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "calibration_report"
       proposed_parent_terms:
         - "data:0951"

@@ -8,7 +8,7 @@ description: |
   BAM + sample manifest, picks the caller based on protocol
   (ONT-direct-RNA / ONT-cDNA / PacBio-Iso-Seq), emits a
   `method_choice.json`.
-edam_operation: "swfc:method_discovery"
+edam_operation: "ecaax:method_discovery"
 assignee: agent
 depends_on:
   - alignment
@@ -40,7 +40,7 @@ outputs:
   - name: method_choice
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "method_choice"
       proposed_parent_terms:
         - "data:2080"

@@ -61,7 +61,7 @@ pub(super) fn propose_hypothesized_node(
         return ToolResult::err(ToolError::PreconditionFailure {
             reason: "parent_terms must contain at least one ontology term".into(),
             hint: "Use a parent EDAM term (data:NNNN, format:NNNN, operation:NNNN, topic:NNNN, \
-                   or swfc:<slug>) so the compatibility engine can subsume."
+                   or ecaax:<slug>) so the compatibility engine can subsume."
                 .into(),
         });
     }
@@ -93,9 +93,9 @@ pub(super) fn propose_hypothesized_node(
     for term in parent_terms {
         if !ecaa_workflow_core::goal_spec::is_valid_edam_iri(term) {
             return ToolResult::err(ToolError::PreconditionFailure {
-                reason: format!("parent_term `{}` is not a valid EDAM / swfc IRI", term),
+                reason: format!("parent_term `{}` is not a valid EDAM / ecaax IRI", term),
                 hint: "Use `data:NNNN`, `format:NNNN`, `operation:NNNN`, `topic:NNNN`, or \
-                       `swfc:<slug>`."
+                       `ecaax:<slug>`."
                     .into(),
             });
         }

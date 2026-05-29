@@ -192,7 +192,7 @@ fn primary_output_descriptor(atom: &AtomDefinition) -> PrimaryOutputDescriptor {
 ///   key is `format!("{namespace}:{id}")`; `proposed_parent_terms`
 ///   become the `declared_parents` passed to the selector so ontology
 ///   inheritance kicks in.
-/// - `Opaque {.. }` → synthesize `swfc:opaque:<atom_id>` so the key
+/// - `Opaque {.. }` → synthesize `ecaax:opaque:<atom_id>` so the key
 ///   is deterministic and atom-scoped; no declared parents (there is
 ///   nothing useful to inherit from an opaque type).
 fn port_descriptor_from_port(port: &PortContract, atom_id: &str) -> PrimaryOutputDescriptor {
@@ -217,7 +217,7 @@ fn port_descriptor_from_port(port: &PortContract, atom_id: &str) -> PrimaryOutpu
         SemanticType::Opaque { .. } => PrimaryOutputDescriptor {
             // Synthesized atom-scoped key so different opaque atoms
             // don't collide on the registry lookup.
-            semantic_type_iri: format!("swfc:opaque:{atom_id}"),
+            semantic_type_iri: format!("ecaax:opaque:{atom_id}"),
             declared_parents: vec![],
             physical_shape: PhysicalShape::Unknown,
         },
@@ -226,7 +226,7 @@ fn port_descriptor_from_port(port: &PortContract, atom_id: &str) -> PrimaryOutpu
             // if an output port carries a Union type it is treated as
             // opaque for figure-obligation purposes (no single IRI to
             // look up in the plot-affordance catalog).
-            semantic_type_iri: format!("swfc:union:{atom_id}"),
+            semantic_type_iri: format!("ecaax:union:{atom_id}"),
             declared_parents: vec![],
             physical_shape: PhysicalShape::Unknown,
         },
@@ -370,7 +370,7 @@ mod tests {
         atom.outputs = vec![PortContract {
             name: "out".into(),
             semantic_type: SemanticType::LocalExtension {
-                namespace: "swfc".into(),
+                namespace: "ecaax".into(),
                 id: "novel_type".into(),
                 proposed_parent_terms: vec!["data:9001".into()],
                 definition: "A novel data type".into(),

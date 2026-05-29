@@ -51,7 +51,7 @@ inputs:
   - name: feature_matrix
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "ehr_feature_matrix"
       proposed_parent_terms:
         - "data:3134"
@@ -64,7 +64,7 @@ outputs:
   - name: trained_model
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "predictive_model_artifact"
       proposed_parent_terms:
         - "data:0006"
@@ -76,7 +76,7 @@ outputs:
   - name: internal_predictions
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "predicted_probabilities"
       proposed_parent_terms:
         - "data:0951"

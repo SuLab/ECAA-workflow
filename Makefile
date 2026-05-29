@@ -8,7 +8,7 @@
 .PHONY: help build build-release install bootstrap test test-runner test-doc \
         test-fast test-core test-conversation test-harness test-server test-cli \
         test-ui lint-ui clippy fmt check types e2e e2e-playwright bench \
-        bio-min dev-server dev-ui clean doctor
+        bio-min dev-server dev-ui clean doctor lint install-hooks
 
 help: ## Print this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -72,6 +72,15 @@ clippy: ## cargo clippy --workspace
 
 lint-ui: ## eslint over ui/src
 	cd ui && npm run lint
+
+lint: ## Run architectural-invariant + ts-binding gates
+	bash scripts/check-no-tokio-in-core-harness.sh
+	bash scripts/check-no-hashmap-in-emitter.sh
+	bash scripts/check-ts-bindings-fresh.sh
+
+install-hooks: ## Install the repo-local git pre-push hook
+	install -m 0755 scripts/hooks/pre-push "$$(git rev-parse --git-path hooks)/pre-push"
+	@echo "pre-push hook installed -> $$(git rev-parse --git-path hooks)/pre-push"
 
 check: test ## test + TypeScript noEmit
 	cd ui && npx tsc --noEmit

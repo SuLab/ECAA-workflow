@@ -5,10 +5,10 @@ description: |
   Identify genes whose expression varies systematically across spatial
   coordinates beyond what cell-type abundance alone explains. Methods:
   Moran's I, SpatialDE, SOMDE, Spark-X. Emits a ranked table of genes
-  with spatial-variability statistic + adjusted p-value. swfc:spatially_
+  with spatial-variability statistic + adjusted p-value. ecaax:spatially_
   variable_genes — extends EDAM operation:3223 (DE) into the spatial
   axis the upstream ontology doesn't model.
-edam_operation: "swfc:spatially_variable_genes"
+edam_operation: "ecaax:spatially_variable_genes"
 edam_data: "data:3917"
 edam_format: "format:3475"
 assignee: agent
@@ -34,7 +34,7 @@ inputs:
   - name: spatial_expression
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "spatial_object"
       proposed_parent_terms:
         - "data:3917"
@@ -48,7 +48,7 @@ outputs:
   - name: spatially_variable_genes
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "spatially_variable_genes"
       proposed_parent_terms:
         - "data:1255"

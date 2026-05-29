@@ -386,14 +386,14 @@
       "@id": "#step-qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "name": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
       "position": 21
     },
     {
       "@id": "#step-validate_qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). swfc:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "name": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
       "position": 22
     },
     {
@@ -414,14 +414,14 @@
       "@id": "#step-batch_correction",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. swfc namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
+      "name": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
       "position": 25
     },
     {
       "@id": "#step-validate_batch_correction",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. swfc namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
+      "name": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
       "position": 26
     },
     {
@@ -470,14 +470,14 @@
       "@id": "#step-cell_type_annotation",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "name": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
       "position": 33
     },
     {
       "@id": "#step-validate_cell_type_annotation",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). swfc namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "name": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
       "position": 34
     },
     {

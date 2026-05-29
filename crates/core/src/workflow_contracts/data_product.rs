@@ -446,7 +446,7 @@ impl DataProductContract {
 
     /// Seed for clinical-trial + time-series intake. The
     /// `data_import` atom's input port is a
-    /// `swfc:dataset_descriptor` (SME-supplied tabular/file pointer),
+    /// `ecaax:dataset_descriptor` (SME-supplied tabular/file pointer),
     /// not FASTQ. Seeding the planner with paired-end FASTQ for these
     /// project classes caused `GoalUnreachable` because the forward
     /// search couldn't bridge `data:2044` (sequence reads) to the
@@ -458,7 +458,7 @@ impl DataProductContract {
         Self {
             id: "intake_dataset_descriptor_0".into(),
             semantic_type: SemanticType::LocalExtension {
-                namespace: "swfc".into(),
+                namespace: "ecaax".into(),
                 id: "dataset_descriptor".into(),
                 proposed_parent_terms: vec!["data:2531".into()],
                 definition: "SME-declared input file descriptor (path, format, label)".into(),

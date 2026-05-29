@@ -6,9 +6,9 @@ description: |
   (FLAIR, IsoQuant, TALON, Bambu). Method choice deferred to discover_*.
   Emits a transcriptome-extended GTF + per-isoform read counts the
   downstream differential_transcript_usage atom consumes.
-  swfc:long_read_isoform_calling — extends EDAM operation:3563 (RNA-Seq
+  ecaax:long_read_isoform_calling — extends EDAM operation:3563 (RNA-Seq
   read count analysis) into the isoform-resolved long-read axis.
-edam_operation: "swfc:long_read_isoform_calling"
+edam_operation: "ecaax:long_read_isoform_calling"
 edam_data: "data:1276"
 edam_format: "format:2306"
 assignee: agent

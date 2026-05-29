@@ -32,14 +32,14 @@ resource_profile:
 # Explicit rich ports.
 # Source ports are SME-supplied file descriptors (heterogeneous: CDISC
 # ADaM/SDTM, time-series panels, pre-computed count matrices). Modeled
-# as a swfc:dataset_descriptor local extension since EDAM lacks a
+# as a ecaax:dataset_descriptor local extension since EDAM lacks a
 # clean term for "SME-declared input file pointer". Output is a
 # materialised tabular table.
 inputs:
   - name: dataset_descriptors
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "dataset_descriptor"
       proposed_parent_terms:
         - "data:2531"

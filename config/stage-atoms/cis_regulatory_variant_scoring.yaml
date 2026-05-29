@@ -10,7 +10,7 @@ description: |
   with the nearest gene's expression. FastQTL / matrix-eQTL /
   rasqual at runtime.
 edam_operation: "operation:0282"
-edam_data: "swfc:cis_regulatory_scores"
+edam_data: "ecaax:cis_regulatory_scores"
 edam_format: "format:3475"
 assignee: agent
 depends_on:
@@ -76,7 +76,7 @@ outputs:
   - name: cis_regulatory_variants
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: cis_regulatory_scores
       proposed_parent_terms:
         - "data:0951"

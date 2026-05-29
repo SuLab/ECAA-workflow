@@ -42,10 +42,10 @@ outputs:
   - name: forecast_table
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "time_series_forecast_evaluation"
       proposed_parent_terms:
-        - "swfc:time_series_forecast"
+        - "ecaax:time_series_forecast"
         - "data:0951"
         - "data:3768"
       definition: "Point forecasts, prediction intervals, and held-out evaluation metrics for a time-series forecasting model."

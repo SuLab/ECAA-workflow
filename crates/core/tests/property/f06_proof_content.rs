@@ -30,7 +30,7 @@ fn arb_semantic_type() -> impl Strategy<Value = SemanticType> {
             ontology_version: None,
         }),
         (any::<u8>(), any::<u8>()).prop_map(|(ns, id)| SemanticType::LocalExtension {
-            namespace: format!("swfc_{ns}"),
+            namespace: format!("ecaax_{ns}"),
             id: format!("local_{id}"),
             proposed_parent_terms: vec![],
             definition: String::new(),
@@ -56,7 +56,7 @@ proptest! {
 #[test]
 fn local_extension_with_parents_includes_id_at_end() {
     let st = SemanticType::LocalExtension {
-        namespace: "swfc".into(),
+        namespace: "ecaax".into(),
         id: "novel_thing".into(),
         proposed_parent_terms: vec!["data:0863".into(), "data:1234".into()],
         definition: "test".into(),
@@ -66,7 +66,7 @@ fn local_extension_with_parents_includes_id_at_end() {
     // Path should contain parent terms + namespace:id.
     assert!(path.contains(&"data:0863".to_string()));
     assert!(path.contains(&"data:1234".to_string()));
-    assert!(path.contains(&"swfc:novel_thing".to_string()));
+    assert!(path.contains(&"ecaax:novel_thing".to_string()));
 }
 
 #[test]

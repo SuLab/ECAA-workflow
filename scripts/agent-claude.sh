@@ -757,14 +757,14 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
 
   # Label the container with task + session ids so the
   # container-aware orphan reaper can probe `docker ps --filter
-  # label=swfc-task=<id>` and reap a hung container without touching
+  # label=ecaa-task=<id>` and reap a hung container without touching
   # the host. Empty values are tolerated (legacy package-only path).
   DOCKER_LABEL_ARGS=()
   if [ -n "${ECAA_TASK_ID:-}" ]; then
-    DOCKER_LABEL_ARGS+=("--label" "swfc-task=${ECAA_TASK_ID}")
+    DOCKER_LABEL_ARGS+=("--label" "ecaa-task=${ECAA_TASK_ID}")
   fi
   if [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
-    DOCKER_LABEL_ARGS+=("--label" "swfc-session=${ECAA_CHAT_SESSION_ID}")
+    DOCKER_LABEL_ARGS+=("--label" "ecaa-session=${ECAA_CHAT_SESSION_ID}")
   fi
 
   # Drop to the host UID/GID inside the container so:

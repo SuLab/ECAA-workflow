@@ -414,19 +414,19 @@ mod tests {
     fn detect_duplicates_orders_strongest_first() {
         let existing = vec![
             ExistingLocalExtension {
-                iri: "swfc:doublet_a".into(),
+                iri: "ecaax:doublet_a".into(),
                 label: "Cell Doublet Score A".into(),
                 definition: "Per-cell doublet probability".into(),
                 proposed_parent_terms: vec![],
             },
             ExistingLocalExtension {
-                iri: "swfc:doublet_b".into(),
+                iri: "ecaax:doublet_b".into(),
                 label: "Doublet Probability".into(),
                 definition: "Per-cell doublet probability score".into(),
                 proposed_parent_terms: vec![],
             },
             ExistingLocalExtension {
-                iri: "swfc:unrelated".into(),
+                iri: "ecaax:unrelated".into(),
                 label: "Unrelated Score".into(),
                 definition: "Completely different domain item".into(),
                 proposed_parent_terms: vec![],

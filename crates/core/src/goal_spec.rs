@@ -71,7 +71,7 @@ fn default_confidence() -> f32 {
 
 /// IRI shape validator. The LLM extracts EDAM IRIs as
 /// strings; we accept the canonical `(operation|data|format|topic):
-/// \d+` shape plus our `swfc:<slug>` extension namespace (per ADR
+/// \d+` shape plus our `ecaax:<slug>` extension namespace (per ADR
 /// 0004). Anything else means the LLM hallucinated. Caller drops
 /// `GoalSpec` to `None` rather than retrying — the model rarely
 /// recovers on a second pass and we'd burn cache + budget chasing
@@ -84,7 +84,7 @@ fn default_confidence() -> f32 {
 /// philosophy of `crates/core/src/edam.rs`.
 pub fn is_valid_edam_iri(iri: &str) -> bool {
     // Match `operation:\d+`, `data:\d+`, `format:\d+`, `topic:\d+`,
-    // OR `swfc:<lowercase-slug-with-underscores>`.
+    // OR `ecaax:<lowercase-slug-with-underscores>`.
     if let Some(rest) = iri
         .strip_prefix("operation:")
         .or_else(|| iri.strip_prefix("data:"))
@@ -93,7 +93,7 @@ pub fn is_valid_edam_iri(iri: &str) -> bool {
     {
         return !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit());
     }
-    if let Some(rest) = iri.strip_prefix("swfc:") {
+    if let Some(rest) = iri.strip_prefix("ecaax:") {
         return !rest.is_empty()
             && rest
                 .chars()
@@ -202,12 +202,12 @@ mod tests {
         assert!(is_valid_edam_iri("topic:3308"));
     }
 
-    /// Accept `swfc:` extension namespace per ADR 0004.
+    /// Accept `ecaax:` extension namespace per ADR 0004.
     #[test]
-    fn is_valid_edam_iri_accepts_swfc_extension() {
-        assert!(is_valid_edam_iri("swfc:scrnaseq_annotation"));
-        assert!(is_valid_edam_iri("swfc:variant_calling"));
-        assert!(is_valid_edam_iri("swfc:cell_type_annotation"));
+    fn is_valid_edam_iri_accepts_ecaax_extension() {
+        assert!(is_valid_edam_iri("ecaax:scrnaseq_annotation"));
+        assert!(is_valid_edam_iri("ecaax:variant_calling"));
+        assert!(is_valid_edam_iri("ecaax:cell_type_annotation"));
     }
 
     /// Reject everything else.
@@ -218,9 +218,9 @@ mod tests {
         assert!(!is_valid_edam_iri("data:abc")); // non-numeric
         assert!(!is_valid_edam_iri("frmat:3590")); // typo
         assert!(!is_valid_edam_iri("data:39 17")); // whitespace
-        assert!(!is_valid_edam_iri("swfc:")); // empty slug
-        assert!(!is_valid_edam_iri("swfc:CamelCase")); // uppercase
-        assert!(!is_valid_edam_iri("swfc:has-dashes")); // dashes not allowed
+        assert!(!is_valid_edam_iri("ecaax:")); // empty slug
+        assert!(!is_valid_edam_iri("ecaax:CamelCase")); // uppercase
+        assert!(!is_valid_edam_iri("ecaax:has-dashes")); // dashes not allowed
         assert!(!is_valid_edam_iri(""));
     }
 

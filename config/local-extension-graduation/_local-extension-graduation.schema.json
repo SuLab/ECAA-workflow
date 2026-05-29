@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "swfc:local-extension-graduation",
+  "$id": "ecaax:local-extension-graduation",
   "type": "object",
   "required": ["version", "graduation", "duplicate_detection"],
   "additionalProperties": false,

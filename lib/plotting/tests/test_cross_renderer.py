@@ -156,10 +156,10 @@ n <- 500
 log_fc <- rnorm(n, sd = 2)
 p <- pmax(abs(rnorm(n, sd = 0.15)), 1e-6)
 labels <- sprintf("GENE%d", seq_len(n))
-plot <- swfc_volcano(log_fc = log_fc, neg_log10_p = -log10(p),
+plot <- ecaa_volcano(log_fc = log_fc, neg_log10_p = -log10(p),
                     labels = labels, title = "DE: aged vs healthy",
                     label_top_n = 10)
-swfc_savefig(plot, '{out_png}', stage_id = 'differential_expression')
+ecaa_savefig(plot, '{out_png}', stage_id = 'differential_expression')
 """
     res = _run_rscript(script, tmp_path)
     if res.returncode != 0:
@@ -245,7 +245,7 @@ def test_volcano_file_size_within_order_of_magnitude(tmp_path):
 
 # --------------------------------------------------------------------------
 # Extended cross-renderer parity coverage. Each helper that has both a
-# Python primitive and an `swfc_*_r` R primitive
+# Python primitive and an `ecaa_*_r` R primitive
 # gets a parameterized parity check covering the same three contracts
 # the volcano case enforces: both renderers produce non-empty PNG +
 # PDF, both PNGs hit the 1000×800-or-bigger sanity envelope, and the
@@ -289,8 +289,8 @@ pos <- as.integer(runif(450, min = 1, max = 2e8))
 pvalue <- pmax(runif(450), 1e-12)
 df <- data.frame(chrom = chroms, pos = pos, pvalue = pvalue,
                  stringsAsFactors = FALSE)
-plot <- swfc_manhattan_r(df, title = "GWAS test panel")
-swfc_savefig(plot, '{out_png}', stage_id = 'gwas_coloc')
+plot <- ecaa_manhattan_r(df, title = "GWAS test panel")
+ecaa_savefig(plot, '{out_png}', stage_id = 'gwas_coloc')
 """
     res = _run_rscript(script, tmp_path)
     if res.returncode != 0:
@@ -332,9 +332,9 @@ events <- c(sample(0:1, 40, replace = TRUE),
 arm <- c(rep("A", 40), rep("B", 40))
 df <- data.frame(time = times, event = events, arm = arm,
                  stringsAsFactors = FALSE)
-plot <- swfc_kaplan_meier_r(df, title = "Survival by arm",
+plot <- ecaa_kaplan_meier_r(df, title = "Survival by arm",
                              group_col = "arm")
-swfc_savefig(plot, '{out_png}', stage_id = 'clinical_trial_analysis')
+ecaa_savefig(plot, '{out_png}', stage_id = 'clinical_trial_analysis')
 """
     res = _run_rscript(script, tmp_path)
     if res.returncode != 0:
@@ -374,8 +374,8 @@ df <- data.frame(time = t, forecast = yhat,
                  lower = yhat - 6, upper = yhat + 6,
                  actual = yhat + rnorm(24, sd = 1),
                  stringsAsFactors = FALSE)
-plot <- swfc_forecast_ribbon_r(df, title = "24-month forecast")
-swfc_savefig(plot, '{out_png}', stage_id = 'forecasting_inference')
+plot <- ecaa_forecast_ribbon_r(df, title = "24-month forecast")
+ecaa_savefig(plot, '{out_png}', stage_id = 'forecasting_inference')
 """
     res = _run_rscript(script, tmp_path)
     if res.returncode != 0:

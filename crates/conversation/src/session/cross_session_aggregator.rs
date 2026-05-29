@@ -288,7 +288,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let agg = CrossSessionAggregator::new(dir.path().to_path_buf());
         agg.record_usage(
-            "swfc:novel",
+            "ecaax:novel",
             "Novel Type",
             "A novel type",
             &["data:2603".to_string()],
@@ -299,7 +299,7 @@ mod tests {
         .unwrap();
         let entries = agg.list_existing().unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].iri, "swfc:novel");
+        assert_eq!(entries[0].iri, "ecaax:novel");
         assert_eq!(entries[0].label, "Novel Type");
     }
 
@@ -308,21 +308,21 @@ mod tests {
         let dir = tempdir().unwrap();
         let agg = CrossSessionAggregator::new(dir.path().to_path_buf());
         // 1 usage across 1 session — under thresholds.
-        agg.record_usage("swfc:x", "X", "x", &[], "m", "s1", true)
+        agg.record_usage("ecaax:x", "X", "x", &[], "m", "s1", true)
             .unwrap();
         let thr = GraduationThresholds::default(); // 5 / 3 / 0.6
-        assert!(agg.check_graduation("swfc:x", &thr, &[]).is_none());
+        assert!(agg.check_graduation("ecaax:x", &thr, &[]).is_none());
 
         // 5 usages across 3 sessions, all succeeded — passes.
         for sid in &["s1", "s2", "s3"] {
-            agg.record_usage("swfc:y", "Y", "y", &[], "m", sid, true)
+            agg.record_usage("ecaax:y", "Y", "y", &[], "m", sid, true)
                 .unwrap();
         }
-        agg.record_usage("swfc:y", "Y", "y", &[], "m", "s1", true)
+        agg.record_usage("ecaax:y", "Y", "y", &[], "m", "s1", true)
             .unwrap();
-        agg.record_usage("swfc:y", "Y", "y", &[], "m", "s2", true)
+        agg.record_usage("ecaax:y", "Y", "y", &[], "m", "s2", true)
             .unwrap();
-        let cand = agg.check_graduation("swfc:y", &thr, &[]).expect("eligible");
+        let cand = agg.check_graduation("ecaax:y", &thr, &[]).expect("eligible");
         assert!(cand.usage_count >= 5);
         assert!(cand.unique_sessions >= 3);
         assert!(cand.success_rate >= 0.6);
@@ -335,13 +335,13 @@ mod tests {
         let agg = CrossSessionAggregator::new(dir.path().to_path_buf());
         for sid in &["s1", "s2", "s3"] {
             for _ in 0..2 {
-                agg.record_usage("swfc:z", "Z", "z", &[], "m", sid, true)
+                agg.record_usage("ecaax:z", "Z", "z", &[], "m", sid, true)
                     .unwrap();
             }
         }
         let thr = GraduationThresholds::default();
         let cand = agg
-            .check_graduation("swfc:z", &thr, &["GO".to_string(), "EDAM".to_string()])
+            .check_graduation("ecaax:z", &thr, &["GO".to_string(), "EDAM".to_string()])
             .expect("eligible");
         assert_eq!(cand.graduation_target_ontology, "GO");
     }
@@ -350,18 +350,18 @@ mod tests {
     fn list_graduation_candidates_orders_by_usage_count() {
         let dir = tempdir().unwrap();
         let agg = CrossSessionAggregator::new(dir.path().to_path_buf());
-        // swfc:high: 10 usages across 3 sessions.
+        // ecaax:high: 10 usages across 3 sessions.
         for sid in &["s1", "s2", "s3"] {
             for _ in 0..4 {
-                agg.record_usage("swfc:high", "H", "h", &[], "m", sid, true)
+                agg.record_usage("ecaax:high", "H", "h", &[], "m", sid, true)
                     .unwrap();
             }
         }
-        // swfc:low: 5 usages across 3 sessions.
+        // ecaax:low: 5 usages across 3 sessions.
         for sid in &["s1", "s2", "s3"] {
-            agg.record_usage("swfc:low", "L", "l", &[], "m", sid, true)
+            agg.record_usage("ecaax:low", "L", "l", &[], "m", sid, true)
                 .unwrap();
-            agg.record_usage("swfc:low", "L", "l", &[], "m", sid, true)
+            agg.record_usage("ecaax:low", "L", "l", &[], "m", sid, true)
                 .unwrap();
         }
         let thr = GraduationThresholds::default();
@@ -375,19 +375,19 @@ mod tests {
         let dir = tempdir().unwrap();
         let agg = CrossSessionAggregator::new(dir.path().to_path_buf());
         let thr = GraduationThresholds::default();
-        assert!(agg.check_graduation("swfc:missing", &thr, &[]).is_none());
+        assert!(agg.check_graduation("ecaax:missing", &thr, &[]).is_none());
     }
 
     #[test]
     fn round_trips_after_write_then_load() {
         let dir = tempdir().unwrap();
         let agg = CrossSessionAggregator::new(dir.path().to_path_buf());
-        agg.record_usage("swfc:rt", "RT", "rt", &[], "m", "s1", true)
+        agg.record_usage("ecaax:rt", "RT", "rt", &[], "m", "s1", true)
             .unwrap();
         // New aggregator instance reads the same file.
         let agg2 = CrossSessionAggregator::new(dir.path().to_path_buf());
         let entries = agg2.list_existing().unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].iri, "swfc:rt");
+        assert_eq!(entries[0].iri, "ecaax:rt");
     }
 }

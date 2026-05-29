@@ -53,7 +53,7 @@ inputs:
   - name: trained_model
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "predictive_model_artifact"
       proposed_parent_terms:
         - "data:0006"
@@ -65,7 +65,7 @@ inputs:
   - name: external_cohort_descriptor
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "dataset_descriptor"
       proposed_parent_terms:
         - "data:2531"
@@ -75,7 +75,7 @@ outputs:
   - name: external_validation_report
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "external_validation_report"
       proposed_parent_terms:
         - "data:0951"

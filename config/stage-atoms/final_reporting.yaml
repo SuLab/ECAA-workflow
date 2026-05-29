@@ -44,7 +44,7 @@ outputs:
   - name: final_report_html
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "final_report"
       proposed_parent_terms:
         - "data:2048"

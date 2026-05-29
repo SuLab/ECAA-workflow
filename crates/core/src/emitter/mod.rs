@@ -685,7 +685,7 @@ The harness treats missing required figure PNG/PDF files and a missing `figures/
 \n\
 The library owns determinism (Agg backend, stripped metadata, seeded RNG, theme baseline from `runtime/plotting/theme.json`). Output is dual-format: a 300dpi PNG and a vector PDF for every figure. Do NOT import matplotlib directly — go through `runtime.plotting.core` helpers (`violin`, `bar`, `scatter`, `volcano`, `heatmap`) plus `categorical_palette(n)` for any categorical encoding (Wong/Glasbey colorblind-safe; never `tab10`/`tab20`) so every figure across the package is byte-reproducible.\n\
 \n\
-**For R-based tasks** (Seurat / DESeq2 / Bioconductor), source the parallel R-side library at `runtime/plotting_r/core.R` and call `swfc_savefig(plot, path, stage_id=...)`. Both renderers consume the same `theme.json`, the same Wong palette, and produce figures at the same figure_id catalog so the validator's `figures_present` check is renderer-agnostic.\n\n\
+**For R-based tasks** (Seurat / DESeq2 / Bioconductor), source the parallel R-side library at `runtime/plotting_r/core.R` and call `ecaa_savefig(plot, path, stage_id=...)`. Both renderers consume the same `theme.json`, the same Wong palette, and produce figures at the same figure_id catalog so the validator's `figures_present` check is renderer-agnostic.\n\n\
 ## Hardware-aware execution\n\
 \n\
 You run under a harness that passes a per-task hardware envelope in environment variables (prefix `ECAA_HW_`). Never ignore these vars. Parse `ECAA_HW_TOOL_THREAD_CURVES`, `ECAA_HW_ENV_OVERRIDES`, `ECAA_HW_INTAKE_FACTS`, `ECAA_HW_CONCURRENT_PEERS_BY_CLASS` as JSON; the rest are plain scalars.\n\

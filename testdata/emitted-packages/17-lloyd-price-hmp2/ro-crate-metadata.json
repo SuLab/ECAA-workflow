@@ -244,14 +244,14 @@
       "@id": "#step-diversity_analysis",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). swfc namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
+      "name": "Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). ecaax namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
       "position": 11
     },
     {
       "@id": "#step-validate_diversity_analysis",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). swfc namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
+      "name": "Validate outputs of: Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). ecaax namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
       "position": 12
     },
     {

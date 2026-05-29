@@ -1350,12 +1350,12 @@ fn main() -> Result<()> {
                     "recovered orphaned dispatch(es)"
                 );
                 // Duplicate the same recovery event on the dedicated
-                // `swfc::session_orphan_recovery` target so the operator
+                // `ecaa::session_orphan_recovery` target so the operator
                 // dashboard can alert on non-zero rates without parsing
                 // the harness's own logs. Conceptual metrics counter:
-                // `swfc_session_orphan_recovery_total`.
+                // `ecaa_session_orphan_recovery_total`.
                 tracing::info!(
-                    target: "swfc::session_orphan_recovery",
+                    target: "ecaa::session_orphan_recovery",
                     recovered_count = report.orphaned_count,
                     skipped_live_count = report.skipped_live_count,
                     harness_run_id = %harness_run_id,

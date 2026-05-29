@@ -48,14 +48,14 @@ claim_boundary: |
   exploratory.
 # Explicit rich ports.
 # Input is the per-endpoint effect-size table from
-# `clinical_endpoint_analysis` (a swfc:clinical_endpoint_results
+# `clinical_endpoint_analysis` (a ecaax:clinical_endpoint_results
 # tabular artifact parented at data:0951). Output is a forest-plot
 # table indexed by subgroup level.
 inputs:
   - name: endpoint_results
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "clinical_endpoint_results"
       proposed_parent_terms:
         - "data:0951"
@@ -68,7 +68,7 @@ outputs:
   - name: subgroup_forest_table
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "clinical_subgroup_forest"
       proposed_parent_terms:
         - "data:0951"

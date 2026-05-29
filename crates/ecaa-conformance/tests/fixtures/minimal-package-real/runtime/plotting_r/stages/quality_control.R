@@ -7,13 +7,13 @@
 # runtime.plotting.stages.quality_control.
 #
 # Expected inputs (any subset works; missing inputs produce a typed
-# error recorded by swfc_generate, not a crash):
+# error recorded by ecaa_generate, not a crash):
 #
 #   outputs_dir/qc_metrics.tsv[.gz]  — long-form: sample, metric, value
 #   manifest.per_sample_metrics      — {sample_id: {metric: scalar}}
 #   outputs_dir/summary_stats.json   — {key: numeric_value, ...}
 
-if (!exists("swfc_register_figure")) {
+if (!exists("ecaa_register_figure")) {
   stop("source runtime/plotting_r/core.R before this stage module")
 }
 
@@ -92,7 +92,7 @@ if (!exists("swfc_register_figure")) {
 # (no long-form qc_metrics.tsv distribution), matching the Python fallback.
 # ---------------------------------------------------------------------------
 
-swfc_register_figure("quality_control", "per_sample_metric_violin",
+ecaa_register_figure("quality_control", "per_sample_metric_violin",
                      function(ctx) {
   long_form <- .qc_load_long_metrics(ctx$outputs_dir)
   if (!is.null(long_form) && length(long_form) > 0L) {
@@ -106,13 +106,13 @@ swfc_register_figure("quality_control", "per_sample_metric_violin",
     )]
     samples_per_metric <- long_form[[metric_name]]
     data_list <- lapply(samples_per_metric, as.numeric)
-    p <- swfc_violin(
+    p <- ecaa_violin(
       data_list,
       title   = sprintf("QC: %s per sample", metric_name),
       ylabel  = metric_name,
       x_label = "sample"
     )
-    swfc_savefig(p, path = file.path(ctx$outputs_dir, "figures",
+    ecaa_savefig(p, path = file.path(ctx$outputs_dir, "figures",
                                       "per_sample_metric_violin.png"),
                  stage_id = "quality_control")
     return(p)
@@ -123,14 +123,14 @@ swfc_register_figure("quality_control", "per_sample_metric_violin",
     stop("no qc_metrics.tsv[.gz] or manifest.per_sample_metrics")
   }
   metric_name <- names(mdata$metrics)[1]
-  p <- swfc_bar(
+  p <- ecaa_bar(
     names  = mdata$samples,
     values = mdata$metrics[[metric_name]],
     title  = sprintf("QC: %s per sample", metric_name),
     ylabel = metric_name,
     xlabel = "sample"
   )
-  swfc_savefig(p, path = file.path(ctx$outputs_dir, "figures",
+  ecaa_savefig(p, path = file.path(ctx$outputs_dir, "figures",
                                     "per_sample_metric_violin.png"),
                stage_id = "quality_control")
   p
@@ -143,7 +143,7 @@ swfc_register_figure("quality_control", "per_sample_metric_violin",
 # the first key. Matches Python per_sample_metric_bar.
 # ---------------------------------------------------------------------------
 
-swfc_register_figure("quality_control", "per_sample_metric_bar",
+ecaa_register_figure("quality_control", "per_sample_metric_bar",
                      function(ctx) {
   mdata <- .qc_manifest_per_sample(ctx)
   if (is.null(mdata)) {
@@ -159,7 +159,7 @@ swfc_register_figure("quality_control", "per_sample_metric_bar",
     else if (!is.na(n_key)) n_key
     else metric_keys[1]
   }
-  p <- swfc_bar(
+  p <- ecaa_bar(
     names      = mdata$samples,
     values     = mdata$metrics[[preferred]],
     title      = sprintf("QC: %s per sample", preferred),
@@ -167,7 +167,7 @@ swfc_register_figure("quality_control", "per_sample_metric_bar",
     xlabel     = "sample",
     horizontal = TRUE          # horizontal bar for per-sample count
   )
-  swfc_savefig(p, path = file.path(ctx$outputs_dir, "figures",
+  ecaa_savefig(p, path = file.path(ctx$outputs_dir, "figures",
                                     "per_sample_metric_bar.png"),
                stage_id = "quality_control")
   p
@@ -181,7 +181,7 @@ swfc_register_figure("quality_control", "per_sample_metric_bar",
 # qc_summary_bar.
 # ---------------------------------------------------------------------------
 
-swfc_register_figure("quality_control", "qc_summary_bar", function(ctx) {
+ecaa_register_figure("quality_control", "qc_summary_bar", function(ctx) {
   summary_path <- file.path(ctx$outputs_dir, "summary_stats.json")
   if (!file.exists(summary_path)) stop("summary_stats.json")
   summary_data <- tryCatch(
@@ -197,13 +197,13 @@ swfc_register_figure("quality_control", "qc_summary_bar", function(ctx) {
   if (length(scalar) == 0L) stop("summary_stats.json has no scalar metrics")
   nm  <- names(scalar)
   val <- as.numeric(unlist(scalar))
-  p <- swfc_bar(
+  p <- ecaa_bar(
     names  = nm,
     values = val,
     title  = "QC: aggregate summary",
     ylabel = "value"
   )
-  swfc_savefig(p, path = file.path(ctx$outputs_dir, "figures",
+  ecaa_savefig(p, path = file.path(ctx$outputs_dir, "figures",
                                     "qc_summary_bar.png"),
                stage_id = "quality_control")
   p

@@ -95,7 +95,7 @@ impl PortMappingRegistry {
         for r in file.rules {
             // Validate EDAM IRI shape — same regex as the atom
             // schema: `(operation|data|format|topic):\d+` or
-            // `swfc:<slug>`.
+            // `ecaax:<slug>`.
             check_edam_iri(&r.edam_data, &r.intake_field, "edam_data")?;
             if let Some(f) = &r.edam_format {
                 check_edam_iri(f, &r.intake_field, "edam_format")?;
@@ -146,11 +146,11 @@ fn check_edam_iri(iri: &str, field: &str, slot: &str) -> Result<()> {
         || iri.starts_with("data:")
         || iri.starts_with("format:")
         || iri.starts_with("topic:")
-        || iri.starts_with("swfc:");
+        || iri.starts_with("ecaax:");
     if !ok {
         return Err(anyhow!(
             "field {} {} = {} doesn't match EDAM IRI pattern \
-             (operation:NNNN | data:NNNN | format:NNNN | topic:NNNN | swfc:slug)",
+             (operation:NNNN | data:NNNN | format:NNNN | topic:NNNN | ecaax:slug)",
             field,
             slot,
             iri
@@ -235,20 +235,20 @@ rules:
     }
 
     #[test]
-    fn accepts_swfc_extension() {
+    fn accepts_ecaax_extension() {
         let tmp = tempfile::tempdir().unwrap();
         let path = write_yaml(
             tmp.path(),
             r#"version: 1
 rules:
   - intake_field: cell_panel
-    edam_data: swfc:cell_marker_panel
+    edam_data: ecaax:cell_marker_panel
 "#,
         );
         let reg = PortMappingRegistry::load(&path).unwrap();
         assert_eq!(
             reg.get("cell_panel").unwrap().edam_data,
-            "swfc:cell_marker_panel"
+            "ecaax:cell_marker_panel"
         );
     }
 

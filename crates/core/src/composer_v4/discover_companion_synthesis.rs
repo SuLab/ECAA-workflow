@@ -174,8 +174,8 @@ pub fn synthesize_discover_companions(dag: &mut WorkflowDag, atom_reg: &AtomRegi
         // policy / scoring treats this as ordering — not as
         // mis-typed data flow.
         let proof = CompatibilityProof {
-            producer_type: "swfc:method_discovery_signal".into(),
-            consumer_type: "swfc:method_discovery_signal".into(),
+            producer_type: "ecaax:method_discovery_signal".into(),
+            consumer_type: "ecaax:method_discovery_signal".into(),
             warnings: vec![
                 "workflow_ordering_edge: discover_companion method-discovery signal, no port-typed data flow"
                     .into(),
@@ -212,13 +212,13 @@ pub fn synthesize_discover_companions(dag: &mut WorkflowDag, atom_reg: &AtomRegi
             id: format!("discover_companion:{}:{}", discover_id, node.id),
             statement: format!(
                 "Discover companion '{discover_id}' inserted as a method-discovery gate \
-                 for '{}' using sentinel IRI 'swfc:method_discovery_signal'.",
+                 for '{}' using sentinel IRI 'ecaax:method_discovery_signal'.",
                 node.id,
             ),
             source:
                 crate::workflow_contracts::evidence::AssumptionSource::OntologyAdapterInserted {
-                    from_iri: "swfc:method_discovery_signal".into(),
-                    to_iri: "swfc:method_discovery_signal".into(),
+                    from_iri: "ecaax:method_discovery_signal".into(),
+                    to_iri: "ecaax:method_discovery_signal".into(),
                     reason: format!(
                         "discover_companion synthesis: '{discover_id}' gates runtime method \
                      selection for '{}'",

@@ -241,14 +241,14 @@ mod tests {
         assert!(output.goal.is_none());
     }
 
-    /// `swfc:` namespace IRIs are valid (per ADR
+    /// `ecaax:` namespace IRIs are valid (per ADR
     /// 0004); the sanitizer accepts them.
     #[test]
-    fn sanitize_goal_accepts_swfc_namespace() {
+    fn sanitize_goal_accepts_ecaax_namespace() {
         let mut output = ClassifyIntakeOutput {
             classification: empty_classification(),
             goal: Some(GoalSpec {
-                edam_data: "swfc:scrnaseq_annotation".into(),
+                edam_data: "ecaax:scrnaseq_annotation".into(),
                 edam_format: None,
                 modifiers: std::collections::BTreeMap::new(),
                 source_prose: None,

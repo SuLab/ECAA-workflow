@@ -68,7 +68,7 @@ pub struct JsonSchemaRef {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
 #[ts(export)]
 pub struct FormatRef {
-    /// EDAM format IRI (e.g. `format:2572` for BAM) or `swfc:<slug>`
+    /// EDAM format IRI (e.g. `format:2572` for BAM) or `ecaax:<slug>`
     /// for in-house formats.
     pub iri: String,
     /// Human label.

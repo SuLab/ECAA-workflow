@@ -43,7 +43,7 @@ inputs:
   - name: contact_matrix
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: chromatin_contact_matrix
       proposed_parent_terms:
         - "data:0863"
@@ -58,7 +58,7 @@ outputs:
   - name: chromatin_loops
     semantic_type:
       kind: local_extension
-      namespace: swfc
+      namespace: ecaax
       id: chromatin_loop_table
       proposed_parent_terms:
         - "data:1255"

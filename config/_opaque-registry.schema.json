@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "swfc:opaque-registry",
+  "$id": "ecaax:opaque-registry",
   "description": "One row of <sessions_dir>/_opaque_registry.jsonl. Cross-session aggregator for `SemanticType::Opaque` observations; mirrors the LocalExtension graduation aggregator at config/local-extension-graduation/_local-extension-graduation.schema.json. Authored by crates/conversation/src/session/opaque_aggregator.rs.",
   "type": "object",
   "required": [

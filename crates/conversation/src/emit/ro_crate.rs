@@ -14,7 +14,7 @@
 //! `CreativeWork` + `ScholarlyArticle` nodes in the `@graph`. CSVs gain
 //! `prov:wasDerivedFrom` edges. Redistributable=false entries are omitted
 //! from the shareable export but their metadata nodes are preserved with
-//! `swfc:contentOmittedFromExport: true`.
+//! `ecaax:contentOmittedFromExport: true`.
 
 use anyhow::{anyhow, bail, Context, Result};
 use ecaa_workflow_core::ablation::AblationFlagExt;
@@ -63,7 +63,7 @@ fn normalise_license(license: &str) -> String {
 ///
 /// When `shareable` is `true`, entries with `redistributable: false` have
 /// their content omitted from the shareable bundle and carry
-/// `"swfc:contentOmittedFromExport": true` in the metadata node.
+/// `"ecaax:contentOmittedFromExport": true` in the metadata node.
 ///
 /// All operations are idempotent: existing nodes with the same `@id` are
 /// left unchanged.
@@ -125,15 +125,15 @@ fn register_literature_evidence(
                 "license": normalise_license(&ev.license),
                 "contentSize": ev.bytes,
                 "hasDigest": format!("sha256:{}", ev.sha256_binary),
-                "swfc:hasExtractedTextDigest": format!("sha256:{}", ev.sha256_extracted_text),
-                "swfc:sourceKind": ev.source_kind,
-                "swfc:redistributable": ev.redistributable,
-                "swfc:retrievalTimestamp": ev.retrieval_ts,
+                "ecaax:hasExtractedTextDigest": format!("sha256:{}", ev.sha256_extracted_text),
+                "ecaax:sourceKind": ev.source_kind,
+                "ecaax:redistributable": ev.redistributable,
+                "ecaax:retrievalTimestamp": ev.retrieval_ts,
             });
 
             if shareable && !ev.redistributable {
                 node.as_object_mut().unwrap().insert(
-                    "swfc:contentOmittedFromExport".into(),
+                    "ecaax:contentOmittedFromExport".into(),
                     serde_json::Value::Bool(true),
                 );
             }
@@ -196,7 +196,7 @@ pub fn emit_ro_crate(package_root: &Path) -> Result<serde_json::Value> {
 
 /// Shareable-mode variant: redistributable=false content is omitted from
 /// the bundle; metadata nodes are preserved with
-/// `"swfc:contentOmittedFromExport": true`.
+/// `"ecaax:contentOmittedFromExport": true`.
 ///
 /// Spec §7.4.
 #[instrument(fields(package_root = %package_root.display()))]
@@ -221,7 +221,7 @@ fn emit_ro_crate_inner(package_root: &Path, shareable: bool) -> Result<serde_jso
     Ok(metadata)
 }
 
-/// Derive the `swfc:affordanceVariant` snake_case tag from a `PlotAffordance`
+/// Derive the `ecaax:affordanceVariant` snake_case tag from a `PlotAffordance`
 /// variant. Matches the serde `rename_all = "snake_case"` tag attribute
 /// on `PlotAffordance`. Used to stamp figure entities in the RO-Crate graph.
 fn affordance_variant_tag(
@@ -273,8 +273,8 @@ fn register_ro_crate_entity(
 /// is the pre-resolved affordance table from `write_affordance_sidecars`.
 /// Figure entities (`@type` includes `"ImageObject"`) whose owning
 /// task resolved to a non-`Registered` affordance are stamped with:
-/// - `"swfc:provisional": true`
-/// - `"swfc:affordanceVariant": "<snake_case_tag>"`
+/// - `"ecaax:provisional": true`
+/// - `"ecaax:affordanceVariant": "<snake_case_tag>"`
 ///
 /// Figure entities whose task has NO affordance record at all (e.g.,
 /// legacy atoms with no outputs AND no edam_data) are left un-flagged
@@ -486,7 +486,7 @@ pub(super) async fn patch_ro_crate_metadata(
     }
 
     // Phase A3 (flexible-plotting resolver wiring) — stamp
-    // `swfc:provisional` + `swfc:affordanceVariant` on every
+    // `ecaax:provisional` + `ecaax:affordanceVariant` on every
     // `ImageObject` entity whose owning task resolved to a non-Registered
     // affordance. The owning task_id is parsed out of the figure's `@id`
     // path: `runtime/outputs/<task_id>/figures/<fig_id>.png`.
@@ -519,11 +519,11 @@ pub(super) async fn patch_ro_crate_metadata(
                     if *provisional {
                         if let Some(obj) = entity.as_object_mut() {
                             obj.insert(
-                                "swfc:provisional".to_string(),
+                                "ecaax:provisional".to_string(),
                                 serde_json::Value::Bool(true),
                             );
                             obj.insert(
-                                "swfc:affordanceVariant".to_string(),
+                                "ecaax:affordanceVariant".to_string(),
                                 serde_json::Value::String(variant_tag.to_string()),
                             );
                         }

@@ -2,7 +2,7 @@
 # lib/plotting/primitives/structural.py.
 #
 # Every primitive sources lib/plotting_r/core.R for theme, palette,
-# and swfc_savefig so visual style is byte-stable given the same
+# and ecaa_savefig so visual style is byte-stable given the same
 # pinned ggplot2 + Cairo + ragg versions.
 #
 # Provenance kind strings match GenericPrimitive::figure_id() in
@@ -21,14 +21,14 @@
 # via a long-format melt + facet_grid, which requires no additional
 # packages.
 #
-# swfc_savefig() writes both PNG and PDF when THEME$output$formats
+# ecaa_savefig() writes both PNG and PDF when THEME$output$formats
 # contains both entries (the default).  The primary path passed is the
 # PNG path; the companion PDF is written alongside with the same stem
 # (matching the Python discipline in savefig(formats=["png","pdf"])).
 #
 # Guard: source core.R before this file.
 
-if (!exists("swfc_savefig")) {
+if (!exists("ecaa_savefig")) {
   stop(paste0(
     "source runtime/plotting_r/core.R before sourcing this file.\n",
     "e.g.  source('lib/plotting_r/core.R')\n",
@@ -89,8 +89,8 @@ structural_matrix_overview <- function(
     ggplot2::labs(title = title, x = "column", y = "row") +
     ggplot2::theme(aspect.ratio = n_rows / n_cols)
 
-  p <- .swfc_attach_footer(p, "__structural_matrix_overview")
-  swfc_savefig(p, png_path, stage_id = "__structural_matrix_overview")
+  p <- .ecaa_attach_footer(p, "__structural_matrix_overview")
+  ecaa_savefig(p, png_path, stage_id = "__structural_matrix_overview")
   invisible(NULL)
 }
 
@@ -143,8 +143,8 @@ structural_distribution <- function(
     )
   }
 
-  p <- .swfc_attach_footer(p, "__structural_distribution")
-  swfc_savefig(p, png_path, stage_id = "__structural_distribution")
+  p <- .ecaa_attach_footer(p, "__structural_distribution")
+  ecaa_savefig(p, png_path, stage_id = "__structural_distribution")
   invisible(NULL)
 }
 
@@ -190,7 +190,7 @@ structural_categorical_summary <- function(
   )
 
   n_cats <- length(nms)
-  pal    <- swfc_palette(n_cats, name = "categorical_summary")
+  pal    <- ecaa_palette(n_cats, name = "categorical_summary")
 
   fig_width <- max(6.0, min(16.0, n_cats * 0.6 + 2.0))
 
@@ -201,8 +201,8 @@ structural_categorical_summary <- function(
     ggplot2::labs(title = title, x = "", y = "count") +
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1, size = 7))
 
-  p <- .swfc_attach_footer(p, "__structural_categorical_summary")
-  swfc_savefig(p, png_path,
+  p <- .ecaa_attach_footer(p, "__structural_categorical_summary")
+  ecaa_savefig(p, png_path,
                stage_id = "__structural_categorical_summary",
                width_in  = fig_width,
                height_in = 5.5)
@@ -300,7 +300,7 @@ structural_pairs <- function(
     combined <- Reduce(`+`, cell_plots) +
       patchwork::plot_layout(ncol = n_cols) +
       patchwork::plot_annotation(title = title)
-    swfc_savefig(combined, png_path,
+    ecaa_savefig(combined, png_path,
                  stage_id  = "__structural_pairs",
                  width_in  = fig_size,
                  height_in = fig_size)
@@ -310,7 +310,7 @@ structural_pairs <- function(
     pdf_out <- sub("\\.[^.]+$", ".pdf", png_out)
     dpi     <- THEME$output$png_dpi %||% 300L
 
-    .swfc_write_pairs_grid(cell_plots, n_cols, title,
+    .ecaa_write_pairs_grid(cell_plots, n_cols, title,
                            png_out, pdf_out, fig_size, dpi)
   }
   invisible(NULL)
@@ -319,7 +319,7 @@ structural_pairs <- function(
 
 #' Internal grid-based layout used when patchwork is unavailable.
 #' @keywords internal
-.swfc_write_pairs_grid <- function(cell_plots, n_cols, title,
+.ecaa_write_pairs_grid <- function(cell_plots, n_cols, title,
                                    png_out, pdf_out, fig_size, dpi) {
   .write_one <- function(out_path, device_fn) {
     device_fn(out_path, width = fig_size, height = fig_size, units = "in", res = dpi)
@@ -405,8 +405,8 @@ structural_scalar_card <- function(
       plot.margin  = grid::unit(c(8, 8, 24, 8), "pt")
     )
 
-  p <- .swfc_attach_footer(p, "__structural_scalar_card")
-  swfc_savefig(p, png_path,
+  p <- .ecaa_attach_footer(p, "__structural_scalar_card")
+  ecaa_savefig(p, png_path,
                stage_id  = "__structural_scalar_card",
                width_in  = 4.0,
                height_in = 2.5)

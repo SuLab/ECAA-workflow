@@ -178,7 +178,7 @@
         "variant_filtering"
       ],
       "assignee": "agent",
-      "description": "Validate outputs of: Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\nswfc namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
+      "description": "Validate outputs of: Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\necaax namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
       "resource_class": "cpu_heavy"
     },
     "variant_annotation": {
@@ -214,7 +214,7 @@
         "variant_calling"
       ],
       "assignee": "agent",
-      "description": "Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\nswfc namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
+      "description": "Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\necaax namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
       "resource_class": "cpu_heavy"
     }
   }

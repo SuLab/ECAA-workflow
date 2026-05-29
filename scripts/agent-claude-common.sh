@@ -53,7 +53,7 @@
 # ECAA_CHAT_SESSION_ID is a syntactically-correct UUID before any code
 # interpolates it into a docker label, cache path, or per-session log
 # location. A malformed value (e.g. shell metacharacters, path
-# traversal) would otherwise reach `--label swfc-session=$ID`,
+# traversal) would otherwise reach `--label ecaa-session=$ID`,
 # `CACHE_DIR=$CACHE_BASE/$ID`, or the agent-usage JSON body. Exit 98
 # is reserved for this specific failure so the harness's stderr_tail
 # surfaces a stable, greppable signal.

@@ -204,8 +204,8 @@ export default function StateInspectorPane() {
         setTab(requested as Tab)
       }
     }
-    window.addEventListener('swfc:switch-tab', handler)
-    return () => window.removeEventListener('swfc:switch-tab', handler)
+    window.addEventListener('ecaax:switch-tab', handler)
+    return () => window.removeEventListener('ecaax:switch-tab', handler)
   }, [])
 
   // While a SME-triggered mutation is in flight (Accept / Revise / Unblock

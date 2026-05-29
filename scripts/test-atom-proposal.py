@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 
 SERVER = os.environ.get("ECAA_SERVER_URL", "http://127.0.0.1:3000")
-PACKAGE_ROOT = os.environ.get("ECAA_PACKAGE_ROOT", "/tmp/swfc-packages-test")
+PACKAGE_ROOT = os.environ.get("ECAA_PACKAGE_ROOT", "/tmp/ecaa-packages-test")
 PREFIX = "/api/v1/chat"
 POLL = 4
 PER_TURN = 240

@@ -6,7 +6,7 @@
 #   data:2914  → quality_control  (per_sample_metric_violin,
 #                                   per_sample_metric_bar,
 #                                   qc_summary_bar)
-#   swfc:spatial_coordinates → spatial_clustering  (tissue_overlay,
+#   ecaax:spatial_coordinates → spatial_clustering  (tissue_overlay,
 #                                                    morans_i_scatter,
 #                                                    neighborhood_enrichment)
 #
@@ -58,8 +58,8 @@ for (.f in c(.CORE_R, .SHARED_R, .PREP_R, .QC_R, .SPATIAL_R)) {
   }
 }
 
-if (!exists("swfc_savefig"))          source(.CORE_R,    local = FALSE)
-if (!exists(".swfc_manifest_path"))   source(.SHARED_R,  local = FALSE)
+if (!exists("ecaa_savefig"))          source(.CORE_R,    local = FALSE)
+if (!exists(".ecaa_manifest_path"))   source(.SHARED_R,  local = FALSE)
 source(.PREP_R,    local = FALSE)
 source(.QC_R,      local = FALSE)
 source(.SPATIAL_R, local = FALSE)
@@ -91,7 +91,7 @@ source(.SPATIAL_R, local = FALSE)
 # ---------------------------------------------------------------------------
 
 test_that("preprocessing: retention_bar writes PNG for 3-sample manifest", {
-  tmp <- tempfile("swfc_prep_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_prep_"); dir.create(tmp, recursive = TRUE)
   .write_manifest(tmp, list(
     samples = list(
       list(id = "S1", n_in = 1000000L, n_out = 850000L),
@@ -104,7 +104,7 @@ test_that("preprocessing: retention_bar writes PNG for 3-sample manifest", {
                                   simplifyVector = FALSE)
   ctx <- list(stage_id = "preprocessing", figure_id = "retention_bar",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("preprocessing", "retention_bar")
+  fn <- ecaa_lookup_figure("preprocessing", "retention_bar")
   expect_false(is.null(fn), info = "retention_bar must be registered")
   expect_no_error(fn(ctx))
   expect_true(.png_produced(ctx, "retention_bar"),
@@ -112,18 +112,18 @@ test_that("preprocessing: retention_bar writes PNG for 3-sample manifest", {
 })
 
 test_that("preprocessing: retention_bar errors on missing samples block", {
-  tmp <- tempfile("swfc_prep_err_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_prep_err_"); dir.create(tmp, recursive = TRUE)
   .write_manifest(tmp, list(stage = "preprocessing"))
   manifest <- jsonlite::fromJSON(file.path(tmp, "manifest.json"),
                                   simplifyVector = FALSE)
   ctx <- list(stage_id = "preprocessing", figure_id = "retention_bar",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("preprocessing", "retention_bar")
+  fn <- ecaa_lookup_figure("preprocessing", "retention_bar")
   expect_error(fn(ctx), regexp = "n_in")
 })
 
 test_that("preprocessing: retention_bar respects group faceting", {
-  tmp <- tempfile("swfc_prep_grp_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_prep_grp_"); dir.create(tmp, recursive = TRUE)
   .write_manifest(tmp, list(
     samples = list(
       list(id = "A1", n_in = 500L, n_out = 420L, group = "caseA"),
@@ -136,7 +136,7 @@ test_that("preprocessing: retention_bar respects group faceting", {
                                   simplifyVector = FALSE)
   ctx <- list(stage_id = "preprocessing", figure_id = "retention_bar",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("preprocessing", "retention_bar")
+  fn <- ecaa_lookup_figure("preprocessing", "retention_bar")
   expect_no_error(fn(ctx))
   expect_true(.png_produced(ctx, "retention_bar"))
 })
@@ -146,7 +146,7 @@ test_that("preprocessing: retention_bar respects group faceting", {
 # ---------------------------------------------------------------------------
 
 test_that("quality_control: per_sample_metric_violin from long-form TSV", {
-  tmp <- tempfile("swfc_qc_vln_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_qc_vln_"); dir.create(tmp, recursive = TRUE)
   set.seed(42)
   n_rows <- 120L
   df_long <- data.frame(
@@ -165,14 +165,14 @@ test_that("quality_control: per_sample_metric_violin from long-form TSV", {
   ctx <- list(stage_id = "quality_control",
                figure_id = "per_sample_metric_violin",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("quality_control", "per_sample_metric_violin")
+  fn <- ecaa_lookup_figure("quality_control", "per_sample_metric_violin")
   expect_false(is.null(fn))
   expect_no_error(fn(ctx))
   expect_true(.png_produced(ctx, "per_sample_metric_violin"))
 })
 
 test_that("quality_control: per_sample_metric_violin falls back to bar with manifest-only data", {
-  tmp <- tempfile("swfc_qc_vln_fb_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_qc_vln_fb_"); dir.create(tmp, recursive = TRUE)
   .write_manifest(tmp, list(
     per_sample_metrics = list(
       S1 = list(n_cells = 3200L, pct_mito = 3.2),
@@ -186,20 +186,20 @@ test_that("quality_control: per_sample_metric_violin falls back to bar with mani
   ctx <- list(stage_id = "quality_control",
                figure_id = "per_sample_metric_violin",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("quality_control", "per_sample_metric_violin")
+  fn <- ecaa_lookup_figure("quality_control", "per_sample_metric_violin")
   expect_no_error(fn(ctx))
   expect_true(.png_produced(ctx, "per_sample_metric_violin"))
 })
 
 test_that("quality_control: per_sample_metric_violin errors when no data sources", {
-  tmp <- tempfile("swfc_qc_vln_err_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_qc_vln_err_"); dir.create(tmp, recursive = TRUE)
   .write_manifest(tmp, list())
   manifest <- jsonlite::fromJSON(file.path(tmp, "manifest.json"),
                                   simplifyVector = FALSE)
   ctx <- list(stage_id = "quality_control",
                figure_id = "per_sample_metric_violin",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("quality_control", "per_sample_metric_violin")
+  fn <- ecaa_lookup_figure("quality_control", "per_sample_metric_violin")
   expect_error(fn(ctx), regexp = "qc_metrics")
 })
 
@@ -208,7 +208,7 @@ test_that("quality_control: per_sample_metric_violin errors when no data sources
 # ---------------------------------------------------------------------------
 
 test_that("quality_control: per_sample_metric_bar selects count-named metric", {
-  tmp <- tempfile("swfc_qc_bar_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_qc_bar_"); dir.create(tmp, recursive = TRUE)
   .write_manifest(tmp, list(
     per_sample_metrics = list(
       S1 = list(read_count = 8e6L, mapping_rate = 0.91),
@@ -222,14 +222,14 @@ test_that("quality_control: per_sample_metric_bar selects count-named metric", {
   ctx <- list(stage_id = "quality_control",
                figure_id = "per_sample_metric_bar",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("quality_control", "per_sample_metric_bar")
+  fn <- ecaa_lookup_figure("quality_control", "per_sample_metric_bar")
   expect_false(is.null(fn))
   expect_no_error(fn(ctx))
   expect_true(.png_produced(ctx, "per_sample_metric_bar"))
 })
 
 test_that("quality_control: per_sample_metric_bar selects n_-prefixed metric", {
-  tmp <- tempfile("swfc_qc_bar_n_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_qc_bar_n_"); dir.create(tmp, recursive = TRUE)
   .write_manifest(tmp, list(
     per_sample_metrics = list(
       S1 = list(n_cells = 3200L, pct_mito = 3.2),
@@ -242,20 +242,20 @@ test_that("quality_control: per_sample_metric_bar selects n_-prefixed metric", {
   ctx <- list(stage_id = "quality_control",
                figure_id = "per_sample_metric_bar",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("quality_control", "per_sample_metric_bar")
+  fn <- ecaa_lookup_figure("quality_control", "per_sample_metric_bar")
   expect_no_error(fn(ctx))
   expect_true(.png_produced(ctx, "per_sample_metric_bar"))
 })
 
 test_that("quality_control: per_sample_metric_bar errors when manifest block absent", {
-  tmp <- tempfile("swfc_qc_bar_err_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_qc_bar_err_"); dir.create(tmp, recursive = TRUE)
   .write_manifest(tmp, list())
   manifest <- jsonlite::fromJSON(file.path(tmp, "manifest.json"),
                                   simplifyVector = FALSE)
   ctx <- list(stage_id = "quality_control",
                figure_id = "per_sample_metric_bar",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("quality_control", "per_sample_metric_bar")
+  fn <- ecaa_lookup_figure("quality_control", "per_sample_metric_bar")
   expect_error(fn(ctx), regexp = "per_sample_metrics")
 })
 
@@ -264,7 +264,7 @@ test_that("quality_control: per_sample_metric_bar errors when manifest block abs
 # ---------------------------------------------------------------------------
 
 test_that("quality_control: qc_summary_bar reads summary_stats.json", {
-  tmp <- tempfile("swfc_qc_sumbar_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_qc_sumbar_"); dir.create(tmp, recursive = TRUE)
   writeLines(
     jsonlite::toJSON(list(total_reads = 42000000L,
                           mapped_reads = 38500000L,
@@ -280,21 +280,21 @@ test_that("quality_control: qc_summary_bar reads summary_stats.json", {
   ctx <- list(stage_id = "quality_control",
                figure_id = "qc_summary_bar",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("quality_control", "qc_summary_bar")
+  fn <- ecaa_lookup_figure("quality_control", "qc_summary_bar")
   expect_false(is.null(fn))
   expect_no_error(fn(ctx))
   expect_true(.png_produced(ctx, "qc_summary_bar"))
 })
 
 test_that("quality_control: qc_summary_bar errors when summary_stats.json absent", {
-  tmp <- tempfile("swfc_qc_sumbar_err_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_qc_sumbar_err_"); dir.create(tmp, recursive = TRUE)
   .write_manifest(tmp, list())
   manifest <- jsonlite::fromJSON(file.path(tmp, "manifest.json"),
                                   simplifyVector = FALSE)
   ctx <- list(stage_id = "quality_control",
                figure_id = "qc_summary_bar",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("quality_control", "qc_summary_bar")
+  fn <- ecaa_lookup_figure("quality_control", "qc_summary_bar")
   expect_error(fn(ctx), regexp = "summary_stats")
 })
 
@@ -303,7 +303,7 @@ test_that("quality_control: qc_summary_bar errors when summary_stats.json absent
 # ---------------------------------------------------------------------------
 
 test_that("spatial_clustering: tissue_overlay writes PNG with synthetic coords", {
-  tmp <- tempfile("swfc_sc_to_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_sc_to_"); dir.create(tmp, recursive = TRUE)
   set.seed(7)
   n <- 80L
   coords <- data.frame(
@@ -320,11 +320,11 @@ test_that("spatial_clustering: tissue_overlay writes PNG with synthetic coords",
   ctx <- list(stage_id = "spatial_clustering",
                figure_id = "tissue_overlay",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("spatial_clustering", "tissue_overlay")
+  fn <- ecaa_lookup_figure("spatial_clustering", "tissue_overlay")
   expect_false(is.null(fn))
-  # tissue_overlay delegates to swfc_tissue_overlay_r defined in core.R;
+  # tissue_overlay delegates to ecaa_tissue_overlay_r defined in core.R;
   # if the helper exists the call should not error.
-  if (exists("swfc_tissue_overlay_r")) {
+  if (exists("ecaa_tissue_overlay_r")) {
     expect_no_error(fn(ctx))
   } else {
     expect_warning(fn(ctx), regexp = NA)  # at minimum must not hard-crash
@@ -332,7 +332,7 @@ test_that("spatial_clustering: tissue_overlay writes PNG with synthetic coords",
 })
 
 test_that("spatial_clustering: morans_i_scatter writes PNG with synthetic data", {
-  tmp <- tempfile("swfc_sc_mi_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_sc_mi_"); dir.create(tmp, recursive = TRUE)
   set.seed(13)
   n_genes <- 30L
   mi_df <- data.frame(
@@ -349,15 +349,15 @@ test_that("spatial_clustering: morans_i_scatter writes PNG with synthetic data",
   ctx <- list(stage_id = "spatial_clustering",
                figure_id = "morans_i_scatter",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("spatial_clustering", "morans_i_scatter")
+  fn <- ecaa_lookup_figure("spatial_clustering", "morans_i_scatter")
   expect_false(is.null(fn))
-  if (exists("swfc_morans_i_scatter_r")) {
+  if (exists("ecaa_morans_i_scatter_r")) {
     expect_no_error(fn(ctx))
   }
 })
 
 test_that("spatial_clustering: neighborhood_enrichment writes PNG with synthetic data", {
-  tmp <- tempfile("swfc_sc_ne_"); dir.create(tmp, recursive = TRUE)
+  tmp <- tempfile("ecaa_sc_ne_"); dir.create(tmp, recursive = TRUE)
   set.seed(99)
   types <- paste0("T", 1:4)
   pairs_idx <- expand.grid(source = types, target = types,
@@ -376,9 +376,9 @@ test_that("spatial_clustering: neighborhood_enrichment writes PNG with synthetic
   ctx <- list(stage_id = "spatial_clustering",
                figure_id = "neighborhood_enrichment",
                outputs_dir = tmp, manifest = manifest)
-  fn <- swfc_lookup_figure("spatial_clustering", "neighborhood_enrichment")
+  fn <- ecaa_lookup_figure("spatial_clustering", "neighborhood_enrichment")
   expect_false(is.null(fn))
-  if (exists("swfc_neighborhood_enrichment_r")) {
+  if (exists("ecaa_neighborhood_enrichment_r")) {
     expect_no_error(fn(ctx))
   }
 })
@@ -397,7 +397,7 @@ test_that("all Phase 10 figure ids are registered in the R stage registry", {
                             "neighborhood_enrichment")
   )
   for (stage in names(expected)) {
-    registered <- swfc_known_figures(stage)
+    registered <- ecaa_known_figures(stage)
     for (fig in expected[[stage]]) {
       expect_true(fig %in% registered,
                   label = sprintf("%s::%s registered", stage, fig))

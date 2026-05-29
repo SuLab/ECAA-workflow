@@ -64,10 +64,10 @@ impl Cost {
     /// AND per-call cap. Closes the agent-reported token-inflation
     /// failure mode (audit P1-213).
     ///
-    /// Emits `target = "swfc::cost_cap"` at warn level when the per-call
+    /// Emits `target = "ecaa::cost_cap"` at warn level when the per-call
     /// cap fires, so operators can alert on agent-reported absurdities
     /// polluting telemetry. Conceptual metrics counter:
-    /// `swfc_cost_cap_total`. The structured-log channel is the source
+    /// `ecaa_cost_cap_total`. The structured-log channel is the source
     /// of truth until a metrics framework is wired in.
     pub fn from_token_count(tokens: u64, per_token_micro: Cost) -> Cost {
         let raw = (tokens as u128).saturating_mul(per_token_micro.0 as u128);
@@ -75,7 +75,7 @@ impl Cost {
         let capped = raw.min(MAX_CALL_MICRO_USD as u128);
         if was_capped {
             tracing::warn!(
-                target: "swfc::cost_cap",
+                target: "ecaa::cost_cap",
                 reported = tokens,
                 per_token_micro_usd = per_token_micro.0,
                 raw_micro_usd = %raw,

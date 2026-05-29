@@ -243,7 +243,7 @@ fn render_user_prompt(req: &RendererDraftRequest) -> String {
 
 /// Derive a filesystem-safe stage id from a semantic type IRI.
 ///
-/// `swfc:my_custom_output` → `my_custom_output`
+/// `ecaax:my_custom_output` → `my_custom_output`
 /// `http://edamontology.org/data_1234` → `data_1234`
 /// `plain_stage` → `plain_stage`
 fn derive_stage_id(semantic_type: &str) -> String {
@@ -346,7 +346,7 @@ mod tests {
     fn sample_proposal(figure_ids: Vec<&str>) -> RendererProposal {
         RendererProposal {
             id: "renderer-proposal-abc123def456".into(),
-            target_semantic_type: "swfc:custom_volcano".into(),
+            target_semantic_type: "ecaax:custom_volcano".into(),
             proposed_parent_terms: vec!["data:1049".into()],
             proposed_figure_ids: figure_ids.into_iter().map(String::from).collect(),
             sme_intent: "Volcano plot with highlighted genes".into(),
@@ -485,8 +485,8 @@ mod tests {
     }
 
     #[test]
-    fn derive_stage_id_from_swfc_iri() {
-        assert_eq!(derive_stage_id("swfc:custom_volcano"), "custom_volcano");
+    fn derive_stage_id_from_ecaax_iri() {
+        assert_eq!(derive_stage_id("ecaax:custom_volcano"), "custom_volcano");
     }
 
     #[test]

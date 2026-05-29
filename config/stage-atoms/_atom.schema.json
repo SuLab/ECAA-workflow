@@ -78,17 +78,17 @@
     },
     "edam_operation": {
       "type": "string",
-      "pattern": "^((operation|data|format|topic):\\d+|swfc:[a-z][a-z0-9_]*[a-z0-9])$",
-      "description": "EDAM operation IRI or `swfc:` extension per ADR 0004."
+      "pattern": "^((operation|data|format|topic):\\d+|ecaax:[a-z][a-z0-9_]*[a-z0-9])$",
+      "description": "EDAM operation IRI or `ecaax:` extension per ADR 0004."
     },
     "edam_data": {
       "type": "string",
-      "pattern": "^((operation|data|format|topic):\\d+|swfc:[a-z][a-z0-9_]*[a-z0-9])$",
+      "pattern": "^((operation|data|format|topic):\\d+|ecaax:[a-z][a-z0-9_]*[a-z0-9])$",
       "description": "EDAM data class IRI for primary input. **DEPRECATED in Phase 16 of the DAG composer alignment plan** — superseded by the typed `inputs:` array. Retained for migration / synthesis fallback only; new atoms should declare `inputs:` and `outputs:` directly. The synthesis fallback in `crates/core/src/workflow_contracts/from_atom.rs::synthesize_inputs` still consumes this field when `inputs:` is absent."
     },
     "edam_format": {
       "type": "string",
-      "pattern": "^((operation|data|format|topic):\\d+|swfc:[a-z][a-z0-9_]*[a-z0-9])$",
+      "pattern": "^((operation|data|format|topic):\\d+|ecaax:[a-z][a-z0-9_]*[a-z0-9])$",
       "description": "EDAM format IRI for primary committed artifact. **DEPRECATED in Phase 16 of the DAG composer alignment plan** — superseded by `outputs:` array entries' `physical_format` field. See `edam_data` deprecation note."
     },
     "assignee": {

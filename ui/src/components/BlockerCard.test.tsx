@@ -1183,9 +1183,9 @@ describe('BlockerCard — sandbox_required variant', () => {
     ).toBeInTheDocument()
   })
 
-  it('dispatches swfc:open-settings when the Switch-executor button is clicked', async () => {
+  it('dispatches ecaax:open-settings when the Switch-executor button is clicked', async () => {
     const listener = vi.fn()
-    window.addEventListener('swfc:open-settings', listener)
+    window.addEventListener('ecaax:open-settings', listener)
     try {
       render(
         <BlockerCard
@@ -1207,7 +1207,7 @@ describe('BlockerCard — sandbox_required variant', () => {
       await user.click(btn)
       expect(listener).toHaveBeenCalledTimes(1)
     } finally {
-      window.removeEventListener('swfc:open-settings', listener)
+      window.removeEventListener('ecaax:open-settings', listener)
     }
   })
 })
@@ -1248,9 +1248,9 @@ describe('BlockerCard — network_policy_mismatch variant', () => {
     ).toBeInTheDocument()
   })
 
-  it('dispatches swfc:open-settings when the Switch-executor button is clicked', async () => {
+  it('dispatches ecaax:open-settings when the Switch-executor button is clicked', async () => {
     const listener = vi.fn()
-    window.addEventListener('swfc:open-settings', listener)
+    window.addEventListener('ecaax:open-settings', listener)
     try {
       render(
         <BlockerCard
@@ -1270,7 +1270,7 @@ describe('BlockerCard — network_policy_mismatch variant', () => {
       await user.click(btn)
       expect(listener).toHaveBeenCalledTimes(1)
     } finally {
-      window.removeEventListener('swfc:open-settings', listener)
+      window.removeEventListener('ecaax:open-settings', listener)
     }
   })
 

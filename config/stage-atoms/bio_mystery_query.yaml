@@ -8,7 +8,7 @@ description: |
   the rubric after the agent returns, with LlmJudge fallback for
   ambiguous rubric cases. Reliability bimodality across 5 trials
   is computed by the same adapter.
-edam_operation: "swfc:bio_mystery_query"
+edam_operation: "ecaax:bio_mystery_query"
 assignee: agent
 preferred_container:
   image: "ghcr.io/scripps/bio-min"
@@ -30,7 +30,7 @@ inputs:
   - name: query
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "llm_query"
       proposed_parent_terms:
         - "data:0006"
@@ -43,7 +43,7 @@ outputs:
   - name: response
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "llm_response"
       proposed_parent_terms:
         - "data:2526"
@@ -55,7 +55,7 @@ outputs:
   - name: score
     semantic_type:
       kind: local_extension
-      namespace: "swfc"
+      namespace: "ecaax"
       id: "eval_score"
       proposed_parent_terms:
         - "data:0951"

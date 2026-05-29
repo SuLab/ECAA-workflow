@@ -26,7 +26,7 @@ library(testthat)
 # Bootstrap: source core.R and the structural primitives.
 # ---------------------------------------------------------------------------
 
-.swfc_tests_find_root <- function() {
+.ecaa_tests_find_root <- function() {
   # Walk up from this file's directory to find the repo root.
   # Reliable across Rscript, source(), and testthat::test_dir() invocations.
   here <- tryCatch({
@@ -46,11 +46,11 @@ library(testthat)
   getwd()
 }
 
-.REPO_ROOT <- .swfc_tests_find_root()
+.REPO_ROOT <- .ecaa_tests_find_root()
 .CORE_R    <- file.path(.REPO_ROOT, "lib", "plotting_r", "core.R")
 .STRUCT_R  <- file.path(.REPO_ROOT, "lib", "plotting_r", "primitives", "structural.R")
 
-if (!exists("swfc_savefig")) {
+if (!exists("ecaa_savefig")) {
   if (file.exists(.CORE_R)) {
     source(.CORE_R, local = FALSE)
   } else {
@@ -175,7 +175,7 @@ test_that("matrix_overview small writes PNG + PDF", {
   )
 
   expect_true(file.exists(png_path))
-  # The companion PDF is written by swfc_savefig alongside the PNG.
+  # The companion PDF is written by ecaa_savefig alongside the PNG.
   expected_pdf <- sub("\\.png$", ".pdf", png_path)
   expect_true(file.exists(expected_pdf))
 

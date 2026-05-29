@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Installed to .git/hooks/pre-push by `make install-hooks`.
+# Runs the local architectural-invariant + binding-freshness gates.
+set -euo pipefail
+exec make lint

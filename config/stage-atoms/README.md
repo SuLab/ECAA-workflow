@@ -21,7 +21,7 @@ Each atom YAML must:
 - have a filename stem equal to its `id` (e.g., `align_reads.yaml`
   declares `id: align_reads`),
 - reference EDAM operation / data / format IRIs from the
-  [EDAM ontology](https://edamontology.org) — or `swfc:<slug>` for
+  [EDAM ontology](https://edamontology.org) — or `ecaax:<slug>` for
   in-house extensions per ADR 0004 (see `docs/2026-04/edam-alignment-audit-2026-05-04.md`),
 - declare `depends_on` ids that resolve inside this directory (validated
   by `AtomRegistry::validate_consistency`).
@@ -87,9 +87,9 @@ emit-time and surface schema errors with file + line context.
   round-trips byte-identically. The atom_registry loader sorts by id
   before yielding.
 - **EDAM extensions.** When EDAM upstream lacks coverage, use
-  `swfc:<slug>` per ADR 0004. The audit doc
+  `ecaax:<slug>` per ADR 0004. The audit doc
   (`docs/2026-04/edam-alignment-audit-2026-05-04.md`) enumerates the
-  current `swfc:` namespace and tracks quarterly upstream-PR cadence.
+  current `ecaax:` namespace and tracks quarterly upstream-PR cadence.
 - **Claim boundaries.** Atoms whose outputs invite over-claiming
   (DE, enrichment, cell-type calls, variant pathogenicity) carry a
   `claim_boundary` directive that the LLM restates during confirmation

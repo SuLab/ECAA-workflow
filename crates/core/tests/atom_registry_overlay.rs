@@ -64,7 +64,7 @@ fn overlay_atom(id: &str) -> AtomDefinition {
         role: AtomRole::Operation,
         discovery_kind: None,
         description: format!("Synthesized overlay atom for {id}"),
-        edam_operation: "swfc:proposal_test".to_string(),
+        edam_operation: "ecaax:proposal_test".to_string(),
         edam_data: None,
         edam_format: None,
         assignee: AtomAssignee::Agent,

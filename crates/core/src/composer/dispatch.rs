@@ -842,7 +842,7 @@ pub(crate) fn compose_v4_dispatch_full(
 
     // Project-class-aware seed. Clinical-trial and
     // time-series project classes drive `data_import`-rooted pipelines
-    // whose input port is a `swfc:dataset_descriptor` (SME-supplied
+    // whose input port is a `ecaax:dataset_descriptor` (SME-supplied
     // tabular/CDISC), not paired-end FASTQ. Seeding with FASTQ for
     // these classes caused the forward search in the v4 planner to
     // fail to bridge `data:2044` into the `data_import` input

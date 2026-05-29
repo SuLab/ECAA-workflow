@@ -446,7 +446,7 @@ pub enum BlockerKind {
     /// The container-aware orphan reaper observed a
     /// stale heartbeat (older than `ECAA_TASK_HEARTBEAT_STALL_SECS`)
     /// while the SSM/SSH probe found the container itself still
-    /// alive (`docker ps --filter label=swfc-task=<id>` returned a
+    /// alive (`docker ps --filter label=ecaa-task=<id>` returned a
     /// row, or `apptainer instance list` showed the named instance).
     /// Distinct from `HeartbeatStalled` — that variant fires when the
     /// heartbeat is stale and we have no container-level signal at
@@ -548,7 +548,7 @@ pub enum BlockerKind {
     /// `state.patch.json` and blocked the task so disk exhaustion cannot
     /// spread silently across the package root.
     ///
-    /// This is the aggregate-size complement to `swfc_io`'s per-file cap
+    /// This is the aggregate-size complement to `ecaa_io`'s per-file cap
     /// (100 MiB): the per-file cap prevents OOM from a single giant blob;
     /// this cap prevents disk exhaustion from many medium-sized blobs
     /// (e.g. hundreds of per-sample CSV/parquet files).

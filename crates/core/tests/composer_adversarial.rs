@@ -339,7 +339,7 @@ const CASES: &[AdversarialCase] = &[
             let archetypes = ArchetypeRegistry::load_from_dir(&config.join("archetypes"))
                 .expect("load archetypes");
             let goal = GoalSpec {
-                edam_data: "data:swfc:adversarial-no-such-class".into(),
+                edam_data: "data:ecaax:adversarial-no-such-class".into(),
                 edam_format: None,
                 modifiers: BTreeMap::new(),
                 source_prose: None,
