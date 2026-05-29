@@ -94,11 +94,17 @@ def audit(workflow_path):
     roots = sorted(tid for tid in node_ids if indeg[tid] == 0)
     sinks = sorted(tid for tid in node_ids if outdeg[tid] == 0)
 
-    # Terminal reporting present among sinks.
+    # Terminal reporting present among sinks. Recognizes both the v4
+    # composer's `final_reporting`/`reporting` sinks and the v2 builder's
+    # `results_review` terminal review/summary node, so the auditor does
+    # not false-fail valid packages emitted under either convention.
     report_like = [
         s
         for s in sinks
-        if "report" in s.lower() or "summary" in s.lower() or "final" in s.lower()
+        if "report" in s.lower()
+        or "summary" in s.lower()
+        or "final" in s.lower()
+        or "review" in s.lower()
     ]
     if not report_like:
         errors.append(
