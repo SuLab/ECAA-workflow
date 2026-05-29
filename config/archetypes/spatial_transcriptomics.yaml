@@ -4,14 +4,18 @@ version: "1.0.0"
 description: |
   Spatially-resolved transcriptomics — Visium, Slide-seq, MERFISH, Xenium,
   Stereo-seq. Standard pipeline: acquire platform-tagged data, preprocess,
-  cell-level QC, normalise, dimensionality-reduce, cluster (which the SME
-  reads as spatial domains), then test for differential expression
-  per-domain. Cell-type deconvolution is bundled into the
+  cell-level QC, normalise, dimensionality-reduce, segment the section into
+  spatial domains (graph-aware clustering — BANKSY / BayesSpace / GraphST),
+  discover spatially variable genes per domain (Moran's I / SpatialDE),
+  annotate domain cell-type composition, then test for per-domain
+  differential expression. Cell-type deconvolution is bundled into the
   `cell_type_annotation` atom.
 
-  Caveat: dedicated atoms for spatial-domain segmentation and spatially
-  variable gene (SVG) discovery don't exist yet — see the README "atoms
-  needed" list.
+  Spatial-domain segmentation and spatially-variable-gene (SVG) discovery
+  are first-class atoms (`spatial_domain_segmentation`,
+  `spatially_variable_genes`); the spatial-clustering method is chosen at
+  runtime via the auto-synthesized `discover_spatial_clustering_method`
+  companion.
 sme_summary: |
   Cluster spots or cells from a spatial transcriptomics slide into spatial
   domains, label each domain with a cell-type composition, and report
@@ -32,15 +36,25 @@ atoms:
   - atom_id: dimensionality_reduction
     required: true
     depends_on: [normalisation]
-  - atom_id: clustering
+  # Spatial-domain segmentation replaces generic expression-only clustering:
+  # it consumes the normalised spatial object + coordinates and emits per-spot
+  # domain labels. Its `discover_spatial_clustering_method` companion is
+  # auto-synthesized from the atom's `method_choice.deferred_to`.
+  - atom_id: spatial_domain_segmentation
     required: true
     depends_on: [dimensionality_reduction]
+  # Spatially-variable-gene discovery runs per spatial domain.
+  - atom_id: spatially_variable_genes
+    required: true
+    depends_on: [spatial_domain_segmentation]
   - atom_id: cell_type_annotation
     required: true
-    depends_on: [clustering]
+    depends_on: [spatial_domain_segmentation]
+  # Per-domain DE consumes both the SVG ranking and the domain cell-type
+  # composition, so both upstream strands feed forward (no stranded nodes).
   - atom_id: differential_expression
     required: true
-    depends_on: [cell_type_annotation]
+    depends_on: [spatially_variable_genes, cell_type_annotation]
   - atom_id: reporting
     required: true
     depends_on: [differential_expression]

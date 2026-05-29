@@ -80,6 +80,25 @@ fn bulk_rnaseq_de_goal() -> GoalSpec {
     }
 }
 
+/// Spatial-transcriptomics goal — spatial-domain / SVG discovery on a
+/// Visium DLPFC section. Mirrors the Maynard 2021 layer-identification
+/// recreation: the modality-specific atoms `spatial_domain_segmentation`
+/// and `spatially_variable_genes` must appear, not a generic scRNA
+/// clustering pipeline.
+fn spatial_transcriptomics_goal() -> GoalSpec {
+    GoalSpec {
+        edam_data: "data:3917".into(),
+        edam_format: Some("format:3475".into()),
+        modifiers: BTreeMap::new(),
+        source_prose: Some(
+            "Spatial transcriptomics Visium DLPFC analysis: segment the tissue \
+             into spatial domains and discover spatially variable genes per domain."
+                .into(),
+        ),
+        confidence: 0.9,
+    }
+}
+
 /// Variant-calling germline goal.
 fn variant_calling_goal() -> GoalSpec {
     GoalSpec {
@@ -151,6 +170,55 @@ fn task_ids_for(modality: &str, goal: &GoalSpec) -> BTreeSet<String> {
         for n in &alt.dag.nodes {
             ids.insert(n.id.clone());
         }
+    }
+    ids
+}
+
+/// Like `task_ids_for` but returns only the PRIMARY outcome's task ids —
+/// i.e. exactly what the package would emit. Used by the spatial
+/// recreation test, where "appears somewhere in the alternative slate"
+/// is not enough: the emitted DAG itself must carry the spatial atoms.
+fn primary_task_ids_for(modality: &str, goal: &GoalSpec) -> BTreeSet<String> {
+    let atom_reg = AtomRegistry::load_from_dir(Path::new(ATOMS_DIR))
+        .expect("AtomRegistry must load from config/stage-atoms");
+    let archetype_reg = ArchetypeRegistry::load_from_dir(Path::new(ARCHETYPES_DIR))
+        .expect("ArchetypeRegistry must load from config/archetypes");
+    let intent = WorkflowIntent {
+        id: format!("v4_primary_{modality}"),
+        schema_version: semver::Version::new(1, 0, 0),
+        goal: goal
+            .source_prose
+            .clone()
+            .unwrap_or_else(|| goal.edam_data.clone()),
+        modality: Some(modality.into()),
+        project_class: Some("bioinformatics".into()),
+        available_data: vec![DataProductContract::sample_paired_fastq()],
+        desired_outputs: vec![DesiredOutput {
+            label: goal
+                .source_prose
+                .clone()
+                .unwrap_or_else(|| goal.edam_data.clone()),
+            edam_data: Some(goal.edam_data.clone()),
+            edam_format: goal.edam_format.clone(),
+            human_readable: false,
+        }],
+        ..Default::default()
+    };
+    let mut ctx = PlanningContext::new(intent);
+    ctx.max_branches = 64;
+    ctx.max_depth = 12;
+    ctx.max_alternatives = 5;
+    let result = v4_plan(&ctx, goal, "bioinformatics", &atom_reg, &archetype_reg);
+    let mut ids = BTreeSet::new();
+    match &result.primary {
+        ComposeOutcome::ValidatedExecutableDag { dag, .. }
+        | ComposeOutcome::DraftDag { dag, .. }
+        | ComposeOutcome::PartialDag { dag, .. } => {
+            for n in &dag.nodes {
+                ids.insert(n.id.clone());
+            }
+        }
+        _ => {}
     }
     ids
 }
@@ -234,6 +302,33 @@ fn v4_skips_atoms_with_unresolved_method_choice_variant_calling() {
             !task_ids.contains(*forbidden),
             "atom {forbidden} has unresolvable method_choice; must not appear in v4 DAG: \
              {task_ids:?}"
+        );
+    }
+}
+
+/// A spatial-transcriptomics workflow must recreate the spatial analysis,
+/// not collapse to a generic scRNA clustering pipeline. The
+/// modality-specific atoms `spatial_domain_segmentation` (spatial-domain
+/// clustering, BANKSY/BayesSpace/GraphST) and `spatially_variable_genes`
+/// (Moran's I / SpatialDE SVG discovery) both exist in the catalog with
+/// registered renderers; the emitted DAG must include them and their
+/// auto-synthesized `discover_spatial_clustering_method` companion.
+#[test]
+fn v4_spatial_transcriptomics_includes_spatial_atoms() {
+    let task_ids = primary_task_ids_for("spatial_transcriptomics", &spatial_transcriptomics_goal());
+    assert!(
+        !task_ids.is_empty(),
+        "v4 produced no DAG for spatial_transcriptomics"
+    );
+    for required in [
+        "spatial_domain_segmentation",
+        "spatially_variable_genes",
+        "discover_spatial_clustering_method",
+    ] {
+        assert!(
+            task_ids.contains(required),
+            "spatial atom {required} missing from spatial_transcriptomics v4 DAG \
+             (generic-scRNA collapse regression): {task_ids:?}"
         );
     }
 }
