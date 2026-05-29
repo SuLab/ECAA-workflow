@@ -61,3 +61,5 @@ manual-test-shots/
 CLAUDE.md
 docs/
 !docs/ecaa-spec
+
+.playwright-mcp
