@@ -22,7 +22,7 @@ This directory holds the v0.1 normative specification for the Evidence-Carrying 
 
 ## Verification
 
-Run `make ecaa-spec-check` to verify cross-document consistency, JSON-Schema syntax, OWL-DL satisfiability, and (with `ECAA_FIXTURE_PKG=<dir>`) end-to-end SHACL conformance on a reference package.
+The helpers under [`scripts/spec-check/`](../../scripts/spec-check/) verify the spec: `validate_schemas.sh` checks JSON-Schema syntax, `owl_consistency.py` checks OWL-DL satisfiability, and `project_package.py` projects a reference package's RDF for SHACL conformance. End-to-end conformance is exercised by the `crates/ecaa-conformance/` test suite.
 
 ## Reference implementation
 

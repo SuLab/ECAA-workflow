@@ -5,8 +5,8 @@
 This document has three parts:
 
 - **Part I — Walkthrough (§§1–4)** is a linear read for first-time users: what the tool does, a complete IVD scRNA-seq session, the right-hand State Inspector pane, and what the Accept button actually does.
-- **Part II — Reference (§§5–11)** is a lookup manual: the full blocker taxonomy, session lifecycle states, lifecycle operations (rerun / revise / branch / sensitivity-winner / iteration), the canonical lotz v1→v5 walkthrough, the runtime artifact index, the decision-log variants, and which Claude model fires when.
-- **Part III — Reading the package + getting help (§§12–16)** covers cost / time / privacy, figure resolution paths, a glossary, common troubleshooting, and where to ask questions.
+- **Part II — Reference (§§5–10)** is a lookup manual: the full blocker taxonomy, session lifecycle states, lifecycle operations (rerun / revise / branch / sensitivity-winner / iteration), the runtime artifact index, the decision-log variants, and which Claude model fires when.
+- **Part III — Reading the package + getting help (§§11–15)** covers cost / time / privacy, figure resolution paths, a glossary, common troubleshooting, and where to ask questions.
 
 ---
 
@@ -62,7 +62,7 @@ Read it carefully. This is the one moment where you commit to the shape of the a
 - **Analysis discipline** — *Exploratory* (hypothesis-generating; no multiple-testing gates) or *Confirmatory* (pre-registered hypotheses only; stricter multiple-testing controls). Pick the one that matches your study design.
 - **Checkpoint mode** — *Gated* (the plan blocks at every pre-registered checkpoint and requires your sign-off), *Selective* (blocks only at checkpoints declared as primary in the SAP), or *Fast* (runs every checkpoint without blocking; useful for dry-run rehearsals before the real trial analysis).
 
-These are only shown when the classifier routes the project to the `clinical-trial-analysis` taxonomy (see the project-class section of [`docs/config-reference.md`](docs/config-reference.md)). Research-grade projects don't see them.
+These are only shown when the classifier routes the project to the `clinical-trial-analysis` taxonomy (the routing keywords live in [`config/project-class-keywords.yaml`](config/project-class-keywords.yaml)). Research-grade projects don't see them.
 
 ### Watching execution
 
@@ -101,7 +101,7 @@ When every task has completed and every result card is either cleanly completed 
 
 Three surfaces worth knowing about when you start iterating post-emission.
 
-**Cross-version diff (after an Amendment).** When you Revise a method and the system re-emits, it writes a `cross_version_diff.json` that compares every result table row-by-row against the previous version. The result-review card for any affected task gets a **"Compare to previous version"** link. Click it to see an inline diff — which rows changed direction, which effect sizes moved, which p-values crossed the threshold. This is how you tell whether a method swap actually changed the answer or just the numbers near the edge.
+**Cross-version diff (after an Amendment).** When you Revise a method and the system re-emits, it writes a `cross-version-diff.json` that compares every result table row-by-row against the previous version. The result-review card for any affected task gets a **"Compare to previous version"** link. Click it to see an inline diff — which rows changed direction, which effect sizes moved, which p-values crossed the threshold. This is how you tell whether a method swap actually changed the answer or just the numbers near the edge.
 
 **Sensitivity comparison.** Some stages in some taxonomies (e.g. single-cell integration) declare a `sensitivity_comparison` — the agent runs multiple candidate methods in parallel and then blocks on `awaiting_sme_selection`. When that happens, a **Sensitivity comparison card** appears in chat: each candidate has a scored row (best-practice scoring, read from `runtime/outputs/<task_id>/decision.json`), side-by-side thumbnails of the key output figures, and a radio button. Pick the winner and click **Accept selection and continue**. The runner-ups are retained under `runtime/sensitivity/<stage>/<method>/` so you can always revisit them.
 
@@ -111,7 +111,7 @@ Three surfaces worth knowing about when you start iterating post-emission.
 
 ## 3. The State Inspector (the right-hand pane)
 
-The right-hand pane has 11 tabs. You don't need to look at most of them most of the time; the chat drives everything. But they're worth knowing about for when you do.
+The right-hand pane has 15 tabs. You don't need to look at most of them most of the time; the chat drives everything. But they're worth knowing about for when you do.
 
 ### Plan
 
@@ -163,7 +163,7 @@ If your session has been **branched** (see §7.3 below), this tab shows the pare
 
 ### Compare
 
-Side-by-side diff against a parent or sibling session — any time you've Revised (amended) or Branched, this tab renders the row-level concordance report (`runtime/cross_version_diff.json`) for every result table. Direction flips, effect-size deltas, and threshold crossings are highlighted. Empty for sessions with no parent.
+Side-by-side diff against a parent or sibling session — any time you've Revised (amended) or Branched, this tab renders the row-level concordance report (`runtime/cross-version-diff.json`) for every result table. Direction flips, effect-size deltas, and threshold crossings are highlighted. Empty for sessions with no parent.
 
 ---
 
@@ -262,7 +262,7 @@ A **Blocker** is a runtime condition the system can't resolve without your input
 | `awaiting_structured_decision` | "A structured choice is required from you" | The agent emitted a `decision_point` payload requesting a typed answer (radio / checkbox / dropdown) before continuing. | The Blocker card renders the structured form; pick an option and **Submit**. |
 | `awaiting_sme_approval` | "Approval required before continuing" | A deviation, an out-of-band cost projection, or a confirmatory-mode protected action needs explicit go-ahead. | **Approve** or **Reject**, optionally with a rationale that lands in the audit log. |
 | `missing_artifact` | "A required artifact wasn't produced" | A task completed but didn't emit the artifact a downstream stage requires (e.g., a `.h5ad` file). | **Rerun** the task; if it persists, swap the upstream method via chat. |
-| `heartbeat_stalled` | "The running task stopped sending heartbeats" | The agent's `.heartbeat` file hasn't been touched within `ECAA_TASK_HEARTBEAT_STALL_SECS` (default 15 min). | **Retry** — the harness will re-dispatch. If the agent is provably alive (long compute), bump the threshold via env var. |
+| `heartbeat_stalled` | "The running task stopped sending heartbeats" | The agent's `.heartbeat` file hasn't been touched within `ECAA_TASK_HEARTBEAT_STALL_SECS` (default 5 min). | **Retry** — the harness will re-dispatch. If the agent is provably alive (long compute), bump the threshold via env var. |
 | `orphaned_by_crash` | "A prior task lost track of its dispatch" | The harness restarted while a task was running and the WAL recovery couldn't prove the prior dispatch was alive within the liveness window. | **Retry** — usually self-healing. |
 | `tool_error` | "The agent reported a structured error" | The agent wrote `runtime/outputs/<task_id>/error.json` with a typed envelope (OOM, MissingDependency, NumericalInstability, etc.). The Opus 4.7 `remediation_proposer` side-call drives a ranked list of suggested fixes the SME can one-click apply. | **Apply suggestion** (top-ranked remediation) / **Try alternative** (browse all 3) / **Manual review** (open the task drawer). Capped at 5 attempts before escalation. |
 | `image_digest_mismatch` | "The container image digest doesn't match what was pinned" | At task start the runtime resolved a digest different from the one pinned in `WORKFLOW.json` / `policies/container.json`. Indicates registry tampering, a re-tagged floating tag, or a stale local cache. | **Rerun** after pruning the local cache; or re-emit the package to accept the new digest. |
@@ -283,7 +283,7 @@ A **Blocker** is a runtime condition the system can't resolve without your input
 | `iteration_did_not_converge` | "`<task>` ran `<N>` iterations — metric `<x>` hasn't reached `<threshold>`" | An iterate-until atom hit `max_iterations` without satisfying the convergence rule for the required number of consecutive passes. Distinct from `Stalled` (the iteration is making progress, just not converging) and from `MetricBelowThreshold` (single failed validation gate). | Three-button picker — **Raise threshold** / **Accept best iteration** / **Abort task**. "Accept best" picks via `iterate.best_selector` if set, otherwise the last iteration. |
 | `schema_version_mismatch` | "`<config_kind>` schema mismatch — expected `<expected>`, found `<found>`" | A config manifest (modality / archetype YAML, dispatch WAL, etc.) carries a `schema_version` the loader doesn't know how to bridge through the `core::migration::MigrationRegistry` chain. Typically surfaces when an emitted package authored against a newer schema is loaded on an older binary, or vice versa. Carries the `config_kind` so the recovery hint names exactly which file shape failed (e.g. `ModalityConfig`, `ArchetypeConfig`, `DispatchWal`). | **I've migrated — retry load** once the manifest has been migrated to the loader's expected version, or rebuild the binary against an upgraded schema. |
 
-Every blocker kind carries a `task_id` so the UI can link to the specific card. The live enum definition is in [`crates/core/src/blocker.rs`](crates/core/src/blocker.rs) and surfaces to the UI via the generated `BlockerKind` type. As of 2026-05-16 the enum has 40 variants; the table above groups the production kinds — see the live enum for the StallSignal substructure that drives the Stalled variant's three-button affordance. The enum is `#[non_exhaustive]`, so external consumers must always include a wildcard arm.
+Every blocker kind carries a `task_id` so the UI can link to the specific card. The live enum definition is in [`crates/core/src/blocker.rs`](crates/core/src/blocker.rs) and surfaces to the UI via the generated `BlockerKind` type. As of 2026-05-29 the enum has 47 variants; the table above groups the production kinds — see the live enum for the StallSignal substructure that drives the Stalled variant's three-button affordance. The enum is `#[non_exhaustive]`, so external consumers must always include a wildcard arm.
 
 ### 5.1 Claim verification
 
@@ -338,7 +338,7 @@ These three operations all let you change something after the original plan was 
 - **Revise (amend) a method.** Swap a method at a specific step — different clustering algorithm, different normalization, different effect-size threshold. Upstream tasks keep their results; downstream tasks rerun with the new choice. This is the most common iteration.
 - **Branch the session.** Try an alternative without giving up the current run. Branching creates a parallel copy of the session from this point forward. You can revise or rerun in either branch independently. Best for sensitivity analyses ("does the conclusion change under a stricter threshold?") and for what-if exploration ("what would it look like if we excluded samples P03 and P12?").
 
-Three additional surfaces are worth knowing about when you start iterating post-emission. **Cross-version diff** (after an Amendment) writes a `cross_version_diff.json` row-by-row comparing every result table against the previous version; the result-review card for any affected task gets a "Compare to previous version" link. **Sensitivity comparison** is some stages' built-in sweep over multiple methods (e.g. single-cell integration runs Harmony / scVI / scanorama in parallel) — when the comparison resolves, a card appears in chat with side-by-side scored candidates and a radio button. **Branch from here** is available on any turn; the new session shares the transcript up to the branch point and is independent after that.
+Three additional surfaces are worth knowing about when you start iterating post-emission. **Cross-version diff** (after an Amendment) writes a `cross-version-diff.json` row-by-row comparing every result table against the previous version; the result-review card for any affected task gets a "Compare to previous version" link. **Sensitivity comparison** is some stages' built-in sweep over multiple methods (e.g. single-cell integration runs Harmony / scVI / scanorama in parallel) — when the comparison resolves, a card appears in chat with side-by-side scored candidates and a radio button. **Branch from here** is available on any turn; the new session shares the transcript up to the branch point and is independent after that.
 
 Four SME-initiated operations exist after the initial Accept. All four write a `DecisionRecord` and most rewrite part of the emitted package on disk.
 
@@ -394,9 +394,9 @@ Four SME-initiated operations exist after the initial Accept. All four write a `
 
 ---
 
-## 9. Runtime artifact index
+## 8. Runtime artifact index
 
-Files inside an emitted package that you may need to reference. All paths are relative to the emitted package root.
+Files inside an emitted package that you may need to reference. All paths are relative to the emitted package root (some sit under `policies/` or `runtime/`, as noted).
 
 | Path | Purpose | Written when | Typical SME action |
 |---|---|---|---|
@@ -406,20 +406,20 @@ Files inside an emitted package that you may need to reference. All paths are re
 | `runtime/outputs/<task_id>/` | The working directory of a specific task — logs, intermediate files, decision records. | During task execution. | Linked from result cards — open in the `TaskLogDrawer` when you click a task. |
 | `runtime/outputs/<task_id>/decision.json` | The agent's best-practice scoring record for a `discover_*` task. | When a discovery task picks a method. | Referenced from `awaiting_sme_selection` blockers — the UI reads it to render the radio-button list. |
 | `results/tables/*.tsv` | Final result tables (DE results, cell-type counts, enrichment scores, etc.). | After the relevant stage completes. | Download or open in a spreadsheet — this is the "real" result. |
-| `results/figures/<task_id>/` | PNG / SVG figures per task. | After the task completes. | Viewed in the Figures tab or inline on result cards. |
-| `results/narrative/` | Per-stage prose reports. | After the reporting stage completes. | Read as the final writeup; checked by claim verification against `results/tables/`. |
+| `runtime/outputs/<task_id>/figures/<fig_id>.png` | PNG / SVG figures per task. | After the task completes. | Viewed in the Figures tab or inline on result cards. |
+| `runtime/outputs/<task_id>/*.md` | Per-stage prose reports (report / interpretation / summary). | After the reporting stage completes. | Read as the final writeup; checked by claim verification against `results/tables/`. |
 | `ro-crate-metadata.json` | RO-Crate manifest — the formal provenance record. | At emission + every amendment / branch. | Reference for reproducibility; the `prov:wasDerivedFrom` edges link lineages. |
-| `intake-facts.json` | Structured intake facts distilled from your prose during intake (modality, sample count, organism, comparison axis, deliverables). | Once at emission. | The harness sizing policy reads this to pick instance types; support may ask you to attach it when diagnosing "why did the plan look that way?" |
-| `container.json` | Container-image pins + runtime provenance for the executor (so the run can be reproduced later with the exact tool versions). | Once at emission. | Don't edit. Attach when reporting a reproducibility bug. |
+| `policies/intake-facts.json` | Structured intake facts distilled from your prose during intake (modality, sample count, organism, comparison axis, deliverables). | Once at emission. | The harness sizing policy reads this to pick instance types; support may ask you to attach it when diagnosing "why did the plan look that way?" |
+| `policies/container.json` | Container-image pins + runtime provenance for the executor (so the run can be reproduced later with the exact tool versions). | Once at emission. | Don't edit. Attach when reporting a reproducibility bug. |
 | `runtime/outputs/<task_id>/LOG.jsonl` | Per-task structured event log (stdout/stderr distilled into typed entries). | Appended during task execution. | Open from the TaskLogDrawer when you click a task; support uses this to trace crashes. |
-| `runtime/cross_version_diff.json` | Row-level concordance report comparing this emitted package against its parent. Only written when `SessionLineage` has a parent (i.e., this package is the result of an Amendment or Branch). | Once at each amend / branch re-emission. | Read from the "Compare to previous version" link on result cards, or via `GET /api/chat/session/:id/cross-version-diff`. |
-| `amendment-lineage.json` | The chain of amendments this package descended from (list of `{parent_session_id, parent_package, amended_stage, timestamp}`). | Only written on amendment re-emissions. | Read when auditing "how did we get here?" across many amendments. |
+| `runtime/cross-version-diff.json` | Row-level concordance report comparing this emitted package against its parent. Only written when `SessionLineage` has a parent (i.e., this package is the result of an Amendment or Branch). | Once at each amend / branch re-emission. | Read from the "Compare to previous version" link on result cards, or via `GET /api/chat/session/:id/cross-version-diff`. |
+| `policies/amendment-lineage.json` | The chain of amendments this package descended from (list of `{parent_session_id, parent_package, amended_stage, timestamp}`). | Only written on amendment re-emissions. | Read when auditing "how did we get here?" across many amendments. |
 
-The full index (with policies and interpretation rules) is in [`docs/config-reference.md`](docs/config-reference.md).
+The emitted policies and interpretation rules live under [`config/downstream-policy/`](config/downstream-policy/).
 
 ---
 
-## 10. Decision log variants
+## 9. Decision log variants
 
 `runtime/decisions.jsonl` is an append-only audit trail of every high-leverage checkpoint. Each line is one `DecisionRecord` with a typed `decision` field — closed taxonomy whose authoritative variant count comes from the live enum at [`crates/core/src/decision_log.rs`](crates/core/src/decision_log.rs).
 
@@ -451,7 +451,7 @@ Every record also carries `timestamp` (ISO-8601 UTC), `session_id`, `actor` (`sm
 
 ---
 
-## 11. Model selection
+## 10. Model selection
 
 The chat surface is backed by three Anthropic models. Which one responds to any given turn depends on policy, not on the prompt.
 
@@ -459,7 +459,7 @@ The chat surface is backed by three Anthropic models. Which one responds to any 
 |---|---|---|
 | **Claude Sonnet 4.6** | Default conversational model | Every turn unless one of the escalation triggers below fires. |
 | **Claude Opus 4.7** | Heavier-weight "careful" model | `careful_mode` on the session (set by the server for sensitive operations); the session is in `Blocked`; classifier confidence < 0.3 on the intake. |
-| **Claude Haiku 4.5** | One-shot side calls | Auto-title generation after ≥ 3 non-system turns (gated by `ECAA_AUTO_TITLE=1`). Runs out-of-band via `ModelPolicy::for_side_call()` so it doesn't re-use the main conversation cache. |
+| **Claude Haiku 4.5** | One-shot side calls | Auto-title generation after ≥ 6 non-system turns (gated by `ECAA_AUTO_TITLE=1`). Runs out-of-band via `ModelPolicy::for_side_call()` so it doesn't re-use the main conversation cache. |
 
 You'll see Sonnet / Opus turn counts, token totals, and cost split in the Performance tab. Opus is ~5× the per-token cost of Sonnet, so a session that repeatedly escalates (e.g. many blockers, low-confidence intake) bills more. The escalation logic lives in [`crates/conversation/src/model_policy/mod.rs`](crates/conversation/src/model_policy/mod.rs).
 
@@ -467,7 +467,7 @@ You'll see Sonnet / Opus turn counts, token totals, and cost split in the Perfor
 
 # Part III — Reading the package + getting help
 
-## 12. Cost, time, privacy, and what you can't do
+## 11. Cost, time, privacy, and what you can't do
 
 ### Cost
 
@@ -514,7 +514,7 @@ A short list of things this tool is intentionally not designed to handle. The ch
 
 ---
 
-## 13. Figure resolution paths
+## 12. Figure resolution paths
 
 Every analysis stage is paired with a *plot affordance* — the system's record of how to render that stage's output. For established modalities (bulk RNA-seq, single-cell, etc.) the pairings are already registered; the figures appear automatically when the stage completes. For novel stages or custom output types the system uses one of four resolution paths:
 
@@ -527,7 +527,7 @@ You don't need to know which path applied; the Figures tab just shows what was p
 
 ---
 
-## 14. Glossary
+## 13. Glossary
 
 - **Amendment.** A session-level operation that swaps a method at one stage and reruns the downstream slice; produces a new emitted package with lineage pointing at the original. Trigger: Revise.
 - **Branch.** A parallel copy of the current session, created from any point, with its own audit trail. Trigger: the Branch button on `BranchFromHereCard`.
@@ -536,7 +536,7 @@ You don't need to know which path applied; the Figures tab just shows what was p
 - **Emit.** The moment the system writes a self-contained execution package to disk. Triggered when you click **Accept** on the confirmation card; gated by the `emit_package` tool which returns `PreconditionFailure` unless the session's `user_confirmed` flag is true.
 - **Emitted package.** The self-contained RO-Crate directory that gets written when you Accept. Contains the DAG, policies, intake facts, and (post-execution) all results.
 - **Intake.** The conversational phase where you describe your analysis in prose. The system distills your prose into a small set of structured **intake facts** (modality, sample count, organism, comparison axis, deliverables) and uses them to build the plan. Intake ends when you accept the confirmation card.
-- **Intake facts.** The small, typed dictionary the classifier extracts from your prose during intake. Persisted to `intake-facts.json` in the emitted package and consumed by the harness sizing policy at execution time.
+- **Intake facts.** The small, typed dictionary the classifier extracts from your prose during intake. Persisted to `policies/intake-facts.json` in the emitted package and consumed by the harness sizing policy at execution time.
 - **Lineage.** The `prov:wasDerivedFrom` chain recording how an amendment package descends from its parent. Visible in the History tab as a graph.
 - **Archetype.** The composer fast-path scaffold for an analysis shape (`bulk_rnaseq_de`, `single_cell_de`, `clinical_trial_analysis`, …). One YAML per archetype under `config/archetypes/`; the planner uses it as a seed candidate when the classifier produces a goal.
 - **Atom.** A typed `(operation × input × output)` triple — the unit of composition the composer reasons over. One YAML per atom under `config/stage-atoms/`.
@@ -550,7 +550,7 @@ You don't need to know which path applied; the Figures tab just shows what was p
 
 ---
 
-## 15. Troubleshooting
+## 14. Troubleshooting
 
 | Symptom | Likely cause | Next action |
 |---|---|---|
@@ -561,13 +561,13 @@ You don't need to know which path applied; the Figures tab just shows what was p
 | A blocker card has an unfamiliar kind name. | New blocker variant added in a recent release. | Check §5 above; if still missing, ask. |
 | "Unexpectedly high cost projection" | Pilot sizing projected a full run above your cost ceiling. | Either lower the ceiling (for a smaller analysis), rescope the inputs, or Accept the overage from the blocker card. |
 | Branching doesn't show up as a separate session. | The session list UI scopes to the current lineage by default. | Check the History tab for the parent / child graph. |
-| Session went quiet for hours. | A task is running, but took longer than the 8-second "still thinking" indicator threshold. | Switch to Progress tab; the task is likely running (check for a "Started: …" line with no "Finished" yet). Stall detection fires after ~15 minutes. |
+| Session went quiet for hours. | A task is running, but took longer than the 8-second "still thinking" indicator threshold. | Switch to Progress tab; the task is likely running (check for a "Started: …" line with no "Finished" yet). Stall detection fires after ~5 minutes. |
 | The narrative references a file path I can't open. | Agent wrote an internal runtime path into narrative prose. | The UI sanitizer *should* have caught this. If it leaks, report a bug — file + line where you saw it. |
 | I want to undo an Accept. | Accepts aren't directly undo-able; the package is already written. | Branch from the pre-Accept state (if the session was in `PendingConfirmation` recently) or start a new session. |
 
 ---
 
-## 16. Getting help
+## 15. Getting help
 
 - For how to run the system locally, configure it, or contribute code, see [`README.md`](README.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 - For deeper operator and contributor references — API routes, configuration files, env vars, remote compute, container runtime, git provenance — see [`docs/`](docs/).
