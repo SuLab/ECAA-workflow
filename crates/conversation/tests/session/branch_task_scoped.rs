@@ -7,9 +7,6 @@
 //!    branch, M1.1 behaviour unchanged).
 //! 3. `branch_session_with_task` returns a typed error for an unknown task_id.
 
-#[path = "common/mod.rs"]
-mod common;
-
 use ecaa_workflow_conversation::session::lineage::SessionLineage;
 use ecaa_workflow_conversation::session::Session;
 use ecaa_workflow_conversation::tools::branch::branch_session_with_task;

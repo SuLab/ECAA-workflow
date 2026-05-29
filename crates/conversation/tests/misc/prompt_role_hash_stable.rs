@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 
 #[test]
 fn prompt_role_hash_pinned() {
-    const PROMPT: &str = include_str!("../src/prompt_role.txt");
+    const PROMPT: &str = include_str!("../../src/prompt_role.txt");
     let h = format!("{:x}", Sha256::digest(PROMPT.as_bytes()));
     assert_eq!(
         h, "8475e99e2f0cc92b6a822038c9a216c899c2d33f710e3f6a926ae20856d8d13b",

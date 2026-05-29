@@ -919,7 +919,7 @@ async fn all_75_adversarial_cases_refused() {
 /// Combined denominator across both corpora (75 inline + 75 JSON).
 /// Grant v19 §C.0.1 cites this number; at k = 0 / n = 150 the Wilson
 /// 95% upper bound on per-case refusal-failure rate is ≈ 0.0246.
-pub const TOTAL_ADVERSARIAL_CASES: usize = 75 + 75;
+const TOTAL_ADVERSARIAL_CASES: usize = 75 + 75;
 
 /// One adversarial-prompt entry from `testdata/eval-llm-shim/categories/*.json`.
 /// The JSON files use the same shape `crates/eval-adapters` reads via

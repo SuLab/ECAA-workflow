@@ -20,9 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
-#[path = "common/mod.rs"]
-mod common;
-use common::TestEnv;
+use crate::common::TestEnv;
 
 fn config_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))

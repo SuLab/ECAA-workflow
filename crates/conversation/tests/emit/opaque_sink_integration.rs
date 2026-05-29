@@ -31,9 +31,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-#[path = "common/mod.rs"]
-mod common;
-use common::TestEnv;
+use crate::common::TestEnv;
+use serial_test::serial;
 
 fn config_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -65,6 +64,7 @@ fn assistant(text: &str) -> TurnResponse {
 }
 
 #[tokio::test]
+#[serial]
 async fn rebuild_dag_writes_opaque_observation_with_real_session_id() {
     // ARRANGE: point ECAA_CHAT_SESSIONS_DIR at a temp dir so the
     // aggregator path is predictable + isolated from other tests
