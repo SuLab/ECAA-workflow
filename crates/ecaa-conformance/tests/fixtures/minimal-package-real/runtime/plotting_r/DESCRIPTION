@@ -1,6 +1,6 @@
 Package: scrippsWorkflowPlotting
 Type: Package
-Title: Scripps Workflow R-side plotting library
+Title: ECAA-workflow R-side plotting library
 Version: 1.1.0
 Description: Companion to the Python lib/plotting library. Provides
     ggplot2-based renderers that share theme.json and the figure-id
