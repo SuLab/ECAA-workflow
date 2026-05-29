@@ -59,3 +59,5 @@ manual-test-shots/
 # ── Local agent / Claude state (memories + project context) ─────────────────
 .claude/
 CLAUDE.md
+docs/
+!docs/ecaa-spec
