@@ -35,8 +35,8 @@ bio-min: ## Build the agent execution container (bio-min)
 
 test: test-runner test-doc ## Run cargo test + doc tests across the workspace
 
-test-runner: ## cargo test --workspace
-	cargo test --workspace
+test-runner: ## cargo nextest run --workspace
+	cargo nextest run --workspace
 
 test-doc: ## Doc tests
 	cargo test --workspace --doc
@@ -118,6 +118,8 @@ doctor: ## Print toolchain readiness summary
 	@echo "rustc: $$(rustc --version 2>/dev/null || echo 'MISSING')"
 	@echo "cargo: $$(cargo --version 2>/dev/null || echo 'MISSING')"
 	@echo "mold:  $$(mold --version 2>/dev/null || echo 'MISSING')"
+	@echo "nextest: $$(cargo nextest --version 2>/dev/null | head -1 || echo 'MISSING (cargo install cargo-nextest)')"
+	@echo "sccache: $$(sccache --version 2>/dev/null || echo 'MISSING (cargo install sccache; optional build cache)')"
 	@echo "node:  $$(node --version 2>/dev/null || echo 'MISSING')"
 	@echo "npm:   $$(npm --version 2>/dev/null || echo 'MISSING')"
 	@echo "python:$$(python3 --version 2>/dev/null || echo 'MISSING')"

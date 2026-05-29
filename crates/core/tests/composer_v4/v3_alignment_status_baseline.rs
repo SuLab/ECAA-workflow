@@ -329,7 +329,7 @@ fn check_round2_opaque_aggregator() -> bool {
 
 fn check_round2_cross_platform_gate() -> bool {
     Path::new("../../.github/ci/determinism-baseline.json").exists()
-        && read_or_empty("../../crates/core/tests/composer_v4_determinism.rs")
+        && read_or_empty("../../crates/core/tests/composer_v4/composer_v4_determinism.rs")
             .contains("cross_platform_hashes_match_baseline")
 }
 

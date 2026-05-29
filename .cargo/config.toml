@@ -27,6 +27,30 @@
 [build]
 rustflags = ["--remap-path-prefix=/home/runner/work/ecaa-workflow/ecaa-workflow=."]
 
+# sccache compilation cache. Registry dependencies (which cargo builds
+# WITHOUT incremental) are cached and reused across `cargo clean`, branch
+# switches, and — critically — across separate git worktrees, each of
+# which otherwise recompiles the full dependency graph from scratch.
+# Workspace member crates are built with `-Cincremental` (see
+# `[profile.dev] incremental = true`); sccache cannot cache incremental
+# units, so it transparently passes those through to rustc — no caching
+# benefit, but no harm. The win is the dependency graph, which dominates
+# cold-build wall time.
+#
+# Byte-reproducibility is preserved: sccache keys each cache entry on the
+# full rustc command line (including the `--remap-path-prefix` flags above)
+# plus the pinned toolchain (`rust-toolchain.toml`), so a cached artifact
+# is bit-identical to a fresh compile under the same inputs. SOURCE_DATE_
+# EPOCH is not a rustc compilation input here (it is consumed by the
+# emitter's archive writers, not the compiler), so it does not affect the
+# cache key.
+#
+# Prerequisite: `sccache` on PATH (cargo install sccache), same hard-tool
+# posture as mold above. `make doctor` surfaces its presence. Cache lives
+# in sccache's default store (~/.cache/sccache, 10 GB LRU cap); override
+# with SCCACHE_DIR / SCCACHE_CACHE_SIZE if needed.
+rustc-wrapper = "sccache"
+
 # Local mold linker (matches CI's rui314/setup-mold step in
 # .github/workflows/rust.yml). With 169 integration-test binaries
 # linking against the workspace, mold cuts incremental rebuild walltime

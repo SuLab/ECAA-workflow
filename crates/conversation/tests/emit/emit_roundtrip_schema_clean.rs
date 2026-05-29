@@ -39,6 +39,7 @@ use ecaa_workflow_conversation::emit::emit_with_conversation_log;
 use ecaa_workflow_conversation::session::Session;
 use ecaa_workflow_conversation::tools::{dispatch_one, BatchableTool, Tool, ToolContext};
 use serde_json::{json, Value};
+use serial_test::serial;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
 
@@ -241,6 +242,7 @@ fn validate_all_eight(pkg_root: &Path) -> (usize, Vec<(String, String)>) {
 /// sidecars. Sets `ECAA_VALIDATE_ON_EMIT=schema_only` so the test runs
 /// against the pure-Rust schema gate (no external Python deps).
 #[tokio::test]
+#[serial]
 async fn real_emit_passes_all_8_schemas() {
     // The env var is informational here — the actual schema-validation
     // work happens in this test. The variable is set so any future
@@ -276,6 +278,7 @@ async fn real_emit_passes_all_8_schemas() {
 /// state on a fresh emit (no harness has run yet) and is treated as
 /// acceptable here — the contract is "no Fail verdicts on a clean emit".
 #[tokio::test]
+#[serial]
 async fn real_emit_audit_proof_invariants_pass_or_warn() {
     std::env::set_var("ECAA_VALIDATE_ON_EMIT", "schema_only");
 
@@ -329,6 +332,7 @@ async fn real_emit_audit_proof_invariants_pass_or_warn() {
 // the emit + schema validation and prints the kept directory path on
 // stdout. The script then copies it to the staging fixture location.
 #[tokio::test]
+#[serial]
 #[ignore = "fixture-refresh helper; opt-in via --ignored"]
 async fn emit_to_kept_dir_for_fixture_refresh() {
     std::env::set_var("ECAA_VALIDATE_ON_EMIT", "schema_only");

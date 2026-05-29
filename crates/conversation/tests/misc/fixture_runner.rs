@@ -20,9 +20,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-#[path = "common/mod.rs"]
-mod common;
-use common::TestEnv;
+use crate::common::TestEnv;
 
 struct EnvVarGuard {
     key: &'static str,
