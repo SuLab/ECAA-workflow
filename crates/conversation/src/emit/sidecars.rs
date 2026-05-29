@@ -139,7 +139,7 @@ pub(super) async fn write_security_policy(session: &Session, output_dir: &Path) 
 
 /// D4 — write `runtime/model-policy.json`.
 ///
-/// Records the active Anthropic model (Sonnet 4.6 default; Opus 4.7 on
+/// Records the active Anthropic model (Sonnet 4.6 default; Opus 4.8 on
 /// careful-mode / Blocked / low-confidence), API version, SHA-256 of
 /// the fully-assembled system prompt, tool-schema version
 /// ([`crate::tool_schemas::SCHEMA_VERSION`]), tool count

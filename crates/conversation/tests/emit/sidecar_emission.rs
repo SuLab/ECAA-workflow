@@ -138,7 +138,7 @@ async fn model_policy_sidecar_emitted_with_prompt_hash() {
         serde_json::from_str(&std::fs::read_to_string(&sidecar).unwrap()).unwrap();
     assert_eq!(body["schema_version"], "1");
     // active_model_id is the Debug-formatted ModelId variant; one of
-    // Sonnet46 / Opus47 / Opus46 / Haiku45.
+    // Sonnet46 / Opus48 / Opus46 / Haiku45.
     let model_id = body["active_model_id"]
         .as_str()
         .expect("active_model_id must be a string");

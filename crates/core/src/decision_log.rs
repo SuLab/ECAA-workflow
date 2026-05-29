@@ -440,7 +440,7 @@ pub enum DecisionType {
         /// Proposal id from the session-scoped `RendererProposals`
         /// registry.
         proposal_id: String,
-        /// LLM model id used for the draft (e.g. `"opus_4_7"`).
+        /// LLM model id used for the draft (e.g. `"opus_4_8"`).
         model: String,
     },
     /// Flexible plotting upgrade plan the renderer drafter
@@ -864,7 +864,7 @@ mod tests {
             },
             DecisionType::RendererDraftRequested {
                 proposal_id: "renderer-proposal-abc123def456".into(),
-                model: "opus_4_7".into(),
+                model: "opus_4_8".into(),
             },
             DecisionType::RendererDraftReceived {
                 proposal_id: "renderer-proposal-abc123def456".into(),

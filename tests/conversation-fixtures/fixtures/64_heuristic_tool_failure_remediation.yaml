@@ -10,7 +10,7 @@ description: |
   task crash.
 
   In production that error envelope is what fires the
-  remediation_proposer side-call (Opus 4.7 one-shot, ranked
+  remediation_proposer side-call (Opus 4.8 one-shot, ranked
   RemediationSuggestion list, MAX_REMEDIATION_ATTEMPTS = 5). The
   conversation tool-loop does NOT auto-fire the proposer itself —
   the side-call lives behind the server route at
@@ -88,5 +88,5 @@ rubric_notes: |
   When `ECAA_REMEDIATION_LIVE=1` is set (operator-driven, never in
   CI), the server route `POST /api/chat/session/:id/task/:task_id/
   remediation-suggestions` is the path that bills `side_call_cost_usd`
-  with a real Opus 4.7 call. That route is exercised by the
+  with a real Opus 4.8 call. That route is exercised by the
   Playwright live tier; this fixture stays a unit test.

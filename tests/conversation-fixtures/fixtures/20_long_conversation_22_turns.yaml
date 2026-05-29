@@ -151,7 +151,7 @@ rubric_notes: |
   Long-conversation path. Historically escalated to Opus at turn ~21 via
   the `conversation.len() > 20` trigger; that trigger was removed
   2026-04-20 (§3.3 of the token-burn remediation plan) — long sessions
-  now stay on Sonnet. The current Opus escalation target is Opus 4.7
+  now stay on Sonnet. The current Opus escalation target is Opus 4.8
   when `careful_mode`, a `Blocked` state, or classification confidence
   < 0.3 fires. This fixture exercises the no-escalation path: 22 turns
   with decent confidence should record exclusively in `sonnet_turns`.

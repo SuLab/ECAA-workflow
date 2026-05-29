@@ -29,7 +29,7 @@ pub const SONNET_4_6: ModelPrices = ModelPrices {
 
 /// Opus 4.6 list pricing. Retained so legacy sidecars written while
 /// Opus 4.6 was the escalation target continue to price accurately
-/// on rehydration. Rates are identical to Opus 4.7. Verified against
+/// on rehydration. Rates are identical to Opus 4.8. Verified against
 /// `docs.anthropic.com/en/docs/about-claude/pricing` and the
 /// prompt-caching table.
 pub const OPUS_4_6: ModelPrices = ModelPrices {
@@ -39,13 +39,13 @@ pub const OPUS_4_6: ModelPrices = ModelPrices {
     cache_read_per_mtok: 0.50,
 };
 
-/// Opus 4.7 list pricing. Current Opus escalation target. Same
+/// Opus 4.8 list pricing. Current Opus escalation target. Same
 /// rate card as 4.6; the upgrade is capability-only. Uses a newer
 /// tokenizer than 4.6 — the per-MTok rate is unchanged but
 /// effective cost per request may shift slightly because the same
 /// text tokenizes to a different count. Verified against
 /// `docs.claude.com/en/docs/about-claude/models/overview`.
-pub const OPUS_4_7: ModelPrices = ModelPrices {
+pub const OPUS_4_8: ModelPrices = ModelPrices {
     input_per_mtok: 5.00,
     output_per_mtok: 25.00,
     cache_write_per_mtok: 6.25,
@@ -69,7 +69,7 @@ pub fn prices_for(model: ModelId) -> &'static ModelPrices {
     match model {
         ModelId::Sonnet46 => &SONNET_4_6,
         ModelId::Opus46 => &OPUS_4_6,
-        ModelId::Opus47 => &OPUS_4_7,
+        ModelId::Opus48 => &OPUS_4_8,
         ModelId::Haiku45 => &HAIKU_4_5,
     }
 }

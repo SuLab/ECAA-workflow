@@ -177,7 +177,7 @@ tool_call_log: Array<ToolCallRecord>,
  */
 decisions: Array<DecisionRecord>, 
 /**
- * When true, routes every turn to the Opus 4.7 escalation tier regardless of state or confidence.
+ * When true, routes every turn to the Opus 4.8 escalation tier regardless of state or confidence.
  */
 careful_mode: boolean, 
 /**

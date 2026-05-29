@@ -206,13 +206,13 @@ export function MetricsTable({
   // represented (the flat sonnet_turns / opus_turns rows already cover
   // that case) so the table doesn't grow for the common case. When
   // Haiku or a future model joins the session, extra rows render here.
-  // `opus_4_7` is collapsed into the legacy `opus_*` flat mirrors on
+  // `opus_4_8` is collapsed into the legacy `opus_*` flat mirrors on
   // the server (they aggregate across Opus variants), so the
   // per-model row would double-count if we rendered it again — filter
   // it out here alongside the flat-mirrored variants.
   const extraModelEntries = useMemo(() => {
     if (!metrics?.per_model_cost_usd) return []
-    const KNOWN_FLAT = new Set(['sonnet_4_6', 'opus_4_6', 'opus_4_7'])
+    const KNOWN_FLAT = new Set(['sonnet_4_6', 'opus_4_6', 'opus_4_8'])
     return Object.entries(metrics.per_model_cost_usd)
       .filter(([key]) => !KNOWN_FLAT.has(key))
       .sort(([a], [b]) => a.localeCompare(b))

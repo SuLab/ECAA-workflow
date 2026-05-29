@@ -287,7 +287,7 @@ impl ModelRoutingTable {
     /// and within `[0.0, 1.0]`) over every `confidence < <t>` predicate
     /// after the YAML-derived rules are validated. The threshold is
     /// cost-relevant: lowering it routes more uncertain decisions to
-    /// Opus 4.7 (~5x Sonnet per token); raising it lets more uncertain
+    /// Opus 4.8 (~5x Sonnet per token); raising it lets more uncertain
     /// decisions ride Sonnet.
     pub fn parse(yaml: &str) -> Result<Self, RoutingLoadError> {
         let spec: ModelRoutingTableSpec = serde_yml::from_str(yaml)?;
@@ -444,7 +444,7 @@ mod tests {
         let yaml = r#"
 rules:
   - predicate: "careful_mode"
-    model: opus_4_7
+    model: opus_4_8
     reason: careful_mode
 "#;
         let err = ModelRoutingTable::parse(yaml).unwrap_err();
@@ -459,14 +459,14 @@ rules:
     }
 
     #[test]
-    fn careful_mode_resolves_to_opus47() {
+    fn careful_mode_resolves_to_opus48() {
         let s = Session::new(true);
         let table = ModelRoutingTable::default_seed();
         let dec = table.resolve(&EvalContext {
             session: Some(&s),
             side_call_kind: None,
         });
-        assert_eq!(dec.model, ModelId::Opus47);
+        assert_eq!(dec.model, ModelId::Opus48);
         assert_eq!(dec.reason, Some(EscalationReason::CarefulMode));
     }
 
@@ -483,7 +483,7 @@ rules:
     }
 
     #[test]
-    fn low_confidence_resolves_to_opus47() {
+    fn low_confidence_resolves_to_opus48() {
         let mut s = Session::new(false);
         s.classification = Some(ClassificationResult {
             confidence: 0.1,
@@ -494,7 +494,7 @@ rules:
             session: Some(&s),
             side_call_kind: None,
         });
-        assert_eq!(dec.model, ModelId::Opus47);
+        assert_eq!(dec.model, ModelId::Opus48);
         assert_eq!(dec.reason, Some(EscalationReason::LowConfidence));
     }
 
@@ -516,7 +516,7 @@ rules:
             session: Some(&s),
             side_call_kind: None,
         });
-        assert_eq!(dec.model, ModelId::Opus47);
+        assert_eq!(dec.model, ModelId::Opus48);
         assert_eq!(dec.reason, Some(EscalationReason::Blocked));
 
         // After the consumed flag flips → Sonnet (the always fallback).
@@ -541,13 +541,13 @@ rules:
     }
 
     #[test]
-    fn side_call_remediation_resolves_to_opus47() {
+    fn side_call_remediation_resolves_to_opus48() {
         let table = ModelRoutingTable::default_seed();
         let dec = table.resolve(&EvalContext {
             session: None,
             side_call_kind: Some("remediation"),
         });
-        assert_eq!(dec.model, ModelId::Opus47);
+        assert_eq!(dec.model, ModelId::Opus48);
         assert_eq!(dec.reason, Some(EscalationReason::SideCall));
     }
 
@@ -567,7 +567,7 @@ rules:
         let yaml = r#"
 rules:
   - predicate: "confidence < 0.3"
-    model: opus_4_7
+    model: opus_4_8
     reason: low_confidence
   - predicate: "always"
     model: sonnet_4_6

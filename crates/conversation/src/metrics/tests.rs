@@ -18,16 +18,16 @@ async fn empty_snapshot_is_none() {
 #[test]
 fn resolve_model_api_id_strips_context_variant_suffix() {
     // Claude Code CLI's `-p --output-format=json` reports context
-    // variants as `claude-opus-4-7[1m]` / `claude-sonnet-4-6[200k]`.
+    // variants as `claude-opus-4-8[1m]` / `claude-sonnet-4-6[200k]`.
     // Without the suffix-strip these fall through to the Sonnet 4.6
     // fallback and the session's `agent_cost_usd` under-reports by
     // the Opus/Sonnet pricing delta (≈5×).
-    assert_eq!(resolve_model_api_id("claude-opus-4-7[1m]"), ModelId::Opus47);
+    assert_eq!(resolve_model_api_id("claude-opus-4-8[1m]"), ModelId::Opus48);
     assert_eq!(
         resolve_model_api_id("claude-sonnet-4-6[200k]"),
         ModelId::Sonnet46
     );
-    assert_eq!(resolve_model_api_id("claude-opus-4-7"), ModelId::Opus47);
+    assert_eq!(resolve_model_api_id("claude-opus-4-8"), ModelId::Opus48);
     assert_eq!(resolve_model_api_id("claude-sonnet-4-6"), ModelId::Sonnet46);
     assert_eq!(
         resolve_model_api_id("claude-haiku-4-5-20251001"),
@@ -321,12 +321,12 @@ async fn cache_hit_ratio_reflects_read_vs_billed_input() {
 }
 
 #[tokio::test]
-async fn opus_turns_and_cost_aggregate_across_4_6_and_4_7() {
+async fn opus_turns_and_cost_aggregate_across_4_6_and_4_8() {
     // Upgrade invariant: the legacy `opus_turns` / `opus_cost_usd`
-    // UI mirrors must aggregate BOTH Opus 4.6 and Opus 4.7 so the
+    // UI mirrors must aggregate BOTH Opus 4.6 and Opus 4.8 so the
     // Metrics tab row stays continuous across the escalation-target
     // upgrade. A session with mixed Opus spend (legacy sidecar
-    // carrying 4.6, new turns on 4.7) should show total counts +
+    // carrying 4.6, new turns on 4.8) should show total counts +
     // cost in those mirrors.
     let store = MetricsStore::new();
     let id = Uuid::new_v4();
@@ -344,7 +344,7 @@ async fn opus_turns_and_cost_aggregate_across_4_6_and_4_7() {
             ModelId::Opus46,
         )
         .await;
-    // Opus 4.7 current turn: 200k input, 40k output.
+    // Opus 4.8 current turn: 200k input, 40k output.
     // 0.2*5 + 0.04*25 = 1.0 + 1.0 = $2.00
     store
         .record_turn(
@@ -355,21 +355,21 @@ async fn opus_turns_and_cost_aggregate_across_4_6_and_4_7() {
             40_000,
             0,
             0,
-            ModelId::Opus47,
+            ModelId::Opus48,
         )
         .await;
     let snap = store.snapshot(id).await.unwrap();
-    assert_eq!(snap.opus_turns, 2, "opus_turns should aggregate 4.6 + 4.7");
+    assert_eq!(snap.opus_turns, 2, "opus_turns should aggregate 4.6 + 4.8");
     assert!(
         (snap.opus_cost_usd - 3.0).abs() < 1e-6,
-        "opus_cost_usd should sum $1.00 (4.6) + $2.00 (4.7) = $3.00, got {}",
+        "opus_cost_usd should sum $1.00 (4.6) + $2.00 (4.8) = $3.00, got {}",
         snap.opus_cost_usd
     );
     // per_model_cost_usd still breaks out each variant for the
     // extra-models row (now filtered out of the table — see
     // MetricsTab.tsx KNOWN_FLAT).
     assert!(snap.per_model_cost_usd.contains_key("opus_4_6"));
-    assert!(snap.per_model_cost_usd.contains_key("opus_4_7"));
+    assert!(snap.per_model_cost_usd.contains_key("opus_4_8"));
 }
 
 #[tokio::test]
@@ -527,19 +527,19 @@ fn published_rates_match_april_2026_list_pricing() {
     assert_eq!(pricing::SONNET_4_6.output_per_mtok, 15.00);
     assert_eq!(pricing::SONNET_4_6.cache_write_per_mtok, 3.75);
     assert_eq!(pricing::SONNET_4_6.cache_read_per_mtok, 0.30);
-    // Opus 4.6 + 4.7 rates: the $15/$75 figures from earlier
+    // Opus 4.6 + 4.8 rates: the $15/$75 figures from earlier
     // versions (Opus 4.1 and prior) were retired with Opus 4.5's
-    // launch. Opus 4.5 / 4.6 / 4.7 all share $5/$25 input/output.
+    // launch. Opus 4.5 / 4.6 / 4.8 all share $5/$25 input/output.
     // Update these alongside the constants in the same PR if
     // Anthropic re-prices.
     assert_eq!(pricing::OPUS_4_6.input_per_mtok, 5.00);
     assert_eq!(pricing::OPUS_4_6.output_per_mtok, 25.00);
     assert_eq!(pricing::OPUS_4_6.cache_write_per_mtok, 6.25);
     assert_eq!(pricing::OPUS_4_6.cache_read_per_mtok, 0.50);
-    assert_eq!(pricing::OPUS_4_7.input_per_mtok, 5.00);
-    assert_eq!(pricing::OPUS_4_7.output_per_mtok, 25.00);
-    assert_eq!(pricing::OPUS_4_7.cache_write_per_mtok, 6.25);
-    assert_eq!(pricing::OPUS_4_7.cache_read_per_mtok, 0.50);
+    assert_eq!(pricing::OPUS_4_8.input_per_mtok, 5.00);
+    assert_eq!(pricing::OPUS_4_8.output_per_mtok, 25.00);
+    assert_eq!(pricing::OPUS_4_8.cache_write_per_mtok, 6.25);
+    assert_eq!(pricing::OPUS_4_8.cache_read_per_mtok, 0.50);
     assert_eq!(pricing::HAIKU_4_5.input_per_mtok, 1.00);
     assert_eq!(pricing::HAIKU_4_5.output_per_mtok, 5.00);
     assert_eq!(pricing::HAIKU_4_5.cache_write_per_mtok, 1.25);

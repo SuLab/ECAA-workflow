@@ -1012,7 +1012,7 @@
               "type": "string"
             },
             "model": {
-              "description": "LLM model id used for the draft (e.g. `\"opus_4_7\"`).",
+              "description": "LLM model id used for the draft (e.g. `\"opus_4_8\"`).",
               "type": "string"
             },
             "proposal_id": {

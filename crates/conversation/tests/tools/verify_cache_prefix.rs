@@ -4,14 +4,14 @@
 //! annotated, so `cargo test` never runs it automatically. Invoke via
 //! `make verify-cache-prefix`.
 //!
-//! Background: Opus 4.7 requires a minimum cacheable prefix of 4096
+//! Background: Opus 4.8 requires a minimum cacheable prefix of 4096
 //! tokens for the cache to engage at all; Sonnet 4.6's minimum is 2048.
 //! Below those thresholds `cache_creation_input_tokens` silently stays
 //! at zero on every request — no error, just no caching. This test
 //! measures the real prefix we ship (via `build_system_prompt` +
 //! `tool_schemas_for_state`, on a bio session with a loaded taxonomy,
 //! matching the worst-case shape after the taxonomy-caching change) and
-//! asserts it clears the Opus 4.7 threshold. Regressions (e.g. slimming
+//! asserts it clears the Opus 4.8 threshold. Regressions (e.g. slimming
 //! the prompt below 4096 tokens) fail loudly the next time an operator
 //! runs this target.
 
@@ -57,7 +57,7 @@ async fn measure_cacheable_prefix_tokens() {
     // overhead from the reported total to isolate the prefix. The
     // endpoint is not billed.
     let payload = serde_json::json!({
-        "model": "claude-opus-4-7",
+        "model": "claude-opus-4-8",
         "system": system_blocks.iter().map(|b| serde_json::json!({
             "type": "text",
             "text": b.text,
@@ -109,16 +109,16 @@ async fn measure_cacheable_prefix_tokens() {
     println!("  system text bytes      : {}", total_prefix_bytes);
     println!("  tool schemas           : {}", tool_schemas.len());
     println!(
-        "  raw input_tokens       : {} (model=claude-opus-4-7)",
+        "  raw input_tokens       : {} (model=claude-opus-4-8)",
         total_tokens
     );
     println!("  prefix tokens (est)    : {}", prefix_tokens);
     println!(
-        "  Opus 4.7 min (4096)    : {}",
+        "  Opus 4.8 min (4096)    : {}",
         if opus_ok {
             "OK"
         } else {
-            "BELOW — cache silently inactive on Opus 4.7 escalation"
+            "BELOW — cache silently inactive on Opus 4.8 escalation"
         }
     );
     println!(
@@ -133,7 +133,7 @@ async fn measure_cacheable_prefix_tokens() {
 
     assert!(
         opus_ok,
-        "cacheable prefix is {} tokens, below Opus 4.7's {}-token minimum. \
+        "cacheable prefix is {} tokens, below Opus 4.8's {}-token minimum. \
          Opus escalation (CarefulMode / Blocked / LowConfidence) will silently \
          pay full input rate with no caching. See \
          and the \
@@ -144,7 +144,7 @@ async fn measure_cacheable_prefix_tokens() {
         sonnet_ok,
         "cacheable prefix is {} tokens, below Sonnet 4.6's {}-token minimum. \
          The default-model path is silently paying full input rate. This is \
-         worse than the Opus 4.7 case — Sonnet is our hot path.",
+         worse than the Opus 4.8 case — Sonnet is our hot path.",
         prefix_tokens, SONNET_46_MIN_TOKENS
     );
 }

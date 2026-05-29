@@ -444,8 +444,8 @@ impl SessionCounters {
         let total_cost_usd = total_cost.as_usd();
         // UI back-compat mirrors of the two historically surfaced models.
         // `opus_turns` / `opus_cost_usd` aggregate ALL Opus variants
-        // (4.6 + 4.7) so the UI row stays continuous across the 4.6→4.7
-        // escalation-target upgrade. Rendering of Opus 4.7 specifically
+        // (4.6 + 4.8) so the UI row stays continuous across the 4.6→4.8
+        // escalation-target upgrade. Rendering of Opus 4.8 specifically
         // flows through the `per_model_turns` / `per_model_cost_usd`
         // maps keyed by serde name.
         let sonnet_turns = self
@@ -680,7 +680,7 @@ pub(crate) fn read_session_token_budget() -> Option<u64> {
 /// is updated.
 ///
 /// Claude Code CLI reports context-window variants with a bracket
-/// suffix (e.g. `claude-opus-4-7[1m]`, `claude-sonnet-4-6[200k]`). The
+/// suffix (e.g. `claude-opus-4-8[1m]`, `claude-sonnet-4-6[200k]`). The
 /// `ModelId::api_id()` forms are un-suffixed, so we trim any trailing
 /// `[...]` segment before matching. Without this normalization every
 /// 1M-context Opus run misreports as Sonnet 4.6.

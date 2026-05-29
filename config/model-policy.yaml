@@ -18,25 +18,25 @@
 # Blocked episode pays Opus for exactly one turn.
 rules:
   - predicate: "careful_mode"
-    model: opus_4_7
+    model: opus_4_8
     reason: careful_mode
   - predicate: "state == blocked"
-    model: opus_4_7
+    model: opus_4_8
     reason: blocked
     one_shot_per_episode: true
-  # Below this confidence, the classifier routes the next turn to Opus 4.7 for
+  # Below this confidence, the classifier routes the next turn to Opus 4.8 for
   # careful_mode. Lowering increases Opus usage (and cost); raising lets more
   # uncertain decisions go to Sonnet (cheaper, less reliable on hard cases).
   # Override at runtime: ECAA_MODEL_ROUTING_CONFIDENCE_THRESHOLD=0.4 (must be
   # in [0, 1]).
   - predicate: "confidence < 0.3"
-    model: opus_4_7
+    model: opus_4_8
     reason: low_confidence
   - predicate: "side_call_kind == auto_title"
     model: haiku_4_5
     reason: side_call
   - predicate: "side_call_kind == remediation"
-    model: opus_4_7
+    model: opus_4_8
     reason: side_call
   - predicate: "always"
     model: sonnet_4_6

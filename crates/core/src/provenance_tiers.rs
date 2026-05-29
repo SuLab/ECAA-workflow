@@ -1118,7 +1118,7 @@ mod tests {
             "s1",
             DecisionType::RendererDraftRequested {
                 proposal_id: "prop-abc".into(),
-                model: "opus_4_7".into(),
+                model: "opus_4_8".into(),
             },
             DecisionActor::Llm,
             None,
@@ -1127,7 +1127,7 @@ mod tests {
         match out.decision {
             DecisionType::RendererDraftRequested { proposal_id, model } => {
                 assert_eq!(proposal_id, "prop-abc");
-                assert_eq!(model, "opus_4_7");
+                assert_eq!(model, "opus_4_8");
             }
             _ => panic!("wrong variant"),
         }
@@ -1142,7 +1142,7 @@ mod tests {
             "s1",
             DecisionType::RendererDraftRequested {
                 proposal_id: "prop-abc".into(),
-                model: "opus_4_7".into(),
+                model: "opus_4_8".into(),
             },
             DecisionActor::Llm,
             None,
@@ -1151,7 +1151,7 @@ mod tests {
         match out.decision {
             DecisionType::RendererDraftRequested { proposal_id, model } => {
                 assert_eq!(proposal_id, "prop-abc");
-                assert_eq!(model, "opus_4_7");
+                assert_eq!(model, "opus_4_8");
             }
             _ => panic!("wrong variant"),
         }
@@ -1165,7 +1165,7 @@ mod tests {
             "s1",
             DecisionType::RendererDraftRequested {
                 proposal_id: "prop-abc".into(),
-                model: "opus_4_7".into(),
+                model: "opus_4_8".into(),
             },
             DecisionActor::Llm,
             None,

@@ -36,7 +36,7 @@ MODEL_FLAG_ARGS=()
 if [ "${{ECAA_AGENT_MODEL_TIER:-1}}" = "1" ] && [ -n "${{ECAA_TASK_ID:-}}" ]; then
   case "$ECAA_TASK_ID" in
     discover_*|validate_*)
-      MODEL_FLAG_ARGS+=(--model claude-opus-4-7)
+      MODEL_FLAG_ARGS+=(--model claude-opus-4-8)
       ;;
     *)
       MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
@@ -61,16 +61,16 @@ echo "${{MODEL_FLAG_ARGS[@]:-NONE}}"
 fn discover_tasks_route_to_opus() {
     assert_eq!(
         pick_model("discover_normalisation", "1"),
-        "--model claude-opus-4-7",
+        "--model claude-opus-4-8",
         "discover_* must use Opus (method-selection is high-judgment)",
     );
     assert_eq!(
         pick_model("discover_differential_expression", "1"),
-        "--model claude-opus-4-7",
+        "--model claude-opus-4-8",
     );
     assert_eq!(
         pick_model("discover_pathway_enrichment", "1"),
-        "--model claude-opus-4-7",
+        "--model claude-opus-4-8",
     );
 }
 
@@ -78,16 +78,16 @@ fn discover_tasks_route_to_opus() {
 fn validate_tasks_route_to_opus() {
     assert_eq!(
         pick_model("validate_qc_preprocessing", "1"),
-        "--model claude-opus-4-7",
+        "--model claude-opus-4-8",
         "validate_* must use Opus (QC safety net catching Sonnet mistakes)",
     );
     assert_eq!(
         pick_model("validate_normalisation", "1"),
-        "--model claude-opus-4-7",
+        "--model claude-opus-4-8",
     );
     assert_eq!(
         pick_model("validate_final_reporting", "1"),
-        "--model claude-opus-4-7",
+        "--model claude-opus-4-8",
     );
 }
 

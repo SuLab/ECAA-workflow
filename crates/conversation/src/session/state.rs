@@ -425,7 +425,7 @@ pub struct Session {
     /// emit time and registered as an RO-Crate `CreativeWork`.
     #[serde(default)]
     pub decisions: Vec<DecisionRecord>,
-    /// When true, routes every turn to the Opus 4.7 escalation tier regardless of state or confidence.
+    /// When true, routes every turn to the Opus 4.8 escalation tier regardless of state or confidence.
     #[serde(default)]
     pub careful_mode: bool,
     /// Tracks whether the current Blocked-state episode has already

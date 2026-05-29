@@ -4,7 +4,7 @@
 //! proposal, the registry snapshot id, and the theme digest. Output:
 //! `DraftedRenderer { module_source, figure_ids, lints }`.
 //!
-//! Routed through `ModelPolicy::for_remediation_proposer()` (Opus 4.7)
+//! Routed through `ModelPolicy::for_remediation_proposer()` (Opus 4.8)
 //! to match the reasoning quality of the remediation proposer — the same
 //! model that handles structured-blocker resolution. One-shot structured-
 //! JSON output; the response is parsed directly as `DraftedRenderer`.
@@ -119,7 +119,7 @@ impl std::fmt::Display for DraftError {
     }
 }
 
-/// Ask Opus 4.7 (via `ModelPolicy::for_remediation_proposer()`) to draft
+/// Ask Opus 4.8 (via `ModelPolicy::for_remediation_proposer()`) to draft
 /// a Python renderer module for the given proposal.
 ///
 /// # Errors
@@ -411,7 +411,7 @@ mod tests {
         let req = sample_request(vec!["volcano"]);
         let _ = draft_renderer(backend.clone(), &metrics, id, &req).await;
         let reqs = backend.captured.lock().unwrap();
-        assert_eq!(reqs[0].model, ModelId::Opus47);
+        assert_eq!(reqs[0].model, ModelId::Opus48);
         assert_eq!(reqs[0].model, ModelPolicy::for_remediation_proposer());
     }
 

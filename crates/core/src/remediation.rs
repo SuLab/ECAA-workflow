@@ -1,6 +1,6 @@
 //! Remediation suggestion + override types.
 //!
-//! `RemediationSuggestion` is what the proposer (Opus 4.7 side-call)
+//! `RemediationSuggestion` is what the proposer (Opus 4.8 side-call)
 //! produces from a `ToolErrorEnvelope`. The UI renders ranked
 //! suggestions; the SME clicks "Apply & resume"; the server
 //! translates the suggestion to:

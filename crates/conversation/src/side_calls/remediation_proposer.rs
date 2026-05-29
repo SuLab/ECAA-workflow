@@ -3,7 +3,7 @@
 //! Input: a `ToolErrorEnvelope` + optional stage-taxonomy / intake-fact
 //! context. Output: a ranked `Vec<RemediationSuggestion>` (1–3 items).
 //!
-//! Routed through `ModelPolicy::for_remediation_proposer()` (Opus 4.7
+//! Routed through `ModelPolicy::for_remediation_proposer()` (Opus 4.8
 //! today — same model the main conversation escalates to on Blocked
 //! state, so the proposer's reasoning quality matches what the SME
 //! sees in chat). One-shot, structured-JSON output; we parse the
@@ -367,7 +367,7 @@ mod tests {
         let ctx = ProposerContext::default();
         let _ = propose_remediations(backend.clone(), &metrics, id, &oom_envelope(), &ctx).await;
         let reqs = backend.captured.lock().unwrap();
-        assert_eq!(reqs[0].model, ModelId::Opus47);
+        assert_eq!(reqs[0].model, ModelId::Opus48);
         assert_eq!(reqs[0].model, ModelPolicy::for_remediation_proposer());
     }
 

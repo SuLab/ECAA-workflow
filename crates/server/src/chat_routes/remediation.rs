@@ -4,7 +4,7 @@
 //!
 //! * `GET /api/chat/session/:id/task/:task_id/remediation-suggestions`
 //!   — reads `runtime/outputs/<task_id>/error.json`, runs the proposer
-//!   side-call (Opus 4.7) on cache miss, returns ranked
+//!   side-call (Opus 4.8) on cache miss, returns ranked
 //!   `Vec<RemediationSuggestion>`. Cached on `(session, task,
 //! envelope.captured_at)` to keep re-fetches free; a fresh
 //!   envelope (different captured_at) always re-proposes.
@@ -98,7 +98,7 @@ pub(super) async fn get_remediation_suggestions(
     State(app): State<ChatAppState>,
     Path((session_id, task_id)): Path<(uuid::Uuid, String)>,
 ) -> impl IntoResponse {
-    // remediation-suggestions endpoint fires an Opus 4.7 side-call on
+    // remediation-suggestions endpoint fires an Opus 4.8 side-call on
     // cache miss (~$0.05/invocation). Cap at 6/min per session — well
     // above the MAX_REMEDIATION_ATTEMPTS=5 ceiling so legitimate
     // retries are never blocked, but tight enough that a refresh loop

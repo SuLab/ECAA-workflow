@@ -850,7 +850,7 @@ pub fn build_messages_payload(req: &TurnRequest) -> serde_json::Value {
         "messages": messages,
         "tools": tools,
     });
-    if !matches!(req.model, crate::model_policy::ModelId::Opus47) {
+    if !matches!(req.model, crate::model_policy::ModelId::Opus48) {
         payload["temperature"] = json!(req.temperature);
     }
     if let Some(choice) = &req.tool_choice {

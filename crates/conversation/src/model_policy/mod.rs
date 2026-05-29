@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 /// Anthropic model identifier used for routing and pricing.
 ///
 /// Serializes to the snake_case API-name form (`sonnet_4_6`,
-/// `opus_4_7`, …) so sidecar `per_model_*` map keys are stable
+/// `opus_4_8`, …) so sidecar `per_model_*` map keys are stable
 /// across renames.
 pub enum ModelId {
     // Explicit renames so the snake_case serialization is unambiguous
@@ -41,15 +41,15 @@ pub enum ModelId {
     /// Claude Opus 4.6. Retained so historical sidecars written while
     /// Opus 4.6 was the escalation target still deserialize cleanly and
     /// their spend continues to roll up under `opus_cost_usd`. New
-    /// escalations route to `Opus47` (see `ModelPolicy::choose_with_reason`).
+    /// escalations route to `Opus48` (see `ModelPolicy::choose_with_reason`).
     #[serde(rename = "opus_4_6")]
     Opus46,
-    /// Claude Opus 4.7 — the current Opus escalation target. Same rate
+    /// Claude Opus 4.8 — the current Opus escalation target. Same rate
     /// card as 4.6 ($5 input / $25 output / $6.25 5-min cache write /
     /// $0.50 cache read per MTok) with a newer tokenizer and slightly
     /// different tool-use behavior.
-    #[serde(rename = "opus_4_7")]
-    Opus47,
+    #[serde(rename = "opus_4_8")]
+    Opus48,
     /// Claude Haiku 4.5 — cheaper, faster, smaller-context model. Not
     /// currently reachable via `ModelPolicy::choose`; variant lands now
     /// so the pricing table + metrics pipeline are ready for a future
@@ -64,17 +64,17 @@ impl ModelId {
         match self {
             ModelId::Sonnet46 => "claude-sonnet-4-6",
             ModelId::Opus46 => "claude-opus-4-6",
-            ModelId::Opus47 => "claude-opus-4-7",
+            ModelId::Opus48 => "claude-opus-4-8",
             ModelId::Haiku45 => "claude-haiku-4-5-20251001",
         }
     }
 
     /// True for any Opus variant. Used by the metrics snapshot to
-    /// aggregate Opus 4.6 + 4.7 into the legacy `opus_turns` /
+    /// aggregate Opus 4.6 + 4.8 into the legacy `opus_turns` /
     /// `opus_cost_usd` UI mirrors so the upgrade isn't a visual cliff
     /// for operators watching those rows.
     pub fn is_opus(self) -> bool {
-        matches!(self, ModelId::Opus46 | ModelId::Opus47)
+        matches!(self, ModelId::Opus46 | ModelId::Opus48)
     }
 
     /// Enumerate every variant. Used by metrics tests to assert every
@@ -83,7 +83,7 @@ impl ModelId {
     pub const ALL: &'static [ModelId] = &[
         ModelId::Sonnet46,
         ModelId::Opus46,
-        ModelId::Opus47,
+        ModelId::Opus48,
         ModelId::Haiku45,
     ];
 }
@@ -95,7 +95,7 @@ impl ModelId {
 ///
 /// `SideCall` was added alongside the routing-table
 /// refactor — auto-title (Haiku 4.5) and remediation-proposer (Opus
-/// 4.7) are both side-call routings now expressed as YAML rules.
+/// 4.8) are both side-call routings now expressed as YAML rules.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum EscalationReason {
@@ -172,7 +172,7 @@ impl ModelPolicy {
 
     /// Model used by the remediation proposer (`side_calls::
     /// remediation_proposer::propose_remediations`). Pinned to
-    /// **Opus 4.7** — the proposer reasons about specific library /
+    /// **Opus 4.8** — the proposer reasons about specific library /
     /// signal / error-class combinations against a closed taxonomy of
     /// 10 remediations, and the call only fires on a real failure
     /// (rare, and the SME is waiting). The reasoning quality matters
@@ -192,7 +192,7 @@ impl ModelPolicy {
     }
 }
 
-/// Return the serde wire name of a `ModelId` (`sonnet_4_6`, `opus_4_7`,
+/// Return the serde wire name of a `ModelId` (`sonnet_4_6`, `opus_4_8`,
 /// `haiku_4_5`). Useful when a caller wants to surface the model id in
 /// an HTTP response without pulling in `serde_json`. Falls back to the
 /// Debug name when serde fails (unreachable in practice).
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn careful_mode_forces_opus() {
         let s = Session::new(true);
-        assert_eq!(ModelPolicy::choose(&s), ModelId::Opus47);
+        assert_eq!(ModelPolicy::choose(&s), ModelId::Opus48);
     }
 
     #[test]
@@ -228,7 +228,7 @@ mod tests {
             confidence: 0.1,
             ..Default::default()
         });
-        assert_eq!(ModelPolicy::choose(&s), ModelId::Opus47);
+        assert_eq!(ModelPolicy::choose(&s), ModelId::Opus48);
     }
 
     #[test]
@@ -252,7 +252,7 @@ mod tests {
             context: None,
         };
         // First turn in the Blocked episode uses Opus.
-        assert_eq!(ModelPolicy::choose(&s), ModelId::Opus47);
+        assert_eq!(ModelPolicy::choose(&s), ModelId::Opus48);
     }
 
     #[test]
@@ -296,7 +296,7 @@ mod tests {
             !s.blocked_opus_escalation_consumed,
             "new Blocked episode must reset the escalation guard"
         );
-        assert_eq!(ModelPolicy::choose(&s), ModelId::Opus47);
+        assert_eq!(ModelPolicy::choose(&s), ModelId::Opus48);
     }
 
     #[test]
@@ -323,7 +323,7 @@ mod tests {
         let careful = Session::new(true);
         assert_eq!(
             ModelPolicy::choose_with_reason(&careful),
-            (ModelId::Opus47, Some(EscalationReason::CarefulMode))
+            (ModelId::Opus48, Some(EscalationReason::CarefulMode))
         );
 
         let mut blocked = Session::new(false);
@@ -336,7 +336,7 @@ mod tests {
         };
         assert_eq!(
             ModelPolicy::choose_with_reason(&blocked),
-            (ModelId::Opus47, Some(EscalationReason::Blocked))
+            (ModelId::Opus48, Some(EscalationReason::Blocked))
         );
 
         let mut low_conf = Session::new(false);
@@ -346,7 +346,7 @@ mod tests {
         });
         assert_eq!(
             ModelPolicy::choose_with_reason(&low_conf),
-            (ModelId::Opus47, Some(EscalationReason::LowConfidence))
+            (ModelId::Opus48, Some(EscalationReason::LowConfidence))
         );
 
         let sonnet = Session::new(false);
@@ -360,14 +360,14 @@ mod tests {
     fn api_ids_are_correct() {
         assert_eq!(ModelId::Sonnet46.api_id(), "claude-sonnet-4-6");
         assert_eq!(ModelId::Opus46.api_id(), "claude-opus-4-6");
-        assert_eq!(ModelId::Opus47.api_id(), "claude-opus-4-7");
+        assert_eq!(ModelId::Opus48.api_id(), "claude-opus-4-8");
         assert_eq!(ModelId::Haiku45.api_id(), "claude-haiku-4-5-20251001");
     }
 
     #[test]
     fn is_opus_covers_both_variants() {
         assert!(ModelId::Opus46.is_opus());
-        assert!(ModelId::Opus47.is_opus());
+        assert!(ModelId::Opus48.is_opus());
         assert!(!ModelId::Sonnet46.is_opus());
         assert!(!ModelId::Haiku45.is_opus());
     }

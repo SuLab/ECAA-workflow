@@ -448,7 +448,7 @@ fi
 # Routes the high-cognitive-load buckets to Opus and the deterministic /
 # code-execution buckets to Sonnet:
 #
-#   Opus (--model claude-opus-4-7):
+#   Opus (--model claude-opus-4-8):
 #     - discover_*  — method-selection over multiple candidate algorithms;
 #                     the choice constrains every downstream task, so the
 #                     stronger model picks better
@@ -462,7 +462,7 @@ fi
 #       (DESeq2, sctransform, harmony, etc.) and produce structured
 #       artifacts. These are well-bounded code-execution tasks where the
 #       method is already locked in; Sonnet 4.6 handles them at parity
-#       with Opus 4.7 in production runs while costing ~3× less.
+#       with Opus 4.8 in production runs while costing ~3× less.
 #
 # Quality safety nets that justify the tier split:
 #   1. validate_<task> runs AFTER <task> on Opus, with its own integrity
@@ -514,7 +514,7 @@ if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
       # discover_* tasks score methods via env-capability + spec
       # preferences. Opus's deeper analytical reasoning pays off
       # here when the candidate pool has subtle trade-offs.
-      MODEL_FLAG_ARGS+=(--model claude-opus-4-7)
+      MODEL_FLAG_ARGS+=(--model claude-opus-4-8)
       _BUDGET="${ECAA_AGENT_BUDGET_USD_DISCOVER:-1.50}"
       ;;
     data_acquisition|data_import)
@@ -533,7 +533,7 @@ if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
         ' "$PACKAGE/WORKFLOW.json" 2>/dev/null)"
       fi
       if [ "$TID_KIND" = "discovery" ]; then
-        MODEL_FLAG_ARGS+=(--model claude-opus-4-7)
+        MODEL_FLAG_ARGS+=(--model claude-opus-4-8)
         _BUDGET="${ECAA_AGENT_BUDGET_USD_DISCOVER:-1.50}"
       else
         MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
@@ -1202,7 +1202,7 @@ if [ -n "$TASK_DIR" ] && command -v jq >/dev/null 2>&1; then
   # lives on each `modelUsage` key. The original implementation tried
   # `(.model // "claude-sonnet-4-6")`, which silently wrote the literal
   # Sonnet 4.6 string into every sidecar regardless of what actually
-  # ran. That misprices Opus 4.7 runs at Sonnet rates downstream.
+  # ran. That misprices Opus 4.8 runs at Sonnet rates downstream.
   #
   # New extraction: pick the model entry with the highest costUSD as
   # the primary (drops tiny internal Haiku side-calls the CLI makes),

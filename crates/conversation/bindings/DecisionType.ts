@@ -297,7 +297,7 @@ sme_intent: string, } | { "kind": "renderer_draft_requested",
  */
 proposal_id: string, 
 /**
- * LLM model id used for the draft (e.g. `"opus_4_7"`).
+ * LLM model id used for the draft (e.g. `"opus_4_8"`).
  */
 model: string, } | { "kind": "renderer_draft_received", 
 /**
