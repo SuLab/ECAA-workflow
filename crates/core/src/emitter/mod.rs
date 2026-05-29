@@ -841,8 +841,8 @@ The package is a git repo. Every task you complete creates a commit so the SME c
 if [ ! -d \"$PACKAGE/.git\" ]; then\n\
   cd \"$PACKAGE\"\n\
   git init -q -b main\n\
-  git config user.name \"scripps-workflow-agent\"\n\
-  git config user.email \"agent@scripps-workflow.local\"\n\
+  git config user.name \"ecaa-workflow-agent\"\n\
+  git config user.email \"agent@ecaa-workflow.local\"\n\
   cat > .gitignore <<'EOF'\n\
 runtime/cache/\n\
 runtime/r-libs/\n\

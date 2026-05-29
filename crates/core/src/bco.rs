@@ -120,7 +120,7 @@ pub fn build_bco_at(
     // string (`now_rfc3339()` in production; fixture-stable values in
     // tests).
     let provenance_domain = json!({
-        "name": format!("Scripps Workflow composition {}", archetype_id),
+        "name": format!("ECAA-workflow composition {}", archetype_id),
         "version": "1.0.0",
         "license": "CC-BY-4.0",
         "created": created_at,
@@ -189,7 +189,7 @@ pub fn build_bco_at(
         .collect();
     let description_domain = json!({
         "keywords": [intake.modality.clone(), archetype_id.to_string()],
-        "platform": ["scripps-workflow"],
+        "platform": ["ecaa-workflow"],
         "pipeline_steps": pipeline_steps,
     });
 
@@ -224,7 +224,7 @@ pub fn build_bco_at(
     }
     let execution_domain = json!({
         "script": [],
-        "script_driver": "scripps-workflow-harness",
+        "script_driver": "ecaa-workflow-harness",
         "software_prerequisites": methods,
         "external_data_endpoints": [],
         "environment_variables": Value::Object(env_vars),
@@ -236,7 +236,7 @@ pub fn build_bco_at(
         // for non-clinical archetypes.
         "extension_domain": [
             {
-                "extension_schema": "https://scripps-workflow/bco-extensions/pccp-change-record/v1",
+                "extension_schema": "https://ecaa-workflow/bco-extensions/pccp-change-record/v1",
                 "change_records": []
             }
         ],

@@ -106,7 +106,7 @@ pub fn build_metadata(
             "conformsTo": {
                 "@id": "https://bioschemas.org/profiles/ComputationalWorkflow/1.0-RELEASE"
             },
-            "programmingLanguage": {"@id": "#scripps-workflow-dag"},
+            "programmingLanguage": {"@id": "#ecaa-workflow-dag"},
             "applicationSubCategory": {
                 "@id": format!("https://edamontology.org/{}", classification.edam_topic)
             },
@@ -120,9 +120,9 @@ pub fn build_metadata(
         }),
         // Computer language descriptor
         json!({
-            "@id": "#scripps-workflow-dag",
+            "@id": "#ecaa-workflow-dag",
             "@type": "ComputerLanguage",
-            "name": "Scripps Workflow DAG",
+            "name": "ECAA-workflow DAG",
             "version": &dag.version
         }),
         // Publisher

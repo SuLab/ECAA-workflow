@@ -1100,7 +1100,7 @@ fn prompt_md_includes_package_containment_and_git_sections() {
     // Git versioning section
     assert!(prompt.contains("Local git versioning"));
     assert!(prompt.contains("git init -q -b main"));
-    assert!(prompt.contains("scripps-workflow-agent"));
+    assert!(prompt.contains("ecaa-workflow-agent"));
     assert!(prompt.contains("git commit -q -m"));
     assert!(prompt.contains(".gitignore"));
     assert!(

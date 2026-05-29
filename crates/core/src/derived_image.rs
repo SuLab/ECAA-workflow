@@ -259,33 +259,33 @@ pub fn render_dockerfile(prereqs: &RuntimePrereqs) -> Option<String> {
     // the manifest is buildable (emitter.rs::copy_install_proxy), so
     // the COPY directives below resolve against the build context.
     //
-    // Layout in image: shims live at /opt/scripps-workflow/install-
+    // Layout in image: shims live at /opt/ecaa-workflow/install-
     // proxy/; real binaries move aside to /usr/local/bin/.real/<tool>;
     // /usr/local/bin/<tool> becomes a symlink to the shim, shadowing
     // the real binary for any PATH-driven invocation. Denied installs
     // exit 73 with a structured-JSON marker the harness translates to
     // BlockerKind::ProvisioningDenied. ECAA_PROVISIONING_DISABLE=1
     // bypasses the policy check (debugging only).
-    s.push_str("COPY runtime/install-proxy/_common.py /opt/scripps-workflow/install-proxy/\n");
-    s.push_str("COPY runtime/install-proxy/apt.py     /opt/scripps-workflow/install-proxy/\n");
-    s.push_str("COPY runtime/install-proxy/pip.py     /opt/scripps-workflow/install-proxy/\n");
-    s.push_str("COPY runtime/install-proxy/conda.py   /opt/scripps-workflow/install-proxy/\n");
-    s.push_str("COPY runtime/install-proxy/npm.py     /opt/scripps-workflow/install-proxy/\n");
-    s.push_str("COPY runtime/install-proxy/rscript.py /opt/scripps-workflow/install-proxy/\n");
-    s.push_str("COPY runtime/install-proxy/gem.py     /opt/scripps-workflow/install-proxy/\n");
+    s.push_str("COPY runtime/install-proxy/_common.py /opt/ecaa-workflow/install-proxy/\n");
+    s.push_str("COPY runtime/install-proxy/apt.py     /opt/ecaa-workflow/install-proxy/\n");
+    s.push_str("COPY runtime/install-proxy/pip.py     /opt/ecaa-workflow/install-proxy/\n");
+    s.push_str("COPY runtime/install-proxy/conda.py   /opt/ecaa-workflow/install-proxy/\n");
+    s.push_str("COPY runtime/install-proxy/npm.py     /opt/ecaa-workflow/install-proxy/\n");
+    s.push_str("COPY runtime/install-proxy/rscript.py /opt/ecaa-workflow/install-proxy/\n");
+    s.push_str("COPY runtime/install-proxy/gem.py     /opt/ecaa-workflow/install-proxy/\n");
     s.push_str("RUN set -eux; \\\n");
     s.push_str("    mkdir -p /usr/local/bin/.real; \\\n");
-    s.push_str("    chmod +x /opt/scripps-workflow/install-proxy/*.py; \\\n");
+    s.push_str("    chmod +x /opt/ecaa-workflow/install-proxy/*.py; \\\n");
     s.push_str("    for entry in \\\n");
-    s.push_str("      \"apt:/opt/scripps-workflow/install-proxy/apt.py\" \\\n");
-    s.push_str("      \"apt-get:/opt/scripps-workflow/install-proxy/apt.py\" \\\n");
-    s.push_str("      \"pip:/opt/scripps-workflow/install-proxy/pip.py\" \\\n");
-    s.push_str("      \"pip3:/opt/scripps-workflow/install-proxy/pip.py\" \\\n");
-    s.push_str("      \"conda:/opt/scripps-workflow/install-proxy/conda.py\" \\\n");
-    s.push_str("      \"mamba:/opt/scripps-workflow/install-proxy/conda.py\" \\\n");
-    s.push_str("      \"npm:/opt/scripps-workflow/install-proxy/npm.py\" \\\n");
-    s.push_str("      \"Rscript:/opt/scripps-workflow/install-proxy/rscript.py\" \\\n");
-    s.push_str("      \"gem:/opt/scripps-workflow/install-proxy/gem.py\"; do \\\n");
+    s.push_str("      \"apt:/opt/ecaa-workflow/install-proxy/apt.py\" \\\n");
+    s.push_str("      \"apt-get:/opt/ecaa-workflow/install-proxy/apt.py\" \\\n");
+    s.push_str("      \"pip:/opt/ecaa-workflow/install-proxy/pip.py\" \\\n");
+    s.push_str("      \"pip3:/opt/ecaa-workflow/install-proxy/pip.py\" \\\n");
+    s.push_str("      \"conda:/opt/ecaa-workflow/install-proxy/conda.py\" \\\n");
+    s.push_str("      \"mamba:/opt/ecaa-workflow/install-proxy/conda.py\" \\\n");
+    s.push_str("      \"npm:/opt/ecaa-workflow/install-proxy/npm.py\" \\\n");
+    s.push_str("      \"Rscript:/opt/ecaa-workflow/install-proxy/rscript.py\" \\\n");
+    s.push_str("      \"gem:/opt/ecaa-workflow/install-proxy/gem.py\"; do \\\n");
     s.push_str("      tool=\"${entry%%:*}\"; shim=\"${entry#*:}\"; \\\n");
     s.push_str("      if command -v \"$tool\" >/dev/null 2>&1; then \\\n");
     s.push_str("        real=\"$(command -v \"$tool\")\"; \\\n");
@@ -451,7 +451,7 @@ mod tests {
     fn dockerfile_includes_install_proxy_shims_when_buildable() {
         // The rendered Dockerfile must COPY all six
         // install-proxy shims (apt/pip/conda/npm/Rscript/gem plus
-        // shared _common.py) into /opt/scripps-workflow/install-proxy/
+        // shared _common.py) into /opt/ecaa-workflow/install-proxy/
         // and symlink /usr/local/bin/<tool> to the shim so the
         // shadowed binaries enforce atom.safety.provisioning at task
         // runtime. Regression guard for Task 5.8.
@@ -501,7 +501,7 @@ mod tests {
             "Dockerfile must symlink shims into /usr/local/bin/<tool>"
         );
         assert!(
-            df.contains("chmod +x /opt/scripps-workflow/install-proxy/"),
+            df.contains("chmod +x /opt/ecaa-workflow/install-proxy/"),
             "shims must be marked executable"
         );
     }

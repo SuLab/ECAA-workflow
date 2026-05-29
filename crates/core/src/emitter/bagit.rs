@@ -89,7 +89,7 @@ pub(super) fn write_bagit_manifest(
     let bagging_date = clock.now().format("%Y-%m-%d").to_string();
     let bag_info = format!(
         "Source-Organization: Scripps Research\n\
-         External-Description: scripps-workflow emitted RO-Crate package\n\
+         External-Description: ecaa-workflow emitted RO-Crate package\n\
          Bagging-Date: {bagging_date}\n\
          Payload-Oxum: {payload_octets}.{payload_streams}\n",
     );
