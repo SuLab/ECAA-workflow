@@ -35,7 +35,7 @@ runtime/scratch/
 runtime/outputs/
 
 # ── Server session store (operator runtime; created by chat server + tests) ─
-**/.scripps-workflow/
+**/.ecaa-workflow/
 **/.ecaa-workflow/
 
 # ── IDE / OS noise ───────────────────────────────────────────────────────────

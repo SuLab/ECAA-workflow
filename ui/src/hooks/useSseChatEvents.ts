@@ -356,7 +356,7 @@ export function useSseChatEvents(
           document.visibilityState === 'hidden'
         ) {
           notifyBlocker({
-            title: 'Scripps Workflow needs input',
+            title: 'ECAA-workflow needs input',
             body:
               (e.new_state as { reason?: string }).reason ??
               'A task is waiting on your decision.',

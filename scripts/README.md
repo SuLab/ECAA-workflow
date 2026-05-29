@@ -10,7 +10,7 @@ These scripts are the current active set, wired into the Rust workspace Make tar
 
 | Script | Purpose |
 |---|---|
-| `agent-claude.sh` | Invoked by `scripps-workflow-harness` as the execution agent. Takes a package directory, delegates the next ready task to Claude Code, and writes the task result back to `WORKFLOW.json`. Requires `ANTHROPIC_API_KEY`. |
+| `agent-claude.sh` | Invoked by `ecaa-workflow-harness` as the execution agent. Takes a package directory, delegates the next ready task to Claude Code, and writes the task result back to `WORKFLOW.json`. Requires `ANTHROPIC_API_KEY`. |
 | `agent-claude-aws.sh` | AWS executor variant of `agent-claude.sh`. Used when the harness is configured to delegate compute-heavy tasks to AWS instances. See [docs/remote-compute-operator-reference.md](../docs/remote-compute-operator-reference.md). |
 | `agent-claude-slurm.sh` | SLURM executor variant of `agent-claude.sh`. Submits the task via `sbatch` over SSH onto the configured partition; driven from the `SlurmExecutor` backend. |
 | `agent-mock-blocker.sh` | Deterministic mock blocker agent used by the UI tests and `conversation/tools/execution.rs`. No LLM dependency; emits a canned blocker to exercise `BlockerCard` dispatch paths. |
@@ -23,8 +23,8 @@ These scripts are the current active set, wired into the Rust workspace Make tar
 |---|---|---|
 | `test-e2e.sh` | `make e2e` | Smoke test: build, emit, inspect a small package. |
 | `test-ivd.sh` | `make ivd`, `make ivd-execute` | IVD real-world compile test. Asserts 25-task DAG and all Fix 1–8 artifacts. `KEEP_PACKAGE=1` preserves output at `/tmp/scripps-ivd-latest`. |
-| `test-ivd-chat.sh` | `make ivd-chat` | IVD scenario driven through deterministic `scripps-workflow chat`. Includes the lotz alignment closed-loop assertion via `scripts/helpers/lotz_ledger.py`. |
-| `test-ivd-chat-llm.sh` | `make ivd-chat-llm` | IVD scenario driven through LLM-mediated `scripps-workflow chat-llm`. Skipped without `ANTHROPIC_API_KEY`. |
+| `test-ivd-chat.sh` | `make ivd-chat` | IVD scenario driven through deterministic `ecaa-workflow chat`. Includes the lotz alignment closed-loop assertion via `scripts/helpers/lotz_ledger.py`. |
+| `test-ivd-chat-llm.sh` | `make ivd-chat-llm` | IVD scenario driven through LLM-mediated `ecaa-workflow chat-llm`. Skipped without `ANTHROPIC_API_KEY`. |
 | `test-ivd-web-execute.sh` | `make ivd-web-execute` | Web chat session + harness with `--session-id`, end-to-end with `curl + jq`. Skipped without `ANTHROPIC_API_KEY`. |
 | `test-ivd-web-execute-mock.sh` | `make ivd-web-execute-mock` | Mock-backend smoke of the web chat + harness path. No `ANTHROPIC_API_KEY` needed. |
 | `test-ivd-cross-version.sh` | `make ivd-cross-version` | IVD v1→v5 cross-version regression. Invoked from `rust.yml` on PR and on demand locally. |

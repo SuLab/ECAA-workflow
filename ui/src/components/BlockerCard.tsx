@@ -229,7 +229,7 @@ function titleFor(kind: BlockerKind | null | undefined, isDiscovery: boolean): s
       // `expected` but found `found` on disk; the MigrationRegistry
       // has no migrator covering the gap. Recovery: rebuild against
       // an upgraded loader, or migrate the manifest with the
-      // `scripps-workflow migrate-sessions`-style helper.
+      // `ecaa-workflow migrate-sessions`-style helper.
       return `${kind.config_kind} schema mismatch — expected ${kind.expected}, found ${kind.found}`
     case 'controlled_access_violation':
       return `Task ${kind.task_id} attempted ${kind.attempted_call} on controlled-access port ${kind.port_name}`

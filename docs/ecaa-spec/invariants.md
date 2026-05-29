@@ -254,7 +254,7 @@ specific deployment contexts; see operations.md §3.
     }
   ],
   "evaluator": {
-    "impl": "scripps-workflow-audit-proof",
+    "impl": "ecaa-workflow-audit-proof",
     "version": "1.0.0",
     "policy": "warn-only"
   }

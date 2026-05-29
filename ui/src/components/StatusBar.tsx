@@ -22,7 +22,7 @@ export default function StatusBar({ mode, modality, packagePath, onReset }: Prop
       flexShrink: 0,
     }}>
       <span style={{ fontWeight: 700, color: 'var(--color-chrome-fg)', letterSpacing: '-0.01em' }}>
-        Scripps Workflow
+        ECAA-workflow
       </span>
       <span style={{
         padding: '2px 7px', borderRadius: 4,

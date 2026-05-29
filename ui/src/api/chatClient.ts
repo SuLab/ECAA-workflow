@@ -1017,7 +1017,7 @@ export interface TaskResultPayload {
   task_id: string
   status: TaskResultStatus
   description: string
-  // Serialized `scripps_workflow_core::dag::TaskKind`.
+  // Serialized `ecaa_workflow_core::dag::TaskKind`.
   kind: unknown
   artifacts: ArtifactRef[]
   // Present when status === 'completed'.

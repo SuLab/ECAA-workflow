@@ -25,7 +25,7 @@
     {"name": "Huebschen, Alan", "affiliation": "The Scripps Research Institute"}
   ],
   "related_identifiers": [
-    {"identifier": "https://github.com/scripps-workflow/awa-workflow", "relation": "isSupplementedBy", "resource_type": "software"},
+    {"identifier": "https://github.com/SuLab/ECAA-workflow", "relation": "isSupplementedBy", "resource_type": "software"},
     {"identifier": "https://w3id.org/ecaa/v0.1", "relation": "isIdenticalTo", "resource_type": "publication-other"}
   ]
 }

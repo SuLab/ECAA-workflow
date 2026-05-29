@@ -139,7 +139,7 @@ export default function App() {
       }}
     >
       <strong style={{ fontSize: '0.95rem', letterSpacing: '-0.01em' }}>
-        Scripps Workflow
+        ECAA-workflow
       </strong>
       <span
         style={{

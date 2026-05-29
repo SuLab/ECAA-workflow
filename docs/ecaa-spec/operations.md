@@ -46,7 +46,7 @@ All other sidecars and the `ro-crate-metadata.json` descriptor MUST be byte-repr
 
 ### 1.5 Reference implementation
 
-`scripps-workflow intake` (non-interactive path) + `scripps-workflow build` (taxonomy-driven path). Both exit after emission; neither requires a live LLM connection in the deterministic path.
+`ecaa-workflow intake` (non-interactive path) + `ecaa-workflow build` (taxonomy-driven path). Both exit after emission; neither requires a live LLM connection in the deterministic path.
 
 ## 2. `amend`
 
@@ -73,7 +73,7 @@ The chain `P₀ →amend P₁ →amend P₂ →amend … →amend Pₙ` MUST be 
 
 ### 2.5 Reference implementation
 
-`scripps-workflow chat` `/amend` slash-command, mediated by the `amend_stage_method` LLM tool, gated by the deterministic server-state `Amending{target_stage, invalidated_tasks}` transition.
+`ecaa-workflow chat` `/amend` slash-command, mediated by the `amend_stage_method` LLM tool, gated by the deterministic server-state `Amending{target_stage, invalidated_tasks}` transition.
 
 ## 3. `re-execute`
 

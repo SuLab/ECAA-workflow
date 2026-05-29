@@ -26,7 +26,7 @@ Run `make ecaa-spec-check` to verify cross-document consistency, JSON-Schema syn
 
 ## Reference implementation
 
-`awa-workflow` (this repository's Rust workspace) is the first open-source reference implementation of ECAA. The conformance suite (`crates/ecaa-conformance/`) is implementation-independent — any second-implementation candidate passing the 5-bar conformance check in `v0.1.md` §8 may claim ECAA-v0.1 compliance regardless of source.
+`ECAA-workflow` (this repository's Rust workspace) is the first open-source reference implementation of ECAA. The conformance suite (`crates/ecaa-conformance/`) is implementation-independent — any second-implementation candidate passing the 5-bar conformance check in `v0.1.md` §8 may claim ECAA-v0.1 compliance regardless of source.
 
 The Rust binding of the typed object model lives in [`crates/ecaa-types/`](../../crates/ecaa-types/). Second-implementation candidates in Rust MAY depend on this small focused crate; candidates in other languages implement the types from the spec directly.
 

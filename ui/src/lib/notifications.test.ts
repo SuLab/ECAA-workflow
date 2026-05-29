@@ -110,7 +110,7 @@ describe('notifyBlocker', () => {
 describe('blinkTitle', () => {
   beforeEach(() => {
     vi.useFakeTimers()
-    document.title = 'Scripps Workflow'
+    document.title = 'ECAA-workflow'
   })
   afterEach(() => {
     vi.useRealTimers()
@@ -122,6 +122,6 @@ describe('blinkTitle', () => {
     vi.advanceTimersByTime(1000)
     expect(document.title).toMatch(/⚠/)
     vi.advanceTimersByTime(1000)
-    expect(document.title).toBe('Scripps Workflow')
+    expect(document.title).toBe('ECAA-workflow')
   })
 })

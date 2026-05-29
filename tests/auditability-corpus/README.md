@@ -89,7 +89,7 @@ adversarial extensions.
 Run a dry-pass (no live data required):
 
 ```bash
-cargo test -p scripps-workflow-core claim_verifier
+cargo test -p ecaa-workflow-core claim_verifier
 ```
 
 Run the full Tier 20.1 ROC scorer (requires emitted packages):

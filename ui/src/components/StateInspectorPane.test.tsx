@@ -281,7 +281,7 @@ describe('DocumentsPane — post-emit artifact listing', () => {
   })
 
   it('lists the four canonical artifacts and the package path when emitted', () => {
-    const pkgDir = '/home/alan/.scripps-workflow/packages/abc-bulk_rnaseq-20260417T120000'
+    const pkgDir = '/home/alan/.ecaa-workflow/packages/abc-bulk_rnaseq-20260417T120000'
     render(
       <DocumentsPane
         state={makeSnapshot({

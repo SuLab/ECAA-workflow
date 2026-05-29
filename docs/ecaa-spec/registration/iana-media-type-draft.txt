@@ -36,7 +36,7 @@ Published specification:
 Applications that use this media type:
     ECAA-v0.1-conformant emitters, readers, and conformance-suite
     implementations. The open-source reference implementation is
-    awa-workflow (https://github.com/scripps-workflow/awa-workflow).
+    ECAA-workflow (https://github.com/SuLab/ECAA-workflow).
 
 Fragment identifier considerations:
     not applicable.

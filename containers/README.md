@@ -1,6 +1,6 @@
 # Containers
 
-scripps-workflow's container plumbing follows a **layered** architecture (Stage 15). One universal analysis base — `bio-min` — extends out into per-domain images that add domain-specific tooling on top.
+ecaa-workflow's container plumbing follows a **layered** architecture (Stage 15). One universal analysis base — `bio-min` — extends out into per-domain images that add domain-specific tooling on top.
 
 ```
 ghcr.io/scripps/bio-min:v0.1.0-eval         ← universal base (Python+R+aligners+QC)

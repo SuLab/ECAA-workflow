@@ -53,7 +53,7 @@ The Makefile target re-runs every regen from scratch (clears stale `GAP.txt` / `
 ### Parity check
 
 ```
-cargo test -p scripps-workflow-core --test composer_v4_parity_corpus -- --ignored v4_parity_corpus_matches_v2_baseline
+cargo test -p ecaa-workflow-core --test composer_v4_parity_corpus -- --ignored v4_parity_corpus_matches_v2_baseline
 ```
 
 Reads `v2-baseline.json` and `v4-emission/WORKFLOW.json` for each scenario, computes `v2_atoms = WORKFLOW.json::tasks.keys()` and `v4_atoms = …`, and asserts:
@@ -108,4 +108,4 @@ Before Phase 5 can flip the default, the following must all be true:
 - [ ] `composer_v4::plan` produces a `WorkflowDag` whose lowering passes `validate_dag` for every scenario (no cycles).
 - [ ] The v4 atom selection narrows to goal-relevant producers (modality / archetype-aware filter on the agentic / wide-spectrum atom set).
 - [ ] The v4 planner synthesizes the `validate_*` companion stages that the v2 archetype path emits via the builder's `validate_*` wrapper convention.
-- [ ] `make v4-parity-emit && cargo test -p scripps-workflow-core --test composer_v4_parity_corpus -- --ignored v4_parity_corpus_matches_v2_baseline` exits with all eight scenarios GREEN and zero documented gaps.
+- [ ] `make v4-parity-emit && cargo test -p ecaa-workflow-core --test composer_v4_parity_corpus -- --ignored v4_parity_corpus_matches_v2_baseline` exits with all eight scenarios GREEN and zero documented gaps.

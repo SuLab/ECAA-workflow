@@ -18,7 +18,7 @@ from pathlib import Path
 @dataclasses.dataclass
 class Policy:
     """Per-task install-time policy. Read from
-    /etc/scripps-workflow/provisioning.json by default (or wherever
+    /etc/ecaa-workflow/provisioning.json by default (or wherever
     ECAA_PROVISIONING_POLICY points)."""
 
     provisioning: str  # "sealed" | "declared_only" | "allowlisted"
@@ -44,11 +44,11 @@ EXIT_POLICY_MISSING = 74
 
 def _policy_path_default() -> str:
     """Resolve the policy file location. ECAA_PROVISIONING_POLICY
-    overrides the default `/etc/scripps-workflow/provisioning.json`."""
+    overrides the default `/etc/ecaa-workflow/provisioning.json`."""
 
     return os.environ.get(
         "ECAA_PROVISIONING_POLICY",
-        "/etc/scripps-workflow/provisioning.json",
+        "/etc/ecaa-workflow/provisioning.json",
     )
 
 

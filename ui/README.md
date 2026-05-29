@@ -1,8 +1,8 @@
-# Scripps Workflow UI
+# ECAA-workflow UI
 
 > **This file is for frontend developers.** Domain scientists should start with [`../USERS.md`](../USERS.md) — not this README.
 
-React + Vite + TypeScript frontend for `scripps-workflow-server`. A natural-chat conversation surface: the SME describes their project in plain prose, the server drives an LLM-mediated tool-use loop against the deterministic compiler, and the UI renders the chat timeline, the planning DAG, and live harness progress in a split-pane layout.
+React + Vite + TypeScript frontend for `ecaa-workflow-server`. A natural-chat conversation surface: the SME describes their project in plain prose, the server drives an LLM-mediated tool-use loop against the deterministic compiler, and the UI renders the chat timeline, the planning DAG, and live harness progress in a split-pane layout.
 
 There are **no forms, no modals, and no DAG vocabulary in the user-facing surface**. Confirmation, SME input, structured capture, and blocker handling all render as in-chat turn cards.
 
@@ -182,4 +182,4 @@ ts-rs types are regenerated via `make types`; don't hand-edit files in `ui/src/t
 make ui          # runs make types, then npm install && npx vite build
 ```
 
-Output lands in `ui/dist/`. The server serves this directory statically via `tower_http::services::ServeDir` (wired in `crates/server/src/main.rs`). For deploy, run `scripps-workflow serve --port 3000` with `ui/dist/` present.
+Output lands in `ui/dist/`. The server serves this directory statically via `tower_http::services::ServeDir` (wired in `crates/server/src/main.rs`). For deploy, run `ecaa-workflow serve --port 3000` with `ui/dist/` present.

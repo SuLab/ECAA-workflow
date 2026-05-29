@@ -1,4 +1,4 @@
-# scripps-workflow-e2e — Playwright end-to-end tests
+# ecaa-workflow-e2e — Playwright end-to-end tests
 
 End-to-end tests for the natural-chat web UI under `ui/`. Two tiers:
 
@@ -13,7 +13,7 @@ End-to-end tests for the natural-chat web UI under `ui/`. Two tiers:
   `testdata/scenarios/`) and standalone composer / cross-version-diff /
   pilot / stall coverage. Runs on every PR. Authoritative spec + case
   count in [`.github/ci/expected-test-counts.json::playwright_mocked_total`](../.github/ci/expected-test-counts.json) (currently 151 cases).
-- **Live (`PLAYWRIGHT_LIVE=1`)** — boots the real `scripps-workflow-server`
+- **Live (`PLAYWRIGHT_LIVE=1`)** — boots the real `ecaa-workflow-server`
   via Playwright's `webServer` config and drives the IVD walkthrough plus
   every scenario against the live Anthropic API. Authoritative count in
   [`expected-test-counts.json::playwright_live_total`](../.github/ci/expected-test-counts.json) (currently 28 cases). Runs on demand and nightly.

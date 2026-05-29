@@ -261,5 +261,5 @@ USER bio:bio
 # `claude` arg gets interpreted as a script-file path instead of a
 # command on PATH, which broke the first bio-min:local agent
 # dispatch (2026-05-24). Leaving entrypoint unset matches the
-# `scripps-workflow-agent:local` baseline so agent-claude.sh works
+# `ecaa-workflow-agent:local` baseline so agent-claude.sh works
 # byte-identically against either image.

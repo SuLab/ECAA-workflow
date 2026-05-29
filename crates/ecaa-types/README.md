@@ -2,7 +2,7 @@
 
 Canonical Rust binding of the ECAA v0.1 typed object model.
 
-This crate is the small, focused dependency a second Rust-language ECAA implementation can import to get the canonical types without pulling in the full `awa-workflow` compiler.
+This crate is the small, focused dependency a second Rust-language ECAA implementation can import to get the canonical types without pulling in the full `ECAA-workflow` compiler.
 
 **Spec:** [`docs/ecaa-spec/v0.1.md`](../../docs/ecaa-spec/v0.1.md)
 **Spec profile IRI:** `https://w3id.org/ecaa/v0.1`
@@ -21,7 +21,7 @@ Closed types and constants downstream consumers bind to:
 
 ## How consumers should import
 
-- **First-party code** (the `awa-workflow` workspace itself): use the `scripps_workflow_core::blocker::*` re-exports so call sites stay stable across future internal moves.
+- **First-party code** (the `ECAA-workflow` workspace itself): use the `ecaa_workflow_core::blocker::*` re-exports so call sites stay stable across future internal moves.
 - **Second implementations** (a different Rust ECAA producer): depend on `ecaa-workflow-types` directly. The crate has no async runtime, no filesystem access, and no environment access, so it's safe to vendor into a minimal compiler.
 
 A second Rust-language ECAA implementation imports this crate, uses serde to deserialize sidecar JSON into the moved types, applies its own invariant-checking logic, and emits its own `audit-proof-report.json` per the normative shape.

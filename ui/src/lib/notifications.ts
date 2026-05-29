@@ -11,7 +11,7 @@
 import { TITLE_BLINK_INTERVAL_MS } from './polling'
 
 const PROMPT_DISMISSED_KEY = 'swfc.notifications.promptDismissed'
-const BLINK_TITLE = '⚠ Scripps Workflow'
+const BLINK_TITLE = '⚠ ECAA-workflow'
 
 export type NotificationPermissionState =
   | 'default'
@@ -112,7 +112,7 @@ export function blinkTitle(): void {
   originalTitle = document.title
   let showWarning = true
   blinkInterval = window.setInterval(() => {
-    document.title = showWarning ? BLINK_TITLE : originalTitle ?? 'Scripps Workflow'
+    document.title = showWarning ? BLINK_TITLE : originalTitle ?? 'ECAA-workflow'
     showWarning = !showWarning
   }, TITLE_BLINK_INTERVAL_MS)
   const stop = () => {

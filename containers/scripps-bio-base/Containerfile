@@ -106,7 +106,7 @@ FROM debian:12.7-slim
 
 LABEL org.opencontainers.image.title="scripps-bio-base"
 LABEL org.opencontainers.image.description="Baseline bioinformatics image — Python 3.12 scientific stack + R-via-rocker bridge"
-LABEL org.opencontainers.image.source="https://github.com/scripps/scripps-workflow"
+LABEL org.opencontainers.image.source="https://github.com/SuLab/ECAA-workflow"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.vendor="Scripps Research"
 LABEL plan.scripps.workflow.adr="0024,0026"

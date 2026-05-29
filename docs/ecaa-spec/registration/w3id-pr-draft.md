@@ -16,8 +16,8 @@ ecaa/v0.1/index.html
 ```apache
 RewriteEngine On
 RewriteBase /ecaa
-RewriteRule ^$ https://github.com/scripps-workflow/awa-workflow/tree/main/docs/ecaa-spec [R=303,L]
-RewriteRule ^v0.1$ https://github.com/scripps-workflow/awa-workflow/blob/main/docs/ecaa-spec/v0.1.md [R=303,L]
+RewriteRule ^$ https://github.com/SuLab/ECAA-workflow/tree/main/docs/ecaa-spec [R=303,L]
+RewriteRule ^v0.1$ https://github.com/SuLab/ECAA-workflow/blob/main/docs/ecaa-spec/v0.1.md [R=303,L]
 RewriteRule ^ns/0.1#?(.*)$ https://w3id.org/ecaa/ns/0.1 [R=303,L]
 ```
 
@@ -26,8 +26,8 @@ RewriteRule ^ns/0.1#?(.*)$ https://w3id.org/ecaa/ns/0.1 [R=303,L]
 ```markdown
 This PR registers permanent IRIs for the **Evidence-Carrying Analysis Artifact (ECAA)** specification, a published bioinformatics analysis-package conformance contract.
 
-- Specification: https://github.com/scripps-workflow/awa-workflow/blob/main/docs/ecaa-spec/v0.1.md
-- Reference implementation: https://github.com/scripps-workflow/awa-workflow
+- Specification: https://github.com/SuLab/ECAA-workflow/blob/main/docs/ecaa-spec/v0.1.md
+- Reference implementation: https://github.com/SuLab/ECAA-workflow
 - Authority: PAR-26-040 / NIH NLM R01 grant (PD/PI alan@scripps).
 - Open-source license: Apache-2.0.
 - Domain: bioinformatics analysis provenance + machine-checkable claim-to-evidence binding.

@@ -66,7 +66,7 @@ Schema + consistency validation runs as part of the core unit-test
 suite:
 
 ```sh
-cargo test -p scripps-workflow-core --lib atom_registry
+cargo test -p ecaa-workflow-core --lib atom_registry
 ```
 
 The test fixtures use tempdirs, so the suite covers correctness of the
