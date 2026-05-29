@@ -279,6 +279,218 @@ fn register_ro_crate_entity(
 /// Figure entities whose task has NO affordance record at all (e.g.,
 /// legacy atoms with no outputs AND no edam_data) are left un-flagged
 /// — absence is treated as legacy/Validated by convention.
+/// Phase A3 (flexible-plotting resolver wiring) — stamp `ecaax:provisional` +
+/// `ecaax:affordanceVariant` on every `ImageObject` whose owning task resolved
+/// to a non-Registered (provisional) affordance. The owning task_id is parsed
+/// from the figure's `@id` path (`runtime/outputs/<task_id>/figures/<fig>.png`).
+/// Entities whose task has no affordance record are left unflagged — absence
+/// is treated as legacy/Validated by convention.
+fn flag_provisional_image_objects(
+    graph: &mut [serde_json::Value],
+    affordance_by_task: &BTreeMap<String, (bool, &'static str)>,
+) {
+    if affordance_by_task.is_empty() {
+        return;
+    }
+    for entity in graph.iter_mut() {
+        let is_image_object = entity
+            .get("@type")
+            .and_then(|v| v.as_array())
+            .is_some_and(|arr| arr.iter().any(|x| x.as_str() == Some("ImageObject")));
+        if !is_image_object {
+            continue;
+        }
+        let task_id = entity.get("@id").and_then(|v| v.as_str()).and_then(|id| {
+            id.strip_prefix("runtime/outputs/")
+                .and_then(|rest| rest.split('/').next())
+                .map(str::to_string)
+        });
+        let Some(task_id) = task_id else { continue };
+        let Some((provisional, variant_tag)) = affordance_by_task.get(&task_id) else {
+            continue;
+        };
+        if !*provisional {
+            continue;
+        }
+        if let Some(obj) = entity.as_object_mut() {
+            obj.insert(
+                "ecaax:provisional".to_string(),
+                serde_json::Value::Bool(true),
+            );
+            obj.insert(
+                "ecaax:affordanceVariant".to_string(),
+                serde_json::Value::String(variant_tag.to_string()),
+            );
+        }
+    }
+}
+
+/// Append `{"@id": id}` to a root-Dataset `hasPart` array if not already present.
+fn push_part_if_absent(parts: &mut Vec<serde_json::Value>, id: &str) {
+    let present = parts
+        .iter()
+        .any(|p| p.get("@id").and_then(|v| v.as_str()) == Some(id));
+    if !present {
+        parts.push(serde_json::json!({ "@id": id }));
+    }
+}
+
+/// Link the conversation/decision logs, registered semantic sidecars, and (when
+/// present) the cross-version diff files into the root Dataset's `hasPart`.
+/// Idempotent per `@id`.
+fn link_root_has_parts(
+    parts: &mut Vec<serde_json::Value>,
+    decisions_id: &str,
+    diff_json_id: &str,
+    linked_semantic_ids: &[String],
+    diff_tables: &[String],
+    diff_written: bool,
+) {
+    push_part_if_absent(parts, "runtime/intake-conversation.jsonl");
+    push_part_if_absent(parts, decisions_id);
+    // Semantic sidecars registered above (incl. plot_affordances.jsonl).
+    for sid in linked_semantic_ids {
+        push_part_if_absent(parts, sid);
+    }
+    if diff_written {
+        push_part_if_absent(parts, diff_json_id);
+        for csv_name in diff_tables {
+            push_part_if_absent(parts, &format!("runtime/{}", csv_name));
+        }
+    }
+}
+
+/// Annotate the root Dataset with `schema:isBasedOn` pointing at the parent
+/// package's `results/tables/`. Idempotent: skip if the URI is already present;
+/// if an existing value has a different `@id`, keep it and append ours as an
+/// array entry rather than overwriting.
+fn annotate_is_based_on(root: &mut serde_json::Value, uri: &str) {
+    let new_entry = serde_json::json!({ "@id": uri });
+    match root.get("schema:isBasedOn").cloned() {
+        None => {
+            root.as_object_mut()
+                .expect("root Dataset is a JSON object")
+                .insert("schema:isBasedOn".to_string(), new_entry);
+        }
+        Some(serde_json::Value::Object(map)) => {
+            let existing_id = map.get("@id").and_then(|v| v.as_str());
+            if existing_id != Some(uri) {
+                // Different existing value — preserve it and append ours.
+                let array =
+                    serde_json::Value::Array(vec![serde_json::Value::Object(map), new_entry]);
+                root.as_object_mut()
+                    .expect("root Dataset is a JSON object")
+                    .insert("schema:isBasedOn".to_string(), array);
+            }
+        }
+        Some(serde_json::Value::Array(mut arr)) => {
+            let exists = arr
+                .iter()
+                .any(|v| v.get("@id").and_then(|s| s.as_str()) == Some(uri));
+            if !exists {
+                arr.push(new_entry);
+                root.as_object_mut()
+                    .expect("root Dataset is a JSON object")
+                    .insert(
+                        "schema:isBasedOn".to_string(),
+                        serde_json::Value::Array(arr),
+                    );
+            }
+        }
+        Some(_) => {
+            eprintln!(
+                "warn: ro-crate-metadata.json root Dataset has a non-object/array schema:isBasedOn value; skipping cross-version-diff annotation"
+            );
+        }
+    }
+}
+
+/// v3 P5 F16 — PHI-scope leak detection. After every JSONL sidecar is
+/// registered + linked, scan each existing one for PHI patterns under the
+/// requested redaction tier. A non-empty leak set at any non-`Private` tier is
+/// a hard refusal (`bail!`) so the package never ships PHI under the wrong
+/// privacy class. `detect_phi_leak` short-circuits on `Private`, so this is
+/// free for the default tier.
+async fn scan_sidecars_for_phi(
+    output_dir: &Path,
+    scanned_sidecars: &[&str],
+    target_tier: ProvenanceTier,
+) -> Result<()> {
+    for sid in scanned_sidecars {
+        let file_path = output_dir.join(sid);
+        let exists = tokio::fs::try_exists(&file_path).await.unwrap_or(false);
+        if !exists {
+            continue;
+        }
+        let bytes = tokio::fs::read(&file_path)
+            .await
+            .with_context(|| format!("v3 P5 F16: reading {}", file_path.display()))?;
+        let text = String::from_utf8_lossy(&bytes);
+        let leaks = detect_phi_leak(&text, target_tier);
+        if leaks.is_empty() {
+            continue;
+        }
+        // Build a compact human-readable summary; the structured findings
+        // remain in `leaks` for future telemetry.
+        let mut summary = format!(
+            "v3 P5 F16: PHI-scope leak detected in {} under tier {:?} ({} finding{}):",
+            sid,
+            target_tier,
+            leaks.len(),
+            if leaks.len() == 1 { "" } else { "s" },
+        );
+        for leak in leaks.iter().take(5) {
+            summary.push_str(&format!(
+                "\n  line {} field {} pattern {}",
+                leak.line, leak.field, leak.pattern_name
+            ));
+        }
+        if leaks.len() > 5 {
+            summary.push_str(&format!("\n  … {} more leaks suppressed", leaks.len() - 5));
+        }
+        bail!(summary);
+    }
+    Ok(())
+}
+
+/// Register the cross-version diff report + per-table CSV entities (idempotent)
+/// and return the parent package's `results/tables/` URI for the
+/// `schema:isBasedOn` annotation, read best-effort from the diff report's
+/// `parent_package` field. Returns `None` if the report is unreadable/unparseable
+/// or carries no parent.
+async fn register_cross_version_diff(
+    graph: &mut Vec<serde_json::Value>,
+    output_dir: &Path,
+    diff_json_id: &str,
+    diff_tables: &[String],
+) -> Option<String> {
+    register_ro_crate_entity(
+        graph,
+        diff_json_id,
+        "Cross-version diff report",
+        "Per-row robust/concordant/discordant classification comparing this package's results/tables/ to the parent package's. Generated at emit time when lineage.parent_emitted_package_path is set.",
+        "application/json",
+    );
+    for csv_name in diff_tables {
+        let id = format!("runtime/{}", csv_name);
+        let name = format!("Cross-version diff: {}", csv_name);
+        register_ro_crate_entity(
+            graph,
+            &id,
+            &name,
+            "Per-row diff table for offline inspection. Columns: entity, classification, parent/child effect + raw/adj p-values, Pearson contribution.",
+            "text/csv",
+        );
+    }
+    // Pull `parent_package` from the diff report. Best-effort: if the JSON
+    // can't be read or parsed, skip the annotation.
+    let diff_path = output_dir.join("runtime/cross-version-diff.json");
+    let bytes = tokio::fs::read(&diff_path).await.ok()?;
+    let report = serde_json::from_slice::<serde_json::Value>(&bytes).ok()?;
+    let parent = report.get("parent_package").and_then(|v| v.as_str())?;
+    Some(format!("{}/results/tables/", parent.trim_end_matches('/')))
+}
+
 pub(super) async fn patch_ro_crate_metadata(
     output_dir: &Path,
     diff_tables: Vec<String>,
@@ -496,42 +708,7 @@ pub(super) async fn patch_ro_crate_metadata(
     // legacy/Validated by convention. This avoids false provisional
     // flags on figures from well-established taxonomy stages whose
     // atoms haven't been migrated to the outputs-bearing atom format yet.
-    if !affordance_by_task.is_empty() {
-        for entity in graph.iter_mut() {
-            // Target only ImageObject entities.
-            let is_image_object = entity
-                .get("@type")
-                .and_then(|v| v.as_array())
-                .is_some_and(|arr| arr.iter().any(|x| x.as_str() == Some("ImageObject")));
-            if !is_image_object {
-                continue;
-            }
-            // Extract task_id from the @id path.
-            // Format: "runtime/outputs/<task_id>/figures/<fig_id>.png"
-            let task_id = entity.get("@id").and_then(|v| v.as_str()).and_then(|id| {
-                // Strip "runtime/outputs/" prefix and take the next segment.
-                id.strip_prefix("runtime/outputs/")
-                    .and_then(|rest| rest.split('/').next())
-                    .map(str::to_string)
-            });
-            if let Some(task_id) = task_id {
-                if let Some((provisional, variant_tag)) = affordance_by_task.get(&task_id) {
-                    if *provisional {
-                        if let Some(obj) = entity.as_object_mut() {
-                            obj.insert(
-                                "ecaax:provisional".to_string(),
-                                serde_json::Value::Bool(true),
-                            );
-                            obj.insert(
-                                "ecaax:affordanceVariant".to_string(),
-                                serde_json::Value::String(variant_tag.to_string()),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
+    flag_provisional_image_objects(graph, &affordance_by_task);
 
     // register the cross-version diff files when
     // `write_cross_version_diff` produced them. Always idempotent.
@@ -542,140 +719,30 @@ pub(super) async fn patch_ro_crate_metadata(
     // pointing at the parent package's results/tables/ directory. This
     // is complementary to `prov:wasDerivedFrom` (package root) already
     // written by core::emitter.
-    let mut parent_tables_uri: Option<String> = None;
-    if diff_written {
-        register_ro_crate_entity(
-            graph,
-            diff_json_id,
-            "Cross-version diff report",
-            "Per-row robust/concordant/discordant classification comparing this package's results/tables/ to the parent package's. Generated at emit time when lineage.parent_emitted_package_path is set.",
-            "application/json",
-        );
-        for csv_name in &diff_tables {
-            let id = format!("runtime/{}", csv_name);
-            let name = format!("Cross-version diff: {}", csv_name);
-            register_ro_crate_entity(
-                graph,
-                &id,
-                &name,
-                "Per-row diff table for offline inspection. Columns: entity, classification, parent/child effect + raw/adj p-values, Pearson contribution.",
-                "text/csv",
-            );
-        }
-        // Pull `parent_package` out of the diff report to build the
-        // `schema:isBasedOn` URI. Keep the signature minimal — no need
-        // to thread lineage through the function. Best-effort: if the
-        // JSON can't be read or parsed, just skip the annotation.
-        let diff_path = output_dir.join("runtime/cross-version-diff.json");
-        if let Ok(bytes) = tokio::fs::read(&diff_path).await {
-            if let Ok(report) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                if let Some(parent) = report.get("parent_package").and_then(|v| v.as_str()) {
-                    let trimmed = parent.trim_end_matches('/');
-                    parent_tables_uri = Some(format!("{}/results/tables/", trimmed));
-                }
-            }
-        }
-    }
+    let parent_tables_uri = if diff_written {
+        register_cross_version_diff(graph, output_dir, diff_json_id, &diff_tables).await
+    } else {
+        None
+    };
 
-    // Add a hasPart link from the root Dataset.
+    // Add hasPart links + the cross-version `schema:isBasedOn` annotation to
+    // the root Dataset.
     if let Some(root) = graph
         .iter_mut()
         .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("./"))
     {
         if let Some(parts) = root.get_mut("hasPart").and_then(|v| v.as_array_mut()) {
-            let exists = parts.iter().any(|p| {
-                p.get("@id").and_then(|v| v.as_str()) == Some("runtime/intake-conversation.jsonl")
-            });
-            if !exists {
-                parts.push(serde_json::json!({
-                    "@id": "runtime/intake-conversation.jsonl"
-                }));
-            }
-            let decisions_linked = parts
-                .iter()
-                .any(|p| p.get("@id").and_then(|v| v.as_str()) == Some(decisions_id));
-            if !decisions_linked {
-                parts.push(serde_json::json!({ "@id": decisions_id }));
-            }
-            // Link any semantic
-            // sidecars that were registered above (incl. plot_affordances.jsonl).
-            for sid in &linked_semantic_ids {
-                let already = parts
-                    .iter()
-                    .any(|p| p.get("@id").and_then(|v| v.as_str()) == Some(sid.as_str()));
-                if !already {
-                    parts.push(serde_json::json!({ "@id": sid }));
-                }
-            }
-            if diff_written {
-                let diff_linked = parts
-                    .iter()
-                    .any(|p| p.get("@id").and_then(|v| v.as_str()) == Some(diff_json_id));
-                if !diff_linked {
-                    parts.push(serde_json::json!({ "@id": diff_json_id }));
-                }
-                for csv_name in &diff_tables {
-                    let id = format!("runtime/{}", csv_name);
-                    let linked = parts
-                        .iter()
-                        .any(|p| p.get("@id").and_then(|v| v.as_str()) == Some(id.as_str()));
-                    if !linked {
-                        parts.push(serde_json::json!({ "@id": id }));
-                    }
-                }
-            }
+            link_root_has_parts(
+                parts,
+                decisions_id,
+                diff_json_id,
+                &linked_semantic_ids,
+                &diff_tables,
+                diff_written,
+            );
         }
-
-        // annotate the root Dataset with
-        // `schema:isBasedOn` pointing at the parent package's
-        // results/tables/ directory. Idempotent: skip if the same URI
-        // is already present; if an existing value has a different
-        // @id, keep it and append ours as an array entry.
         if let Some(uri) = parent_tables_uri.as_deref() {
-            let new_entry = serde_json::json!({ "@id": uri });
-            match root.get("schema:isBasedOn").cloned() {
-                None => {
-                    root.as_object_mut()
-                        .expect("root Dataset is a JSON object")
-                        .insert("schema:isBasedOn".to_string(), new_entry);
-                }
-                Some(serde_json::Value::Object(map)) => {
-                    let existing_id = map.get("@id").and_then(|v| v.as_str());
-                    if existing_id == Some(uri) {
-                        // Already present with the same URI — no-op.
-                    } else {
-                        // Different existing value — preserve it and
-                        // append ours as an array so we don't overwrite.
-                        let array = serde_json::Value::Array(vec![
-                            serde_json::Value::Object(map),
-                            new_entry,
-                        ]);
-                        root.as_object_mut()
-                            .expect("root Dataset is a JSON object")
-                            .insert("schema:isBasedOn".to_string(), array);
-                    }
-                }
-                Some(serde_json::Value::Array(mut arr)) => {
-                    let exists = arr
-                        .iter()
-                        .any(|v| v.get("@id").and_then(|s| s.as_str()) == Some(uri));
-                    if !exists {
-                        arr.push(new_entry);
-                        root.as_object_mut()
-                            .expect("root Dataset is a JSON object")
-                            .insert(
-                                "schema:isBasedOn".to_string(),
-                                serde_json::Value::Array(arr),
-                            );
-                    }
-                }
-                Some(_) => {
-                    // Unexpected shape — don't overwrite; log and skip.
-                    eprintln!(
-                        "warn: ro-crate-metadata.json root Dataset has a non-object/array schema:isBasedOn value; skipping cross-version-diff annotation"
-                    );
-                }
-            }
+            annotate_is_based_on(root, uri);
         }
     }
 
@@ -725,39 +792,7 @@ pub(super) async fn patch_ro_crate_metadata(
         // default tier.
         "runtime/install-log.jsonl",
     ];
-    for sid in scanned_sidecars {
-        let file_path = output_dir.join(sid);
-        let exists = tokio::fs::try_exists(&file_path).await.unwrap_or(false);
-        if !exists {
-            continue;
-        }
-        let bytes = tokio::fs::read(&file_path)
-            .await
-            .with_context(|| format!("v3 P5 F16: reading {}", file_path.display()))?;
-        let text = String::from_utf8_lossy(&bytes);
-        let leaks = detect_phi_leak(&text, target_tier);
-        if !leaks.is_empty() {
-            // Build a compact human-readable summary; the structured
-            // findings remain in `leaks` for future telemetry.
-            let mut summary = format!(
-                "v3 P5 F16: PHI-scope leak detected in {} under tier {:?} ({} finding{}):",
-                sid,
-                target_tier,
-                leaks.len(),
-                if leaks.len() == 1 { "" } else { "s" },
-            );
-            for leak in leaks.iter().take(5) {
-                summary.push_str(&format!(
-                    "\n  line {} field {} pattern {}",
-                    leak.line, leak.field, leak.pattern_name
-                ));
-            }
-            if leaks.len() > 5 {
-                summary.push_str(&format!("\n  … {} more leaks suppressed", leaks.len() - 5));
-            }
-            bail!(summary);
-        }
-    }
+    scan_sidecars_for_phi(output_dir, scanned_sidecars, target_tier).await?;
 
     let new_bytes = serde_json::to_vec_pretty(&metadata)?;
     tokio::fs::write(&path, new_bytes).await?;
