@@ -270,7 +270,8 @@ fn maybe_quarantine_malformed(
         .map(|p| p.join(&rejected_name))
         .unwrap_or_else(|| std::path::PathBuf::from(&rejected_name));
 
-    match std::fs::rename(patch_path, &rejected_path) {
+    // Fast path: atomic rename on the same filesystem.
+    let rename_err = match std::fs::rename(patch_path, &rejected_path) {
         Ok(()) => {
             tracing::error!(
                 task_id = task_id,
@@ -278,47 +279,62 @@ fn maybe_quarantine_malformed(
                 parse_error = %err,
                 "[patch] parse failure: file quarantined"
             );
+            return Some(rejected_path);
         }
-        Err(rename_err) => {
+        Err(rename_err) => rename_err,
+    };
+
+    // Rename failed — fall back to copy+remove.
+    tracing::warn!(
+        task_id = task_id,
+        patch_path = %patch_path.display(),
+        rejected_path = %rejected_path.display(),
+        rename_error = %rename_err,
+        "[patch] rename failed; falling back to copy+remove"
+    );
+    quarantine_via_copy(patch_path, &rejected_path, task_id, err)
+}
+
+/// Copy+remove fallback for `maybe_quarantine_malformed` when the atomic
+/// rename fails. On copy success the file is quarantined at `rejected_path`
+/// (a failed remove of the original is non-fatal and intentionally ignored);
+/// on copy failure the task is still blocked against the original path.
+fn quarantine_via_copy(
+    patch_path: &Path,
+    rejected_path: &Path,
+    task_id: &str,
+    err: &anyhow::Error,
+) -> Option<std::path::PathBuf> {
+    match std::fs::copy(patch_path, rejected_path) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(patch_path);
+            tracing::error!(
+                task_id = task_id,
+                rejected_path = %rejected_path.display(),
+                parse_error = %err,
+                "[patch] parse failure: file quarantined via copy"
+            );
+            Some(rejected_path.to_path_buf())
+        }
+        Err(copy_err) => {
             tracing::warn!(
                 task_id = task_id,
                 patch_path = %patch_path.display(),
-                rejected_path = %rejected_path.display(),
-                rename_error = %rename_err,
-                "[patch] rename failed; falling back to copy+remove"
+                copy_error = %copy_err,
+                "[patch] quarantine copy failed; file left at original path"
             );
-            match std::fs::copy(patch_path, &rejected_path) {
-                Ok(_) => {
-                    let _ = std::fs::remove_file(patch_path);
-                    tracing::error!(
-                        task_id = task_id,
-                        rejected_path = %rejected_path.display(),
-                        parse_error = %err,
-                        "[patch] parse failure: file quarantined via copy"
-                    );
-                }
-                Err(copy_err) => {
-                    tracing::warn!(
-                        task_id = task_id,
-                        patch_path = %patch_path.display(),
-                        copy_error = %copy_err,
-                        "[patch] quarantine copy failed; file left at original path"
-                    );
-                    // Still block the task even when we couldn't move the file;
-                    // return the original path so the blocker's rejected_path field
-                    // points at the best available location.
-                    tracing::error!(
-                        task_id = task_id,
-                        rejected_path = %patch_path.display(),
-                        parse_error = %err,
-                        "[patch] parse failure: task will be blocked (file not renamed)"
-                    );
-                    return Some(patch_path.to_path_buf());
-                }
-            }
+            // Still block the task even when we couldn't move the file;
+            // return the original path so the blocker's rejected_path field
+            // points at the best available location.
+            tracing::error!(
+                task_id = task_id,
+                rejected_path = %patch_path.display(),
+                parse_error = %err,
+                "[patch] parse failure: task will be blocked (file not renamed)"
+            );
+            Some(patch_path.to_path_buf())
         }
     }
-    Some(rejected_path)
 }
 
 /// Inspect the error chain for a JSON parse failure on `patch_path`. Returns
@@ -378,52 +394,67 @@ fn patch_path_for(package_dir: &Path, task_id: &str) -> std::path::PathBuf {
 
 fn consume_patch(patch_path: &Path, task_id: &str) {
     let consumed = patch_path.with_file_name("state.patch.applied.json");
-    match std::fs::rename(patch_path, &consumed) {
-        Ok(()) => {}
-        Err(rename_err) => {
-            // Cross-filesystem rename (EXDEV) commonly hits when the package
-            // sits on disk while runtime/outputs is bind-mounted from tmpfs;
-            // fall back to copy+remove to match `maybe_quarantine_malformed`.
-            if rename_err.raw_os_error() == Some(libc::EXDEV) {
+    // Fast path: atomic rename on the same filesystem.
+    let rename_err = match std::fs::rename(patch_path, &consumed) {
+        Ok(()) => return,
+        Err(e) => e,
+    };
+
+    // Only a cross-filesystem rename (EXDEV) — which hits when the package
+    // sits on disk while runtime/outputs is bind-mounted from tmpfs — warrants
+    // the copy+remove fallback (mirrors `maybe_quarantine_malformed`). Any
+    // other rename failure is logged and left best-effort.
+    if rename_err.raw_os_error() != Some(libc::EXDEV) {
+        tracing::error!(
+            target: "patch",
+            task_id = %task_id,
+            consumed = %consumed.display(),
+            error = %rename_err,
+            "merged but rename failed"
+        );
+        return;
+    }
+
+    tracing::warn!(
+        task_id = task_id,
+        patch_path = %patch_path.display(),
+        consumed_path = %consumed.display(),
+        rename_error = %rename_err,
+        "[patch] rename across filesystems; falling back to copy+remove"
+    );
+    consume_via_copy(patch_path, &consumed, task_id, &rename_err);
+}
+
+/// Copy+remove fallback for `consume_patch` on a cross-filesystem (EXDEV)
+/// rename. A failed remove of the original after a successful copy is
+/// best-effort (logged, non-fatal); a failed copy is logged at error.
+fn consume_via_copy(
+    patch_path: &Path,
+    consumed: &Path,
+    task_id: &str,
+    rename_err: &std::io::Error,
+) {
+    match std::fs::copy(patch_path, consumed) {
+        Ok(_) => {
+            if let Err(remove_err) = std::fs::remove_file(patch_path) {
                 tracing::warn!(
-                    task_id = task_id,
-                    patch_path = %patch_path.display(),
-                    consumed_path = %consumed.display(),
-                    rename_error = %rename_err,
-                    "[patch] rename across filesystems; falling back to copy+remove"
-                );
-                match std::fs::copy(patch_path, &consumed) {
-                    Ok(_) => {
-                        if let Err(remove_err) = std::fs::remove_file(patch_path) {
-                            tracing::warn!(
-                                target: "patch",
-                                task_id = %task_id,
-                                consumed = %consumed.display(),
-                                error = %remove_err,
-                                "merged and copied but remove of original failed"
-                            );
-                        }
-                    }
-                    Err(copy_err) => {
-                        tracing::error!(
-                            target: "patch",
-                            task_id = %task_id,
-                            consumed = %consumed.display(),
-                            rename_error = %rename_err,
-                            copy_error = %copy_err,
-                            "merged but rename + copy fallback both failed"
-                        );
-                    }
-                }
-            } else {
-                tracing::error!(
                     target: "patch",
                     task_id = %task_id,
                     consumed = %consumed.display(),
-                    error = %rename_err,
-                    "merged but rename failed"
+                    error = %remove_err,
+                    "merged and copied but remove of original failed"
                 );
             }
+        }
+        Err(copy_err) => {
+            tracing::error!(
+                target: "patch",
+                task_id = %task_id,
+                consumed = %consumed.display(),
+                rename_error = %rename_err,
+                copy_error = %copy_err,
+                "merged but rename + copy fallback both failed"
+            );
         }
     }
 }
@@ -1507,5 +1538,53 @@ mod tests {
         assert!(!dir
             .join("runtime/outputs/compute/state.patch.json")
             .exists());
+    }
+
+    // Characterization: a genuine parse failure quarantines the file
+    // (rename to `state.patch.json.rejected-<ts>`) and returns the new path.
+    #[test]
+    fn quarantine_renames_on_parse_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outputs = tmp.path().join("runtime/outputs/compute");
+        std::fs::create_dir_all(&outputs).unwrap();
+        let patch_path = outputs.join("state.patch.json");
+        std::fs::write(&patch_path, b"{ not valid json").unwrap();
+        // `is_parse_error` matches on the `parsing <path>` context layer.
+        let err =
+            anyhow::anyhow!("expected value").context(format!("parsing {}", patch_path.display()));
+        let moved = maybe_quarantine_malformed(&patch_path, "compute", &err)
+            .expect("parse error should quarantine and return a path");
+        assert!(
+            moved.exists(),
+            "quarantined file should exist at returned path"
+        );
+        assert!(!patch_path.exists(), "original patch should be moved away");
+        assert!(
+            moved
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("state.patch.json.rejected-"),
+            "quarantined name should be rejected-*, got {}",
+            moved.display()
+        );
+    }
+
+    // Characterization: a logical rejection (not a parse failure) leaves the
+    // file in place for debugging and returns `None` (no quarantine).
+    #[test]
+    fn quarantine_skips_non_parse_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outputs = tmp.path().join("runtime/outputs/compute");
+        std::fs::create_dir_all(&outputs).unwrap();
+        let patch_path = outputs.join("state.patch.json");
+        std::fs::write(&patch_path, b"{}").unwrap();
+        let err = anyhow::anyhow!("dependency not completed");
+        let moved = maybe_quarantine_malformed(&patch_path, "compute", &err);
+        assert!(moved.is_none(), "non-parse error must not quarantine");
+        assert!(
+            patch_path.exists(),
+            "original patch must stay on disk for debugging"
+        );
     }
 }
