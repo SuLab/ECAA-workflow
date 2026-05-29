@@ -35,6 +35,113 @@ use uuid::Uuid;
 /// the overall file budget is configured.
 pub(super) const MAX_UPLOAD_CHUNK_BYTES: usize = 32 * 1024 * 1024;
 
+/// Pre-check `Content-Length` against the hard chunk cap so a forged or
+/// oversized header fails fast with 413 before the body is read. Returns the
+/// error response, or `None` when the header is absent or within the cap.
+/// `Transfer-Encoding: chunked` requests legitimately omit Content-Length; the
+/// `to_bytes` cap enforces the ceiling on those reactively.
+fn precheck_content_length(headers: &axum::http::HeaderMap) -> Option<axum::response::Response> {
+    let len_hdr = headers.get(axum::http::header::CONTENT_LENGTH)?;
+    let parsed = len_hdr.to_str().ok().and_then(|s| s.parse::<u64>().ok());
+    match parsed {
+        Some(len) if (len as u128) > MAX_UPLOAD_CHUNK_BYTES as u128 => Some(
+            (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                format!(
+                    "Content-Length {len} exceeds per-chunk cap {} bytes",
+                    MAX_UPLOAD_CHUNK_BYTES
+                ),
+            )
+                .into_response(),
+        ),
+        None => Some(
+            (
+                StatusCode::BAD_REQUEST,
+                "Content-Length header is not a valid u64",
+            )
+                .into_response(),
+        ),
+        _ => None,
+    }
+}
+
+/// Read the request body, capped at `MAX_UPLOAD_CHUNK_BYTES`, mapping the
+/// limit-exceeded case to a typed `BodyTooLarge` envelope (413) and other
+/// failures to `BadRequest`. The error response is boxed to keep the `Ok`
+/// variant small.
+async fn read_chunk_body(
+    request: axum::extract::Request,
+) -> Result<axum::body::Bytes, Box<axum::response::Response>> {
+    match axum::body::to_bytes(request.into_body(), MAX_UPLOAD_CHUNK_BYTES).await {
+        Ok(b) => Ok(b),
+        Err(e) => {
+            let msg = e.to_string();
+            // axum surfaces the limit hit as a `LengthLimitError`
+            // wrapper around our cap; map that case to 413 for parity
+            // With the Content-Length pre-check above.
+            // emit the typed `ApiError` envelope so the UI can branch
+            // on `code` rather than substring-matching the body.
+            if msg.contains("length limit exceeded") || msg.contains("body limit") {
+                return Err(Box::new(
+                    crate::error::ApiError::BodyTooLarge {
+                        limit_bytes: MAX_UPLOAD_CHUNK_BYTES as u64,
+                    }
+                    .into_response(),
+                ));
+            }
+            Err(Box::new(
+                crate::error::ApiError::BadRequest(format!(
+                    "failed to read upload chunk body: {msg}"
+                ))
+                .into_response(),
+            ))
+        }
+    }
+}
+
+/// Validate and extract the `Upload-Token` header (alphanumeric or '-', ≤ 64).
+fn extract_upload_token(
+    headers: &axum::http::HeaderMap,
+) -> Result<String, Box<axum::response::Response>> {
+    match headers
+        .get("Upload-Token")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        Some(t) if t.len() <= 64 && t.chars().all(|c| c.is_alphanumeric() || c == '-') => {
+            Ok(t.to_string())
+        }
+        _ => Err(Box::new(
+            (
+                StatusCode::BAD_REQUEST,
+                "Upload-Token header is required (alphanumeric or '-', ≤ 64 chars)",
+            )
+                .into_response(),
+        )),
+    }
+}
+
+/// Parse the required `Content-Range` header into `(start, end, total)`.
+fn extract_content_range(
+    headers: &axum::http::HeaderMap,
+) -> Result<(u64, u64, u64), Box<axum::response::Response>> {
+    let content_range = match headers.get("Content-Range").and_then(|v| v.to_str().ok()) {
+        Some(s) => s.to_string(),
+        None => {
+            return Err(Box::new(
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Content-Range header is required (format: 'bytes <start>-<end>/<total>')",
+                )
+                    .into_response(),
+            ))
+        }
+    };
+    parse_content_range(&content_range)
+        .map_err(|msg| Box::new((StatusCode::BAD_REQUEST, msg).into_response()))
+}
+
 /// `POST /api/chat/session/:id/inputs/upload`
 ///
 /// Chunked, resumable file upload. The browser slices a file into
@@ -71,33 +178,8 @@ pub(crate) async fn upload_input_chunk(
     headers: axum::http::HeaderMap,
     request: axum::extract::Request,
 ) -> impl IntoResponse {
-    // Pre-check `Content-Length` against the hard chunk cap so a forged
-    // or oversized header fails fast with 413 before we even start
-    // reading the body. `Transfer-Encoding: chunked` requests legitimately
-    // omit Content-Length; the to_bytes cap below still enforces the
-    // same ceiling on those, just reactively.
-    if let Some(len_hdr) = headers.get(axum::http::header::CONTENT_LENGTH) {
-        let parsed = len_hdr.to_str().ok().and_then(|s| s.parse::<u64>().ok());
-        match parsed {
-            Some(len) if (len as u128) > MAX_UPLOAD_CHUNK_BYTES as u128 => {
-                return (
-                    StatusCode::PAYLOAD_TOO_LARGE,
-                    format!(
-                        "Content-Length {len} exceeds per-chunk cap {} bytes",
-                        MAX_UPLOAD_CHUNK_BYTES
-                    ),
-                )
-                    .into_response();
-            }
-            None => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    "Content-Length header is not a valid u64",
-                )
-                    .into_response();
-            }
-            _ => {}
-        }
+    if let Some(resp) = precheck_content_length(&headers) {
+        return resp;
     }
 
     // Cap body reads at `MAX_UPLOAD_CHUNK_BYTES` (32 MiB). The global
@@ -107,26 +189,9 @@ pub(crate) async fn upload_input_chunk(
     // can't exhaust memory with a multi-GB body. A body larger than
     // the cap fails with 413 here; the per-file ceiling
     // (`max_file_bytes()`) is enforced separately below.
-    let body = match axum::body::to_bytes(request.into_body(), MAX_UPLOAD_CHUNK_BYTES).await {
+    let body = match read_chunk_body(request).await {
         Ok(b) => b,
-        Err(e) => {
-            let msg = e.to_string();
-            // axum surfaces the limit hit as a `LengthLimitError`
-            // wrapper around our cap; map that case to 413 for parity
-            // With the Content-Length pre-check above.
-            // emit the typed `ApiError` envelope so the UI can branch
-            // on `code` rather than substring-matching the body.
-            if msg.contains("length limit exceeded") || msg.contains("body limit") {
-                return crate::error::ApiError::BodyTooLarge {
-                    limit_bytes: MAX_UPLOAD_CHUNK_BYTES as u64,
-                }
-                .into_response();
-            }
-            return crate::error::ApiError::BadRequest(format!(
-                "failed to read upload chunk body: {msg}"
-            ))
-            .into_response();
-        }
+        Err(resp) => return *resp,
     };
     // Require the session exists (the session.json is the source of
     // truth for owner_user → upload-root substitution).
@@ -135,37 +200,14 @@ pub(crate) async fn upload_input_chunk(
         None => return (StatusCode::NOT_FOUND, "session not found").into_response(),
     };
 
-    let upload_token = match headers
-        .get("Upload-Token")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-    {
-        Some(t) if t.len() <= 64 && t.chars().all(|c| c.is_alphanumeric() || c == '-') => {
-            t.to_string()
-        }
-        _ => {
-            return (
-                StatusCode::BAD_REQUEST,
-                "Upload-Token header is required (alphanumeric or '-', ≤ 64 chars)",
-            )
-                .into_response()
-        }
+    let upload_token = match extract_upload_token(&headers) {
+        Ok(t) => t,
+        Err(resp) => return *resp,
     };
 
-    let content_range = match headers.get("Content-Range").and_then(|v| v.to_str().ok()) {
-        Some(s) => s.to_string(),
-        None => {
-            return (
-                StatusCode::BAD_REQUEST,
-                "Content-Range header is required (format: 'bytes <start>-<end>/<total>')",
-            )
-                .into_response()
-        }
-    };
-    let (range_start, range_end, total_bytes) = match parse_content_range(&content_range) {
+    let (range_start, range_end, total_bytes) = match extract_content_range(&headers) {
         Ok(t) => t,
-        Err(msg) => return (StatusCode::BAD_REQUEST, msg).into_response(),
+        Err(resp) => return *resp,
     };
 
     if total_bytes > max_file_bytes() {
@@ -310,6 +352,28 @@ pub(crate) async fn upload_input_chunk(
         .into_response();
     }
 
+    finalize_chunk_upload(
+        &headers,
+        &staging_path,
+        &manifest_path,
+        &upload_dir,
+        received,
+        total_bytes,
+    )
+    .await
+}
+
+/// Final-chunk path: verify the assembled file's total size + optional sha256,
+/// then promote `staging.bin` to its sanitized filename inside the per-token
+/// dir. Returns the `complete` response or the appropriate error response.
+async fn finalize_chunk_upload(
+    headers: &axum::http::HeaderMap,
+    staging_path: &StdPath,
+    manifest_path: &StdPath,
+    upload_dir: &StdPath,
+    received: u64,
+    total_bytes: u64,
+) -> axum::response::Response {
     // Final chunk — verify total + sha256, then promote staging to
     // its final filename inside the per-token dir.
     if received != total_bytes {
@@ -326,7 +390,7 @@ pub(crate) async fn upload_input_chunk(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.trim().to_lowercase());
 
-    let staging_for_hash = staging_path.clone();
+    let staging_for_hash = staging_path.to_path_buf();
     let computed_sha = match tokio::task::spawn_blocking(move || file_sha256(&staging_for_hash))
         .await
     {
@@ -345,7 +409,7 @@ pub(crate) async fn upload_input_chunk(
     if let Some(declared) = declared_sha.as_ref() {
         if declared != &computed_sha {
             // Mismatch → discard staging, ask client to retry.
-            let _ = tokio::fs::remove_file(&staging_path).await;
+            let _ = tokio::fs::remove_file(staging_path).await;
             return (
                 StatusCode::BAD_REQUEST,
                 format!(
@@ -356,7 +420,7 @@ pub(crate) async fn upload_input_chunk(
         }
     }
     // Promote staging.bin → its real filename.
-    let manifest_bytes = match tokio::fs::read(&manifest_path).await {
+    let manifest_bytes = match tokio::fs::read(manifest_path).await {
         Ok(b) => b,
         Err(e) => {
             return (
@@ -373,7 +437,7 @@ pub(crate) async fn upload_input_chunk(
         .unwrap_or("upload.bin")
         .to_string();
     let final_path = upload_dir.join(&safe_name);
-    if let Err(e) = tokio::fs::rename(&staging_path, &final_path).await {
+    if let Err(e) = tokio::fs::rename(staging_path, &final_path).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("promoting staging file: {e}"),

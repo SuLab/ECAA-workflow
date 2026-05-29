@@ -107,6 +107,63 @@ impl io::Write for ChannelWriter {
     }
 }
 
+/// Producer body for the gzip-tar download stream: walks `root` under
+/// `basename`, streaming through BufWriter → GzEncoder → tar → ChannelWriter →
+/// `tx`. Any error is surfaced as a single error item on the channel before
+/// EOF; the channel closes (and the response stream EOFs) when `tx` drops.
+fn produce_package_tar_stream(
+    tx: mpsc::Sender<Result<Bytes, io::Error>>,
+    basename: &str,
+    root: &std::path::Path,
+) {
+    let writer = io::BufWriter::with_capacity(CHUNK_SIZE, ChannelWriter { tx: tx.clone() });
+    let enc = GzEncoder::new(writer, Compression::default());
+    let mut tar = tar::Builder::new(enc);
+    tar.follow_symlinks(false);
+
+    // Surface any error through the channel so the response stream emits a
+    // single error item before EOF; ChannelWriter already returns BrokenPipe
+    // on disconnect, these branches cover the tar/gzip-side error cases.
+    if let Err(e) = tar.append_dir_all(basename, root) {
+        tracing::warn!(
+            target: "package_download",
+            error = %e,
+            root = %root.display(),
+            "tar walk failed mid-stream; closing channel — client will see truncated archive"
+        );
+        let _ = tx.blocking_send(Err(io::Error::other(e)));
+        return;
+    }
+    let enc = match tar.into_inner() {
+        Ok(e) => e,
+        Err(e) => return fail_tar_stream(&tx, e, "tar finalize failed"),
+    };
+    let mut buf_writer = match enc.finish() {
+        Ok(w) => w,
+        Err(e) => return fail_tar_stream(&tx, e, "gzip finalize failed"),
+    };
+    if let Err(e) = buf_writer.flush() {
+        tracing::warn!(
+            target: "package_download",
+            error = %e,
+            "BufWriter final flush failed"
+        );
+    }
+    // Drop tx by leaving scope; ReceiverStream sees EOF.
+}
+
+/// Log a tar/gzip finalize failure and surface it as a single channel error
+/// item so the response stream emits the error before EOF.
+fn fail_tar_stream(tx: &mpsc::Sender<Result<Bytes, io::Error>>, e: io::Error, msg: &str) {
+    tracing::warn!(
+        target: "package_download",
+        error = %e,
+        "{}",
+        msg
+    );
+    let _ = tx.blocking_send(Err(io::Error::other(e)));
+}
+
 pub(crate) async fn get_package_tarball(
     State(app): State<ChatAppState>,
     Path(session_id): Path<Uuid>,
@@ -142,58 +199,7 @@ pub(crate) async fn get_package_tarball(
     let root_for_thread = root_canon.clone();
     let basename_for_thread = archive_basename.clone();
     tokio::task::spawn_blocking(move || {
-        let writer = io::BufWriter::with_capacity(CHUNK_SIZE, ChannelWriter { tx: tx.clone() });
-        let enc = GzEncoder::new(writer, Compression::default());
-        let mut tar = tar::Builder::new(enc);
-        tar.follow_symlinks(false);
-
-        let walk_result = tar.append_dir_all(&basename_for_thread, &root_for_thread);
-        if let Err(e) = walk_result {
-            tracing::warn!(
-                target: "package_download",
-                error = %e,
-                root = %root_for_thread.display(),
-                "tar walk failed mid-stream; closing channel — client will see truncated archive"
-            );
-            // Surface the error through the channel so the response
-            // stream emits a single error item before EOF. ChannelWriter
-            // already returns BrokenPipe on disconnect; this branch
-            // covers the tar-side error case.
-            let _ = tx.blocking_send(Err(io::Error::other(e)));
-            return;
-        }
-        let enc = match tar.into_inner() {
-            Ok(e) => e,
-            Err(e) => {
-                tracing::warn!(
-                    target: "package_download",
-                    error = %e,
-                    "tar finalize failed"
-                );
-                let _ = tx.blocking_send(Err(io::Error::other(e)));
-                return;
-            }
-        };
-        let mut buf_writer = match enc.finish() {
-            Ok(w) => w,
-            Err(e) => {
-                tracing::warn!(
-                    target: "package_download",
-                    error = %e,
-                    "gzip finalize failed"
-                );
-                let _ = tx.blocking_send(Err(io::Error::other(e)));
-                return;
-            }
-        };
-        if let Err(e) = buf_writer.flush() {
-            tracing::warn!(
-                target: "package_download",
-                error = %e,
-                "BufWriter final flush failed"
-            );
-        }
-        // Drop tx by leaving scope; ReceiverStream sees EOF.
+        produce_package_tar_stream(tx, &basename_for_thread, &root_for_thread);
     });
 
     let stream = ReceiverStream::new(rx);

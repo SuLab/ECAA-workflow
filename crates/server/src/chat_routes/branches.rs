@@ -389,38 +389,63 @@ async fn inherit_branch_artifacts(
     parent_id: Uuid,
     child_id: Uuid,
 ) -> (usize, usize) {
-    let Some(child_session) = app.conversation.get_session(child_id).await else {
-        tracing::warn!(
-            target: "ecaa::branch::inherit",
-            child = %child_id,
-            "child session not loadable; skipping artifact inheritance"
-        );
+    let Some(plan) = resolve_branch_inherit_plan(app, parent_id, child_id).await else {
         return (0, 0);
     };
-    let Some(child_pkg) = child_session.emitted_package_path.clone() else {
-        tracing::debug!(
-            target: "ecaa::branch::inherit",
-            child = %child_id,
-            "child has no emitted_package_path (intake-phase branch); nothing to inherit"
-        );
-        return (0, 0);
-    };
-    let Some(parent_session) = app.conversation.get_session(parent_id).await else {
-        tracing::warn!(
-            target: "ecaa::branch::inherit",
-            parent = %parent_id,
-            "parent session not loadable; skipping artifact inheritance"
-        );
-        return (0, 0);
-    };
-    let Some(parent_pkg) = parent_session.emitted_package_path.clone() else {
-        tracing::debug!(
-            target: "ecaa::branch::inherit",
-            parent = %parent_id,
-            "parent has no emitted_package_path; nothing to inherit"
-        );
-        return (0, 0);
-    };
+    let BranchInheritPlan {
+        parent_pkg,
+        child_pkg,
+        completed,
+    } = plan;
+
+    let (tasks_inherited, mut files_inherited) =
+        inherit_completed_task_dirs(parent_id, child_id, &parent_pkg, &child_pkg, &completed);
+
+    files_inherited += inherit_parent_data_dir(parent_id, child_id, &parent_pkg, &child_pkg);
+
+    tracing::info!(
+        target: "ecaa::branch::inherit",
+        parent = %parent_id,
+        child = %child_id,
+        tasks = tasks_inherited,
+        files = files_inherited,
+        "branch artifact inheritance complete"
+    );
+    (tasks_inherited, files_inherited)
+}
+
+/// Resolved inputs for branch inheritance: both package roots and the set of
+/// child-Completed task ids whose artifacts must be carried over.
+struct BranchInheritPlan {
+    parent_pkg: std::path::PathBuf,
+    child_pkg: std::path::PathBuf,
+    completed: Vec<String>,
+}
+
+/// Load both sessions, verify both have emitted packages, and collect the
+/// child's Completed task ids. Returns `None` (with a logged reason) on any
+/// missing precondition so the caller can skip inheritance entirely.
+async fn resolve_branch_inherit_plan(
+    app: &ChatAppState,
+    parent_id: Uuid,
+    child_id: Uuid,
+) -> Option<BranchInheritPlan> {
+    let (child_session, child_pkg) = load_session_with_pkg(
+        app,
+        child_id,
+        "child",
+        "child session not loadable; skipping artifact inheritance",
+        "child has no emitted_package_path (intake-phase branch); nothing to inherit",
+    )
+    .await?;
+    let (_parent_session, parent_pkg) = load_session_with_pkg(
+        app,
+        parent_id,
+        "parent",
+        "parent session not loadable; skipping artifact inheritance",
+        "parent has no emitted_package_path; nothing to inherit",
+    )
+    .await?;
 
     // Collect the set of task ids the child considers Completed —
     // these are the inherited prereqs whose artifacts the branch needs.
@@ -436,16 +461,66 @@ async fn inherit_branch_artifacts(
             }
         })
         .collect();
-    drop(child_session);
-    drop(parent_session);
 
+    Some(BranchInheritPlan {
+        parent_pkg,
+        child_pkg,
+        completed,
+    })
+}
+
+/// Load a session and its emitted package path, logging the supplied reasons
+/// (warn on missing session, debug on missing package) under a `role`-tagged
+/// field and returning `None` when either is absent.
+async fn load_session_with_pkg(
+    app: &ChatAppState,
+    id: Uuid,
+    role: &str,
+    missing_session_msg: &str,
+    missing_pkg_msg: &str,
+) -> Option<(
+    ecaa_workflow_conversation::session::Session,
+    std::path::PathBuf,
+)> {
+    let Some(session) = app.conversation.get_session(id).await else {
+        tracing::warn!(
+            target: "ecaa::branch::inherit",
+            %role,
+            session = %id,
+            "{}",
+            missing_session_msg
+        );
+        return None;
+    };
+    let Some(pkg) = session.emitted_package_path.clone() else {
+        tracing::debug!(
+            target: "ecaa::branch::inherit",
+            %role,
+            session = %id,
+            "{}",
+            missing_pkg_msg
+        );
+        return None;
+    };
+    Some((session, pkg))
+}
+
+/// Carry over each completed task's output dir from the parent package into the
+/// child, rewriting inherited JSON paths. Returns (tasks_inherited, files).
+fn inherit_completed_task_dirs(
+    parent_id: Uuid,
+    child_id: Uuid,
+    parent_pkg: &std::path::Path,
+    child_pkg: &std::path::Path,
+    completed: &[String],
+) -> (usize, usize) {
     let parent_outputs_root = parent_pkg.join("runtime").join("outputs");
     let child_outputs_root = child_pkg.join("runtime").join("outputs");
 
     let mut tasks_inherited = 0usize;
     let mut files_inherited = 0usize;
 
-    for tid in &completed {
+    for tid in completed {
         let parent_task_dir = parent_outputs_root.join(tid);
         if !parent_task_dir.exists() {
             continue;
@@ -453,18 +528,14 @@ async fn inherit_branch_artifacts(
         let child_task_dir = child_outputs_root.join(tid);
         match copy_or_hardlink_tree(&parent_task_dir, &child_task_dir) {
             Ok(n) => {
-                if let Err(e) =
-                    rewrite_inherited_json_paths(&child_task_dir, &parent_pkg, &child_pkg)
-                {
-                    tracing::warn!(
-                        target: "ecaa::branch::inherit",
-                        parent = %parent_id,
-                        child = %child_id,
-                        task_id = %tid,
-                        error = %e,
-                        "carry-over JSON path rewrite failed; inherited manifests may point at the parent package"
-                    );
-                }
+                inherit_rewrite_task_json(
+                    parent_id,
+                    child_id,
+                    tid,
+                    &child_task_dir,
+                    parent_pkg,
+                    child_pkg,
+                );
                 if n > 0 {
                     tasks_inherited += 1;
                     files_inherited += n;
@@ -482,7 +553,39 @@ async fn inherit_branch_artifacts(
             }
         }
     }
+    (tasks_inherited, files_inherited)
+}
 
+/// Best-effort rewrite of inherited JSON manifest paths from parent → child
+/// package root, logging (but not aborting) on failure.
+fn inherit_rewrite_task_json(
+    parent_id: Uuid,
+    child_id: Uuid,
+    tid: &str,
+    child_task_dir: &std::path::Path,
+    parent_pkg: &std::path::Path,
+    child_pkg: &std::path::Path,
+) {
+    if let Err(e) = rewrite_inherited_json_paths(child_task_dir, parent_pkg, child_pkg) {
+        tracing::warn!(
+            target: "ecaa::branch::inherit",
+            parent = %parent_id,
+            child = %child_id,
+            task_id = %tid,
+            error = %e,
+            "carry-over JSON path rewrite failed; inherited manifests may point at the parent package"
+        );
+    }
+}
+
+/// Inherit the top-level `data/` dir from the parent package (SME source files
+/// consumed by data_import / data staging). Returns the file count copied.
+fn inherit_parent_data_dir(
+    parent_id: Uuid,
+    child_id: Uuid,
+    parent_pkg: &std::path::Path,
+    child_pkg: &std::path::Path,
+) -> usize {
     // Also inherit the top-level `data/` dir from the parent. Many
     // archetypes (clinical_trial_analysis, time_series_forecast) place
     // SME-supplied source files under `data/`, consumed by data_import.
@@ -490,31 +593,23 @@ async fn inherit_branch_artifacts(
     // (or hardlinking) is far cheaper than re-staging or asking the
     // SME to re-register inputs.
     let parent_data = parent_pkg.join("data");
-    if parent_data.exists() {
-        let child_data = child_pkg.join("data");
-        match copy_or_hardlink_tree(&parent_data, &child_data) {
-            Ok(n) => files_inherited += n,
-            Err(e) => {
-                tracing::warn!(
-                    target: "ecaa::branch::inherit",
-                    parent = %parent_id,
-                    child = %child_id,
-                    error = %e,
-                    "carry-over of top-level data/ dir failed"
-                );
-            }
+    if !parent_data.exists() {
+        return 0;
+    }
+    let child_data = child_pkg.join("data");
+    match copy_or_hardlink_tree(&parent_data, &child_data) {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::warn!(
+                target: "ecaa::branch::inherit",
+                parent = %parent_id,
+                child = %child_id,
+                error = %e,
+                "carry-over of top-level data/ dir failed"
+            );
+            0
         }
     }
-
-    tracing::info!(
-        target: "ecaa::branch::inherit",
-        parent = %parent_id,
-        child = %child_id,
-        tasks = tasks_inherited,
-        files = files_inherited,
-        "branch artifact inheritance complete"
-    );
-    (tasks_inherited, files_inherited)
 }
 
 /// Recursively walk `src`, materializing every regular file at the

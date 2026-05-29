@@ -687,171 +687,22 @@ pub async fn get_active_tasks(
         // Per-task on-disk reads (heartbeat, progress.log tail,
         // figures manifest). Best-effort — any IO error degrades to
         // None so the endpoint never 500s on a transient fs hiccup.
-        let mut heartbeat_age_secs: Option<u64> = None;
-        let mut last_progress_line: Option<String> = None;
-        let mut figures_completed: Option<u32> = None;
-        let mut artifacts_completed: Option<u32> = None;
-        // Tier 3 progress signal: parse the most recent `[step N/M]`
-        // marker from progress.log. The agent's PROMPT.md instructs
-        // it to emit one of these per phase so even tasks without
-        // expected_artifacts get determinate progress. Pattern is
-        // Intentionally permissive — `[step 4/7]`, `[step 4 / 7 ]`,
-        // and `[STEP 04/12]` all match.
-        let mut step_progress: Option<(u32, u32)> = None;
-        if let Some(pkg) = &pkg_dir {
-            let task_dir =
+        let signals = match &pkg_dir {
+            Some(pkg) => {
                 match super::super::_path_jail::runtime_outputs_for_task(pkg, task_id.as_str()) {
-                    Ok(d) => d,
+                    Ok(task_dir) => {
+                        read_active_task_signals(&task_dir, task, step_re.as_ref()).await
+                    }
                     Err(_) => continue,
-                };
-            // Heartbeat
-            if let Ok(meta) = tokio::fs::metadata(task_dir.join(".heartbeat")).await {
-                if let Ok(modified) = meta.modified() {
-                    if let Ok(dur) = std::time::SystemTime::now().duration_since(modified) {
-                        heartbeat_age_secs = Some(dur.as_secs());
-                    }
                 }
             }
-            // Last non-empty line of progress.log + most recent
-            // `[step N/M]` step marker for Tier 3 determinate signal.
-            // Bounded tail-read: open the file, seek to the last
-            // `PROGRESS_LOG_TAIL_CAP_BYTES`, and read forward. The
-            // harness's append-only contract bounds progress.log to
-            // ~1000 lines, but a verbose agent dumping stdout into
-            // the same file can blow that; previously the
-            // `read_to_string` slurp on every 2s poll of
-            // `get_active_tasks` allocated the whole file on each
-            // tick. Seeking from the tail keeps memory O(tail cap)
-            // regardless of file size; the newest-first scan still
-            // wins because the marker we want is the most recent one.
-            if let Ok(progress_tail) =
-                read_log_tail(&task_dir.join("progress.log"), PROGRESS_LOG_TAIL_CAP_BYTES).await
-            {
-                last_progress_line = progress_tail
-                    .lines()
-                    .rev()
-                    .find(|l| !l.trim().is_empty())
-                    .map(|s| s.to_string());
-                // Walk lines newest-first; first match wins. Cheap
-                // O(N) scan over the bounded tail window.
-                if let Some(re) = &step_re {
-                    for line in progress_tail.lines().rev() {
-                        if let Some(caps) = re.captures(line) {
-                            let n: Option<u32> = caps.get(1).and_then(|m| m.as_str().parse().ok());
-                            let m: Option<u32> = caps.get(2).and_then(|m| m.as_str().parse().ok());
-                            if let (Some(n), Some(m)) = (n, m) {
-                                if m > 0 {
-                                    step_progress = Some((n, m));
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Figures: count unique figure ids present in `figures/`
-            // regardless of which extension(s) the renderer emitted
-            // (png/pdf/svg/html/eps/jpeg/webp). Counting only `.png`
-            // under-reported progress for renderers that ship vector
-            // artifacts; bucket by file stem so a figure with both
-            // `.png` and `.pdf` still counts once. Mirrors the
-            // all-extensions hashing rule in
-            // `core::figure_diff::enumerate_figures`.
-            let figures_dir = task_dir.join("figures");
-            if let Ok(mut rd) = tokio::fs::read_dir(&figures_dir).await {
-                let figure_exts: &[&str] =
-                    &["png", "pdf", "svg", "html", "eps", "jpeg", "jpg", "webp"];
-                let mut seen_ids: std::collections::BTreeSet<String> =
-                    std::collections::BTreeSet::new();
-                while let Ok(Some(entry)) = rd.next_entry().await {
-                    let p = entry.path();
-                    let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else {
-                        continue;
-                    };
-                    if stem == "manifest" {
-                        continue;
-                    }
-                    let Some(ext) = p
-                        .extension()
-                        .and_then(|e| e.to_str())
-                        .map(str::to_ascii_lowercase)
-                    else {
-                        continue;
-                    };
-                    if !figure_exts.contains(&ext.as_str()) {
-                        continue;
-                    }
-                    seen_ids.insert(stem.to_string());
-                }
-                figures_completed = Some(seen_ids.len() as u32);
-            }
-            // Expected artifacts: count direct files in task_dir that
-            // match any of the names in spec.expected_artifacts.
-            // Best-effort.
-            if let Some(expected) = task
-                .spec
-                .as_ref()
-                .and_then(|s| s.get("expected_artifacts"))
-                .and_then(|v| v.as_array())
-            {
-                let mut n: u32 = 0;
-                for e in expected.iter().filter_map(|v| v.as_str()) {
-                    if tokio::fs::metadata(task_dir.join(e)).await.is_ok() {
-                        n += 1;
-                    }
-                }
-                artifacts_completed = Some(n);
-            }
-        }
+            None => ActiveTaskSignals::default(),
+        };
 
         // Decide determinate vs indeterminate. Prefer required_figures
         // when present + figures dir exists; fall back to expected_artifacts;
         // otherwise indeterminate.
-        let progress = (|| {
-            // Tier 3 — agent's own [step N/M] marker. Highest priority
-            // when present because the agent knows its phases best.
-            if let Some((n, m)) = step_progress {
-                return ActiveTaskProgress::Determinate {
-                    completed: n.min(m),
-                    total: m,
-                    unit: "steps".to_string(),
-                };
-            }
-            let required_figs = task
-                .spec
-                .as_ref()
-                .and_then(|s| s.get("required_figures"))
-                .and_then(|v| v.as_array())
-                .map(|a| a.len() as u32);
-            if let (Some(total), Some(done)) = (required_figs, figures_completed) {
-                if total > 0 {
-                    return ActiveTaskProgress::Determinate {
-                        completed: done.min(total),
-                        total,
-                        unit: "figures".to_string(),
-                    };
-                }
-            }
-            let expected_arts = task
-                .spec
-                .as_ref()
-                .and_then(|s| s.get("expected_artifacts"))
-                .and_then(|v| v.as_array())
-                .map(|a| a.len() as u32);
-            if let (Some(total), Some(done)) = (expected_arts, artifacts_completed) {
-                if total > 0 {
-                    return ActiveTaskProgress::Determinate {
-                        completed: done.min(total),
-                        total,
-                        unit: "artifacts".to_string(),
-                    };
-                }
-            }
-            ActiveTaskProgress::Indeterminate {
-                eta_min_secs: None,
-                eta_max_secs: None,
-            }
-        })();
+        let progress = compute_active_progress(task, &signals);
 
         summaries.push(ActiveTaskSummary {
             task_id: task_id.to_string(),
@@ -859,8 +710,8 @@ pub async fn get_active_tasks(
             friendly_name,
             started_at,
             elapsed_secs: elapsed,
-            heartbeat_age_secs,
-            last_progress_line,
+            heartbeat_age_secs: signals.heartbeat_age_secs,
+            last_progress_line: signals.last_progress_line,
             progress,
         });
     }
@@ -868,6 +719,195 @@ pub async fn get_active_tasks(
     summaries.sort_by(|a, b| a.started_at.cmp(&b.started_at));
 
     Json(serde_json::json!({ "active_tasks": summaries })).into_response()
+}
+
+/// On-disk progress signals read per active task. Best-effort: any IO error
+/// leaves the corresponding field `None` so the endpoint never 500s.
+#[derive(Default)]
+struct ActiveTaskSignals {
+    heartbeat_age_secs: Option<u64>,
+    last_progress_line: Option<String>,
+    figures_completed: Option<u32>,
+    artifacts_completed: Option<u32>,
+    /// Tier-3 `[step N/M]` marker parsed from the progress.log tail.
+    step_progress: Option<(u32, u32)>,
+}
+
+/// Read the heartbeat age, progress.log tail (+ Tier-3 step marker), figure
+/// count, and expected-artifact count for one running task's output dir.
+async fn read_active_task_signals(
+    task_dir: &std::path::Path,
+    task: &ecaa_workflow_core::dag::Task,
+    step_re: Option<&regex::Regex>,
+) -> ActiveTaskSignals {
+    let mut signals = ActiveTaskSignals::default();
+    // Heartbeat
+    if let Ok(meta) = tokio::fs::metadata(task_dir.join(".heartbeat")).await {
+        if let Ok(modified) = meta.modified() {
+            if let Ok(dur) = std::time::SystemTime::now().duration_since(modified) {
+                signals.heartbeat_age_secs = Some(dur.as_secs());
+            }
+        }
+    }
+    read_progress_log_signals(task_dir, step_re, &mut signals).await;
+    signals.figures_completed = count_completed_figures(task_dir).await;
+    signals.artifacts_completed = count_completed_artifacts(task_dir, task).await;
+    signals
+}
+
+/// Parse the last non-empty line and the most recent `[step N/M]` marker from
+/// a bounded tail of progress.log into `signals`.
+async fn read_progress_log_signals(
+    task_dir: &std::path::Path,
+    step_re: Option<&regex::Regex>,
+    signals: &mut ActiveTaskSignals,
+) {
+    // Last non-empty line of progress.log + most recent
+    // `[step N/M]` step marker for Tier 3 determinate signal.
+    // Bounded tail-read: open the file, seek to the last
+    // `PROGRESS_LOG_TAIL_CAP_BYTES`, and read forward. The
+    // harness's append-only contract bounds progress.log to
+    // ~1000 lines, but a verbose agent dumping stdout into
+    // the same file can blow that; seeking from the tail keeps
+    // memory O(tail cap) regardless of file size; the newest-first
+    // scan still wins because the marker we want is the most recent.
+    let Ok(progress_tail) =
+        read_log_tail(&task_dir.join("progress.log"), PROGRESS_LOG_TAIL_CAP_BYTES).await
+    else {
+        return;
+    };
+    signals.last_progress_line = progress_tail
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .map(|s| s.to_string());
+    // Walk lines newest-first; first match wins. Cheap O(N) scan over the
+    // bounded tail window.
+    let Some(re) = step_re else {
+        return;
+    };
+    for line in progress_tail.lines().rev() {
+        if let Some(caps) = re.captures(line) {
+            let n: Option<u32> = caps.get(1).and_then(|m| m.as_str().parse().ok());
+            let m: Option<u32> = caps.get(2).and_then(|m| m.as_str().parse().ok());
+            if let (Some(n), Some(m)) = (n, m) {
+                if m > 0 {
+                    signals.step_progress = Some((n, m));
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// Count unique figure ids present in `figures/`, bucketing by file stem so a
+/// figure shipped in multiple extensions counts once. Returns `None` when the
+/// figures dir can't be read.
+async fn count_completed_figures(task_dir: &std::path::Path) -> Option<u32> {
+    // Figures: count unique figure ids present in `figures/`
+    // regardless of which extension(s) the renderer emitted
+    // (png/pdf/svg/html/eps/jpeg/webp). Counting only `.png`
+    // under-reported progress for renderers that ship vector
+    // artifacts; bucket by file stem so a figure with both
+    // `.png` and `.pdf` still counts once. Mirrors the
+    // all-extensions hashing rule in
+    // `core::figure_diff::enumerate_figures`.
+    let mut rd = tokio::fs::read_dir(task_dir.join("figures")).await.ok()?;
+    let figure_exts: &[&str] = &["png", "pdf", "svg", "html", "eps", "jpeg", "jpg", "webp"];
+    let mut seen_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        let p = entry.path();
+        let Some(stem) = p.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if stem == "manifest" {
+            continue;
+        }
+        let Some(ext) = p
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(str::to_ascii_lowercase)
+        else {
+            continue;
+        };
+        if !figure_exts.contains(&ext.as_str()) {
+            continue;
+        }
+        seen_ids.insert(stem.to_string());
+    }
+    Some(seen_ids.len() as u32)
+}
+
+/// Count direct files in `task_dir` matching any name in
+/// `spec.expected_artifacts`. Returns `None` when the spec declares none.
+async fn count_completed_artifacts(
+    task_dir: &std::path::Path,
+    task: &ecaa_workflow_core::dag::Task,
+) -> Option<u32> {
+    let expected = task
+        .spec
+        .as_ref()
+        .and_then(|s| s.get("expected_artifacts"))
+        .and_then(|v| v.as_array())?;
+    let mut n: u32 = 0;
+    for e in expected.iter().filter_map(|v| v.as_str()) {
+        if tokio::fs::metadata(task_dir.join(e)).await.is_ok() {
+            n += 1;
+        }
+    }
+    Some(n)
+}
+
+/// Pick the determinate progress signal in priority order: Tier-3 step marker,
+/// then required-figures, then expected-artifacts; falling back to
+/// indeterminate.
+fn compute_active_progress(
+    task: &ecaa_workflow_core::dag::Task,
+    signals: &ActiveTaskSignals,
+) -> ActiveTaskProgress {
+    // Tier 3 — agent's own [step N/M] marker. Highest priority
+    // when present because the agent knows its phases best.
+    if let Some((n, m)) = signals.step_progress {
+        return ActiveTaskProgress::Determinate {
+            completed: n.min(m),
+            total: m,
+            unit: "steps".to_string(),
+        };
+    }
+    let required_figs = task
+        .spec
+        .as_ref()
+        .and_then(|s| s.get("required_figures"))
+        .and_then(|v| v.as_array())
+        .map(|a| a.len() as u32);
+    if let (Some(total), Some(done)) = (required_figs, signals.figures_completed) {
+        if total > 0 {
+            return ActiveTaskProgress::Determinate {
+                completed: done.min(total),
+                total,
+                unit: "figures".to_string(),
+            };
+        }
+    }
+    let expected_arts = task
+        .spec
+        .as_ref()
+        .and_then(|s| s.get("expected_artifacts"))
+        .and_then(|v| v.as_array())
+        .map(|a| a.len() as u32);
+    if let (Some(total), Some(done)) = (expected_arts, signals.artifacts_completed) {
+        if total > 0 {
+            return ActiveTaskProgress::Determinate {
+                completed: done.min(total),
+                total,
+                unit: "artifacts".to_string(),
+            };
+        }
+    }
+    ActiveTaskProgress::Indeterminate {
+        eta_min_secs: None,
+        eta_max_secs: None,
+    }
 }
 
 pub(crate) fn routes() -> axum::Router<ChatAppState> {

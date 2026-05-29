@@ -51,10 +51,8 @@ pub async fn send_turn(
             // out `HarnessVersionDiff` so the UI timeline + result card
             // update without polling. No-op when no diff exists.
             if let Some(s) = app.conversation.get_session(session_id).await {
-                let now_emitted = matches!(
-                    s.state,
-                    ecaa_workflow_conversation::SessionState::Emitted
-                );
+                let now_emitted =
+                    matches!(s.state, ecaa_workflow_conversation::SessionState::Emitted);
                 if now_emitted {
                     if let Some(pkg) = &s.emitted_package_path {
                         let diff_path = pkg.join("runtime").join("cross-version-diff.json");
@@ -162,74 +160,7 @@ async fn confirm_inner(
     // flow through the existing `confirm_with_rationale` path
     // unchanged, advancing PendingConfirmation → ReadyToEmit.
     if let Some(stage_id) = stage.as_deref() {
-        // Path-jail: jail the body-supplied `stage_id` before
-        // formatting it into the sidecar filename. Without the jail a
-        // request like `{"stage": "../../tmp/escape"}` would collapse
-        // to a write outside the package root; safe_segment_join
-        // rejects '..' / absolute / separator-bearing stage_ids with 400.
-        let filename = format!("sme-review-confirmed-{}.json", stage_id);
-        if let Some(s) = app.conversation.get_session(session_id).await {
-            if let Some(pkg) = &s.emitted_package_path {
-                let runtime_dir = pkg.join("runtime");
-                let path = match super::safe_segment_join(&runtime_dir, &filename) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        return (StatusCode::BAD_REQUEST, format!("invalid stage_id: {}", e))
-                            .into_response();
-                    }
-                };
-                let body = serde_json::json!({
-                    "stage": stage_id,
-                    "confirmed_at": ecaa_workflow_core::time_helpers::now_rfc3339(),
-                    "rationale": rationale.clone(),
-                });
-                // Best-effort; a write failure surfaces
-                // to the caller but leaves the session in its pre-
-                // confirm state. The previous `path.parent().unwrap()`
-                // would panic if `path` somehow had no parent — load-
-                // bearing only on a malformed `pkg` upstream, but the
-                // request-path panic surface was a real risk; the
-                // rewrite returns 500 with the missing-parent reason
-                // instead.
-                let Some(parent) = path.parent() else {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!(
-                            "sme-review-confirmed sidecar path has no parent: {}",
-                            path.display()
-                        ),
-                    )
-                        .into_response();
-                };
-                if let Err(e) = std::fs::create_dir_all(parent) {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("creating runtime dir: {}", e),
-                    )
-                        .into_response();
-                }
-                // Belt-and-suspenders canonicalize check now that the
-                // parent exists. Rejects symlink-based escapes the
-                // segment-only check would miss.
-                if let Err(e) = super::assert_under_root(pkg, &path) {
-                    return (StatusCode::FORBIDDEN, format!("path escapes root: {}", e))
-                        .into_response();
-                }
-                if let Err(e) = std::fs::write(
-                    &path,
-                    serde_json::to_string_pretty(&body).unwrap_or_default(),
-                ) {
-                    return (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        format!("writing sme-review-confirmed sidecar: {}", e),
-                    )
-                        .into_response();
-                }
-            }
-        }
-        // Don't advance the overall session state — per-stage
-        // confirms only unblock the scheduler gate.
-        return StatusCode::NO_CONTENT.into_response();
+        return write_stage_confirm_sidecar(&app, session_id, stage_id, rationale.as_deref()).await;
     }
     match app
         .conversation
@@ -281,57 +212,10 @@ async fn confirm_inner(
                 // transaction above, mirror the post-emit logic that
                 // `send_turn` runs for an LLM-driven emit_package
                 // (cross-version diff broadcast + git emit hook).
-                // Pure code reuse of the same SsePayload contract +
-                // git_hook_pool surface so SSE consumers and the
-                // provenance git tree can't tell auto-emit from the
-                // legacy path.
                 if auto_emit.is_some()
-                    && matches!(
-                        s.state,
-                        ecaa_workflow_conversation::SessionState::Emitted
-                    )
+                    && matches!(s.state, ecaa_workflow_conversation::SessionState::Emitted)
                 {
-                    if let Some(pkg) = &s.emitted_package_path {
-                        let diff_path = pkg.join("runtime").join("cross-version-diff.json");
-                        if let Ok(bytes) = tokio::fs::read(&diff_path).await {
-                            if let Ok(report) = serde_json::from_slice::<serde_json::Value>(&bytes)
-                            {
-                                app.broadcast(
-                                    session_id,
-                                    SsePayload::HarnessVersionDiff { report },
-                                )
-                                .await;
-                            }
-                        }
-                    }
-                    if let Some(pkg) = s.emitted_package_path.clone() {
-                        let cfg = app.git_config().read().clone();
-                        let sid_str = session_id.to_string();
-                        let subject = s.title.clone().unwrap_or_else(|| {
-                            format!("session {}", &sid_str[..8.min(sid_str.len())])
-                        });
-                        let app_for_drop = app.clone();
-                        let drop_notifier: DropNotifier =
-                            Arc::new(move |trigger: &str, reason: &str| {
-                                app_for_drop.spawn_fanout(
-                                    session_id,
-                                    SsePayload::ProvenanceCommitDropped {
-                                        trigger: trigger.to_string(),
-                                        reason: reason.to_string(),
-                                    },
-                                );
-                            });
-                        app.git_hook_pool.spawn_with_sink(
-                            "emit",
-                            move || {
-                                crate::git_routes::service::hook_commit(
-                                    &cfg, &pkg, "emit", &subject, &sid_str,
-                                );
-                                Ok(())
-                            },
-                            Some(drop_notifier),
-                        );
-                    }
+                    fire_auto_emit_postlogic(&app, session_id, &s).await;
                 }
             }
             StatusCode::NO_CONTENT.into_response()
@@ -350,6 +234,127 @@ async fn confirm_inner(
                 crate::error::ApiError::BadRequest(msg).into_response()
             }
         }
+    }
+}
+
+/// Stage-scoped confirm: write the `sme-review-confirmed-<stage>.json` sidecar
+/// so the harness scheduler skips the SME gate on later iterations. Does not
+/// advance the overall session state. Path-jails the body-supplied `stage_id`.
+async fn write_stage_confirm_sidecar(
+    app: &ChatAppState,
+    session_id: Uuid,
+    stage_id: &str,
+    rationale: Option<&str>,
+) -> axum::response::Response {
+    // Path-jail: jail the body-supplied `stage_id` before
+    // formatting it into the sidecar filename. Without the jail a
+    // request like `{"stage": "../../tmp/escape"}` would collapse
+    // to a write outside the package root; safe_segment_join
+    // rejects '..' / absolute / separator-bearing stage_ids with 400.
+    let filename = format!("sme-review-confirmed-{}.json", stage_id);
+    if let Some(s) = app.conversation.get_session(session_id).await {
+        if let Some(pkg) = &s.emitted_package_path {
+            let runtime_dir = pkg.join("runtime");
+            let path = match super::safe_segment_join(&runtime_dir, &filename) {
+                Ok(p) => p,
+                Err(e) => {
+                    return (StatusCode::BAD_REQUEST, format!("invalid stage_id: {}", e))
+                        .into_response();
+                }
+            };
+            let body = serde_json::json!({
+                "stage": stage_id,
+                "confirmed_at": ecaa_workflow_core::time_helpers::now_rfc3339(),
+                "rationale": rationale,
+            });
+            // Best-effort; a write failure surfaces
+            // to the caller but leaves the session in its pre-
+            // confirm state. Returns 500 with the missing-parent reason
+            // instead of the previous `path.parent().unwrap()` panic.
+            let Some(parent) = path.parent() else {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!(
+                        "sme-review-confirmed sidecar path has no parent: {}",
+                        path.display()
+                    ),
+                )
+                    .into_response();
+            };
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("creating runtime dir: {}", e),
+                )
+                    .into_response();
+            }
+            // Belt-and-suspenders canonicalize check now that the
+            // parent exists. Rejects symlink-based escapes the
+            // segment-only check would miss.
+            if let Err(e) = super::assert_under_root(pkg, &path) {
+                return (StatusCode::FORBIDDEN, format!("path escapes root: {}", e))
+                    .into_response();
+            }
+            if let Err(e) = std::fs::write(
+                &path,
+                serde_json::to_string_pretty(&body).unwrap_or_default(),
+            ) {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("writing sme-review-confirmed sidecar: {}", e),
+                )
+                    .into_response();
+            }
+        }
+    }
+    // Don't advance the overall session state — per-stage
+    // confirms only unblock the scheduler gate.
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// Post-emit fan-out after an auto-emit advanced ReadyToEmit → Emitted under
+/// the lock: broadcast the cross-version diff (when present) and fire the emit
+/// git hook. Mirrors the LLM-driven `emit_package` path exactly so SSE
+/// consumers and the provenance git tree can't tell the two apart.
+async fn fire_auto_emit_postlogic(
+    app: &ChatAppState,
+    session_id: Uuid,
+    s: &ecaa_workflow_conversation::session::Session,
+) {
+    if let Some(pkg) = &s.emitted_package_path {
+        let diff_path = pkg.join("runtime").join("cross-version-diff.json");
+        if let Ok(bytes) = tokio::fs::read(&diff_path).await {
+            if let Ok(report) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                app.broadcast(session_id, SsePayload::HarnessVersionDiff { report })
+                    .await;
+            }
+        }
+    }
+    if let Some(pkg) = s.emitted_package_path.clone() {
+        let cfg = app.git_config().read().clone();
+        let sid_str = session_id.to_string();
+        let subject = s
+            .title
+            .clone()
+            .unwrap_or_else(|| format!("session {}", &sid_str[..8.min(sid_str.len())]));
+        let app_for_drop = app.clone();
+        let drop_notifier: DropNotifier = Arc::new(move |trigger: &str, reason: &str| {
+            app_for_drop.spawn_fanout(
+                session_id,
+                SsePayload::ProvenanceCommitDropped {
+                    trigger: trigger.to_string(),
+                    reason: reason.to_string(),
+                },
+            );
+        });
+        app.git_hook_pool.spawn_with_sink(
+            "emit",
+            move || {
+                crate::git_routes::service::hook_commit(&cfg, &pkg, "emit", &subject, &sid_str);
+                Ok(())
+            },
+            Some(drop_notifier),
+        );
     }
 }
 

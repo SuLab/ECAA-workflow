@@ -490,85 +490,67 @@ pub(crate) async fn maybe_auto_relaunch_harness(
     session_id: SessionId,
     trigger: &'static str,
 ) {
-    let session = match app.conversation.get_session(session_id).await {
-        Some(s) => s,
-        None => {
-            tracing::info!(
-                session_id = %session_id,
-                trigger = %trigger,
-                reason = "session not found",
-                "auto-relaunch skipped"
-            );
-            return;
-        }
+    let Some(session) = app.conversation.get_session(session_id).await else {
+        tracing::info!(
+            session_id = %session_id,
+            trigger = %trigger,
+            reason = "session not found",
+            "auto-relaunch skipped"
+        );
+        return;
     };
     let package_dir = session.emitted_package_path.clone();
+
+    if !auto_relaunch_should_proceed(app, session_id, trigger, &session, package_dir).await {
+        return;
+    }
+
+    // optional hard stop. Refuse to (re)spawn
+    // when the projected-finish cost would exceed the session's
+    // budget cap *and* the operator opted in to hard-stop semantics
+    // via `ECAA_BUDGET_HARD_STOP=1`. Default is soft (warn-only +
+    // confirm modal at UI layer).
+    if budget_hard_stop_blocks(app, &session, session_id, trigger).await {
+        return;
+    }
+
+    let outcome = spawn_harness_for_session(app, session_id, None, None).await;
+    log_auto_relaunch_outcome(session_id, trigger, outcome);
+}
+
+/// Evaluate the debounce decision and the per-session relaunch rate cap,
+/// logging the skip reason. Returns true only when both gates pass.
+async fn auto_relaunch_should_proceed(
+    app: &ChatAppState,
+    session_id: SessionId,
+    trigger: &'static str,
+    session: &ecaa_workflow_conversation::session::Session,
+    package_dir: Option<std::path::PathBuf>,
+) -> bool {
+    if !auto_relaunch_debounce_passes(app, session_id, trigger, session, package_dir).await {
+        return false;
+    }
+    relaunch_rate_cap_passes(app, session_id, trigger)
+}
+
+/// Run the deterministic debounce decision (state, prior-run timing, ready
+/// tasks, sentinel) and log the skip reason on failure.
+async fn auto_relaunch_debounce_passes(
+    app: &ChatAppState,
+    session_id: SessionId,
+    trigger: &'static str,
+    session: &ecaa_workflow_conversation::session::Session,
+    package_dir: Option<std::path::PathBuf>,
+) -> bool {
     let session_is_blocked = matches!(
         session.state,
         ecaa_workflow_conversation::SessionState::Blocked { .. }
     );
 
-    let (existing_started, existing_exited) = match app.executions.get(&session_id) {
-        Some(h_ref) => {
-            let h = h_ref.value();
-            let mut exited = h.exit_status_get().is_some();
-            let mut started = h.started_at;
-            // R3.4 fallback: if the watcher task was cancelled
-            // (graceful shutdown between `child.wait().await`
-            // returning and the in-memory `Release` store), the
-            // in-memory handle still reads `exit_status=UNSET`. The
-            // sidecar — written before the atomic store — recovers
-            // the truth.
-            if !exited {
-                if let Some(ref pkg) = package_dir {
-                    if let Ok(Some(persisted)) = execution_status_sidecar::read(pkg) {
-                        if persisted.pid == h.pid {
-                            exited = true;
-                            started = persisted.started_at;
-                        }
-                    }
-                }
-            }
-            (Some(started), Some(exited))
-        }
-        // Post-restart path: the in-memory map is empty (process
-        // restart drops it). Fall back to the sidecar so an unblock
-        // after restart still respects the debounce window against
-        // the prior run's started_at.
-        None => match package_dir
-            .as_ref()
-            .and_then(|p| execution_status_sidecar::read(p).ok().flatten())
-        {
-            Some(persisted) => (Some(persisted.started_at), Some(true)),
-            None => (None, None),
-        },
-    };
+    let (existing_started, existing_exited) =
+        resolve_existing_execution_timing(app, session_id, package_dir.as_ref());
 
-    // Both helpers read JSON files and walk `runtime/outputs/`
-    // synchronously. Bouncing through `tokio::task::spawn_blocking`
-    // keeps a tokio worker thread free when the package's
-    // `runtime/` happens to live on a slow disk (e.g. an
-    // over-subscribed NFS mount). The helpers themselves stay sync
-    // so the unit tests can call them directly without setting up
-    // a runtime.
-    let pkg_for_ready = package_dir.clone();
-    let pkg_for_sentinel = package_dir.clone();
-    let has_ready = tokio::task::spawn_blocking(move || {
-        pkg_for_ready
-            .as_deref()
-            .map(has_ready_task)
-            .unwrap_or(false)
-    })
-    .await
-    .unwrap_or(false);
-    let sentinel_pending = tokio::task::spawn_blocking(move || {
-        pkg_for_sentinel
-            .as_deref()
-            .map(has_sentinel_pending_with_fresh_heartbeat)
-            .unwrap_or(false)
-    })
-    .await
-    .unwrap_or(false);
+    let (has_ready, sentinel_pending) = check_ready_and_sentinel(package_dir.clone()).await;
 
     if let Err(reason) = auto_relaunch_decision(
         package_dir.as_deref(),
@@ -589,14 +571,21 @@ pub(crate) async fn maybe_auto_relaunch_harness(
             reason = %reason,
             "auto-relaunch skipped"
         );
-        return;
+        return false;
     }
+    true
+}
 
+/// Enforce the per-session auto-relaunch rate cap (4/min), logging on hit.
+/// Manual `/start-execution` is NOT gated here.
+fn relaunch_rate_cap_passes(
+    app: &ChatAppState,
+    session_id: SessionId,
+    trigger: &'static str,
+) -> bool {
     // Security remediation
     // cap auto-relaunch dispatches to 4/min/session so a tight
     // unblock→re-block loop cannot pump an unbounded harness chain.
-    // Manual `/start-execution` is NOT gated here; this counter is
-    // only consulted by the auto-relaunch hook.
     if !app.relaunch_tracker.allow(session_id, 4) {
         tracing::warn!(
             session_id = %session_id,
@@ -604,75 +593,183 @@ pub(crate) async fn maybe_auto_relaunch_harness(
             cap_per_min = 4,
             "auto-relaunch rate-limited"
         );
-        return;
+        return false;
     }
+    true
+}
 
-    // optional hard stop. Refuse to (re)spawn
-    // when the projected-finish cost would exceed the session's
-    // budget cap *and* the operator opted in to hard-stop semantics
-    // via `ECAA_BUDGET_HARD_STOP=1`. Default is soft (warn-only +
-    // confirm modal at UI layer).
-    if ecaa_workflow_core::env_helpers::env_bool("ECAA_BUDGET_HARD_STOP") {
-        if let Some(cap) = session.budget_usd {
-            if let Some(metrics) = app.conversation.metrics_snapshot(session_id).await {
-                if metrics.projected_finish_usd > cap {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        trigger = %trigger,
-                        projected_finish_usd = metrics.projected_finish_usd,
-                        budget_usd = cap,
-                        "auto-relaunch skipped: ECAA_BUDGET_HARD_STOP=1 and projected finish exceeds budget"
-                    );
-                    return;
+/// Off-thread probe of the package's ready-task + sentinel-pending state. Both
+/// helpers do synchronous JSON reads + `runtime/outputs/` walks, so they run on
+/// the blocking pool to keep tokio workers free on slow disks.
+async fn check_ready_and_sentinel(package_dir: Option<std::path::PathBuf>) -> (bool, bool) {
+    let pkg_for_ready = package_dir.clone();
+    let pkg_for_sentinel = package_dir;
+    let has_ready = tokio::task::spawn_blocking(move || {
+        pkg_for_ready
+            .as_deref()
+            .map(has_ready_task)
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false);
+    let sentinel_pending = tokio::task::spawn_blocking(move || {
+        pkg_for_sentinel
+            .as_deref()
+            .map(has_sentinel_pending_with_fresh_heartbeat)
+            .unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false);
+    (has_ready, sentinel_pending)
+}
+
+/// Resolve the prior execution's (started_at, exited) timing from the in-memory
+/// handle, falling back to the on-disk sidecar (watcher-cancel + post-restart
+/// paths) so the debounce window is honored even when the map is empty.
+fn resolve_existing_execution_timing(
+    app: &ChatAppState,
+    session_id: SessionId,
+    package_dir: Option<&std::path::PathBuf>,
+) -> (Option<chrono::DateTime<chrono::Utc>>, Option<bool>) {
+    match app.executions.get(&session_id) {
+        Some(h_ref) => {
+            let h = h_ref.value();
+            let mut exited = h.exit_status_get().is_some();
+            let mut started = h.started_at;
+            // R3.4 fallback: if the watcher task was cancelled
+            // (graceful shutdown between `child.wait().await`
+            // returning and the in-memory `Release` store), the
+            // in-memory handle still reads `exit_status=UNSET`. The
+            // sidecar — written before the atomic store — recovers
+            // the truth.
+            if !exited {
+                if let Some(pkg) = package_dir {
+                    if let Ok(Some(persisted)) = execution_status_sidecar::read(pkg) {
+                        if persisted.pid == h.pid {
+                            exited = true;
+                            started = persisted.started_at;
+                        }
+                    }
                 }
             }
+            (Some(started), Some(exited))
         }
+        // Post-restart path: the in-memory map is empty (process
+        // restart drops it). Fall back to the sidecar so an unblock
+        // after restart still respects the debounce window against
+        // the prior run's started_at.
+        None => match package_dir.and_then(|p| execution_status_sidecar::read(p).ok().flatten()) {
+            Some(persisted) => (Some(persisted.started_at), Some(true)),
+            None => (None, None),
+        },
     }
+}
 
-    match spawn_harness_for_session(app, session_id, None, None).await {
-        Ok(h) => tracing::info!(
+/// Returns true (and logs the skip) when `ECAA_BUDGET_HARD_STOP=1` and the
+/// projected finish cost exceeds the session's budget cap.
+async fn budget_hard_stop_blocks(
+    app: &ChatAppState,
+    session: &ecaa_workflow_conversation::session::Session,
+    session_id: SessionId,
+    trigger: &'static str,
+) -> bool {
+    if !ecaa_workflow_core::env_helpers::env_bool("ECAA_BUDGET_HARD_STOP") {
+        return false;
+    }
+    let Some(cap) = session.budget_usd else {
+        return false;
+    };
+    let Some(metrics) = app.conversation.metrics_snapshot(session_id).await else {
+        return false;
+    };
+    if metrics.projected_finish_usd > cap {
+        tracing::warn!(
             session_id = %session_id,
             trigger = %trigger,
-            pid = h.pid,
-            "auto-relaunch spawned harness"
+            projected_finish_usd = metrics.projected_finish_usd,
+            budget_usd = cap,
+            "auto-relaunch skipped: ECAA_BUDGET_HARD_STOP=1 and projected finish exceeds budget"
+        );
+        return true;
+    }
+    false
+}
+
+/// Translate the spawn result of an auto-relaunch into the appropriate tracing
+/// line (info on success / spawn-race, warn on genuine spawn errors).
+fn log_auto_relaunch_outcome(
+    session_id: SessionId,
+    trigger: &'static str,
+    outcome: Result<ExecutionHandle, SpawnHarnessError>,
+) {
+    let err = match outcome {
+        Ok(h) => {
+            tracing::info!(
+                session_id = %session_id,
+                trigger = %trigger,
+                pid = h.pid,
+                "auto-relaunch spawned harness"
+            );
+            return;
+        }
+        Err(e) => e,
+    };
+    // Spawn races (AlreadyRunning/AlreadyStarting) are benign — the inner
+    // guard already prevented a second spawn — and log at info. Everything
+    // else is a genuine spawn error logged at warn.
+    if let Some(winning_pid) = spawn_race_winning_pid(&err) {
+        log_spawn_race(session_id, trigger, winning_pid);
+    } else {
+        let msg = spawn_error_message(err);
+        tracing::warn!(
+            session_id = %session_id,
+            trigger = %trigger,
+            error = %msg,
+            "auto-relaunch spawn error"
+        );
+    }
+}
+
+/// `Some(Some(pid))` for AlreadyRunning, `Some(None)` for AlreadyStarting,
+/// `None` for any genuine error. The outer Option distinguishes race from error.
+fn spawn_race_winning_pid(err: &SpawnHarnessError) -> Option<Option<u32>> {
+    match err {
+        SpawnHarnessError::AlreadyRunning { pid } => Some(Some(*pid)),
+        SpawnHarnessError::AlreadyStarting => Some(None),
+        _ => None,
+    }
+}
+
+/// Log a benign auto-relaunch spawn race at info level.
+fn log_spawn_race(session_id: SessionId, trigger: &'static str, winning_pid: Option<u32>) {
+    match winning_pid {
+        Some(pid) => tracing::info!(
+            session_id = %session_id,
+            trigger = %trigger,
+            winning_pid = pid,
+            "auto-relaunch lost spawn race"
         ),
-        Err(SpawnHarnessError::AlreadyRunning { pid }) => {
-            // Race with another trigger (e.g. simultaneous unblock +
-            // sme-selection). The inner guard already prevented a
-            // second spawn; log at info level and move on.
-            tracing::info!(
-                session_id = %session_id,
-                trigger = %trigger,
-                winning_pid = pid,
-                "auto-relaunch lost spawn race"
-            );
+        None => tracing::info!(
+            session_id = %session_id,
+            trigger = %trigger,
+            "auto-relaunch lost spawn race (spawn already reserved)"
+        ),
+    }
+}
+
+/// Human-readable message for a genuine (non-race) spawn error. The
+/// `AlreadyRunning` / `AlreadyStarting` variants are filtered upstream.
+fn spawn_error_message(e: SpawnHarnessError) -> String {
+    match e {
+        SpawnHarnessError::SessionNotFound => "session not found".to_string(),
+        SpawnHarnessError::NotEmitted => "not emitted".to_string(),
+        SpawnHarnessError::AlreadyRunning { .. } => unreachable!(),
+        SpawnHarnessError::AlreadyStarting => unreachable!(),
+        SpawnHarnessError::SpawnFailed(io) => format!("spawn failed: {}", io),
+        SpawnHarnessError::SentinelCleanup(io) => {
+            format!("sentinel cleanup failed: {}", io)
         }
-        Err(SpawnHarnessError::AlreadyStarting) => {
-            tracing::info!(
-                session_id = %session_id,
-                trigger = %trigger,
-                "auto-relaunch lost spawn race (spawn already reserved)"
-            );
-        }
-        Err(e) => {
-            let msg = match e {
-                SpawnHarnessError::SessionNotFound => "session not found".to_string(),
-                SpawnHarnessError::NotEmitted => "not emitted".to_string(),
-                SpawnHarnessError::AlreadyRunning { .. } => unreachable!(),
-                SpawnHarnessError::AlreadyStarting => unreachable!(),
-                SpawnHarnessError::SpawnFailed(io) => format!("spawn failed: {}", io),
-                SpawnHarnessError::SentinelCleanup(io) => {
-                    format!("sentinel cleanup failed: {}", io)
-                }
-                SpawnHarnessError::NoPid => "spawned harness has no pid".to_string(),
-            };
-            tracing::warn!(
-                session_id = %session_id,
-                trigger = %trigger,
-                error = %msg,
-                "auto-relaunch spawn error"
-            );
-        }
+        SpawnHarnessError::NoPid => "spawned harness has no pid".to_string(),
     }
 }
 
@@ -856,9 +953,44 @@ async fn spawn_harness_for_session_reserved(
 
     app.executions.insert(session_id, handle.clone());
 
-    let watcher_pkg_dir = package_dir.clone();
-    let watcher_started_at = handle.started_at;
-    let watcher_pid = pid;
+    spawn_exit_watcher(
+        app,
+        session_id,
+        child,
+        ExitWatcherCtx {
+            pkg_dir: package_dir.clone(),
+            started_at: handle.started_at,
+            pid,
+            exit_status,
+        },
+    );
+
+    Ok(handle)
+}
+
+/// Inputs threaded into the detached child-exit watcher task.
+struct ExitWatcherCtx {
+    pkg_dir: std::path::PathBuf,
+    started_at: chrono::DateTime<chrono::Utc>,
+    pid: u32,
+    exit_status: std::sync::Arc<std::sync::atomic::AtomicI64>,
+}
+
+/// Spawn the detached task that reaps the harness child, persists its exit
+/// status to the sidecar, fires the provenance git hook, and publishes the
+/// exit code via the lock-free atomic.
+fn spawn_exit_watcher(
+    app: &ChatAppState,
+    session_id: SessionId,
+    mut child: tokio::process::Child,
+    ctx: ExitWatcherCtx,
+) {
+    let ExitWatcherCtx {
+        pkg_dir: watcher_pkg_dir,
+        started_at: watcher_started_at,
+        pid: watcher_pid,
+        exit_status,
+    } = ctx;
     let watcher_app = app.clone();
     let watcher_session_id = session_id;
     tokio::spawn(async move {
@@ -876,53 +1008,71 @@ async fn spawn_harness_for_session_reserved(
             Ok(s) => s.code().unwrap_or(-1),
             Err(_) => -1,
         };
-        let sidecar_written = if let Err(err) =
-            execution_status_sidecar::write(&watcher_pkg_dir, watcher_pid, code, watcher_started_at)
-        {
-            tracing::warn!(
-                target: "execution_status_sidecar",
-                package_dir = %watcher_pkg_dir.display(),
-                pid = watcher_pid,
-                error = %err,
-                "failed to persist execution exit status; in-memory store is the sole source"
-            );
-            false
-        } else {
-            true
-        };
+        let sidecar_written =
+            persist_exit_sidecar(&watcher_pkg_dir, watcher_pid, code, watcher_started_at);
         if sidecar_written {
-            let cfg = watcher_app.git_config().read().clone();
-            let pkg = watcher_pkg_dir.clone();
-            let sid = watcher_session_id.to_string();
-            let app_for_drop = watcher_app.clone();
-            let drop_notifier: DropNotifier = std::sync::Arc::new(move |trigger, reason| {
-                app_for_drop.spawn_fanout(
-                    watcher_session_id,
-                    SsePayload::ProvenanceCommitDropped {
-                        trigger: trigger.to_string(),
-                        reason: reason.to_string(),
-                    },
-                );
-            });
-            watcher_app.git_hook_pool.spawn_with_sink(
-                "execution",
-                move || {
-                    crate::git_routes::service::hook_commit(
-                        &cfg,
-                        &pkg,
-                        "execution",
-                        &format!("harness exited with {}", code),
-                        &sid,
-                    );
-                    Ok(())
-                },
-                Some(drop_notifier),
-            );
+            fire_execution_git_hook(&watcher_app, watcher_session_id, &watcher_pkg_dir, code);
         }
         exit_status.store(code as i64, std::sync::atomic::Ordering::Release);
     });
+}
 
-    Ok(handle)
+/// Persist the harness exit status to its package sidecar, logging (but not
+/// failing) on write error. Returns whether the write succeeded.
+fn persist_exit_sidecar(
+    pkg_dir: &std::path::Path,
+    pid: u32,
+    code: i32,
+    started_at: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    if let Err(err) = execution_status_sidecar::write(pkg_dir, pid, code, started_at) {
+        tracing::warn!(
+            target: "execution_status_sidecar",
+            package_dir = %pkg_dir.display(),
+            pid = pid,
+            error = %err,
+            "failed to persist execution exit status; in-memory store is the sole source"
+        );
+        false
+    } else {
+        true
+    }
+}
+
+/// Fire the fire-and-forget provenance commit hook after the harness exits.
+fn fire_execution_git_hook(
+    app: &ChatAppState,
+    session_id: SessionId,
+    pkg_dir: &std::path::Path,
+    code: i32,
+) {
+    let cfg = app.git_config().read().clone();
+    let pkg = pkg_dir.to_path_buf();
+    let sid = session_id.to_string();
+    let app_for_drop = app.clone();
+    let drop_notifier: DropNotifier = std::sync::Arc::new(move |trigger, reason| {
+        app_for_drop.spawn_fanout(
+            session_id,
+            SsePayload::ProvenanceCommitDropped {
+                trigger: trigger.to_string(),
+                reason: reason.to_string(),
+            },
+        );
+    });
+    app.git_hook_pool.spawn_with_sink(
+        "execution",
+        move || {
+            crate::git_routes::service::hook_commit(
+                &cfg,
+                &pkg,
+                "execution",
+                &format!("harness exited with {}", code),
+                &sid,
+            );
+            Ok(())
+        },
+        Some(drop_notifier),
+    );
 }
 
 /// Persistence sidecar that survives graceful-shutdown cancellation of

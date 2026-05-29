@@ -122,126 +122,9 @@ pub(super) async fn dispatch_unblock_path(
     // registry land later); they return a typed `not_implemented` 400
     // so the UI surfaces the gap explicitly instead of receiving an
     // acknowledgement for an op the server didn't actually perform.
-    let dispatched_kind = match path {
-        UnblockPath::ResolveAssumption { assumption_id, .. } => {
-            tracing::warn!(
-                target: "unblock_paths",
-                session_id = %session_id,
-                refusal_id = %refusal_id,
-                assumption_id = %assumption_id,
-                "ResolveAssumption dispatch refused: handler not yet implemented"
-            );
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "not_implemented",
-                    "kind": "resolve_assumption",
-                    "detail": "ResolveAssumption dispatch is not yet implemented in this version; the assumption-ledger wiring is deferred. Pick a different unblock path."
-                })),
-            )
-                .into_response();
-        }
-        UnblockPath::Waiver {
-            rule_id,
-            required_credentials,
-            ..
-        } => {
-            tracing::warn!(
-                target: "unblock_paths",
-                session_id = %session_id,
-                refusal_id = %refusal_id,
-                rule_id = %rule_id,
-                required_credentials = ?required_credentials,
-                "Waiver dispatch refused: handler not yet implemented"
-            );
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "not_implemented",
-                    "kind": "waiver",
-                    "detail": "Waiver dispatch is not yet implemented in this version; credential-class verification is deferred. Pick a different unblock path."
-                })),
-            )
-                .into_response();
-        }
-        UnblockPath::AttemptRepair {
-            strategy_id,
-            gap_id,
-            ..
-        } => {
-            // The repair-strategy registry is wired. The endpoint
-            // routes `AttemptRepair` dispatches at
-            // `POST /api/chat/session/:id/refusal/:refusal_id/dispatch`
-            // to the substrate-backed repair surface:
-            // `/repair/pending` / `/repair/:proposal_id/accept` /
-            // `/repair/:proposal_id/reject` are the canonical
-            // user-facing endpoints. The dispatch ack here records the
-            // intent into substrate so the UI's optimistic update has
-            // a stable shape; the SME then drives accept/reject via
-            // the dedicated repair endpoints (which require the
-            // proposal id, not the gap id).
-            tracing::info!(
-                target: "unblock_paths",
-                session_id = %session_id,
-                refusal_id = %refusal_id,
-                strategy_id = %strategy_id,
-                gap_id = %gap_id,
-                "AttemptRepair dispatch routed to repair-proposals service (v4 P5)"
-            );
-            // Emit a substrate breadcrumb so the audit trail captures
-            // the SME's explicit "attempt repair" intent. The repair
-            // endpoint's accept/reject calls record the load-bearing
-            // RepairAccepted / RepairRejected rows.
-            ecaa_workflow_core::decision_substrate::record(
-                ecaa_workflow_core::decision_substrate::VerifierDecision::RepairProposed {
-                    id: ecaa_workflow_core::decision_substrate::stable_id(
-                        "repair_dispatch_intent",
-                        strategy_id,
-                        gap_id,
-                    ),
-                    timestamp: ecaa_workflow_core::decision_substrate::timestamp(),
-                    gap_id: gap_id.clone(),
-                    strategy: strategy_id.clone(),
-                    risk_class: String::from("dispatched"),
-                    proposal_payload: format!(
-                        "{{\"dispatch_intent\":true,\"strategy_id\":\"{}\",\"gap_id\":\"{}\"}}",
-                        strategy_id, gap_id
-                    ),
-                },
-            );
-            "attempt_repair"
-        }
-        UnblockPath::SupplyMissingMetadata { field, .. } => {
-            // Route to the per-field intake mutation
-            // (set_intake_field / set_intake_method). The handler is
-            // currently stubbed so the dispatch ack roundtrips.
-            tracing::info!(
-                target: "unblock_paths",
-                session_id = %session_id,
-                refusal_id = %refusal_id,
-                field = %field,
-                "SupplyMissingMetadata dispatch (phase 4 stub; phase 5 mutates intake)"
-            );
-            "supply_missing_metadata"
-        }
-        UnblockPath::EscalateToReviewer {
-            reviewer_class,
-            required_artifacts,
-            ..
-        } => {
-            // Create a typed escalation entry on the session's decision
-            // log + open an out-of-band reviewer request. Currently
-            // captures the request via tracing only.
-            tracing::info!(
-                target: "unblock_paths",
-                session_id = %session_id,
-                refusal_id = %refusal_id,
-                reviewer_class = %reviewer_class,
-                required_artifacts = ?required_artifacts,
-                "EscalateToReviewer dispatch (phase 4 stub; phase 5 opens escalation)"
-            );
-            "escalate_to_reviewer"
-        }
+    let dispatched_kind = match dispatch_unblock_path_variant(path, session_id, &refusal_id) {
+        Ok(kind) => kind,
+        Err(resp) => return *resp,
     };
 
     Json(DispatchResponse {
@@ -250,6 +133,187 @@ pub(super) async fn dispatch_unblock_path(
         dispatched_path_kind: dispatched_kind.to_string(),
     })
     .into_response()
+}
+
+/// Closed switch over the typed `UnblockPath` taxonomy. Returns the dispatched
+/// kind string on success, or a typed `not_implemented` 400 response for the
+/// variants whose handlers are not yet wired.
+fn dispatch_unblock_path_variant(
+    path: &UnblockPath,
+    session_id: Uuid,
+    refusal_id: &str,
+) -> Result<&'static str, Box<axum::response::Response>> {
+    match path {
+        UnblockPath::ResolveAssumption { assumption_id, .. } => Err(Box::new(
+            refuse_resolve_assumption(session_id, refusal_id, assumption_id),
+        )),
+        UnblockPath::Waiver {
+            rule_id,
+            required_credentials,
+            ..
+        } => Err(Box::new(refuse_waiver(
+            session_id,
+            refusal_id,
+            rule_id,
+            required_credentials,
+        ))),
+        UnblockPath::AttemptRepair {
+            strategy_id,
+            gap_id,
+            ..
+        } => Ok(dispatch_attempt_repair(
+            session_id,
+            refusal_id,
+            strategy_id,
+            gap_id,
+        )),
+        UnblockPath::SupplyMissingMetadata { field, .. } => Ok(dispatch_supply_missing_metadata(
+            session_id, refusal_id, field,
+        )),
+        UnblockPath::EscalateToReviewer {
+            reviewer_class,
+            required_artifacts,
+            ..
+        } => Ok(dispatch_escalate_to_reviewer(
+            session_id,
+            refusal_id,
+            reviewer_class,
+            required_artifacts,
+        )),
+    }
+}
+
+/// Refuse a `ResolveAssumption` dispatch (assumption-ledger wiring deferred).
+fn refuse_resolve_assumption(
+    session_id: Uuid,
+    refusal_id: &str,
+    assumption_id: &str,
+) -> axum::response::Response {
+    tracing::warn!(
+        target: "unblock_paths",
+        session_id = %session_id,
+        refusal_id = %refusal_id,
+        assumption_id = %assumption_id,
+        "ResolveAssumption dispatch refused: handler not yet implemented"
+    );
+    not_implemented_response(
+        "resolve_assumption",
+        "ResolveAssumption dispatch is not yet implemented in this version; the assumption-ledger wiring is deferred. Pick a different unblock path.",
+    )
+}
+
+/// Refuse a `Waiver` dispatch (credential-class verification deferred).
+fn refuse_waiver(
+    session_id: Uuid,
+    refusal_id: &str,
+    rule_id: &str,
+    required_credentials: &[String],
+) -> axum::response::Response {
+    tracing::warn!(
+        target: "unblock_paths",
+        session_id = %session_id,
+        refusal_id = %refusal_id,
+        rule_id = %rule_id,
+        required_credentials = ?required_credentials,
+        "Waiver dispatch refused: handler not yet implemented"
+    );
+    not_implemented_response(
+        "waiver",
+        "Waiver dispatch is not yet implemented in this version; credential-class verification is deferred. Pick a different unblock path.",
+    )
+}
+
+/// `SupplyMissingMetadata` dispatch — routes to the per-field intake mutation
+/// (set_intake_field / set_intake_method). Currently a stub that roundtrips the
+/// dispatch ack.
+fn dispatch_supply_missing_metadata(
+    session_id: Uuid,
+    refusal_id: &str,
+    field: &str,
+) -> &'static str {
+    tracing::info!(
+        target: "unblock_paths",
+        session_id = %session_id,
+        refusal_id = %refusal_id,
+        field = %field,
+        "SupplyMissingMetadata dispatch (phase 4 stub; phase 5 mutates intake)"
+    );
+    "supply_missing_metadata"
+}
+
+/// `EscalateToReviewer` dispatch — creates a typed escalation entry + opens an
+/// out-of-band reviewer request. Currently captures the request via tracing.
+fn dispatch_escalate_to_reviewer(
+    session_id: Uuid,
+    refusal_id: &str,
+    reviewer_class: &str,
+    required_artifacts: &[String],
+) -> &'static str {
+    tracing::info!(
+        target: "unblock_paths",
+        session_id = %session_id,
+        refusal_id = %refusal_id,
+        reviewer_class = %reviewer_class,
+        required_artifacts = ?required_artifacts,
+        "EscalateToReviewer dispatch (phase 4 stub; phase 5 opens escalation)"
+    );
+    "escalate_to_reviewer"
+}
+
+/// Build the typed `not_implemented` 400 body for an unblock-path variant whose
+/// server-side handler is not yet wired.
+fn not_implemented_response(kind: &str, detail: &str) -> axum::response::Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({
+            "error": "not_implemented",
+            "kind": kind,
+            "detail": detail,
+        })),
+    )
+        .into_response()
+}
+
+/// Route an `AttemptRepair` dispatch to the substrate-backed repair surface,
+/// recording the SME's explicit "attempt repair" intent as an audit
+/// breadcrumb. The accept/reject of the proposal happens via the dedicated
+/// repair endpoints (which require the proposal id, not the gap id).
+fn dispatch_attempt_repair(
+    session_id: Uuid,
+    refusal_id: &str,
+    strategy_id: &str,
+    gap_id: &str,
+) -> &'static str {
+    tracing::info!(
+        target: "unblock_paths",
+        session_id = %session_id,
+        refusal_id = %refusal_id,
+        strategy_id = %strategy_id,
+        gap_id = %gap_id,
+        "AttemptRepair dispatch routed to repair-proposals service (v4 P5)"
+    );
+    // Emit a substrate breadcrumb so the audit trail captures
+    // the SME's explicit "attempt repair" intent. The repair
+    // endpoint's accept/reject calls record the load-bearing
+    // RepairAccepted / RepairRejected rows.
+    ecaa_workflow_core::decision_substrate::record(
+        ecaa_workflow_core::decision_substrate::VerifierDecision::RepairProposed {
+            id: ecaa_workflow_core::decision_substrate::stable_id(
+                "repair_dispatch_intent",
+                strategy_id,
+                gap_id,
+            ),
+            timestamp: ecaa_workflow_core::decision_substrate::timestamp(),
+            gap_id: gap_id.to_string(),
+            strategy: strategy_id.to_string(),
+            risk_class: String::from("dispatched"),
+            proposal_payload: format!(
+                "{{\"dispatch_intent\":true,\"strategy_id\":\"{}\",\"gap_id\":\"{}\"}}",
+                strategy_id, gap_id
+            ),
+        },
+    );
+    "attempt_repair"
 }
 
 /// Route inventory for `mod.rs::ALL_ROUTES`.
