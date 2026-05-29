@@ -125,7 +125,14 @@ impl LiteratureScopeConfig {
 mod tests {
     use super::*;
 
+    // Process-global env is shared across all tests in this binary. cargo
+    // runs tests in this module on parallel threads, so every set_var /
+    // remove_var window must be serialized or one test's mutation leaks
+    // into another's read (observed: agent_env_vars_round_trip flaked).
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     fn with_env<F: FnOnce()>(vars: &[(&str, Option<&str>)], f: F) {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let restore: Vec<_> = vars.iter().map(|(k, _)| (*k, env::var(k).ok())).collect();
         for (k, v) in vars {
             match v {
