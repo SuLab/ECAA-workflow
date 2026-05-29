@@ -126,7 +126,27 @@ resolve it cleanly.
 
 This task runs inside the per-task container image (derived from the
 `bio-min` base). Tools you need that aren't already present can be
-installed at task start (`pip`/`conda`/`BiocManager`), but prefer in-image
-tools when method scores are close — every install spends wall-clock and
-turns. All artifacts you write under `runtime/outputs/$ECAA_TASK_ID/`
-persist into the emitted package on the host.
+installed at task start, but prefer in-image tools when method scores are
+close — every install spends wall-clock and turns. All artifacts you write
+under `runtime/outputs/$ECAA_TASK_ID/` persist into the emitted package on
+the host.
+
+Installation discipline (these prevent the most common way a dispatch
+wedges and burns its whole budget):
+
+- **Install synchronously, in the foreground.** Run the install command
+  and wait for it to finish in the same step. NEVER launch an install in
+  the background and then spin on a polling loop such as
+  `until <check>; do sleep N; done` — a poll whose check tests the wrong
+  path (e.g. `requireNamespace` against `R_LIBS_USER` when the package
+  actually landed in a conda env) never exits, so the loop runs forever,
+  keeps the heartbeat artificially fresh, and the dispatch hangs even
+  though your real work already finished. No background `&` + poll loops.
+- **Prefer a pre-built binary over a source compile.** For Bioconductor
+  tools use the bioconda binary (`mamba install -y -c bioconda
+  bioconductor-deseq2`) rather than `BiocManager::install("DESeq2")`,
+  which triggers a 10–30 min Rcpp/C++ compile from source.
+- **Run the analysis with the interpreter you installed into.** If you
+  install into a conda env, invoke `conda run -n <env> Rscript …` (or that
+  env's `python`) so the tool actually resolves — don't install into one
+  location and then look for it in another.
