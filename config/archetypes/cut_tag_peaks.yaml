@@ -32,11 +32,13 @@ atoms:
   - atom_id: peak_calling
     required: true
     depends_on: [alignment]
-  # Include DE atom for differential binding between
-  # conditions; also satisfies classifier-inferred goal=data:0951
-  # so the v4 planner's search side can reach the goal.
-  - atom_id: differential_expression
-    required: false
+  # Differential binding between conditions. CUT&Tag/CUT&RUN measures
+  # chromatin binding, so the differential signal is peak-level
+  # differential accessibility (differential binding), NOT gene-expression
+  # DE. Mirrors the atac_seq_peaks sibling; differential_accessibility
+  # outputs data:1255, matching this archetype's goal_data.
+  - atom_id: differential_accessibility
+    required: true
     depends_on: [peak_calling]
   # CUT&Tag for TF profiling typically asks for motif enrichment under
   # the peak set; histone-mark CUT&Tag rarely does. Carried as optional
@@ -51,10 +53,10 @@ atoms:
     depends_on: [peak_calling]
   - atom_id: pathway_enrichment
     required: false
-    depends_on: [differential_expression]
+    depends_on: [differential_accessibility]
   - atom_id: reporting
     required: true
-    depends_on: [peak_calling, differential_expression, motif_enrichment, peak_annotation, pathway_enrichment]
+    depends_on: [peak_calling, differential_accessibility, motif_enrichment, peak_annotation, pathway_enrichment]
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]

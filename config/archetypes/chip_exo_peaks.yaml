@@ -32,17 +32,27 @@ atoms:
   - atom_id: peak_calling
     required: true
     depends_on: [alignment]
-  # DE atom for differential binding between conditions;
-  # also satisfies classifier-inferred goal=data:0951.
-  - atom_id: differential_expression
+  # Motif discovery centered on the base-pair-resolution footprint is
+  # core to ChIP-exo (see sme_summary); peak_annotation maps footprints
+  # to nearest genes.
+  - atom_id: motif_enrichment
+    required: true
+    depends_on: [peak_calling]
+  - atom_id: peak_annotation
+    required: false
+    depends_on: [peak_calling]
+  # Differential binding between conditions is peak-level differential
+  # accessibility (data:1255), not gene-expression DE. Mirrors the
+  # atac_seq_peaks / cut_tag_peaks sibling archetypes.
+  - atom_id: differential_accessibility
     required: false
     depends_on: [peak_calling]
   - atom_id: pathway_enrichment
     required: false
-    depends_on: [differential_expression]
+    depends_on: [differential_accessibility]
   - atom_id: reporting
     required: true
-    depends_on: [peak_calling, differential_expression, pathway_enrichment]
+    depends_on: [peak_calling, motif_enrichment, peak_annotation, differential_accessibility, pathway_enrichment]
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
