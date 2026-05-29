@@ -1815,6 +1815,167 @@ pub(super) fn violation_runtime_root(session: &Session) -> std::path::PathBuf {
         .join("runtime")
 }
 
+/// Build the DAG via the v4 composer, with the cross-omics single-modality
+/// retry. On the first composer success returns the DAG. When the composer
+/// returns `None` and the intake requires cross-omics, clears
+/// `additional_modalities` and retries once (rescuing 3-way scenarios the
+/// set-equality cross-omics matcher under-counted); a second `None` — or a
+/// `None` on a non-cross-omics intake — invalidates the cache and returns the
+/// matching precondition failure.
+fn compose_dag_with_fallback(
+    session: &mut Session,
+    config_dir: &std::path::Path,
+    requires_cross_omics: bool,
+) -> Result<ecaa_workflow_core::dag::DAG, ToolError> {
+    if let Some(dag) = try_build_via_composer(session, config_dir) {
+        tracing::debug!(
+            session_id = %session.id,
+            composer_version = session.composer_version,
+            "rebuild_dag: composer fast-path — built DAG via build_dag_from_composition"
+        );
+        return Ok(dag);
+    }
+    if requires_cross_omics {
+        tracing::warn!(
+            session_id = %session.id,
+            "rebuild_dag: cross-omics composer returned None — retrying with single-modality fallback (additional_modalities cleared)"
+        );
+        if let Some(classification) = session.classification.as_mut() {
+            classification.additional_modalities.clear();
+        }
+        if let Some(dag) = try_build_via_composer(session, config_dir) {
+            tracing::warn!(
+                session_id = %session.id,
+                "rebuild_dag: cross-omics retry succeeded as single-modality (degraded path)"
+            );
+            return Ok(dag);
+        }
+        #[allow(deprecated)] // deliberate cache-reset for non-workflow_dag state change
+        session.invalidate_dag();
+        return Err(ToolError::PreconditionFailure {
+            reason: "explicit cross-omics intake could not be composed into a multi-branch DAG"
+                .into(),
+            hint: "Keep both requested omics layers in scope: author or fix a matching \
+                   cross-omics archetype, or ask the SME to choose a single modality before \
+                   emitting."
+                .into(),
+        });
+    }
+    #[allow(deprecated)] // deliberate cache-reset for non-workflow_dag state change
+    session.invalidate_dag();
+    Err(ToolError::PreconditionFailure {
+        reason: "composer could not produce a DAG for this intake".into(),
+        hint: "Verify the modality keyword and goal phrase resolve to an archetype \
+               in config/archetypes/. The legacy taxonomy fallback was removed in \
+               Phase 6.1 B4 of the closure plan."
+            .into(),
+    })
+}
+
+/// Apply the SME's `set_intake_excluded_atoms` selection as a post-composition
+/// prune on the authoritative `session.workflow_dag`. Drops every excluded node
+/// (matching the node id or its `discover_`/`validate_`-stripped base); for a
+/// surviving node whose every incoming edge came from a dropped node, REWIRES it
+/// to `data_acquisition` (the SME's data becomes the new input source) rather
+/// than cascade-dropping — unless `data_acquisition` itself was dropped. Then
+/// re-derives `session.dag` from the pruned workflow_dag. No-op when nothing is
+/// excluded or no workflow_dag is present.
+fn prune_excluded_atoms(session: &mut Session) {
+    if session.excluded_atoms.is_empty() {
+        return;
+    }
+    let excluded: std::collections::BTreeSet<String> =
+        session.excluded_atoms.iter().cloned().collect();
+    let Some(wf) = session.workflow_dag.as_mut() else {
+        return;
+    };
+    let mut dropped: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for node in wf.nodes.iter() {
+        let base = node
+            .id
+            .strip_prefix("discover_")
+            .or_else(|| node.id.strip_prefix("validate_"))
+            .unwrap_or(node.id.as_str());
+        if excluded.contains(node.id.as_str()) || excluded.contains(base) {
+            dropped.insert(node.id.clone());
+        }
+    }
+    // data_acquisition is the synthetic upstream source for any orphaned
+    // downstream atom when the SME's data is post-pipeline. If it was itself
+    // dropped (unusual), fall back to cascade-drop.
+    let data_acq_id = "data_acquisition";
+    let data_acq_present =
+        wf.nodes.iter().any(|n| n.id == data_acq_id) && !dropped.contains(data_acq_id);
+    // Rewire-or-drop pass (single sweep; the rewire makes the graph stable so
+    // no fixpoint is needed).
+    let mut rewires: Vec<(String, String)> = Vec::new();
+    for node in wf.nodes.iter() {
+        if dropped.contains(&node.id) {
+            continue;
+        }
+        let incoming: Vec<&str> = wf
+            .edges
+            .iter()
+            .filter(|e| e.to_node == node.id)
+            .map(|e| e.from_node.as_str())
+            .collect();
+        if incoming.is_empty() {
+            continue;
+        }
+        let all_dropped = incoming.iter().all(|src| dropped.contains(*src));
+        if !all_dropped {
+            continue;
+        }
+        if data_acq_present && node.id != data_acq_id {
+            rewires.push((data_acq_id.to_string(), node.id.clone()));
+        } else {
+            dropped.insert(node.id.clone());
+        }
+    }
+    // Drop edges referencing dropped nodes, then drop the nodes.
+    wf.edges
+        .retain(|e| !dropped.contains(&e.from_node) && !dropped.contains(&e.to_node));
+    wf.nodes.retain(|n| !dropped.contains(&n.id));
+    // Add rewire edges (after dropping the now-dead originals). Minimal
+    // EdgeContract with sentinel ports + a rationale so downstream lowering
+    // picks up the edge.
+    for (from_node, to_node) in rewires {
+        let already = wf
+            .edges
+            .iter()
+            .any(|e| e.from_node == from_node && e.to_node == to_node);
+        if already {
+            continue;
+        }
+        let proof = ecaa_workflow_core::workflow_contracts::edge::CompatibilityProof {
+            rationale: Some(
+                "rewired to data_acquisition because upstream atom(s) were excluded by SME"
+                    .to_string(),
+            ),
+            ..Default::default()
+        };
+        wf.edges
+            .push(ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
+                from_node,
+                from_port: "_excluded_rewire".into(),
+                to_node,
+                to_port: "_excluded_rewire".into(),
+                proof,
+                chain_of_custody: None,
+            });
+    }
+    tracing::debug!(
+        session_id = %session.id,
+        dropped_count = dropped.len(),
+        excluded_count = excluded.len(),
+        "rebuild_dag: pruned excluded atoms"
+    );
+    let id = workflow_id(&session.id);
+    if let Ok(rebuilt) = ecaa_workflow_core::builder::build_dag_from_workflow_dag(wf, &id) {
+        session.dag = Some(rebuilt);
+    }
+}
+
 pub(crate) fn rebuild_dag(
     session: &mut Session,
     config_dir: &std::path::Path,
@@ -1842,65 +2003,7 @@ pub(crate) fn rebuild_dag(
     // Sessions persisted with `composer_version == 1` are now routed
     // through v4 too: the persisted `taxonomy` metadata is preserved
     // for round-trip, but the DAG comes from the composer.
-    let composer_dag = try_build_via_composer(session, config_dir);
-
-    let dag = if let Some(dag) = composer_dag {
-        tracing::debug!(
-            session_id = %session.id,
-            composer_version = session.composer_version,
-            "rebuild_dag: composer fast-path — built DAG via build_dag_from_composition"
-        );
-        dag
-    } else {
-        // Composer returned None — either cross-omics didn't dispatch,
-        // registries failed to load, or a known catalog gap surfaced.
-        // When cross-omics fails, try a single-modality fallback by
-        // temporarily clearing `additional_modalities` and re-running
-        // the composer. This rescues 3-way scenarios where the
-        // classifier under-counted modalities (the cross-omics matcher
-        // requires set-equality, so even the subset-fallback can miss).
-        // Without this retry, session.dag stays empty, the LLM
-        // proceeds to /confirm, and emit_package fires
-        // "no DAG built" → session enters Blocked(HostError).
-        if requires_cross_omics {
-            tracing::warn!(
-                session_id = %session.id,
-                "rebuild_dag: cross-omics composer returned None — retrying with single-modality fallback (additional_modalities cleared)"
-            );
-            if let Some(classification) = session.classification.as_mut() {
-                classification.additional_modalities.clear();
-            }
-            let single_dag = try_build_via_composer(session, config_dir);
-            if let Some(dag) = single_dag {
-                tracing::warn!(
-                    session_id = %session.id,
-                    "rebuild_dag: cross-omics retry succeeded as single-modality (degraded path)"
-                );
-                dag
-            } else {
-                #[allow(deprecated)] // deliberate cache-reset for non-workflow_dag state change
-                session.invalidate_dag();
-                return Err(ToolError::PreconditionFailure {
-                    reason: "explicit cross-omics intake could not be composed into a multi-branch DAG"
-                        .into(),
-                    hint: "Keep both requested omics layers in scope: author or fix a matching \
-                           cross-omics archetype, or ask the SME to choose a single modality before \
-                           emitting."
-                        .into(),
-                });
-            }
-        } else {
-            #[allow(deprecated)] // deliberate cache-reset for non-workflow_dag state change
-            session.invalidate_dag();
-            return Err(ToolError::PreconditionFailure {
-                reason: "composer could not produce a DAG for this intake".into(),
-                hint: "Verify the modality keyword and goal phrase resolve to an archetype \
-                       in config/archetypes/. The legacy taxonomy fallback was removed in \
-                       Phase 6.1 B4 of the closure plan."
-                    .into(),
-            });
-        }
-    };
+    let dag = compose_dag_with_fallback(session, config_dir, requires_cross_omics)?;
 
     // The state machine maps
     // (Intake, DagBuiltWithUnresolvedDiscovery) → IntakeFollowup
@@ -1943,101 +2046,7 @@ pub(crate) fn rebuild_dag(
     //      dropped (rare; preserves the orphan-cleanup property).
     //   3. Re-derive `session.dag` from the pruned workflow_dag so the
     //      next read sees the trimmed surface immediately.
-    if !session.excluded_atoms.is_empty() {
-        let excluded: std::collections::BTreeSet<String> =
-            session.excluded_atoms.iter().cloned().collect();
-        if let Some(wf) = session.workflow_dag.as_mut() {
-            let mut dropped: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-            for node in wf.nodes.iter() {
-                let base = node
-                    .id
-                    .strip_prefix("discover_")
-                    .or_else(|| node.id.strip_prefix("validate_"))
-                    .unwrap_or(node.id.as_str());
-                if excluded.contains(node.id.as_str()) || excluded.contains(base) {
-                    dropped.insert(node.id.clone());
-                }
-            }
-            // data_acquisition is the synthetic upstream source for
-            // any orphaned downstream atom when the SME's data is
-            // post-pipeline. If data_acquisition itself was dropped
-            // (unusual), we fall back to the cascade-drop behavior.
-            let data_acq_id = "data_acquisition";
-            let data_acq_present =
-                wf.nodes.iter().any(|n| n.id == data_acq_id) && !dropped.contains(data_acq_id);
-            // Rewire-or-drop pass (single sweep; the rewire makes the
-            // graph stable so no fixpoint is needed).
-            let mut rewires: Vec<(String, String)> = Vec::new();
-            for node in wf.nodes.iter() {
-                if dropped.contains(&node.id) {
-                    continue;
-                }
-                let incoming: Vec<&str> = wf
-                    .edges
-                    .iter()
-                    .filter(|e| e.to_node == node.id)
-                    .map(|e| e.from_node.as_str())
-                    .collect();
-                if incoming.is_empty() {
-                    continue;
-                }
-                let all_dropped = incoming.iter().all(|src| dropped.contains(*src));
-                if !all_dropped {
-                    continue;
-                }
-                if data_acq_present && node.id != data_acq_id {
-                    rewires.push((data_acq_id.to_string(), node.id.clone()));
-                } else {
-                    dropped.insert(node.id.clone());
-                }
-            }
-            // Drop edges referencing dropped nodes, then drop the nodes.
-            wf.edges
-                .retain(|e| !dropped.contains(&e.from_node) && !dropped.contains(&e.to_node));
-            wf.nodes.retain(|n| !dropped.contains(&n.id));
-            // Add rewire edges (after dropping the now-dead originals).
-            // Use a minimal EdgeContract with sentinel ports + a
-            // rationale so downstream lowering picks up the edge.
-            for (from_node, to_node) in rewires {
-                let already = wf
-                    .edges
-                    .iter()
-                    .any(|e| e.from_node == from_node && e.to_node == to_node);
-                if already {
-                    continue;
-                }
-                let proof = ecaa_workflow_core::workflow_contracts::edge::CompatibilityProof {
-                    rationale: Some(
-                        "rewired to data_acquisition because upstream atom(s) were excluded by SME"
-                            .to_string(),
-                    ),
-                    ..Default::default()
-                };
-                wf.edges.push(
-                    ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
-                        from_node,
-                        from_port: "_excluded_rewire".into(),
-                        to_node,
-                        to_port: "_excluded_rewire".into(),
-                        proof,
-                        chain_of_custody: None,
-                    },
-                );
-            }
-            tracing::debug!(
-                session_id = %session.id,
-                dropped_count = dropped.len(),
-                excluded_count = excluded.len(),
-                "rebuild_dag: pruned excluded atoms"
-            );
-            let id = workflow_id(&session.id);
-            if let Ok(rebuilt) =
-                ecaa_workflow_core::builder::build_dag_from_workflow_dag(wf, &id)
-            {
-                session.dag = Some(rebuilt);
-            }
-        }
-    }
+    prune_excluded_atoms(session);
 
     // Re-inject any SME-promoted nodes that were
     // spliced into `session.workflow_dag` before this rebuild ran.
@@ -2176,16 +2185,15 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
                 )),
                 ..Default::default()
             };
-            dag.edges.push(
-                ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
+            dag.edges
+                .push(ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
                     from_node: upstream_id.clone(),
                     from_port: "_promoted_upstream".into(),
                     to_node: task_node_id.clone(),
                     to_port: "_promoted_input".into(),
                     proof,
                     chain_of_custody: None,
-                },
-            );
+                });
             wf_dirty = true;
         }
         // Downstream wiring: promoted atom → reporting (or final_reporting,
@@ -2222,16 +2230,15 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
                     )),
                     ..Default::default()
                 };
-                dag.edges.push(
-                    ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
+                dag.edges
+                    .push(ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
                         from_node: task_node_id.clone(),
                         from_port: "_promoted_output".into(),
                         to_node: d,
                         to_port: "_promoted_downstream".into(),
                         proof,
                         chain_of_custody: None,
-                    },
-                );
+                    });
                 wf_dirty = true;
             }
         }
@@ -2269,16 +2276,15 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
                 rationale: Some("validator wrapper for promoted hypothesized atom".to_string()),
                 ..Default::default()
             };
-            dag.edges.push(
-                ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
+            dag.edges
+                .push(ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
                     from_node: task_node_id.clone(),
                     from_port: "_promoted_output".into(),
                     to_node: validate_id,
                     to_port: "_validator_input".into(),
                     proof,
                     chain_of_custody: None,
-                },
-            );
+                });
             wf_dirty = true;
         }
     }
@@ -2571,9 +2577,7 @@ fn try_build_via_composer(
     let promoted_overlay: Vec<ecaa_workflow_core::atom::AtomDefinition> = session
         .proposals
         .values()
-        .filter_map(
-            ecaa_workflow_core::hypothesized_proposal::promoted_proposal_to_atom_definition,
-        )
+        .filter_map(ecaa_workflow_core::hypothesized_proposal::promoted_proposal_to_atom_definition)
         .collect();
     let atoms = atoms.with_promoted_overlay(promoted_overlay);
 
@@ -3729,9 +3733,7 @@ pub(crate) fn enqueue_adjudication(
     transition: ecaa_workflow_core::lifecycle_adversarial::LifecycleTransition,
 ) {
     use ecaa_workflow_core::decision_log::{DecisionActor, DecisionType};
-    use ecaa_workflow_core::decision_substrate::{
-        record, stable_id, timestamp, VerifierDecision,
-    };
+    use ecaa_workflow_core::decision_substrate::{record, stable_id, timestamp, VerifierDecision};
     use ecaa_workflow_core::lifecycle_adversarial::{
         AdjudicationQueueEntry, AdjudicationStatus, LifecycleTransition,
     };
