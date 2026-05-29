@@ -1,0 +1,42 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite it using the metadata in this
+  file. A DOI for tagged releases is reserved on Zenodo (auto-minted on
+  the first GitHub release).
+title: "ECAA-workflow"
+abstract: >-
+  Deterministic, offline compiler that turns a natural-language
+  bioinformatics project description into a self-contained,
+  agent-executable RO-Crate package. Wraps the compiler with a
+  full-lifecycle conversational shell (closed LLM tool vocabulary,
+  deterministic state machine) so domain scientists drive intake,
+  blocker resolution, result review, rerun/amendment, and session
+  branching entirely through chat. Conformance is enforced by an
+  embedded ECAA validator over claims, evidence, and decision substrate.
+type: software
+license: Apache-2.0
+repository-code: "https://github.com/SuLab/ECAA-workflow"
+authors:
+  - given-names: Alan
+    family-names: Bell
+    email: "alan@hueb.org"
+keywords:
+  - bioinformatics
+  - workflow
+  - reproducibility
+  - RO-Crate
+  - WRROC
+  - ECAA
+  - LLM
+  - agentic
+  - Rust
+  - deterministic-compiler
+preferred-citation:
+  type: software
+  title: "ECAA-workflow: chat-driven deterministic bioinformatics workflow compiler with ECAA conformance"
+  authors:
+    - given-names: Alan
+      family-names: Bell
+      email: "alan@hueb.org"
+  year: 2026
+  url: "https://github.com/SuLab/ECAA-workflow"
