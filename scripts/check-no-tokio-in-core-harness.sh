@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
 # Match `use tokio` or `tokio::` in real code; ignore comment-only lines.
-hits=$(grep -rnE '(^|[^[:alnum:]_])tokio(::|[[:space:]]|$)' \
+hits=$(grep -rnE '(^|[^[:alnum:]_])tokio([^[:alnum:]_]|$)' \
          --include='*.rs' crates/core/src crates/harness/src 2>/dev/null \
        | grep -vE ':[0-9]+:\s*//' || true)
 
