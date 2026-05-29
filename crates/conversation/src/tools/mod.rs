@@ -2087,40 +2087,199 @@ pub(crate) fn rebuild_dag(
 /// orderings and silently drop the edge with a "upstream not in
 /// current DAG" warning, lowering `depends_on=[]` despite the proposal
 /// correctly naming the upstream.
-pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
-    use ecaa_workflow_core::hypothesized_proposal::{
-        proposal_to_materialized_task_node, ProposalLifecycle,
-    };
-    let to_inject: Vec<(String, _)> = session
+/// Collect every `Promoted` proposal as `(task_node_id, (proposal, authority))`
+/// for re-injection, stamping a `rebuild_reinject` `PromotionAuthority` whose id
+/// is the most recent SME-signoff gate detail (falling back to `"sme"`).
+#[allow(clippy::type_complexity)]
+fn collect_promoted_for_reinject(
+    session: &Session,
+) -> Vec<(
+    String,
+    (
+        ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal,
+        ecaa_workflow_core::workflow_contracts::lifecycle::PromotionAuthority,
+    ),
+)> {
+    use ecaa_workflow_core::hypothesized_proposal::{GateName, ProposalLifecycle};
+    session
         .proposals
         .values()
         .filter_map(|p| {
-            if let ProposalLifecycle::Promoted { task_node_id } = &p.lifecycle {
-                let authority =
-                    ecaa_workflow_core::workflow_contracts::lifecycle::PromotionAuthority {
-                        kind: "rebuild_reinject".into(),
-                        id: p
-                            .gate_outcomes
-                            .iter()
-                            .rev()
-                            .find_map(|g| {
-                                if g.gate
-                                    == ecaa_workflow_core::hypothesized_proposal::GateName::SmeSignoff
-                                {
-                                    g.details.first().cloned()
-                                } else {
-                                    None
-                                }
-                            })
-                            .unwrap_or_else(|| "sme".to_string()),
-                        at: p.last_transition_at.to_string(),
-                    };
-                Some((task_node_id.clone(), (p.clone(), authority)))
-            } else {
-                None
-            }
+            let ProposalLifecycle::Promoted { task_node_id } = &p.lifecycle else {
+                return None;
+            };
+            let authority = ecaa_workflow_core::workflow_contracts::lifecycle::PromotionAuthority {
+                kind: "rebuild_reinject".into(),
+                id: p
+                    .gate_outcomes
+                    .iter()
+                    .rev()
+                    .find_map(|g| {
+                        if g.gate == GateName::SmeSignoff {
+                            g.details.first().cloned()
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| "sme".to_string()),
+                at: p.last_transition_at.to_string(),
+            };
+            Some((task_node_id.clone(), (p.clone(), authority)))
         })
-        .collect();
+        .collect()
+}
+
+/// Wire the upstream edges for one promoted node — one edge from each declared
+/// `upstream_atom_ids` that exists in `dag` (missing upstreams are warned and
+/// skipped). Idempotent. Returns `true` if any edge was added.
+fn wire_upstream_edges(
+    dag: &mut ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
+    session_id: uuid::Uuid,
+    task_node_id: &str,
+    proposal: &ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal,
+) -> bool {
+    use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+    let mut dirty = false;
+    for upstream_id in &proposal.upstream_atom_ids {
+        let upstream_exists = dag.nodes.iter().any(|n| n.id == *upstream_id);
+        if !upstream_exists {
+            tracing::warn!(
+                session_id = %session_id,
+                proposal_id = %proposal.id,
+                task_node_id = %task_node_id,
+                upstream_atom_id = %upstream_id,
+                "rebuild_dag: promoted proposal references upstream atom not in current DAG; skipping edge"
+            );
+            continue;
+        }
+        let already_edged = dag
+            .edges
+            .iter()
+            .any(|e| e.from_node == *upstream_id && e.to_node == *task_node_id);
+        if already_edged {
+            continue;
+        }
+        let proof = CompatibilityProof {
+            rationale: Some(format!(
+                "promoted hypothesized node `{}` declared upstream `{}` via propose_hypothesized_node",
+                task_node_id, upstream_id
+            )),
+            ..Default::default()
+        };
+        dag.edges.push(EdgeContract {
+            from_node: upstream_id.clone(),
+            from_port: "_promoted_upstream".into(),
+            to_node: task_node_id.to_string(),
+            to_port: "_promoted_input".into(),
+            proof,
+            chain_of_custody: None,
+        });
+        dirty = true;
+    }
+    dirty
+}
+
+/// Wire one promoted node into `dag`: upstream edges (from each declared
+/// `upstream_atom_ids` present in the DAG), a downstream edge to the report
+/// sink (`reporting` → `final_reporting` → `generic_summary`, first present —
+/// the `generic_summary` fallback covers the `generic_omics` novel-method path
+/// where out-of-catalog modalities drive analysis entirely via
+/// `propose_hypothesized_node`), and a `validate_<id>` wrapper node + edge.
+/// All steps are idempotent. Returns `true` if any structural change was made.
+fn wire_promoted_node(
+    dag: &mut ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
+    session_id: uuid::Uuid,
+    task_node_id: &str,
+    proposal: &ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal,
+) -> bool {
+    use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+    use ecaa_workflow_core::workflow_contracts::evidence::ValidatorRef;
+    use ecaa_workflow_core::workflow_contracts::implementation::Implementation;
+    use ecaa_workflow_core::workflow_contracts::lifecycle::LifecycleState;
+    use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
+
+    let mut dirty = wire_upstream_edges(dag, session_id, task_node_id, proposal);
+
+    let downstream_id = if dag.nodes.iter().any(|n| n.id == "reporting") {
+        Some("reporting".to_string())
+    } else if dag.nodes.iter().any(|n| n.id == "final_reporting") {
+        Some("final_reporting".to_string())
+    } else if dag.nodes.iter().any(|n| n.id == "generic_summary") {
+        Some("generic_summary".to_string())
+    } else {
+        None
+    };
+    if let Some(d) = downstream_id {
+        let already = dag
+            .edges
+            .iter()
+            .any(|e| e.from_node == *task_node_id && e.to_node == d);
+        if !already {
+            let proof = CompatibilityProof {
+                rationale: Some(format!(
+                    "default downstream wiring: promoted hypothesized atom `{}` feeds `{}`",
+                    task_node_id, d
+                )),
+                ..Default::default()
+            };
+            dag.edges.push(EdgeContract {
+                from_node: task_node_id.to_string(),
+                from_port: "_promoted_output".into(),
+                to_node: d,
+                to_port: "_promoted_downstream".into(),
+                proof,
+                chain_of_custody: None,
+            });
+            dirty = true;
+        }
+    }
+
+    let validate_id = format!("validate_{task_node_id}");
+    if !dag.nodes.iter().any(|n| n.id == validate_id) {
+        let mut validator_node = TaskNode::skeleton(
+            validate_id.clone(),
+            format!("Validator wrapper for promoted hypothesized atom `{task_node_id}`"),
+        );
+        validator_node.lifecycle_state = LifecycleState::Contracted;
+        validator_node.implementation = Implementation::Unimplemented;
+        validator_node.validators = proposal
+            .validation_tests
+            .iter()
+            .map(|id| ValidatorRef {
+                id: id.clone(),
+                version: None,
+                parameters: None,
+            })
+            .collect();
+        dag.nodes.push(validator_node);
+        dirty = true;
+    }
+    let validate_edge_wired = dag
+        .edges
+        .iter()
+        .any(|e| e.from_node == *task_node_id && e.to_node == validate_id);
+    if !validate_edge_wired {
+        let proof = CompatibilityProof {
+            rationale: Some("validator wrapper for promoted hypothesized atom".to_string()),
+            ..Default::default()
+        };
+        dag.edges.push(EdgeContract {
+            from_node: task_node_id.to_string(),
+            from_port: "_promoted_output".into(),
+            to_node: validate_id,
+            to_port: "_validator_input".into(),
+            proof,
+            chain_of_custody: None,
+        });
+        dirty = true;
+    }
+
+    dirty
+}
+
+pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
+    use ecaa_workflow_core::hypothesized_proposal::proposal_to_materialized_task_node;
+    let to_inject = collect_promoted_for_reinject(session);
 
     if to_inject.is_empty() {
         return;
@@ -2134,6 +2293,7 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
     // that omits the promoted node — the exact failure-mode the proposal
     // signoff handler set out to prevent.
     let mut wf_dirty: bool = false;
+    let sid = session.id;
     let Some(dag) = session.workflow_dag.as_mut() else {
         return;
     };
@@ -2159,132 +2319,7 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
     }
     // Pass 2 — wire edges now that every promoted node is present.
     for (task_node_id, (proposal, _authority)) in &to_inject {
-        for upstream_id in &proposal.upstream_atom_ids {
-            let upstream_exists = dag.nodes.iter().any(|n| n.id == *upstream_id);
-            if !upstream_exists {
-                tracing::warn!(
-                    session_id = %session.id,
-                    proposal_id = %proposal.id,
-                    task_node_id = %task_node_id,
-                    upstream_atom_id = %upstream_id,
-                    "rebuild_dag: promoted proposal references upstream atom not in current DAG; skipping edge"
-                );
-                continue;
-            }
-            let already_edged = dag
-                .edges
-                .iter()
-                .any(|e| e.from_node == *upstream_id && e.to_node == *task_node_id);
-            if already_edged {
-                continue;
-            }
-            let proof = ecaa_workflow_core::workflow_contracts::edge::CompatibilityProof {
-                rationale: Some(format!(
-                    "promoted hypothesized node `{}` declared upstream `{}` via propose_hypothesized_node",
-                    task_node_id, upstream_id
-                )),
-                ..Default::default()
-            };
-            dag.edges
-                .push(ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
-                    from_node: upstream_id.clone(),
-                    from_port: "_promoted_upstream".into(),
-                    to_node: task_node_id.clone(),
-                    to_port: "_promoted_input".into(),
-                    proof,
-                    chain_of_custody: None,
-                });
-            wf_dirty = true;
-        }
-        // Downstream wiring: promoted atom → reporting (or final_reporting,
-        // or generic_summary). The `generic_summary` fallback covers the
-        // `generic_omics` novel-method override archetype path
-        // (`try_build_via_composer`), where SMEs working in modalities
-        // outside the keyword catalog (CyTOF, Mendelian randomization,
-        // Slide-seq, Cryo-EM, snmC-seq, CODEX, cox regression,
-        // strain-level metagenomics) get a `raw_qc → generic_summary`
-        // scaffold and drive the analysis entirely via
-        // `propose_hypothesized_node`. Without this fallback the promoted
-        // analytical atoms become strands with no downstream consumer
-        // (their `validate_*` companion doesn't count) and never reach
-        // the SME's report.
-        let downstream_id = if dag.nodes.iter().any(|n| n.id == "reporting") {
-            Some("reporting".to_string())
-        } else if dag.nodes.iter().any(|n| n.id == "final_reporting") {
-            Some("final_reporting".to_string())
-        } else if dag.nodes.iter().any(|n| n.id == "generic_summary") {
-            Some("generic_summary".to_string())
-        } else {
-            None
-        };
-        if let Some(d) = downstream_id {
-            let already = dag
-                .edges
-                .iter()
-                .any(|e| e.from_node == *task_node_id && e.to_node == d);
-            if !already {
-                let proof = ecaa_workflow_core::workflow_contracts::edge::CompatibilityProof {
-                    rationale: Some(format!(
-                        "default downstream wiring: promoted hypothesized atom `{}` feeds `{}`",
-                        task_node_id, d
-                    )),
-                    ..Default::default()
-                };
-                dag.edges
-                    .push(ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
-                        from_node: task_node_id.clone(),
-                        from_port: "_promoted_output".into(),
-                        to_node: d,
-                        to_port: "_promoted_downstream".into(),
-                        proof,
-                        chain_of_custody: None,
-                    });
-                wf_dirty = true;
-            }
-        }
-        // Validate-wrapper synthesis.
-        use ecaa_workflow_core::workflow_contracts::evidence::ValidatorRef;
-        use ecaa_workflow_core::workflow_contracts::implementation::Implementation;
-        use ecaa_workflow_core::workflow_contracts::lifecycle::LifecycleState;
-        use ecaa_workflow_core::workflow_contracts::task_node::TaskNode;
-        let validate_id = format!("validate_{task_node_id}");
-        if !dag.nodes.iter().any(|n| n.id == validate_id) {
-            let mut validator_node = TaskNode::skeleton(
-                validate_id.clone(),
-                format!("Validator wrapper for promoted hypothesized atom `{task_node_id}`"),
-            );
-            validator_node.lifecycle_state = LifecycleState::Contracted;
-            validator_node.implementation = Implementation::Unimplemented;
-            validator_node.validators = proposal
-                .validation_tests
-                .iter()
-                .map(|id| ValidatorRef {
-                    id: id.clone(),
-                    version: None,
-                    parameters: None,
-                })
-                .collect();
-            dag.nodes.push(validator_node);
-            wf_dirty = true;
-        }
-        let validate_edge_wired = dag
-            .edges
-            .iter()
-            .any(|e| e.from_node == *task_node_id && e.to_node == validate_id);
-        if !validate_edge_wired {
-            let proof = ecaa_workflow_core::workflow_contracts::edge::CompatibilityProof {
-                rationale: Some("validator wrapper for promoted hypothesized atom".to_string()),
-                ..Default::default()
-            };
-            dag.edges
-                .push(ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
-                    from_node: task_node_id.clone(),
-                    from_port: "_promoted_output".into(),
-                    to_node: validate_id,
-                    to_port: "_validator_input".into(),
-                    proof,
-                    chain_of_custody: None,
-                });
+        if wire_promoted_node(dag, sid, task_node_id, proposal) {
             wf_dirty = true;
         }
     }
@@ -2312,22 +2347,33 @@ pub(crate) fn reinject_promoted_nodes_into_workflow_dag(session: &mut Session) {
     // error is logged but we leave the existing `session.dag` in place
     // rather than wiping it (so emit can still try its own
     // `ensure_dag_cached` fallback path).
-    if wf_dirty {
-        if let Some(wf) = session.workflow_dag.as_ref() {
-            let id = workflow_id(&session.id);
-            match ecaa_workflow_core::builder::build_dag_from_workflow_dag(wf, &id) {
-                Ok(rebuilt) => {
-                    session.dag = Some(rebuilt);
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        session_id = %session.id,
-                        error = %e,
-                        "rebuild_dag: post-reinject dag re-derive failed; \
-                         leaving session.dag at its pre-reinject value"
-                    );
-                }
-            }
+    rederive_dag_cache_if_dirty(session, wf_dirty);
+}
+
+/// Re-derive the lowered `session.dag` cache from the (re-injection-updated)
+/// authoritative `session.workflow_dag`, but only when `wf_dirty`. Soft-fail:
+/// a lowering error is logged and leaves the existing `session.dag` in place so
+/// emit can still try its own `ensure_dag_cached` fallback rather than shipping
+/// a WORKFLOW.json missing the promoted nodes.
+fn rederive_dag_cache_if_dirty(session: &mut Session, wf_dirty: bool) {
+    if !wf_dirty {
+        return;
+    }
+    let Some(wf) = session.workflow_dag.as_ref() else {
+        return;
+    };
+    let id = workflow_id(&session.id);
+    match ecaa_workflow_core::builder::build_dag_from_workflow_dag(wf, &id) {
+        Ok(rebuilt) => {
+            session.dag = Some(rebuilt);
+        }
+        Err(e) => {
+            tracing::warn!(
+                session_id = %session.id,
+                error = %e,
+                "rebuild_dag: post-reinject dag re-derive failed; \
+                 leaving session.dag at its pre-reinject value"
+            );
         }
     }
 }
