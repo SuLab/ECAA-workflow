@@ -396,6 +396,73 @@ impl Session {
     /// Returns `Err(TransitionError)` when the trigger is illegal in
     /// the current state; caller should treat that as a server-internal
     /// error and log it.
+    /// Special-case merge: a `HarnessTaskBlocked` trigger while already
+    /// `Blocked` folds the new task blocker into the existing `Blocked` state
+    /// (updating the matching per-task entry or appending one) rather than
+    /// transitioning. Returns `Some(Ok(()))` when it handled the trigger,
+    /// `None` to fall through to the normal transition table.
+    fn try_merge_harness_block(
+        &mut self,
+        trigger: &StateTrigger,
+        prior_state: &str,
+        trigger_label: &str,
+    ) -> Option<Result<(), TransitionError>> {
+        use SessionState::*;
+        use StateTrigger::*;
+
+        let HarnessTaskBlocked {
+            task_id,
+            detail,
+            blocker_kind,
+        } = trigger
+        else {
+            return None;
+        };
+        if !matches!(self.state, Blocked { .. }) {
+            return None;
+        }
+
+        let reason = format!("Task {} blocked: {}", task_id, detail);
+        let recovery_hint = recovery_hint_for_blocker(blocker_kind);
+        if let Blocked {
+            blockers,
+            reason: state_reason,
+            recovery_hint: state_recovery_hint,
+            blocker_kind: state_blocker_kind,
+            context,
+        } = &mut self.state
+        {
+            if let Some(existing) = blockers.iter_mut().find(|b| b.task_id == *task_id) {
+                existing.kind = blocker_kind.clone();
+                existing.message = reason.clone();
+                existing.recovery_hint = Some(recovery_hint.clone());
+            } else {
+                blockers.push(blocker_entry(
+                    task_id.clone(),
+                    blocker_kind.clone(),
+                    reason.clone(),
+                    recovery_hint.clone(),
+                ));
+            }
+            *state_reason = reason;
+            *state_recovery_hint = recovery_hint.clone();
+            *state_blocker_kind = Some(blocker_kind.clone());
+            *context = Some(BlockerContext {
+                timestamp: Utc::now().to_rfc3339(),
+                recovery_hints: Some(recovery_hint),
+            });
+        }
+        self.last_activity = Utc::now();
+        tracing::debug!(
+            session_id = %self.id,
+            prior_state = %prior_state,
+            new_state = ?self.state,
+            trigger = %trigger_label,
+            "session_state_advance",
+        );
+        Some(Ok(()))
+    }
+
     pub fn try_transition(&mut self, trigger: StateTrigger) -> Result<(), TransitionError> {
         use SessionState::*;
         use StateTrigger::*;
@@ -408,54 +475,8 @@ impl Session {
         let prior_state = format!("{:?}", self.state);
         let trigger_label = format!("{:?}", trigger);
 
-        if let (
-            Blocked { .. },
-            HarnessTaskBlocked {
-                task_id,
-                detail,
-                blocker_kind,
-            },
-        ) = (&self.state, &trigger)
-        {
-            let reason = format!("Task {} blocked: {}", task_id, detail);
-            let recovery_hint = recovery_hint_for_blocker(blocker_kind);
-            if let Blocked {
-                blockers,
-                reason: state_reason,
-                recovery_hint: state_recovery_hint,
-                blocker_kind: state_blocker_kind,
-                context,
-            } = &mut self.state
-            {
-                if let Some(existing) = blockers.iter_mut().find(|b| b.task_id == *task_id) {
-                    existing.kind = blocker_kind.clone();
-                    existing.message = reason.clone();
-                    existing.recovery_hint = Some(recovery_hint.clone());
-                } else {
-                    blockers.push(blocker_entry(
-                        task_id.clone(),
-                        blocker_kind.clone(),
-                        reason.clone(),
-                        recovery_hint.clone(),
-                    ));
-                }
-                *state_reason = reason;
-                *state_recovery_hint = recovery_hint.clone();
-                *state_blocker_kind = Some(blocker_kind.clone());
-                *context = Some(BlockerContext {
-                    timestamp: Utc::now().to_rfc3339(),
-                    recovery_hints: Some(recovery_hint),
-                });
-            }
-            self.last_activity = Utc::now();
-            tracing::debug!(
-                session_id = %self.id,
-                prior_state = %prior_state,
-                new_state = ?self.state,
-                trigger = %trigger_label,
-                "session_state_advance",
-            );
-            return Ok(());
+        if let Some(result) = self.try_merge_harness_block(&trigger, &prior_state, &trigger_label) {
+            return result;
         }
 
         let next = match (&self.state, &trigger) {

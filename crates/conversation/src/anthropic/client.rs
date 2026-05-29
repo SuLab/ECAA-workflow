@@ -126,8 +126,13 @@ fn dump_anthropic_payload(dump_path: &str, body: &serde_json::Value) {
         let _ = std::fs::create_dir_all(parent);
     }
     let serialized = serde_json::to_string_pretty(body).unwrap_or_default();
-    // 0600 mode on unix; on windows there's no equivalent and we
-    // fall back to the default mode silently.
+    write_payload_dump(&path, &serialized);
+}
+
+/// Write the serialized payload to `path` with 0600 mode on unix (no Windows
+/// equivalent — falls back to the default mode silently). Open / write errors
+/// are best-effort (warned, swallowed).
+fn write_payload_dump(path: &std::path::Path, serialized: &str) {
     let mut opts = std::fs::OpenOptions::new();
     opts.create(true).write(true).truncate(true);
     #[cfg(unix)]
@@ -135,7 +140,7 @@ fn dump_anthropic_payload(dump_path: &str, body: &serde_json::Value) {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    match opts.open(&path) {
+    match opts.open(path) {
         Ok(mut f) => {
             use std::io::Write;
             if let Err(e) = f.write_all(serialized.as_bytes()) {
