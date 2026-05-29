@@ -396,31 +396,14 @@ impl SessionStore {
         Ok(())
     }
 
-    /// resolve a session id to a locked handle, falling back
-    /// to a one-file disk read when the in-memory cache misses.
-    /// Expired files observed here are removed in passing so a stale
-    /// id never returns a zombie handle.
-    async fn ensure_loaded(&self, id: SessionId) -> Option<SessionHandle> {
-        if let Some(h) = self.inner.get(&id) {
-            return Some(h.clone());
-        }
-        let path = self.dir.join(format!("{}.json", id));
-        let mut session = match read_session(&path).await {
-            Ok(s) => s,
-            Err(_) => return None,
-        };
-        let cutoff = Utc::now() - Duration::days(TTL_DAYS);
-        if is_expired(&session.last_activity, cutoff) {
-            let _ = tokio::fs::remove_file(&path).await;
-            return None;
-        }
-        // R3.5 — crash-recovery for sessions persisted in `Emitting`.
-        // A server crash mid-emit leaves the session stuck without a UI
-        // affordance to recover. Use a conservative 120s staleness
-        // threshold so a long-running but legitimate emit isn't
-        // misclassified — `emit_package` typically completes in
-        // seconds; minutes of inactivity in Emitting almost always
-        // means the host process died.
+    /// R3.5 — crash-recovery for sessions persisted in `Emitting`.
+    /// A server crash mid-emit leaves the session stuck without a UI
+    /// affordance to recover. Use a conservative 120s staleness
+    /// threshold so a long-running but legitimate emit isn't
+    /// misclassified — `emit_package` typically completes in
+    /// seconds; minutes of inactivity in Emitting almost always
+    /// means the host process died.
+    async fn recover_stale_emitting_on_load(&self, session: &mut Session) {
         const EMIT_STALE_SECS: i64 = 120;
         if session.recover_stale_emitting(EMIT_STALE_SECS) {
             // Best-effort backfill write so the recovered Blocked state
@@ -438,13 +421,16 @@ impl SessionStore {
                 }
             }
         }
-        // Migration (C5): sessions persisted before the audit_writer_secret
-        // field existed deserialize with a zero-byte sentinel via
-        // `default_audit_writer_secret()`. Generate a real secret now and
-        // write it back so HMAC sidecars on this session are verifiable
-        // going forward. New secret applies forward only — previously-signed
-        // rows (from a prior emit under a different in-memory secret) are not
-        // re-verified here.
+    }
+
+    /// Migration (C5): sessions persisted before the audit_writer_secret
+    /// field existed deserialize with a zero-byte sentinel via
+    /// `default_audit_writer_secret()`. Generate a real secret now and
+    /// write it back so HMAC sidecars on this session are verifiable
+    /// going forward. New secret applies forward only — previously-signed
+    /// rows (from a prior emit under a different in-memory secret) are not
+    /// re-verified here.
+    async fn migrate_audit_writer_secret_on_load(&self, session: &mut Session) {
         if session.audit_writer_secret == [0u8; 32] {
             use rand::RngCore;
             rand::rngs::OsRng.fill_bytes(&mut session.audit_writer_secret);
@@ -463,47 +449,75 @@ impl SessionStore {
                 }
             }
         }
-        // Reconcile `task_states` against the on-disk `WORKFLOW.json`
-        // when an emitted package exists. The harness writes task
-        // transitions to BOTH the server (via POST /task/.../state) AND
-        // its local WORKFLOW.json (`write_dag` in the harness). If the
-        // server was down when a POST fired, the in-memory map and the
-        // persisted `session.task_states` lag the on-disk truth. Without
-        // this catch-up, the next `GET /state` reports stale counts and
-        // every downstream `current_dag()` consumer (dashboard, summary,
-        // execution status, task results, impact) overlays stale state.
-        //
-        // Bounded: runs once per session per server boot (the
-        // `ensure_loaded` cache-miss path), and only when the package
-        // exists on disk. WORKFLOW.json parse is cheap (single file read,
-        // tasks map walk).
-        if let Some(updates) = reconcile_task_states_from_workflow_json(&session).await {
-            if !updates.is_empty() {
-                let updated_count = updates.len();
-                for (task_id, new_state) in updates {
-                    session.set_task_state(&task_id, new_state);
-                }
-                tracing::info!(
+    }
+
+    /// Reconcile `task_states` against the on-disk `WORKFLOW.json`
+    /// when an emitted package exists. The harness writes task
+    /// transitions to BOTH the server (via POST /task/.../state) AND
+    /// its local WORKFLOW.json (`write_dag` in the harness). If the
+    /// server was down when a POST fired, the in-memory map and the
+    /// persisted `session.task_states` lag the on-disk truth. Without
+    /// this catch-up, the next `GET /state` reports stale counts and
+    /// every downstream `current_dag()` consumer (dashboard, summary,
+    /// execution status, task results, impact) overlays stale state.
+    ///
+    /// Bounded: runs once per session per server boot (the
+    /// `ensure_loaded` cache-miss path), and only when the package
+    /// exists on disk. WORKFLOW.json parse is cheap (single file read,
+    /// tasks map walk).
+    async fn reconcile_task_states_on_load(&self, session: &mut Session) {
+        let Some(updates) = reconcile_task_states_from_workflow_json(session).await else {
+            return;
+        };
+        if updates.is_empty() {
+            return;
+        }
+        let updated_count = updates.len();
+        for (task_id, new_state) in updates {
+            session.set_task_state(&task_id, new_state);
+        }
+        tracing::info!(
+            session_id = %session.id,
+            reconciled = updated_count,
+            "reconciled task_states from WORKFLOW.json on session load"
+        );
+        // Best-effort backfill so subsequent process loads start
+        // already reconciled. Failure is non-fatal — the
+        // reconciliation will simply re-run next boot.
+        let tmp_path = self.dir.join(format!("{}.json.tmp", session.id));
+        let final_path = self.dir.join(format!("{}.json", session.id));
+        if let Ok(bytes) = serde_json::to_vec_pretty(&session) {
+            if let Err(e) = atomic_write_bytes(&tmp_path, &final_path, &bytes).await {
+                tracing::debug!(
                     session_id = %session.id,
-                    reconciled = updated_count,
-                    "reconciled task_states from WORKFLOW.json on session load"
+                    err = %e,
+                    "task_states reconciliation write failed (non-fatal)"
                 );
-                // Best-effort backfill so subsequent process loads start
-                // already reconciled. Failure is non-fatal — the
-                // reconciliation will simply re-run next boot.
-                let tmp_path = self.dir.join(format!("{}.json.tmp", session.id));
-                let final_path = self.dir.join(format!("{}.json", session.id));
-                if let Ok(bytes) = serde_json::to_vec_pretty(&session) {
-                    if let Err(e) = atomic_write_bytes(&tmp_path, &final_path, &bytes).await {
-                        tracing::debug!(
-                            session_id = %session.id,
-                            err = %e,
-                            "task_states reconciliation write failed (non-fatal)"
-                        );
-                    }
-                }
             }
         }
+    }
+
+    /// resolve a session id to a locked handle, falling back
+    /// to a one-file disk read when the in-memory cache misses.
+    /// Expired files observed here are removed in passing so a stale
+    /// id never returns a zombie handle.
+    async fn ensure_loaded(&self, id: SessionId) -> Option<SessionHandle> {
+        if let Some(h) = self.inner.get(&id) {
+            return Some(h.clone());
+        }
+        let path = self.dir.join(format!("{}.json", id));
+        let mut session = match read_session(&path).await {
+            Ok(s) => s,
+            Err(_) => return None,
+        };
+        let cutoff = Utc::now() - Duration::days(TTL_DAYS);
+        if is_expired(&session.last_activity, cutoff) {
+            let _ = tokio::fs::remove_file(&path).await;
+            return None;
+        }
+        self.recover_stale_emitting_on_load(&mut session).await;
+        self.migrate_audit_writer_secret_on_load(&mut session).await;
+        self.reconcile_task_states_on_load(&mut session).await;
         // R2-N13 — refresh the metadata cache as a side effect of
         // the lazy load. Doing this *before* the entry::or_insert
         // means a concurrent winner's handle reads the same cached

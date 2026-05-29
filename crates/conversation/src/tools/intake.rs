@@ -209,16 +209,16 @@ pub(super) fn set_intake_modality(
     // the process-wide `load_cached` so repeated tool dispatches in a
     // chat session pay the YAML-parse + schema-validate cost once.
     let modalities_dir = config_dir.join("modalities");
-    let registry = match ecaa_workflow_core::modality_registry::ModalityRegistry::load_cached(
-        &modalities_dir,
-    ) {
-        Ok(r) => r,
-        Err(e) => {
-            return ToolResult::err(ToolError::InternalError {
-                reason: format!("loading modality registry: {}", e),
-            });
-        }
-    };
+    let registry =
+        match ecaa_workflow_core::modality_registry::ModalityRegistry::load_cached(&modalities_dir)
+        {
+            Ok(r) => r,
+            Err(e) => {
+                return ToolResult::err(ToolError::InternalError {
+                    reason: format!("loading modality registry: {}", e),
+                });
+            }
+        };
     if registry.get(trimmed).is_none() {
         let alternatives: Vec<String> = registry.iter().map(|(id, _)| id.clone()).collect();
         return ToolResult::err(ToolError::ValidationFailure {
@@ -420,35 +420,8 @@ pub(crate) fn append_intake_prose(
     prose: &str,
     config_dir: &Path,
 ) -> ToolResult {
-    if prose.trim().is_empty() {
-        return ToolResult::err(ToolError::ValidationFailure {
-            reason: "prose is empty".into(),
-            valid_alternatives: vec![],
-            hint: "Pass non-empty SME prose.".into(),
-        });
-    }
-
-    // Input-side prompt-injection sanitizer (grant v19 §C.0.1, E2
-    // follow-up). `sanitize_for_session_prose` strips XML/HTML-like
-    // tags, ASCII control characters, and whole-word internal
-    // tool-name tokens. When any of those are present the sanitized
-    // output differs from the input — that's our signal to refuse.
-    // Legitimate SME prose (gene symbols, accessions, plain English)
-    // round-trips unchanged. See
-    // `tests/tool_boundary_adversarial.rs::all_75_adversarial_cases_refused`
-    // for the five `redirection_injection` / `recursive` cases this
-    // gate covers.
-    let sanitized = crate::sme_text::sanitize_for_session_prose(prose);
-    if sanitized != prose {
-        return ToolResult::err(ToolError::ValidationFailure {
-            reason: "prose contains markup, control characters, or internal tool-name tokens"
-                .into(),
-            valid_alternatives: vec![],
-            hint: "Provide plain prose describing the analysis. Don't include XML/HTML \
-                   tags, ANSI escape sequences, control characters, or internal system \
-                   identifiers."
-                .into(),
-        });
+    if let Err(result) = validate_prose_input(prose) {
+        return result;
     }
 
     if should_replace_intake_scope(prose) {
@@ -500,39 +473,8 @@ pub(crate) fn append_intake_prose(
     // lightweight `StageTaxonomy` shaped enough for the emit +
     // session-state paths that still read it (id, domain, description,
     // policies, claim_boundary, project_class).
-    match build_taxonomy_metadata_for_modality(&new_clf.modality, session.project_class, config_dir)
-    {
-        Ok(tax) => {
-            new_clf.domain = tax.domain.clone();
-            new_clf.workflow_description = tax.description.clone();
-            session.taxonomy = Some(tax);
-        }
-        Err(e) => {
-            // Same two cases as the legacy loader: surface a structured
-            // error on first classify, log + keep prior taxonomy on a
-            // follow-up classify drift.
-            if session.taxonomy.is_none() {
-                tracing::error!(
-                    session_id = %session.id,
-                    modality = %new_clf.modality,
-                    project_class = ?session.project_class,
-                    err = %e,
-                    "append_intake_prose: archetype metadata load failed; aborting tool"
-                );
-                return ToolResult::err(ToolError::InternalError {
-                    reason: format!(
-                        "archetype metadata load failed for modality={}, project_class={:?}: {}",
-                        new_clf.modality, session.project_class, e
-                    ),
-                });
-            } else {
-                tracing::warn!(
-                    session_id = %session.id,
-                    err = %e,
-                    "append_intake_prose: archetype metadata reload failed; keeping prior taxonomy"
-                );
-            }
-        }
+    if let Err(result) = apply_taxonomy_metadata(session, &mut new_clf, config_dir) {
+        return result;
     }
     session.classification = Some(new_clf.clone());
     clear_incompatible_archetype_snapshot(session, &new_clf);
@@ -541,47 +483,7 @@ pub(crate) fn append_intake_prose(
     // tie window, set `pending_disambiguation` so the next
     // `propose_quick_replies` call emits a targeted SME prompt instead
     // of guessing.
-    {
-        let disambig_path = config_dir.join("classifier-disambiguation.yaml");
-        if disambig_path.exists() {
-            match ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(
-                &disambig_path,
-            ) {
-                Ok(reg) => {
-                    let mut candidates: Vec<&str> = new_clf
-                        .additional_modalities
-                        .iter()
-                        .map(|m| m.modality.as_str())
-                        .collect();
-                    // The primary classified modality is also a
-                    // candidate for `tied_modalities` triggers.
-                    candidates.push(new_clf.modality.as_str());
-                    let max_conf = new_clf.confidence;
-                    if let Some(pair) = reg.match_pair(
-                        None,
-                        &candidates,
-                        &new_clf.modality,
-                        &session.intake_prose,
-                        max_conf,
-                    ) {
-                        session.pending_disambiguation = Some(pair.id.clone());
-                        tracing::warn!(
-                            session_id = %session.id,
-                            pair = %pair.id,
-                            "disambiguation_triggered",
-                        );
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        session_id = %session.id,
-                        err = %e,
-                        "append_intake_prose: disambiguation registry load failed; skipping"
-                    );
-                }
-            }
-        }
-    }
+    maybe_set_pending_disambiguation(session, &new_clf, config_dir);
 
     // When the classifier populated `goal` (from
     // `modality-keywords.yaml::goal_patterns`) and the archetype catalog
@@ -602,115 +504,7 @@ pub(crate) fn append_intake_prose(
     // Sessions that already pinned a snapshot stay pinned; we only
     // populate when None to keep amendment paths byte-stable.
     if session.archetype_snapshot.is_none() {
-        if let Some(goal) = new_clf.goal.as_ref() {
-            let archetype_dir = config_dir.join("archetypes");
-            if let Ok(reg) =
-                ecaa_workflow_core::archetype_registry::ArchetypeRegistry::load_cached(
-                    &archetype_dir,
-                )
-            {
-                let project_class_str = match session.project_class {
-                    ecaa_workflow_core::project_class::ProjectClass::Bioinformatics => {
-                        "bioinformatics"
-                    }
-                    ecaa_workflow_core::project_class::ProjectClass::ClinicalTrial => {
-                        "clinical_trial"
-                    }
-                    ecaa_workflow_core::project_class::ProjectClass::TimeSeriesForecast => {
-                        "time_series_forecast"
-                    }
-                };
-                // Pass classifier modality (modality_hint scorer; +2)
-                // AND goal modifier `kind` (goal_kind_hint scorer; +2).
-                // Two disambiguators stacked resolve both DE-shaped ties
-                // (bulk_rnaseq_de vs long_read_rnaseq vs
-                // metagenomics_taxonomic, modality breaks) and proteomics
-                // DDA-vs-DIA ties (kind breaks).
-                let target_kind = goal.modifiers.get("kind").map(|s| s.as_str());
-
-                // When the classifier surfaced cross-omics intent
-                // (additional_modalities non-empty), try
-                // `find_match_cross_omics` first so the snapshot pins the
-                // cross-omics archetype rather than a single-modality
-                // archetype that ignores half the SME's request.
-                // Set-equality on `cross_omics_modalities` is the gate.
-                // When no exact cross-omics archetype exists, leave the
-                // snapshot empty so the composer can synthesize a generic
-                // multi-branch DAG instead of pinning a single-modality
-                // archetype that ignores half the SME's request.
-                let cross_omics_winner = if !new_clf.additional_modalities.is_empty() {
-                    let mut requested: Vec<&str> = vec![new_clf.modality.as_str()];
-                    requested.extend(
-                        new_clf
-                            .additional_modalities
-                            .iter()
-                            .map(|m| m.modality.as_str()),
-                    );
-                    let requested_set: std::collections::BTreeSet<&str> =
-                        requested.iter().copied().collect();
-                    let exact_by_modalities = reg
-                        .iter()
-                        .map(|(_, archetype)| archetype)
-                        .filter(|archetype| {
-                            archetype.project_class == project_class_str
-                                && !archetype.cross_omics_modalities.is_empty()
-                        })
-                        .filter(|archetype| {
-                            let have: std::collections::BTreeSet<&str> = archetype
-                                .cross_omics_modalities
-                                .iter()
-                                .map(String::as_str)
-                                .collect();
-                            have == requested_set
-                        })
-                        .min_by(|a, b| a.id.cmp(&b.id))
-                        .cloned();
-                    exact_by_modalities.or_else(|| {
-                        reg.find_match_cross_omics(
-                            &goal.edam_data,
-                            goal.edam_format.as_deref(),
-                            project_class_str,
-                            &requested,
-                            target_kind,
-                            ecaa_workflow_core::classify::is_n_way_intent(&new_clf.intake_text),
-                            &new_clf.intake_text,
-                        )
-                        .into_iter()
-                        .next()
-                        .map(|(arch, _score)| arch.clone())
-                    })
-                } else {
-                    None
-                };
-
-                if let Some(winner) = cross_omics_winner {
-                    session.archetype_snapshot = Some(winner);
-                } else if new_clf.additional_modalities.is_empty() {
-                    let matches = reg.find_match_with_modality_and_kind(
-                        &goal.edam_data,
-                        goal.edam_format.as_deref(),
-                        project_class_str,
-                        Some(new_clf.modality.as_str()),
-                        target_kind,
-                    );
-                    if let Some((winner, top_score)) = matches.first() {
-                        // 5%-tie-window per [DEC Q2.4] / S6.10. If a
-                        // runner-up is within 5%, we don't auto-snapshot
-                        // — the SME-facing tie-breaking card surfaces
-                        // via composer `CompositionError::
-                        // TieRequiresSmeDecision` when the composer is
-                        // invoked. Fast-path stays None so the legacy
-                        // build runs.
-                        let tie_threshold = (*top_score as f32 * 0.95).floor() as u32;
-                        let close_count =
-                            matches.iter().filter(|(_, s)| *s >= tie_threshold).count();
-                        if close_count == 1 {
-                            session.archetype_snapshot = Some((*winner).clone());
-                        }
-                    }
-                }
-            }
-        }
+        maybe_pin_archetype_snapshot(session, &new_clf, config_dir);
     }
 
     // `StateTrigger::AppendProse` (Greeting → Intake)
@@ -761,6 +555,261 @@ pub(crate) fn append_intake_prose(
         "organisms": new_clf.organisms,
         "data_sources": new_clf.data_sources,
     }))
+}
+
+/// Reject empty prose and prose carrying markup / control characters /
+/// internal tool-name tokens. Returns `Err(ToolResult)` carrying the
+/// caller's error response when the input must be refused.
+fn validate_prose_input(prose: &str) -> Result<(), ToolResult> {
+    if prose.trim().is_empty() {
+        return Err(ToolResult::err(ToolError::ValidationFailure {
+            reason: "prose is empty".into(),
+            valid_alternatives: vec![],
+            hint: "Pass non-empty SME prose.".into(),
+        }));
+    }
+
+    // Input-side prompt-injection sanitizer (grant v19 §C.0.1, E2
+    // follow-up). `sanitize_for_session_prose` strips XML/HTML-like
+    // tags, ASCII control characters, and whole-word internal
+    // tool-name tokens. When any of those are present the sanitized
+    // output differs from the input — that's our signal to refuse.
+    // Legitimate SME prose (gene symbols, accessions, plain English)
+    // round-trips unchanged. See
+    // `tests/tool_boundary_adversarial.rs::all_75_adversarial_cases_refused`
+    // for the five `redirection_injection` / `recursive` cases this
+    // gate covers.
+    let sanitized = crate::sme_text::sanitize_for_session_prose(prose);
+    if sanitized != prose {
+        return Err(ToolResult::err(ToolError::ValidationFailure {
+            reason: "prose contains markup, control characters, or internal tool-name tokens"
+                .into(),
+            valid_alternatives: vec![],
+            hint: "Provide plain prose describing the analysis. Don't include XML/HTML \
+                   tags, ANSI escape sequences, control characters, or internal system \
+                   identifiers."
+                .into(),
+        }));
+    }
+    Ok(())
+}
+
+/// Populate session taxonomy metadata from the matched archetype.
+/// On a first-classify failure returns `Err(ToolResult)` carrying a
+/// structured tool error; on a follow-up classify drift logs and keeps
+/// the prior taxonomy.
+fn apply_taxonomy_metadata(
+    session: &mut Session,
+    new_clf: &mut ClassificationResult,
+    config_dir: &Path,
+) -> Result<(), ToolResult> {
+    match build_taxonomy_metadata_for_modality(&new_clf.modality, session.project_class, config_dir)
+    {
+        Ok(tax) => {
+            new_clf.domain = tax.domain.clone();
+            new_clf.workflow_description = tax.description.clone();
+            session.taxonomy = Some(tax);
+            Ok(())
+        }
+        Err(e) => {
+            // Same two cases as the legacy loader: surface a structured
+            // error on first classify, log + keep prior taxonomy on a
+            // follow-up classify drift.
+            if session.taxonomy.is_none() {
+                tracing::error!(
+                    session_id = %session.id,
+                    modality = %new_clf.modality,
+                    project_class = ?session.project_class,
+                    err = %e,
+                    "append_intake_prose: archetype metadata load failed; aborting tool"
+                );
+                Err(ToolResult::err(ToolError::InternalError {
+                    reason: format!(
+                        "archetype metadata load failed for modality={}, project_class={:?}: {}",
+                        new_clf.modality, session.project_class, e
+                    ),
+                }))
+            } else {
+                tracing::warn!(
+                    session_id = %session.id,
+                    err = %e,
+                    "append_intake_prose: archetype metadata reload failed; keeping prior taxonomy"
+                );
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Calibrated learning-to-defer: when the classifier is in a known tie
+/// window, set `pending_disambiguation` so the next
+/// `propose_quick_replies` call emits a targeted SME prompt instead of
+/// guessing.
+fn maybe_set_pending_disambiguation(
+    session: &mut Session,
+    new_clf: &ClassificationResult,
+    config_dir: &Path,
+) {
+    let disambig_path = config_dir.join("classifier-disambiguation.yaml");
+    if !disambig_path.exists() {
+        return;
+    }
+    let reg = match ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(&disambig_path)
+    {
+        Ok(reg) => reg,
+        Err(e) => {
+            tracing::warn!(
+                session_id = %session.id,
+                err = %e,
+                "append_intake_prose: disambiguation registry load failed; skipping"
+            );
+            return;
+        }
+    };
+    let mut candidates: Vec<&str> = new_clf
+        .additional_modalities
+        .iter()
+        .map(|m| m.modality.as_str())
+        .collect();
+    // The primary classified modality is also a
+    // candidate for `tied_modalities` triggers.
+    candidates.push(new_clf.modality.as_str());
+    let max_conf = new_clf.confidence;
+    if let Some(pair) = reg.match_pair(
+        None,
+        &candidates,
+        &new_clf.modality,
+        &session.intake_prose,
+        max_conf,
+    ) {
+        session.pending_disambiguation = Some(pair.id.clone());
+        tracing::warn!(
+            session_id = %session.id,
+            pair = %pair.id,
+            "disambiguation_triggered",
+        );
+    }
+}
+
+/// When the classifier populated `goal` and the archetype catalog has a
+/// clear winner, snapshot the matched archetype onto the session.
+/// Soft-skips on every error path so the legacy build keeps working.
+/// Caller guarantees `session.archetype_snapshot.is_none()`.
+fn maybe_pin_archetype_snapshot(
+    session: &mut Session,
+    new_clf: &ClassificationResult,
+    config_dir: &Path,
+) {
+    let Some(goal) = new_clf.goal.as_ref() else {
+        return;
+    };
+    let archetype_dir = config_dir.join("archetypes");
+    let Ok(reg) =
+        ecaa_workflow_core::archetype_registry::ArchetypeRegistry::load_cached(&archetype_dir)
+    else {
+        return;
+    };
+    let project_class_str = match session.project_class {
+        ecaa_workflow_core::project_class::ProjectClass::Bioinformatics => "bioinformatics",
+        ecaa_workflow_core::project_class::ProjectClass::ClinicalTrial => "clinical_trial",
+        ecaa_workflow_core::project_class::ProjectClass::TimeSeriesForecast => {
+            "time_series_forecast"
+        }
+    };
+    // Pass classifier modality (modality_hint scorer; +2)
+    // AND goal modifier `kind` (goal_kind_hint scorer; +2).
+    // Two disambiguators stacked resolve both DE-shaped ties
+    // (bulk_rnaseq_de vs long_read_rnaseq vs
+    // metagenomics_taxonomic, modality breaks) and proteomics
+    // DDA-vs-DIA ties (kind breaks).
+    let target_kind = goal.modifiers.get("kind").map(|s| s.as_str());
+
+    let cross_omics_winner =
+        select_cross_omics_winner(new_clf, goal, &reg, project_class_str, target_kind);
+
+    if let Some(winner) = cross_omics_winner {
+        session.archetype_snapshot = Some(winner);
+    } else if new_clf.additional_modalities.is_empty() {
+        let matches = reg.find_match_with_modality_and_kind(
+            &goal.edam_data,
+            goal.edam_format.as_deref(),
+            project_class_str,
+            Some(new_clf.modality.as_str()),
+            target_kind,
+        );
+        if let Some((winner, top_score)) = matches.first() {
+            // 5%-tie-window per [DEC Q2.4] / S6.10. If a
+            // runner-up is within 5%, we don't auto-snapshot
+            // — the SME-facing tie-breaking card surfaces
+            // via composer `CompositionError::
+            // TieRequiresSmeDecision` when the composer is
+            // invoked. Fast-path stays None so the legacy
+            // build runs.
+            let tie_threshold = (*top_score as f32 * 0.95).floor() as u32;
+            let close_count = matches.iter().filter(|(_, s)| *s >= tie_threshold).count();
+            if close_count == 1 {
+                session.archetype_snapshot = Some((*winner).clone());
+            }
+        }
+    }
+}
+
+/// When the classifier surfaced cross-omics intent
+/// (additional_modalities non-empty), try `find_match_cross_omics`
+/// first so the snapshot pins the cross-omics archetype rather than a
+/// single-modality archetype that ignores half the SME's request.
+/// Set-equality on `cross_omics_modalities` is the gate. When no exact
+/// cross-omics archetype exists, leave the snapshot empty so the
+/// composer can synthesize a generic multi-branch DAG instead.
+fn select_cross_omics_winner(
+    new_clf: &ClassificationResult,
+    goal: &ecaa_workflow_core::goal_spec::GoalSpec,
+    reg: &ecaa_workflow_core::archetype_registry::ArchetypeRegistry,
+    project_class_str: &str,
+    target_kind: Option<&str>,
+) -> Option<ecaa_workflow_core::archetype::ArchetypeDefinition> {
+    if new_clf.additional_modalities.is_empty() {
+        return None;
+    }
+    let mut requested: Vec<&str> = vec![new_clf.modality.as_str()];
+    requested.extend(
+        new_clf
+            .additional_modalities
+            .iter()
+            .map(|m| m.modality.as_str()),
+    );
+    let requested_set: std::collections::BTreeSet<&str> = requested.iter().copied().collect();
+    let exact_by_modalities = reg
+        .iter()
+        .map(|(_, archetype)| archetype)
+        .filter(|archetype| {
+            archetype.project_class == project_class_str
+                && !archetype.cross_omics_modalities.is_empty()
+        })
+        .filter(|archetype| {
+            let have: std::collections::BTreeSet<&str> = archetype
+                .cross_omics_modalities
+                .iter()
+                .map(String::as_str)
+                .collect();
+            have == requested_set
+        })
+        .min_by(|a, b| a.id.cmp(&b.id))
+        .cloned();
+    exact_by_modalities.or_else(|| {
+        reg.find_match_cross_omics(
+            &goal.edam_data,
+            goal.edam_format.as_deref(),
+            project_class_str,
+            &requested,
+            target_kind,
+            ecaa_workflow_core::classify::is_n_way_intent(&new_clf.intake_text),
+            &new_clf.intake_text,
+        )
+        .into_iter()
+        .next()
+        .map(|(arch, _score)| arch.clone())
+    })
 }
 
 /// Populate `Session::workflow_intent` from the latest
@@ -1136,8 +1185,7 @@ fn maybe_clear_pending_disambiguation_from_prose(
     if !disambig_path.exists() {
         return;
     }
-    let Ok(reg) =
-        ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(&disambig_path)
+    let Ok(reg) = ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(&disambig_path)
     else {
         return;
     };
@@ -1186,8 +1234,7 @@ pub(crate) fn clear_disambiguation_on_selection(
         session.pending_disambiguation = None;
         return;
     }
-    let Ok(reg) =
-        ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(&disambig_path)
+    let Ok(reg) = ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(&disambig_path)
     else {
         session.pending_disambiguation = None;
         return;
