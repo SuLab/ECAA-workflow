@@ -7,20 +7,20 @@
     <!--
       Security remediation Phase 1 (2026-05-14). When the server binds
       non-loopback (or ECAA_SERVER_AUTH_TOKEN is set), it serves an
-      `<meta name="swfc-auth-token">` tag here. The inline script below
+      `<meta name="ecaa-auth-token">` tag here. The inline script below
       copies the value to `window.__ECAA_AUTH_TOKEN__`, which the
       `_fetch.ts` helpers attach as `Authorization: Bearer …` on every
       `/api/*` request. For local dev with `ECAA_BIND_ADDR=127.0.0.1`
       and no token configured, the meta tag stays empty and the UI
       works unauthenticated.
     -->
-    <meta name="swfc-auth-token" content="" />
+    <meta name="ecaa-auth-token" content="" />
     <title>ECAA-workflow Planner</title>
     <script>
       // Auth-token bootstrap. Pulled from the meta tag set by the
       // server (or hand-edited for local LAN testing).
       (function () {
-        var meta = document.querySelector('meta[name="swfc-auth-token"]');
+        var meta = document.querySelector('meta[name="ecaa-auth-token"]');
         if (meta && meta.content) {
           window.__ECAA_AUTH_TOKEN__ = meta.content;
         }
@@ -33,7 +33,7 @@
       // wins; otherwise fall back to the OS preference.
       (function () {
         try {
-          var p = window.localStorage.getItem('swfc.theme');
+          var p = window.localStorage.getItem('ecaa.theme');
           var mode;
           if (p === 'light' || p === 'dark') {
             mode = p;
@@ -61,7 +61,7 @@
       html { background: #f8fafc; color: #0f172a; }
       html[data-theme="dark"] { background: #0b1220; color: #f1f5f9; }
 
-      @keyframes scrippsPulse {
+      @keyframes ecaaPulse {
         0%, 100% { opacity: 0.4; }
         50% { opacity: 1; }
       }

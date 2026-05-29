@@ -28,12 +28,12 @@ export function renderWithTheme(
   // initial-state read resolves to the requested mode. The FOUC script
   // isn't loaded in jsdom, so we set data-theme explicitly.
   if (mode) {
-    window.localStorage.setItem('swfc.theme', mode)
+    window.localStorage.setItem('ecaa.theme', mode)
     if (mode !== 'system') {
       document.documentElement.dataset.theme = mode
     }
   } else {
-    window.localStorage.removeItem('swfc.theme')
+    window.localStorage.removeItem('ecaa.theme')
     delete document.documentElement.dataset.theme
   }
   return render(ui, { wrapper: ThemeProvider, ...rest })

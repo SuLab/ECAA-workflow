@@ -69,7 +69,7 @@ function withShareToken(opts: RequestInit | undefined): RequestInit | undefined 
 
 /**
  * Bearer-token auth shim: when the page was bootstrapped with a
- * `<meta name="swfc-auth-token">` tag, the
+ * `<meta name="ecaa-auth-token">` tag, the
  * inline script in `ui/index.html` copies the value to
  * `window.__ECAA_AUTH_TOKEN__`. We attach it on every API request as
  * `Authorization: Bearer <token>` so the server-side

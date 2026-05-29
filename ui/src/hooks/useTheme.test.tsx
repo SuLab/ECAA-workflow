@@ -2,7 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ThemeProvider, useTheme } from './useTheme'
 
-const STORAGE_KEY = 'swfc.theme'
+const STORAGE_KEY = 'ecaa.theme'
 
 afterEach(() => {
   window.localStorage.removeItem(STORAGE_KEY)

@@ -6,11 +6,11 @@
 // and document.visibilityState === 'hidden'.
 // - An opt-in chip in the title bar drives requestPermission; the
 // dismissal is persisted in localStorage under
-// swfc.notifications.promptDismissed so we don't keep nagging.
+// ecaa.notifications.promptDismissed so we don't keep nagging.
 
 import { TITLE_BLINK_INTERVAL_MS } from './polling'
 
-const PROMPT_DISMISSED_KEY = 'swfc.notifications.promptDismissed'
+const PROMPT_DISMISSED_KEY = 'ecaa.notifications.promptDismissed'
 const BLINK_TITLE = '⚠ ECAA-workflow'
 
 export type NotificationPermissionState =

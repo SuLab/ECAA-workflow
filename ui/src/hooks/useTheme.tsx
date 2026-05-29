@@ -18,7 +18,7 @@ interface ThemeContextValue {
   setPreference: (p: ThemePreference) => void
 }
 
-const STORAGE_KEY = 'swfc.theme'
+const STORAGE_KEY = 'ecaa.theme'
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
 

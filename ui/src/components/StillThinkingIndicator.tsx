@@ -51,7 +51,7 @@ export default function StillThinkingIndicator(props: {
           height: 10,
           borderRadius: '50%',
           background: dotColor,
-          animation: 'scrippsPulse 1.4s ease-in-out infinite',
+          animation: 'ecaaPulse 1.4s ease-in-out infinite',
           flexShrink: 0,
         }}
       />

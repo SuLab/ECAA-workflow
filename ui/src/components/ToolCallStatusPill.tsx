@@ -28,7 +28,7 @@ export default function ToolCallStatusPill({ statusLine }: Props) {
           height: 10,
           borderRadius: '50%',
           background: 'var(--color-info-accent)',
-          animation: 'scrippsPulse 1.2s ease-in-out infinite',
+          animation: 'ecaaPulse 1.2s ease-in-out infinite',
           flexShrink: 0,
         }}
       />

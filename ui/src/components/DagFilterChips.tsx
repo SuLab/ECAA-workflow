@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from 'react'
 
-const STORAGE_KEY = 'swfc.dagFilter.statuses'
+const STORAGE_KEY = 'ecaa.dagFilter.statuses'
 
 export const FILTER_CHOICES: ReadonlyArray<{ id: string; label: string }> = [
   { id: 'blocked', label: 'Blocked' },

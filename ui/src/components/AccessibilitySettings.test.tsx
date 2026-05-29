@@ -1,5 +1,5 @@
 // button aria label, dropdown reveal, High-contrast checkbox wiring to
-// `swfc.a11y.highContrast` + document.documentElement.dataset, and
+// `ecaa.a11y.highContrast` + document.documentElement.dataset, and
 // Escape key dismissal.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -37,14 +37,14 @@ describe('AccessibilitySettings', () => {
     expect(screen.getByText('Color-blind-safe palette')).toBeInTheDocument()
   })
 
-  it('toggling High contrast writes swfc.a11y.highContrast + dataset flag', async () => {
+  it('toggling High contrast writes ecaa.a11y.highContrast + dataset flag', async () => {
     render(<AccessibilitySettings />)
     fireEvent.click(screen.getByLabelText('Accessibility settings'))
     const label = screen.getByText('High contrast').closest('label')!
     const checkbox = label.querySelector('input[type="checkbox"]') as HTMLInputElement
     fireEvent.click(checkbox)
     await waitFor(() =>
-      expect(window.localStorage.getItem('swfc.a11y.highContrast')).toBe('1'),
+      expect(window.localStorage.getItem('ecaa.a11y.highContrast')).toBe('1'),
     )
     expect(document.documentElement.dataset.a11yHighContrast).toBe('1')
   })

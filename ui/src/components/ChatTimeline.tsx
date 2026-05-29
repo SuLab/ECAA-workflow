@@ -253,7 +253,7 @@ function InFlightAssistantBubble({
             verticalAlign: 'text-bottom',
             background: 'var(--color-text-primary)',
             marginLeft: 2,
-            animation: 'scrippsPulse 1s ease-in-out infinite',
+            animation: 'ecaaPulse 1s ease-in-out infinite',
           }}
         />
       </div>
@@ -281,7 +281,7 @@ function InFlightAssistantBubble({
               height: 10,
               borderRadius: '50%',
               background: 'var(--color-info-accent)',
-              animation: 'scrippsPulse 1.2s ease-in-out infinite',
+              animation: 'ecaaPulse 1.2s ease-in-out infinite',
               flexShrink: 0,
             }}
           />

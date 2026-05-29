@@ -6,10 +6,10 @@
 // shifts after upgrade.
 
 const KEYS = {
-  fontScale: 'swfc.a11y.fontScale',
-  highContrast: 'swfc.a11y.highContrast',
-  reducedMotion: 'swfc.a11y.reducedMotion',
-  colorSafe: 'swfc.a11y.colorSafe',
+  fontScale: 'ecaa.a11y.fontScale',
+  highContrast: 'ecaa.a11y.highContrast',
+  reducedMotion: 'ecaa.a11y.reducedMotion',
+  colorSafe: 'ecaa.a11y.colorSafe',
 } as const
 
 export interface A11ySettings {

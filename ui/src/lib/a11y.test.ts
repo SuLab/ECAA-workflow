@@ -31,7 +31,7 @@ describe('a11y settings', () => {
   })
 
   it('rejects out-of-range font scale', () => {
-    window.localStorage.setItem('swfc.a11y.fontScale', '4')
+    window.localStorage.setItem('ecaa.a11y.fontScale', '4')
     expect(loadSettings().fontScale).toBe(1.0)
   })
 

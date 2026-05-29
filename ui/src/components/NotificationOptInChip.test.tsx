@@ -62,7 +62,7 @@ describe('NotificationOptInChip', () => {
   it('clicking dismiss sets the localStorage key then hides the chip', () => {
     const { container } = render(<NotificationOptInChip everBlocked={true} />)
     fireEvent.click(screen.getByLabelText('Dismiss notification prompt'))
-    expect(window.localStorage.getItem('swfc.notifications.promptDismissed')).toBe('1')
+    expect(window.localStorage.getItem('ecaa.notifications.promptDismissed')).toBe('1')
     expect(container.firstChild).toBeNull()
   })
 })
