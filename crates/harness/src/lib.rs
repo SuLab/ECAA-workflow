@@ -9,6 +9,7 @@ pub mod _observability;
 pub mod cache_eviction;
 pub mod constants;
 pub mod dag_patch;
+pub mod dispatch_guard;
 pub mod dispatch_wal;
 pub mod executor;
 pub mod finalize_probe;

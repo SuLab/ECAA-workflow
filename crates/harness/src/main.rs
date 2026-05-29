@@ -1640,6 +1640,15 @@ fn run_loop(
     let mut prior_completed: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut prior_running: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut prior_blocked: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // No-progress guard: force-block a task whose agent keeps being
+    // re-dispatched (orphan recovery) without ever writing a terminal
+    // state patch — a crash loop that heartbeat-stall can't catch because
+    // each re-dispatch refreshes the heartbeat. Only tasks actually
+    // (re-)dispatched this iteration are observed, so a live long-running
+    // agent (skipped by the orphan-recovery is_live probe) is never
+    // charged. See `dispatch_guard`.
+    let mut noprogress_guard =
+        ecaa_workflow_harness::dispatch_guard::NoProgressGuard::from_env();
     // Terminal-state scratch cleanup needs to
     // fire exactly once per task per failure transition. The existing
     // `is_failed` event-emit branch below is guarded by
@@ -3137,6 +3146,49 @@ fn run_loop(
                     new_state_label
                 ),
             );
+        }
+
+        // No-progress guard. A task that was (re-)dispatched this
+        // iteration but did NOT reach a terminal state made no progress;
+        // count it. Once a task exhausts its budget, force it to Blocked
+        // so the harness stops re-dispatching a crash loop the
+        // heartbeat-stall detector can't catch (each re-dispatch refreshes
+        // the heartbeat). Terminal outcomes reset the count, and a live
+        // long-running agent is never in `picks` (orphan recovery skips
+        // live tasks), so this can't false-positive a slow stage.
+        for tid in &picks {
+            let reached_terminal = after
+                .tasks
+                .get(tid.as_str())
+                .map(|t| {
+                    matches!(
+                        t.state,
+                        TaskState::Completed { .. }
+                            | TaskState::Failed { .. }
+                            | TaskState::Blocked { .. }
+                    )
+                })
+                .unwrap_or(false);
+            if let Some(reason) = noprogress_guard.observe(tid.as_str(), reached_terminal) {
+                if let Some(t) = after.tasks.get_mut(tid.as_str()) {
+                    t.state = TaskState::Blocked {
+                        record: ecaa_workflow_core::dag::BlockedRecord {
+                            reason: reason.clone(),
+                            attempts: Vec::new(),
+                        },
+                    };
+                }
+                append_progress_log(
+                    path,
+                    tid,
+                    &format!("harness: no-progress guard force-blocked {tid} — {reason}"),
+                );
+                tracing::warn!(
+                    target: "harness",
+                    task_id = %tid,
+                    "no-progress guard force-blocked task after repeated no-terminal dispatches"
+                );
+            }
         }
         // `started_task_id` is now just the first pick (used by
         // callers expecting the single-pick semantics).
