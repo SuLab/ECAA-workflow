@@ -40,21 +40,34 @@ Write everything under `runtime/outputs/$ECAA_TASK_ID/`. Do not touch
 writer of task state.
 
 1. **`state.patch.json`** — the single authoritative state transition. A
-   patch-merge envelope of the shape:
+   patch-merge envelope whose `to` field is a fully-tagged `TaskState`
+   object. The terminal `to` shapes the harness accepts are:
 
    ```json
-   {
-     "from": "running",
-     "to": { "status": "completed" },
+   { "from": "running",
+     "to": { "status": "completed", "result": { "summary": "…", "artifacts": ["cohort_manifest.tsv", "result.json"], "figures": ["figures/samples_per_study.png"] } },
      "harness_run_id": "<ECAA_HARNESS_RUN_ID>",
-     "dispatch_epoch": <ECAA_DISPATCH_EPOCH>
-   }
+     "dispatch_epoch": <ECAA_DISPATCH_EPOCH> }
+   ```
+   ```json
+   { "from": "running",
+     "to": { "status": "blocked", "record": { "reason": "<what is missing / what the SME must decide>", "attempts": [] } },
+     "harness_run_id": "<ECAA_HARNESS_RUN_ID>", "dispatch_epoch": <ECAA_DISPATCH_EPOCH> }
+   ```
+   ```json
+   { "from": "running",
+     "to": { "status": "failed", "reason": "<why the task could not complete>" },
+     "harness_run_id": "<ECAA_HARNESS_RUN_ID>", "dispatch_epoch": <ECAA_DISPATCH_EPOCH> }
    ```
 
-   Copy `harness_run_id` and `dispatch_epoch` verbatim from the
+   The `to` object is REQUIRED and must carry the nested field for its
+   status: `completed` requires `result` (any JSON — put your task summary,
+   artifact list, and figure paths here), `blocked` requires `record`
+   (with a `reason`), `failed` requires `reason`. A bare
+   `{"status": "completed"}` is rejected as an unparseable patch. Copy
+   `harness_run_id` and `dispatch_epoch` verbatim from the
    `ECAA_HARNESS_RUN_ID` and `ECAA_DISPATCH_EPOCH` environment values so
-   the harness can reject a stale patch from a superseded dispatch. `to.status`
-   is one of `completed` | `blocked` | `failed`.
+   the harness can reject a stale patch from a superseded dispatch.
 
 2. **`result.json`** — the task result: `task_id`, `status`, a short
    narrative, the artifacts you produced, and (for analytical stages) the

@@ -1587,4 +1587,34 @@ mod tests {
             "original patch must stay on disk for debugging"
         );
     }
+
+    /// The `to` field is a fully-tagged `TaskState`; a `completed`
+    /// transition REQUIRES the nested `result`. A bare
+    /// `{"status":"completed"}` (the shape the early reconstructed agent
+    /// prompt emitted) must fail to deserialize — that's the
+    /// `patch_unparseable` blocker the harness raised. This pins the
+    /// contract the shared agent prompt documents.
+    #[test]
+    fn statepatch_completed_requires_nested_result() {
+        let bare = r#"{"from":"running","to":{"status":"completed"},"harness_run_id":"r","dispatch_epoch":1}"#;
+        assert!(
+            serde_json::from_str::<StatePatch>(bare).is_err(),
+            "bare completed status without `result` must be rejected"
+        );
+
+        let canonical = r#"{"from":"running","to":{"status":"completed","result":{"summary":"ok","figures":["figures/x.png"]}},"harness_run_id":"r","dispatch_epoch":1}"#;
+        let patch: StatePatch =
+            serde_json::from_str(canonical).expect("canonical completed patch must parse");
+        assert!(matches!(patch.to, TaskState::Completed { .. }));
+
+        let blocked = r#"{"from":"running","to":{"status":"blocked","record":{"reason":"missing input","attempts":[]}},"harness_run_id":"r","dispatch_epoch":1}"#;
+        let patch: StatePatch =
+            serde_json::from_str(blocked).expect("canonical blocked patch must parse");
+        assert!(matches!(patch.to, TaskState::Blocked { .. }));
+
+        let failed = r#"{"from":"running","to":{"status":"failed","reason":"boom"},"harness_run_id":"r","dispatch_epoch":1}"#;
+        let patch: StatePatch =
+            serde_json::from_str(failed).expect("canonical failed patch must parse");
+        assert!(matches!(patch.to, TaskState::Failed { .. }));
+    }
 }
