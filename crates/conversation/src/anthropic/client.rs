@@ -335,6 +335,7 @@ impl AnthropicClient {
             base_url,
             timeout: anthropic_client_timeout(),
             user_agent: format!("ecaa-workflow/{}", env!("CARGO_PKG_VERSION")),
+            ..Default::default()
         };
         let resilient =
             ResilientClient::new(rc_cfg).map_err(|e| anyhow!("building ResilientClient: {e}"))?;
@@ -350,6 +351,7 @@ impl AnthropicClient {
             base_url: parsed,
             timeout: anthropic_client_timeout(),
             user_agent: format!("ecaa-workflow/{}", env!("CARGO_PKG_VERSION")),
+            ..Default::default()
         };
         self.resilient =
             ResilientClient::new(rc_cfg).map_err(|e| anyhow!("building ResilientClient: {e}"))?;

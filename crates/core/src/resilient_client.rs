@@ -36,6 +36,15 @@ pub struct ResilientClientConfig {
     pub timeout: std::time::Duration,
     /// User agent.
     pub user_agent: String,
+    /// Per-connection-attempt TCP connect timeout. Applied to each
+    /// resolved address individually (hyper-util `HttpConnector`
+    /// semantics): when a host resolves to both an A and a dead AAAA
+    /// record, the dead IPv6 attempt fails after this bound and reqwest
+    /// falls back to the IPv4 address instead of blocking on the full
+    /// kernel SYN-retransmission window (~127 s on default Linux). Keep
+    /// it well above any healthy connect (<1 s) but well under the
+    /// kernel timeout so broken-IPv6 hosts stay responsive.
+    pub connect_timeout: std::time::Duration,
 }
 
 impl Default for ResilientClientConfig {
@@ -44,6 +53,7 @@ impl Default for ResilientClientConfig {
             base_url: Url::parse("https://api.anthropic.com").expect("constant"),
             timeout: std::time::Duration::from_secs(300),
             user_agent: format!("ecaa-workflow/{}", env!("CARGO_PKG_VERSION")),
+            connect_timeout: std::time::Duration::from_secs(10),
         }
     }
 }
@@ -66,6 +76,7 @@ impl ResilientClient {
         validate_scheme(&config.base_url)?;
         let inner = reqwest::Client::builder()
             .timeout(config.timeout)
+            .connect_timeout(config.connect_timeout)
             .user_agent(&config.user_agent)
             .build()?;
         Ok(ResilientClient { inner, config })
