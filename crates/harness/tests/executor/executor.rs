@@ -23,7 +23,6 @@ use ecaa_workflow_harness::executor::{aws::AwsExecutor, build, Executor, Executo
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 fn args() -> ExecutorArgs {
     ExecutorArgs {
@@ -33,10 +32,9 @@ fn args() -> ExecutorArgs {
     }
 }
 
-/// Shared mutex so tests mutating PATH / ECAA_AWS_* env vars run
-/// one-at-a-time. `cargo test` schedules tests across multiple threads
-/// by default; each shim test grabs this lock for its duration.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
+// Env-mutating tests in this module use the crate-wide `crate::crate::ENV_LOCK`
+// (declared in `executor/main.rs`) so they serialize against other
+// modules in this binary that touch PATH and ECAA_AWS_* env vars.
 
 #[test]
 fn factory_returns_error_for_unknown_mode() {
@@ -434,7 +432,7 @@ fn provision_with_shim(exec: &mut AwsExecutor, pkg: &Path) {
 
 #[test]
 fn run_iteration_sends_ssm_command_with_expected_parameters() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let scratch = tempfile::tempdir().unwrap();
     let pkg = scratch.path().join("pkg");
     seed_ready_dag(&pkg, "align-42");
@@ -496,7 +494,7 @@ fn run_iteration_sends_ssm_command_with_expected_parameters() {
 
 #[test]
 fn run_iteration_marks_task_failed_on_nonzero_exit() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let scratch = tempfile::tempdir().unwrap();
     let pkg = scratch.path().join("pkg");
     seed_ready_dag(&pkg, "fail-1");
@@ -530,7 +528,7 @@ fn run_iteration_marks_task_failed_on_nonzero_exit() {
 
 #[test]
 fn ensure_alive_reprovisions_on_terminated_instance() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let scratch = tempfile::tempdir().unwrap();
     let pkg = scratch.path().join("pkg");
     seed_ready_dag(&pkg, "t-1");
@@ -582,7 +580,7 @@ fn ensure_alive_reprovisions_on_terminated_instance() {
 
 #[test]
 fn ensure_alive_is_noop_on_running_instance() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let scratch = tempfile::tempdir().unwrap();
     let pkg = scratch.path().join("pkg");
     seed_ready_dag(&pkg, "t-1");
@@ -626,7 +624,7 @@ fn ensure_alive_is_noop_on_running_instance() {
 
 #[test]
 fn is_task_stale_false_for_fresh_running_task() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let scratch = tempfile::tempdir().unwrap();
     let pkg = scratch.path().join("pkg");
     seed_ready_dag(&pkg, "fresh-1");
@@ -678,7 +676,7 @@ fn is_task_stale_false_for_fresh_running_task() {
 
 #[test]
 fn is_task_stale_true_when_ssm_reports_no_invocation() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let scratch = tempfile::tempdir().unwrap();
     let pkg = scratch.path().join("pkg");
     seed_ready_dag(&pkg, "past-1");
@@ -738,7 +736,7 @@ fn is_task_stale_true_when_ssm_reports_no_invocation() {
 
 #[test]
 fn is_task_stale_false_when_ssm_reports_success() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let scratch = tempfile::tempdir().unwrap();
     let pkg = scratch.path().join("pkg");
     seed_ready_dag(&pkg, "done-1");
@@ -795,7 +793,7 @@ fn is_task_stale_false_when_ssm_reports_success() {
 
 #[test]
 fn is_task_stale_honors_per_stage_ssm_timeout_override() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let scratch = tempfile::tempdir().unwrap();
     let pkg = scratch.path().join("pkg");
     seed_ready_dag(&pkg, "long-running-1");
@@ -874,7 +872,7 @@ fn is_task_stale_honors_per_stage_ssm_timeout_override() {
 
 #[test]
 fn is_task_stale_uses_env_ssm_timeout_when_no_profile_override() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     let scratch = tempfile::tempdir().unwrap();
     let pkg = scratch.path().join("pkg");
     seed_ready_dag(&pkg, "env-tune-1");

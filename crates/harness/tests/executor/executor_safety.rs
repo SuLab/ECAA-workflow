@@ -16,7 +16,7 @@
 // file uses `unsafe { std::env::set_var / remove_var }` to control
 // ECAA_LOCAL_SANDBOX / ECAA_SLURM_NATIVE_CONTAINER vars (unsafe in
 // Rust 2024 edition because the env table is not thread-safe). All
-// call sites grab the shared ENV_LOCK below; the bounded waiver is
+// call sites grab the shared crate::ENV_LOCK below; the bounded waiver is
 // scoped to this integration test target.
 #![allow(unsafe_code)]
 
@@ -28,13 +28,10 @@ use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState
 use ecaa_workflow_harness::executor::{
     enforce_safety_policy, local::LocalExecutor, Executor, ExecutorArgs,
 };
-use std::sync::Mutex;
-
-/// Shared mutex so tests mutating ECAA_LOCAL_SANDBOX /
-/// ECAA_SLURM_NATIVE_CONTAINER env vars run one-at-a-time. `cargo
-/// test` schedules tests across multiple threads by default; each
-/// env-mutating test grabs this lock for its duration.
-static ENV_LOCK: Mutex<()> = Mutex::new(());
+// Env-mutating tests in this module share a process-wide lock with
+// `sandbox_runner_integration` (both set ECAA_LOCAL_SANDBOX). The lock
+// lives in `executor/main.rs` as `crate::ENV_LOCK`.
+// All per-test `_lock` bindings below use that crate-level static.
 
 fn args() -> ExecutorArgs {
     ExecutorArgs {
@@ -112,7 +109,7 @@ fn compute_atom_safety() -> SafetyPolicy {
 
 #[test]
 fn local_capabilities_default_no_sandbox_bridge_network() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     // Pin ECAA_LOCAL_SANDBOX=off so detect_default_sandbox()'s bwrap probe
     // can't auto-detect a host-installed bwrap and override the assertion
     // — the test asserts the explicit opt-out default, not host
@@ -135,7 +132,7 @@ fn local_capabilities_default_no_sandbox_bridge_network() {
 
 #[test]
 fn local_capabilities_bubblewrap_upgrades_to_process_isolation() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
@@ -149,7 +146,7 @@ fn local_capabilities_bubblewrap_upgrades_to_process_isolation() {
 
 #[test]
 fn local_capabilities_unknown_sandbox_value_stays_none() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "garbage_value") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
@@ -165,7 +162,7 @@ fn local_capabilities_unknown_sandbox_value_stays_none() {
 
 #[test]
 fn local_default_blocks_exec_atom_with_sandbox_required() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     // Pin ECAA_LOCAL_SANDBOX=off so detect_default_sandbox()'s bwrap probe
     // can't auto-detect a host-installed bwrap and silently satisfy
     // ProcessIsolation — the test asserts the sandbox-unavailable →
@@ -195,7 +192,7 @@ fn local_default_blocks_exec_atom_with_sandbox_required() {
 
 #[test]
 fn local_with_bubblewrap_passes_exec_atom() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     unsafe { std::env::set_var("ECAA_LOCAL_SANDBOX", "bubblewrap") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
@@ -209,7 +206,7 @@ fn local_with_bubblewrap_passes_exec_atom() {
 
 #[test]
 fn local_passes_network_bridge_atom() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
@@ -222,7 +219,7 @@ fn local_passes_network_bridge_atom() {
 
 #[test]
 fn local_passes_compute_atom_anywhere() {
-    let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+    let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
     unsafe { std::env::remove_var("ECAA_LOCAL_SANDBOX") };
     let exec = LocalExecutor::new(&args());
     let caps = exec.capabilities();
@@ -293,7 +290,7 @@ mod slurm_safety {
 
     #[test]
     fn slurm_capabilities_default_no_sandbox_deny_egress() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         unsafe { std::env::remove_var("ECAA_SLURM_NATIVE_CONTAINER") };
         let exec = slurm_for_test();
         let caps = exec.capabilities();
@@ -313,7 +310,7 @@ mod slurm_safety {
 
     #[test]
     fn slurm_capabilities_native_container_upgrades_sandbox() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         unsafe { std::env::set_var("ECAA_SLURM_NATIVE_CONTAINER", "1") };
         let exec = slurm_for_test();
         let caps = exec.capabilities();
@@ -327,7 +324,7 @@ mod slurm_safety {
 
     #[test]
     fn slurm_default_blocks_bridge_network_atom() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         unsafe { std::env::remove_var("ECAA_SLURM_NATIVE_CONTAINER") };
         let exec = slurm_for_test();
         let caps = exec.capabilities();
@@ -346,7 +343,7 @@ mod slurm_safety {
 
     #[test]
     fn slurm_default_blocks_exec_atom_with_sandbox_required() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         unsafe { std::env::remove_var("ECAA_SLURM_NATIVE_CONTAINER") };
         let exec = slurm_for_test();
         let caps = exec.capabilities();
@@ -361,7 +358,7 @@ mod slurm_safety {
 
     #[test]
     fn slurm_native_container_passes_exec_atom() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         unsafe { std::env::set_var("ECAA_SLURM_NATIVE_CONTAINER", "1") };
         // SLURM's network stays deny-all even with native containers,
         // so we use a Compute-level safety profile (the bare Exec
@@ -382,7 +379,7 @@ mod slurm_safety {
 
     #[test]
     fn slurm_passes_compute_atom_unconditionally() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         unsafe { std::env::remove_var("ECAA_SLURM_NATIVE_CONTAINER") };
         let exec = slurm_for_test();
         let caps = exec.capabilities();
@@ -434,7 +431,7 @@ mod aws_safety {
 
     #[test]
     fn aws_capabilities_default_process_isolation_bridge() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         install_aws_env();
         let exec = AwsExecutor::new(&args()).expect("aws constructor must succeed");
         let caps = exec.capabilities();
@@ -453,7 +450,7 @@ mod aws_safety {
 
     #[test]
     fn aws_passes_exec_atom_requesting_process_isolation() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         install_aws_env();
         let exec = AwsExecutor::new(&args()).expect("aws constructor must succeed");
         let caps = exec.capabilities();
@@ -467,7 +464,7 @@ mod aws_safety {
 
     #[test]
     fn aws_passes_network_bridge_atom() {
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         install_aws_env();
         let exec = AwsExecutor::new(&args()).expect("aws constructor must succeed");
         let caps = exec.capabilities();
@@ -485,7 +482,7 @@ mod aws_safety {
         // atom declares the strongest sandbox tier, even AWS must
         // refuse. Pin this so a future executor upgrade is forced to
         // surface the change explicitly.
-        let _lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _lock = crate::ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         install_aws_env();
         let exec = AwsExecutor::new(&args()).expect("aws constructor must succeed");
         let caps = exec.capabilities();
