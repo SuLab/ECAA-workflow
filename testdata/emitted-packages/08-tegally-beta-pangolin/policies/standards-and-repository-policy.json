@@ -105,7 +105,7 @@
         "id": "CNGB_CNSA",
         "name": "China National GeneBank — CNSA (CNGB Sequence Archive)",
         "accession_prefixes": ["CNP", "CNS", "CNX", "CNR"],
-        "preferred_readers": ["scripps-workflow/scripts/helpers/cngb_fetch.py (HTTPS to ftp.cngb.org/pub/CNSA)"],
+        "preferred_readers": ["ecaa-workflow/scripts/helpers/cngb_fetch.py (HTTPS to ftp.cngb.org/pub/CNSA)"],
         "base_url": "https://db.cngb.org/",
         "notes": "CNGB CNSA hosts a substantial fraction of Chinese-authored scRNA-seq IVD and cancer atlases. Always included in the candidate pool for human-tissue scRNA-seq projects — dropping a CNGB-only study reduces cohort coverage without governance justification."
       },

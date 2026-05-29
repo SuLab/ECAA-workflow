@@ -68,7 +68,7 @@
       },
       "name": "workflow-3233c10bf08b DAG",
       "programmingLanguage": {
-        "@id": "#scripps-workflow-dag"
+        "@id": "#ecaa-workflow-dag"
       },
       "sdPublisher": {
         "@id": "#ecaa-workflow"
@@ -128,9 +128,9 @@
       ]
     },
     {
-      "@id": "#scripps-workflow-dag",
+      "@id": "#ecaa-workflow-dag",
       "@type": "ComputerLanguage",
-      "name": "Scripps Workflow DAG",
+      "name": "ECAA-workflow DAG",
       "version": "1.0"
     },
     {
