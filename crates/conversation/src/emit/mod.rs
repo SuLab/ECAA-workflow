@@ -628,9 +628,7 @@ async fn write_backend_capability_report(
     session: &crate::session::Session,
     output_dir: &Path,
 ) -> Result<()> {
-    use ecaa_workflow_core::backend_emitters::{
-        workflow_json::WorkflowJsonEmitter, EmitContext,
-    };
+    use ecaa_workflow_core::backend_emitters::{workflow_json::WorkflowJsonEmitter, EmitContext};
 
     let Some(workflow_dag) = session.workflow_dag.as_ref() else {
         // v1/v2/v3 sessions never lower through `WorkflowJsonEmitter::compile`;
@@ -687,59 +685,67 @@ async fn write_figure_diff(
     session: &crate::session::Session,
     output_dir: &std::path::Path,
 ) -> anyhow::Result<()> {
-    // Resolve the parent package from EITHER `session.lineage` (branch)
-    // OR `session.pending_amendment` (amend) so the figure-diff sidecar
-    // fires for both lineage kinds. Mirrors the same dual-source
-    // resolution in `write_cross_version_diff`.
-    let parent_path: std::path::PathBuf = match (
-        session
-            .lineage
-            .as_ref()
-            .and_then(|l| l.parent_emitted_package_path.clone()),
-        session
-            .pending_amendment
-            .as_ref()
-            .map(|a| a.parent_package_path.clone()),
-    ) {
-        (Some(p), _) => p,
-        (None, Some(p)) => p,
-        (None, None) => return Ok(()),
+    let Some(parent_path) = figure_diff_parent_path(session) else {
+        return Ok(());
     };
-    let child = output_dir.to_path_buf();
-    // Pure stdlib + sha2; cheap enough to run inline rather than
-    // spawn_blocking. Hash-only over the tens of figures a typical
-    // package emits.
-    //
-    // The diff itself is the pure `figure_diff::diff_figures` in
-    // core; the serialise-and-write side-effect lives here in the
-    // emit pipeline (already an I/O context) so core stays I/O-free.
     if !parent_path.exists() {
         return Ok(());
     }
-    let report = match ecaa_workflow_core::figure_diff::diff_figures(&parent_path, &child) {
+    write_figure_diff_report(&parent_path, output_dir).await;
+    Ok(())
+}
+
+/// Resolve the parent package path for the figure-diff sidecar from EITHER
+/// `session.lineage` (branch) OR `session.pending_amendment` (amend), so the
+/// sidecar fires for both lineage kinds (lineage wins). Mirrors the dual-source
+/// resolution in `write_cross_version_diff`. `None` → no parent, skip the diff.
+fn figure_diff_parent_path(session: &crate::session::Session) -> Option<std::path::PathBuf> {
+    if let Some(p) = session
+        .lineage
+        .as_ref()
+        .and_then(|l| l.parent_emitted_package_path.clone())
+    {
+        return Some(p);
+    }
+    session
+        .pending_amendment
+        .as_ref()
+        .map(|a| a.parent_package_path.clone())
+}
+
+/// Compute the figure diff (pure `core::figure_diff::diff_figures` — hash-only
+/// over the tens of figures a package emits) and write
+/// `runtime/figure-diff.json`. Best-effort: any diff/serialize/write failure is
+/// warned and swallowed (the diff sidecar is advisory, never blocks emit).
+async fn write_figure_diff_report(parent_path: &std::path::Path, child: &std::path::Path) {
+    let report = match ecaa_workflow_core::figure_diff::diff_figures(parent_path, child) {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(error = %e, "figure_diff failed");
-            return Ok(());
+            return;
         }
     };
     let runtime = child.join("runtime");
     if let Err(e) = tokio::fs::create_dir_all(&runtime).await {
         tracing::warn!(error = %e, "figure_diff create_dir_all failed");
-        return Ok(());
+        return;
     }
-    let out = runtime.join("figure-diff.json");
-    let body = match serde_json::to_vec_pretty(&report) {
+    write_report_json(&runtime.join("figure-diff.json"), &report).await;
+}
+
+/// Pretty-serialize `report` and write it to `out`. Best-effort: serialize /
+/// write failures are warned and swallowed.
+async fn write_report_json<T: serde::Serialize>(out: &std::path::Path, report: &T) {
+    let body = match serde_json::to_vec_pretty(report) {
         Ok(b) => b,
         Err(e) => {
             tracing::warn!(error = %e, "figure_diff serialize failed");
-            return Ok(());
+            return;
         }
     };
-    if let Err(e) = tokio::fs::write(&out, body).await {
+    if let Err(e) = tokio::fs::write(out, body).await {
         tracing::warn!(path = %out.display(), error = %e, "figure_diff write failed");
     }
-    Ok(())
 }
 
 /// Persist `Session.inputs` as agent-readable artifacts:
