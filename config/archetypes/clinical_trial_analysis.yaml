@@ -30,9 +30,17 @@ project_class: clinical_trial
 # overrides.json, but the default posture is PCCP-friendly: no
 # unbounded egress from a clinical-trial agent.
 preferred_container:
-  image: rocker/r-ver
-  tag: "4.4.1"
-  digest: "sha256:78cb94ce2db23aaaf7b546450fcf70b5a3f2ace5a9b5fa1f87217da329211312"
+  # Must be the bio-min eval base, NOT a bare rocker/r-ver image: the
+  # agent execution model requires python3 (plotting lib + fixture agent)
+  # and node (the claude CLI) in the container. rocker/r-ver ships R only,
+  # so every clinical-trial dispatch failed with `python3: command not
+  # found` (and the real claude agent would fail the same way). bio-min
+  # carries R + python + node + claude; clinical-specific R packages
+  # (survival, survminer) install per-task. Digest empty → emitter
+  # resolves it at emit time per ADR 0025.
+  image: ghcr.io/scripps/bio-min
+  tag: "v0.1.0-eval"
+  digest: ""
   arch: ["amd64"]
   gpu_required: false
   network:
