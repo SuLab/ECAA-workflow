@@ -241,10 +241,7 @@ pub(super) async fn write_phase16_sidecars(
         if !proofs_jsonl.is_empty() {
             let redacted = match tier {
                 ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private => proofs_jsonl,
-                _ => ecaa_workflow_core::provenance_tiers::redact_proofs_jsonl(
-                    &proofs_jsonl,
-                    tier,
-                ),
+                _ => ecaa_workflow_core::provenance_tiers::redact_proofs_jsonl(&proofs_jsonl, tier),
             };
             let path = runtime.join("proofs.jsonl");
             tokio::fs::write(&path, redacted)
@@ -432,65 +429,127 @@ fn build_assumptions_jsonl(
 /// **Returns** the resolved `PlotAffordanceRecord` list sorted by
 /// `(task_id, port_name)`. Callers use this for the RO-Crate
 /// provisional-flag patching step (A3).
+/// Load the `PlotAffordanceRegistry` from `config_dir/plot-affordances`,
+/// soft-failing to an empty registry when the dir is absent or load fails (so
+/// every task resolves to Deferred or StructuralFallback). Uses
+/// `YamlPlotAffordanceRegistry` directly to avoid the `Box<dyn>` blanket-impl.
+fn load_affordance_registry(
+    config_dir: &Path,
+) -> ecaa_workflow_core::plot_affordance::YamlPlotAffordanceRegistry {
+    use ecaa_workflow_core::plot_affordance::YamlPlotAffordanceRegistry;
+    let dir = config_dir.join("plot-affordances");
+    if !dir.exists() {
+        return YamlPlotAffordanceRegistry::empty();
+    }
+    match YamlPlotAffordanceRegistry::from_dir(&dir) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(
+                "affordance resolver: failed to load plot-affordances registry: {}; falling back to empty",
+                e
+            );
+            YamlPlotAffordanceRegistry::empty()
+        }
+    }
+}
+
+/// Load the `AtomRegistry` from `config_dir/stage-atoms`, soft-failing to
+/// `None` when the dir is absent or load fails (legacy-taxonomy tasks then
+/// fall through to their spec-based `edam_operation` IRI).
+fn load_atoms(
+    config_dir: &Path,
+) -> Option<std::sync::Arc<ecaa_workflow_core::atom_registry::AtomRegistry>> {
+    use ecaa_workflow_core::atom_registry::AtomRegistry;
+    let dir = config_dir.join("stage-atoms");
+    if !dir.exists() {
+        return None;
+    }
+    match AtomRegistry::load_cached(&dir) {
+        Ok(a) => Some(a),
+        Err(e) => {
+            tracing::warn!(
+                "affordance resolver: failed to load atom registry: {}; skipping atom-output lookup",
+                e
+            );
+            None
+        }
+    }
+}
+
+/// Resolve the semantic-type port descriptor `(port_name, iri, declared_parents)`
+/// for a task's first output, in priority order:
+/// 1. atom registry `outputs[0].semantic_type`;
+/// 2. atom registry `edam_data` (legacy atoms without an `outputs` vec);
+/// 3. task spec `edam_operation` (operation IRI — better than Opaque for
+///    unmigrated atoms);
+/// 4. synthetic `ecaax:opaque:<task_id>` when the task has a spec but no IRI.
+/// Returns `None` when there is genuinely nothing to resolve (no atom, no spec).
+fn resolve_task_port(
+    task_id: &ecaa_workflow_core::dag::TaskId,
+    task: &ecaa_workflow_core::dag::Task,
+    atoms: &Option<std::sync::Arc<ecaa_workflow_core::atom_registry::AtomRegistry>>,
+) -> Option<(String, String, Vec<String>)> {
+    use ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType;
+
+    if let Some(atom) = atoms.as_ref().and_then(|a| a.get(task_id.as_str())) {
+        let Some(first_out) = atom.outputs.first() else {
+            // Legacy atom: edam_data fallback, else nothing to resolve.
+            return atom
+                .edam_data
+                .as_deref()
+                .map(|edam_data| ("out".to_string(), edam_data.to_string(), vec![]));
+        };
+        let (iri, parents) = match &first_out.semantic_type {
+            SemanticType::OntologyTerm { iri, .. } => (iri.clone(), vec![]),
+            SemanticType::LocalExtension {
+                namespace,
+                id,
+                proposed_parent_terms,
+                ..
+            } => (format!("{namespace}:{id}"), proposed_parent_terms.clone()),
+            SemanticType::Opaque { .. } => (format!("ecaax:opaque:{task_id}"), vec![]),
+            // Union output ports carry no single IRI; synthesize a stable id
+            // so the audit log entry is non-empty.
+            SemanticType::Union { .. } => (format!("ecaax:union:{task_id}"), vec![]),
+        };
+        return Some((first_out.name.clone(), iri, parents));
+    }
+
+    if let Some(edam_op) = task
+        .spec
+        .as_ref()
+        .and_then(|s| s.get("edam_operation"))
+        .and_then(|v| v.as_str())
+    {
+        return Some(("out".to_string(), edam_op.to_string(), vec![]));
+    }
+    if task.spec.is_some() {
+        return Some(("out".to_string(), format!("ecaax:opaque:{task_id}"), vec![]));
+    }
+    None
+}
+
 pub(super) async fn write_affordance_sidecars(
     session: &mut Session,
     output_dir: &Path,
     config_dir: &Path,
 ) -> Result<Vec<ecaa_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord>> {
-    use ecaa_workflow_core::atom_registry::AtomRegistry;
     use ecaa_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord;
     use ecaa_workflow_core::plot_affordance::telemetry::AffordanceFallbackRecord;
     use ecaa_workflow_core::plot_affordance::{
         resolve_affordance, AffordanceFallbackCounter, PhysicalShape, PlotAffordance,
-        PlotAffordanceRegistry, PortDescriptor, YamlPlotAffordanceRegistry,
+        PlotAffordanceRegistry, PortDescriptor,
     };
-    use ecaa_workflow_core::workflow_contracts::semantic_type::SemanticType;
 
     let dag = match session.current_dag() {
         Some(d) => d,
         None => return Ok(vec![]),
     };
 
-    // Load PlotAffordanceRegistry; soft-fail if the dir is absent
-    // (e.g., CI without config/ available). An empty registry means
-    // every task resolves to Deferred or StructuralFallback.
-    let plot_affordances_dir = config_dir.join("plot-affordances");
-    // Use YamlPlotAffordanceRegistry directly to avoid the Box<dyn>
-    // blanket-impl indirection. Both arms produce the same concrete type
-    // so no boxing is needed; the `empty()` constructor handles the
-    // "registry dir missing" case without a heap allocation.
-    let registry: YamlPlotAffordanceRegistry = if plot_affordances_dir.exists() {
-        match YamlPlotAffordanceRegistry::from_dir(&plot_affordances_dir) {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!(
-                    "affordance resolver: failed to load plot-affordances registry: {}; falling back to empty",
-                    e
-                );
-                YamlPlotAffordanceRegistry::empty()
-            }
-        }
-    } else {
-        YamlPlotAffordanceRegistry::empty()
-    };
-
-    // Load AtomRegistry; soft-fail. When absent, legacy-taxonomy
-    // tasks fall through to their spec-based edam_operation IRI.
-    let atom_dir = config_dir.join("stage-atoms");
-    let atoms: Option<std::sync::Arc<AtomRegistry>> = if atom_dir.exists() {
-        match AtomRegistry::load_cached(&atom_dir) {
-            Ok(a) => Some(a),
-            Err(e) => {
-                tracing::warn!(
-                    "affordance resolver: failed to load atom registry: {}; skipping atom-output lookup",
-                    e
-                );
-                None
-            }
-        }
-    } else {
-        None
-    };
+    // Load both registries; both soft-fail to an empty/None result when the
+    // config dir is absent (e.g. CI without config/ available).
+    let registry = load_affordance_registry(config_dir);
+    let atoms = load_atoms(config_dir);
 
     // Theme version: use the snapshot_id from the registry as a proxy
     // (theme.json is not available at compile time; the agent owns it
@@ -511,59 +570,11 @@ pub(super) async fn write_affordance_sidecars(
         // an output port but better than nothing for unmigrated atoms.
         // 4. Opaque with synthetic ecaax:opaque:<task_id>
 
-        // Helper closure — build port descriptor + port name.
-        // Returns None when there is genuinely nothing to resolve.
-        let maybe_port: Option<(String, String, Vec<String>)> = {
-            // 1. Atom outputs
-            if let Some(atom) = atoms.as_ref().and_then(|a| a.get(task_id.as_str())) {
-                if let Some(first_out) = atom.outputs.first() {
-                    let (iri, parents) = match &first_out.semantic_type {
-                        SemanticType::OntologyTerm { iri, .. } => (iri.clone(), vec![]),
-                        SemanticType::LocalExtension {
-                            namespace,
-                            id,
-                            proposed_parent_terms,
-                            ..
-                        } => (format!("{namespace}:{id}"), proposed_parent_terms.clone()),
-                        SemanticType::Opaque { .. } => (format!("ecaax:opaque:{task_id}"), vec![]),
-                        SemanticType::Union { .. } => {
-                            // Union output ports carry no single IRI; synthesize a
-                            // stable id so the audit log entry is non-empty.
-                            (format!("ecaax:union:{task_id}"), vec![])
-                        }
-                    };
-                    Some((first_out.name.clone(), iri, parents))
-                } else {
-                    // Legacy atom: has edam_data but no outputs vec yet.
-                    // Atom with neither outputs nor edam_data → None (skip).
-                    atom.edam_data
-                        .as_deref()
-                        .map(|edam_data| ("out".to_string(), edam_data.to_string(), vec![]))
-                }
-            } else if let Some(edam_op) = task
-                .spec
-                .as_ref()
-                .and_then(|s| s.get("edam_operation"))
-                .and_then(|v| v.as_str())
-            {
-                // No atom entry; fall back to the task spec's
-                // edam_operation. This is an operation IRI not a data IRI
-                // but it's better than pure Opaque for unmigrated atoms
-                // that don't have atom definitions yet.
-                Some(("out".to_string(), edam_op.to_string(), vec![]))
-            } else if task.spec.is_some() {
-                // Task has a spec but no useful IRI — use opaque.
-                Some(("out".to_string(), format!("ecaax:opaque:{task_id}"), vec![]))
-            } else {
-                // No spec, no atom: skip entirely (no port to resolve).
-                None
-            }
-        };
-
-        let (port_name, semantic_type_iri, declared_parents) = match maybe_port {
-            Some(t) => t,
-            None => continue,
-        };
+        let (port_name, semantic_type_iri, declared_parents) =
+            match resolve_task_port(task_id, task, &atoms) {
+                Some(t) => t,
+                None => continue,
+            };
 
         let port_desc = PortDescriptor {
             semantic_type_iri: &semantic_type_iri,
