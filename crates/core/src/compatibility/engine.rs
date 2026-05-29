@@ -647,6 +647,136 @@ impl DeterministicCompatibilityEngine {
     /// v4 P2 / F18 — the original `prove()` body, refactored into a
     /// helper so the trait impl above can wrap entry + result with
     /// substrate emission without duplicating every early-return arm.
+    /// Opaque producer/consumer ports short-circuit to `Unknown` — the caller
+    /// decides Draft vs Refusal. Every Opaque short-circuit is a cross-session
+    /// signal: persistent Opaque observations indicate the system repeatedly
+    /// hits the same un-modeled type and the operator should mint a
+    /// LocalExtension or file an upstream-ontology issue. When a chat session
+    /// wires an `OpaqueObservationSink` (→ `opaque_aggregator`) the observation
+    /// is recorded there; bare composer call sites (CLI `build`, eval-adapters,
+    /// unit tests) leave the sink `None` and fall through to a `tracing::warn!`
+    /// so the observation is still visible. Returns `None` when neither port is
+    /// Opaque.
+    fn check_opaque_ports(
+        producer: &PortContract,
+        consumer: &PortContract,
+        ctx: &PlanningContext,
+    ) -> Option<CompatibilityResult> {
+        let producer_opaque = matches!(producer.semantic_type, SemanticType::Opaque { .. });
+        let consumer_opaque = matches!(consumer.semantic_type, SemanticType::Opaque { .. });
+        if !producer_opaque && !consumer_opaque {
+            return None;
+        }
+        let opaque_st = if producer_opaque {
+            &producer.semantic_type
+        } else {
+            &consumer.semantic_type
+        };
+        let opaque_hash = opaque_st.stable_id();
+        let port_name = if producer_opaque {
+            producer.name.as_str()
+        } else {
+            consumer.name.as_str()
+        };
+        if let Some(sink) = ctx.opaque_observation_sink.as_ref() {
+            sink.record_opaque(
+                &opaque_hash,
+                ctx.opaque_session_id.as_deref().unwrap_or("anonymous"),
+                ctx.opaque_node_id.as_deref().unwrap_or("unknown_node"),
+                port_name,
+                &crate::time_helpers::now_rfc3339(),
+            );
+        } else {
+            tracing::warn!(
+                target: "opaque_observation",
+                opaque_hash = %opaque_hash,
+                port = %port_name,
+                "Opaque semantic-type observed; no OpaqueObservationSink wired \
+                 into PlanningContext (cross-session aggregator skipped)"
+            );
+        }
+
+        Some(CompatibilityResult::Unknown(
+            ClarificationOrValidationNeeded {
+                id: format!(
+                    "opaque:{}:{}",
+                    producer.semantic_type.variant_key(),
+                    consumer.semantic_type.variant_key()
+                ),
+                statement: "Producer or consumer port has Opaque semantic type".into(),
+                suggestion: "Run dataset profiler at execution time or have SME annotate the type"
+                    .into(),
+            },
+        ))
+    }
+
+    /// Modality-scoped ontology check on a producer's proposed parent terms.
+    /// Annotation-only: forbidden parents emit a `tracing::warn!` (observable
+    /// under `RUST_LOG=ontology_scope=warn`; the registry-import path downgrades
+    /// trust on the same signal). Recording is unconditional — `in_primary` /
+    /// `in_secondary` rows confirm the matrix was consulted on every
+    /// LocalExtension proposal, not just forbidden ones — and replayable from
+    /// `runtime/verifier-decisions.jsonl`. No-op for non-LocalExtension types or
+    /// when no ontology scope is configured.
+    fn record_ontology_scope(producer: &PortContract, ctx: &PlanningContext) {
+        let SemanticType::LocalExtension {
+            proposed_parent_terms,
+            ..
+        } = &producer.semantic_type
+        else {
+            return;
+        };
+        let Some(scope) = ctx.ontology_scope.as_ref() else {
+            return;
+        };
+        let modality = producer
+            .modality
+            .as_deref()
+            .and_then(|s| {
+                s.parse::<crate::workflow_contracts::workflow_intent::BioinformaticsModality>()
+                    .ok()
+            })
+            .unwrap_or(
+                crate::workflow_contracts::workflow_intent::BioinformaticsModality::GenericOmics,
+            );
+        for parent in proposed_parent_terms {
+            let Some(prefix) = crate::ontology_scope::OntologyScopeMatrix::prefix_of_iri(parent)
+            else {
+                continue;
+            };
+            let result = scope.check(&modality, &prefix);
+            let result_str = match &result {
+                crate::ontology_scope::ScopeCheck::InPrimary => "in_primary",
+                crate::ontology_scope::ScopeCheck::InSecondary => "in_secondary",
+                crate::ontology_scope::ScopeCheck::Forbidden => "forbidden",
+                crate::ontology_scope::ScopeCheck::OutOfScope => "out_of_scope",
+            };
+            crate::decision_substrate::record(
+                crate::decision_substrate::VerifierDecision::OntologyScopeChecked {
+                    id: crate::decision_substrate::stable_id(
+                        "scope",
+                        &format!("{modality:?}"),
+                        parent,
+                    ),
+                    timestamp: crate::decision_substrate::timestamp(),
+                    modality: format!("{modality:?}"),
+                    candidate_iri: parent.clone(),
+                    result: result_str.to_string(),
+                    rule_id: format!("modality-ontology-coverage:{prefix}"),
+                },
+            );
+            if matches!(result, crate::ontology_scope::ScopeCheck::Forbidden) {
+                tracing::warn!(
+                    target: "ontology_scope",
+                    "proposed parent {} (prefix {}) is forbidden for modality {:?}",
+                    parent,
+                    prefix,
+                    modality
+                );
+            }
+        }
+    }
+
     fn prove_inner(
         &self,
         producer: &PortContract,
@@ -656,126 +786,12 @@ impl DeterministicCompatibilityEngine {
         // Opaque consumers/producers are Unknown — caller (Phase
         // 6 outcome wrapper) decides whether to surface as Draft
         // or Refusal.
-        if matches!(producer.semantic_type, SemanticType::Opaque { .. })
-            || matches!(consumer.semantic_type, SemanticType::Opaque { .. })
-        {
-            // v3 §4 / v4 §4 Round-2 closure (G1 / G13) — every Opaque
-            // short-circuit is a cross-session signal: persistent
-            // Opaque observations across sessions indicate the system
-            // repeatedly hits the same un-modeled type and the
-            // operator should mint a LocalExtension or file an
-            // upstream-ontology issue. The conversation crate wires a
-            // concrete `OpaqueObservationSink` (forwarding to
-            // `crates/conversation/src/session/opaque_aggregator.rs`)
-            // when a chat session is active; bare composer call sites
-            // (CLI `build`, eval-adapters, unit tests) leave the sink
-            // None and fall through to the `tracing::warn!` log-only
-            // path so the observation is still visible.
-            let opaque_st = if matches!(producer.semantic_type, SemanticType::Opaque { .. }) {
-                &producer.semantic_type
-            } else {
-                &consumer.semantic_type
-            };
-            let opaque_hash = opaque_st.stable_id();
-            let port_name = if matches!(producer.semantic_type, SemanticType::Opaque { .. }) {
-                producer.name.as_str()
-            } else {
-                consumer.name.as_str()
-            };
-            if let Some(sink) = ctx.opaque_observation_sink.as_ref() {
-                sink.record_opaque(
-                    &opaque_hash,
-                    ctx.opaque_session_id.as_deref().unwrap_or("anonymous"),
-                    ctx.opaque_node_id.as_deref().unwrap_or("unknown_node"),
-                    port_name,
-                    &crate::time_helpers::now_rfc3339(),
-                );
-            } else {
-                tracing::warn!(
-                    target: "opaque_observation",
-                    opaque_hash = %opaque_hash,
-                    port = %port_name,
-                    "Opaque semantic-type observed; no OpaqueObservationSink wired \
-                     into PlanningContext (cross-session aggregator skipped)"
-                );
-            }
-
-            return CompatibilityResult::Unknown(ClarificationOrValidationNeeded {
-                id: format!(
-                    "opaque:{}:{}",
-                    producer.semantic_type.variant_key(),
-                    consumer.semantic_type.variant_key()
-                ),
-                statement: "Producer or consumer port has Opaque semantic type".into(),
-                suggestion: "Run dataset profiler at execution time or have SME annotate the type"
-                    .into(),
-            });
+        if let Some(result) = Self::check_opaque_ports(producer, consumer, ctx) {
+            return result;
         }
 
-        // V4 modality-scoped ontology check on proposed
-        // parent terms. Annotation-only today: forbidden parents emit
-        // a `tracing::warn!` so the side-effect is observable under
-        // `RUST_LOG=ontology_scope=warn` and the registry-import path
-        // downgrades trust on the same signal.
-        //
-        // v4 P2 / F18 — every scope check additionally records a typed
-        // `OntologyScopeChecked` row so the matrix consultation is
-        // replayable from `runtime/verifier-decisions.jsonl`. Recording
-        // is unconditional (in_primary / in_secondary rows confirm the
-        // matrix was consulted on every LocalExtension proposal, not
-        // just forbidden ones).
-        if let SemanticType::LocalExtension {
-            proposed_parent_terms,
-            ..
-        } = &producer.semantic_type
-        {
-            if let Some(scope) = ctx.ontology_scope.as_ref() {
-                let modality = producer
-                    .modality
-                    .as_deref()
-                    .and_then(|s| {
-                        s.parse::<crate::workflow_contracts::workflow_intent::BioinformaticsModality>()
-                            .ok()
-                    })
-                    .unwrap_or(crate::workflow_contracts::workflow_intent::BioinformaticsModality::GenericOmics);
-                for parent in proposed_parent_terms {
-                    if let Some(prefix) =
-                        crate::ontology_scope::OntologyScopeMatrix::prefix_of_iri(parent)
-                    {
-                        let result = scope.check(&modality, &prefix);
-                        let result_str = match &result {
-                            crate::ontology_scope::ScopeCheck::InPrimary => "in_primary",
-                            crate::ontology_scope::ScopeCheck::InSecondary => "in_secondary",
-                            crate::ontology_scope::ScopeCheck::Forbidden => "forbidden",
-                            crate::ontology_scope::ScopeCheck::OutOfScope => "out_of_scope",
-                        };
-                        crate::decision_substrate::record(
-                            crate::decision_substrate::VerifierDecision::OntologyScopeChecked {
-                                id: crate::decision_substrate::stable_id(
-                                    "scope",
-                                    &format!("{modality:?}"),
-                                    parent,
-                                ),
-                                timestamp: crate::decision_substrate::timestamp(),
-                                modality: format!("{modality:?}"),
-                                candidate_iri: parent.clone(),
-                                result: result_str.to_string(),
-                                rule_id: format!("modality-ontology-coverage:{prefix}"),
-                            },
-                        );
-                        if matches!(result, crate::ontology_scope::ScopeCheck::Forbidden) {
-                            tracing::warn!(
-                                target: "ontology_scope",
-                                "proposed parent {} (prefix {}) is forbidden for modality {:?}",
-                                parent,
-                                prefix,
-                                modality
-                            );
-                        }
-                    }
-                }
-            }
-        }
+        // V4 modality-scoped ontology check on proposed parent terms.
+        Self::record_ontology_scope(producer, ctx);
 
         // Step 1: semantic type subsumption.
         let path = match self.semantic_compat(&producer.semantic_type, &consumer.semantic_type) {
