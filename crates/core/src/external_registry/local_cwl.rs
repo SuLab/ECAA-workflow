@@ -75,6 +75,142 @@ pub struct LocalCwlImporter {
 }
 
 impl LocalCwlImporter {
+    /// Ingestion-time injection scan, run before trust/license/scope logic so
+    /// a `Refuse` pattern short-circuits import. Returns `Ok(true)` when the
+    /// scan's `Quarantine` verdict requires downgrading trust to `Untrusted`,
+    /// `Ok(false)` otherwise (`Annotate` / no catalog / no detections), and
+    /// `Err(IngestionRefused)` on `Refuse`.
+    fn scan_for_injection(
+        &self,
+        metadata: &serde_json::Value,
+        id: &str,
+    ) -> Result<bool, ExternalImportError> {
+        let Some(catalog) = self.injection_patterns.as_ref() else {
+            return Ok(false);
+        };
+        let fields = extract_text_fields(metadata);
+        let source_id = format!("local_cwl:{id}");
+        let report = scan_metadata(&source_id, &fields, catalog);
+        match report.overall_action {
+            DetectionAction::Refuse => Err(ExternalImportError::IngestionRefused { report }),
+            DetectionAction::Quarantine => {
+                tracing::warn!(
+                    target: "ingestion_safety",
+                    source_id = %source_id,
+                    detections = report.detections.len(),
+                    "import {} quarantined by injection-pattern scan; downgrading trust",
+                    id
+                );
+                Ok(true)
+            }
+            DetectionAction::Annotate => {
+                if !report.detections.is_empty() {
+                    tracing::warn!(
+                        target: "ingestion_safety",
+                        source_id = %source_id,
+                        detections = report.detections.len(),
+                        "import {} matched annotate-only injection patterns",
+                        id
+                    );
+                }
+                Ok(false)
+            }
+        }
+    }
+
+    /// In strict mode (`require_container_digest`), refuse the import unless a
+    /// CWL `DockerRequirement` in `hints`/`requirements` carries a non-empty
+    /// `dockerImageId` digest. No-op when not in strict mode.
+    fn check_container_digest(
+        &self,
+        metadata: &serde_json::Value,
+    ) -> Result<(), ExternalImportError> {
+        if !self.require_container_digest {
+            return Ok(());
+        }
+        let has_digest = metadata
+            .get("hints")
+            .or_else(|| metadata.get("requirements"))
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter().any(|r| {
+                    let class = r.get("class").and_then(|v| v.as_str());
+                    if class != Some("DockerRequirement") {
+                        return false;
+                    }
+                    r.get("dockerImageId")
+                        .and_then(|v| v.as_str())
+                        .map(|s| !s.is_empty())
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
+        if !has_digest {
+            return Err(ExternalImportError::ContainerDigestMissing);
+        }
+        Ok(())
+    }
+
+    /// Modality-conflict detection at registry import: for every port walk the
+    /// typed `OntologyTerm` IRI and the additional `ontology_terms` hints,
+    /// resolve each to a prefix, and consult the scope matrix. Returns `true`
+    /// if any `Forbidden` hit was observed (caller holds the node at
+    /// `Unverified`). Annotation-only — forbidden hits log a warn. No-op when
+    /// no ontology scope is configured.
+    fn detect_forbidden_ontology(
+        &self,
+        inputs: &[PortContract],
+        outputs: &[PortContract],
+        declared_modality: Option<BioinformaticsModality>,
+        id: &str,
+    ) -> bool {
+        let Some(scope) = self.ontology_scope.as_ref() else {
+            return false;
+        };
+        let modality_for_check = declared_modality.unwrap_or_default();
+        let mut forbidden_hit = false;
+        for port in inputs.iter().chain(outputs.iter()) {
+            let port_modality = port
+                .modality
+                .as_deref()
+                .and_then(|s| s.parse::<BioinformaticsModality>().ok())
+                .unwrap_or(modality_for_check);
+
+            if let SemanticType::OntologyTerm { iri, .. } = &port.semantic_type {
+                if let Some(prefix) = OntologyScopeMatrix::prefix_of_iri(iri) {
+                    if matches!(scope.check(&port_modality, &prefix), ScopeCheck::Forbidden) {
+                        tracing::warn!(
+                            target: "ontology_scope_import",
+                            "import {} port {} cites forbidden ontology {} for modality {:?}",
+                            id,
+                            port.name,
+                            prefix,
+                            port_modality
+                        );
+                        forbidden_hit = true;
+                    }
+                }
+            }
+            for term in &port.ontology_terms {
+                if let Some(prefix) = OntologyScopeMatrix::prefix_of_iri(&term.iri) {
+                    if matches!(scope.check(&port_modality, &prefix), ScopeCheck::Forbidden) {
+                        tracing::warn!(
+                            target: "ontology_scope_import",
+                            "import {} port {} cites forbidden ontology {} (term {}) for modality {:?}",
+                            id,
+                            port.name,
+                            prefix,
+                            term.iri,
+                            port_modality
+                        );
+                        forbidden_hit = true;
+                    }
+                }
+            }
+        }
+        forbidden_hit
+    }
+
     /// With denied licenses.
     pub fn with_denied_licenses(mut self, licenses: Vec<String>) -> Self {
         self.denied_licenses = Some(licenses);
@@ -172,43 +308,12 @@ impl ExternalImporter for LocalCwlImporter {
             .ok_or_else(|| ExternalImportError::MissingField { field: "id".into() })?
             .to_string();
 
-        // v3 P11 — ingestion-time injection scan. Runs BEFORE the
-        // existing trust/license/scope logic so a `Refuse` pattern
-        // short-circuits import entirely. `Quarantine` downgrades
-        // `trust_level` to `Untrusted` (set after the rest of import
-        // runs); `Annotate` logs and continues.
-        let mut injection_trust_downgrade = false;
-        if let Some(catalog) = self.injection_patterns.as_ref() {
-            let fields = extract_text_fields(metadata);
-            let source_id = format!("local_cwl:{id}");
-            let report = scan_metadata(&source_id, &fields, catalog);
-            match report.overall_action {
-                DetectionAction::Refuse => {
-                    return Err(ExternalImportError::IngestionRefused { report });
-                }
-                DetectionAction::Quarantine => {
-                    tracing::warn!(
-                        target: "ingestion_safety",
-                        source_id = %source_id,
-                        detections = report.detections.len(),
-                        "import {} quarantined by injection-pattern scan; downgrading trust",
-                        id
-                    );
-                    injection_trust_downgrade = true;
-                }
-                DetectionAction::Annotate => {
-                    if !report.detections.is_empty() {
-                        tracing::warn!(
-                            target: "ingestion_safety",
-                            source_id = %source_id,
-                            detections = report.detections.len(),
-                            "import {} matched annotate-only injection patterns",
-                            id
-                        );
-                    }
-                }
-            }
-        }
+        // v3 P11 — ingestion-time injection scan. Runs BEFORE the existing
+        // trust/license/scope logic so a `Refuse` pattern short-circuits
+        // import entirely. `Quarantine` downgrades `trust_level` to
+        // `Untrusted` (applied after the rest of import runs); `Annotate`
+        // logs and continues.
+        let injection_trust_downgrade = self.scan_for_injection(metadata, &id)?;
 
         let label = metadata
             .get("label")
@@ -232,33 +337,10 @@ impl ExternalImporter for LocalCwlImporter {
         self.check_license(license)?;
 
         // Container digest check at import time when
-        // `require_container_digest = true`. The metadata's
-        // `hints` / `requirements` arrays carry CWL DockerRequirement
-        // entries; we require either `dockerImageId` (digest) or
-        // `dockerImageIdDigest` and refuse the import when neither
-        // is present and the importer is in strict mode.
-        if self.require_container_digest {
-            let has_digest = metadata
-                .get("hints")
-                .or_else(|| metadata.get("requirements"))
-                .and_then(|v| v.as_array())
-                .map(|arr| {
-                    arr.iter().any(|r| {
-                        let class = r.get("class").and_then(|v| v.as_str());
-                        if class != Some("DockerRequirement") {
-                            return false;
-                        }
-                        r.get("dockerImageId")
-                            .and_then(|v| v.as_str())
-                            .map(|s| !s.is_empty())
-                            .unwrap_or(false)
-                    })
-                })
-                .unwrap_or(false);
-            if !has_digest {
-                return Err(ExternalImportError::ContainerDigestMissing);
-            }
-        }
+        // `require_container_digest = true`: a CWL DockerRequirement in the
+        // `hints` / `requirements` arrays must carry a non-empty
+        // `dockerImageId` digest, else the import is refused in strict mode.
+        self.check_container_digest(metadata)?;
 
         let inputs = parse_ports(metadata.get("inputs"));
         let outputs = parse_ports(metadata.get("outputs"));
@@ -279,70 +361,14 @@ impl ExternalImporter for LocalCwlImporter {
             trust_level = TrustLevel::Unverified;
         }
 
-        // V4 modality-conflict detection at registry import.
-        // For every port, walk both the typed `OntologyTerm` IRI in
-        // `semantic_type` and the additional `ontology_terms` hints,
-        // resolving each to an ontology prefix and consulting the
-        // configured scope matrix. A `Forbidden` hit downgrades the
-        // imported node's `trust_level` so it stays in quarantine
-        // even after subsequent validators would otherwise promote
-        // it. Annotation-only today; v4 P11 will surface this as a
-        // typed `RejectedProposal::ModalityOntologyConflict` substrate
-        // event.
-        if let Some(scope) = self.ontology_scope.as_ref() {
-            let modality_for_check = declared_modality.unwrap_or_default();
-            let mut forbidden_hit = false;
-            for port in inputs.iter().chain(outputs.iter()) {
-                let port_modality = port
-                    .modality
-                    .as_deref()
-                    .and_then(|s| s.parse::<BioinformaticsModality>().ok())
-                    .unwrap_or(modality_for_check);
-
-                // Check the semantic_type IRI when it's an OntologyTerm.
-                if let SemanticType::OntologyTerm { iri, .. } = &port.semantic_type {
-                    if let Some(prefix) = OntologyScopeMatrix::prefix_of_iri(iri) {
-                        if matches!(scope.check(&port_modality, &prefix), ScopeCheck::Forbidden) {
-                            tracing::warn!(
-                                target: "ontology_scope_import",
-                                "import {} port {} cites forbidden ontology {} for modality {:?}",
-                                id,
-                                port.name,
-                                prefix,
-                                port_modality
-                            );
-                            forbidden_hit = true;
-                        }
-                    }
-                }
-                // Check additional ontology_terms hints.
-                for term in &port.ontology_terms {
-                    if let Some(prefix) = OntologyScopeMatrix::prefix_of_iri(&term.iri) {
-                        if matches!(scope.check(&port_modality, &prefix), ScopeCheck::Forbidden) {
-                            tracing::warn!(
-                                target: "ontology_scope_import",
-                                "import {} port {} cites forbidden ontology {} (term {}) for modality {:?}",
-                                id,
-                                port.name,
-                                prefix,
-                                term.iri,
-                                port_modality
-                            );
-                            forbidden_hit = true;
-                        }
-                    }
-                }
-            }
-            if forbidden_hit {
-                // Already at TrustLevel::Unverified; the contract is
-                // that a forbidden-ontology import must not be admitted
-                // to a higher trust tier than the matrix says. v3's
-                // TrustLevel ladder is Unverified < Provisional <
-                // Reviewed; we hold at Unverified explicitly so this
-                // continues to express "do not promote" even if a future
-                // refactor lifts the default to Provisional.
-                trust_level = TrustLevel::Unverified;
-            }
+        // V4 modality-conflict detection at registry import. A `Forbidden`
+        // ontology hit holds the imported node at `Unverified` so it stays in
+        // quarantine even after subsequent validators would otherwise promote
+        // it. The TrustLevel ladder is Unverified < Provisional < Reviewed; we
+        // hold at Unverified explicitly so this keeps expressing "do not
+        // promote" even if a future refactor lifts the default to Provisional.
+        if self.detect_forbidden_ontology(&inputs, &outputs, declared_modality, &id) {
+            trust_level = TrustLevel::Unverified;
         }
 
         Ok(TaskNode {

@@ -123,12 +123,31 @@ pub fn can_promote(node: &TaskNode, target: LifecycleState) -> PromotionDecision
         };
     }
 
-    let mut reasons: Vec<IneligibleReason> = Vec::new();
+    let reasons = target_requirements(node, target);
 
+    if reasons.is_empty() {
+        PromotionDecision::Eligible {
+            from: current,
+            to: target,
+        }
+    } else {
+        PromotionDecision::Blocked {
+            from: current,
+            to: target,
+            reasons,
+        }
+    }
+}
+
+/// The per-target eligibility requirements (beyond the forward-ordering and
+/// deprecation guards `can_promote` already applied). Returns the unmet
+/// reasons; empty means eligible.
+fn target_requirements(node: &TaskNode, target: LifecycleState) -> Vec<IneligibleReason> {
+    let mut reasons: Vec<IneligibleReason> = Vec::new();
     match target {
         LifecycleState::Hypothesized | LifecycleState::Contracted => {
-            // Always reachable forward; nothing to check beyond
-            // ordering above.
+            // Always reachable forward; nothing to check beyond the ordering
+            // guard in `can_promote`.
         }
         LifecycleState::Implemented => {
             if matches!(node.implementation, Implementation::Unimplemented) {
@@ -154,60 +173,52 @@ pub fn can_promote(node: &TaskNode, target: LifecycleState) -> PromotionDecision
                 reasons.push(IneligibleReason::NoBenchmarks);
             }
         }
-        LifecycleState::Production => {
-            if matches!(node.implementation, Implementation::Unimplemented) {
-                reasons.push(IneligibleReason::ImplementationMissing);
-            }
-            if node.evidence.passed_validators.is_empty() {
-                reasons.push(IneligibleReason::NoLocalValidators);
-            }
-            // Container digest pin required for production.
-            match &node.implementation {
-                Implementation::ContainerCommand { image, .. } if image.digest.is_empty() => {
-                    reasons.push(IneligibleReason::ContainerDigestMissing);
-                }
-                Implementation::GeneratedCode { review_status, .. } => {
-                    if !matches!(review_status, ReviewStatus::HumanReviewed) {
-                        reasons.push(IneligibleReason::GeneratedCodeUnreviewed);
-                    }
-                }
-                _ => {}
-            }
-            // Trust level requirement: Reviewed for non-clinical,
-            // DualReviewed for clinical.
-            let required_trust = if matches!(node.risk, RiskClass::Clinical) {
-                TrustLevel::DualReviewed
-            } else {
-                TrustLevel::Reviewed
-            };
-            if node.trust_level.order() < required_trust.order() {
-                if matches!(node.risk, RiskClass::Clinical)
-                    && !matches!(node.trust_level, TrustLevel::DualReviewed)
-                {
-                    reasons.push(IneligibleReason::DualReviewRequired);
-                } else {
-                    reasons.push(IneligibleReason::InsufficientTrust {
-                        required: required_trust,
-                        current: node.trust_level,
-                    });
-                }
-            }
-        }
+        LifecycleState::Production => production_requirements(node, &mut reasons),
         LifecycleState::Deprecated => {
             // Anything can become deprecated.
         }
     }
+    reasons
+}
 
-    if reasons.is_empty() {
-        PromotionDecision::Eligible {
-            from: current,
-            to: target,
+/// Production-tier requirements: implementation + local validators, a pinned
+/// container digest (or human-reviewed generated code), and a sufficient trust
+/// level (Reviewed for non-clinical, DualReviewed for clinical).
+fn production_requirements(node: &TaskNode, reasons: &mut Vec<IneligibleReason>) {
+    if matches!(node.implementation, Implementation::Unimplemented) {
+        reasons.push(IneligibleReason::ImplementationMissing);
+    }
+    if node.evidence.passed_validators.is_empty() {
+        reasons.push(IneligibleReason::NoLocalValidators);
+    }
+    // Container digest pin required for production.
+    match &node.implementation {
+        Implementation::ContainerCommand { image, .. } if image.digest.is_empty() => {
+            reasons.push(IneligibleReason::ContainerDigestMissing);
         }
+        Implementation::GeneratedCode { review_status, .. } => {
+            if !matches!(review_status, ReviewStatus::HumanReviewed) {
+                reasons.push(IneligibleReason::GeneratedCodeUnreviewed);
+            }
+        }
+        _ => {}
+    }
+    // Trust level requirement: Reviewed for non-clinical, DualReviewed for clinical.
+    let required_trust = if matches!(node.risk, RiskClass::Clinical) {
+        TrustLevel::DualReviewed
     } else {
-        PromotionDecision::Blocked {
-            from: current,
-            to: target,
-            reasons,
+        TrustLevel::Reviewed
+    };
+    if node.trust_level.order() < required_trust.order() {
+        if matches!(node.risk, RiskClass::Clinical)
+            && !matches!(node.trust_level, TrustLevel::DualReviewed)
+        {
+            reasons.push(IneligibleReason::DualReviewRequired);
+        } else {
+            reasons.push(IneligibleReason::InsufficientTrust {
+                required: required_trust,
+                current: node.trust_level,
+            });
         }
     }
 }
