@@ -328,26 +328,28 @@ fn read_external_timeout() -> Duration {
     Duration::from_secs(secs)
 }
 
-/// Resolve the path to `scripts/spec-check/` relative to a known anchor.
-/// Order: `ECAA_SPEC_SCRIPTS_DIR` env var, then
-/// `CARGO_MANIFEST_DIR/../../scripts/spec-check/`.
-fn spec_scripts_dir() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("ECAA_SPEC_SCRIPTS_DIR") {
-        let pb = PathBuf::from(p);
-        if pb.is_dir() {
-            tracing::debug!(path = %pb.display(), "[ecaa-validation] scripts dir from env");
-            return Some(pb);
-        }
-        tracing::warn!(
-            path = %pb.display(),
-            "[ecaa-validation] ECAA_SPEC_SCRIPTS_DIR not a directory; falling back to auto-detect"
-        );
+/// Resolve `scripts/spec-check/` from the `ECAA_SPEC_SCRIPTS_DIR` override.
+/// Returns `Some` only when the var is set to an existing directory.
+fn spec_scripts_dir_from_env() -> Option<PathBuf> {
+    let pb = PathBuf::from(std::env::var("ECAA_SPEC_SCRIPTS_DIR").ok()?);
+    if pb.is_dir() {
+        tracing::debug!(path = %pb.display(), "[ecaa-validation] scripts dir from env");
+        return Some(pb);
     }
-    let default = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+    tracing::warn!(
+        path = %pb.display(),
+        "[ecaa-validation] ECAA_SPEC_SCRIPTS_DIR not a directory; falling back to auto-detect"
+    );
+    None
+}
+
+/// Auto-detect `scripts/spec-check/` relative to `CARGO_MANIFEST_DIR`.
+fn spec_scripts_dir_auto_detect() -> Option<PathBuf> {
+    let resolved = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../scripts/spec-check")
         .canonicalize()
-        .ok();
-    let resolved = default.filter(|p| p.is_dir());
+        .ok()
+        .filter(|p| p.is_dir());
     match resolved.as_ref() {
         Some(p) => tracing::debug!(path = %p.display(), "[ecaa-validation] scripts dir auto-detected"),
         None => tracing::warn!(
@@ -355,6 +357,219 @@ fn spec_scripts_dir() -> Option<PathBuf> {
         ),
     }
     resolved
+}
+
+/// Resolve the path to `scripts/spec-check/` relative to a known anchor.
+/// Order: `ECAA_SPEC_SCRIPTS_DIR` env var, then
+/// `CARGO_MANIFEST_DIR/../../scripts/spec-check/`.
+fn spec_scripts_dir() -> Option<PathBuf> {
+    spec_scripts_dir_from_env().or_else(spec_scripts_dir_auto_detect)
+}
+
+/// Outcome of validating a single sidecar against its schema.
+enum SidecarOutcome {
+    /// Sidecar passed (or was an allowed-empty single-object file).
+    Passed,
+    /// Sidecar was skipped because it is harness-runtime (not yet present).
+    SkippedHarness,
+    /// Sidecar was skipped because an ablation flag suppressed it.
+    SkippedAblated,
+    /// Sidecar produced one or more schema/parse failures.
+    Failed(Vec<SchemaFailure>),
+}
+
+/// Build a `SchemaFailure` for `relpath` with no line index.
+fn whole_file_failure(relpath: &str, error: String) -> SchemaFailure {
+    SchemaFailure {
+        sidecar: relpath.to_string(),
+        line_index: None,
+        error,
+    }
+}
+
+/// Run a compiled schema against an instance, collecting error messages.
+/// Empty result means the instance is valid.
+fn collect_schema_errors(validator: &JSONSchema, instance: &Value) -> Vec<String> {
+    match validator.validate(instance) {
+        Ok(()) => Vec::new(),
+        Err(errors) => errors.map(|e| e.to_string()).collect(),
+    }
+}
+
+/// Parse the non-empty lines of a JSONL body into Values. Returns the parsed
+/// entries on success, or the per-line parse failures (with line indices).
+fn parse_jsonl_lines(
+    relpath: &str,
+    body: &str,
+) -> std::result::Result<Vec<Value>, Vec<SchemaFailure>> {
+    let mut entries: Vec<Value> = Vec::new();
+    let mut parse_failures: Vec<SchemaFailure> = Vec::new();
+    for (idx, line) in body.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        match serde_json::from_str::<Value>(trimmed) {
+            Ok(v) => entries.push(v),
+            Err(e) => parse_failures.push(SchemaFailure {
+                sidecar: relpath.to_string(),
+                line_index: Some(idx),
+                error: format!("JSON parse error: {e}"),
+            }),
+        }
+    }
+    if parse_failures.is_empty() {
+        Ok(entries)
+    } else {
+        Err(parse_failures)
+    }
+}
+
+/// Validate a JSONL sidecar body: wrap non-empty lines into an in-memory
+/// array and validate that single Value against the array schema. Per-line
+/// parse errors are surfaced individually so the caller can pinpoint
+/// malformed lines.
+fn validate_jsonl_sidecar(relpath: &str, body: &str, validator: &JSONSchema) -> SidecarOutcome {
+    let entries = match parse_jsonl_lines(relpath, body) {
+        Ok(entries) => entries,
+        Err(parse_failures) => {
+            tracing::warn!(relpath = %relpath, "[ecaa-validation] sidecar failed JSONL parse");
+            return SidecarOutcome::Failed(parse_failures);
+        }
+    };
+    let msgs = collect_schema_errors(validator, &Value::Array(entries));
+    if msgs.is_empty() {
+        tracing::debug!(relpath = %relpath, "[ecaa-validation] sidecar passed schema");
+        SidecarOutcome::Passed
+    } else {
+        tracing::warn!(
+            relpath = %relpath,
+            "[ecaa-validation] sidecar failed schema (see validation-summary.json)"
+        );
+        SidecarOutcome::Failed(vec![whole_file_failure(
+            relpath,
+            format!("schema validation: {}", msgs.join("; ")),
+        )])
+    }
+}
+
+/// Validate a single-object JSON sidecar body. Empty files are an allowed pass.
+fn validate_single_object_sidecar(
+    relpath: &str,
+    body: &str,
+    validator: &JSONSchema,
+) -> SidecarOutcome {
+    let trimmed = body.trim();
+    if trimmed.is_empty() {
+        tracing::debug!(relpath = %relpath, "[ecaa-validation] sidecar passed schema (empty allowed)");
+        return SidecarOutcome::Passed;
+    }
+    let instance: Value = match serde_json::from_str(trimmed) {
+        Ok(v) => v,
+        Err(e) => {
+            return SidecarOutcome::Failed(vec![whole_file_failure(
+                relpath,
+                format!("JSON parse error: {e}"),
+            )]);
+        }
+    };
+    let msgs = collect_schema_errors(validator, &instance);
+    if msgs.is_empty() {
+        tracing::debug!(relpath = %relpath, "[ecaa-validation] sidecar passed schema");
+        SidecarOutcome::Passed
+    } else {
+        tracing::warn!(relpath = %relpath, "[ecaa-validation] sidecar failed schema");
+        SidecarOutcome::Failed(vec![whole_file_failure(
+            relpath,
+            format!("schema validation: {}", msgs.join("; ")),
+        )])
+    }
+}
+
+/// Locate a sidecar on disk: handle harness-runtime skips, ablation skips,
+/// and missing files. Returns `Ok(Some(abs))` when the file exists and should
+/// be validated, `Ok(None)` when it should be skipped (with the skip outcome),
+/// or `Err(outcome)` for a missing-but-required file.
+fn locate_sidecar(
+    pkg_root: &Path,
+    relpath: &'static str,
+    source: SidecarSource,
+) -> std::result::Result<std::result::Result<PathBuf, SidecarOutcome>, SidecarOutcome> {
+    // Harness-runtime sidecars (subgraph E execution + subgraph Q
+    // verifier-decisions) are written by tasks executing post-emit.
+    // Skip them here so a clean compile-time package isn't blocked
+    // by their absence under BLOCK_ON_FAIL=1. The harness itself
+    // re-checks these files via its own validator once they exist.
+    if matches!(source, SidecarSource::HarnessRuntime) {
+        tracing::debug!(
+            relpath = %relpath,
+            "[ecaa-validation] sidecar skipped (harness-runtime)"
+        );
+        return Ok(Err(SidecarOutcome::SkippedHarness));
+    }
+    let abs = pkg_root.join(relpath);
+    if abs.exists() {
+        return Ok(Ok(abs));
+    }
+    if ablated_sidecar(relpath) {
+        tracing::debug!(
+            relpath = %relpath,
+            "[ecaa-validation] sidecar skipped (ablated by ECAA_ABLATE_* flag)"
+        );
+        return Ok(Err(SidecarOutcome::SkippedAblated));
+    }
+    tracing::warn!(relpath = %relpath, "[ecaa-validation] sidecar missing");
+    Err(SidecarOutcome::Failed(vec![whole_file_failure(
+        relpath,
+        "sidecar missing".to_string(),
+    )]))
+}
+
+/// Read a sidecar body and look up its compiled schema. Returns `Err(outcome)`
+/// on read error or a missing compile-time schema.
+fn load_sidecar_body(
+    abs: &Path,
+    relpath: &'static str,
+) -> std::result::Result<(String, &'static JSONSchema), SidecarOutcome> {
+    let body = std::fs::read_to_string(abs).map_err(|e| {
+        tracing::warn!(relpath = %relpath, error = %e, "[ecaa-validation] sidecar read error");
+        SidecarOutcome::Failed(vec![whole_file_failure(
+            relpath,
+            format!("read error: {e}"),
+        )])
+    })?;
+    let validator = SCHEMA_CACHE.get(relpath).ok_or_else(|| {
+        SidecarOutcome::Failed(vec![whole_file_failure(
+            relpath,
+            "schema not in compile-time cache (parse/compile failed at process init)".to_string(),
+        )])
+    })?;
+    Ok((body, validator))
+}
+
+/// Validate one sidecar end-to-end: presence, readability, schema lookup,
+/// then dispatch to the JSONL or single-object validator.
+fn validate_one_sidecar(
+    pkg_root: &Path,
+    relpath: &'static str,
+    is_jsonl: bool,
+    source: SidecarSource,
+) -> SidecarOutcome {
+    let abs = match locate_sidecar(pkg_root, relpath, source) {
+        Ok(Ok(abs)) => abs,
+        Ok(Err(skip)) => return skip,
+        Err(failure) => return failure,
+    };
+    let (body, validator) = match load_sidecar_body(&abs, relpath) {
+        Ok(pair) => pair,
+        Err(outcome) => return outcome,
+    };
+
+    if is_jsonl {
+        validate_jsonl_sidecar(relpath, &body, validator)
+    } else {
+        validate_single_object_sidecar(relpath, &body, validator)
+    }
 }
 
 /// Run pure-Rust JSON Schema validation on every required sidecar.
@@ -368,142 +583,11 @@ fn validate_schemas_pure_rust(pkg_root: &Path) -> SchemaValidationResults {
     );
 
     for (relpath, is_jsonl, _schema_src, source) in sidecar_schemas() {
-        // Harness-runtime sidecars (subgraph E execution + subgraph Q
-        // verifier-decisions) are written by tasks executing post-emit.
-        // Skip them here so a clean compile-time package isn't blocked
-        // by their absence under BLOCK_ON_FAIL=1. The harness itself
-        // re-checks these files via its own validator once they exist.
-        if matches!(source, SidecarSource::HarnessRuntime) {
-            skipped_pending_harness += 1;
-            tracing::debug!(
-                relpath = %relpath,
-                "[ecaa-validation] sidecar skipped (harness-runtime)"
-            );
-            continue;
-        }
-        let abs = pkg_root.join(relpath);
-        if !abs.exists() {
-            if ablated_sidecar(relpath) {
-                tracing::debug!(
-                    relpath = %relpath,
-                    "[ecaa-validation] sidecar skipped (ablated by ECAA_ABLATE_* flag)"
-                );
-                continue;
-            }
-            tracing::warn!(relpath = %relpath, "[ecaa-validation] sidecar missing");
-            failed.push(SchemaFailure {
-                sidecar: relpath.to_string(),
-                line_index: None,
-                error: "sidecar missing".to_string(),
-            });
-            continue;
-        }
-        let body = match std::fs::read_to_string(&abs) {
-            Ok(b) => b,
-            Err(e) => {
-                tracing::warn!(relpath = %relpath, error = %e, "[ecaa-validation] sidecar read error");
-                failed.push(SchemaFailure {
-                    sidecar: relpath.to_string(),
-                    line_index: None,
-                    error: format!("read error: {e}"),
-                });
-                continue;
-            }
-        };
-        let validator = match SCHEMA_CACHE.get(relpath) {
-            Some(v) => v,
-            None => {
-                failed.push(SchemaFailure {
-                    sidecar: relpath.to_string(),
-                    line_index: None,
-                    error:
-                        "schema not in compile-time cache (parse/compile failed at process init)"
-                            .to_string(),
-                });
-                continue;
-            }
-        };
-
-        if is_jsonl {
-            // JSONL: schemas declare `type: array, items: ...`. Wrap the
-            // non-empty lines into an in-memory array and validate that
-            // single Value against the schema. Per-line parse errors are
-            // surfaced separately so the caller can pinpoint malformed lines.
-            let mut entries: Vec<Value> = Vec::new();
-            let mut parse_failed = false;
-            for (idx, line) in body.lines().enumerate() {
-                let trimmed = line.trim();
-                if trimmed.is_empty() {
-                    continue;
-                }
-                match serde_json::from_str::<Value>(trimmed) {
-                    Ok(v) => entries.push(v),
-                    Err(e) => {
-                        failed.push(SchemaFailure {
-                            sidecar: relpath.to_string(),
-                            line_index: Some(idx),
-                            error: format!("JSON parse error: {e}"),
-                        });
-                        parse_failed = true;
-                    }
-                }
-            }
-            if parse_failed {
-                tracing::warn!(relpath = %relpath, "[ecaa-validation] sidecar failed JSONL parse");
-                continue;
-            }
-            let array_instance = Value::Array(entries);
-            let msgs: Vec<String> = match validator.validate(&array_instance) {
-                Ok(()) => Vec::new(),
-                Err(errors) => errors.map(|e| e.to_string()).collect(),
-            };
-            if msgs.is_empty() {
-                passed += 1;
-                tracing::debug!(relpath = %relpath, "[ecaa-validation] sidecar passed schema");
-            } else {
-                failed.push(SchemaFailure {
-                    sidecar: relpath.to_string(),
-                    line_index: None,
-                    error: format!("schema validation: {}", msgs.join("; ")),
-                });
-                tracing::warn!(
-                    relpath = %relpath,
-                    "[ecaa-validation] sidecar failed schema (see validation-summary.json)"
-                );
-            }
-        } else {
-            let trimmed = body.trim();
-            if trimmed.is_empty() {
-                passed += 1;
-                tracing::debug!(relpath = %relpath, "[ecaa-validation] sidecar passed schema (empty allowed)");
-                continue;
-            }
-            let instance: Value = match serde_json::from_str(trimmed) {
-                Ok(v) => v,
-                Err(e) => {
-                    failed.push(SchemaFailure {
-                        sidecar: relpath.to_string(),
-                        line_index: None,
-                        error: format!("JSON parse error: {e}"),
-                    });
-                    continue;
-                }
-            };
-            let msgs: Vec<String> = match validator.validate(&instance) {
-                Ok(()) => Vec::new(),
-                Err(errors) => errors.map(|e| e.to_string()).collect(),
-            };
-            if msgs.is_empty() {
-                passed += 1;
-                tracing::debug!(relpath = %relpath, "[ecaa-validation] sidecar passed schema");
-            } else {
-                failed.push(SchemaFailure {
-                    sidecar: relpath.to_string(),
-                    line_index: None,
-                    error: format!("schema validation: {}", msgs.join("; ")),
-                });
-                tracing::warn!(relpath = %relpath, "[ecaa-validation] sidecar failed schema");
-            }
+        match validate_one_sidecar(pkg_root, relpath, is_jsonl, source) {
+            SidecarOutcome::Passed => passed += 1,
+            SidecarOutcome::SkippedHarness => skipped_pending_harness += 1,
+            SidecarOutcome::SkippedAblated => {}
+            SidecarOutcome::Failed(mut fs) => failed.append(&mut fs),
         }
     }
 
@@ -520,14 +604,78 @@ fn validate_schemas_pure_rust(pkg_root: &Path) -> SchemaValidationResults {
     }
 }
 
-/// Run an external Python validator script with timeout enforcement.
-fn run_external_check(
+/// Spin-poll a spawned child to completion or timeout. Returns the child's
+/// `Output` on completion, or an `ExternalCheckOutcome::Error` describing the
+/// failure/timeout. `on_timeout` builds the timeout reason string and runs the
+/// timeout log line.
+fn wait_with_timeout(
+    mut child: std::process::Child,
+    started: Instant,
+    timeout: Duration,
+    on_timeout: impl FnOnce() -> String,
+) -> std::result::Result<std::process::Output, ExternalCheckOutcome> {
+    // wait_timeout would be cleaner but adds a dep; std-lib approach:
+    // spin-poll try_wait every 100ms up to the timeout.
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                return child
+                    .wait_with_output()
+                    .map_err(|e| ExternalCheckOutcome::Error {
+                        reason: format!("wait_with_output failed: {e}"),
+                    });
+            }
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    let _ = child.kill();
+                    return Err(ExternalCheckOutcome::Error {
+                        reason: on_timeout(),
+                    });
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(e) => {
+                return Err(ExternalCheckOutcome::Error {
+                    reason: format!("try_wait failed: {e}"),
+                });
+            }
+        }
+    }
+}
+
+/// Interpret an external validator's `Output`: success → `Pass`, missing
+/// Python deps → `Unavailable`, otherwise `Fail`.
+fn interpret_external_output(label: &str, out: &std::process::Output) -> ExternalCheckOutcome {
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+    if out.status.success() {
+        tracing::info!(label = %label, details = %stdout.trim(), "[ecaa-validation] validator PASS");
+        return ExternalCheckOutcome::Pass {
+            details: stdout.trim().to_string(),
+        };
+    }
+    if stderr.contains("ModuleNotFoundError") || stdout.contains("ModuleNotFoundError") {
+        let reason = "Python deps missing — install via: pip install --user --break-system-packages pyshacl pyld owlready2 rdflib jsonschema".to_string();
+        tracing::warn!(label = %label, reason = %reason, "[ecaa-validation] validator unavailable (missing Python deps)");
+        return ExternalCheckOutcome::Unavailable { reason };
+    }
+    let details = format!(
+        "exit {}: {} {}",
+        out.status.code().unwrap_or(-1),
+        stdout.trim(),
+        stderr.trim()
+    );
+    tracing::warn!(label = %label, details = %details, "[ecaa-validation] validator FAIL");
+    ExternalCheckOutcome::Fail { details }
+}
+
+/// Resolve a validator script path + probe python3. Returns `Err(outcome)`
+/// (always `Unavailable`) when the script is absent or python3 is off PATH.
+fn resolve_validator_script(
     label: &str,
     script_name: &str,
-    args: &[&str],
     scripts_dir: &Path,
-    timeout: Duration,
-) -> ExternalCheckOutcome {
+) -> std::result::Result<PathBuf, ExternalCheckOutcome> {
     let script_path = scripts_dir.join(script_name);
     if !script_path.exists() {
         let reason = format!(
@@ -536,14 +684,28 @@ fn run_external_check(
             scripts_dir.display()
         );
         tracing::debug!(label = %label, reason = %reason, "[ecaa-validation] validator unavailable");
-        return ExternalCheckOutcome::Unavailable { reason };
+        return Err(ExternalCheckOutcome::Unavailable { reason });
     }
-    let probe = Command::new("python3").arg("--version").output();
-    if probe.is_err() {
+    if Command::new("python3").arg("--version").output().is_err() {
         let reason = "python3 not on PATH".to_string();
         tracing::debug!(label = %label, reason = %reason, "[ecaa-validation] validator unavailable");
-        return ExternalCheckOutcome::Unavailable { reason };
+        return Err(ExternalCheckOutcome::Unavailable { reason });
     }
+    Ok(script_path)
+}
+
+/// Run an external Python validator script with timeout enforcement.
+fn run_external_check(
+    label: &str,
+    script_name: &str,
+    args: &[&str],
+    scripts_dir: &Path,
+    timeout: Duration,
+) -> ExternalCheckOutcome {
+    let script_path = match resolve_validator_script(label, script_name, scripts_dir) {
+        Ok(p) => p,
+        Err(outcome) => return outcome,
+    };
     tracing::debug!(
         label = %label,
         script = %script_path.display(),
@@ -552,7 +714,7 @@ fn run_external_check(
         "[ecaa-validation] invoking python3 validator"
     );
     let started = Instant::now();
-    let mut child = match Command::new("python3")
+    let child = match Command::new("python3")
         .arg(&script_path)
         .args(args)
         .stdout(std::process::Stdio::piped())
@@ -567,68 +729,41 @@ fn run_external_check(
             };
         }
     };
-    // Poll for timeout — wait_timeout would be cleaner but adds a dep; std lib
-    // approach: spin-poll try_wait every 100ms up to the timeout.
-    let out = loop {
-        match child.try_wait() {
-            Ok(Some(_)) => match child.wait_with_output() {
-                Ok(o) => break o,
-                Err(e) => {
-                    return ExternalCheckOutcome::Error {
-                        reason: format!("wait_with_output failed: {e}"),
-                    };
-                }
-            },
-            Ok(None) => {
-                if started.elapsed() >= timeout {
-                    let _ = child.kill();
-                    tracing::warn!(
-                        label = %label,
-                        timeout_secs = timeout.as_secs(),
-                        "[ecaa-validation] validator timed out; killed"
-                    );
-                    return ExternalCheckOutcome::Error {
-                        reason: format!(
-                            "subprocess timeout after {}s (set ECAA_VALIDATION_EXTERNAL_TIMEOUT_SECS to extend)",
-                            timeout.as_secs()
-                        ),
-                    };
-                }
-                std::thread::sleep(Duration::from_millis(100));
-            }
-            Err(e) => {
-                return ExternalCheckOutcome::Error {
-                    reason: format!("try_wait failed: {e}"),
-                };
-            }
-        }
+    let out = match wait_with_timeout(child, started, timeout, || {
+        tracing::warn!(
+            label = %label,
+            timeout_secs = timeout.as_secs(),
+            "[ecaa-validation] validator timed out; killed"
+        );
+        format!(
+            "subprocess timeout after {}s (set ECAA_VALIDATION_EXTERNAL_TIMEOUT_SECS to extend)",
+            timeout.as_secs()
+        )
+    }) {
+        Ok(o) => o,
+        Err(outcome) => return outcome,
     };
-    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     tracing::debug!(
         label = %label,
         exit_code = ?out.status.code(),
         elapsed = ?started.elapsed(),
         "[ecaa-validation] validator exited"
     );
+    interpret_external_output(label, &out)
+}
+
+/// Interpret `runcrate validate` output: success → `Pass`, else `Fail`.
+fn interpret_runcrate_output(out: &std::process::Output) -> ExternalCheckOutcome {
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
     if out.status.success() {
-        tracing::info!(label = %label, details = %stdout.trim(), "[ecaa-validation] validator PASS");
+        tracing::info!("[ecaa-validation] runcrate PASS");
         ExternalCheckOutcome::Pass {
             details: stdout.trim().to_string(),
         }
     } else {
-        if stderr.contains("ModuleNotFoundError") || stdout.contains("ModuleNotFoundError") {
-            let reason = "Python deps missing — install via: pip install --user --break-system-packages pyshacl pyld owlready2 rdflib jsonschema".to_string();
-            tracing::warn!(label = %label, reason = %reason, "[ecaa-validation] validator unavailable (missing Python deps)");
-            return ExternalCheckOutcome::Unavailable { reason };
-        }
-        let details = format!(
-            "exit {}: {} {}",
-            out.status.code().unwrap_or(-1),
-            stdout.trim(),
-            stderr.trim()
-        );
-        tracing::warn!(label = %label, details = %details, "[ecaa-validation] validator FAIL");
+        let details = format!("{} {}", stdout.trim(), stderr.trim());
+        tracing::warn!(details = %details, "[ecaa-validation] runcrate FAIL");
         ExternalCheckOutcome::Fail { details }
     }
 }
@@ -636,75 +771,91 @@ fn run_external_check(
 /// WRROC round-trip check via the external `runcrate` Python tool.
 fn run_runcrate_validate(pkg_root: &Path, timeout: Duration) -> ExternalCheckOutcome {
     let probe = Command::new("runcrate").arg("--version").output();
-    match probe {
-        Ok(o) if o.status.success() => {
-            tracing::debug!(
-                "[ecaa-validation] runcrate available: {}",
-                String::from_utf8_lossy(&o.stdout).trim()
-            );
-            let started = Instant::now();
-            let mut child = match Command::new("runcrate")
-                .arg("validate")
-                .arg(pkg_root)
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn()
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    return ExternalCheckOutcome::Error {
-                        reason: format!("runcrate spawn failed: {e}"),
-                    };
-                }
-            };
-            let out = loop {
-                match child.try_wait() {
-                    Ok(Some(_)) => match child.wait_with_output() {
-                        Ok(o) => break o,
-                        Err(e) => {
-                            return ExternalCheckOutcome::Error {
-                                reason: format!("wait_with_output failed: {e}"),
-                            };
-                        }
-                    },
-                    Ok(None) => {
-                        if started.elapsed() >= timeout {
-                            let _ = child.kill();
-                            tracing::warn!(
-                                timeout_secs = timeout.as_secs(),
-                                "[ecaa-validation] runcrate timed out; killed"
-                            );
-                            return ExternalCheckOutcome::Error {
-                                reason: format!("timeout after {}s", timeout.as_secs()),
-                            };
-                        }
-                        std::thread::sleep(Duration::from_millis(100));
-                    }
-                    Err(e) => {
-                        return ExternalCheckOutcome::Error {
-                            reason: format!("try_wait failed: {e}"),
-                        };
-                    }
-                }
-            };
-            let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-            if out.status.success() {
-                tracing::info!("[ecaa-validation] runcrate PASS");
-                ExternalCheckOutcome::Pass {
-                    details: stdout.trim().to_string(),
-                }
-            } else {
-                let details = format!("{} {}", stdout.trim(), stderr.trim());
-                tracing::warn!(details = %details, "[ecaa-validation] runcrate FAIL");
-                ExternalCheckOutcome::Fail { details }
-            }
-        }
+    let probe = match probe {
+        Ok(o) if o.status.success() => o,
         _ => {
             let reason = "runcrate not on PATH (pip install runcrate)".to_string();
             tracing::debug!(reason = %reason, "[ecaa-validation] runcrate unavailable");
-            ExternalCheckOutcome::Unavailable { reason }
+            return ExternalCheckOutcome::Unavailable { reason };
         }
+    };
+    tracing::debug!(
+        "[ecaa-validation] runcrate available: {}",
+        String::from_utf8_lossy(&probe.stdout).trim()
+    );
+    let started = Instant::now();
+    let child = match Command::new("runcrate")
+        .arg("validate")
+        .arg(pkg_root)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return ExternalCheckOutcome::Error {
+                reason: format!("runcrate spawn failed: {e}"),
+            };
+        }
+    };
+    let out = match wait_with_timeout(child, started, timeout, || {
+        tracing::warn!(
+            timeout_secs = timeout.as_secs(),
+            "[ecaa-validation] runcrate timed out; killed"
+        );
+        format!("timeout after {}s", timeout.as_secs())
+    }) {
+        Ok(o) => o,
+        Err(outcome) => return outcome,
+    };
+    interpret_runcrate_output(&out)
+}
+
+/// Build the `Disabled`-mode summary (no validation performed).
+fn disabled_summary(mode: ValidationMode, start: Instant) -> ValidationSummary {
+    ValidationSummary {
+        schema_version: "0.1".to_string(),
+        mode,
+        schema_validation: SchemaValidationResults {
+            passed: 0,
+            failed: Vec::new(),
+            skipped_pending_harness: 0,
+        },
+        external_validation: None,
+        duration_ms: start.elapsed().as_millis(),
+    }
+}
+
+/// Run the external (Python) validator suite for `Full` mode.
+fn run_external_suite(pkg_root: &Path) -> ExternalValidationResults {
+    let timeout = read_external_timeout();
+    let scripts_dir = spec_scripts_dir();
+    let (shacl, owl) = match scripts_dir.as_ref() {
+        Some(dir) => (
+            run_external_check(
+                "shacl_projection",
+                "project_package.py",
+                &[pkg_root.to_str().unwrap_or(".")],
+                dir,
+                timeout,
+            ),
+            run_external_check("owl_consistency", "owl_consistency.py", &[], dir, timeout),
+        ),
+        None => {
+            let reason = "scripts/spec-check/ not found (set ECAA_SPEC_SCRIPTS_DIR)".to_string();
+            (
+                ExternalCheckOutcome::Unavailable {
+                    reason: reason.clone(),
+                },
+                ExternalCheckOutcome::Unavailable { reason },
+            )
+        }
+    };
+    let runcrate = run_runcrate_validate(pkg_root, timeout);
+    ExternalValidationResults {
+        shacl_projection: shacl,
+        owl_consistency: owl,
+        runcrate_validate: runcrate,
     }
 }
 
@@ -722,17 +873,7 @@ pub fn validate_emitted_package(pkg_root: &Path) -> Result<ValidationSummary> {
 
     if matches!(mode, ValidationMode::Disabled) {
         tracing::info!("[ecaa-validation] disabled via ECAA_VALIDATE_ON_EMIT");
-        return Ok(ValidationSummary {
-            schema_version: "0.1".to_string(),
-            mode,
-            schema_validation: SchemaValidationResults {
-                passed: 0,
-                failed: Vec::new(),
-                skipped_pending_harness: 0,
-            },
-            external_validation: None,
-            duration_ms: start.elapsed().as_millis(),
-        });
+        return Ok(disabled_summary(mode, start));
     }
 
     let schema_validation = validate_schemas_pure_rust(pkg_root);
@@ -740,38 +881,7 @@ pub fn validate_emitted_package(pkg_root: &Path) -> Result<ValidationSummary> {
 
     let external_validation = match mode {
         ValidationMode::Disabled | ValidationMode::SchemaOnly => None,
-        ValidationMode::Full => {
-            let timeout = read_external_timeout();
-            let scripts_dir = spec_scripts_dir();
-            let (shacl, owl) = match scripts_dir.as_ref() {
-                Some(dir) => (
-                    run_external_check(
-                        "shacl_projection",
-                        "project_package.py",
-                        &[pkg_root.to_str().unwrap_or(".")],
-                        dir,
-                        timeout,
-                    ),
-                    run_external_check("owl_consistency", "owl_consistency.py", &[], dir, timeout),
-                ),
-                None => {
-                    let reason =
-                        "scripts/spec-check/ not found (set ECAA_SPEC_SCRIPTS_DIR)".to_string();
-                    (
-                        ExternalCheckOutcome::Unavailable {
-                            reason: reason.clone(),
-                        },
-                        ExternalCheckOutcome::Unavailable { reason },
-                    )
-                }
-            };
-            let runcrate = run_runcrate_validate(pkg_root, timeout);
-            Some(ExternalValidationResults {
-                shacl_projection: shacl,
-                owl_consistency: owl,
-                runcrate_validate: runcrate,
-            })
-        }
+        ValidationMode::Full => Some(run_external_suite(pkg_root)),
     };
 
     let summary = ValidationSummary {
@@ -788,6 +898,13 @@ pub fn validate_emitted_package(pkg_root: &Path) -> Result<ValidationSummary> {
         summary.mode
     );
 
+    block_on_fail_guard(schema_failed, &summary)?;
+    Ok(summary)
+}
+
+/// Return `Err` when schema validation failed AND `ECAA_VALIDATION_BLOCK_ON_FAIL=1`,
+/// aborting the emit. Otherwise `Ok(())` (warn-only).
+fn block_on_fail_guard(schema_failed: bool, summary: &ValidationSummary) -> Result<()> {
     if schema_failed && read_block_on_fail() {
         let n_failed = summary.schema_validation.failed.len();
         tracing::error!(
@@ -799,8 +916,7 @@ pub fn validate_emitted_package(pkg_root: &Path) -> Result<ValidationSummary> {
             n_failed
         ));
     }
-
-    Ok(summary)
+    Ok(())
 }
 
 /// Serialize the summary to `runtime/validation-summary.json` (pretty,
