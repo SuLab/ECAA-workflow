@@ -2,7 +2,7 @@
 
 A deterministic, offline compiler that turns a natural-language description of a bioinformatics analysis into a self-contained, agent-executable [RO-Crate](https://www.researchobject.org/ro-crate/) package — with a full-lifecycle conversational shell wrapped around the executing package.
 
-The compiler classifies the intake, selects an archetype, builds a task DAG, emits a package, and an execution harness drives an agent (Claude Code, a shell script, anything callable with a package path) against the emitted DAG. Conformance is enforced by an embedded **ECAA validator** that gates emission on a machine-checkable contract over claims, evidence, and decision substrate.
+The compiler classifies the intake, selects an archetype, builds a task DAG, emits a package, and an execution harness drives an agent (Claude Code, a shell script, anything callable with a package path) against the emitted DAG. The emitted package is an **ECAA** (Evidence-Carrying Analysis Artifact) — a typed RO-Crate that carries, alongside the analysis itself, the claims it supports, the evidence backing each claim, and the decision record that produced them. Conformance is enforced by an embedded **ECAA validator** that gates emission on a machine-checkable contract over those subgraphs.
 
 ## Layout
 
