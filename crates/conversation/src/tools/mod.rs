@@ -3428,11 +3428,38 @@ fn counts_only_inputs(session: &crate::session::Session) -> bool {
     !any_fastq
 }
 
+/// True when the SME has signalled counts-level entry by excluding the
+/// read→counts bridge atoms. `quantification` produces a counts matrix
+/// from alignments and `alignment` produces those alignments from reads;
+/// excluding either means no counts can be derived from raw reads in this
+/// workflow, so the SME is supplying counts directly. That makes the
+/// upstream FASTQ-level atoms (`raw_qc`, `sequence_trimming`) vestigial —
+/// exactly as a registered counts-matrix input would, and independent of
+/// whether the SME registered any input file. This catches the common
+/// path where the SME declares counts-only in prose and the LLM excludes
+/// the read-level chain via `set_intake_excluded_atoms` without ever
+/// touching the Inputs tab.
+fn excludes_read_to_counts_bridge(session: &crate::session::Session) -> bool {
+    session
+        .excluded_atoms
+        .iter()
+        .any(|a| a == "quantification" || a == "alignment")
+}
+
+/// Counts-level entry: the registered inputs are counts-only (no FASTQ),
+/// OR the SME explicitly excluded the read→counts bridge. Either way the
+/// FASTQ-level atoms are unreachable and must be pruned so a leftover
+/// `raw_qc` / `sequence_trimming` doesn't get absorbed into
+/// `reporting.depends_on` by the lowering pass's orphan-strand repair.
+fn counts_level_entry(session: &crate::session::Session) -> bool {
+    counts_only_inputs(session) || excludes_read_to_counts_bridge(session)
+}
+
 fn prune_counts_only_input_workflow_dag(
     workflow_dag: &mut ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
     session: &crate::session::Session,
 ) -> std::collections::BTreeSet<String> {
-    if !counts_only_inputs(session) {
+    if !counts_level_entry(session) {
         return std::collections::BTreeSet::new();
     }
     prune_workflow_dag_roots_with_companions(workflow_dag, FASTQ_LEVEL_ATOM_IDS)
@@ -3455,7 +3482,7 @@ fn apply_counts_only_input_gate(
     dag: &mut ecaa_workflow_core::dag::DAG,
     session: &crate::session::Session,
 ) -> std::collections::BTreeSet<ecaa_workflow_core::dag::TaskId> {
-    if !counts_only_inputs(session) {
+    if !counts_level_entry(session) {
         return std::collections::BTreeSet::new();
     }
     // No FASTQ in registered inputs → drop FASTQ-level atoms when
