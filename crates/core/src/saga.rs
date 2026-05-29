@@ -93,31 +93,38 @@ impl Saga {
                         completed_steps = completed.len(),
                         "step failed; rolling back"
                     );
-                    for done in completed.iter().rev() {
-                        if let Some(rb) = &done.rollback {
-                            tracing::debug!(
-                                target: "swfc::saga",
-                                saga_step = done.name,
-                                "rolling back"
-                            );
-                            // Roll back even if a prior rollback fails (no fail-on-fail).
-                            let result =
-                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (rb)()));
-                            if let Err(panic) = result {
-                                tracing::error!(
-                                    target: "swfc::saga",
-                                    saga_step = done.name,
-                                    panic = ?panic,
-                                    "rollback panicked; continuing"
-                                );
-                            }
-                        }
-                    }
+                    roll_back_completed(&completed);
                     return Err(e);
                 }
             }
         }
         Ok(())
+    }
+}
+
+/// Run the rollbacks for `completed` steps in reverse order. Each rollback
+/// runs even if a prior one fails or panics (no fail-on-fail) — a panicking
+/// rollback is caught, logged, and skipped so the remaining rollbacks still
+/// fire. Steps without a rollback are no-ops.
+fn roll_back_completed(completed: &[&SagaStep]) {
+    for done in completed.iter().rev() {
+        let Some(rb) = &done.rollback else {
+            continue;
+        };
+        tracing::debug!(
+            target: "swfc::saga",
+            saga_step = done.name,
+            "rolling back"
+        );
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (rb)()));
+        if let Err(panic) = result {
+            tracing::error!(
+                target: "swfc::saga",
+                saga_step = done.name,
+                panic = ?panic,
+                "rollback panicked; continuing"
+            );
+        }
     }
 }
 
