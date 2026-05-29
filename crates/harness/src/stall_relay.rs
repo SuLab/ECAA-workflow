@@ -149,45 +149,58 @@ fn relay_loop(session_id: String, server_url: String, relay_rx: Receiver<StallSi
         .build();
 
     while let Ok(signal) = relay_rx.recv() {
-        let body = StallSignalBody::from_signal(&signal);
-        let body_value = match serde_json::to_value(&body) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!(
-                    session_id = %session_id,
-                    error = %e,
-                    "stall-relay: failed to serialize signal body"
-                );
-                continue;
-            }
-        };
-
-        let mut req = agent.post(&url);
-        if let Some(tok) = auth_token.as_deref() {
-            req = req.set("Authorization", &format!("Bearer {tok}"));
-        }
-        match req.send_json(&body_value) {
-            Ok(_) => {
-                tracing::debug!(
-                    session_id = %session_id,
-                    task_id = %body.task_id,
-                    kind = %body.kind,
-                    "stall-relay: direct POST succeeded"
-                );
-            }
-            Err(e) => {
-                tracing::warn!(
-                    session_id = %session_id,
-                    task_id = %body.task_id,
-                    kind = %body.kind,
-                    error = %e,
-                    "stall-relay: direct POST failed (continuing)"
-                );
-            }
-        }
+        relay_one_signal(&agent, &url, auth_token.as_deref(), &session_id, &signal);
     }
 
     tracing::debug!(session_id = %session_id, "stall-relay: channel closed, exiting");
+}
+
+/// POST one stall signal to the server. Best-effort: a serialization failure
+/// or a failed POST is logged and swallowed so the relay keeps draining
+/// subsequent signals.
+fn relay_one_signal(
+    agent: &ureq::Agent,
+    url: &str,
+    auth_token: Option<&str>,
+    session_id: &str,
+    signal: &StallSignal,
+) {
+    let body = StallSignalBody::from_signal(signal);
+    let body_value = match serde_json::to_value(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(
+                session_id = %session_id,
+                error = %e,
+                "stall-relay: failed to serialize signal body"
+            );
+            return;
+        }
+    };
+
+    let mut req = agent.post(url);
+    if let Some(tok) = auth_token {
+        req = req.set("Authorization", &format!("Bearer {tok}"));
+    }
+    match req.send_json(&body_value) {
+        Ok(_) => {
+            tracing::debug!(
+                session_id = %session_id,
+                task_id = %body.task_id,
+                kind = %body.kind,
+                "stall-relay: direct POST succeeded"
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                session_id = %session_id,
+                task_id = %body.task_id,
+                kind = %body.kind,
+                error = %e,
+                "stall-relay: direct POST failed (continuing)"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

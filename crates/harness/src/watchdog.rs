@@ -83,79 +83,87 @@ impl WatchdogConfig {
     /// `ECAA_WATCHDOG_MULTIPLIER`. Out-of-range values are clamped with a
     /// warning to stderr; unparseable values silently use the default.
     pub fn from_env() -> Self {
-        // W1.2/B8: clamp violations go through tracing now (structured),
-        // and unparseable-value silent fallbacks emit tracing::warn so
-        // an operator typo (e.g. ECAA_WATCHDOG_PERIOD_SECS=thirty)
-        // surfaces in the log instead of being invisibly ignored.
-        let period_raw = std::env::var("ECAA_WATCHDOG_PERIOD_SECS").ok();
-        let period_secs = match period_raw.as_deref() {
-            None => WATCHDOG_PERIOD_SECS_DEFAULT,
-            Some(v) => match v.trim().parse::<u64>() {
-                Ok(n) => {
-                    let clamped = n.clamp(WATCHDOG_PERIOD_SECS_MIN, WATCHDOG_PERIOD_SECS_MAX);
-                    if clamped != n {
-                        tracing::warn!(
-                            target: "watchdog",
-                            env = "ECAA_WATCHDOG_PERIOD_SECS",
-                            value = n,
-                            min = WATCHDOG_PERIOD_SECS_MIN,
-                            max = WATCHDOG_PERIOD_SECS_MAX,
-                            clamped_to = clamped,
-                            "value out of range; clamped"
-                        );
-                    }
-                    clamped
-                }
-                Err(_) => {
-                    tracing::warn!(
-                        target: "watchdog",
-                        env = "ECAA_WATCHDOG_PERIOD_SECS",
-                        value = %v,
-                        default = WATCHDOG_PERIOD_SECS_DEFAULT,
-                        "unparseable u64; falling back to default"
-                    );
-                    WATCHDOG_PERIOD_SECS_DEFAULT
-                }
-            },
-        };
-
-        let mult_raw = std::env::var("ECAA_WATCHDOG_MULTIPLIER").ok();
-        let multiplier = match mult_raw.as_deref() {
-            None => WATCHDOG_MULTIPLIER_DEFAULT,
-            Some(v) => match v.trim().parse::<f64>() {
-                Ok(n) => {
-                    let clamped = n.clamp(WATCHDOG_MULTIPLIER_MIN, WATCHDOG_MULTIPLIER_MAX);
-                    if (clamped - n).abs() > 1e-9 {
-                        tracing::warn!(
-                            target: "watchdog",
-                            env = "ECAA_WATCHDOG_MULTIPLIER",
-                            value = n,
-                            min = WATCHDOG_MULTIPLIER_MIN,
-                            max = WATCHDOG_MULTIPLIER_MAX,
-                            clamped_to = clamped,
-                            "value out of range; clamped"
-                        );
-                    }
-                    clamped
-                }
-                Err(_) => {
-                    tracing::warn!(
-                        target: "watchdog",
-                        env = "ECAA_WATCHDOG_MULTIPLIER",
-                        value = %v,
-                        default = WATCHDOG_MULTIPLIER_DEFAULT,
-                        "unparseable f64; falling back to default"
-                    );
-                    WATCHDOG_MULTIPLIER_DEFAULT
-                }
-            },
-        };
-
+        // Clamp violations go through tracing (structured), and
+        // unparseable-value silent fallbacks emit tracing::warn so an
+        // operator typo (e.g. ECAA_WATCHDOG_PERIOD_SECS=thirty) surfaces in
+        // the log instead of being invisibly ignored.
         Self {
-            period_secs,
-            multiplier,
+            period_secs: env_period_secs(),
+            multiplier: env_multiplier(),
         }
     }
+}
+
+/// Resolve `ECAA_WATCHDOG_PERIOD_SECS`: parse a `u64`, clamp to
+/// `[MIN, MAX]` (warning when clamped), or fall back to the default with a
+/// warning on an unparseable value.
+fn env_period_secs() -> u64 {
+    let raw = std::env::var("ECAA_WATCHDOG_PERIOD_SECS").ok();
+    let Some(v) = raw.as_deref() else {
+        return WATCHDOG_PERIOD_SECS_DEFAULT;
+    };
+    let n = match v.trim().parse::<u64>() {
+        Ok(n) => n,
+        Err(_) => {
+            tracing::warn!(
+                target: "watchdog",
+                env = "ECAA_WATCHDOG_PERIOD_SECS",
+                value = %v,
+                default = WATCHDOG_PERIOD_SECS_DEFAULT,
+                "unparseable u64; falling back to default"
+            );
+            return WATCHDOG_PERIOD_SECS_DEFAULT;
+        }
+    };
+    let clamped = n.clamp(WATCHDOG_PERIOD_SECS_MIN, WATCHDOG_PERIOD_SECS_MAX);
+    if clamped != n {
+        tracing::warn!(
+            target: "watchdog",
+            env = "ECAA_WATCHDOG_PERIOD_SECS",
+            value = n,
+            min = WATCHDOG_PERIOD_SECS_MIN,
+            max = WATCHDOG_PERIOD_SECS_MAX,
+            clamped_to = clamped,
+            "value out of range; clamped"
+        );
+    }
+    clamped
+}
+
+/// Resolve `ECAA_WATCHDOG_MULTIPLIER`: parse an `f64`, clamp to `[MIN, MAX]`
+/// (warning when clamped), or fall back to the default with a warning on an
+/// unparseable value.
+fn env_multiplier() -> f64 {
+    let raw = std::env::var("ECAA_WATCHDOG_MULTIPLIER").ok();
+    let Some(v) = raw.as_deref() else {
+        return WATCHDOG_MULTIPLIER_DEFAULT;
+    };
+    let n = match v.trim().parse::<f64>() {
+        Ok(n) => n,
+        Err(_) => {
+            tracing::warn!(
+                target: "watchdog",
+                env = "ECAA_WATCHDOG_MULTIPLIER",
+                value = %v,
+                default = WATCHDOG_MULTIPLIER_DEFAULT,
+                "unparseable f64; falling back to default"
+            );
+            return WATCHDOG_MULTIPLIER_DEFAULT;
+        }
+    };
+    let clamped = n.clamp(WATCHDOG_MULTIPLIER_MIN, WATCHDOG_MULTIPLIER_MAX);
+    if (clamped - n).abs() > 1e-9 {
+        tracing::warn!(
+            target: "watchdog",
+            env = "ECAA_WATCHDOG_MULTIPLIER",
+            value = n,
+            min = WATCHDOG_MULTIPLIER_MIN,
+            max = WATCHDOG_MULTIPLIER_MAX,
+            clamped_to = clamped,
+            "value out of range; clamped"
+        );
+    }
+    clamped
 }
 
 /// Handle returned by [`Watchdog::spawn`]. Dropping without calling

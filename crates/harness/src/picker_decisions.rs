@@ -54,6 +54,22 @@ pub(crate) fn append_picker_decisions(package_root: &Path, records: &[PickerDeci
         return;
     }
     let path = package_root.join("runtime").join("picker-decisions.jsonl");
+    let Some(mut file) = open_decisions_file(&path) else {
+        return;
+    };
+    for rec in records {
+        // A write error aborts the rest of this iteration's records; a
+        // serialization error skips just the offending record.
+        if !write_one_decision(&mut file, rec) {
+            return;
+        }
+    }
+}
+
+/// Open `path` for append, creating `runtime/` if needed. Returns `None`
+/// (after a warn) if the directory or file can't be opened — the caller then
+/// drops this iteration's records rather than propagating.
+fn open_decisions_file(path: &Path) -> Option<std::fs::File> {
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
             tracing::warn!(
@@ -62,15 +78,15 @@ pub(crate) fn append_picker_decisions(package_root: &Path, records: &[PickerDeci
                 error = %e,
                 "could not create runtime/ dir for picker-decisions.jsonl"
             );
-            return;
+            return None;
         }
     }
-    let mut file = match std::fs::OpenOptions::new()
+    match std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(&path)
+        .open(path)
     {
-        Ok(f) => f,
+        Ok(f) => Some(f),
         Err(e) => {
             tracing::warn!(
                 target: "picker-decisions",
@@ -78,41 +94,46 @@ pub(crate) fn append_picker_decisions(package_root: &Path, records: &[PickerDeci
                 error = %e,
                 "could not open picker-decisions.jsonl for append"
             );
-            return;
-        }
-    };
-    for rec in records {
-        match serde_json::to_string(rec) {
-            Ok(line) => {
-                if let Err(e) = file.write_all(line.as_bytes()) {
-                    tracing::warn!(
-                        target: "picker-decisions",
-                        task_id = %rec.task_id,
-                        error = %e,
-                        "write error on picker-decisions.jsonl"
-                    );
-                    return;
-                }
-                if let Err(e) = file.write_all(b"\n") {
-                    tracing::warn!(
-                        target: "picker-decisions",
-                        task_id = %rec.task_id,
-                        error = %e,
-                        "write error (newline) on picker-decisions.jsonl"
-                    );
-                    return;
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    target: "picker-decisions",
-                    task_id = %rec.task_id,
-                    error = %e,
-                    "serde_json serialization error for picker-decisions record"
-                );
-            }
+            None
         }
     }
+}
+
+/// Serialize and append one record as a JSON line + newline. Returns `false`
+/// only on an I/O write error (the caller should stop writing); a
+/// serialization error is logged and skipped, returning `true` to continue.
+fn write_one_decision(file: &mut std::fs::File, rec: &PickerDecisionRecord) -> bool {
+    let line = match serde_json::to_string(rec) {
+        Ok(line) => line,
+        Err(e) => {
+            tracing::warn!(
+                target: "picker-decisions",
+                task_id = %rec.task_id,
+                error = %e,
+                "serde_json serialization error for picker-decisions record"
+            );
+            return true;
+        }
+    };
+    if let Err(e) = file.write_all(line.as_bytes()) {
+        tracing::warn!(
+            target: "picker-decisions",
+            task_id = %rec.task_id,
+            error = %e,
+            "write error on picker-decisions.jsonl"
+        );
+        return false;
+    }
+    if let Err(e) = file.write_all(b"\n") {
+        tracing::warn!(
+            target: "picker-decisions",
+            task_id = %rec.task_id,
+            error = %e,
+            "write error (newline) on picker-decisions.jsonl"
+        );
+        return false;
+    }
+    true
 }
 
 #[cfg(test)]
