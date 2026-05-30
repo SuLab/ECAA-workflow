@@ -31,7 +31,13 @@
       "DOID:\\d+",
       "EFO_\\d+",
       "HP:\\d{7}",
-      "REACTOME:R-[A-Z]{3}-\\d+"
+      "REACTOME:R-[A-Z]{3}-\\d+",
+      "FB(?:gn|tr|pp)\\d{7}",
+      "ENS[A-Z]{0,4}[GTP]\\d{6,}",
+      "WBGene\\d{8}",
+      "ZDB-GENE-\\d+-\\d+",
+      "AT[1-5MC]G\\d{5}",
+      "Y[A-P][LR]\\d{3}[WC]"
     ],
     "entityNameExcludePatterns": [
       "^USA$", "^WHO$", "^CDC$", "^BBC$", "^EU$", "^US$", "^UK$",
@@ -43,7 +49,11 @@
       "^FDR$", "^FC$", "^DE$", "^DEG$", "^DEGS$", "^LFC$",
       "^GSEA$", "^GO$", "^KEGG$", "^MSIGDB$", "^ORA$", "^FGSEA$",
       "^TPM$", "^CPM$", "^RPKM$", "^FPKM$", "^TMM$", "^VST$", "^RLE$",
-      "^UMI$", "^PCA$", "^UMAP$", "^TSNE$", "^QC$"
+      "^UMI$", "^PCA$", "^UMAP$", "^TSNE$", "^QC$",
+      "^SME$", "^FASTQ$", "^BH$", "^SWFC$", "^ECAA$", "^SAP$",
+      "^ITT$", "^MMRM$", "^GEO$", "^SRA$", "^ENA$", "^BAM$", "^SAM$",
+      "^VCF$", "^GFF$", "^GTF$", "^BED$", "^CSV$", "^TSV$", "^JSON$",
+      "^ES$", "^SE$", "^CI$", "^SD$", "^IQR$", "^AUC$", "^ROC$"
     ],
     "directionVocab": {
       "up": [
@@ -72,8 +82,13 @@
       "log2FC",
       "logFC",
       "logFoldChange",
+      "log2FoldChange",
+      "log2fc",
       "effect_size",
-      "estimate"
+      "estimate",
+      "nes",
+      "NES",
+      "es"
     ],
     "entityColumns": [
       "gene",
@@ -81,7 +96,41 @@
       "symbol",
       "feature",
       "entity",
-      "name"
+      "name",
+      "term",
+      "gene_set_id",
+      "pathway",
+      "pathway_id",
+      "id",
+      "cell",
+      "cell_id",
+      "barcode",
+      "sample",
+      "sample_id",
+      "taxon",
+      "taxon_id",
+      "taxon_name",
+      "otu",
+      "otu_id",
+      "asv",
+      "region",
+      "peak",
+      "peak_id",
+      "cpg",
+      "cpg_id",
+      "site",
+      "probe",
+      "probe_id",
+      "variant",
+      "snp",
+      "rsid",
+      "locus",
+      "accession",
+      "protein",
+      "protein_id",
+      "uniprot",
+      "transcript",
+      "transcript_id"
     ],
     "pvalueColumns": [
       "pvalue",
@@ -90,7 +139,13 @@
       "padj",
       "adj.P.Val",
       "FDR",
-      "q_value"
+      "q_value",
+      "adj_p_value",
+      "adj_pvalue",
+      "fdr_q_value",
+      "qvalue",
+      "adjusted_pvalue",
+      "p_adj"
     ],
     "tolerance": {
       "log2FcAbsoluteDelta": 0.05,
