@@ -117,6 +117,10 @@ The right-hand pane has 15 tabs. You don't need to look at most of them most of 
 
 The task graph for your analysis, one node per step. Nodes color-code by state: blue = ready, grey = waiting, green = complete, red = failed, orange = blocked. Click a node to see its upstream and downstream dependencies and the method the agent picked. This is the tab to open when you want to see "what's happening right now" at a glance.
 
+### Composition
+
+The "outcome" view of the same DAG the Plan tab visualizes — the composed analysis laid out by stage, with the atoms (typed operation steps) the composer chose to satisfy your goal. Sits next to Plan because it answers "what did the system decide to build, and why" rather than "what's running now". Most SMEs glance at it once after Accept to sanity-check the shape of the pipeline, then live in Plan / Progress.
+
 ### Status
 
 A raw JSON view of the current session state. Useful for debugging ("why is the session in `PendingConfirmation`?") but not day-to-day reading. Support will ask you to open this if something looks stuck.
@@ -127,7 +131,7 @@ Placeholder today — reserved for document-oriented outputs (e.g. a rendered PD
 
 ### Inputs
 
-Files you've uploaded to the session — phenotype tables, sample sheets, manual count matrices. The tab lets you inspect what the harness will see, delete the wrong file, or upload a missing one before kicking off execution. The harness reads from `runtime/inputs/` inside the emitted package, which is what this tab manages.
+Files you've registered (a server-local path) or uploaded to the session — phenotype tables, sample sheets, manual count matrices. The tab lets you inspect what the harness will see, delete the wrong entry, or add a missing one before kicking off execution. The harness reads the `runtime/inputs.json` manifest inside the emitted package, which is what this tab manages.
 
 ### Progress
 
@@ -156,6 +160,18 @@ Interactive plots from completed tasks (UMAPs, clustering scatter plots, PCA, et
 ### Decisions
 
 Audit trail of every typed decision the system has recorded for this session — Confirm clicks, method amendments, sensitivity-winner picks, dispositions applied, budget changes, and so on. Each row is one entry in `runtime/decisions.jsonl`. Click a row to see the rationale and timestamp. Useful when you need to remember "did I approve that, and when?" or when a collaborator asks how a particular result came to be.
+
+### Repairs
+
+The action queue for repair-strategy proposals the planner's gap-closure pipeline produced when it couldn't fully reach your goal from the available atoms. Each row is a structured DAG mutation you can approve or reject (e.g. "add a missing capability", "insert an adapter step"). Sits next to Decisions because both are SME-action queues — Decisions records completed mutations, Repairs holds proposed ones. Empty for plans the composer satisfied cleanly (the common case).
+
+### Claims
+
+The runtime claim-verification rollup. For every completed task that produced a narrative artifact *and* whose stage policy declares `verifiableEntities`, the system cross-checks each written claim against the cited result table and reports verified / mismatch / unverifiable per claim (the mechanism is detailed in §5.1). This is the SME-facing "did the narrative match the tables?" surface — distinct from the compile-time Composer trace below. A mismatch here also blocks the session, so this tab and the red banner on the result card tell the same story.
+
+### Composer trace
+
+A read-only window into how the planner *compiled* your plan: the typed port-unification decisions the proof-carrying composer made. Successful unifications became the edges of your DAG; failed ones are search branches the planner explored and correctly rejected. You rarely need it during an analysis — it's for understanding or debugging "why did the plan come out this shape?" (distinct from the Claims tab, which checks results at runtime, not the plan at compile time).
 
 ### History
 
@@ -422,7 +438,7 @@ The emitted policies and interpretation rules live under [`config/downstream-pol
 
 ## 9. Decision log variants
 
-`runtime/decisions.jsonl` is an append-only audit trail of every high-leverage checkpoint. Each line is one `DecisionRecord` with a typed `decision` field — closed taxonomy whose authoritative variant count comes from the live enum at [`crates/core/src/decision_log.rs`](crates/core/src/decision_log.rs).
+`runtime/decisions.jsonl` is an append-only audit trail of every high-leverage checkpoint. Each line is one `DecisionRecord` with a typed `decision` field — a closed taxonomy whose authoritative variant set lives in the enum at [`crates/core/src/decision_log.rs`](crates/core/src/decision_log.rs) (45 variants as of 2026-05-30). The table below covers the SME-facing variants you'll actually see referenced in the UI and audit reviews; the enum also carries internal bookkeeping records the planner and rendering pipeline write automatically (composer port-unification, renderer drafting/sandboxing, assumption recording/contradiction, lifecycle transitions, forward-slice invalidation), which never require an SME action. Read the enum for the complete list.
 
 | `kind` | Fired when | Payload |
 |---|---|---|
