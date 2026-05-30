@@ -798,3 +798,104 @@ fn assert_state_trigger_exhaustive(t: StateTrigger) {
         HarnessTaskBlocked { .. } => {}
     }
 }
+
+#[cfg(test)]
+mod recover_stale_emitting_tests {
+    //! Coverage for the `Emitting` crash-recovery path
+    //! (`Session::recover_stale_emitting`). A server crash mid-emit
+    //! leaves the session persisted in `Emitting` with no post-handler
+    //! trigger ever firing — this is the only path that rescues it. It
+    //! is wired into `SessionStore::ensure_loaded` on every cache-miss
+    //! load; here we test the pure transition logic directly across all
+    //! four branches: stale-recover, not-yet-stale, already-recovered
+    //! (idempotent), and wrong-state no-op.
+    use super::*;
+    use chrono::Duration;
+
+    fn emitting_session_idle_for(secs: i64) -> Session {
+        let mut s = Session::new(false);
+        s.state = SessionState::Emitting;
+        s.last_activity = Utc::now() - Duration::seconds(secs);
+        s
+    }
+
+    #[test]
+    fn stale_emitting_recovers_to_host_error_blocked() {
+        let mut s = emitting_session_idle_for(200);
+        let recovered = s.recover_stale_emitting(120);
+        assert!(recovered, "200s-idle Emitting session must recover");
+        match &s.state {
+            SessionState::Blocked {
+                blocker_kind,
+                reason,
+                recovery_hint,
+                ..
+            } => {
+                assert_eq!(
+                    blocker_kind,
+                    &Some(BlockerKind::HostError {
+                        message: "emit_crash_recovery".to_string()
+                    }),
+                    "recovery must synthesize a HostError(emit_crash_recovery) blocker"
+                );
+                assert_eq!(
+                    reason, "emit_crash_recovery",
+                    "blocker reason must be the crash-recovery sentinel"
+                );
+                assert!(
+                    !recovery_hint.is_empty(),
+                    "recovered Blocked must carry an SME-facing recovery hint"
+                );
+            }
+            other => panic!("expected Blocked after recovery, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fresh_emitting_is_not_recovered() {
+        // Idle for less than the 120s threshold: a legitimately slow
+        // emit must NOT be misclassified as a crash.
+        let mut s = emitting_session_idle_for(119);
+        let recovered = s.recover_stale_emitting(120);
+        assert!(!recovered, "119s-idle Emitting session must not recover");
+        assert!(
+            matches!(s.state, SessionState::Emitting),
+            "non-stale session must stay in Emitting, got {:?}",
+            s.state
+        );
+    }
+
+    #[test]
+    fn recovery_is_idempotent() {
+        // After recovery the session is Blocked, not Emitting; a second
+        // load-time call must be a no-op rather than re-recovering.
+        let mut s = emitting_session_idle_for(200);
+        assert!(
+            s.recover_stale_emitting(120),
+            "first call on a stale Emitting session must recover"
+        );
+        let second = s.recover_stale_emitting(120);
+        assert!(
+            !second,
+            "already-recovered (Blocked) session must be a no-op"
+        );
+        assert!(
+            matches!(s.state, SessionState::Blocked { .. }),
+            "second recovery call must leave the session Blocked"
+        );
+    }
+
+    #[test]
+    fn non_emitting_state_is_a_noop() {
+        // A fresh Greeting session, however stale, is never touched —
+        // recovery only fires on Emitting.
+        let mut s = Session::new(false);
+        s.last_activity = Utc::now() - Duration::seconds(10_000);
+        let recovered = s.recover_stale_emitting(120);
+        assert!(!recovered, "Greeting session must never recover-to-Blocked");
+        assert!(
+            matches!(s.state, SessionState::Greeting),
+            "Greeting session must remain Greeting"
+        );
+    }
+}
