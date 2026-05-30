@@ -1,0 +1,3817 @@
+schema_version: '0.1'
+generated_at: '2026-05-17'
+description: 'Blinded DAG-correctness corpus for the ecaa-workflow composer.
+
+  Each entry pairs a well-known publication with a blinded SME-style
+
+  prompt and a machine-checkable expected-DAG specification. Used by
+
+  the evaluation harness to verify the compiler emits the right atoms
+
+  + the right shape for the right biological question, without the
+
+  LLM being able to identify the source publication.
+
+
+  Blinding contract: every `blinded_prompt` is scrubbed of author names,
+
+  paper titles, journal names, PMIDs / DOIs, repository accession IDs
+
+  (GEO, SRA, ENA, PRIDE, dbGaP), uniquely-identifying sample counts,
+
+  cohort fingerprints (TCGA, GTEx, CPTAC, ENCODE, etc.), institute
+
+  names, publication years, and paper-specific tool-version pins. The
+
+  prompt MAY name the modality, platform, organism, reference genome,
+
+  approximate sample size (rounded), and the standard deliverable
+
+  vocabulary an SME would use in chat.
+
+
+  Ground-truth `expected_dag` blocks are written against the live atom
+
+  catalog (config/stage-atoms/) and archetype shapes
+
+  (config/archetypes/) so the evaluation harness can diff the emitted
+
+  WORKFLOW.json against the required / optional / forbidden atom set.
+
+  '
+tier_a_per_archetype_min: 2
+tier_b_flexibility_target: 8
+scenarios:
+- id: atac-buenrostro-immune-lineage
+  tier: A
+  archetype: atac_seq_peaks
+  modality: atac_seq
+  blinded_prompt: 'We have bulk ATAC-seq FASTQs from sorted human hematopoietic
+
+    progenitor populations — roughly a dozen cell-type populations
+
+    with two to three replicates each, all from healthy donor bone
+
+    marrow. Reads are 50 bp paired-end. We want to map them against
+
+    GRCh38, call open-chromatin peaks per population, build a union
+
+    peak set, and then ask which peaks differ in accessibility
+
+    between the early progenitor pool and the lineage-committed
+
+    pools. Standard outputs would help — per-sample QC, the BED
+
+    files of called peaks, a master peak-by-sample matrix, a
+
+    differential-accessibility table with log2 fold change and
+
+    adjusted p-value, motif enrichment under the differential peaks,
+
+    and a peak-to-gene annotation against the nearest TSS. We do
+
+    not have matched RNA-seq for this cohort.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - peak_calling
+    - peak_annotation
+    - differential_accessibility
+    - motif_enrichment
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - review_prior_work
+    - contextualize_findings_with_literature
+    forbidden_atoms:
+    - quantification
+    - differential_expression
+    - cell_type_annotation
+    - clustering
+    - dimensionality_reduction
+    expected_modality: atac_seq
+    min_task_count: 15
+    max_task_count: 40
+    structural_constraints:
+    - peak_calling depends transitively on alignment
+    - differential_accessibility depends transitively on peak_calling
+    - motif_enrichment depends on differential_accessibility OR peak_calling
+    - reporting consumes differential_accessibility + motif_enrichment + peak_annotation
+    - no clustering or dimensionality_reduction tasks emitted
+- id: atac-corces-pancancer
+  tier: A
+  archetype: atac_seq_peaks
+  modality: atac_seq
+  blinded_prompt: 'I have ATAC-seq libraries from a few hundred primary solid-tumor
+
+    samples spanning around twenty tumor types — fresh-frozen tissue,
+
+    Omni-ATAC protocol, paired-end. The goal is a pan-cancer
+
+    accessibility atlas. Concretely: per-sample QC and fragment-size
+
+    QC, alignment against GRCh38, peak calling per sample, a union
+
+    peak set across the cohort, a peak-by-sample accessibility
+
+    matrix, and per-tumor-type differential accessibility against
+
+    the rest of the cohort. We also want motif enrichment under the
+
+    tumor-type-defining peaks and annotation of peaks against the
+
+    nearest gene. No paired RNA-seq is required as input; this is
+
+    pure chromatin-side analysis.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - peak_calling
+    - peak_annotation
+    - differential_accessibility
+    - motif_enrichment
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - review_prior_work
+    - contextualize_findings_with_literature
+    forbidden_atoms:
+    - quantification
+    - differential_expression
+    - cell_type_annotation
+    - clustering
+    - taxonomic_classification
+    expected_modality: atac_seq
+    min_task_count: 15
+    max_task_count: 40
+    structural_constraints:
+    - alignment precedes peak_calling
+    - differential_accessibility and motif_enrichment both feed reporting
+    - no RNA quantification atom emitted
+- id: bulk-rnaseq-recount3-airway
+  tier: A
+  archetype: bulk_rnaseq_de
+  modality: bulk_rnaseq
+  blinded_prompt: 'We''ve got bulk RNA-seq FASTQs from primary human airway smooth-
+
+    muscle cells, four donors, each treated with a glucocorticoid
+
+    agonist and an untreated vehicle control. So roughly eight to
+
+    sixteen libraries total, paired-end, polyA-selected. Reference
+
+    should be GRCh38 with GENCODE annotation. We want the standard
+
+    RNA-seq DE pipeline — FastQC and adapter trimming, splice-aware
+
+    alignment, gene-level counts, DESeq2-style normalization, and
+
+    then a differential expression test of treated versus vehicle.
+
+    Please give me the volcano plot, top up-/down-regulated genes,
+
+    a PCA of samples, and pathway / GO enrichment on the ranked
+
+    gene list. Standard adjusted-p-value cutoff is fine.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - quantification
+    - qc_preprocessing
+    - normalisation
+    - differential_expression
+    - pathway_enrichment
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - review_prior_work
+    - contextualize_findings_with_literature
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    - clustering
+    - cell_type_annotation
+    expected_modality: bulk_rnaseq
+    min_task_count: 20
+    max_task_count: 50
+    structural_constraints:
+    - differential_expression depends transitively on normalisation
+    - pathway_enrichment depends on differential_expression
+    - no peak-calling or variant-calling tasks emitted
+- id: bulk-rnaseq-recount3-parathyroid
+  tier: A
+  archetype: bulk_rnaseq_de
+  modality: bulk_rnaseq
+  blinded_prompt: 'We have paired-end bulk RNA-seq libraries from primary
+
+    parathyroid adenoma cell cultures, four donors. Each donor''s
+
+    cells were exposed to estradiol, an estrogen-receptor agonist,
+
+    and a vehicle control, with measurements at two time points
+
+    after exposure. So a small sample size — under twenty libraries
+
+    total — but a 2 by 2 factorial design. Align to GRCh38, get
+
+    gene-level counts, normalize, and test for differential
+
+    expression for the treatment effect with time as a covariate.
+
+    A PCA, a volcano plot, the top DE-gene table, and pathway
+
+    enrichment on the ranked list are the deliverables we need.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - quantification
+    - qc_preprocessing
+    - normalisation
+    - differential_expression
+    - pathway_enrichment
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - review_prior_work
+    - contextualize_findings_with_literature
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: bulk_rnaseq
+    min_task_count: 20
+    max_task_count: 50
+    structural_constraints:
+    - differential_expression models 2x2 factorial design (treatment x time) with time as covariate
+    - pathway_enrichment depends on differential_expression
+    - reporting consumes differential_expression
+- id: chip-exo-rhee-pugh-yeast
+  tier: A
+  archetype: chip_exo_peaks
+  modality: chip_exo
+  blinded_prompt: 'We did ChIP-exo on a handful of sequence-specific transcription
+
+    factors in S. cerevisiae — single-end short reads, lambda
+
+    exonuclease digestion to trim the immunoprecipitated DNA back to
+
+    the protein-DNA crosslink. Each TF has two biological
+
+    replicates plus matched input controls. Need to align against
+
+    sacCer3, call peaks accounting for the near-nucleotide-resolution
+
+    footprint (the standard MACS2 settings will be too permissive on
+
+    the boundary — please use a ChIP-exo-aware caller or
+
+    ChIP-exo-tuned settings), and report binding-site coordinates
+
+    with high precision. Compare per-TF binding profiles against the
+
+    input control and across TFs, then surface enriched promoter
+
+    contexts.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - peak_calling
+    - motif_enrichment
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    - peak_annotation
+    forbidden_atoms:
+    - quantification
+    - differential_expression
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: chip_exo
+    min_task_count: 14
+    max_task_count: 36
+    structural_constraints:
+    - peak_calling depends transitively on alignment
+    - motif_enrichment depends on peak_calling
+    - reporting consumes peak_calling + motif_enrichment
+- id: chip-exo-yen-coactivator
+  tier: A
+  archetype: chip_exo_peaks
+  modality: chip_exo
+  blinded_prompt: 'ChIP-exo on yeast chromatin remodelers and core histone variants
+
+    — single-end Illumina reads, lambda-exonuclease trimming. About
+
+    a dozen libraries across three remodeler subunits plus inputs.
+
+    Align to sacCer3, call peaks at near-nucleotide resolution, and
+
+    report per-subunit binding coordinates with the boundary
+
+    precision the exo protocol gives. We want the standard ChIP-exo
+
+    outputs — strand-aware footprint summary near each peak summit
+
+    and overlap against annotated TSS regions. No bulk DE
+
+    comparison needed.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - peak_calling
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - peak_annotation
+    - pathway_enrichment
+    forbidden_atoms:
+    - quantification
+    - differential_expression
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: chip_exo
+    min_task_count: 13
+    max_task_count: 36
+    structural_constraints:
+    - peak_calling present and depends transitively on alignment
+    - reporting consumes peak_calling
+- id: chip-seq-encode-ctcf-k562
+  tier: A
+  archetype: chip_seq_peaks
+  modality: chip_seq
+  blinded_prompt: 'Bulk ChIP-seq for CTCF in a panel of human cell lines, paired
+
+    with matched input controls. Single-end short reads (50 bp).
+
+    Around twenty libraries total, no replicates per line. We want
+
+    the standard ChIP-seq peak-calling pipeline against GRCh38 —
+
+    raw QC, adapter trimming, alignment, narrow-peak calling with
+
+    input as control, per-sample peak BEDs, a union peak set across
+
+    cell lines, motif enrichment under the called peaks to confirm
+
+    the CTCF motif, and annotation of peaks against the nearest
+
+    gene. We do NOT need a quantitative comparison between cell
+
+    lines — this is a binding-site discovery exercise.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - peak_calling
+    - peak_annotation
+    - motif_enrichment
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - review_prior_work
+    - contextualize_findings_with_literature
+    forbidden_atoms:
+    - quantification
+    - differential_expression
+    - cell_type_annotation
+    - clustering
+    - taxonomic_classification
+    expected_modality: chip_seq
+    min_task_count: 16
+    max_task_count: 43
+    structural_constraints:
+    - peak_calling depends transitively on alignment
+    - motif_enrichment depends on peak_calling
+    - reporting consumes peak_calling + motif_enrichment
+- id: chip-seq-mikkelsen-mouse-es
+  tier: A
+  archetype: chip_seq_peaks
+  modality: chip_seq
+  blinded_prompt: 'Mouse ChIP-seq for histone modifications — H3K4me3, H3K27me3,
+
+    H3K36me3 — across embryonic stem cells and two lineage-committed
+
+    derivative populations. Single-end short reads, matched input
+
+    controls per cell type. Around fifteen libraries. Reference is
+
+    mm9 or mm10, your call. Standard pipeline: align, call broad
+
+    peaks for the repressive mark and narrow peaks for the active
+
+    marks, annotate peaks against the nearest TSS, and look for
+
+    enriched motifs under the active-promoter peaks. No quantitative
+
+    between-condition comparison required, but we''d like the per-
+
+    mark peak BEDs and a peak-to-gene annotation table per cell
+
+    population.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - peak_calling
+    - peak_annotation
+    - motif_enrichment
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - review_prior_work
+    - contextualize_findings_with_literature
+    forbidden_atoms:
+    - quantification
+    - differential_expression
+    - differential_accessibility
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: chip_seq
+    min_task_count: 16
+    max_task_count: 43
+    structural_constraints:
+    - broad and narrow peak calling both feed peak_annotation
+    - motif_enrichment present and reads from peak_calling
+- id: clinical-trial-recovery-dexamethasone
+  tier: A
+  archetype: clinical_trial_analysis
+  modality: null
+  blinded_prompt: 'We have CDISC ADaM-format trial data from a large open-label
+
+    randomized trial of a corticosteroid versus standard of care in
+
+    hospitalized adults with a viral respiratory infection. Several
+
+    thousand participants per arm. Primary endpoint is 28-day
+
+    all-cause mortality; key secondary endpoints are time to hospital
+
+    discharge and progression to invasive mechanical ventilation
+
+    among those not on it at randomization. Pre-specified subgroups
+
+    are by respiratory-support level at baseline. Need the standard
+
+    SAP-driven analysis: primary endpoint estimate with confidence
+
+    interval, the secondary-endpoint readouts with multiplicity
+
+    adjustment, the safety summary table, the subgroup forest plot,
+
+    and the sensitivity analysis under the per-protocol population.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_import
+    - clinical_endpoint_analysis
+    - clinical_safety_summary
+    - clinical_subgroup_analysis
+    - clinical_sensitivity_analysis
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - cdisc_mapping
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - data_acquisition
+    expected_modality: null
+    min_task_count: 10
+    max_task_count: 29
+    structural_constraints:
+    - expected project_class is clinical_trial
+    - subgroup and sensitivity analyses both depend on endpoint_analysis
+    - no sequencing-domain atoms (alignment, quantification, peak_calling) emitted
+- id: clinical-trial-paradigm-hf-arni
+  tier: A
+  archetype: clinical_trial_analysis
+  modality: null
+  blinded_prompt: 'We have CDISC SDTM and ADaM tables from a double-blind active-
+
+    comparator phase-3 trial of a combination renin-angiotensin /
+
+    neprilysin inhibitor versus an ACE-inhibitor comparator in adults
+
+    with chronic heart failure with reduced ejection fraction.
+
+    Several thousand patients per arm, event-driven study, median
+
+    follow-up under three years. Primary endpoint is the composite
+
+    of cardiovascular death or hospitalization for heart failure
+
+    (time-to-event). Secondary endpoints include all-cause mortality
+
+    and a quality-of-life score. We need the prespecified SAP
+
+    analysis: hazard ratio with confidence interval for the primary
+
+    endpoint, secondary-endpoint analyses with hierarchical
+
+    multiplicity control, the safety/adverse-event tables, subgroup
+
+    forest plots, and per-protocol sensitivity analyses.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_import
+    - clinical_endpoint_analysis
+    - clinical_safety_summary
+    - clinical_subgroup_analysis
+    - clinical_sensitivity_analysis
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - cdisc_mapping
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - data_acquisition
+    expected_modality: null
+    min_task_count: 10
+    max_task_count: 29
+    structural_constraints:
+    - expected project_class is clinical_trial
+    - endpoint_analysis precedes subgroup and sensitivity analyses
+    - time-to-event analysis surfaced in clinical_endpoint_analysis slot
+- id: perturb-seq-dixit-2016
+  tier: A
+  archetype: crispr_screen_scrnaseq
+  modality: crispr_screen_scrnaseq
+  blinded_prompt: 'We''ve run a pooled CRISPR-cas9 knockout screen in mouse bone-
+
+    marrow derived dendritic cells with a 10x Chromium scRNA-seq
+
+    readout and a parallel feature-barcode library encoding the
+
+    sgRNA in each cell. About two dozen targeted transcription
+
+    factors plus non-targeting control sgRNAs. Need the standard
+
+    Perturb-seq pipeline: per-cell gene quantification AND per-cell
+
+    sgRNA assignment from the feature-barcode reads, standard
+
+    scRNA-seq QC and normalization, clustering and a UMAP, then
+
+    per-perturbation pseudobulk differential expression versus the
+
+    non-targeting control cells. The deliverable we care about is a
+
+    per-perturbation effect score on the transcriptome plus the
+
+    gene-level DE tables. Reference is mm10.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - alignment
+    - quantification
+    - sgrna_assignment
+    - qc_preprocessing
+    - normalisation
+    - dimensionality_reduction
+    - clustering
+    - differential_expression
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - sequence_trimming
+    - pathway_enrichment
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    - vdj_reconstruction
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: crispr_screen_scrnaseq
+    min_task_count: 21
+    max_task_count: 54
+    structural_constraints:
+    - sgrna_assignment present and feeds differential_expression
+    - clustering and dimensionality_reduction both present
+    - differential_expression depends on sgrna_assignment AND normalisation
+- id: perturb-seq-replogle-genomewide
+  tier: A
+  archetype: crispr_screen_scrnaseq
+  modality: crispr_screen_scrnaseq
+  blinded_prompt: 'We''ve run a genome-scale CRISPRi pooled screen in a human cell
+
+    line with a single-cell RNA-seq readout and a feature-barcode
+
+    library encoding the dCas9-targeting sgRNA per cell. Around two
+
+    million cells captured across replicates, with thousands of
+
+    gene-level perturbations plus non-targeting controls. We need
+
+    to quantify both gene expression and the feature-barcode
+
+    library, assign one sgRNA per cell, run scRNA-seq QC, normalize,
+
+    cluster, and then compute per-perturbation pseudobulk
+
+    differential expression against non-targeting cells. We want a
+
+    transcriptional-effect score per perturbation we can rank, and
+
+    the per-perturbation DE tables. Reference GRCh38.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - alignment
+    - quantification
+    - sgrna_assignment
+    - qc_preprocessing
+    - normalisation
+    - dimensionality_reduction
+    - clustering
+    - differential_expression
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - sequence_trimming
+    - pathway_enrichment
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    - vdj_reconstruction
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: crispr_screen_scrnaseq
+    min_task_count: 21
+    max_task_count: 54
+    structural_constraints:
+    - sgrna_assignment present and feeds differential_expression
+    - differential_expression aggregates per-perturbation effects
+    - non-targeting controls named as reference_level
+- id: multiome-arc-developing-cortex
+  tier: A
+  archetype: cross_omics_multiome_arc
+  modality: null
+  blinded_prompt: 'We have 10x Genomics Multiome ARC data — paired single-nucleus
+
+    RNA and single-nucleus ATAC from the same nuclei — on developing
+
+    human cerebral cortex tissue, a small number of donors spanning
+
+    several mid-gestational time points. Standard 10x ARC output:
+
+    FASTQs plus the Cell Ranger ARC output bundle if we have to. We
+
+    want a single joint embedding across the two modalities (WNN-style),
+
+    cluster annotation of cell types against a developing-brain
+
+    reference atlas, per-cluster differential expression and
+
+    differential accessibility between two named developmental stages,
+
+    and the peak-to-gene links so we can see candidate regulatory
+
+    connections per cluster. Reference is GRCh38.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - multiome_arc_demultiplex
+    - qc_preprocessing
+    - normalisation
+    - joint_wnn_integration
+    - clustering
+    - cell_type_annotation
+    - differential_expression
+    - differential_accessibility
+    - peak_to_gene_linking
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - share_seq_barcode_match
+    - vdj_reconstruction
+    - taxonomic_classification
+    - variant_calling
+    expected_modality: cross_omics_multiome_arc
+    min_task_count: 18
+    max_task_count: 47
+    structural_constraints:
+    - joint_wnn_integration present and depends on multiome_arc_demultiplex
+    - peak_to_gene_linking depends on joint_wnn_integration
+    - share_seq_barcode_match NOT present
+    - differential_expression depends on cell_type_annotation
+- id: multiome-arc-mouse-brain-atlas
+  tier: A
+  archetype: cross_omics_multiome_arc
+  modality: null
+  blinded_prompt: 'We have a 10x Multiome ARC dataset on adult mouse brain tissue
+
+    micro-dissections, six animals, three brain regions, paired
+
+    single-nucleus RNA and ATAC. About a hundred thousand nuclei
+
+    total. Standard 10x ARC FASTQs in. Reference mm10. We want
+
+    joint WNN clustering, cell-type annotation against a brain
+
+    reference atlas, peak-to-gene linking per cluster, and per-cell-
+
+    type contrasts of expression and accessibility comparing two
+
+    named regions. Need per-cluster cell counts and the WNN weight
+
+    QC report alongside the cluster output.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - multiome_arc_demultiplex
+    - qc_preprocessing
+    - normalisation
+    - joint_wnn_integration
+    - clustering
+    - cell_type_annotation
+    - differential_expression
+    - differential_accessibility
+    - peak_to_gene_linking
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - share_seq_barcode_match
+    - vdj_reconstruction
+    - taxonomic_classification
+    - variant_calling
+    expected_modality: cross_omics_multiome_arc
+    min_task_count: 18
+    max_task_count: 47
+    structural_constraints:
+    - multiome_arc_demultiplex precedes joint_wnn_integration
+    - peak_to_gene_linking depends on joint_wnn_integration
+    - differential_expression depends on cell_type_annotation
+- id: tri-omics-encode-leukemia
+  tier: A
+  archetype: cross_omics_rnaseq_atac_chip
+  modality: null
+  blinded_prompt: 'We''re doing a three-way analysis on a cohort of around twenty
+
+    patient-matched samples: bulk RNA-seq, bulk ATAC-seq, and
+
+    ChIP-seq for an activating histone mark, all from the same
+
+    donors split between a malignant population and a matched
+
+    healthy hematopoietic population. Each modality''s raw FASTQs
+
+    are available. Reference GRCh38. We want each branch run
+
+    separately first — RNA-seq DE between malignant and normal,
+
+    ATAC peak calling and a master peak set per condition, ChIP
+
+    peak calling — and then a cross-modality concordance report
+
+    that surfaces genes whose expression changes are matched by an
+
+    accessibility and binding change near the TSS. Verify the same
+
+    donor IDs appear across all three modalities.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - rnaseq_differential_expression
+    - atac_data_acquisition
+    - atac_alignment
+    - atac_peak_calling
+    - chip_data_acquisition
+    - chip_alignment
+    - chip_peak_calling
+    - cross_omics_alignment_check
+    - cross_omics_thematic_comparison
+    - cross_omics_final_reporting
+    optional_atoms:
+    - rnaseq_pathway_enrichment
+    - atac_motif_enrichment
+    - atac_differential_accessibility
+    forbidden_atoms:
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_mofa
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_atac_chip
+    min_task_count: 14
+    max_task_count: 28
+    structural_constraints:
+    - three parallel branches with distinct id prefixes (rnaseq_, atac_, chip_)
+    - cross_omics_alignment_check joins all three branches
+    - cross_omics_thematic_comparison depends on the alignment check
+- id: tri-omics-roadmap-epigenome
+  tier: A
+  archetype: cross_omics_rnaseq_atac_chip
+  modality: null
+  blinded_prompt: 'I have matched bulk RNA-seq, ATAC-seq (or DNase-seq — they''re
+
+    equivalent for this analysis), and ChIP-seq for an active
+
+    histone mark across roughly thirty primary human tissues / cell
+
+    populations. Per-sample FASTQs and per-modality processing. We
+
+    want each modality run independently first — expression
+
+    quantification with a DE contrast between two named tissue
+
+    groups, ATAC peak calling and a union peak set, ChIP peak
+
+    calling on the active mark — and then a cross-modality
+
+    concordance report that highlights regions where the three
+
+    modalities agree on a tissue-specific signal. Sanity-check that
+
+    the sample IDs intersect across the three input tables.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - rnaseq_differential_expression
+    - atac_data_acquisition
+    - atac_alignment
+    - atac_peak_calling
+    - chip_data_acquisition
+    - chip_alignment
+    - chip_peak_calling
+    - cross_omics_alignment_check
+    - cross_omics_thematic_comparison
+    - cross_omics_final_reporting
+    optional_atoms:
+    - rnaseq_pathway_enrichment
+    - atac_motif_enrichment
+    forbidden_atoms:
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_mofa
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_atac_chip
+    min_task_count: 14
+    max_task_count: 28
+    structural_constraints:
+    - three parallel branches present with rnaseq_, atac_, chip_ prefixes
+    - cross_omics_alignment_check depends on at least one task in each branch
+    - cross_omics_thematic_comparison depends transitively on chip_peak_calling
+- id: rnaseq-methyl-tcga-coad-style
+  tier: A
+  archetype: cross_omics_rnaseq_methylation
+  modality: null
+  blinded_prompt: 'Matched bulk RNA-seq and whole-genome bisulfite sequencing for
+
+    the same cohort — around twenty patient samples split into a
+
+    malignant blood group and a healthy reference group. Per-donor
+
+    pairing. Reference GRCh38. We want the RNA-seq branch to give
+
+    us per-condition gene-level DE between the malignant and
+
+    healthy samples, the WGBS branch to give us per-CpG methylation
+
+    and per-region differentially methylated regions, then a
+
+    cross-modality step that correlates expression change with
+
+    promoter methylation change per gene. Final figure is the
+
+    scatter of expression-log2FC vs methylation-delta colored by
+
+    significance in both modalities.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - rnaseq_differential_expression
+    - methylation_data_acquisition
+    - methylation_alignment
+    - methylation_extraction
+    - methylation_normalisation
+    - methylation_dmr_calling
+    - expression_methylation_correlation
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_mofa
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_methylation
+    min_task_count: 30
+    max_task_count: 76
+    structural_constraints:
+    - rnaseq_ and methylation_ branches both reach normalisation
+    - expression_methylation_correlation depends on both DE and DMR atoms
+    - no DIABLO/MOFA/SNF integrator emitted
+- id: rnaseq-methyl-mouse-aging
+  tier: A
+  archetype: cross_omics_rnaseq_methylation
+  modality: null
+  blinded_prompt: 'Mouse liver — paired bulk RNA-seq and reduced-representation
+
+    bisulfite sequencing on the same animals, with a 2x2 design
+
+    (young vs. aged x ad-libitum vs. dietary-restricted). Around
+
+    sixteen animals total. We need RNA-seq DE for the diet
+
+    interaction, RRBS extraction and DMR calling for the same
+
+    contrast, then a per-gene correlation between log2FC in
+
+    expression and promoter methylation delta. Reference mm10.
+
+    Standard adjusted p-value cutoffs.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - rnaseq_differential_expression
+    - methylation_data_acquisition
+    - methylation_alignment
+    - methylation_extraction
+    - methylation_normalisation
+    - methylation_dmr_calling
+    - expression_methylation_correlation
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_mofa
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_methylation
+    min_task_count: 30
+    max_task_count: 76
+    structural_constraints:
+    - rnaseq and methylation branches both reach normalisation before joining
+    - expression_methylation_correlation joins the two branches
+- id: diablo-breast-cancer-biomarker
+  tier: A
+  archetype: cross_omics_rnaseq_proteomics_diablo
+  modality: null
+  blinded_prompt: 'Paired bulk RNA-seq and mass-spec proteomics on a breast-cancer
+
+    tumor cohort of around 150 patients, each labeled by one of
+
+    four intrinsic molecular subtype labels. The biological
+
+    question is biomarker-driven — surface a sparse set of mRNA and
+
+    protein features that jointly discriminate the subtypes. We
+
+    already know we want a supervised cross-omics integrator (sparse
+
+    PLS-DA / DIABLO is the named method) using the subtype labels.
+
+    Per-modality DE first against the largest subtype as reference,
+
+    then the joint DIABLO integration with cross-validated
+
+    classifier accuracy and the loading plots per component.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - rnaseq_differential_expression
+    - proteomics_data_acquisition
+    - proteomics_peptide_search
+    - proteomics_protein_quantification
+    - cross_omics_alignment_check
+    - proteomics_differential_abundance
+    - cross_omics_diablo_integration
+    - cross_omics_diablo_final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - integrate_multi_omics_mofa
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_proteomics_diablo
+    min_task_count: 12
+    max_task_count: 22
+    structural_constraints:
+    - DIABLO integrator present; MOFA and SNF integrators absent
+    - validate_sample_alignment_n_way (cross_omics_alignment_check) precedes the DIABLO integrator
+    - class labels (subtype) surface in slot_mappings
+- id: diablo-asthma-multiomics
+  tier: A
+  archetype: cross_omics_rnaseq_proteomics_diablo
+  modality: null
+  blinded_prompt: 'We have paired peripheral-blood bulk RNA-seq and plasma mass-
+
+    spec proteomics on a cohort of around forty asthma patients,
+
+    each labeled responder vs. non-responder to allergen challenge.
+
+    Goal is a candidate biomarker panel that discriminates the two
+
+    groups jointly across the two modalities. Run RNA-seq DE and
+
+    proteomics quant in parallel, then a sparse-PLS-DA (DIABLO)
+
+    integrator using the response labels as the supervised target.
+
+    Report classifier accuracy and the cross-modality loadings.
+
+    Reference GRCh38.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - rnaseq_differential_expression
+    - proteomics_data_acquisition
+    - proteomics_peptide_search
+    - proteomics_protein_quantification
+    - cross_omics_alignment_check
+    - cross_omics_diablo_integration
+    - cross_omics_diablo_final_reporting
+    optional_atoms:
+    - proteomics_differential_abundance
+    - pathway_enrichment
+    forbidden_atoms:
+    - integrate_multi_omics_mofa
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_proteomics_diablo
+    min_task_count: 11
+    max_task_count: 22
+    structural_constraints:
+    - DIABLO integrator selected (responder/non-responder labels)
+    - alignment-check fans into the integrator
+- id: mofa-cll-multiomics
+  tier: A
+  archetype: cross_omics_rnaseq_proteomics_mofa
+  modality: null
+  blinded_prompt: 'We have paired bulk RNA-seq and plasma proteomics on a cohort
+
+    of around 200 chronic lymphocytic leukemia patients. There are
+
+    NO clean class labels we want to supervise on — instead we want
+
+    unsupervised factor decomposition that surfaces latent axes of
+
+    variation explaining covariance across both modalities. The
+
+    latent factors will then be associated post-hoc with clinical
+
+    annotations. So: RNA-seq alignment, quantification, and
+
+    normalization plus proteomics peptide search and quantification;
+
+    then an unsupervised multi-omics factor analysis (MOFA-style)
+
+    across the two matrices. Need the factor-by-sample weight
+
+    matrix, the feature loadings per factor, and the variance
+
+    explained per modality per factor.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - proteomics_data_acquisition
+    - proteomics_peptide_search
+    - proteomics_protein_quantification
+    - validate_sample_alignment_n_way
+    - integrate_multi_omics_mofa
+    - final_reporting
+    optional_atoms:
+    - rnaseq_differential_expression
+    - pathway_enrichment
+    forbidden_atoms:
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_proteomics_mofa
+    min_task_count: 10
+    max_task_count: 20
+    structural_constraints:
+    - MOFA integrator present; DIABLO and SNF integrators absent
+    - alignment_check precedes integrator
+    - no supervised class labels passed to integrator
+- id: mofa-pdac-multiomics
+  tier: A
+  archetype: cross_omics_rnaseq_proteomics_mofa
+  modality: null
+  blinded_prompt: 'Paired bulk RNA-seq and mass-spec proteomics on around 80
+
+    pancreatic-ductal adenocarcinoma tumor samples, no a-priori
+
+    subtype labels we want to supervise on. We want unsupervised
+
+    latent-factor decomposition across the two omics layers to
+
+    discover the dominant axes of cross-modality variation, then
+
+    post-hoc associate the factors with available clinical
+
+    covariates. Standard per-modality preprocessing first, then a
+
+    MOFA-style integrator. Outputs: factor-by-sample matrix,
+
+    feature loadings per factor, variance-explained breakdown per
+
+    modality.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - proteomics_data_acquisition
+    - proteomics_peptide_search
+    - proteomics_protein_quantification
+    - validate_sample_alignment_n_way
+    - integrate_multi_omics_mofa
+    - final_reporting
+    optional_atoms:
+    - rnaseq_differential_expression
+    - pathway_enrichment
+    forbidden_atoms:
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_proteomics_mofa
+    min_task_count: 10
+    max_task_count: 20
+    structural_constraints:
+    - MOFA integrator selected (unsupervised)
+    - validate_sample_alignment_n_way precedes integration
+    - no supervised class labels passed to integrator
+- id: snf-cancer-subtype-discovery
+  tier: A
+  archetype: cross_omics_rnaseq_proteomics_snf
+  modality: null
+  blinded_prompt: 'We have paired bulk RNA-seq and mass-spec proteomics on around
+
+    a hundred glioblastoma tumor samples, no class labels to
+
+    supervise on. We want to cluster the patients into subtype-like
+
+    groups using BOTH modalities jointly — specifically by fusing
+
+    per-modality patient-patient similarity networks and clustering
+
+    the fused network. Per-modality preprocessing first (RNA-seq
+
+    alignment + quantification + normalization, proteomics peptide
+
+    search + quantification), then a similarity-network-fusion
+
+    integrator producing a fused patient-patient affinity matrix
+
+    and a clustering of patients on the fused graph.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - proteomics_data_acquisition
+    - proteomics_peptide_search
+    - proteomics_protein_quantification
+    - validate_sample_alignment_n_way
+    - integrate_multi_omics_snf
+    - final_reporting
+    optional_atoms:
+    - rnaseq_differential_expression
+    - pathway_enrichment
+    forbidden_atoms:
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_mofa
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_proteomics_snf
+    min_task_count: 10
+    max_task_count: 20
+    structural_constraints:
+    - SNF integrator selected (network fusion); MOFA and DIABLO absent
+    - validate_sample_alignment_n_way precedes integration
+    - no supervised class label fed to the integrator
+- id: snf-kidney-cancer-subtype
+  tier: A
+  archetype: cross_omics_rnaseq_proteomics_snf
+  modality: null
+  blinded_prompt: 'Paired bulk RNA-seq and proteomics quantification across around
+
+    300 clear-cell renal carcinoma tumor samples. We want
+
+    unsupervised patient stratification using BOTH modalities, via
+
+    similarity-network fusion: build per-modality patient-patient
+
+    affinity matrices, fuse them into a single network, and cluster
+
+    the patients on the fused network. Per-modality preprocessing
+
+    first; then the SNF integrator + clustering on the fused graph;
+
+    then a final report with the cluster assignments and the
+
+    per-modality feature contributions.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - proteomics_data_acquisition
+    - proteomics_peptide_search
+    - proteomics_protein_quantification
+    - validate_sample_alignment_n_way
+    - integrate_multi_omics_snf
+    - final_reporting
+    optional_atoms:
+    - rnaseq_differential_expression
+    - pathway_enrichment
+    forbidden_atoms:
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_mofa
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_proteomics_snf
+    min_task_count: 10
+    max_task_count: 20
+    structural_constraints:
+    - SNF integrator present
+    - MOFA / DIABLO not emitted
+    - validate_sample_alignment_n_way precedes integration
+    - no supervised class label fed to the integrator
+- id: rnaseq-proteomics-generic-cptac-style
+  tier: A
+  archetype: cross_omics_rnaseq_proteomics
+  modality: null
+  blinded_prompt: 'Paired bulk RNA-seq and mass-spec proteomics on around 90
+
+    colorectal tumor samples. We don''t have a specific integration
+
+    method named — we want each modality run independently with
+
+    its own DE contrast (tumor vs. matched normal) and THEN a
+
+    cross-modality thematic comparison that surfaces concordant
+
+    and discordant gene/protein signals. No DIABLO / MOFA / SNF
+
+    requested — just per-branch outputs and a comparison report.
+
+    Reference GRCh38.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - rnaseq_differential_expression
+    - proteomics_data_acquisition
+    - proteomics_peptide_search
+    - proteomics_protein_quantification
+    - proteomics_differential_abundance
+    - cross_omics_thematic_comparison
+    - final_reporting
+    optional_atoms:
+    - rnaseq_pathway_enrichment
+    - proteomics_pathway_enrichment
+    forbidden_atoms:
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_mofa
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_proteomics
+    min_task_count: 24
+    max_task_count: 61
+    structural_constraints:
+    - both rnaseq_ and proteomics_ DE atoms reach the thematic comparison
+    - no method-specific integrator (DIABLO / MOFA / SNF) emitted
+- id: rnaseq-proteomics-generic-ovarian-style
+  tier: A
+  archetype: cross_omics_rnaseq_proteomics
+  modality: null
+  blinded_prompt: 'Paired bulk RNA-seq and mass-spec proteomics on roughly 170
+
+    high-grade serous ovarian tumor samples versus a small set of
+
+    matched normal-tissue controls. We want per-modality DE between
+
+    tumor and normal, then a thematic concordance summary across
+
+    RNA and protein layers. No specific cross-omics integrator
+
+    method requested — keep it as a per-branch + thematic-overlap
+
+    comparison. Reference GRCh38, standard adjusted-p cutoffs.
+
+    '
+  expected_dag:
+    required_atoms:
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - rnaseq_differential_expression
+    - proteomics_data_acquisition
+    - proteomics_peptide_search
+    - proteomics_protein_quantification
+    - proteomics_differential_abundance
+    - cross_omics_thematic_comparison
+    - final_reporting
+    optional_atoms:
+    - rnaseq_pathway_enrichment
+    - proteomics_pathway_enrichment
+    forbidden_atoms:
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_mofa
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_rnaseq_proteomics
+    min_task_count: 24
+    max_task_count: 61
+    structural_constraints:
+    - thematic comparison fans in from both branches
+    - no DIABLO / MOFA / SNF integrator emitted
+- id: share-seq-skin-and-brain
+  tier: A
+  archetype: cross_omics_share_seq
+  modality: null
+  blinded_prompt: 'We''ve run SHARE-seq on adult mouse skin tissue — combinatorial
+
+    split-pool barcoding, giving us paired single-nucleus RNA and
+
+    ATAC reads from each nucleus through the shared barcode. About
+
+    thirty thousand nuclei. We need to demultiplex the SHARE-seq
+
+    barcodes to recover the per-nucleus paired RNA + ATAC data,
+
+    then run a joint embedding across the two modalities, cluster
+
+    and annotate cell types, surface peak-to-gene regulatory links
+
+    per cluster, and report per-cluster differential expression and
+
+    accessibility between two named cell populations. Reference
+
+    mm10.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - share_seq_barcode_match
+    - qc_preprocessing
+    - normalisation
+    - joint_wnn_integration
+    - clustering
+    - cell_type_annotation
+    - differential_expression
+    - differential_accessibility
+    - peak_to_gene_linking
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - multiome_arc_demultiplex
+    - vdj_reconstruction
+    - taxonomic_classification
+    - variant_calling
+    expected_modality: cross_omics_share_seq
+    min_task_count: 18
+    max_task_count: 47
+    structural_constraints:
+    - share_seq_barcode_match present and feeds joint_wnn_integration
+    - multiome_arc_demultiplex NOT present (these are different protocols)
+    - peak_to_gene_linking depends on joint_wnn_integration
+    - differential_expression depends on cell_type_annotation
+- id: share-seq-hematopoiesis
+  tier: A
+  archetype: cross_omics_share_seq
+  modality: null
+  blinded_prompt: 'SHARE-seq libraries from human bone-marrow mononuclear cells —
+
+    combinatorial barcoding giving per-nucleus paired snRNA + snATAC
+
+    readouts via the combined barcode. Around fifteen thousand
+
+    nuclei. We need the SHARE-seq-specific barcode-match step
+
+    first, then standard joint multimodal QC, WNN integration,
+
+    clustering, cell-type annotation against a hematopoietic
+
+    reference, and peak-to-gene linking per cluster. The biological
+
+    question is about lineage commitment — differential expression
+
+    and accessibility between progenitor and committed populations
+
+    within each lineage. Reference GRCh38.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - share_seq_barcode_match
+    - qc_preprocessing
+    - normalisation
+    - joint_wnn_integration
+    - clustering
+    - cell_type_annotation
+    - differential_expression
+    - differential_accessibility
+    - peak_to_gene_linking
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - multiome_arc_demultiplex
+    - vdj_reconstruction
+    - taxonomic_classification
+    - variant_calling
+    expected_modality: cross_omics_share_seq
+    min_task_count: 18
+    max_task_count: 47
+    structural_constraints:
+    - share_seq_barcode_match precedes joint_wnn_integration
+    - multiome_arc_demultiplex NOT emitted
+    - peak_to_gene_linking depends on joint_wnn_integration
+    - differential_expression depends on cell_type_annotation
+- id: variant-rnaseq-chip-encode-celllines
+  tier: A
+  archetype: cross_omics_variant_rnaseq_chipseq
+  modality: null
+  blinded_prompt: 'We have WGS, bulk RNA-seq, and ChIP-seq for an active histone
+
+    mark across around twenty lymphoblastoid cell lines from the
+
+    same set of donors. Per-line FASTQs for each modality.
+
+    Reference GRCh38. We want: WGS variant calling and annotation
+
+    per line; bulk RNA-seq alignment, quantification, and
+
+    normalization; ChIP-seq alignment and narrow-peak calling. Then
+
+    a three-way integration step that scores candidate cis-
+
+    regulatory variants — variants falling under called ChIP peaks
+
+    and associated with gene-expression variation across the lines.
+
+    '
+  expected_dag:
+    required_atoms:
+    - variant_data_acquisition
+    - variant_alignment
+    - variant_variant_calling
+    - variant_variant_filtering
+    - variant_variant_annotation
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - chipseq_data_acquisition
+    - chipseq_alignment
+    - chipseq_peak_calling
+    - cis_regulatory_variant_scoring
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_mofa
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_variant_rnaseq_chipseq
+    min_task_count: 34
+    max_task_count: 83
+    structural_constraints:
+    - three parallel branches with variant_, rnaseq_, chipseq_ prefixes
+    - cis_regulatory_variant_scoring depends on at least one task from each branch
+- id: variant-rnaseq-chip-gtex-style
+  tier: A
+  archetype: cross_omics_variant_rnaseq_chipseq
+  modality: null
+  blinded_prompt: 'We have WGS variant calls, bulk RNA-seq, and ChIP-seq for an
+
+    activating histone mark across a panel of around ten human
+
+    lymphoblastoid cell lines (multiple donors). Per-line FASTQs
+
+    available for each modality. Reference GRCh38. The end goal is
+
+    identifying candidate cis-regulatory variants — SNPs sitting
+
+    inside ChIP peaks and associated with the cell-line expression
+
+    variation in the nearby gene. Need each branch run, then a
+
+    three-way intersection / scoring step.
+
+    '
+  expected_dag:
+    required_atoms:
+    - variant_data_acquisition
+    - variant_alignment
+    - variant_variant_calling
+    - variant_variant_filtering
+    - rnaseq_data_acquisition
+    - rnaseq_alignment
+    - rnaseq_quantification
+    - rnaseq_normalisation
+    - chipseq_data_acquisition
+    - chipseq_alignment
+    - chipseq_peak_calling
+    - cis_regulatory_variant_scoring
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - variant_variant_annotation
+    forbidden_atoms:
+    - integrate_multi_omics_diablo
+    - integrate_multi_omics_mofa
+    - integrate_multi_omics_snf
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    expected_modality: cross_omics_variant_rnaseq_chipseq
+    min_task_count: 33
+    max_task_count: 83
+    structural_constraints:
+    - three branches with variant_, rnaseq_, chipseq_ prefixes
+    - scoring atom present and aggregates all three branches
+- id: cut-tag-kaya-okur-histone
+  tier: A
+  archetype: cut_tag_peaks
+  modality: cut_tag
+  blinded_prompt: 'Bulk CUT&Tag libraries for several histone modifications in a
+
+    human cell line — paired-end short reads, low cell-number
+
+    inputs (a few thousand cells per library). Several histone-mark
+
+    targets plus IgG controls, two replicates each. Need the
+
+    standard CUT&Tag pipeline: paired-end alignment to GRCh38,
+
+    narrow peak calling using the IgG as control with low-noise
+
+    settings (CUT&Tag has cleaner background than ChIP-seq), and a
+
+    master peak set per mark. Compare peak signal across two cell
+
+    states and report regions with the largest differential signal.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - peak_calling
+    - differential_accessibility
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    - peak_annotation
+    - motif_enrichment
+    forbidden_atoms:
+    - quantification
+    - differential_expression
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: cut_tag
+    min_task_count: 14
+    max_task_count: 36
+    structural_constraints:
+    - peak_calling present and uses IgG as control
+    - alignment precedes peak_calling
+    - differential_accessibility present
+- id: cut-tag-henikoff-tf-profiling
+  tier: A
+  archetype: cut_tag_peaks
+  modality: cut_tag
+  blinded_prompt: 'CUT&Tag libraries on a human suspension cell line for a panel
+
+    of transcription factors and a constitutive chromatin mark —
+
+    paired-end Illumina reads, IgG control included. Around a dozen
+
+    libraries. Standard pipeline: QC, trim, align to GRCh38,
+
+    narrow-peak calling against the IgG control, build a master
+
+    peak set, motif enrichment under each TF''s peaks, and a binary
+
+    peak-presence matrix across TFs at the union peak set.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - peak_calling
+    - motif_enrichment
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - peak_annotation
+    - pathway_enrichment
+    forbidden_atoms:
+    - quantification
+    - differential_expression
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: cut_tag
+    min_task_count: 13
+    max_task_count: 36
+    structural_constraints:
+    - peak_calling present
+    - motif_enrichment present
+    - no RNA quantification or DE atom emitted
+# NOTE: Both EHR scenarios' blinded prompts explicitly ask for
+# fairness audit + external validation. Keeping them in
+# required_atoms is correct for THIS corpus (the prompt is the
+# oracle). If a future Phase 2 paper-faithfulness corpus uses
+# different exemplar prompts that don't request both audits, move
+# them to optional there.
+- id: ehr-mimic-sepsis-prediction
+  tier: A
+  archetype: ehr_clinical_prediction
+  modality: ehr_clinical_prediction
+  blinded_prompt: 'We have ICU EHR extracts — vitals, labs, demographics, and
+
+    time-stamped clinical events — for around 25,000 adult
+
+    admissions. We want to train a model that predicts septic-shock
+
+    onset from windowed vital-sign and lab features in the hours
+
+    preceding the event. Need: derive the binary sepsis-onset label
+
+    from the EHR tables (Sepsis-3 style), extract features over
+
+    sliding windows up to onset with a strict no-leakage guarantee,
+
+    fit a gradient-boosted tree model AND a recurrent sequence
+
+    model, audit calibration via reliability plots, audit subgroup
+
+    fairness across age and sex, and then externally validate on a
+
+    held-out hospital. We do NOT want this used for clinical
+
+    decision-making — descriptive only.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_import
+    - clinical_label_derivation
+    - clinical_feature_extraction
+    - predictive_model_fit
+    - calibration_audit
+    - fairness_audit
+    - external_validation
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    expected_modality: ehr_clinical_prediction
+    min_task_count: 13
+    max_task_count: 36
+    structural_constraints:
+    - calibration_audit, fairness_audit, external_validation all depend on predictive_model_fit
+    - no sequencing-domain atoms emitted
+    - leakage audit surfaced in clinical_feature_extraction
+- id: ehr-eicu-mortality-prediction
+  tier: A
+  archetype: ehr_clinical_prediction
+  modality: ehr_clinical_prediction
+  blinded_prompt: 'We''ve got an ICU EHR extract covering several tens of thousands
+
+    of adult ICU stays — vital signs, lab results, demographics,
+
+    and outcome labels. We want to fit a model predicting in-
+
+    hospital mortality from the first 24 hours of features. Derive
+
+    the mortality label from the stay table, extract per-window
+
+    vital + lab features with no peeking past hour 24, fit a
+
+    gradient-boosted tree baseline plus a logistic-regression
+
+    reference, audit calibration, audit subgroup fairness across
+
+    protected groups, and externally validate the model on a
+
+    separate ICU network''s data. Report performance, calibration,
+
+    fairness, and external generalization — strictly descriptive,
+
+    not clinical-decision-support.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_import
+    - clinical_label_derivation
+    - clinical_feature_extraction
+    - predictive_model_fit
+    - calibration_audit
+    - fairness_audit
+    - external_validation
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    expected_modality: ehr_clinical_prediction
+    min_task_count: 13
+    max_task_count: 36
+    structural_constraints:
+    - all three audits (calibration, fairness, external_validation) emitted
+    - expected project_class is NOT clinical_trial
+- id: generic-omics-qc-fastq-handoff
+  tier: A
+  archetype: generic_omics
+  modality: generic_omics
+  blinded_prompt: 'We have a batch of sequencing FASTQ files coming off a core
+
+    facility run and we just want a generic QC + summary pass to
+
+    hand off to the lab. We don''t yet know what downstream analysis
+
+    we''ll run — different aliquots are going to different study
+
+    arms. For now, just give us a basic per-file QC report (read
+
+    counts, quality, adapter content) and a summary table across
+
+    the batch. No alignment, no quantification, nothing modality-
+
+    specific yet.
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms:
+    - data_acquisition
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - differential_expression
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    - cell_type_annotation
+    - vdj_reconstruction
+    expected_modality: generic_omics
+    min_task_count: 3
+    max_task_count: 11
+    structural_constraints:
+    - no modality-specific atoms (alignment, quantification, peak_calling) emitted
+    - generic_summary present
+- id: generic-omics-ambiguous-handoff
+  tier: A
+  archetype: generic_omics
+  modality: generic_omics
+  blinded_prompt: 'We just need a top-level QC + summary across an in-house batch
+
+    of sequencing files from a multi-modality core run. The lab
+
+    doesn''t know yet which study arms each file belongs to, so
+
+    please don''t make any assumptions about the downstream analysis.
+
+    Standard per-file QC + a one-page summary, that''s it.
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - differential_expression
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    expected_modality: generic_omics
+    min_task_count: 3
+    max_task_count: 11
+    structural_constraints:
+    - no modality-specific downstream atoms emitted
+    - generic_summary present
+- id: gwas-coloc-cad-eqtl
+  tier: A
+  archetype: gwas_coloc
+  modality: gwas
+  blinded_prompt: 'We have GWAS summary statistics for coronary artery disease in
+
+    a European-ancestry population and eQTL summary statistics for
+
+    a panel of vascular tissues. We want to test whether candidate
+
+    loci share a common causal variant between the GWAS signal and
+
+    the tissue eQTL — standard colocalization analysis. Need allele
+
+    harmonization across the two summary-stat sources against a
+
+    matched LD reference, then per-locus colocalization with
+
+    posterior probabilities reported for each of the standard
+
+    hypotheses. Method choice (coloc / SuSiE-coloc / HyPrColoc) is
+
+    up to the analyst.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - gwas_summary_harmonization
+    - colocalization
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: gwas
+    min_task_count: 7
+    max_task_count: 22
+    structural_constraints:
+    - gwas_summary_harmonization precedes colocalization
+    - no raw-data atoms (alignment / quantification) emitted
+- id: gwas-coloc-t2d-pancreatic-islets
+  tier: A
+  archetype: gwas_coloc
+  modality: gwas
+  blinded_prompt: 'Type 2 diabetes GWAS summary statistics in a European-ancestry
+
+    cohort and pancreatic-islet eQTL summary statistics from a
+
+    published tissue panel. We want a colocalization analysis at
+
+    each genome-wide-significant T2D locus against the islet eQTLs
+
+    to identify candidate causal genes. Allele harmonization
+
+    against a 1000G EUR LD reference first, then per-locus
+
+    colocalization with posterior probabilities. Output a per-
+
+    locus table with PP.H4 + credible-set size.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - gwas_summary_harmonization
+    - colocalization
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    expected_modality: gwas
+    min_task_count: 7
+    max_task_count: 22
+    structural_constraints:
+    - harmonization precedes colocalization
+    - ancestry slot filled
+- id: hichip-mumbach-h3k27ac
+  tier: A
+  archetype: hi_chip
+  modality: hi_chip
+  blinded_prompt: 'We have HiChIP libraries against an active-promoter histone
+
+    mark in two human cell types (a few replicates each) — paired-
+
+    end short reads. Need the standard HiChIP analysis: align both
+
+    mates, extract contact pairs and bin into a contact matrix,
+
+    call the ChIP-style anchor peaks on the rectangular pileup,
+
+    then call peak-anchored loops (FitHiChIP-style). Once we have
+
+    per-condition loops we want to test for differential loop
+
+    strength between the two cell types. Reference GRCh38.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - chromatin_contact_calling
+    - peak_calling
+    - chromatin_loop_calling
+    - differential_loop_analysis
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - quantification
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: hi_chip
+    min_task_count: 16
+    max_task_count: 43
+    structural_constraints:
+    - chromatin_contact_calling and peak_calling both feed chromatin_loop_calling
+    - differential_loop_analysis present
+- id: hichip-cohesin-loops
+  tier: A
+  archetype: hi_chip
+  modality: hi_chip
+  blinded_prompt: 'HiChIP libraries against an active-enhancer histone mark in
+
+    several primary human immune-cell populations — paired-end
+
+    reads, biological duplicates per cell type. Standard HiChIP
+
+    flow: align paired-end, build a contact matrix, call the
+
+    ChIP-anchor peaks, call loops anchored at those peaks, and
+
+    then test for differential looping between two of the cell
+
+    populations. Reference GRCh38.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - chromatin_contact_calling
+    - peak_calling
+    - chromatin_loop_calling
+    - differential_loop_analysis
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - quantification
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: hi_chip
+    min_task_count: 16
+    max_task_count: 43
+    structural_constraints:
+    - loop calling depends on contact + peak calling
+    - differential loop analysis present
+- id: hla-peptidomics-bassani-sternberg
+  tier: A
+  archetype: hla_peptidomics
+  modality: immunopeptidomics
+  blinded_prompt: 'Class I HLA immunoprecipitation followed by LC-MS/MS on several
+
+    human cell lines — small numbers of cells, no-enzyme database
+
+    search, peptide-spectrum FDR control at 1%. We have the four-
+
+    digit HLA typing per cell line. We need the standard HLA-I
+
+    peptidomics flow: search the spectra against a no-enzyme human
+
+    proteome, generate the per-sample peptide identification table,
+
+    then run NetMHCpan binding-affinity prediction per peptide
+
+    against the matched HLA alleles. No paired WES variant data
+
+    this round — neoantigen filtering is not needed.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - hla_peptide_search
+    - netmhc_binding_prediction
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - neoantigen_filtering
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    expected_modality: immunopeptidomics
+    min_task_count: 9
+    max_task_count: 25
+    structural_constraints:
+    - hla_peptide_search precedes netmhc_binding_prediction
+    - neoantigen_filtering NOT required when no variant input provided
+- id: hla-peptidomics-neoantigen-melanoma
+  tier: A
+  archetype: hla_peptidomics
+  modality: immunopeptidomics
+  blinded_prompt: 'Class I HLA peptidomics on fresh-frozen melanoma tumor tissue
+
+    from several patients, with matched WES variant calls
+
+    available per patient. We need to identify HLA-I-bound peptides
+
+    from the immunopurified LC-MS/MS spectra, predict NetMHCpan
+
+    binding ranks for each patient''s HLA alleles, and then filter
+
+    the peptides to those whose protein-coding sequence overlaps a
+
+    somatic variant call from the matched WES — candidate
+
+    neoantigens. Report per-patient HLA typing, search parameters,
+
+    and the binding predictor + threshold alongside the neoantigen
+
+    list.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - hla_peptide_search
+    - netmhc_binding_prediction
+    - neoantigen_filtering
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - taxonomic_classification
+    - variant_calling
+    expected_modality: immunopeptidomics
+    min_task_count: 9
+    max_task_count: 25
+    structural_constraints:
+    - neoantigen_filtering present (matched WES provided)
+    - netmhc_binding_prediction precedes neoantigen_filtering
+- id: long-read-ont-direct-rna-isoforms
+  tier: A
+  archetype: long_read_rnaseq
+  modality: long_read_rnaseq
+  blinded_prompt: 'We have Oxford Nanopore direct-RNA long reads from a human cell
+
+    line — several flow cells, no PCR amplification, native poly(A)
+
+    transcripts. Goal is full-length isoform discovery and
+
+    transcript-level quantification, then a per-transcript
+
+    differential transcript usage analysis comparing two named
+
+    conditions (a small replicate count per condition). Reference
+
+    GRCh38 plus a GENCODE annotation as a starting set. Use a
+
+    splice-aware long-read aligner like minimap2 in spliced mode.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - alignment
+    - quantification
+    - normalisation
+    - isoform_discovery
+    - differential_transcript_usage
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - sequence_trimming
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    - differential_expression
+    expected_modality: long_read_rnaseq
+    min_task_count: 15
+    max_task_count: 40
+    structural_constraints:
+    - isoform_discovery present and precedes differential_transcript_usage
+    - differential_transcript_usage emitted (NOT gene-level differential_expression)
+- id: long-read-pacbio-isoseq-brain
+  tier: A
+  archetype: long_read_rnaseq
+  modality: long_read_rnaseq
+  blinded_prompt: 'PacBio Iso-Seq long reads from human brain tissue across two
+
+    brain regions, multiple donors. Goal: full-length isoform
+
+    assembly and per-transcript quantification, then a differential
+
+    transcript usage analysis between the two brain regions.
+
+    Reference GRCh38 + GENCODE. Use a long-read splice-aware
+
+    aligner; the DTU analysis should be at the transcript level,
+
+    not at the gene level.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - alignment
+    - quantification
+    - normalisation
+    - isoform_discovery
+    - differential_transcript_usage
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - sequence_trimming
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    - differential_expression
+    expected_modality: long_read_rnaseq
+    min_task_count: 15
+    max_task_count: 40
+    structural_constraints:
+    - isoform_discovery present
+    - differential_transcript_usage emitted (not gene-level DE)
+- id: metagenomics-hmp-gut
+  tier: A
+  archetype: metagenomics_taxonomic
+  modality: metagenomics
+  blinded_prompt: 'We have shotgun metagenomic FASTQs from gut and oral body sites
+
+    across several hundred healthy adult donors — paired-end short
+
+    reads, around 100 nt. We want to taxonomically profile every
+
+    sample (Kraken2 or MetaPhlAn — your call), then compute alpha
+
+    diversity per sample and beta-diversity (Bray-Curtis +
+
+    ordination) across the cohort, with a group comparison between
+
+    body sites. Standard QC and adapter trimming first. Output the
+
+    per-sample taxonomic table, the alpha-diversity per group, and
+
+    a PCoA of beta diversity colored by body site.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - taxonomic_classification
+    - diversity_analysis
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - differential_expression
+    expected_modality: metagenomics
+    min_task_count: 10
+    max_task_count: 29
+    structural_constraints:
+    - taxonomic_classification precedes diversity_analysis
+    - no host-genome alignment / quantification emitted
+- id: metagenomics-16s-ibd-cohort
+  tier: A
+  archetype: metagenomics_taxonomic
+  modality: metagenomics
+  blinded_prompt: '16S rRNA gene amplicon sequencing on stool samples from a
+
+    pediatric IBD cohort versus healthy controls — a few hundred
+
+    donors, paired-end Illumina reads of the V4 region. Need the
+
+    standard amplicon pipeline: QC + primer trimming, ASV /
+
+    taxonomic assignment via DADA2 or QIIME2, alpha and beta
+
+    diversity per group, and a comparison of diversity statistics
+
+    between IBD and controls. Output the taxonomic-rank tables and
+
+    a beta-diversity ordination colored by disease status.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - taxonomic_classification
+    - diversity_analysis
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    expected_modality: metagenomics
+    min_task_count: 10
+    max_task_count: 29
+    structural_constraints:
+    - taxonomic_classification + diversity_analysis both present
+    - group_variable slot filled with the disease-status comparison
+- id: methylation-de-wgbs-tissue
+  tier: A
+  archetype: methylation_de
+  modality: methylation
+  blinded_prompt: 'Whole-genome bisulfite sequencing FASTQs from a small set of
+
+    human cell types — paired-end short reads, around 90 nt. We
+
+    want per-CpG methylation extraction, normalization, and
+
+    identification of differentially methylated regions between
+
+    two named cell types. Reference GRCh38, bisulfite-aware
+
+    aligner (Bismark or BWA-meth). Output the per-CpG methylation
+
+    tables and the DMR call set with effect size and adjusted
+
+    p-value.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - quantification
+    - qc_preprocessing
+    - normalisation
+    - differential_expression
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    - vdj_reconstruction
+    expected_modality: methylation
+    min_task_count: 16
+    max_task_count: 43
+    structural_constraints:
+    - differential_expression atom (reused for DMR calling) follows normalisation
+    - no peak_calling emitted
+- id: methylation-de-rrbs-mouse
+  tier: A
+  archetype: methylation_de
+  modality: methylation
+  blinded_prompt: 'Reduced-representation bisulfite sequencing on mouse pre-
+
+    implantation embryos at several developmental stages — small
+
+    sample numbers per stage, paired-end short reads. Reference
+
+    mm10. Need bisulfite-aware alignment, per-CpG methylation
+
+    extraction, normalization, and DMR calling between two stages
+
+    we name. Standard adjusted-p cutoffs.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - quantification
+    - qc_preprocessing
+    - normalisation
+    - differential_expression
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: methylation
+    min_task_count: 16
+    max_task_count: 43
+    structural_constraints:
+    - normalisation precedes differential analysis
+    - no peak_calling emitted
+- id: proteomics-dda-yeast-ms
+  tier: A
+  archetype: proteomics_dda
+  modality: proteomics
+  blinded_prompt: 'Data-dependent acquisition LC-MS/MS proteomics data on yeast
+
+    whole-cell lysates — two conditions (a drug treatment vs.
+
+    DMSO), four biological replicates each. We want to search the
+
+    spectra against the yeast proteome (DDA workflow with MaxQuant
+
+    or FragPipe), quantify proteins via label-free quantification,
+
+    then test for differential abundance between treated and
+
+    control with FDR control. Standard PCA and a volcano plot in
+
+    the report. Optional pathway enrichment on the ranked DA list.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - peptide_search
+    - protein_quantification
+    - differential_expression
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - hla_peptide_search
+    - netmhc_binding_prediction
+    expected_modality: proteomics
+    min_task_count: 10
+    max_task_count: 29
+    structural_constraints:
+    - peptide_search and protein_quantification both present
+    - differential_expression follows protein_quantification
+    - no HLA peptidomics atoms emitted
+- id: proteomics-dda-human-celllines-lfq
+  tier: A
+  archetype: proteomics_dda
+  modality: proteomics
+  blinded_prompt: 'Data-dependent acquisition LC-MS/MS on a panel of around a
+
+    dozen human cell lines — single replicate per line, deep
+
+    proteome coverage via long gradients. We want to search the
+
+    spectra against the human proteome, quantify proteins with LFQ,
+
+    and then surface proteins with the largest abundance
+
+    differences between two named subsets of cell lines (DDA flow).
+
+    Pathway enrichment on the ranked DA list is a nice-to-have.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - peptide_search
+    - protein_quantification
+    - differential_expression
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - hla_peptide_search
+    expected_modality: proteomics
+    min_task_count: 10
+    max_task_count: 29
+    structural_constraints:
+    - 'DDA workflow shape: peptide_search → protein_quantification → DE'
+    - no HLA / neoantigen atoms emitted
+- id: proteomics-dia-plasma-biomarkers
+  tier: A
+  archetype: proteomics_dia
+  modality: proteomics
+  blinded_prompt: 'Data-independent acquisition LC-MS/MS proteomics on 3D liver-
+
+    microtissue samples — a hepatotoxin treatment vs. vehicle, six
+
+    biological replicates per condition. We want DIA-NN or
+
+    Spectronaut to search the spectra against a spectral library,
+
+    directLFQ-style protein quantification, then differential
+
+    abundance between treated and vehicle. Standard outputs: PCA,
+
+    volcano, top DA proteins, pathway enrichment.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - peptide_search
+    - protein_quantification
+    - differential_expression
+    - pathway_enrichment
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - hla_peptide_search
+    expected_modality: proteomics
+    min_task_count: 11
+    max_task_count: 29
+    structural_constraints:
+    - 'DIA workflow shape: peptide_search (DIA-NN / Spectronaut) → protein_quantification → DE'
+    - spectral_library slot filled
+- id: proteomics-dia-deep-proteome
+  tier: A
+  archetype: proteomics_dia
+  modality: proteomics
+  blinded_prompt: 'DIA mass-spec proteomics on human plasma samples — short
+
+    gradients, high-throughput. About 100 samples split into two
+
+    groups for a contrast. Need DIA-NN search against a published
+
+    spectral library, protein-level quantification, and
+
+    differential abundance between the two groups. Outputs:
+
+    protein quantities per sample, PCA, volcano, top DA list, and
+
+    pathway enrichment.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - peptide_search
+    - protein_quantification
+    - differential_expression
+    - pathway_enrichment
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - hla_peptide_search
+    expected_modality: proteomics
+    min_task_count: 11
+    max_task_count: 29
+    structural_constraints:
+    - DIA workflow with spectral library
+    - differential_expression follows protein_quantification
+- id: ribo-seq-ingolia-yeast
+  tier: A
+  archetype: ribo_seq_translation
+  modality: ribo_seq
+  blinded_prompt: 'We have paired ribosome-profiling (Ribo-seq) and total mRNA-seq
+
+    libraries from yeast under two growth conditions, three
+
+    replicates each. Need contaminant-filtered short-read alignment
+
+    against the yeast genome, P-site offset calibration on the RPF
+
+    data, CDS-restricted RPF quantification, and then per-gene
+
+    translation-efficiency DE comparing the two conditions using
+
+    the paired mRNA-seq as the normalization denominator. anota2seq
+
+    / Xtail / deltaTE-style analysis. Reference is sacCer3.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - psite_offset_calibration
+    - quantification
+    - qc_preprocessing
+    - normalisation
+    - translation_efficiency_de
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: ribo_seq
+    min_task_count: 18
+    max_task_count: 47
+    structural_constraints:
+    - psite_offset_calibration present and precedes quantification
+    - translation_efficiency_de present (NOT plain gene-level differential_expression)
+    - matched_mrna_samples slot filled
+- id: ribo-seq-mammalian-mtor
+  tier: A
+  archetype: ribo_seq_translation
+  modality: ribo_seq
+  blinded_prompt: 'Paired Ribo-seq and matched total-mRNA RNA-seq on mouse
+
+    embryonic fibroblasts under two conditions — mTOR inhibition vs.
+
+    vehicle, two replicates each. Need contaminant-filtered
+
+    alignment of the RPFs, P-site offset calibration via riboWaltz,
+
+    CDS-restricted quantification, and then a translation-
+
+    efficiency differential analysis (RPF / mRNA ratio) between the
+
+    two conditions. Output the per-gene TE-change table with effect
+
+    size and adjusted p-value. Reference mm10.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - psite_offset_calibration
+    - quantification
+    - qc_preprocessing
+    - normalisation
+    - translation_efficiency_de
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - pathway_enrichment
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: ribo_seq
+    min_task_count: 18
+    max_task_count: 47
+    structural_constraints:
+    - psite_offset_calibration present
+    - translation_efficiency_de uses matched mRNA-seq as denominator
+- id: scrnaseq-pbmc-10k-tutorial
+  tier: A
+  archetype: single_cell_de
+  modality: single_cell_rnaseq
+  blinded_prompt: '10x Genomics single-cell RNA-seq on healthy human PBMCs from
+
+    around eight donors, one library per donor. Standard 10x
+
+    Chromium v3 chemistry. Reference GRCh38. We want the textbook
+
+    scRNA-seq flow: alignment + quantification via Cell Ranger or
+
+    equivalent, QC and doublet filtering, normalization, integration
+
+    across donors to remove batch effects, dimensionality reduction
+
+    (UMAP), graph-based clustering, cell-type annotation against a
+
+    reference PBMC atlas, then per-cluster differential expression
+
+    between two donor groups we''ll name. Pathway enrichment on the
+
+    ranked DE lists is welcome.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - alignment
+    - quantification
+    - qc_preprocessing
+    - normalisation
+    - dimensionality_reduction
+    - clustering
+    - cell_type_annotation
+    - differential_expression
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - sequence_trimming
+    - pathway_enrichment
+    - batch_correction
+    - integration
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    - vdj_reconstruction
+    - sgrna_assignment
+    expected_modality: single_cell_rnaseq
+    min_task_count: 24
+    max_task_count: 61
+    structural_constraints:
+    - cell_type_annotation precedes differential_expression
+    - no peak_calling / variant_calling emitted
+- id: scrnaseq-tabula-muris-tissues
+  tier: A
+  archetype: single_cell_de
+  modality: single_cell_rnaseq
+  blinded_prompt: 'Mouse droplet-based and FACS-sorted plate-based scRNA-seq across
+
+    around twenty organs from multiple donors. Several hundred
+
+    thousand cells in total. Reference mm10. Need full scRNA-seq
+
+    processing — alignment, quantification, per-organ QC,
+
+    normalization, batch correction across protocols (drop vs.
+
+    plate), integration, UMAP, clustering, cell-type annotation
+
+    against a mouse reference atlas, and per-organ DE between two
+
+    named cell populations. Standard adjusted-p cutoffs.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - alignment
+    - quantification
+    - qc_preprocessing
+    - normalisation
+    - dimensionality_reduction
+    - clustering
+    - cell_type_annotation
+    - differential_expression
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - sequence_trimming
+    - pathway_enrichment
+    - batch_correction
+    - integration
+    forbidden_atoms:
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    - vdj_reconstruction
+    - sgrna_assignment
+    expected_modality: single_cell_rnaseq
+    min_task_count: 24
+    max_task_count: 61
+    structural_constraints:
+    - cell_type_annotation precedes differential_expression
+    - if emitted, batch_correction across protocols precedes integration
+- id: scvdj-tcr-tumor-infiltrating
+  tier: A
+  archetype: single_cell_vdj
+  modality: single_cell_vdj
+  blinded_prompt: '10x Genomics 5'' single-cell V(D)J libraries (TCR alpha + beta)
+
+    from tumor-infiltrating T cells, several patients, paired
+
+    tumor and adjacent-normal tissue. About twenty thousand cells
+
+    total. Need per-cell TCR reconstruction (Cell Ranger V(D)J or
+
+    similar), productive-pair filtering, per-donor repertoire
+
+    diversity summaries (Shannon, clonality), and cross-donor
+
+    clustering of CDR3 sequences to flag public clonotypes. We
+
+    don''t need a paired gene-expression analysis here — just the
+
+    receptor side.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - vdj_reconstruction
+    - repertoire_diversity
+    - cdr3_clonotype_clustering
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - clustering
+    - dimensionality_reduction
+    expected_modality: single_cell_vdj
+    min_task_count: 9
+    max_task_count: 25
+    structural_constraints:
+    - vdj_reconstruction present; cell_type_annotation/clustering absent
+    - cdr3_clonotype_clustering present
+    - repertoire_diversity follows vdj_reconstruction
+- id: scvdj-bcr-vaccination-response
+  tier: A
+  archetype: single_cell_vdj
+  modality: single_cell_vdj
+  blinded_prompt: '10x BCR (heavy + light chain) single-cell V(D)J libraries from
+
+    blood samples of around a dozen donors at multiple time points
+
+    after vaccination. Goal: per-cell BCR reconstruction, per-donor
+
+    and per-timepoint repertoire diversity, and CDR3-clustering
+
+    across donors to identify shared / public clonotypes that
+
+    expand post-vaccination. No paired GEX analysis required.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - vdj_reconstruction
+    - repertoire_diversity
+    - cdr3_clonotype_clustering
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - clustering
+    - dimensionality_reduction
+    expected_modality: single_cell_vdj
+    min_task_count: 9
+    max_task_count: 25
+    structural_constraints:
+    - vdj_reconstruction + repertoire_diversity both present
+    - cdr3_clonotype_clustering present
+    - receptor_type slot filled as BCR
+- id: spatial-visium-prefrontal-cortex
+  tier: A
+  archetype: spatial_transcriptomics
+  modality: spatial_transcriptomics
+  blinded_prompt: 'We have 10x Visium spatial transcriptomics data on around a
+
+    dozen sections from a small number of adult human dorsolateral
+
+    prefrontal cortex donors. Standard Visium output (spot-by-gene
+
+    matrix plus the H&E image coordinates). Reference GRCh38. We
+
+    want to cluster spots into spatial domains, annotate each
+
+    domain with cell-type composition against a brain reference
+
+    atlas, and compute domain-marker differential expression
+
+    between two named domains. Report the spatial clusters
+
+    overlaid on the slide image and the marker-gene table per
+
+    domain.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - qc_preprocessing
+    - normalisation
+    - dimensionality_reduction
+    - spatial_domain_segmentation
+    - cell_type_annotation
+    - differential_expression
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - spatially_variable_genes
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    - vdj_reconstruction
+    - sgrna_assignment
+    expected_modality: spatial_transcriptomics
+    min_task_count: 13
+    max_task_count: 36
+    structural_constraints:
+    - platform slot = Visium
+    - spatial_domain_segmentation precedes cell_type_annotation
+    - differential_expression depends on cell_type_annotation
+- id: spatial-merfish-mouse-cortex
+  tier: A
+  archetype: spatial_transcriptomics
+  modality: spatial_transcriptomics
+  blinded_prompt: 'MERFISH imaging-based spatial transcriptomics on mouse brain
+
+    preoptic-region coronal sections — a curated gene panel
+
+    (around 150 genes), several animals, both sexes. Cell-level
+
+    readout (segmented from the imaging volume). Reference mm10
+
+    annotations. We want spatial domain segmentation / clustering
+
+    of cells in coordinate + expression space, cell-type annotation
+
+    against a brain atlas, and per-cluster DE between two named
+
+    experimental conditions (behavioral state). Outputs: cluster
+
+    maps overlaid on tissue coordinates, marker-gene tables.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - qc_preprocessing
+    - normalisation
+    - dimensionality_reduction
+    - spatial_domain_segmentation
+    - cell_type_annotation
+    - differential_expression
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - spatially_variable_genes
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    - vdj_reconstruction
+    - sgrna_assignment
+    expected_modality: spatial_transcriptomics
+    min_task_count: 13
+    max_task_count: 36
+    structural_constraints:
+    - platform slot = MERFISH
+    - spatial_domain_segmentation + cell_type_annotation both present
+    - differential_expression depends on cell_type_annotation
+- id: starr-seq-arnold-drosophila
+  tier: A
+  archetype: starr_seq
+  modality: starr_seq
+  blinded_prompt: 'Whole-genome STARR-seq in Drosophila S2 cells — paired DNA
+
+    (input plasmid library) and RNA (transcript-tagged) libraries,
+
+    multiple replicates. Reference dm6. We want per-tile log2(RNA
+
+    / DNA) ratios, depth-normalized DESeq2-style scaling, calling
+
+    of active enhancer tiles at a log2-fold-change and FDR cutoff,
+
+    and reporting of tile coordinates and activity scores.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - enhancer_activity_calling
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - differential_expression
+    - pathway_enrichment
+    forbidden_atoms:
+    - peak_calling
+    - quantification
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: starr_seq
+    min_task_count: 13
+    max_task_count: 36
+    structural_constraints:
+    - enhancer_activity_calling present
+    - peak_calling (ChIP-style) NOT used as the central call (this is RNA/DNA-ratio analysis)
+    - activity_threshold slot filled
+- id: starr-seq-mpra-human-cells
+  tier: A
+  archetype: starr_seq
+  modality: starr_seq
+  blinded_prompt: 'Massively parallel reporter assay (MPRA / STARR-seq variant)
+
+    in a human lymphoblastoid cell line — a curated library of
+
+    around 30,000 short candidate-enhancer oligos tested in
+
+    parallel, with paired DNA and RNA libraries (multiple
+
+    replicates). Reference GRCh38. We want per-element
+
+    log2(RNA/DNA), normalization for sequencing depth, and a call
+
+    of active elements at the standard activity-FC + FDR cutoffs.
+
+    Report element coordinates and activity scores.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - enhancer_activity_calling
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - differential_expression
+    - pathway_enrichment
+    forbidden_atoms:
+    - peak_calling
+    - quantification
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: starr_seq
+    min_task_count: 13
+    max_task_count: 36
+    structural_constraints:
+    - enhancer_activity_calling is the central scoring atom
+    - no ChIP-style peak_calling emitted
+- id: time-series-influenza-arima
+  tier: A
+  archetype: time_series_forecast
+  modality: null
+  blinded_prompt: 'We have weekly influenza-like-illness counts from a national
+
+    public-health surveillance program over the last twenty years.
+
+    Single univariate series. Want to fit an ARIMA model (with
+
+    seasonal terms) to the historical data, do an STL or classical
+
+    seasonal decomposition for diagnostics, and produce point
+
+    forecasts plus prediction intervals for the next 52 weeks.
+
+    Holdout the last two seasons for evaluation. Standard
+
+    forecasting metrics (MAPE, sMAPE, CRPS).
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_import
+    - time_series_decompose
+    - time_series_model_fit
+    - time_series_forecast_evaluate
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - data_acquisition
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    expected_modality: null
+    min_task_count: 7
+    max_task_count: 22
+    structural_constraints:
+    - project_class is time_series_forecast
+    - data_import precedes time_series_decompose
+    - time_series_decompose precedes model_fit and forecast_evaluate
+    - no sequencing-domain atoms emitted
+- id: time-series-blood-pressure-statespace
+  tier: A
+  archetype: time_series_forecast
+  modality: null
+  blinded_prompt: 'We have a panel of around 200 patients with continuous home
+
+    blood-pressure measurements collected daily over six months.
+
+    For each patient we want to fit a state-space (structural
+
+    time-series) model to capture trend + weekly seasonality,
+
+    decompose the series into components, produce 30-day forecasts
+
+    with prediction intervals, and evaluate against a 30-day
+
+    holdout. Output per-patient model fits, the decomposition
+
+    plots, and the per-patient forecast metrics.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_import
+    - time_series_decompose
+    - time_series_model_fit
+    - time_series_forecast_evaluate
+    - reporting
+    - final_reporting
+    optional_atoms: []
+    forbidden_atoms:
+    - data_acquisition
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    expected_modality: null
+    min_task_count: 7
+    max_task_count: 22
+    structural_constraints:
+    - project_class is time_series_forecast
+    - data_import precedes time_series_decompose
+    - model_family slot filled with state-space
+- id: variant-germline-1000g-trio
+  tier: A
+  archetype: variant_calling_germline
+  modality: variant_calling
+  blinded_prompt: 'WGS short-read FASTQs from a parent-offspring trio — three
+
+    individuals, paired-end Illumina around 30x coverage each.
+
+    Reference GRCh38. We want the standard germline-variant
+
+    pipeline: adapter trimming, BWA-MEM alignment, GATK
+
+    HaplotypeCaller variant calling per sample, joint genotyping
+
+    across the trio, variant-quality filtering (VQSR or
+
+    hard-filter), and functional annotation (VEP or ANNOVAR). Per-
+
+    sample VCFs and a per-variant annotation table are the
+
+    deliverables.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - variant_calling
+    - variant_filtering
+    - variant_annotation
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - review_prior_work
+    - contextualize_findings_with_literature
+    forbidden_atoms:
+    - quantification
+    - peak_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    - differential_expression
+    expected_modality: variant_calling
+    min_task_count: 16
+    max_task_count: 43
+    structural_constraints:
+    - variant_calling → variant_filtering → variant_annotation chain
+    - no DE or peak_calling atoms emitted
+- id: variant-germline-exome-mendelian
+  tier: A
+  archetype: variant_calling_germline
+  modality: variant_calling
+  blinded_prompt: 'Whole-exome sequencing FASTQs from a small Mendelian-disease
+
+    pedigree — around half a dozen affected and unaffected
+
+    individuals. Paired-end Illumina exome capture, around 100x
+
+    target coverage. Reference GRCh38. Standard germline-variant
+
+    pipeline: QC, trim, align, call variants per sample, joint-
+
+    genotype, filter, and annotate against a clinical-variant
+
+    annotation set. Per-sample VCFs and a candidate-variant table
+
+    that segregates with disease status are what we need.
+
+    '
+  expected_dag:
+    required_atoms:
+    - data_acquisition
+    - raw_qc
+    - sequence_trimming
+    - alignment
+    - variant_calling
+    - variant_filtering
+    - variant_annotation
+    - reporting
+    - final_reporting
+    optional_atoms:
+    - review_prior_work
+    - contextualize_findings_with_literature
+    forbidden_atoms:
+    - quantification
+    - peak_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    - differential_expression
+    expected_modality: variant_calling
+    min_task_count: 16
+    max_task_count: 43
+    structural_constraints:
+    - variant_filtering present and follows variant_calling
+    - no expression / accessibility atoms emitted
+- id: flex-hi-c-tad-compartment
+  tier: B
+  archetype: null
+  modality: null
+  blinded_prompt: 'We have in situ Hi-C libraries from several human cell lines —
+
+    paired-end deep sequencing, billions of read pairs per library.
+
+    Reference GRCh38. Goal is the standard Hi-C analysis: build
+
+    contact matrices at multiple resolutions (kilobase to megabase
+
+    bins), call topologically associating domains (TADs), and
+
+    define A/B compartments by eigenvector decomposition of the
+
+    observed/expected contact matrix. Compare TAD boundary
+
+    coordinates and compartment assignments between two cell lines.
+
+    No ChIP-anchored loop calling needed — pure Hi-C contact
+
+    analysis.
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms:
+    - data_acquisition
+    - sequence_trimming
+    - alignment
+    forbidden_atoms:
+    - chromatin_loop_calling
+    - peak_calling
+    - quantification
+    - differential_expression
+    expected_modality: null
+    required_proposal_capabilities:
+    - hi_c_contact_matrix
+    - tad_calling
+    - compartment_calling
+    min_task_count: 3
+    max_task_count: 30
+    structural_constraints:
+    - emits a propose_hypothesized_node for hi_c_contact_matrix / TAD / compartment_calling capability
+    - falls back to generic_omics core when no HiChIP-style anchored loop is requested
+    - does NOT misroute to hi_chip archetype (no peak-anchored loops requested)
+- id: flex-cytof-immunophenotyping
+  tier: B
+  archetype: null
+  modality: null
+  blinded_prompt: 'We have mass-cytometry (CyTOF) data from human PBMCs — a panel
+
+    of around 35 metal-tagged antibodies on a per-cell basis,
+
+    thousands of cells per donor, around twenty donors split into
+
+    a drug-treated and a control group. Standard FCS files in. We
+
+    want to gate live single cells, compensate for spillover, run
+
+    a high-dimensional clustering (FlowSOM or PhenoGraph), assign
+
+    cluster identities by marker-median heatmap, then test
+
+    differential cluster abundance between treated and control.
+
+    This is NOT sequencing — protein-level cytometry only.
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms:
+    - data_acquisition
+    - qc_preprocessing
+    - clustering
+    - dimensionality_reduction
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    - sequence_trimming
+    expected_modality: null
+    required_proposal_capabilities:
+    - mass_cytometry
+    - spillover_compensation
+    - cluster_abundance_test
+    min_task_count: 3
+    max_task_count: 30
+    structural_constraints:
+    - emits a propose_hypothesized_node for mass_cytometry / spillover_compensation / cluster_abundance_test
+    - no sequencing-alignment atoms emitted
+    - falls back to generic_omics core (no sequencing modality match)
+    - does NOT misroute to scrna_seq (protein-level cytometry, not sequencing)
+- id: flex-mendelian-randomization
+  tier: B
+  archetype: null
+  modality: null
+  blinded_prompt: 'We have GWAS summary statistics for an exposure trait (e.g.
+
+    circulating biomarker level) and an outcome trait (e.g.
+
+    cardiovascular event), both from large European-ancestry
+
+    meta-analyses. We want a two-sample Mendelian-randomization
+
+    analysis to test whether the exposure is causally related to
+
+    the outcome — extract independent genome-wide-significant
+
+    exposure-trait SNPs as instruments, harmonize across the two
+
+    sumstats, then run inverse-variance-weighted MR plus MR-Egger
+
+    and weighted-median sensitivity analyses. Report the causal
+
+    estimate, heterogeneity (Cochran''s Q), and the MR-Egger
+
+    intercept for horizontal pleiotropy.
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms:
+    - data_acquisition
+    - gwas_summary_harmonization
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - taxonomic_classification
+    - colocalization
+    expected_modality: null
+    required_proposal_capabilities:
+    - mendelian_randomization
+    - instrument_selection
+    - mr_egger
+    - weighted_median_mr
+    - gwas_summary_harmonization
+    min_task_count: 3
+    max_task_count: 30
+    structural_constraints:
+    - emits a propose_hypothesized_node for mendelian_randomization / instrument_selection / MR-Egger
+    - does NOT misroute to gwas_coloc (different inferential question)
+    - no raw-data sequencing atoms emitted
+- id: flex-scatac-seq-10x
+  tier: B
+  archetype: null
+  modality: null
+  blinded_prompt: '10x Genomics single-cell ATAC-seq (scATAC) data on human
+
+    tumor-infiltrating lymphocytes — around a hundred thousand
+
+    single nuclei, no paired RNA. Reference GRCh38. We want per-
+
+    nucleus accessibility profiles, TF-IDF normalization, latent
+
+    semantic indexing, UMAP, graph-based clustering, then per-
+
+    cluster differential accessibility and motif enrichment. This
+
+    is DIFFERENT from bulk ATAC-seq (different normalization and
+
+    per-cell structure) and DIFFERENT from SHARE-seq (no paired
+
+    RNA, no combinatorial barcoding).
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms:
+    - data_acquisition
+    - qc_preprocessing
+    - normalisation
+    - dimensionality_reduction
+    - clustering
+    forbidden_atoms:
+    - share_seq_barcode_match
+    - multiome_arc_demultiplex
+    - vdj_reconstruction
+    - taxonomic_classification
+    - quantification
+    - peak_calling
+    - differential_accessibility
+    expected_modality: null
+    required_proposal_capabilities:
+    - scatac_seq
+    - tf_idf_normalization
+    - lsi
+    - per_cluster_differential_accessibility
+    - motif_enrichment_scatac
+    min_task_count: 3
+    max_task_count: 30
+    structural_constraints:
+    - emits a propose_hypothesized_node for scatac_seq / TF_IDF_normalization / LSI
+    - does NOT misroute to atac_seq_peaks (bulk; different normalization)
+    - does NOT misroute to cross_omics_share_seq (no paired RNA)
+- id: flex-snmc-seq-single-cell-methylation
+  tier: B
+  archetype: null
+  modality: null
+  blinded_prompt: 'Single-nucleus DNA methylation sequencing (snmC-seq2) on mouse
+
+    cortical neurons — around three thousand nuclei, each with its
+
+    own bisulfite-converted methylation profile. Reference mm10.
+
+    Goal: per-nucleus methylation feature extraction, dimensionality
+
+    reduction, clustering of nuclei into methylation-defined
+
+    subtypes, and per-cluster DMR identification. This is NOT bulk
+
+    WGBS (single-nucleus, very sparse) and NOT scRNA-seq.
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms:
+    - data_acquisition
+    - qc_preprocessing
+    - dimensionality_reduction
+    - clustering
+    forbidden_atoms:
+    - vdj_reconstruction
+    - taxonomic_classification
+    - peak_calling
+    - quantification
+    - alignment
+    - differential_expression
+    expected_modality: null
+    required_proposal_capabilities:
+    - single_cell_methylation
+    - per_cell_mch_mcg_extraction
+    - per_cluster_dmr_calling
+    min_task_count: 3
+    max_task_count: 30
+    structural_constraints:
+    - emits a propose_hypothesized_node for single_cell_methylation / per_cell_mCH_mCG_extraction
+    - does NOT misroute to methylation_de (single-cell, different per-cell pipeline)
+- id: flex-slide-seq-spatial
+  tier: B
+  archetype: null
+  modality: null
+  blinded_prompt: 'Slide-seq v2 spatial transcriptomics on adult mouse
+
+    hippocampus sections — bead-resolution (~10 µm) transcript
+
+    capture, per-bead barcoded reads, several sections. Reference
+
+    mm10. We want per-bead expression matrix construction, spatial
+
+    coordinate registration, identification of spatially variable
+
+    genes (NOT spot-level clustering — the bead size is much
+
+    smaller than Visium), and per-region marker gene reports.
+
+    Distinct from 10x Visium in resolution and from spatial
+
+    proteomics (this is RNA).
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms:
+    - data_acquisition
+    - qc_preprocessing
+    - normalisation
+    - dimensionality_reduction
+    forbidden_atoms:
+    - clustering
+    - variant_calling
+    - vdj_reconstruction
+    - taxonomic_classification
+    expected_modality: null
+    required_proposal_capabilities:
+    - slide_seq
+    - bead_resolution_normalization
+    - spatially_variable_gene_discovery
+    min_task_count: 3
+    max_task_count: 30
+    structural_constraints:
+    - emits a propose_hypothesized_node for slide_seq / bead_resolution_normalization / spatially_variable_gene_discovery
+    - if it routes to spatial_transcriptomics archetype it must mark the platform as non-Visium and add the SVG hypothesized
+      node
+- id: flex-codex-spatial-proteomics
+  tier: B
+  archetype: null
+  modality: null
+  blinded_prompt: 'CODEX highly-multiplexed antibody imaging on mouse spleen
+
+    tissue sections — around 30 antibody channels per cell, cell-
+
+    level segmentation from the imaging stack. We want per-cell
+
+    protein quantification across the channels, cell-type
+
+    clustering on the antibody panel, spatial neighborhood
+
+    enrichment analysis between cell types, and per-region (red
+
+    vs. white pulp) cell-type composition comparisons. This is
+
+    imaging-based PROTEIN spatial — not RNA spatial, not CyTOF.
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms:
+    - data_acquisition
+    - qc_preprocessing
+    - clustering
+    - dimensionality_reduction
+    forbidden_atoms:
+    - alignment
+    - sequence_trimming
+    - variant_calling
+    - taxonomic_classification
+    - peak_calling
+    - cell_type_annotation
+    - differential_expression
+    - peptide_search
+    - protein_quantification
+    expected_modality: null
+    required_proposal_capabilities:
+    - codex_spatial_proteomics
+    - cell_segmentation
+    - neighborhood_enrichment
+    - region_celltype_composition_comparison
+    min_task_count: 3
+    max_task_count: 30
+    structural_constraints:
+    - emits a propose_hypothesized_node for codex_spatial_proteomics / cell_segmentation / neighborhood_enrichment
+    - does NOT misroute to spatial_transcriptomics (not RNA)
+    - does NOT misroute to proteomics_dda (not mass-spec, imaging-based)
+- id: flex-survival-genomics-cox
+  tier: B
+  archetype: null
+  modality: null
+  blinded_prompt: 'We have a bulk RNA-seq gene-expression matrix for around 200
+
+    tumor samples plus per-patient overall-survival times and
+
+    event indicators. The biological question is purely about
+
+    survival — Kaplan-Meier curves stratified by expression
+
+    quantiles of candidate genes, log-rank tests, and a multi-
+
+    variable Cox proportional-hazards model with the top
+
+    candidate-gene expression levels plus age and stage as
+
+    covariates. We do NOT want differential expression — the
+
+    contrast is time-to-event, not group-vs-group.
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms:
+    - data_acquisition
+    - qc_preprocessing
+    - normalisation
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - differential_expression
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    expected_modality: null
+    required_proposal_capabilities:
+    - survival_analysis
+    - cox_proportional_hazards
+    - kaplan_meier
+    min_task_count: 3
+    max_task_count: 30
+    structural_constraints:
+    - emits a propose_hypothesized_node for survival_analysis / cox_proportional_hazards / kaplan_meier
+    - does NOT misroute to bulk_rnaseq_de (no group contrast requested)
+    - no differential_expression atom emitted
+- id: flex-microbiome-strain-snp
+  tier: B
+  archetype: null
+  modality: null
+  blinded_prompt: 'We have shotgun metagenomics data from gut samples across
+
+    around 50 donors, paired-end short reads. Standard
+
+    taxonomic profiling at the species level isn''t enough — we
+
+    want STRAIN-level resolution: extract per-species SNP
+
+    profiles across samples, build per-species strain phylogenies,
+
+    and test whether donor pairs share strains beyond what species-
+
+    level abundance would predict. Pipeline like StrainPhlAn /
+
+    InStrain / MIDAS. Not a diversity-only analysis — strain-
+
+    phylogenetic inference is the goal.
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms:
+    - data_acquisition
+    - sequence_trimming
+    - taxonomic_classification
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - cell_type_annotation
+    - vdj_reconstruction
+    expected_modality: null
+    required_proposal_capabilities:
+    - strain_level_snp_calling
+    - strain_phylogeny
+    - shared_strain_test
+    min_task_count: 3
+    max_task_count: 30
+    structural_constraints:
+    - emits a propose_hypothesized_node for strain_level_snp_calling / strain_phylogeny / shared_strain_test
+    - if it routes to metagenomics_taxonomic it must add the strain-level hypothesized node (species-level diversity alone
+      is insufficient)
+- id: flex-cryo-em-single-particle
+  tier: B
+  archetype: null
+  modality: null
+  blinded_prompt: 'We have raw cryo-EM micrographs of a purified soluble protein
+
+    complex — thousands of movies from a Titan Krios session. We
+
+    want the full single-particle reconstruction pipeline: motion
+
+    correction, CTF estimation, automated particle picking, 2D
+
+    classification, 3D ab-initio model generation, refinement, and
+
+    final per-particle Bayesian polishing to produce a high-
+
+    resolution density map. This is structural biology — NOT
+
+    sequencing, NOT mass-spec, NOT imaging cell biology.
+
+    '
+  expected_dag:
+    required_atoms:
+    - raw_qc
+    - generic_summary
+    optional_atoms:
+    - data_acquisition
+    forbidden_atoms:
+    - alignment
+    - quantification
+    - peak_calling
+    - variant_calling
+    - cell_type_annotation
+    - taxonomic_classification
+    - vdj_reconstruction
+    - sequence_trimming
+    expected_modality: null
+    required_proposal_capabilities:
+    - cryo_em
+    - particle_picking
+    - 3d_reconstruction
+    min_task_count: 3
+    max_task_count: 30
+    structural_constraints:
+    - emits a propose_hypothesized_node for cryo_em / particle_picking / 3d_reconstruction OR refuses with an explicit blocker
+      indicating the modality is outside the catalog
+    - no sequencing-domain atoms emitted
+    - falls back to generic_omics (or refuses) — must NOT silently route to a sequencing archetype
