@@ -39,7 +39,11 @@
       "^NGS$", "^ELISA$", "^SDS$", "^PAGE$", "^BSA$", "^HRP$",
       "^FDA$", "^EMA$", "^ISO$", "^GMP$",
       "^MS$", "^MS2$", "^MS3$",
-      "^IVD$", "^IVT$"
+      "^IVD$", "^IVT$",
+      "^FDR$", "^FC$", "^DE$", "^DEG$", "^DEGS$", "^LFC$",
+      "^GSEA$", "^GO$", "^KEGG$", "^MSIGDB$", "^ORA$", "^FGSEA$",
+      "^TPM$", "^CPM$", "^RPKM$", "^FPKM$", "^TMM$", "^VST$", "^RLE$",
+      "^UMI$", "^PCA$", "^UMAP$", "^TSNE$", "^QC$"
     ],
     "directionVocab": {
       "up": [

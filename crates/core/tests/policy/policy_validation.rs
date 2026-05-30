@@ -213,3 +213,44 @@ negative_test!(
 // and `retrieval-tool-registry` moved under archive/.
 // No negative_test covers them — the emitter doesn't ship
 // archive/.
+
+// The shipped interpretation policy must exclude common statistics /
+// method acronyms (FDR, GSEA, TPM, …) from the gene-symbol entity
+// pattern. Without this, prose like "significant at FDR < 0.05 using
+// GSEA on TPM counts" extracts FDR/GSEA/TPM as fabricated entities and
+// pollutes every DE/enrichment report's verdict list with spurious
+// `unverifiable` rows. Real gene symbols (e.g. NES = Nestin) must still
+// extract.
+#[test]
+fn interpretation_policy_excludes_stats_acronyms_not_genes() {
+    use ecaa_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
+
+    let policy_path = policies_dir().join("interpretation-policy.json");
+    let raw = fs::read_to_string(&policy_path).expect("interpretation policy readable");
+    let policy: serde_json::Value = serde_json::from_str(&raw).expect("policy parses");
+    let cfg = ExtractorConfig::from_policy(&policy).expect("extractor config builds");
+
+    let text = "AKT1 was significantly upregulated at FDR < 0.05 using GSEA on \
+                TPM-normalized counts (Table de). NES was also upregulated (Table de).";
+    let claims = extract_claims(text, &cfg);
+    let entities: Vec<&str> = claims.iter().map(|c| c.entity.as_str()).collect();
+
+    for acronym in ["FDR", "GSEA", "TPM", "CPM", "FPKM", "DE", "DEG", "FC", "QC"] {
+        assert!(
+            !entities.contains(&acronym),
+            "stats acronym `{}` must not be extracted as an entity (got {:?})",
+            acronym,
+            entities
+        );
+    }
+    assert!(
+        entities.contains(&"AKT1"),
+        "real gene AKT1 must extract: {:?}",
+        entities
+    );
+    assert!(
+        entities.contains(&"NES"),
+        "real gene NES (Nestin) must still extract — exclude list must not over-reach: {:?}",
+        entities
+    );
+}
