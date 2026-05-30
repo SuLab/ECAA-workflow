@@ -108,7 +108,7 @@ The conversation service drives `send_turn_streaming` against the Anthropic SSE 
 
 ### State Inspector tabs
 
-The 14 tabs are defined in `ui/src/components/state_inspector/index.ts::TABS`. Tab `id` values retain legacy names (`state`, `jobs`, `metrics`, `verifier_decisions`) for routing; the human labels rendered in the UI are in the second column.
+The 15 tabs are defined in `ui/src/components/state_inspector/index.ts::TABS`. Tab `id` values retain legacy names (`state`, `jobs`, `metrics`, `verifier_decisions`) for routing; the human labels rendered in the UI are in the second column.
 
 | Tab `id` | Label | Source | Purpose |
 |---|---|---|---|
@@ -116,16 +116,17 @@ The 14 tabs are defined in `ui/src/components/state_inspector/index.ts::TABS`. T
 | `composition` | Composition | `GET /api/chat/session/:id/composition` | Atom-level composer trace (which archetype, which atoms, why) |
 | `state` | Status | `GET /api/chat/session/:id/state` | Raw JSON `SessionStateSnapshot` |
 | `documents` | Documents | result-card artifacts | Rendered markdown / narrative documents from completed tasks |
-| `inputs` | Inputs | `GET /api/chat/session/:id/inputs` | SME-uploaded files; manage `runtime/inputs/` before execution |
+| `inputs` | Inputs | `GET /api/chat/session/:id/inputs` | SME-registered server paths + uploaded files; manage the `runtime/inputs.json` manifest before execution |
 | `jobs` | Progress | SSE `harness_progress` | Live feed of harness progress events; auto-switches the first time an event arrives (with aria-live announcement) |
 | `metrics` | Performance | `GET /api/chat/session/:id/metrics` | Polled every 4 s while visible; p50/p95/p99 turn latency, Sonnet/Opus split, token totals, cost buckets |
 | `figures` | Figures | result-card artifacts | Gallery of every rendered PNG / SVG produced by completed tasks |
 | `dashboard` | Dashboard | `GET /api/chat/session/:id/dashboard/index` | Interactive plots from completed tasks (UMAPs, scatter, PCA) |
 | `decisions` | Decisions | `runtime/decisions.jsonl` | Typed audit trail of every SME click + LLM-driven mutation |
 | `repairs` | Repairs | `runtime/outputs/<task_id>/repairs.json` | Per-task post-hoc repair log: what the agent re-ran, why, and what changed |
-| `verifier_decisions` | Verifier | `runtime/claim-verification-report.json` | Narrative-claim cross-check status per completed task |
+| `claims` | Claims | `runtime/claim-verification.json` | Runtime narrative-claim cross-check (`claim_extractor` + `claim_verifier`) per completed task that has a narrative artifact + `verifiableEntities` policy |
+| `verifier_decisions` | Composer trace | `runtime/verifier-decisions.jsonl` | Compile-time port-unification trace from the v4 proof-carrying composer — successful unifications are DAG edges, rejected ones are dead-end search branches |
 | `history` | History | session lineage walk | Parent/child SessionTree across the connected component |
-| `compare` | Compare | `runtime/cross_version_diff.json` | Row-level diff against a parent or sibling session |
+| `compare` | Compare | `runtime/cross-version-diff.json` | Row-level diff against a parent or sibling session |
 
 ## Server API contract — chat surface
 
