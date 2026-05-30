@@ -1619,15 +1619,15 @@ async fn clinical_trial_prose_loads_clinical_taxonomy() {
     assert_eq!(taxonomy.id, "clinical_trial_analysis");
     // `preferred_container` comes from the archetype's
     // `preferred_container.image` field. `clinical_trial_analysis.yaml`
-    // currently pins `rocker/r-ver` (no unbounded egress posture for
-    // clinical-trial agents; see the file's preferred_container comment
-    // for the PCCP rationale). When the archetype's image changes,
-    // update this expectation in lockstep — the test is checking that
-    // the loader threads the value through, not which specific image
-    // is correct.
+    // pins the `bio-min` eval base (NOT a bare `rocker/r-ver` image —
+    // the agent execution model needs python3 + node, which `rocker/r-ver`
+    // lacks; see the file's preferred_container comment for the PCCP
+    // rationale). When the archetype's image changes, update this
+    // expectation in lockstep — the test is checking that the loader
+    // threads the value through, not which specific image is correct.
     assert_eq!(
         taxonomy.preferred_container.as_deref(),
-        Some("rocker/r-ver")
+        Some("ghcr.io/scripps/bio-min")
     );
     // DAG is now built via the `clinical_trial_analysis`
     // Archetype rather than the legacy taxonomy. update —
