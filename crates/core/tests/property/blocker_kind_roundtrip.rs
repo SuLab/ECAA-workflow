@@ -13,8 +13,8 @@
 //! versa) would break the round-trip and surface here before reaching
 //! the UI dispatch table.
 
-use proptest::prelude::*;
 use ecaa_workflow_core::blocker::{BlockerKind, ExcludedPath, StallAction, StallSignalWire};
+use proptest::prelude::*;
 
 /// Strategy for `StallSignalWire` so the `Stalled` variant round-trips
 /// across all four sub-shapes.

@@ -24,14 +24,12 @@
 //! `Incompatible` (the engine cannot prove the implicit
 //! narrowing).
 
-use proptest::prelude::*;
 use ecaa_workflow_core::compatibility::engine::{
     CompatibilityEngine, CompatibilityResult, DeterministicCompatibilityEngine, PlanningContext,
 };
 use ecaa_workflow_core::workflow_contracts::port::PortContract;
-use ecaa_workflow_core::workflow_contracts::semantic_type::{
-    LocalExtensionMaturity, SemanticType,
-};
+use ecaa_workflow_core::workflow_contracts::semantic_type::{LocalExtensionMaturity, SemanticType};
+use proptest::prelude::*;
 
 /// Build a producer port carrying an Opaque semantic type with the
 /// supplied description.

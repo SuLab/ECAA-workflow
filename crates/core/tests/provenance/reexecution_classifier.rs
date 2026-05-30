@@ -16,9 +16,7 @@
 use ecaa_workflow_core::determinism_shim::{
     DeterminismShimSidecar, EnvCapture, SeedPolicy, TempPathPolicy,
 };
-use ecaa_workflow_core::reexecution::{
-    classify_reexecution, ReexecutionBucket, ReexecutionReport,
-};
+use ecaa_workflow_core::reexecution::{classify_reexecution, ReexecutionBucket, ReexecutionReport};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;

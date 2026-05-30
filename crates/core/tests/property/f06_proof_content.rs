@@ -16,11 +16,9 @@
 //! OntologyTerm.iri, LocalExtension parents+id, or an
 //! opaque-hash bucket id.
 
-use proptest::prelude::*;
 use ecaa_workflow_core::compatibility::proof_builder::ontology_path_for_semantic_type;
-use ecaa_workflow_core::workflow_contracts::semantic_type::{
-    LocalExtensionMaturity, SemanticType,
-};
+use ecaa_workflow_core::workflow_contracts::semantic_type::{LocalExtensionMaturity, SemanticType};
+use proptest::prelude::*;
 
 fn arb_semantic_type() -> impl Strategy<Value = SemanticType> {
     prop_oneof![

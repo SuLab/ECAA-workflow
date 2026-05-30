@@ -7,9 +7,7 @@
 #[test]
 fn backward_search_finds_atac_peak_chain_from_fastq() {
     use ecaa_workflow_core::atom_registry::AtomRegistry;
-    use ecaa_workflow_core::composer_v4::backward_search::{
-        search_backward, BackwardSearchInput,
-    };
+    use ecaa_workflow_core::composer_v4::backward_search::{search_backward, BackwardSearchInput};
 
     let atoms = AtomRegistry::load_from_dir(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

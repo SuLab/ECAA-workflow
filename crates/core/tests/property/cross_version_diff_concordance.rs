@@ -16,10 +16,10 @@
 //! `tempdir()` with a small randomized de.tsv table; runs
 //! `diff_packages` and checks the invariants.
 
-use proptest::prelude::*;
 use ecaa_workflow_core::cross_version_diff::{
     diff_packages, CrossVersionConfig, RowClassification, TableDiffConfig,
 };
+use proptest::prelude::*;
 use std::path::Path;
 
 /// Strategy for one de.tsv row: gene id + log2FC + padj. Genes drawn

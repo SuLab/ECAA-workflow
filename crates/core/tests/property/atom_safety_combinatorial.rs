@@ -15,12 +15,12 @@
 //! drives the enumeration so failures shrink to the smallest violating
 //! tuple.
 
-use proptest::prelude::*;
 use ecaa_workflow_core::atom::{
     AtomDefinition, CodeExecution, NetworkPolicy, ProvisioningPolicy, SafetyLevel,
     SandboxRequirement,
 };
 use ecaa_workflow_core::atom_safety::validate_atom_safety;
+use proptest::prelude::*;
 
 fn safety_level_strategy() -> impl Strategy<Value = SafetyLevel> {
     prop_oneof![

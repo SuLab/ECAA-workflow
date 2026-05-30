@@ -24,13 +24,13 @@
 //! `crates/conversation/src/tools/mod.rs` — those are not Tier-F
 //! property tests; the Tier-F suite owns the typed-shape invariants.
 
-use proptest::prelude::*;
 use ecaa_workflow_core::decision_substrate::{
     drain, record, stable_id, timestamp, VerifierDecision,
 };
 use ecaa_workflow_core::lifecycle_adversarial::{
     AdjudicationQueueEntry, AdjudicationStatus, LifecycleTransition,
 };
+use proptest::prelude::*;
 use std::sync::Mutex;
 
 /// The decision substrate buffer is process-wide. Tests that exercise

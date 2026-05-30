@@ -1,6 +1,4 @@
-use ecaa_workflow_core::plot_affordance::registry::{
-    PlotAffordanceRegistry, RegisteredAffordance,
-};
+use ecaa_workflow_core::plot_affordance::registry::{PlotAffordanceRegistry, RegisteredAffordance};
 use ecaa_workflow_core::plot_affordance::{
     resolve_affordance, GenericPrimitive, PhysicalShape, PlotAffordance, PortDescriptor,
 };

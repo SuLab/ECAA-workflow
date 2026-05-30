@@ -13,8 +13,8 @@
 //! redundant. The property covers that as well: a `Private` scan of
 //! the same payload returns an empty leak set so the emit proceeds.
 
-use proptest::prelude::*;
 use ecaa_workflow_core::provenance_tiers::{detect_phi_leak, ProvenanceTier};
+use proptest::prelude::*;
 
 proptest! {
     /// F16 property — any SSN-shaped triple inside a JSONL field is

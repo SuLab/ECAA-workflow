@@ -21,9 +21,7 @@
 //! over this core logic; exercising it separately keeps test scope minimal.
 
 use ecaa_workflow_core::backend_emitters::workflow_json::PlotAffordanceRecord;
-use ecaa_workflow_core::plot_affordance::registry::{
-    PlotAffordanceRegistry, RegisteredAffordance,
-};
+use ecaa_workflow_core::plot_affordance::registry::{PlotAffordanceRegistry, RegisteredAffordance};
 use ecaa_workflow_core::plot_affordance::{
     resolve_affordance, AffordanceFallbackCounter, GenericPrimitive, PhysicalShape, PlotAffordance,
     PortDescriptor,

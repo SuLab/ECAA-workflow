@@ -269,9 +269,7 @@ fn emit_v4(
     workflow_id: &str,
 ) -> Result<V4Emission, String> {
     use ecaa_workflow_core::composer_v4::{plan as v4_plan, PlanningContext};
-    use ecaa_workflow_core::workflow_contracts::workflow_intent::{
-        DesiredOutput, WorkflowIntent,
-    };
+    use ecaa_workflow_core::workflow_contracts::workflow_intent::{DesiredOutput, WorkflowIntent};
 
     let modalities: Vec<&str> = state.modalities.iter().map(String::as_str).collect();
 

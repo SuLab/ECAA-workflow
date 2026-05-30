@@ -20,11 +20,11 @@
 //! is the canonical source of truth for which kinds may carry an
 //! empty vec).
 
-use proptest::prelude::*;
 use ecaa_workflow_core::sandbox_refusal_category::SandboxRefusalCategory;
 use ecaa_workflow_core::workflow_contracts::outcome::{RefusalReport, RefusalValidationError};
 use ecaa_workflow_core::workflow_contracts::refusal_kind::RefusalKind;
 use ecaa_workflow_core::workflow_contracts::unblock_path::{ProjectedOutcome, UnblockPath};
+use proptest::prelude::*;
 
 /// Strategy over non-hard refusal kinds. The property below asserts
 /// that none of these admit an empty `unblock_paths` vec.

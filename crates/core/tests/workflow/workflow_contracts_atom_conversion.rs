@@ -134,10 +134,8 @@ fn agent_atoms_with_container_become_container_command() {
     let registry = registry();
     for (_id, atom) in registry.iter() {
         let node = TaskNode::from_atom(atom);
-        if matches!(
-            atom.assignee,
-            ecaa_workflow_core::atom::AtomAssignee::Agent
-        ) && atom.preferred_container.is_some()
+        if matches!(atom.assignee, ecaa_workflow_core::atom::AtomAssignee::Agent)
+            && atom.preferred_container.is_some()
         {
             assert!(
                 matches!(node.implementation, Implementation::ContainerCommand { .. }),

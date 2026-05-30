@@ -6,9 +6,9 @@
 //! property to assert substrate emission of `OntologyScopeChecked` for
 //! forbidden-ontology proposals.
 
-use proptest::prelude::*;
 use ecaa_workflow_core::ontology_scope::{OntologyScopeMatrix, ScopeCheck};
 use ecaa_workflow_core::workflow_contracts::workflow_intent::BioinformaticsModality;
+use proptest::prelude::*;
 
 proptest! {
     /// Same (modality × prefix) lookup returns the same outcome

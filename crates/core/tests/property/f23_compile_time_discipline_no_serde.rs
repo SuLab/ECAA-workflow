@@ -22,8 +22,7 @@ fn phantom_module_does_not_leak_into_lib_re_exports() {
     // wrappers from `crate::compile_time_discipline`. Re-exporting
     // those wrappers would cause monomorphised generic IR types to
     // mention them in their fully-qualified names.
-    let path =
-        std::any::type_name::<ecaa_workflow_core::workflow_contracts::task_node::TaskNode>();
+    let path = std::any::type_name::<ecaa_workflow_core::workflow_contracts::task_node::TaskNode>();
     assert!(
         !path.contains("AlignedReads"),
         "phantom-typed `AlignedReads<R>` leaked into the public IR via TaskNode: {path}",

@@ -9,8 +9,8 @@
 //! Option::unwrap on the registry. Proptest catches all three classes
 //! before they reach a fixture.
 
-use proptest::prelude::*;
 use ecaa_workflow_core::classify::Classifier;
+use proptest::prelude::*;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 

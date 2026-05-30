@@ -11,9 +11,7 @@
 pub mod invariants;
 pub mod loader;
 
-pub use ecaa_workflow_types::{
-    AuditProofReport, InvariantId, InvariantStatus, InvariantVerdict,
-};
+pub use ecaa_workflow_types::{AuditProofReport, InvariantId, InvariantStatus, InvariantVerdict};
 
 use crate::audit_proof::invariants::{
     claim_completeness::check_claim_completeness,

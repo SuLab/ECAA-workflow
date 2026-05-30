@@ -20,9 +20,7 @@ use ecaa_workflow_core::archetype::{
     CURRENT_ARCHETYPE_SCHEMA_VERSION,
 };
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
-use ecaa_workflow_core::composer::{
-    resolve_inheritance, CompositionError, INHERITANCE_DEPTH_CAP,
-};
+use ecaa_workflow_core::composer::{resolve_inheritance, CompositionError, INHERITANCE_DEPTH_CAP};
 use std::collections::BTreeMap;
 
 fn arch(id: &str, atoms: Vec<ArchetypeAtomRef>, compose: Vec<ComposeRef>) -> ArchetypeDefinition {

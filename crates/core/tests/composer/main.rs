@@ -3,8 +3,8 @@
 // verbatim relocation; #[test] behavior is unchanged.
 mod compose_inheritance;
 mod composer_adversarial;
-mod composer_cross_omics_n_way;
 mod composer_cross_omics;
+mod composer_cross_omics_n_way;
 mod composer_determinism;
 mod composer_generic_omics_fallthrough;
 mod composer_literature;
