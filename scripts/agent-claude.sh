@@ -490,15 +490,25 @@ MODEL_FLAG_ARGS=()
 # alternative only blocks the task after the agent has already
 # spent the tokens.
 #
-# Calibrated against measured per-task-class averages:
-#   validate_*   $1.90 avg (Opus) → $0.75 cap (Sonnet)
-#   discover_*   $1.44 avg (Opus) → $1.50 cap (slight margin)
-#   data_acq     $1.04 avg        → $1.20 cap
-#   reporting    $0.95 avg        → $1.50 cap
-#   analytical   $1.30 avg        → $1.75 cap
+# A cap is a CEILING, not a mean: set it at ~1.5x the observed tail of the
+# class's real cost distribution (on the model that actually runs the
+# class), not at a point estimate of the average. The prior values were
+# derived by dividing an Opus-measured average by an assumed Sonnet cost
+# ratio; that under-counted because a cheaper model often needs MORE turns
+# for the same work. In a live bulk-RNA-seq run the $0.75 validate cap and
+# the $1.75 analytical cap were both exceeded by legitimately-completed
+# tasks (validate_pathway_enrichment $0.76 across 28 checks; normalisation
+# $1.78), so heavy-but-valid tasks were false-blocked on TurnBudgetExceeded.
 #
-# Per-class envs override the defaults; ECAA_AGENT_BUDGET_USD
-# overrides all classes. Set to 0 to disable the cap entirely.
+# Recalibrated from measured Sonnet per-task cost (live run) + ~1.5x headroom:
+#   validate_*   max $0.76 observed → $1.25 cap
+#   discover_*   max $0.95 (Opus)   → $1.50 cap (already well-margined)
+#   data_acq     $0.86 (n=1)        → $1.50 cap
+#   analytical   max $1.78 observed → $2.50 cap (also governs reporting/
+#                final_reporting, which have no dedicated branch below)
+#
+# Single-modality sample; the per-class envs let operators tune per run, and
+# ECAA_AGENT_BUDGET_USD overrides all classes. Set to 0 to disable the cap.
 BUDGET_FLAG_ARGS=()
 if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
   case "$ECAA_TASK_ID" in
@@ -508,7 +518,7 @@ if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
       # than Opus. Tighter budget than discover_* because validators
       # have a stable codegen shape.
       MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
-      _BUDGET="${ECAA_AGENT_BUDGET_USD_VALIDATE:-0.75}"
+      _BUDGET="${ECAA_AGENT_BUDGET_USD_VALIDATE:-1.25}"
       ;;
     discover_*)
       # discover_* tasks score methods via env-capability + spec
@@ -519,7 +529,7 @@ if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
       ;;
     data_acquisition|data_import)
       MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
-      _BUDGET="${ECAA_AGENT_BUDGET_USD_DATA_ACQ:-1.20}"
+      _BUDGET="${ECAA_AGENT_BUDGET_USD_DATA_ACQ:-1.50}"
       ;;
     *)
       # Pull the task kind only when needed — `kind: discovery` is a
@@ -537,7 +547,7 @@ if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
         _BUDGET="${ECAA_AGENT_BUDGET_USD_DISCOVER:-1.50}"
       else
         MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
-        _BUDGET="${ECAA_AGENT_BUDGET_USD_ANALYTICAL:-1.75}"
+        _BUDGET="${ECAA_AGENT_BUDGET_USD_ANALYTICAL:-2.50}"
       fi
       ;;
   esac
