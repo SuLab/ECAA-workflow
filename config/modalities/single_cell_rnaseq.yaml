@@ -11,6 +11,14 @@ keywords:
   - "sn rna-seq"
   - "snrna-seq"
   - "snrnaseq"
+  # Bare "snrna" catches abbreviation-heavy multimodal prose ("paired
+  # snRNA + snATAC") that names neither "single-nucleus" nor "snRNA-seq"
+  # in full — needed so SHARE-seq / multiome prompts route single-cell
+  # primary (not bulk_rnaseq) and the cross-omics companion-force can
+  # pick the paired-omics archetype. Deliberately NOT adding bare
+  # "per-nucleus": it also appears in single-nucleus *methylation*
+  # (snmC-seq) prose and would mis-pull that toward single_cell_rnaseq.
+  - "snrna"
   - "10x"
   - "chromium"
   - "dropseq"

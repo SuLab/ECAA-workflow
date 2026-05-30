@@ -561,6 +561,12 @@ impl Classifier {
             ("riboseq", "ribo_seq"),
             ("immunopeptidomics", "immunopeptidomics"),
             ("hla peptide", "immunopeptidomics"),
+            // NetMHCpan/NetMHC binding prediction is unambiguous for HLA
+            // immunopeptidomics — an HLA-IP + LC-MS/MS prompt that names it
+            // must not fall to generic proteomics on shared "lc-ms" hits.
+            ("netmhcpan", "immunopeptidomics"),
+            ("netmhc", "immunopeptidomics"),
+            ("hla immunoprecipitation", "immunopeptidomics"),
             // chip-exo precedence — the IDF-weighted tie between
             // chip_seq + chip_exo + bulk_rnaseq was non-deterministic
             // because chip_exo only contributed 1 hit on "chip exo"
@@ -1755,10 +1761,17 @@ fn is_cross_omics_intent(normalized_text: &str) -> bool {
             let conj_idx = search_start + rel_idx;
             let before = &normalized_text[..conj_idx];
             let after = &normalized_text[conj_idx + conj.len()..];
-            let before_match = MODALITY_NOUNS.iter().find(|n| before.contains(*n)).copied();
-            let after_match = MODALITY_NOUNS.iter().find(|n| after.contains(*n)).copied();
-            if let (Some(a), Some(b)) = (before_match, after_match) {
-                if a != b {
+            // Find a modality noun before the conjunction, then a
+            // DISTINCT noun after it. Picking the first after-noun
+            // unconditionally mis-fires when the SAME modality recurs
+            // later in the prose (e.g. "...bulk RNA-seq and whole-genome
+            // bisulfite sequencing. We want the RNA-seq branch...") — the
+            // recurring "rna seq" in `after` shadowed the genuine
+            // "bisulfite" companion, so a==b and the cross-omics intent
+            // was missed. Requiring the after-noun to differ from the
+            // before-noun surfaces the real second modality.
+            if let Some(a) = MODALITY_NOUNS.iter().find(|n| before.contains(*n)).copied() {
+                if MODALITY_NOUNS.iter().any(|n| *n != a && after.contains(n)) {
                     return true;
                 }
             }
@@ -1874,12 +1887,50 @@ impl Classifier {
             "snf integration",
             &[("kind", "network_fusion"), ("integrator", "snf")],
         ),
-        // Paired-omics protocols.
-        ("multiome arc", &[("kind", "arc_demultiplex")]),
-        ("10x multiome", &[("kind", "arc_demultiplex")]),
-        ("share seq", &[("kind", "share_seq_barcode")]),
-        ("share-seq", &[("kind", "share_seq_barcode")]),
-        ("shareseq", &[("kind", "share_seq_barcode")]),
+        // Paired-omics protocols. The `protocol` modifier pins the
+        // cross_omics_rnaseq_atac protocol slot directly (Priority-1 in
+        // resolve_slot_value) so it is immune to the source_prose
+        // fallback — "WNN integration" sets integrator=multiome (WNN is
+        // the joint-embedding method for BOTH multiome and SHARE-seq)
+        // which would otherwise leak into the slot's prose buffer and
+        // force multiome_arc over share_seq.
+        (
+            "multiome arc",
+            &[("kind", "arc_demultiplex"), ("protocol", "multiome_arc")],
+        ),
+        (
+            "10x multiome",
+            &[("kind", "arc_demultiplex"), ("protocol", "multiome_arc")],
+        ),
+        (
+            "share seq",
+            &[("kind", "share_seq_barcode"), ("protocol", "share_seq")],
+        ),
+        (
+            "share-seq",
+            &[("kind", "share_seq_barcode"), ("protocol", "share_seq")],
+        ),
+        (
+            "shareseq",
+            &[("kind", "share_seq_barcode"), ("protocol", "share_seq")],
+        ),
+        // Pooled CRISPR-screen scRNA-seq (Perturb-seq / CROP-seq).
+        // Sets modifiers["protocol"]=perturb_seq so the single_cell_de
+        // `protocol` slot injects sgrna_assignment + per-perturbation
+        // pseudobulk DE. The `protocol` slot only exists on single_cell_de,
+        // so this modifier is inert for every other archetype/integrator.
+        ("perturb seq", &[("protocol", "perturb_seq")]),
+        ("perturbseq", &[("protocol", "perturb_seq")]),
+        ("crop seq", &[("protocol", "perturb_seq")]),
+        ("cropseq", &[("protocol", "perturb_seq")]),
+        ("cas9 knockout screen", &[("protocol", "perturb_seq")]),
+        ("crispr screen", &[("protocol", "perturb_seq")]),
+        ("crispri screen", &[("protocol", "perturb_seq")]),
+        ("crispra screen", &[("protocol", "perturb_seq")]),
+        ("pooled crispr", &[("protocol", "perturb_seq")]),
+        ("pooled crispri", &[("protocol", "perturb_seq")]),
+        ("dcas9", &[("protocol", "perturb_seq")]),
+        ("sgrna", &[("protocol", "perturb_seq")]),
     ];
 
     /// Keyword-path goal extraction. Walks
