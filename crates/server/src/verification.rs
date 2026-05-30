@@ -8,9 +8,12 @@
 //! two together. Called by `get_task_result` in `chat_routes/tasks.rs`
 //! so the UI's `ResultReviewTurnCard` can render the verification badge.
 
-use ecaa_workflow_core::claim_extractor::{extract_claims, ExtractorConfig};
+use ecaa_workflow_core::claim_extractor::{
+    extract_claims, extract_markdown_table_claims, ExtractorConfig,
+};
 use ecaa_workflow_core::claim_verifier::{
-    demote_claims_from_deviations, verify_claims, ClaimVerificationReport,
+    demote_claims_from_deviations, verify_claims_with_discovery, verify_structured_claims,
+    ClaimVerificationReport, StructuredClaim,
 };
 use ecaa_workflow_core::decision_log::DecisionRecord;
 use ecaa_workflow_core::project_class::ProjectClass;
@@ -39,27 +42,49 @@ pub fn verify_task_with_context(
     decisions: &[DecisionRecord],
     is_confirmatory: bool,
 ) -> Option<TaskVerification> {
-    let narrative_path = find_narrative_artifact(package_root, task_id)?;
     let policy = load_interpretation_policy(config_dir)?;
     let policy_dir = config_dir.join("downstream-policy");
     let cfg = ExtractorConfig::from_policy_for_class(&policy, &policy_dir, project_class).ok()?;
-    let narrative = std::fs::read_to_string(&narrative_path).ok()?;
 
-    let tables_root = package_root.join("results").join("tables");
-    let effective_root = if tables_root.is_dir() {
-        tables_root
-    } else {
-        // Fallback: tables may live alongside the narrative in the
-        // task runtime directory if the agent did not copy them into
-        // results/. The harness writes outputs under
-        // `runtime/outputs/<task_id>/` (canonical); legacy packages
-        // used `runtime/<task_id>/`. Try the canonical layout first.
-        resolve_task_runtime_dir_local(package_root, task_id)
-            .unwrap_or_else(|| package_root.join("runtime").join(task_id))
-    };
+    let narrative_path = find_narrative_artifact(package_root, task_id);
+    let mut report = ClaimVerificationReport::empty();
 
-    let claims = extract_claims(&narrative, &cfg);
-    let mut report = verify_claims(&claims, &effective_root, &cfg);
+    // 1. Prose-narrative claims, when the task wrote a `.md` report.
+    if let Some(np) = narrative_path.as_ref() {
+        if let Ok(narrative) = std::fs::read_to_string(np) {
+            let tables_root = package_root.join("results").join("tables");
+            let effective_root = if tables_root.is_dir() {
+                tables_root
+            } else {
+                // Tables may live alongside the narrative in the task
+                // runtime directory. Canonical layout is
+                // `runtime/outputs/<task_id>/`; legacy used
+                // `runtime/<task_id>/`.
+                resolve_task_runtime_dir_local(package_root, task_id)
+                    .unwrap_or_else(|| package_root.join("runtime").join(task_id))
+            };
+            let mut claims = extract_claims(&narrative, &cfg);
+            claims.extend(extract_markdown_table_claims(&narrative, &cfg));
+            for v in verify_claims_with_discovery(&claims, &effective_root, package_root, &cfg) {
+                report.push(v);
+            }
+        }
+    }
+
+    // 2. Structured `result.json` claims (evidence-backed) — verifiable
+    //    even when the task wrote no prose narrative at all
+    //    (e.g. differential_expression / pathway_enrichment, whose
+    //    outputs are tables + a structured claims list).
+    let structured = load_structured_claims(package_root, task_id);
+    for v in verify_structured_claims(&structured, package_root, &cfg) {
+        report.push(v);
+    }
+
+    // Nothing to verify: no narrative AND no structured claims.
+    if narrative_path.is_none() && report.n_checked == 0 {
+        return None;
+    }
+
     demote_claims_from_deviations(&mut report, decisions, is_confirmatory);
 
     // / D6 (c): locate the agent's runtime decision log if it exists,
@@ -89,10 +114,43 @@ pub fn verify_task_with_context(
         }
     }
 
+    // For the response's `narrative_path`, fall back to the task's
+    // result.json when there was no prose narrative.
+    let narrative_path = narrative_path.unwrap_or_else(|| {
+        resolve_task_runtime_dir_local(package_root, task_id)
+            .map(|d| d.join("result.json"))
+            .unwrap_or_else(|| package_root.join("runtime").join(task_id))
+    });
+
     Some(TaskVerification {
         narrative_path,
         report,
     })
+}
+
+/// Load a task's structured claims from `result.json`'s `claims` array.
+/// Returns an empty vec when the file is missing, unparsable, or has no
+/// `claims` field — structured claims are optional, not an error.
+fn load_structured_claims(package_root: &Path, task_id: &str) -> Vec<StructuredClaim> {
+    let Some(dir) = resolve_task_runtime_dir_local(package_root, task_id) else {
+        return Vec::new();
+    };
+    let path = dir.join("result.json");
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return Vec::new();
+    };
+    value
+        .get("claims")
+        .and_then(|c| c.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| serde_json::from_value::<StructuredClaim>(v.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 // Canonical task-outputs layout is `runtime/outputs/<task_id>/`; legacy
@@ -161,6 +219,67 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::tempdir;
+
+    // Throwaway local-validation harness: run the real verifier against a
+    // real emitted package on disk. Ignored by default (path is machine-
+    // specific). Run with:
+    //   ECAA_REAL_PKG=<path> cargo test -p ecaa-workflow-server \
+    //     real_package_smoke -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn real_package_smoke() {
+        let pkg = std::env::var("ECAA_REAL_PKG").expect("set ECAA_REAL_PKG");
+        let config_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config");
+        // Enumerate every task that produced output, so this works for any
+        // modality (not just the RNA-seq task names).
+        let outputs = std::path::Path::new(&pkg).join("runtime").join("outputs");
+        let mut tasks: Vec<String> = std::fs::read_dir(&outputs)
+            .map(|rd| {
+                rd.flatten()
+                    .filter(|e| e.path().is_dir())
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default();
+        tasks.sort();
+        let (mut tot_v, mut tot_m, mut tot_u) = (0usize, 0usize, 0usize);
+        for task in &tasks {
+            let task = task.as_str();
+            match verify_task_with_context(
+                std::path::Path::new(&pkg),
+                task,
+                &config_dir,
+                ProjectClass::Bioinformatics,
+                &[],
+                false,
+            ) {
+                None => {}
+                Some(v) => {
+                    let r = &v.report;
+                    if r.n_checked == 0 {
+                        continue;
+                    }
+                    tot_v += r.n_verified;
+                    tot_m += r.n_mismatch;
+                    tot_u += r.n_unverifiable;
+                    println!(
+                        "{task:28} -> checked={} VERIFIED={} mismatch={} unverifiable={}",
+                        r.n_checked, r.n_verified, r.n_mismatch, r.n_unverifiable
+                    );
+                    for vd in &r.verdicts {
+                        if let ecaa_workflow_core::claim_verifier::ClaimStatus::Mismatch {
+                            detail,
+                        } = &vd.status
+                        {
+                            let ent: String = vd.claim.entity.chars().take(40).collect();
+                            println!("      MISMATCH {ent}: {detail:.90}");
+                        }
+                    }
+                }
+            }
+        }
+        println!("PKG TOTALS: VERIFIED={tot_v} mismatch={tot_m} unverifiable={tot_u}");
+    }
 
     fn write(path: &Path, body: &str) {
         if let Some(parent) = path.parent() {
