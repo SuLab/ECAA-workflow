@@ -293,6 +293,53 @@ enforce_turn_budget_limit() {
         fi
     fi
 
+    # The budget/turn cut can land AFTER the agent produced a passing result
+    # but BEFORE it wrote the terminal state.patch.json (the harness's
+    # completion signal). Don't downgrade genuinely-finished work to Blocked:
+    # if result.json self-reports completed, or a validation_report.json
+    # passed, synthesize the completed patch the agent didn't get to write.
+    # The turn cap is a runaway-safety net, not a quality gate over finished
+    # work — same trust level as the completed-state.patch branch above.
+    local result_file="$task_dir/result.json"
+    local vr_file="$task_dir/validation_report.json"
+    local succeeded=""
+    if [ -f "$result_file" ]; then
+        local rstatus
+        rstatus="$(jq -r '.status // ""' "$result_file" 2>/dev/null || echo "")"
+        [ "$rstatus" = "completed" ] && succeeded="result.json status=completed"
+    fi
+    if [ -z "$succeeded" ] && [ -f "$vr_file" ]; then
+        local vstatus
+        vstatus="$(jq -r '(.overall_result // "") | ascii_upcase' "$vr_file" 2>/dev/null || echo "")"
+        [ "$vstatus" = "PASS" ] && succeeded="validation_report.json overall_result=PASS"
+    fi
+    if [ -n "$succeeded" ]; then
+        local epoch_ok="${ECAA_DISPATCH_EPOCH:-}"
+        [[ "$epoch_ok" =~ ^[0-9]+$ ]] || epoch_ok=""
+        # Only write a result.json when the agent didn't already leave a
+        # completed one (e.g. a validate task that wrote only the report) —
+        # never clobber the agent's own completed result.
+        local cur_rstatus=""
+        [ -f "$result_file" ] && cur_rstatus="$(jq -r '.status // ""' "$result_file" 2>/dev/null || echo "")"
+        if [ "$cur_rstatus" != "completed" ]; then
+            local tmp_r2; tmp_r2="$(mktemp)"
+            jq -n --arg tid "$task_id" \
+              --arg note "Completed; turn/budget cap (${num_turns}>${max_turns}) reached after a passing ${succeeded} was written." \
+              '{task_id:$tid, status:"completed", rationale:$note, claims:[], figures:[]}' > "$tmp_r2"
+            mv "$tmp_r2" "$result_file"
+        fi
+        local tmp_p2; tmp_p2="$(mktemp)"
+        jq -n \
+          --arg note "Completed despite turn/budget cap (${num_turns}>${max_turns}); ${succeeded}" \
+          --arg run_id "${ECAA_HARNESS_RUN_ID:-}" --arg epoch "$epoch_ok" \
+          '{from:"running", to:{status:"completed", result:{summary:$note, completed_despite_budget_overrun:true}}}
+           | if $run_id != "" then . + {harness_run_id:$run_id} else . end
+           | if $epoch != "" then . + {dispatch_epoch:($epoch|tonumber)} else . end' > "$tmp_p2"
+        mv "$tmp_p2" "$task_dir/state.patch.json"
+        echo "[turn-budget] task $task_id ran $num_turns turns (cap $max_turns) but $succeeded; completing instead of blocking" >&2
+        return 0
+    fi
+
     local reason="Task ran ${num_turns} turns; cap is ${max_turns}. Inspect agent-claude.log."
     mkdir -p "$task_dir" 2>/dev/null || true
 

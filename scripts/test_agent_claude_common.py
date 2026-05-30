@@ -161,6 +161,81 @@ def test_turn_budget_enforcement_respects_completed_state_patch(tmp_path):
     assert patch["to"]["status"] == "completed"
 
 
+def test_turn_budget_respects_passing_validation_report_without_patch(tmp_path):
+    # Budget cut hit AFTER a validate task wrote a passing validation_report.json
+    # but BEFORE it wrote a terminal state.patch.json. The work passed (28/28),
+    # so enforcement must complete it, not block it on TurnBudgetExceeded.
+    package = tmp_path / "pkg"
+    task_dir = package / "runtime" / "outputs" / "validate_pathway_enrichment"
+    task_dir.mkdir(parents=True)
+    (task_dir / "agent-usage.json").write_text(json.dumps({"num_turns": 29}) + "\n")
+    (task_dir / "validation_report.json").write_text(
+        json.dumps({"overall_result": "PASS", "n_checks": 28, "n_pass": 28, "n_fail": 0})
+    )
+    # No state.patch.json, no result.json — the budget cut them off.
+
+    result = run_common_helper(
+        "ECAA_HARNESS_RUN_ID=run9 ECAA_DISPATCH_EPOCH=13 "
+        f'enforce_turn_budget_limit "{package}" validate_pathway_enrichment 25'
+    )
+
+    assert result.returncode == 0, result.stderr
+    patch = json.loads((task_dir / "state.patch.json").read_text())
+    assert patch["to"]["status"] == "completed", patch
+    assert patch.get("dispatch_epoch") == 13
+    task_result = json.loads((task_dir / "result.json").read_text())
+    assert task_result["status"] == "completed", task_result
+
+
+def test_turn_budget_respects_completed_result_json_without_patch(tmp_path):
+    # Agent wrote result.json status=completed but ran out of budget before the
+    # state.patch.json. Enforcement should synthesize a completed patch and keep
+    # the agent's result, not overwrite it with a blocked one.
+    package = tmp_path / "pkg"
+    task_dir = package / "runtime" / "outputs" / "normalisation"
+    task_dir.mkdir(parents=True)
+    (task_dir / "agent-usage.json").write_text(json.dumps({"num_turns": 63}) + "\n")
+    (task_dir / "result.json").write_text(
+        json.dumps({"task_id": "normalisation", "status": "completed",
+                    "method": "deseq2_vst", "figures": ["figures/mean_variance.png"]})
+    )
+
+    result = run_common_helper(
+        f'enforce_turn_budget_limit "{package}" normalisation 25'
+    )
+
+    assert result.returncode == 0, result.stderr
+    patch = json.loads((task_dir / "state.patch.json").read_text())
+    assert patch["to"]["status"] == "completed", patch
+    task_result = json.loads((task_dir / "result.json").read_text())
+    assert task_result["status"] == "completed"
+    # the agent's own result.json must be preserved, not clobbered to a stub
+    assert task_result.get("method") == "deseq2_vst", task_result
+
+
+def test_turn_budget_blocks_when_incomplete_and_no_success_signal(tmp_path):
+    # Genuinely incomplete: over cap, no completed patch, no passing result or
+    # validation report. The safety net must still block.
+    package = tmp_path / "pkg"
+    task_dir = package / "runtime" / "outputs" / "differential_expression"
+    task_dir.mkdir(parents=True)
+    (task_dir / "agent-usage.json").write_text(json.dumps({"num_turns": 60}) + "\n")
+    (task_dir / "result.json").write_text(
+        json.dumps({"task_id": "differential_expression", "status": "running"})
+    )
+
+    result = run_common_helper(
+        f'enforce_turn_budget_limit "{package}" differential_expression 25'
+    )
+
+    assert result.returncode == 0, result.stderr
+    patch = json.loads((task_dir / "state.patch.json").read_text())
+    assert patch["to"]["status"] == "blocked", patch
+    task_result = json.loads((task_dir / "result.json").read_text())
+    assert task_result["status"] == "blocked"
+    assert task_result["blocker_kind"] == "TurnBudgetExceeded"
+
+
 def test_docker_api_key_not_embedded_in_process_argv():
     script = Path("scripts/agent-claude.sh").read_text()
 
