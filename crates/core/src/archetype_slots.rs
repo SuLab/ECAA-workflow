@@ -70,17 +70,159 @@ pub fn resolve_slot_value(manifest: &SlotManifest, prose: &str) -> String {
             return v.id.clone();
         }
     }
-    // Priority 2: keyword substring scan.
+    // Priority 2: keyword substring scan, skipping matches that fall
+    // inside a negated list of this slot's own values (e.g. "No DIABLO /
+    // MOFA / SNF requested" must NOT select an integrator).
+    let vocab = slot_vocabulary(manifest);
     for v in &manifest.values {
         for kw in &v.keywords {
             let needle = normalize_for_match(kw);
-            if !needle.is_empty() && normalized.contains(&needle) {
-                return v.id.clone();
+            if needle.is_empty() {
+                continue;
+            }
+            if let Some(pos) = normalized.find(&needle) {
+                if !is_list_negated(&normalized[..pos], &vocab) {
+                    return v.id.clone();
+                }
             }
         }
     }
     // Priority 3: manifest default.
     manifest.default.clone()
+}
+
+/// Normalized word tokens that belong to THIS slot's own vocabulary —
+/// the union of every value's keyword words plus every value id. Used to
+/// decide whether a negation cue governs a *list of slot values* (e.g.
+/// "no diablo / mofa / snf") rather than some unrelated phrase.
+fn slot_vocabulary(manifest: &SlotManifest) -> std::collections::BTreeSet<String> {
+    let mut set = std::collections::BTreeSet::new();
+    for v in &manifest.values {
+        for w in normalize_for_match(&v.id).split_whitespace() {
+            set.insert(w.to_string());
+        }
+        for kw in &v.keywords {
+            for w in normalize_for_match(kw).split_whitespace() {
+                set.insert(w.to_string());
+            }
+        }
+    }
+    set
+}
+
+/// Build a negation-scope vocabulary from a flat list of phrase tokens
+/// (each split into normalized words). For reuse by other naive
+/// keyword-scan sites that share the same negation hazard as the slot
+/// resolver (e.g. the integrator-token scans in classify / dispatch).
+pub fn vocabulary_from_tokens<'a>(
+    tokens: impl IntoIterator<Item = &'a str>,
+) -> std::collections::BTreeSet<String> {
+    let mut set = std::collections::BTreeSet::new();
+    for t in tokens {
+        for w in normalize_for_match(t).split_whitespace() {
+            set.insert(w.to_string());
+        }
+    }
+    set
+}
+
+/// True when the slot-value keyword that ends `preceding` is governed by
+/// a negation cue reached through nothing but other slot-vocabulary words
+/// or list separators. This catches "no diablo / mofa / snf" (negation
+/// reaches every integrator token through `/` separators) without
+/// false-positiving on "no clean class labels … MOFA" (the word "labels"
+/// is not slot vocabulary, so the scan stops before reaching "no").
+pub fn is_list_negated(preceding: &str, vocab: &std::collections::BTreeSet<String>) -> bool {
+    const NEGATIONS: &[&str] = &[
+        "no",
+        "not",
+        "without",
+        "excluding",
+        "exclude",
+        "neither",
+        "none",
+        "skip",
+        "avoid",
+    ];
+    const SEPARATORS: &[&str] = &["and", "or", "nor", "plus", "the", "any"];
+    let is_sep = |t: &str| SEPARATORS.contains(&t) || !t.chars().any(|c| c.is_alphanumeric());
+    // Closest-first, bounded window so a far-away "no" never reaches.
+    for t in preceding.split_whitespace().rev().take(8) {
+        if NEGATIONS.contains(&t) {
+            return true;
+        }
+        if vocab.contains(t) || is_sep(t) {
+            continue;
+        }
+        // A content word outside the slot vocabulary closes the scope.
+        return false;
+    }
+    false
+}
+
+#[cfg(test)]
+mod negation_tests {
+    use super::*;
+
+    fn integrator_manifest() -> SlotManifest {
+        let mk = |id: &str, kws: &[&str]| SlotValue {
+            id: id.into(),
+            keywords: kws.iter().map(|s| s.to_string()).collect(),
+            extra_atoms: vec![],
+        };
+        SlotManifest {
+            slot_name: "integrator".into(),
+            slot_kind: "closed_enum".into(),
+            default: "generic".into(),
+            values: vec![
+                mk(
+                    "diablo",
+                    &["diablo", "spls-da", "sparse pls-da", "mixomics"],
+                ),
+                mk("mofa", &["mofa", "factor analysis", "multi-omics factor"]),
+                mk("snf", &["snf integration", "similarity network fusion"]),
+                mk("generic", &[]),
+            ],
+        }
+    }
+
+    #[test]
+    fn negated_integrator_list_falls_to_default() {
+        let m = integrator_manifest();
+        // "No DIABLO / MOFA / SNF requested" must NOT select an integrator.
+        let p = "we want each modality run independently then a thematic \
+                 comparison. no diablo / mofa / snf requested.";
+        assert_eq!(resolve_slot_value(&m, p), "generic");
+    }
+
+    #[test]
+    fn positive_integrator_still_selected() {
+        let m = integrator_manifest();
+        assert_eq!(
+            resolve_slot_value(&m, "integrate the two omics with diablo (sparse pls-da)."),
+            "diablo"
+        );
+    }
+
+    #[test]
+    fn unrelated_negation_does_not_suppress_mofa() {
+        let m = integrator_manifest();
+        // "no clean class labels" must NOT suppress a later MOFA mention:
+        // "labels" is not slot vocabulary, so the negation scope closes
+        // before reaching MOFA.
+        let p = "200 patients with no clean class labels, so an unsupervised \
+                 multi-omics factor analysis (mofa-style) integrator.";
+        assert_eq!(resolve_slot_value(&m, p), "mofa");
+    }
+
+    #[test]
+    fn without_negation_form() {
+        let m = integrator_manifest();
+        assert_eq!(
+            resolve_slot_value(&m, "per-branch outputs without diablo or mofa or snf."),
+            "generic"
+        );
+    }
 }
 
 /// Expand a base archetype's atoms by appending the chosen slot

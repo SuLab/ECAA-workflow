@@ -1903,8 +1903,22 @@ impl Classifier {
         // when no goal_pattern matched but an integrator was named.
         let mut scanned_modifiers: std::collections::BTreeMap<String, String> =
             std::collections::BTreeMap::new();
+        // Negation-aware: a prompt that says "No DIABLO / MOFA / SNF
+        // requested" must not plumb an integrator/kind modifier. The guard
+        // only fires when the negation cue reaches the matched token
+        // through other integrator-vocabulary words / separators, so an
+        // unrelated "no clean class labels … MOFA" still matches MOFA.
+        let integrator_scan_vocab = crate::archetype_slots::vocabulary_from_tokens(
+            Self::INTEGRATOR_KIND_SCAN.iter().map(|(needle, _)| *needle),
+        );
         for (needle, entries) in Self::INTEGRATOR_KIND_SCAN {
-            if normalized.contains(needle) {
+            if let Some(pos) = normalized.find(needle) {
+                if crate::archetype_slots::is_list_negated(
+                    &normalized[..pos],
+                    &integrator_scan_vocab,
+                ) {
+                    continue;
+                }
                 for (k, v) in *entries {
                     // First-match-wins per key, so list more-specific
                     // phrases first in INTEGRATOR_KIND_SCAN.
@@ -1973,9 +1987,27 @@ impl Classifier {
                         ("shareseq", "share_seq"),
                         ("share-seq", "share_seq"),
                     ];
+                    // Negation-aware scan: a prompt that says "No DIABLO /
+                    // MOFA / SNF requested" must NOT plumb an integrator
+                    // onto modifiers. The negation guard treats a cue as
+                    // governing the match only when it is reachable through
+                    // other integrator-vocabulary words / separators, so
+                    // "no clean class labels … MOFA" still selects MOFA.
+                    let integrator_vocab = crate::archetype_slots::vocabulary_from_tokens(
+                        INTEGRATOR_TOKENS.iter().map(|(p, _)| *p),
+                    );
                     for (phrase, canonical) in INTEGRATOR_TOKENS {
                         let phrase_norm = normalize_for_match(phrase);
-                        if !phrase_norm.is_empty() && normalized.contains(&phrase_norm) {
+                        if phrase_norm.is_empty() {
+                            continue;
+                        }
+                        if let Some(pos) = normalized.find(&phrase_norm) {
+                            if crate::archetype_slots::is_list_negated(
+                                &normalized[..pos],
+                                &integrator_vocab,
+                            ) {
+                                continue;
+                            }
                             modifiers
                                 .entry("integrator".to_string())
                                 .or_insert_with(|| (*canonical).to_string());

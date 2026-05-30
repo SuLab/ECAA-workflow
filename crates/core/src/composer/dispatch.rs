@@ -568,8 +568,18 @@ pub fn compose_with_version_and_modalities(
             "shareseq",
             "multiome",
         ];
+        // Negation-aware: "No DIABLO / MOFA / SNF requested" must not hoist
+        // an integrator variant. Mirrors the classify-side guard.
+        let normalized_prose = crate::classify::normalize_for_match(&prose_lower);
+        let method_vocab =
+            crate::archetype_slots::vocabulary_from_tokens(METHOD_TOKENS.iter().copied());
         for token in METHOD_TOKENS {
-            if !prose_lower.contains(token) {
+            let needle = crate::classify::normalize_for_match(token);
+            let pos = match normalized_prose.find(&needle) {
+                Some(p) => p,
+                None => continue,
+            };
+            if crate::archetype_slots::is_list_negated(&normalized_prose[..pos], &method_vocab) {
                 continue;
             }
             // Normalize token for archetype-id matching (strip spaces,
