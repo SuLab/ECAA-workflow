@@ -1,19 +1,60 @@
-//! Tier F property tests for F8: every adapter inserted along an
-//! edge carries a `RiskClass` and the class is consistent with the
-//! adapter's declared transformation kind.
+//! Tier F property test for F8 — an adapter's safety classification is
+//! consistent with its declared transformation kind: purely mechanical
+//! classes (compression, indexing, sorting) are `Lossless`;
+//! scientifically-impactful classes (normalization, coordinate
+//! liftover) are never `Lossless`. Iterates the canonical starter
+//! registry — site-local YAML adapters that break the invariant fail
+//! this gate.
 //!
-//! Per `docs/dag_eval.md` Tier F, this suite must achieve the F8
-//! case-count budget once this stub is replaced with the real
-//! property over `AdapterRegistry` + emitted DAGs.
-//!
-//! A placeholder is included so the integration-test binary
-//! compiles and `cargo test --workspace` exercises the wiring.
+//! Replaces the prior `prop_assert!(true)` placeholder.
 
-use proptest::prelude::*;
+use ecaa_workflow_core::adapter_registry::{AdapterClass, AdapterRegistry, AdapterSafety};
 
-proptest! {
-    #[test]
-    fn placeholder_passes(_n in 0u32..1) {
-        prop_assert!(true);
+#[test]
+fn mechanical_adapter_classes_are_lossless() {
+    let reg = AdapterRegistry::with_starters();
+    let mut checked = 0;
+    for (id, a) in reg.iter() {
+        if matches!(
+            a.class,
+            AdapterClass::Compression | AdapterClass::IndexGeneration | AdapterClass::Sorting
+        ) {
+            assert_eq!(
+                a.safety,
+                AdapterSafety::Lossless,
+                "F8 violation: mechanical adapter {id} (class {:?}) is not Lossless: {:?}",
+                a.class,
+                a.safety
+            );
+            checked += 1;
+        }
     }
+    assert!(
+        checked >= 3,
+        "expected ≥3 mechanical starter adapters (compression/index/sort), saw {checked}"
+    );
+}
+
+#[test]
+fn scientific_adapter_classes_are_never_lossless() {
+    let reg = AdapterRegistry::with_starters();
+    let mut checked = 0;
+    for (id, a) in reg.iter() {
+        if matches!(
+            a.class,
+            AdapterClass::Normalization | AdapterClass::CoordinateLiftover
+        ) {
+            assert_ne!(
+                a.safety,
+                AdapterSafety::Lossless,
+                "F8 violation: scientific adapter {id} (class {:?}) is mislabeled Lossless",
+                a.class
+            );
+            checked += 1;
+        }
+    }
+    assert!(
+        checked >= 2,
+        "expected ≥2 scientific starter adapters (normalization/liftover), saw {checked}"
+    );
 }
