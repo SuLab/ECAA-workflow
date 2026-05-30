@@ -566,8 +566,8 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
             }
         }
 
-        let effect_size = scan_effect_size(trimmed, &regex_cache);
-        let pvalue = scan_pvalue(trimmed, &regex_cache);
+        let effect_size_hits = scan_effect_size_positions(trimmed, &regex_cache);
+        let pvalue_hits = scan_pvalue_positions(trimmed, &regex_cache);
         let source_table = scan_table_reference(trimmed);
         let contract = classify_contract(trimmed);
 
@@ -575,6 +575,8 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
             std::collections::BTreeSet::new();
         for (ent_pos, ent_name) in entity_hits {
             let direction = nearest_direction(ent_pos, &direction_hits);
+            let effect_size = value_for_entity(ent_pos, &effect_size_hits);
+            let pvalue = value_for_entity(ent_pos, &pvalue_hits);
             let key = (ent_name.clone(), direction);
             if seen.contains(&key) {
                 continue;
@@ -666,36 +668,82 @@ fn nearest_direction(
         .map(|(_, d)| *d)
 }
 
-fn scan_effect_size(sentence: &str, cache: &ExtractorRegexCache) -> Option<f64> {
-    // Honor policy-configured columns as keyword prefixes; fall back to
-    // a generic "log2fc" / "logfc" keyword so reports written with a
-    // lower-case spelling still get parsed. The value is whatever
-    // number follows an `=` or `:` within a handful of characters. The
-    // regex set is prebuilt by `ExtractorRegexCache::build` so the
-    // hot loop does N capture-scans instead of N compile-and-scans.
-    for (_kw, re) in &cache.effect_size {
-        if let Some(caps) = re.captures(sentence) {
-            if let Some(m) = caps.get(1) {
-                if let Ok(v) = m.as_str().parse::<f64>() {
-                    return Some(v);
-                }
-            }
-        }
+/// Bind a numeric value to one entity in a sentence.
+///
+/// Reporting prose writes the number *after* the entity it describes
+/// ("ACAN was upregulated (log2FC=2.1) and COL2A1 was downregulated
+/// (log2FC=-1.5)"), so a value belongs to the entity that most recently
+/// precedes it. Rules, given `value_hits` sorted ascending by position:
+///
+/// * **No values** → `None`.
+/// * **Exactly one value** → that value, for every entity. Preserves the
+///   prior aggregate behavior for a single shared number
+///   ("A and B were both up (log2FC=2.0)").
+/// * **Multiple values** → the first value at or after `entity_pos` (the
+///   number written next to this entity); if the entity follows every
+///   value, the last value. This stops the sentence's first number being
+///   force-attributed onto every entity, which surfaced correct
+///   multi-entity narratives as false mismatches and wrongly blocked
+///   the session.
+fn value_for_entity(entity_pos: usize, value_hits: &[(usize, f64)]) -> Option<f64> {
+    match value_hits.len() {
+        0 => None,
+        1 => Some(value_hits[0].1),
+        _ => value_hits
+            .iter()
+            .find(|(pos, _)| *pos >= entity_pos)
+            .or_else(|| value_hits.last())
+            .map(|(_, v)| *v),
     }
-    None
 }
 
-fn scan_pvalue(sentence: &str, cache: &ExtractorRegexCache) -> Option<f64> {
-    for (_kw, re) in &cache.pvalue {
-        if let Some(caps) = re.captures(sentence) {
+/// Every effect-size match in the sentence as `(keyword_anchor_pos, value)`,
+/// sorted by position. Keyword priority (configured columns first, then the
+/// baked-in `log2fc`/`logfc` defaults) breaks ties so a number matched by two
+/// keyword regexes at the same offset is recorded once. Returns every
+/// occurrence so the caller can bind each entity to its nearest number; the
+/// previous single-value scanner forced the first match onto the whole
+/// sentence. The regex set is prebuilt by `ExtractorRegexCache::build` so the
+/// hot loop does N capture-scans instead of N compile-and-scans.
+fn scan_effect_size_positions(sentence: &str, cache: &ExtractorRegexCache) -> Vec<(usize, f64)> {
+    let mut hits: Vec<(usize, f64)> = Vec::new();
+    for (_kw, re) in &cache.effect_size {
+        for caps in re.captures_iter(sentence) {
+            let Some(whole) = caps.get(0) else { continue };
             if let Some(m) = caps.get(1) {
                 if let Ok(v) = m.as_str().parse::<f64>() {
-                    return Some(v);
+                    let pos = whole.start();
+                    if !hits.iter().any(|(p, _)| *p == pos) {
+                        hits.push((pos, v));
+                    }
                 }
             }
         }
     }
-    None
+    hits.sort_by_key(|(p, _)| *p);
+    hits
+}
+
+/// Every p-value match in the sentence as `(keyword_anchor_pos, value)`,
+/// sorted by position. Same per-entity-nearest rationale as
+/// [`scan_effect_size_positions`].
+fn scan_pvalue_positions(sentence: &str, cache: &ExtractorRegexCache) -> Vec<(usize, f64)> {
+    let mut hits: Vec<(usize, f64)> = Vec::new();
+    for (_kw, re) in &cache.pvalue {
+        for caps in re.captures_iter(sentence) {
+            let Some(whole) = caps.get(0) else { continue };
+            if let Some(m) = caps.get(1) {
+                if let Ok(v) = m.as_str().parse::<f64>() {
+                    let pos = whole.start();
+                    if !hits.iter().any(|(p, _)| *p == pos) {
+                        hits.push((pos, v));
+                    }
+                }
+            }
+        }
+    }
+    hits.sort_by_key(|(p, _)| *p);
+    hits
 }
 
 fn scan_table_reference(sentence: &str) -> Option<String> {
@@ -888,6 +936,44 @@ mod tests {
         assert!(claims.iter().any(|c| c.entity == "COL2A1"
             && c.direction == Some(Direction::Down)
             && (c.effect_size.unwrap() + 1.5).abs() < 1e-9));
+    }
+
+    #[test]
+    fn multiple_entities_one_sentence_bind_nearest_numbers() {
+        // Two entities + two effect sizes + two p-values in a single
+        // sentence must each bind to their *nearest* number, not have the
+        // first number force-attributed onto every entity (which would
+        // surface a correct narrative as a false mismatch and wrongly
+        // block the session).
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let text = "ACAN was upregulated (log2FC=2.1, padj=0.001) and COL2A1 \
+                    was downregulated (log2FC=-1.5, padj=0.04).";
+        let claims = extract_claims(text, &cfg);
+        let acan = claims.iter().find(|c| c.entity == "ACAN").unwrap();
+        let col = claims.iter().find(|c| c.entity == "COL2A1").unwrap();
+        assert!((acan.effect_size.unwrap() - 2.1).abs() < 1e-9, "{:?}", acan);
+        assert!((acan.pvalue.unwrap() - 0.001).abs() < 1e-9, "{:?}", acan);
+        assert!((col.effect_size.unwrap() + 1.5).abs() < 1e-9, "{:?}", col);
+        assert!((col.pvalue.unwrap() - 0.04).abs() < 1e-9, "{:?}", col);
+    }
+
+    #[test]
+    fn single_number_still_attaches_to_all_entities() {
+        // Regression guard for the nearest-number change: when a sentence
+        // carries exactly one effect size, every entity in it still binds
+        // to that one value (the prior aggregate behavior).
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let text = "ACAN and COL2A1 were both upregulated (log2FC=2.0).";
+        let claims = extract_claims(text, &cfg);
+        for ent in ["ACAN", "COL2A1"] {
+            let c = claims.iter().find(|c| c.entity == ent).unwrap();
+            assert!(
+                (c.effect_size.unwrap() - 2.0).abs() < 1e-9,
+                "{}: {:?}",
+                ent,
+                c
+            );
+        }
     }
 
     #[test]
