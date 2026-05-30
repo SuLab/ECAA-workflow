@@ -755,50 +755,75 @@ fn verify_one(
     }
 
     // P-value: allow relative tolerance; narrative rounding is common so
-    // this is a softer check than effect size.
+    // this is a softer check than effect size. DE / enrichment tables
+    // typically carry BOTH a raw `pvalue` and an adjusted `padj`/`FDR`
+    // column, and narratives usually quote the adjusted value — so accept
+    // the claim if it agrees with ANY present p-value column within
+    // tolerance rather than only the first one `lookup_numeric` finds
+    // (which is the raw column and differs from `padj` by orders of
+    // magnitude, producing false mismatches).
     if let Some(claimed_p) = claim.pvalue {
-        let observed_p = lookup_numeric(&row.values, &cfg.pvalue_columns);
-        match observed_p {
-            Some(obs_p) => {
-                if !claimed_p.is_finite() || !obs_p.is_finite() {
-                    return ClaimStatus::Unverifiable {
-                        reason: "p-value is not finite in narrative or table".into(),
-                    };
-                }
-                if claimed_p == obs_p {
-                    // Exact equality also handles the rare underflow case
-                    // where both narrative and table serialize a p-value as 0.
-                } else if claimed_p <= 0.0 || obs_p <= 0.0 {
-                    return ClaimStatus::Mismatch {
-                        detail: format!(
-                            "p-value: narrative {:.4e} vs table {:.4e}",
-                            claimed_p, obs_p
-                        ),
-                    };
-                } else {
-                    let ratio = (claimed_p / obs_p).ln().abs();
-                    if ratio > (1.0 + cfg.pvalue_relative_tolerance).ln() {
-                        return ClaimStatus::Mismatch {
-                            detail: format!(
-                            "p-value: narrative {:.4e} vs table {:.4e} (relative tolerance {}%)",
-                            claimed_p,
-                            obs_p,
-                            (cfg.pvalue_relative_tolerance * 100.0) as u32
-                        ),
-                        };
-                    }
-                }
-            }
-            None => {
-                return ClaimStatus::Unverifiable {
-                    reason: "table has no configured p-value column/value for claimed p-value"
-                        .into(),
-                };
-            }
+        if !claimed_p.is_finite() {
+            return ClaimStatus::Unverifiable {
+                reason: "p-value is not finite in narrative".into(),
+            };
+        }
+        let observed: Vec<f64> = cfg
+            .pvalue_columns
+            .iter()
+            .filter_map(|c| {
+                row.values
+                    .get(&normalize(c))
+                    .and_then(|raw| raw.parse::<f64>().ok())
+            })
+            .filter(|v| v.is_finite())
+            .collect();
+        if observed.is_empty() {
+            return ClaimStatus::Unverifiable {
+                reason: "table has no configured p-value column/value for claimed p-value".into(),
+            };
+        }
+        let matches_any = observed
+            .iter()
+            .any(|&obs_p| pvalue_within_tolerance(claimed_p, obs_p, cfg.pvalue_relative_tolerance));
+        if !matches_any {
+            // Report against the numerically closest column for a readable
+            // mismatch detail.
+            let closest = observed
+                .iter()
+                .cloned()
+                .min_by(|a, b| {
+                    (claimed_p - a)
+                        .abs()
+                        .partial_cmp(&(claimed_p - b).abs())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap_or(observed[0]);
+            return ClaimStatus::Mismatch {
+                detail: format!(
+                    "p-value: narrative {:.4e} vs table {:.4e} (relative tolerance {}%)",
+                    claimed_p,
+                    closest,
+                    (cfg.pvalue_relative_tolerance * 100.0) as u32
+                ),
+            };
         }
     }
 
     ClaimStatus::Verified
+}
+
+/// True when `claimed` agrees with `obs` within a relative tolerance.
+/// Exact equality (incl. both-zero underflow) and the log-ratio band are
+/// both accepted; non-positive values only match on exact equality.
+fn pvalue_within_tolerance(claimed: f64, obs: f64, rel_tol: f64) -> bool {
+    if claimed == obs {
+        return true;
+    }
+    if claimed <= 0.0 || obs <= 0.0 {
+        return false;
+    }
+    (claimed / obs).ln().abs() <= (1.0 + rel_tol).ln()
 }
 
 /// In-memory index of `results/tables/*.{tsv,csv}` by file stem + full
@@ -827,6 +852,23 @@ impl TableIndex {
                         .or_insert_with(|| path.clone());
                 }
             }
+        }
+        Self { by_name }
+    }
+
+    /// Build an index containing a single known table file (its full
+    /// name + stem keys). Used by the structured-claim path, where the
+    /// evidence path already resolved to one concrete file and there is
+    /// no directory to scan.
+    fn single(path: &Path) -> Self {
+        let mut by_name: BTreeMap<String, PathBuf> = BTreeMap::new();
+        if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
+            by_name.insert(normalize(name), path.to_path_buf());
+        }
+        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+            by_name
+                .entry(normalize(stem))
+                .or_insert_with(|| path.to_path_buf());
         }
         Self { by_name }
     }
@@ -1054,6 +1096,611 @@ fn lookup_numeric(values: &BTreeMap<String, String>, columns: &[String]) -> Opti
         }
     }
     None
+}
+
+// ── Structured-claim verification ────────────────────────────────────────
+//
+// Real agent runs do not embed every claim as "GENEX upregulated
+// (log2FC=2.1, Table S1)" prose. Per `AGENT-EXECUTOR.md` they emit a
+// structured `claims` array in `result.json`, each entry pairing a
+// free-text assertion with an `evidence` file path. That evidence path
+// *is* the table citation — so these claims are verifiable even though
+// the prose never says "Table S1", which the narrative regex path
+// requires. The dominant real shape is also an *aggregate count*
+// ("836 genes are differentially expressed at padj<0.05"), which the six
+// per-entity contracts don't cover; those are recomputed directly from
+// the evidence table here rather than trusting the agent's number.
+
+/// A structured claim from an agent's `result.json` `claims[]` array: a
+/// free-text assertion plus a pointer to the evidence file backing it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StructuredClaim {
+    /// Free-text assertion the agent made.
+    pub claim: String,
+    /// Evidence file the claim cites (package-relative path or bare
+    /// basename). `None` for claims with no evidence pointer.
+    #[serde(default)]
+    pub evidence: Option<String>,
+}
+
+/// Count-claim parse: "N <noun> ... <pvalue-col> < T", plus optional
+/// direction / effect-magnitude constraints.
+static COUNT_NOUN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    // "N <up to 5 adjective words> <noun>" — the filler lets descriptors
+    // sit between the count and its noun ("3 SME-supplied Drosophila gene
+    // sets", "836 significantly differentially expressed genes").
+    regex::Regex::new(
+        r"(?i)\b(\d[\d,]*)\s+(?:[A-Za-z][\w-]*\s+){0,5}?(gene[\s-]?sets?|cell[\s-]?types?|sub[\s-]?types?|genes?|features?|transcripts?|proteins?|peaks?|sites?|probes?|pathways?|terms?|cpgs?|loci|locus|snps?|variants?|regions?|clusters?|cells?|samples?|modules?|components?|domains?|communities|community|programs?|taxa|taxon|otus?|asvs?|species|genera|genus|families|family|phyla|phylum|lineages?)\b",
+    )
+    .expect("static regex")
+});
+
+/// Threshold parse: a p-value-family keyword followed by `<`/`≤` and a
+/// number. Tolerates `padj<0.05`, `BH adj_p < 0.01`, `adj.p<0.01`,
+/// `FDR < 0.05`, `q-value < 0.1`.
+static THRESH_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    // Group 1 = the p-value-family keyword (so the verifier counts against
+    // the column the claim actually names — `padj<0.05` must not be
+    // checked against the raw `pvalue` column). Group 2 = the threshold.
+    regex::Regex::new(
+        r"(?i)(p[\s._-]?adj|adj[\s._-]?p(?:[\s._-]?val(?:ue)?)?|fdr|q[\s._-]?val(?:ue)?|adjusted\s+p[\s-]?val(?:ue)?|p[\s-]?val(?:ue)?|p)\s*[<≤]\s*(\d*\.?\d+(?:[eE][+-]?\d+)?)",
+    )
+    .expect("static regex")
+});
+
+/// True when a p-value-family keyword (or column name) denotes a
+/// *multiple-testing-adjusted* quantity rather than a raw p-value.
+fn is_adjusted_pvalue_keyword(kw: &str) -> bool {
+    let k = kw.to_ascii_lowercase().replace([' ', '.', '_', '-'], "");
+    k.contains("adj") || k.contains("fdr") || k.starts_with('q') || k == "padj"
+}
+
+/// Effect-magnitude constraint parse: "LFC>1", "log2FC > 1.5",
+/// "|log2FoldChange| > 1", "fold change > 2".
+static EFFECT_THRESH_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\|?\s*(?:log2?\s*fc|log2?\s*fold[\s-]?change|lfc|fold[\s-]?change)\s*\|?\s*([<>])\s*(-?\d*\.?\d+)",
+    )
+    .expect("static regex")
+});
+
+/// Resolve a structured claim's `evidence` reference to a table file.
+/// Tries, in order: the package-relative path verbatim; the bare
+/// basename under `results/tables/`; the bare basename under any
+/// `runtime/outputs/<task>/` directory. Returns `None` when nothing
+/// matches. The bare-basename fallback is what makes a claim citing
+/// `de_results.tsv` resolve to the file the agent actually wrote under
+/// `runtime/outputs/differential_expression/`.
+fn resolve_evidence_table(package_root: &Path, evidence: &str) -> Option<PathBuf> {
+    let trimmed = evidence.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // 1. Package-relative path verbatim (rejecting traversal).
+    if !trimmed.contains("..") {
+        let direct = package_root.join(trimmed);
+        if direct.is_file() {
+            return Some(direct);
+        }
+    }
+    let base = Path::new(trimmed).file_name()?;
+    // 2. results/tables/<base>
+    let in_results = package_root.join("results").join("tables").join(base);
+    if in_results.is_file() {
+        return Some(in_results);
+    }
+    // 3. runtime/outputs/<task>/<base> for any task.
+    let outputs = package_root.join("runtime").join("outputs");
+    if let Ok(rd) = std::fs::read_dir(&outputs) {
+        // Deterministic order: collect + sort task dirs.
+        let mut dirs: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
+        dirs.sort();
+        for d in dirs {
+            let cand = d.join(base);
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
+/// Strip thousands separators and parse a captured count.
+fn parse_count(raw: &str) -> Option<f64> {
+    raw.replace(',', "").parse::<f64>().ok()
+}
+
+/// Attempt to verify `text` as an aggregate count claim against
+/// `table_path`. Returns `None` when the text is not count-shaped (no
+/// "N <noun>" + threshold), so the caller can fall back to per-entity
+/// verification. Recomputes the count from the table rather than trusting
+/// the agent's figure: counts rows whose configured p-value column is
+/// below the claimed threshold and (when present) whose effect size
+/// satisfies the claimed direction / magnitude constraint.
+fn verify_count_claim(text: &str, table_path: &Path, cfg: &ExtractorConfig) -> Option<ClaimStatus> {
+    // "N of M <noun> significant" — the verifiable count is N (how many
+    // passed), not M (the total tested). Prefer the leading number when
+    // the "X of Y" shape is present; otherwise take the number written
+    // directly before the noun.
+    static COUNT_OF_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"(?i)\b(\d[\d,]*)\s+of\s+\d[\d,]*\s+(?:[A-Za-z][\w-]*\s+){0,5}?(?:genes?|features?|transcripts?|proteins?|peaks?|sites?|probes?|gene[\s-]?sets?|pathways?|terms?|cpgs?|loci|locus|snps?|variants?|regions?)\b").expect("static regex")
+    });
+    let noun_caps = COUNT_NOUN_RE.captures(text)?;
+    let noun = noun_caps.get(2)?.as_str().to_lowercase();
+    let claimed_n = if let Some(c) = COUNT_OF_RE.captures(text) {
+        parse_count(c.get(1)?.as_str())?
+    } else {
+        parse_count(noun_caps.get(1)?.as_str())?
+    };
+
+    let cached = load_table_rows(table_path, &cfg.entity_columns).ok()?;
+
+    // No p-value threshold in the claim: handle the "N <grouping> identified"
+    // shape ("6 clusters", "12 cell types", "8 taxa") by counting DISTINCT
+    // values of the grouping column. Other threshold-less counts
+    // ("8,766 genes tested") stay unverifiable — a raw row count would
+    // false-mismatch NA-filtered tables.
+    let Some(thresh_caps) = THRESH_RE.captures(text) else {
+        if is_grouping_noun(&noun) {
+            if let Some(col) = grouping_column(&cached, &noun) {
+                let mut seen: std::collections::BTreeSet<String> =
+                    std::collections::BTreeSet::new();
+                for row in &cached.rows {
+                    if let Some(v) = row.values.get(&col) {
+                        let v = v.trim();
+                        if !v.is_empty() {
+                            seen.insert(v.to_string());
+                        }
+                    }
+                }
+                return Some(compare_count(
+                    claimed_n,
+                    seen.len(),
+                    table_path,
+                    &format!("distinct `{col}` values"),
+                ));
+            }
+        }
+        return None;
+    };
+    let threshold_kw = thresh_caps.get(1)?.as_str();
+    let threshold: f64 = thresh_caps.get(2)?.as_str().parse().ok()?;
+
+    // Count against the p-value column the claim *names*. A `padj<0.05`
+    // claim must be checked against the adjusted column, not the raw
+    // `pvalue` column that `lookup_numeric` would otherwise pick first
+    // (DESeq2 tables carry both, and raw-p row counts are far larger).
+    // Partition the configured columns into adjusted vs raw, then order
+    // them so the claimed class wins while the other stays as a fallback.
+    let want_adjusted = is_adjusted_pvalue_keyword(threshold_kw);
+    let (adjusted_cols, raw_cols): (Vec<String>, Vec<String>) = cfg
+        .pvalue_columns
+        .iter()
+        .cloned()
+        .partition(|c| is_adjusted_pvalue_keyword(c));
+    let pvalue_cols: Vec<String> = if want_adjusted {
+        adjusted_cols.into_iter().chain(raw_cols).collect()
+    } else {
+        raw_cols.into_iter().chain(adjusted_cols).collect()
+    };
+
+    // Optional effect-magnitude constraint ("LFC>1").
+    let effect_thresh: Option<(char, f64)> = EFFECT_THRESH_RE.captures(text).and_then(|c| {
+        let op = c.get(1)?.as_str().chars().next()?;
+        let val: f64 = c.get(2)?.as_str().parse().ok()?;
+        Some((op, val))
+    });
+    // Direction word (only the up/down sets; nearest-wins is irrelevant
+    // for an aggregate count).
+    let lower = text.to_lowercase();
+    let has_up = cfg
+        .up_words
+        .iter()
+        .any(|w| lower.contains(&w.to_lowercase()));
+    let has_down = cfg
+        .down_words
+        .iter()
+        .any(|w| lower.contains(&w.to_lowercase()));
+
+    let mut observed = 0usize;
+    for row in &cached.rows {
+        let Some(p) = lookup_numeric(&row.values, &pvalue_cols) else {
+            continue;
+        };
+        if !(p.is_finite() && p < threshold) {
+            continue;
+        }
+        // Effect constraints, when the claim states one.
+        let eff = lookup_numeric(&row.values, &cfg.effect_size_columns);
+        if let Some((op, val)) = effect_thresh {
+            let Some(e) = eff else { continue };
+            let ok = match op {
+                '>' => e > val,
+                '<' => e < val,
+                _ => true,
+            };
+            // A bare "LFC>1" with a stated down-direction means the
+            // magnitude band on the negative side (LFC < -1).
+            let ok = if has_down && op == '>' && val > 0.0 {
+                e < -val
+            } else {
+                ok
+            };
+            if !ok {
+                continue;
+            }
+        } else if has_up || has_down {
+            let Some(e) = eff else { continue };
+            if has_up && !has_down && e <= 0.0 {
+                continue;
+            }
+            if has_down && !has_up && e >= 0.0 {
+                continue;
+            }
+        }
+        observed += 1;
+    }
+
+    Some(compare_count(
+        claimed_n,
+        observed,
+        table_path,
+        "rows below the cited threshold",
+    ))
+}
+
+/// Compare a claimed count against the recomputed `observed`, allowing a
+/// small relative band (counts vary with NA / tie handling) while still
+/// catching fabricated figures.
+fn compare_count(claimed_n: f64, observed: usize, table_path: &Path, what: &str) -> ClaimStatus {
+    let tol = (claimed_n * 0.02).max(2.0);
+    if (observed as f64 - claimed_n).abs() <= tol {
+        ClaimStatus::Verified
+    } else {
+        ClaimStatus::Mismatch {
+            detail: format!(
+                "count claim: narrative says {}, `{}` has {} ({})",
+                claimed_n as i64,
+                table_label(table_path),
+                observed,
+                what
+            ),
+        }
+    }
+}
+
+/// True for nouns that denote a *grouping* whose count is the number of
+/// distinct labels (cluster ids, cell types, modules, taxa), as opposed
+/// to a per-row entity (gene, peak) whose count needs a threshold.
+fn is_grouping_noun(noun: &str) -> bool {
+    let n = noun.replace(['-', '_'], " ");
+    let n = n.trim();
+    matches!(
+        n,
+        "cluster"
+            | "clusters"
+            | "cell type"
+            | "cell types"
+            | "celltype"
+            | "celltypes"
+            | "module"
+            | "modules"
+            | "component"
+            | "components"
+            | "domain"
+            | "domains"
+            | "community"
+            | "communities"
+            | "program"
+            | "programs"
+            | "taxon"
+            | "taxa"
+            | "otu"
+            | "otus"
+            | "asv"
+            | "asvs"
+            | "species"
+            | "genus"
+            | "genera"
+            | "family"
+            | "families"
+            | "phylum"
+            | "phyla"
+            | "lineage"
+            | "lineages"
+            | "subtype"
+            | "subtypes"
+    )
+}
+
+/// Find the table column holding a grouping noun's labels: a header
+/// containing the noun's stem or a generic grouping token. Iterates the
+/// row's (BTreeMap-ordered) keys for determinism.
+fn grouping_column(cached: &CachedTable, noun: &str) -> Option<String> {
+    let row = cached.rows.first()?;
+    let stem = noun.trim_end_matches('s').replace(['-', ' '], "_");
+    let tokens = [
+        stem.as_str(),
+        "cluster",
+        "celltype",
+        "cell_type",
+        "type",
+        "label",
+        "module",
+        "component",
+        "domain",
+        "community",
+        "program",
+        "taxon",
+        "otu",
+        "asv",
+        "species",
+        "genus",
+        "family",
+        "phylum",
+        "lineage",
+        "subtype",
+        "assignment",
+    ];
+    row.values
+        .keys()
+        .find(|k| tokens.iter().any(|t| !t.is_empty() && k.contains(t)))
+        .cloned()
+}
+
+/// Verify a single structured claim.
+fn verify_one_structured(
+    sc: &StructuredClaim,
+    package_root: &Path,
+    cfg: &ExtractorConfig,
+) -> ClaimVerdict {
+    let excerpt = sc.claim.clone();
+    let make = |entity: String, status: ClaimStatus, source_table: Option<String>| ClaimVerdict {
+        claim: Claim {
+            entity,
+            direction: None,
+            effect_size: None,
+            pvalue: None,
+            source_table,
+            excerpt: excerpt.clone(),
+            contract: crate::claim_contract::ClaimContract::ThresholdedDeOrEnrichment,
+        },
+        status,
+        strength: ClaimStrength::Exploratory,
+    };
+
+    let Some(evidence) = sc.evidence.as_deref().filter(|e| !e.trim().is_empty()) else {
+        return make(
+            summarize_claim_subject(&sc.claim),
+            ClaimStatus::Unverifiable {
+                reason: "claim cites no evidence file".into(),
+            },
+            None,
+        );
+    };
+    let Some(table_path) = resolve_evidence_table(package_root, evidence) else {
+        return make(
+            summarize_claim_subject(&sc.claim),
+            ClaimStatus::Unverifiable {
+                reason: format!("cited evidence `{}` not found in package", evidence),
+            },
+            Some(
+                Path::new(evidence)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(evidence)
+                    .to_string(),
+            ),
+        );
+    };
+    let table_name = table_label(&table_path);
+
+    // 1. Aggregate count claim — recompute from the table.
+    if let Some(status) = verify_count_claim(&sc.claim, &table_path, cfg) {
+        return make(summarize_claim_subject(&sc.claim), status, Some(table_name));
+    }
+
+    // 2. Per-entity claim: extract entity/direction/effect/pvalue from the
+    //    claim text and check it against the cited table. The evidence
+    //    path supplies the source_table the prose lacks.
+    let extracted = crate::claim_extractor::extract_claims(&sc.claim, cfg);
+    if let Some(mut claim) = extracted
+        .into_iter()
+        .find(|c| c.direction.is_some() || c.effect_size.is_some() || c.pvalue.is_some())
+    {
+        claim.source_table = Some(table_name.clone());
+        let index = TableIndex::single(&table_path);
+        let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
+        let status = verify_for_contract(&claim, &index, cfg, &mut cache);
+        return ClaimVerdict {
+            claim,
+            status,
+            strength: ClaimStrength::Exploratory,
+        };
+    }
+
+    // 3. Nothing numeric/countable to check (e.g. a methodological note).
+    make(
+        summarize_claim_subject(&sc.claim),
+        ClaimStatus::Unverifiable {
+            reason: "no countable or per-entity quantity in claim to cross-check".into(),
+        },
+        Some(table_name),
+    )
+}
+
+/// Short, SME-safe subject label for a structured claim verdict row:
+/// the claim's leading clause, truncated, with surrounding whitespace
+/// collapsed. Keeps the Claims-tab row readable without dumping the full
+/// sentence into the `entity` slot.
+fn summarize_claim_subject(claim: &str) -> String {
+    let head = claim
+        .split(|c| c == ';' || c == '.' || c == '(')
+        .next()
+        .unwrap_or(claim)
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if head.chars().count() > 80 {
+        let truncated: String = head.chars().take(77).collect();
+        format!("{}…", truncated)
+    } else {
+        head
+    }
+}
+
+/// Verify a task's structured claims against their cited evidence tables.
+pub fn verify_structured_claims(
+    claims: &[StructuredClaim],
+    package_root: &Path,
+    cfg: &ExtractorConfig,
+) -> Vec<ClaimVerdict> {
+    claims
+        .iter()
+        .map(|sc| verify_one_structured(sc, package_root, cfg))
+        .collect()
+}
+
+/// Candidate result tables for prose-claim discovery: every `.tsv`/`.csv`
+/// directly under `results/tables/` and one level under each
+/// `runtime/outputs/<task>/`, sorted for determinism.
+fn discovery_candidate_tables(package_root: &Path) -> Vec<PathBuf> {
+    fn push_tables(dir: &Path, out: &mut Vec<PathBuf>) {
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_file() {
+                    if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
+                        let ext = ext.to_ascii_lowercase();
+                        if ext == "tsv" || ext == "csv" {
+                            out.push(p);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    push_tables(&package_root.join("results").join("tables"), &mut out);
+    let outputs = package_root.join("runtime").join("outputs");
+    if let Ok(rd) = std::fs::read_dir(&outputs) {
+        let mut tasks: Vec<PathBuf> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        tasks.sort();
+        for t in &tasks {
+            push_tables(t, &mut out);
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// Verify prose / markdown-table claims, discovering the backing table by
+/// entity membership when the claim cites none.
+///
+/// A claim with an explicit `source_table` resolves against
+/// `effective_root` exactly as before. A claim without one — e.g. a gene
+/// named only in a narrative markdown row — is checked against the first
+/// candidate result table (in deterministic sorted order) whose entity
+/// column contains the entity, so it still cross-checks against the DE /
+/// enrichment table the agent wrote under `runtime/outputs/`. First-match
+/// ordering keeps the verdict deterministic when the agent wrote
+/// near-duplicate tables (e.g. `de_results.tsv` + `de_table.tsv`).
+pub fn verify_claims_with_discovery(
+    claims: &[Claim],
+    effective_root: &Path,
+    package_root: &Path,
+    cfg: &ExtractorConfig,
+) -> Vec<ClaimVerdict> {
+    let cited_index = TableIndex::scan(effective_root);
+    let candidates = discovery_candidate_tables(package_root);
+    let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
+    let mut verdicts = Vec::new();
+    for claim in claims {
+        if claim.source_table.is_some() {
+            let status = verify_for_contract(claim, &cited_index, cfg, &mut cache);
+            verdicts.push(ClaimVerdict {
+                claim: claim.clone(),
+                status,
+                strength: ClaimStrength::Exploratory,
+            });
+            continue;
+        }
+        // Discover the backing table by entity membership. The agent
+        // often writes the same entity into several near-duplicate tables
+        // (e.g. `de_results.tsv` + `de_table.tsv`) with rounding-level
+        // differences, so checking only the first match risks a *false*
+        // mismatch against a table the narrative wasn't derived from.
+        // Verify against every containing table and let agreement win:
+        // Verified if any matching table confirms the claim; Mismatch
+        // only when a table is found but none confirm; Unverifiable when
+        // no result table contains the entity at all.
+        let needle = normalize(&claim.entity);
+        let containing: Vec<PathBuf> = candidates
+            .iter()
+            .filter(|cand| {
+                if !cache.contains_key(*cand) {
+                    match load_table_rows(cand, &cfg.entity_columns) {
+                        Ok(t) => {
+                            cache.insert((*cand).clone(), t);
+                        }
+                        Err(_) => return false,
+                    }
+                }
+                cache
+                    .get(*cand)
+                    .map(|t| t.get_by_normalized(&needle).is_some())
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+
+        let (claim_out, status) = if containing.is_empty() {
+            (
+                claim.clone(),
+                ClaimStatus::Unverifiable {
+                    reason: format!("entity `{}` not found in any result table", claim.entity),
+                },
+            )
+        } else {
+            let mut best: Option<ClaimStatus> = None;
+            let mut chosen = claim.clone();
+            for path in &containing {
+                let mut c = claim.clone();
+                c.source_table = Some(table_label(path));
+                let idx = TableIndex::single(path);
+                let status = verify_for_contract(&c, &idx, cfg, &mut cache);
+                let verified = matches!(status, ClaimStatus::Verified);
+                let prefer = match &best {
+                    None => true,
+                    // Verified beats everything; Mismatch beats Unverifiable.
+                    Some(ClaimStatus::Verified) => false,
+                    Some(ClaimStatus::Mismatch { .. }) => verified,
+                    Some(ClaimStatus::Unverifiable { .. }) => {
+                        verified || matches!(status, ClaimStatus::Mismatch { .. })
+                    }
+                };
+                if prefer {
+                    chosen = c;
+                    best = Some(status);
+                }
+                if matches!(best, Some(ClaimStatus::Verified)) {
+                    break;
+                }
+            }
+            (chosen, best.expect("non-empty containing set"))
+        };
+        verdicts.push(ClaimVerdict {
+            claim: claim_out,
+            status,
+            strength: ClaimStrength::Exploratory,
+        });
+    }
+    verdicts
 }
 
 #[cfg(test)]
@@ -1655,6 +2302,157 @@ mod tests {
             claim.contract,
             ClaimContract::NumericTableLookup,
             "missing field should default to NumericTableLookup"
+        );
+    }
+
+    // ── Structured / count / discovery coverage ───────────────────────────
+
+    fn write_pkg_table(root: &Path, task: &str, name: &str, body: &str) {
+        let dir = root.join("runtime").join("outputs").join(task);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(name), body).unwrap();
+    }
+
+    #[test]
+    fn structured_count_claim_verified_and_fabricated_mismatch() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // 3 of 4 genes have padj < 0.05.
+        write_pkg_table(
+            tmp.path(),
+            "differential_expression",
+            "de.tsv",
+            "gene\tlog2FC\tpadj\nA\t2.0\t0.001\nB\t-1.0\t0.02\nC\t1.0\t0.049\nD\t0.1\t0.5\n",
+        );
+        let good = StructuredClaim {
+            claim: "3 genes are differentially expressed (padj < 0.05)".into(),
+            evidence: Some("de.tsv".into()),
+        };
+        let bad = StructuredClaim {
+            claim: "9999 genes are differentially expressed (padj < 0.05)".into(),
+            evidence: Some("de.tsv".into()),
+        };
+        let v = verify_structured_claims(&[good, bad], tmp.path(), &cfg);
+        assert!(
+            matches!(v[0].status, ClaimStatus::Verified),
+            "{:?}",
+            v[0].status
+        );
+        assert!(
+            matches!(v[1].status, ClaimStatus::Mismatch { .. }),
+            "fabricated count must mismatch: {:?}",
+            v[1].status
+        );
+    }
+
+    #[test]
+    fn count_claim_uses_named_pvalue_column_not_raw() {
+        // padj<0.05 count must use the adjusted column, not raw pvalue
+        // (which would over-count). 1 row has padj<0.05; 3 have raw p<0.05.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de.tsv",
+            "gene\tlog2FC\tpvalue\tpadj\nA\t2.0\t0.001\t0.01\nB\t1.0\t0.01\t0.6\nC\t1.0\t0.02\t0.7\n",
+        );
+        let claim = StructuredClaim {
+            claim: "1 gene is significant at padj < 0.05".into(),
+            evidence: Some("de.tsv".into()),
+        };
+        let v = verify_structured_claims(&[claim], tmp.path(), &cfg);
+        assert!(
+            matches!(v[0].status, ClaimStatus::Verified),
+            "{:?}",
+            v[0].status
+        );
+    }
+
+    #[test]
+    fn per_entity_pvalue_matches_adjusted_column_when_both_present() {
+        // Narrative quotes padj; table carries both raw pvalue (far smaller)
+        // and padj. Must verify against padj, not false-mismatch on raw.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpvalue\tpadj\nACAN\t2.1\t1.7e-9\t1.49e-5\n",
+        );
+        let claims = extract_claims(
+            "ACAN was upregulated (log2FC=2.1, padj=1.49e-5, Table S1).",
+            &cfg,
+        );
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        assert_eq!(report.n_mismatch, 0, "{:?}", report.verdicts);
+        assert_eq!(report.n_verified, 1);
+    }
+
+    #[test]
+    fn distinct_count_grouping_claim() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // 6 distinct cluster labels.
+        let mut body = String::from("gene\tcluster\n");
+        for i in 0..30 {
+            body.push_str(&format!("G{i}\t{}\n", i % 6));
+        }
+        write_pkg_table(tmp.path(), "clustering", "clusters.tsv", &body);
+        let good = StructuredClaim {
+            claim: "6 clusters identified at resolution=1.0".into(),
+            evidence: Some("clusters.tsv".into()),
+        };
+        let bad = StructuredClaim {
+            claim: "20 clusters identified at resolution=1.0".into(),
+            evidence: Some("clusters.tsv".into()),
+        };
+        let v = verify_structured_claims(&[good, bad], tmp.path(), &cfg);
+        assert!(
+            matches!(v[0].status, ClaimStatus::Verified),
+            "{:?}",
+            v[0].status
+        );
+        assert!(
+            matches!(v[1].status, ClaimStatus::Mismatch { .. }),
+            "{:?}",
+            v[1].status
+        );
+    }
+
+    #[test]
+    fn discovery_prefers_any_agreeing_table() {
+        // Entity present in two tables with different values; the claim
+        // matches one. Discovery must return Verified (not a false
+        // mismatch against the disagreeing duplicate).
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "a",
+            "de_results.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t2.10\t0.001\n",
+        );
+        write_pkg_table(
+            tmp.path(),
+            "a",
+            "de_table.tsv",
+            "gene\tlog2FC\tpadj\nACAN\t9.90\t0.5\n",
+        );
+        let claim = Claim {
+            entity: "ACAN".into(),
+            direction: Some(Direction::Up),
+            effect_size: Some(2.10),
+            pvalue: Some(0.001),
+            source_table: None,
+            excerpt: "row".into(),
+            contract: ClaimContract::NumericTableLookup,
+        };
+        let v = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
+        assert!(
+            matches!(v[0].status, ClaimStatus::Verified),
+            "{:?}",
+            v[0].status
         );
     }
 }

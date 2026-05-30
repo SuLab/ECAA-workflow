@@ -493,7 +493,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
     // control character (U+0007).
     const ABBREV_SENTINEL: char = '\u{0007}';
     let preprocessed = {
-        let mut s = text.to_string();
+        let mut s = canonicalize_scientific(text);
         for abbrev in &[
             "et al.", "Fig.", "fig.", "Tab.", "tab.", "Dr.", "Mr.", "Mrs.", "Ms.", "Prof.", "e.g.",
             "i.e.", "vs.", "cf.", "approx.", "ca.", "No.", "no.",
@@ -513,6 +513,14 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         let sentence = restored.as_str();
         let trimmed = sentence.trim();
         if trimmed.is_empty() {
+            continue;
+        }
+        // Skip markdown table rows (`| FBgn… | -4.6 | 1e-159 |`) and
+        // separator rows. These are parsed structurally by
+        // `extract_markdown_table_claims`, which maps cells to
+        // entity/effect/pvalue by header; letting the prose scanner also
+        // mine them produces duplicate, value-less, or mis-parsed claims.
+        if trimmed.starts_with('|') || trimmed.matches('|').count() >= 2 {
             continue;
         }
 
@@ -595,6 +603,256 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
     }
 
     out
+}
+
+/// Extract claims from GitHub-flavored markdown tables embedded in `text`.
+///
+/// Real agent reports present per-entity results as a markdown table
+/// ("| Gene | log2FC | padj |") rather than as "GENEX (log2FC=…)" prose,
+/// so the sentence scanner misses them entirely. This recognizes a
+/// header row immediately followed by a `|---|---|` separator, maps the
+/// header cells to entity / effect-size / p-value roles by name, and
+/// emits one [`Claim`] per data row whose entity cell matches a
+/// configured entity pattern. The rows carry no "Table S1" citation, so
+/// `source_table` is left `None` for the verifier's table-discovery step
+/// to resolve against the file the agent actually wrote.
+pub fn extract_markdown_table_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
+    let regex_cache = ExtractorRegexCache::build(cfg);
+    let text = canonicalize_scientific(text);
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out: Vec<Claim> = Vec::new();
+
+    let is_separator = |cells: &[String]| -> bool {
+        !cells.is_empty()
+            && cells
+                .iter()
+                .all(|c| !c.is_empty() && c.chars().all(|ch| ch == '-' || ch == ':' || ch == ' '))
+    };
+
+    let mut i = 0;
+    while i + 1 < lines.len() {
+        let header_line = lines[i];
+        if !header_line.contains('|') {
+            i += 1;
+            continue;
+        }
+        let headers = split_md_row(header_line);
+        let sep = split_md_row(lines[i + 1]);
+        if headers.len() < 2 || sep.len() != headers.len() || !is_separator(&sep) {
+            i += 1;
+            continue;
+        }
+        // Map header columns to roles by EXACT cleaned-header match. A
+        // substring test wrongly maps count / annotation columns: e.g.
+        // "Top up-gene" contains "gene" and "N sig (FDR<0.05)" contains
+        // "fdr", which would mis-read a cluster-summary table as per-gene
+        // DE rows and emit false claims. `clean_header` lowercases, drops
+        // any "(…)" qualifier, and normalizes separators so a header is
+        // matched only when it *names* the role.
+        let clean: Vec<String> = headers.iter().map(|h| clean_header(h)).collect();
+        let find_col = |variants: &[&str], cfg_cols: &[String]| -> Option<usize> {
+            clean.iter().position(|h| {
+                variants.iter().any(|v| h == v) || cfg_cols.iter().any(|c| clean_header(c) == *h)
+            })
+        };
+        let entity_idx = find_col(
+            &[
+                "gene",
+                "gene id",
+                "gene name",
+                "gene symbol",
+                "feature",
+                "feature id",
+                "symbol",
+                "term",
+                "id",
+                "name",
+                "protein",
+                "protein id",
+                "peak",
+                "peak id",
+                "region",
+                "taxon",
+                "taxon id",
+                "taxon name",
+                "otu",
+                "otu id",
+                "asv",
+                "cpg",
+                "cpg id",
+                "site",
+                "probe",
+                "probe id",
+                "variant",
+                "snp",
+                "rsid",
+                "transcript",
+                "transcript id",
+                "uniprot",
+                "accession",
+                "entity",
+            ],
+            &cfg.entity_columns,
+        );
+        let effect_idx = find_col(
+            &[
+                "log2fc",
+                "log2 fc",
+                "logfc",
+                "log fc",
+                "logfoldchange",
+                "log2foldchange",
+                "log2 fold change",
+                "log fold change",
+                "lfc",
+                "fold change",
+                "nes",
+                "effect size",
+                "effect",
+                "estimate",
+                "beta",
+                "es",
+            ],
+            &cfg.effect_size_columns,
+        );
+        let pvalue_idx = find_col(
+            &[
+                "padj",
+                "p adj",
+                "p adjust",
+                "adj p",
+                "adj p val",
+                "adj p value",
+                "adjusted p value",
+                "fdr",
+                "q value",
+                "qvalue",
+                "q val",
+                "pvalue",
+                "p value",
+                "pval",
+                "fdr q value",
+            ],
+            &cfg.pvalue_columns,
+        );
+        let Some(entity_idx) = entity_idx else {
+            i += 2;
+            continue;
+        };
+
+        // Consume data rows.
+        let mut j = i + 2;
+        while j < lines.len() && lines[j].contains('|') {
+            let cells = split_md_row(lines[j]);
+            if cells.len() != headers.len() {
+                break;
+            }
+            if let Some(raw_entity) = cells.get(entity_idx) {
+                if let Some(entity) = matched_entity_token(raw_entity, cfg) {
+                    let effect_size = effect_idx
+                        .and_then(|k| cells.get(k))
+                        .and_then(|c| parse_leading_number(c));
+                    let pvalue = pvalue_idx
+                        .and_then(|k| cells.get(k))
+                        .and_then(|c| parse_leading_number(c));
+                    let direction = effect_size.map(|e| {
+                        if e >= 0.0 {
+                            Direction::Up
+                        } else {
+                            Direction::Down
+                        }
+                    });
+                    // Re-scan the row text for key=value numerics too, in
+                    // case the agent wrote "log2FC=…" inside a cell.
+                    let row_text = lines[j];
+                    let effect_size = effect_size.or_else(|| {
+                        scan_effect_size_positions(row_text, &regex_cache)
+                            .first()
+                            .map(|(_, v)| *v)
+                    });
+                    let pvalue = pvalue.or_else(|| {
+                        scan_pvalue_positions(row_text, &regex_cache)
+                            .first()
+                            .map(|(_, v)| *v)
+                    });
+                    out.push(Claim {
+                        entity,
+                        direction,
+                        effect_size,
+                        pvalue,
+                        source_table: None,
+                        excerpt: lines[j].trim().to_string(),
+                        contract: ClaimContract::NumericTableLookup,
+                    });
+                }
+            }
+            j += 1;
+        }
+        i = j.max(i + 2);
+    }
+    out
+}
+
+/// Normalize a table header for exact role matching: lowercase, drop any
+/// parenthetical qualifier ("N sig (FDR<0.05)" → "n sig"), map `._-` to
+/// spaces, and collapse whitespace. So a column is matched to a role only
+/// when its name *is* that role, never when it merely mentions it.
+fn clean_header(h: &str) -> String {
+    let mut s = h.to_lowercase();
+    if let Some(idx) = s.find('(') {
+        s.truncate(idx);
+    }
+    s = s.replace(['.', '_', '-', '`'], " ");
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Split a markdown table row into trimmed cell strings, dropping the
+/// empty leading/trailing cells produced by the outer pipes.
+fn split_md_row(line: &str) -> Vec<String> {
+    let trimmed = line.trim();
+    let inner = trimmed
+        .strip_prefix('|')
+        .unwrap_or(trimmed)
+        .strip_suffix('|')
+        .unwrap_or_else(|| trimmed.strip_prefix('|').unwrap_or(trimmed));
+    inner
+        .split('|')
+        .map(|c| c.trim().trim_matches('`').trim().to_string())
+        .collect()
+}
+
+/// Return the entity token in `cell` if it matches a configured entity
+/// pattern and is not excluded (mirrors the per-sentence entity filter).
+fn matched_entity_token(cell: &str, cfg: &ExtractorConfig) -> Option<String> {
+    let token = cell.trim();
+    if token.is_empty() {
+        return None;
+    }
+    for pat in &cfg.entity_patterns {
+        if let Some(m) = pat.find(token) {
+            // Require the match to span the whole cell (a result-table
+            // entity cell is the identifier itself, not prose).
+            if m.start() == 0 && m.end() == token.len() {
+                let excluded = cfg
+                    .entity_exclude_patterns
+                    .iter()
+                    .any(|excl| excl.is_match(token));
+                if !excluded {
+                    return Some(token.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Parse a leading number from a markdown cell ("1.49e-159", "-4.606",
+/// "2,345"). Tolerates a trailing unit / annotation.
+fn parse_leading_number(cell: &str) -> Option<f64> {
+    let c = cell.trim().replace(',', "");
+    static NUM_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^[+-]?\d*\.?\d+(?:[eE][+-]?\d+)?").expect("static regex"));
+    NUM_RE.find(&c).and_then(|m| m.as_str().parse::<f64>().ok())
 }
 
 #[derive(Debug, Clone)]
@@ -748,6 +1006,50 @@ fn scan_pvalue_positions(sentence: &str, cache: &ExtractorRegexCache) -> Vec<(us
 
 fn scan_table_reference(sentence: &str) -> Option<String> {
     TABLE_REF_RE.find(sentence).map(|m| m.as_str().to_string())
+}
+
+/// Static regex collapsing `<num> × 10<exp>` (after Unicode→ASCII mapping)
+/// into `<num>e<exp>` so the numeric scanners see standard exponent form.
+static SCI_NOTATION_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(\d(?:\.\d+)?)\s*\*\s*10\s*\^?\s*(-?\d+)").expect("static regex")
+});
+
+/// Canonicalize the Unicode scientific-notation polish that real reports
+/// use ("1.49 × 10⁻¹⁵⁹", "log2FC = −4.61") into ASCII the regex scanners
+/// understand ("1.49e-159", "log2FC = -4.61"). Without this, a *correct*
+/// claim like `padj = 1.49 × 10⁻¹⁵⁹` parses as `1.49`, producing a false
+/// mismatch that would wrongly block the session. Applied before any
+/// offset computation so entity/direction positions stay self-consistent.
+pub(crate) fn canonicalize_scientific(text: &str) -> String {
+    let mut s = String::with_capacity(text.len());
+    for ch in text.chars() {
+        let mapped = match ch {
+            // Unicode minus / figure-en-em dashes / horizontal bar → '-'.
+            '\u{2212}' | '\u{2012}' | '\u{2013}' | '\u{2014}' | '\u{2015}' => '-',
+            // Superscript digits → ASCII digits.
+            '\u{2070}' => '0',
+            '\u{00B9}' => '1',
+            '\u{00B2}' => '2',
+            '\u{00B3}' => '3',
+            '\u{2074}' => '4',
+            '\u{2075}' => '5',
+            '\u{2076}' => '6',
+            '\u{2077}' => '7',
+            '\u{2078}' => '8',
+            '\u{2079}' => '9',
+            // Superscript minus → '-'.
+            '\u{207B}' => '-',
+            // Multiplication sign / middle dot → '*' marker for the
+            // scientific-notation collapse below.
+            '\u{00D7}' | '\u{22C5}' | '\u{00B7}' => '*',
+            other => {
+                s.push(other);
+                continue;
+            }
+        };
+        s.push(mapped);
+    }
+    SCI_NOTATION_RE.replace_all(&s, "${1}e${2}").into_owned()
 }
 
 #[cfg(test)]
@@ -955,6 +1257,51 @@ mod tests {
         assert!((acan.pvalue.unwrap() - 0.001).abs() < 1e-9, "{:?}", acan);
         assert!((col.effect_size.unwrap() + 1.5).abs() < 1e-9, "{:?}", col);
         assert!((col.pvalue.unwrap() - 0.04).abs() < 1e-9, "{:?}", col);
+    }
+
+    #[test]
+    fn canonicalize_unicode_scientific_notation() {
+        // Unicode minus, superscript exponent, × 10ⁿ → ASCII e-notation.
+        let s = canonicalize_scientific("padj = 1.49 × 10⁻¹⁵⁹, log2FC = −4.61");
+        assert!(s.contains("1.49e-159"), "got {s}");
+        assert!(s.contains("-4.61"), "got {s}");
+    }
+
+    #[test]
+    fn markdown_de_table_yields_per_gene_claims() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let md = "| Gene | log2FC | padj |\n|---|---|---|\n\
+                  | ACAN | -4.606 | 1.49e-159 |\n| COL2A1 | 2.889 | 7.48e-110 |\n";
+        let claims = extract_markdown_table_claims(md, &cfg);
+        let acan = claims.iter().find(|c| c.entity == "ACAN").unwrap();
+        assert!(
+            (acan.effect_size.unwrap() + 4.606).abs() < 1e-6,
+            "{:?}",
+            acan
+        );
+        assert!(
+            (acan.pvalue.unwrap() - 1.49e-159).abs() < 1e-165,
+            "{:?}",
+            acan
+        );
+        assert_eq!(acan.direction, Some(Direction::Down));
+    }
+
+    #[test]
+    fn markdown_summary_table_yields_no_false_claims() {
+        // A cluster/domain summary ("N sig (FDR<0.05)", "Top up-gene")
+        // must NOT be mis-read as per-gene DE rows — strict cleaned-header
+        // matching rejects count/annotation columns.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let md = "| Cluster | Label | N spots | N sig (FDR<0.05) | Top up-gene |\n\
+                  |---|---|---|---|---|\n\
+                  | 0 | Domain_0 | 13 | 1 | ACAN |\n";
+        let claims = extract_markdown_table_claims(md, &cfg);
+        assert!(
+            claims.is_empty(),
+            "summary table must yield no claims, got {:?}",
+            claims.iter().map(|c| &c.entity).collect::<Vec<_>>()
+        );
     }
 
     #[test]
