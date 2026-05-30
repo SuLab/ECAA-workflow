@@ -93,6 +93,12 @@ the figure files under `runtime/outputs/$ECAA_TASK_ID/` and list their
 paths in `result.json::figures`. A completed analytical stage that is
 missing its declared figures is not done.
 
+The R catalog (`runtime/plotting_r/`) is a subset of the Python one. If you
+worked in R and `ecaa_known_figures(stage_id)` is empty for your stage,
+render the required figures with the Python library (`runtime/plotting/`)
+from the output tables instead — never emit zero figures because the R
+renderer for your stage is missing.
+
 ### Discovery tasks (`discover_*`)
 
 A `discover_*` task selects the method for its downstream stage. Follow the

@@ -311,16 +311,24 @@ ecaa_known_figures <- function(stage_id) {
 }
 
 .ecaa_seed <- function(stage_id, figure_id) {
-  # Mirror the Python deterministic seed: SHA-256 of "stage|fig", first 8 bytes,
-  # masked to 31 bits. Use digest if available; fall back to a stable hash of
-  # the concatenated string.
-  if (requireNamespace("digest", quietly = TRUE)) {
+  # Deterministic per-(stage, figure) seed. SHA-256 of "stage|fig" when
+  # `digest` is available, else a stable codepoint sum.
+  #
+  # Parse only the first 7 hex digits (28 bits, max 0x0FFFFFFF =
+  # 268,435,455). `strtoi(x, 16L)` returns NA on any value above R's
+  # signed-int max (2^31-1), so 8 hex digits overflow to NA for ~half of
+  # all hashes (first nibble 8-F) and `set.seed(NA)` then errors. 7 digits
+  # always parse to a valid non-negative integer. (The Python side masks
+  # bitwise with & 0x7FFFFFFF and is immune; this is the R-port fix.)
+  seed <- if (requireNamespace("digest", quietly = TRUE)) {
     h <- digest::digest(paste(stage_id, figure_id, sep = "|"),
                         algo = "sha256", serialize = FALSE)
-    as.integer(strtoi(substr(h, 1, 8), 16L) %% 2147483647L)
+    strtoi(substr(h, 1, 7), 16L)
   } else {
     abs(sum(utf8ToInt(paste(stage_id, figure_id)))) %% 2147483647L
   }
+  if (is.na(seed) || !is.finite(seed)) seed <- 0L
+  as.integer(seed)
 }
 
 ecaa_generate <- function(stage_id, outputs_dir,
