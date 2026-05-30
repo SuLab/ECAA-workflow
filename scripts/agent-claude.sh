@@ -500,15 +500,23 @@ MODEL_FLAG_ARGS=()
 # tasks (validate_pathway_enrichment $0.76 across 28 checks; normalisation
 # $1.78), so heavy-but-valid tasks were false-blocked on TurnBudgetExceeded.
 #
-# Recalibrated from measured Sonnet per-task cost (live run) + ~1.5x headroom:
-#   validate_*   max $0.76 observed → $1.25 cap
-#   discover_*   max $0.95 (Opus)   → $1.50 cap (already well-margined)
-#   data_acq     $0.86 (n=1)        → $1.50 cap
-#   analytical   max $1.78 observed → $2.50 cap (also governs reporting/
-#                final_reporting, which have no dedicated branch below)
+# Calibrated from 1243 real task runs across 12 modalities (p99 + headroom),
+# because cost varies by modality, not just task class — a single workflow
+# under-samples the tail. Caps are set above the cross-modality p99 of the
+# class's distribution on the model it runs:
+#   validate_*   (sonnet) p99 $0.95, max $1.00 → $1.25 cap   (0% over)
+#   discover_*   (opus)   p99 $2.69, max $2.71 → $3.00 cap   (was $1.50: 30%
+#                of discover tasks exceeded it — bulk_rnaseq/variant_calling/
+#                generic_omics discover routinely cost $2-2.7 on Opus)
+#   data_acq     (sonnet) p99 $1.77, max $2.17 → $2.00 cap   (public-accession
+#                acquisition reasons more than local-path)
+#   analytical   (sonnet) p99 $2.78 → $3.00 cap; also governs reporting/
+#                final_reporting (no dedicated branch). The $3.42 max is a
+#                bulk_rnaseq tail (DESeq2-from-source budget waste) that
+#                should block for review rather than have the cap chase it.
 #
-# Single-modality sample; the per-class envs let operators tune per run, and
-# ECAA_AGENT_BUDGET_USD overrides all classes. Set to 0 to disable the cap.
+# Per-class envs override the defaults; ECAA_AGENT_BUDGET_USD overrides all
+# classes. Set to 0 to disable the cap entirely.
 BUDGET_FLAG_ARGS=()
 if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
   case "$ECAA_TASK_ID" in
@@ -525,11 +533,11 @@ if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
       # preferences. Opus's deeper analytical reasoning pays off
       # here when the candidate pool has subtle trade-offs.
       MODEL_FLAG_ARGS+=(--model claude-opus-4-8)
-      _BUDGET="${ECAA_AGENT_BUDGET_USD_DISCOVER:-1.50}"
+      _BUDGET="${ECAA_AGENT_BUDGET_USD_DISCOVER:-3.00}"
       ;;
     data_acquisition|data_import)
       MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
-      _BUDGET="${ECAA_AGENT_BUDGET_USD_DATA_ACQ:-1.50}"
+      _BUDGET="${ECAA_AGENT_BUDGET_USD_DATA_ACQ:-2.00}"
       ;;
     *)
       # Pull the task kind only when needed — `kind: discovery` is a
@@ -544,10 +552,10 @@ if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
       fi
       if [ "$TID_KIND" = "discovery" ]; then
         MODEL_FLAG_ARGS+=(--model claude-opus-4-8)
-        _BUDGET="${ECAA_AGENT_BUDGET_USD_DISCOVER:-1.50}"
+        _BUDGET="${ECAA_AGENT_BUDGET_USD_DISCOVER:-3.00}"
       else
         MODEL_FLAG_ARGS+=(--model claude-sonnet-4-6)
-        _BUDGET="${ECAA_AGENT_BUDGET_USD_ANALYTICAL:-2.50}"
+        _BUDGET="${ECAA_AGENT_BUDGET_USD_ANALYTICAL:-3.00}"
       fi
       ;;
   esac
