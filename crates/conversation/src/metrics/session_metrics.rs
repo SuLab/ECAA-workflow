@@ -313,4 +313,97 @@ pub struct SessionMetrics {
     /// `classify_intake` / `append_intake_prose` tool dispatch.
     #[serde(default)]
     pub is_ambiguous: Option<bool>,
+
+    // ---------------------------------------------------------------
+    // Product metrics. Time-to-emit, per-task success rate,
+    // claim-verification (hallucination) rate, and method-recommendation
+    // demand. Derived rates are `Option` so the UI distinguishes "no
+    // observations yet" from a genuine 0.0.
+    // ---------------------------------------------------------------
+    /// Wall-clock milliseconds from session creation to the emit event.
+    /// `None` until the session emits. The headline "time to first
+    /// package" KPI; set by `MetricsStore::record_emit`.
+    #[serde(default)]
+    pub time_to_emit_ms: Option<u64>,
+    /// Number of tasks whose terminal disposition was success.
+    #[serde(default)]
+    pub tasks_succeeded: u64,
+    /// Number of tasks whose terminal disposition was failure.
+    #[serde(default)]
+    pub tasks_failed: u64,
+    /// `tasks_succeeded / (tasks_succeeded + tasks_failed)`. `None` until
+    /// at least one task reaches a terminal state.
+    #[serde(default)]
+    pub task_success_rate: Option<f64>,
+    /// Total narrative claims the claim_verifier evaluated across every
+    /// `/verify` call this session.
+    #[serde(default)]
+    pub claims_checked: u64,
+    /// Subset of `claims_checked` that contradicted the result tables —
+    /// the raw hallucination signal.
+    #[serde(default)]
+    pub claim_mismatches: u64,
+    /// `claim_mismatches / claims_checked`. `None` until at least one
+    /// claim has been checked. The session-level hallucination rate.
+    #[serde(default)]
+    pub claim_mismatch_rate: Option<f64>,
+    /// Count of turns where the SME requested a methodological
+    /// recommendation the role contract requires the assistant to refuse.
+    /// The live proxy for refusal demand.
+    #[serde(default)]
+    pub method_recommendation_requests: u64,
+}
+
+/// Terminal disposition of a session for fleet completion-rate
+/// accounting. Derived from `SessionState` by the service layer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionDisposition {
+    /// Session reached `Emitted` (a package was produced).
+    Emitted,
+    /// Session is currently `Blocked`.
+    Blocked,
+    /// Session is mid-lifecycle (Greeting / Intake / PendingConfirmation / …).
+    InProgress,
+}
+
+/// Cross-session completion-rate summary — the product KPI the
+/// per-session metrics layer could not express: of all sessions started,
+/// what fraction reached an emitted package. Computed by
+/// [`compute_completion_stats`] over the dispositions the service layer
+/// derives from the SessionStore.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct CompletionStats {
+    /// Total sessions considered.
+    pub sessions: u64,
+    /// Sessions that reached `Emitted`.
+    pub emitted: u64,
+    /// Sessions currently `Blocked`.
+    pub blocked: u64,
+    /// Sessions still in progress.
+    pub in_progress: u64,
+    /// `emitted / sessions`. 0.0 when there are no sessions.
+    pub completion_rate: f64,
+}
+
+/// Aggregate a slice of per-session dispositions into a fleet completion
+/// rate. Pure and deterministic; empty input yields a zeroed summary with
+/// `completion_rate == 0.0` (no sessions ⇒ nothing completed).
+pub fn compute_completion_stats(dispositions: &[SessionDisposition]) -> CompletionStats {
+    let sessions = dispositions.len() as u64;
+    let count =
+        |want: SessionDisposition| dispositions.iter().filter(|&&d| d == want).count() as u64;
+    let emitted = count(SessionDisposition::Emitted);
+    let completion_rate = if sessions == 0 {
+        0.0
+    } else {
+        emitted as f64 / sessions as f64
+    };
+    CompletionStats {
+        sessions,
+        emitted,
+        blocked: count(SessionDisposition::Blocked),
+        in_progress: count(SessionDisposition::InProgress),
+        completion_rate,
+    }
 }

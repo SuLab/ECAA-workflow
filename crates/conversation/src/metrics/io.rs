@@ -98,7 +98,19 @@ pub fn write_session_metrics_row(
         "amendment_count": metrics.amendment_count,
         "blockers_encountered": blockers_val,
         "is_ambiguous": metrics.is_ambiguous,
-        "schema_version": 1u32,
+        // Product metrics. `time_to_emit_ms` is computed inline from the
+        // two timestamps in this same row so it is always present and
+        // correct regardless of `record_emit` call ordering; the rate
+        // fields come from the snapshot.
+        "time_to_emit_ms": emitted_at_ms.saturating_sub(created_at_ms),
+        "tasks_succeeded": metrics.tasks_succeeded,
+        "tasks_failed": metrics.tasks_failed,
+        "task_success_rate": metrics.task_success_rate,
+        "claims_checked": metrics.claims_checked,
+        "claim_mismatches": metrics.claim_mismatches,
+        "claim_mismatch_rate": metrics.claim_mismatch_rate,
+        "method_recommendation_requests": metrics.method_recommendation_requests,
+        "schema_version": 2u32,
     });
     std::fs::create_dir_all(pkg_runtime_dir)?;
     let path = pkg_runtime_dir.join("session-metrics.jsonl");

@@ -500,6 +500,37 @@ export interface SessionMetrics {
   // structural-fallback generic renderer was used in this session, to
   // surface catalog gaps in the Performance tab.
   affordance_fallbacks?: AffordanceFallbackSummary[]
+  // Product metrics. Optional / nullable: derived rates are null until
+  // the first observation; absent on pre-product-metrics sidecars.
+  /** Wall-clock ms from session creation to the FIRST emitted package. */
+  time_to_emit_ms?: number | null
+  /** Tasks whose terminal disposition was success. */
+  tasks_succeeded?: number
+  /** Tasks whose terminal disposition was failure. */
+  tasks_failed?: number
+  /** tasks_succeeded / (succeeded + failed); null until a task is terminal. */
+  task_success_rate?: number | null
+  /** Total narrative claims the verifier evaluated this session. */
+  claims_checked?: number
+  /** Subset of claims_checked that contradicted the result tables. */
+  claim_mismatches?: number
+  /** claim_mismatches / claims_checked; null until a claim is checked. */
+  claim_mismatch_rate?: number | null
+  /** Turns where the SME requested a method recommendation (contractually refused). */
+  method_recommendation_requests?: number
+}
+
+/// Hand-mirrored from
+/// crates/conversation/src/metrics/session_metrics.rs::CompletionStats.
+/// Response shape of `GET /api/chat/metrics/completion` — the fleet
+/// completion-rate KPI. Not ts-rs derived.
+export interface CompletionStats {
+  sessions: number
+  emitted: number
+  blocked: number
+  in_progress: number
+  /** emitted / sessions; 0.0 when there are no sessions. */
+  completion_rate: number
 }
 
 /// Hand-mirrored from crates/conversation/src/metrics.rs::AffordanceFallbackSummary.

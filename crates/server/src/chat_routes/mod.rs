@@ -78,6 +78,7 @@ pub fn router(app: ChatAppState) -> Router {
         .merge(auto_title::routes())
         .merge(explain::routes())
         .merge(budget::routes())
+        .merge(completion::routes())
         .merge(config::routes())
         .merge(stage_descriptions::routes())
         .merge(inputs::routes())
@@ -210,6 +211,7 @@ mod atoms;
 mod auto_title;
 mod branches;
 mod budget;
+mod completion;
 mod compose;
 mod config;
 mod dashboard;

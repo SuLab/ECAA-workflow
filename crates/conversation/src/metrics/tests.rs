@@ -1229,7 +1229,13 @@ fn session_metrics_row_round_trip() {
     assert_eq!(row["followup_count"].as_u64().unwrap(), 3);
     assert_eq!(row["amendment_count"].as_u64().unwrap(), 1);
     assert_eq!(row["is_ambiguous"].as_bool(), Some(true));
-    assert_eq!(row["schema_version"].as_u64().unwrap(), 1);
+    assert_eq!(row["schema_version"].as_u64().unwrap(), 2);
+    // Product metrics: time-to-emit is differenced inline from the two
+    // timestamps in this row (emitted_at_ms ≫ created_at_ms = 1_000_000).
+    assert!(
+        row["time_to_emit_ms"].as_u64().unwrap() > 0,
+        "time_to_emit_ms must be present and positive"
+    );
     let blockers = row["blockers_encountered"].as_array().unwrap();
     assert_eq!(blockers.len(), 1);
     assert_eq!(blockers[0]["blocker_kind"].as_str().unwrap(), "ToolError");
@@ -1305,4 +1311,136 @@ async fn snapshot_total_cost_equals_sum_of_buckets() {
         snap.side_call_cost_usd > 0.0,
         "side_call_cost_usd must be positive after a Haiku side-call"
     );
+}
+
+// ===================================================================
+// Product metrics: time-to-emit, per-task success rate, claim-
+// verification (hallucination) rate, method-recommendation demand, and
+// the cross-session completion-rate aggregator.
+// ===================================================================
+
+#[tokio::test]
+async fn record_emit_sets_time_to_emit_ms() {
+    let store = MetricsStore::new();
+    let id = Uuid::new_v4();
+    store.record_emit(id, 1_000, 4_500).await;
+    let snap = store.snapshot(id).await.unwrap();
+    assert_eq!(snap.time_to_emit_ms, Some(3_500));
+}
+
+#[tokio::test]
+async fn record_emit_is_set_once_for_first_package() {
+    // The headline KPI is time to the FIRST package; a re-emit
+    // (amendment) must not overwrite it with a creation→much-later delta.
+    let store = MetricsStore::new();
+    let id = Uuid::new_v4();
+    store.record_emit(id, 1_000, 4_500).await; // first emit: 3500ms
+    store.record_emit(id, 1_000, 90_000).await; // re-emit: must NOT overwrite
+    let snap = store.snapshot(id).await.unwrap();
+    assert_eq!(snap.time_to_emit_ms, Some(3_500));
+}
+
+#[tokio::test]
+async fn record_emit_saturates_on_backwards_clock() {
+    // emitted_at before created_at (clock skew) floors at 0, never underflows.
+    let store = MetricsStore::new();
+    let id = Uuid::new_v4();
+    store.record_emit(id, 5_000, 1_000).await;
+    let snap = store.snapshot(id).await.unwrap();
+    assert_eq!(snap.time_to_emit_ms, Some(0));
+}
+
+#[tokio::test]
+async fn task_terminal_status_yields_success_rate() {
+    let store = MetricsStore::new();
+    let id = Uuid::new_v4();
+    store.record_task_terminal(id, "t1".into(), true).await;
+    store.record_task_terminal(id, "t2".into(), true).await;
+    store.record_task_terminal(id, "t3".into(), true).await;
+    store.record_task_terminal(id, "t4".into(), false).await;
+    let snap = store.snapshot(id).await.unwrap();
+    assert_eq!(snap.tasks_succeeded, 3);
+    assert_eq!(snap.tasks_failed, 1);
+    let rate = snap
+        .task_success_rate
+        .expect("rate present after terminal tasks");
+    assert!((rate - 0.75).abs() < 1e-9, "expected 0.75, got {rate}");
+}
+
+#[tokio::test]
+async fn task_success_rate_is_none_without_terminal_tasks() {
+    let store = MetricsStore::new();
+    let id = Uuid::new_v4();
+    // Seed an unrelated counter so the session entry exists for snapshot.
+    store.record_method_recommendation_request(id).await;
+    let snap = store.snapshot(id).await.unwrap();
+    assert_eq!(snap.tasks_succeeded, 0);
+    assert_eq!(snap.tasks_failed, 0);
+    assert_eq!(snap.task_success_rate, None);
+}
+
+#[tokio::test]
+async fn task_rerun_overwrites_prior_disposition() {
+    // A task that failed then reran to success: the final disposition wins.
+    let store = MetricsStore::new();
+    let id = Uuid::new_v4();
+    store.record_task_terminal(id, "t1".into(), false).await;
+    store.record_task_terminal(id, "t1".into(), true).await;
+    let snap = store.snapshot(id).await.unwrap();
+    assert_eq!(snap.tasks_succeeded, 1);
+    assert_eq!(snap.tasks_failed, 0);
+}
+
+#[tokio::test]
+async fn claim_verification_accumulates_mismatch_rate() {
+    let store = MetricsStore::new();
+    let id = Uuid::new_v4();
+    store.record_claim_verification(id, 10, 0).await;
+    store.record_claim_verification(id, 10, 4).await;
+    let snap = store.snapshot(id).await.unwrap();
+    assert_eq!(snap.claims_checked, 20);
+    assert_eq!(snap.claim_mismatches, 4);
+    let rate = snap
+        .claim_mismatch_rate
+        .expect("rate present after a verify");
+    assert!((rate - 0.2).abs() < 1e-9, "expected 0.2, got {rate}");
+}
+
+#[tokio::test]
+async fn claim_mismatch_rate_is_none_without_checks() {
+    let store = MetricsStore::new();
+    let id = Uuid::new_v4();
+    store.record_method_recommendation_request(id).await; // seed entry
+    let snap = store.snapshot(id).await.unwrap();
+    assert_eq!(snap.claims_checked, 0);
+    assert_eq!(snap.claim_mismatch_rate, None);
+}
+
+#[tokio::test]
+async fn method_recommendation_requests_increment() {
+    let store = MetricsStore::new();
+    let id = Uuid::new_v4();
+    store.record_method_recommendation_request(id).await;
+    store.record_method_recommendation_request(id).await;
+    let snap = store.snapshot(id).await.unwrap();
+    assert_eq!(snap.method_recommendation_requests, 2);
+}
+
+#[test]
+fn completion_stats_computes_fleet_rate() {
+    use SessionDisposition::*;
+    let stats = compute_completion_stats(&[Emitted, Emitted, Blocked, InProgress]);
+    assert_eq!(stats.sessions, 4);
+    assert_eq!(stats.emitted, 2);
+    assert_eq!(stats.blocked, 1);
+    assert_eq!(stats.in_progress, 1);
+    assert!((stats.completion_rate - 0.5).abs() < 1e-9);
+}
+
+#[test]
+fn completion_stats_empty_is_zeroed() {
+    let stats = compute_completion_stats(&[]);
+    assert_eq!(stats.sessions, 0);
+    assert_eq!(stats.emitted, 0);
+    assert_eq!(stats.completion_rate, 0.0);
 }

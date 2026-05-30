@@ -319,6 +319,19 @@ pub async fn verify_task_endpoint(
         })
         .await;
 
+    // Hallucination-proxy telemetry: accumulate claims-checked +
+    // mismatches into the session metrics so `claim_mismatch_rate` is
+    // observable. Fires on every verify pass (mismatch or not), so the
+    // denominator is the full claim-check volume. Best-effort.
+    app.conversation
+        .metrics()
+        .record_claim_verification(
+            session_id,
+            verified.report.n_checked as u64,
+            verified.report.n_mismatch as u64,
+        )
+        .await;
+
     // On mismatch, block the session so the UI's BlockerCard surfaces
     // the recovery affordances (amend_stage_method or rerun_task). Use
     // the Validation variant of BlockerKind so the dispatch lands in

@@ -64,7 +64,9 @@ pub use counters::{
     PerTaskAgentSnapshot, TokenBucket, TurnSource, ITERATIONS_HISTOGRAM_BUCKETS,
 };
 pub use io::{write_cost_ledger_row, write_session_metrics_row};
-pub use session_metrics::SessionMetrics;
+pub use session_metrics::{
+    compute_completion_stats, CompletionStats, SessionDisposition, SessionMetrics,
+};
 pub use store::{empty_session_metrics, MetricsStore};
 
 // Re-export private store helpers at the parent-module path so the

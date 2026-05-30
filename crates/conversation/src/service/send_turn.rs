@@ -439,6 +439,38 @@ impl ConversationService {
             self.metrics_store().record_intake_followup_turn(id).await;
         }
 
+        // Time-to-emit KPI. Record on the transition INTO Emitted during
+        // this turn's tool loop. The `initial_state` guard skips turns
+        // that start already-Emitted (cheap, avoids a store read); the
+        // store-side set-once protects the first-package number against
+        // amendment re-emits. Read the persisted state as authoritative
+        // since the emit transition is finalized through the store.
+        if !matches!(initial_state, SessionState::Emitted) {
+            if let Some(persisted) = self.store_handle().get(id).await {
+                if matches!(persisted.state, SessionState::Emitted) {
+                    let created_at_ms = persisted.created_at.timestamp_millis().max(0) as u64;
+                    let emitted_at_ms = chrono::Utc::now().timestamp_millis().max(0) as u64;
+                    self.metrics_store()
+                        .record_emit(id, created_at_ms, emitted_at_ms)
+                        .await;
+                }
+            }
+        }
+
+        // Refusal-demand proxy. Count turns where the SME's prose
+        // requested a methodological recommendation the role contract
+        // requires the assistant to refuse. Deterministic prose
+        // classifier — the assistant emits no structured refusal event,
+        // so this counts the demand. Best-effort.
+        if matches!(
+            crate::heuristic_refusal::detect_method_mention(&user_text),
+            crate::heuristic_refusal::MethodMention::SmeRequestedRecommendation { .. }
+        ) {
+            self.metrics_store()
+                .record_method_recommendation_request(id)
+                .await;
+        }
+
         // Optional per-turn token-burn logger, off by default. Set
         // ECAA_DEBUG_TOKEN_BURN=1 to stream a
         // one-line summary to stderr after every turn so operators

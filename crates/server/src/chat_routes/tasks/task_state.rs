@@ -131,6 +131,27 @@ pub(crate) async fn post_set_task_state(
                     // will populate via the full reconciliation walk.
                 }
             }
+            // Per-task success-rate telemetry: record terminal
+            // dispositions only — Completed ⇒ success, Failed ⇒ failure.
+            // Non-terminal states (and Blocked, which is recoverable, not
+            // a failure) are not dispositions. Keyed by task_id so a
+            // rerun's later terminal state overwrites the earlier one.
+            // Best-effort; runs only on a successful write.
+            match &req.state {
+                TaskState::Completed { .. } => {
+                    app.conversation
+                        .metrics()
+                        .record_task_terminal(session_id, task_id.clone(), true)
+                        .await;
+                }
+                TaskState::Failed { .. } => {
+                    app.conversation
+                        .metrics()
+                        .record_task_terminal(session_id, task_id.clone(), false)
+                        .await;
+                }
+                _ => {}
+            }
             StatusCode::NO_CONTENT.into_response()
         }
         Err(e) => (StatusCode::NOT_FOUND, format!("session not found: {}", e)).into_response(),

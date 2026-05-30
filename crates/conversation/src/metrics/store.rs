@@ -162,6 +162,41 @@ pub(crate) struct SessionCounters {
     pub(crate) max_iterations_hit_count: u64,
     #[serde(default)]
     pub(crate) iteration_total_duration_ms: u64,
+
+    // Product metrics ------------------------------------------------
+    // Wall-clock ms from session creation to the emit event. Set once
+    // by `record_emit` on the `→ Emitted` transition. `None` until the
+    // session emits (the headline "time to first package" KPI; the raw
+    // created_at/emitted_at timestamps were already written to
+    // `session-metrics.jsonl` but never differenced into a live metric).
+    #[serde(default)]
+    pub(crate) time_to_emit_ms: Option<u64>,
+    // Per-task terminal disposition: task_id → succeeded. A rerun
+    // overwrites the prior entry so the final disposition wins. The
+    // snapshot folds this into tasks_succeeded / tasks_failed /
+    // task_success_rate. Set by `record_task_terminal` from the harness
+    // task-state transition (Completed ⇒ true, Failed ⇒ false).
+    #[serde(default)]
+    pub(crate) task_terminal_status: BTreeMap<String, bool>,
+    // Claim-verification telemetry (hallucination proxy). `claims_checked`
+    // accumulates the number of narrative claims the claim_verifier
+    // evaluated across every `/verify` call this session; `claim_mismatches`
+    // accumulates the subset that contradicted the result tables. The
+    // snapshot derives `claim_mismatch_rate`. Set by
+    // `record_claim_verification` from the verification endpoint.
+    #[serde(default)]
+    pub(crate) claims_checked: u64,
+    #[serde(default)]
+    pub(crate) claim_mismatches: u64,
+    // Count of turns where the SME requested a methodological
+    // recommendation that the role contract requires the assistant to
+    // refuse (detected deterministically via
+    // `heuristic_refusal::detect_method_mention`). This is the live,
+    // observable proxy for "refusals warranted" — the assistant has no
+    // structured refusal event of its own, so we count the demand. Set
+    // by `record_method_recommendation_request`.
+    #[serde(default)]
+    pub(crate) method_recommendation_requests: u64,
 }
 
 // Custom deserialize that accepts BOTH the new `per_model` shape AND the
@@ -248,6 +283,18 @@ impl<'de> Deserialize<'de> for SessionCounters {
             blockers_encountered: Vec<BlockerEventRecord>,
             #[serde(default)]
             is_ambiguous: Option<bool>,
+            // Product metrics. Always defaulted so sidecars written
+            // before this change deserialize cleanly.
+            #[serde(default)]
+            time_to_emit_ms: Option<u64>,
+            #[serde(default)]
+            task_terminal_status: BTreeMap<String, bool>,
+            #[serde(default)]
+            claims_checked: u64,
+            #[serde(default)]
+            claim_mismatches: u64,
+            #[serde(default)]
+            method_recommendation_requests: u64,
         }
         let raw = Raw::deserialize(deserializer)?;
         let mut per_model = raw.per_model;
@@ -302,6 +349,11 @@ impl<'de> Deserialize<'de> for SessionCounters {
             amendment_count: raw.amendment_count,
             blockers_encountered: raw.blockers_encountered,
             is_ambiguous: raw.is_ambiguous,
+            time_to_emit_ms: raw.time_to_emit_ms,
+            task_terminal_status: raw.task_terminal_status,
+            claims_checked: raw.claims_checked,
+            claim_mismatches: raw.claim_mismatches,
+            method_recommendation_requests: raw.method_recommendation_requests,
         })
     }
 }
@@ -581,6 +633,35 @@ impl SessionCounters {
             amendment_count: self.amendment_count,
             blockers_encountered: self.blockers_encountered.clone(),
             is_ambiguous: self.is_ambiguous,
+            // Product metrics — time-to-emit, per-task success rate,
+            // claim-verification (hallucination) rate, and the
+            // method-recommendation demand counter. Derived rates are
+            // `None` until at least one observation exists so the UI can
+            // distinguish "no data yet" from a genuine 0.0.
+            time_to_emit_ms: self.time_to_emit_ms,
+            tasks_succeeded: self.task_terminal_status.values().filter(|&&ok| ok).count() as u64,
+            tasks_failed: self
+                .task_terminal_status
+                .values()
+                .filter(|&&ok| !ok)
+                .count() as u64,
+            task_success_rate: {
+                let total = self.task_terminal_status.len();
+                if total == 0 {
+                    None
+                } else {
+                    let ok = self.task_terminal_status.values().filter(|&&ok| ok).count();
+                    Some(ok as f64 / total as f64)
+                }
+            },
+            claims_checked: self.claims_checked,
+            claim_mismatches: self.claim_mismatches,
+            claim_mismatch_rate: if self.claims_checked == 0 {
+                None
+            } else {
+                Some(self.claim_mismatches as f64 / self.claims_checked as f64)
+            },
+            method_recommendation_requests: self.method_recommendation_requests,
         }
     }
 }
@@ -1419,6 +1500,73 @@ impl MetricsStore {
                 Some(true) => true,
                 _ => new_ambiguous,
             });
+            counters.clone()
+        };
+        self.persist_one(id, &counters).await;
+    }
+
+    /// Record the emit event. `created_at_ms` / `emitted_at_ms` are
+    /// epoch-millisecond timestamps; their difference is the
+    /// time-to-emit KPI. Called from the service layer on the
+    /// `→ Emitted` transition where the Session's `created_at` and the
+    /// emit wall-clock are both known. Set-once: captures time to the
+    /// FIRST emit; a re-emit (amendment) does not overwrite the headline
+    /// "time to first package" KPI. Saturating so a backwards clock
+    /// cannot underflow.
+    pub async fn record_emit(&self, id: SessionId, created_at_ms: u64, emitted_at_ms: u64) {
+        let counters = {
+            let mut guard = self.inner.write().await;
+            let counters = guard.entry(id).or_default();
+            if counters.time_to_emit_ms.is_none() {
+                counters.time_to_emit_ms = Some(emitted_at_ms.saturating_sub(created_at_ms));
+            }
+            counters.clone()
+        };
+        self.persist_one(id, &counters).await;
+    }
+
+    /// Record a task's terminal disposition: `succeeded = true` on a
+    /// `Completed` transition, `false` on `Failed`. Keyed by task_id so
+    /// a rerun overwrites the prior disposition (final state wins). The
+    /// snapshot derives tasks_succeeded / tasks_failed /
+    /// task_success_rate. Called from the harness task-state endpoint.
+    pub async fn record_task_terminal(&self, id: SessionId, task_id: String, succeeded: bool) {
+        let counters = {
+            let mut guard = self.inner.write().await;
+            let counters = guard.entry(id).or_default();
+            counters.task_terminal_status.insert(task_id, succeeded);
+            counters.clone()
+        };
+        self.persist_one(id, &counters).await;
+    }
+
+    /// Record one claim-verification pass. `n_checked` is the number of
+    /// narrative claims the claim_verifier evaluated; `n_mismatch` is the
+    /// subset that contradicted the result tables. Both accumulate across
+    /// every `/verify` call this session; the snapshot derives
+    /// claim_mismatch_rate as the hallucination proxy. Saturating.
+    pub async fn record_claim_verification(&self, id: SessionId, n_checked: u64, n_mismatch: u64) {
+        let counters = {
+            let mut guard = self.inner.write().await;
+            let counters = guard.entry(id).or_default();
+            counters.claims_checked = counters.claims_checked.saturating_add(n_checked);
+            counters.claim_mismatches = counters.claim_mismatches.saturating_add(n_mismatch);
+            counters.clone()
+        };
+        self.persist_one(id, &counters).await;
+    }
+
+    /// Record one turn in which the SME requested a methodological
+    /// recommendation that the role contract requires the assistant to
+    /// refuse (detected via `heuristic_refusal::detect_method_mention`).
+    /// The live, deterministic proxy for refusal demand — the assistant
+    /// emits no structured refusal event of its own. Saturating.
+    pub async fn record_method_recommendation_request(&self, id: SessionId) {
+        let counters = {
+            let mut guard = self.inner.write().await;
+            let counters = guard.entry(id).or_default();
+            counters.method_recommendation_requests =
+                counters.method_recommendation_requests.saturating_add(1);
             counters.clone()
         };
         self.persist_one(id, &counters).await;
