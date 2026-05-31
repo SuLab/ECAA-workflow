@@ -1080,24 +1080,24 @@ impl Executor for LocalExecutor {
                             // SIGTERM first; give the agent a 10s grace
                             // to flush partial output + run its own
                             // cleanup before the unconditional SIGKILL.
-                            // SAFETY: `libc::kill` with a valid PID and
-                            // signal is a thin FFI wrapper with no memory
-                            // safety contract; `pid` is the live child's
-                            // PID captured above and not yet reaped.
-                            unsafe {
-                                libc::kill(pid as i32, libc::SIGTERM);
-                            }
+                            // The harness crate is `#![deny(unsafe_code)]`,
+                            // so signal delivery shells out to `kill`
+                            // rather than calling raw `libc::kill`.
+                            let _ = std::process::Command::new("kill")
+                                .arg("-s")
+                                .arg("TERM")
+                                .arg(pid.to_string())
+                                .status();
                             let grace =
                                 std::time::Instant::now() + std::time::Duration::from_secs(10);
                             loop {
                                 match child.try_wait().ok().flatten() {
                                     Some(_s) => break,
                                     None if std::time::Instant::now() >= grace => {
-                                        // SAFETY: see the SIGTERM call
-                                        // above; same live-PID invariant.
-                                        unsafe {
-                                            libc::kill(pid as i32, libc::SIGKILL);
-                                        }
+                                        // Grace elapsed: hard kill via std
+                                        // `Child::kill` (SIGKILL on Unix);
+                                        // no raw libc (deny(unsafe_code)).
+                                        let _ = child.kill();
                                         break;
                                     }
                                     None => {
