@@ -2074,3 +2074,252 @@ fn branch_emit_adds_wasDerivedFrom_without_updateAction() {
         Some("Dataset")
     );
 }
+
+// ── Whole-package byte-reproducibility ────────────────
+
+/// Mirror of `bagit::walk_for_manifest`'s exclusion set, applied at the
+/// walk in `collect_baseline`. A file matching this predicate is one of
+/// the legitimately non-reproducible runtime/audit artifacts (or a BagIt
+/// tag file written after the payload walk) and is intentionally kept out
+/// of the byte-reproducibility baseline. If the emitter starts writing a
+/// NEW non-deterministic payload file that is NOT in this set, the
+/// whole-package test fails loudly — at which point the source
+/// non-determinism is fixed, or (only if the file is a genuine runtime
+/// artifact) the file is added to BOTH `walk_for_manifest`'s exclusion
+/// set and this mirror.
+fn is_excluded_from_baseline(rel: &std::path::Path) -> bool {
+    // BagIt manifest + tag files: the manifest is the anchor (compared
+    // separately), tag files are written after the payload walk.
+    if rel == std::path::Path::new("manifest-sha512.txt")
+        || rel == std::path::Path::new("bagit.txt")
+        || rel == std::path::Path::new("bag-info.txt")
+        || rel == std::path::Path::new("tagmanifest-sha512.txt")
+    {
+        return true;
+    }
+    // Ephemeral agent-write paths + the runtime execution log.
+    if rel.starts_with("runtime/outputs") || rel.starts_with("runtime/LOG.jsonl") {
+        return true;
+    }
+    // Per-task verification sidecars (written after emit_package returns).
+    if rel.starts_with("runtime/verification-reports") {
+        return true;
+    }
+    // Runtime audit/ECAA sidecars + affordance sidecars — emitted after
+    // the BagIt manifest and overwritable by the conversation emit path.
+    matches!(
+        rel.to_string_lossy().as_ref(),
+        "runtime/intake-conversation.jsonl"
+            | "runtime/decisions.jsonl"
+            | "runtime/proofs.jsonl"
+            | "runtime/claim-verification.json"
+            | "runtime/verifier-decisions.jsonl"
+            | "runtime/assumptions.jsonl"
+            | "runtime/validation-reports.jsonl"
+            | "runtime/determinism-shim.json"
+            | "runtime/security-policy.json"
+            | "runtime/audit-proof-report.json"
+            | "runtime/validation-summary.json"
+            | "runtime/policy-decisions.jsonl"
+            | "runtime/decisions.jsonl.mac"
+            | "runtime/plot_affordances.jsonl"
+            | "runtime/affordance_fallbacks.jsonl"
+    )
+}
+
+/// Recursively read every non-excluded file under `root` into a
+/// path-keyed map of bytes. Exclusion is applied AT the walk (mirroring
+/// `bagit::walk_for_manifest`) so a newly non-deterministic payload file
+/// surfaces as a file-set / byte mismatch rather than being silently
+/// normalized away.
+fn collect_baseline(root: &std::path::Path) -> BTreeMap<String, Vec<u8>> {
+    fn walk(root: &std::path::Path, current: &std::path::Path, out: &mut BTreeMap<String, Vec<u8>>) {
+        for entry in std::fs::read_dir(current).expect("read_dir") {
+            let entry = entry.expect("dir entry");
+            let path = entry.path();
+            let rel = path.strip_prefix(root).expect("strip_prefix").to_path_buf();
+            if is_excluded_from_baseline(&rel) {
+                continue;
+            }
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else if path.is_file() {
+                // POSIX-normalize the key so it is host-OS independent.
+                let key = rel.to_string_lossy().replace('\\', "/");
+                out.insert(key, std::fs::read(&path).expect("read file"));
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(root, root, &mut out);
+    out
+}
+
+#[test]
+fn emit_package_whole_package_byte_reproducible() {
+    // The whole-package determinism guarantee: two emits of the same
+    // intake must produce a byte-identical package across the entire
+    // exclusion-walked file set — including ro-crate-metadata.json (which
+    // the narrower deterministic test deliberately skipped) — and the
+    // BagIt `manifest-sha512.txt` itself must be byte-identical. The
+    // exclusion set is applied at the walk so a newly non-deterministic
+    // payload file fails loudly rather than slipping through.
+    let policies = policies_dir();
+    let clf = test_classification();
+    let dag = rnaseq_dag();
+
+    let emit_into = || -> std::path::PathBuf {
+        let tmp = TempDir::new().unwrap();
+        emit_package(&EmitConfig {
+            output_dir: tmp.path(),
+            dag: &dag,
+            classification: &clf,
+            policies_dir: &policies,
+            policy_allowlist: None,
+            claim_boundary: None,
+            compute_profiles_dir: None,
+            intake_facts: None,
+            amend_from: None,
+            amend_context: None,
+            validation_contract_ref: None,
+            preferred_container: None,
+            runtime_prereqs: None,
+            per_atom_runtime_prereqs: None,
+        })
+        .expect("emit");
+        // Keep the dir alive past the closure so the post-walk reads
+        // below see the package on disk.
+        tmp.keep()
+    };
+
+    let dir_a = emit_into();
+    let dir_b = emit_into();
+
+    let base_a = collect_baseline(&dir_a);
+    let base_b = collect_baseline(&dir_b);
+
+    // Same set of files.
+    let keys_a: Vec<&String> = base_a.keys().collect();
+    let keys_b: Vec<&String> = base_b.keys().collect();
+    assert_eq!(
+        keys_a, keys_b,
+        "two emits produced different file sets:\nA: {keys_a:?}\nB: {keys_b:?}"
+    );
+
+    // ro-crate-metadata.json is the file the narrow determinism test
+    // skipped — assert it is in the walked set so this test actually
+    // covers it.
+    assert!(
+        base_a.contains_key("ro-crate-metadata.json"),
+        "ro-crate-metadata.json must be part of the byte-reproducibility baseline"
+    );
+
+    // Every non-excluded file is byte-identical.
+    for (key, bytes_a) in &base_a {
+        let bytes_b = base_b.get(key).expect("key present in both");
+        assert_eq!(
+            bytes_a.len(),
+            bytes_b.len(),
+            "file {key} byte length drifted across emits"
+        );
+        assert_eq!(bytes_a, bytes_b, "file {key} bytes diverged across emits");
+    }
+
+    // The BagIt payload manifest itself must be byte-identical.
+    let manifest_a = std::fs::read(dir_a.join("manifest-sha512.txt")).unwrap();
+    let manifest_b = std::fs::read(dir_b.join("manifest-sha512.txt")).unwrap();
+    assert_eq!(
+        manifest_a, manifest_b,
+        "manifest-sha512.txt diverged across emits — the package is not byte-reproducible"
+    );
+
+    std::fs::remove_dir_all(&dir_a).ok();
+    std::fs::remove_dir_all(&dir_b).ok();
+}
+
+#[test]
+fn amend_emit_is_byte_reproducible() {
+    // Regression guard for D1: the amend/branch hashed payload must not
+    // embed the parent's absolute on-disk path (which is host-rooted and
+    // breaks cross-machine byte-reproducibility). Emit a parent once,
+    // then re-emit a child twice with `amend_from` + an `AmendContext`,
+    // and assert (a) no `/home/` / absolute parent path leaks into
+    // `policies/amendment-lineage.json`, and (b) the child's
+    // `manifest-sha512.txt` is byte-identical across the two re-emits.
+    // Pre-D1 the leak assertion fails; post-D1 it passes (the leak is
+    // gone). Same-machine re-emits would otherwise pass spuriously, so
+    // (a) is what ties this test to the D1 fix.
+    let parent_tmp = TempDir::new().unwrap();
+    emit_plain(parent_tmp.path(), &policies_dir());
+    let parent_path = parent_tmp.path().to_path_buf();
+    let parent_abs = parent_path.to_string_lossy().to_string();
+
+    // Reference real stage ids from the fixture DAG so the AmendContext
+    // is realistic (rnaseq_dag carries a differential_expression stage).
+    let ctx = AmendContext {
+        reason: Some("Switch DE method".into()),
+        amended_stage: "differential_expression".into(),
+        invalidated_tasks: vec![
+            "differential_expression".into(),
+            "validate_differential_expression".into(),
+        ],
+    };
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+
+    let emit_child = || -> std::path::PathBuf {
+        let child_tmp = TempDir::new().unwrap();
+        emit_package(&EmitConfig {
+            output_dir: child_tmp.path(),
+            dag: &dag,
+            classification: &clf,
+            policies_dir: &policies_dir(),
+            policy_allowlist: None,
+            claim_boundary: None,
+            compute_profiles_dir: None,
+            intake_facts: None,
+            amend_from: Some(parent_path.as_path()),
+            amend_context: Some(&ctx),
+            validation_contract_ref: None,
+            preferred_container: None,
+            runtime_prereqs: None,
+            per_atom_runtime_prereqs: None,
+        })
+        .expect("amend emit");
+        child_tmp.keep()
+    };
+
+    let child_a = emit_child();
+    let child_b = emit_child();
+
+    // (a) No absolute parent path leaks into the hashed lineage policy.
+    let lineage_a =
+        std::fs::read_to_string(child_a.join("policies/amendment-lineage.json")).unwrap();
+    assert!(
+        !lineage_a.contains("/home/"),
+        "amendment-lineage.json leaked an absolute host path: {lineage_a}"
+    );
+    assert!(
+        !lineage_a.contains(&parent_abs),
+        "amendment-lineage.json leaked the parent's absolute path: {lineage_a}"
+    );
+
+    // The ro-crate metadata is also in the hashed payload — assert no
+    // leak there either (covers the patch_ro_crate_with_amendment sink).
+    let ro_crate_a = std::fs::read_to_string(child_a.join("ro-crate-metadata.json")).unwrap();
+    assert!(
+        !ro_crate_a.contains(&parent_abs),
+        "ro-crate-metadata.json leaked the parent's absolute path"
+    );
+
+    // (b) The child manifest is byte-identical across the two re-emits.
+    let manifest_a = std::fs::read(child_a.join("manifest-sha512.txt")).unwrap();
+    let manifest_b = std::fs::read(child_b.join("manifest-sha512.txt")).unwrap();
+    assert_eq!(
+        manifest_a, manifest_b,
+        "amend-emit manifest-sha512.txt diverged across re-emits — amend payload is not byte-reproducible"
+    );
+
+    std::fs::remove_dir_all(&child_a).ok();
+    std::fs::remove_dir_all(&child_b).ok();
+}
