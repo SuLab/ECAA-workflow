@@ -1260,7 +1260,26 @@ def _generic_completion(task_id: str, spec: dict, note: str) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     _write_stage_fixture(task_id, spec, note)
     rendered = render_required(task_id, spec) if required_figures(spec) else {"figures": {}}
-    return {"status": "completed", "shape": "generic", "note": note, **rendered}
+    # The harness silent-completion guard treats a result whose only keys
+    # are metadata (agent/task_id/status/note/shape/from_status) plus an
+    # empty figures dict as "empty output" and re-blocks the task. Tasks
+    # with no plot affordances and no specialized handler (e.g. the
+    # literature atoms review_prior_work / contextualize_findings_with_
+    # literature) would otherwise strand the whole reporting tail. Emit a
+    # substantive, non-empty summary so the deterministic completion is
+    # accepted — mirrors the real agent always writing actual findings.
+    artifacts = sorted(
+        p.name for p in out.iterdir() if p.is_file() and p.name != "result.json"
+    )
+    return {
+        "status": "completed",
+        "shape": "generic",
+        "note": note,
+        "summary": f"Deterministic fixture completion for {task_id}: {len(artifacts)} artifact(s) written.",
+        "n_artifacts": len(artifacts),
+        "artifacts": artifacts,
+        **rendered,
+    }
 
 
 def qc_preprocessing(task_id: str, spec: dict) -> dict:
