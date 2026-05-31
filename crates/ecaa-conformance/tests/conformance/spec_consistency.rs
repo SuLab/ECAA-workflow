@@ -246,3 +246,24 @@ fn edge_predicates_in_v01_md() {
         );
     }
 }
+
+#[test]
+fn audit_proof_schema_requires_version_declaration() {
+    let path = spec_dir().join("subgraph-schemas").join("audit-proof.schema.json");
+    let raw = std::fs::read_to_string(&path).expect("schema");
+    let schema: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    let required: Vec<&str> = schema["required"]
+        .as_array()
+        .expect("required array")
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    assert!(
+        required.contains(&"ecaa_version"),
+        "schema must require ecaa_version"
+    );
+    assert!(
+        required.contains(&"min_reader_version"),
+        "schema must require min_reader_version"
+    );
+}

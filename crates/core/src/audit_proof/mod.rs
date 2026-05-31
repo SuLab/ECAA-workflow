@@ -11,7 +11,9 @@
 pub mod invariants;
 pub mod loader;
 
-pub use ecaa_workflow_types::{AuditProofReport, InvariantId, InvariantStatus, InvariantVerdict};
+pub use ecaa_workflow_types::{
+    AuditProofReport, EvaluatorInfo, InvariantId, InvariantStatus, InvariantVerdict,
+};
 
 use crate::audit_proof::invariants::{
     claim_completeness::check_claim_completeness,
@@ -28,7 +30,11 @@ use std::path::Path;
 /// Compose the 6 invariant checks into a single `AuditProofReport`.
 /// Public entry point consumed by the emitter after all sidecars
 /// have been written.
-pub fn run_audit_proof(root: &Path, validator: &dyn WrrocValidator) -> Result<AuditProofReport> {
+pub fn run_audit_proof(
+    root: &Path,
+    validator: &dyn WrrocValidator,
+    clock: &dyn crate::clock::Clock,
+) -> Result<AuditProofReport> {
     let pkg = LoadedPackage::from_root(root)?;
     let verdicts = vec![
         check_claim_completeness(&pkg),
@@ -40,6 +46,15 @@ pub fn run_audit_proof(root: &Path, validator: &dyn WrrocValidator) -> Result<Au
     ];
     Ok(AuditProofReport {
         schema_version: "0.1".to_string(),
+        ecaa_version: ecaa_workflow_types::consts::ECAA_VERSION.to_string(),
+        min_reader_version: ecaa_workflow_types::consts::MIN_READER_VERSION.to_string(),
+        max_reader_version: None,
+        package_iri: root
+            .join("ro-crate-metadata.json")
+            .exists()
+            .then(|| "ro-crate-metadata.json".to_string()),
+        evaluated_at: Some(clock.now_rfc3339()),
+        evaluator: ecaa_workflow_types::EvaluatorInfo::reference(),
         verdicts,
     })
 }

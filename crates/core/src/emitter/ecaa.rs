@@ -123,8 +123,9 @@ pub(super) fn write_audit_proof_report(output_dir: &Path) -> Result<()> {
         return Ok(());
     }
     let validator = crate::wrroc_validator::NoopWrrocValidator;
-    let report = crate::audit_proof::run_audit_proof(output_dir, &validator)
-        .context("running audit-proof invariants")?;
+    let report =
+        crate::audit_proof::run_audit_proof(output_dir, &validator, &crate::clock::WallClock)
+            .context("running audit-proof invariants")?;
     write_pretty_json(
         &output_dir.join("runtime").join("audit-proof-report.json"),
         &report,

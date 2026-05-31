@@ -5,6 +5,7 @@
 //! (only when --strict). Without --strict always exits 0 (warn-only).
 
 use ecaa_workflow_core::audit_proof::{run_audit_proof, InvariantStatus};
+use ecaa_workflow_core::clock::WallClock;
 use ecaa_workflow_core::wrroc_validator::{NoopWrrocValidator, WrrocValidator};
 use std::path::PathBuf;
 
@@ -16,7 +17,7 @@ fn main() -> anyhow::Result<()> {
         .into();
     let strict = args.any(|a| a == "--strict");
     let validator: Box<dyn WrrocValidator> = Box::new(NoopWrrocValidator);
-    let report = run_audit_proof(&root, validator.as_ref())?;
+    let report = run_audit_proof(&root, validator.as_ref(), &WallClock)?;
     let json = serde_json::to_string_pretty(&report)?;
     println!("{}", json);
     if strict

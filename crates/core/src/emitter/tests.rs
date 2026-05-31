@@ -219,6 +219,46 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
 }
 
 #[test]
+fn emitted_audit_proof_report_carries_version_declaration() {
+    let tmp = TempDir::new().unwrap();
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/downstream-policy");
+    emit_package(&EmitConfig {
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+    })
+    .expect("emit");
+    let raw = std::fs::read_to_string(tmp.path().join("runtime/audit-proof-report.json"))
+        .expect("audit-proof-report.json");
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    assert_eq!(v["ecaa_version"].as_str(), Some("0.1"));
+    assert_eq!(v["min_reader_version"].as_str(), Some("0.1"));
+    assert!(v["evaluator"]["impl"].as_str().is_some());
+    assert!(
+        v["evaluated_at"].as_str().is_some(),
+        "evaluated_at should be stamped"
+    );
+}
+
+#[test]
 fn emit_copies_plotting_library_into_runtime() {
     let tmp = TempDir::new().unwrap();
     let dag = rnaseq_dag();

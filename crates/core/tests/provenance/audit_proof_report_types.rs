@@ -28,6 +28,20 @@ fn empty_report_serializes_deterministically() {
     assert!(json.contains("\"unverified\""));
 }
 
+#[test]
+fn empty_report_carries_per_package_version_fields() {
+    let report = AuditProofReport::empty();
+    assert_eq!(report.ecaa_version, "0.1");
+    assert_eq!(report.min_reader_version, "0.1");
+    let json = serde_json::to_string(&report).unwrap();
+    assert!(json.contains("\"ecaa_version\":\"0.1\""), "got: {json}");
+    assert!(
+        json.contains("\"min_reader_version\":\"0.1\""),
+        "got: {json}"
+    );
+    assert!(json.contains("\"evaluator\""), "got: {json}");
+}
+
 #[allow(dead_code)]
 fn _verdict_constructible() -> InvariantVerdict {
     InvariantVerdict {

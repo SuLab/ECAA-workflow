@@ -1,4 +1,5 @@
 use ecaa_workflow_core::audit_proof::{run_audit_proof, InvariantStatus};
+use ecaa_workflow_core::clock::FrozenClock;
 use ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
 use std::path::PathBuf;
 
@@ -13,7 +14,7 @@ fn fixture_root(name: &str) -> PathBuf {
 #[test]
 fn run_audit_proof_on_minimal_fixture() {
     let root = fixture_root("minimal-emitted-package");
-    let report = run_audit_proof(&root, &NoopWrrocValidator).expect("ok");
+    let report = run_audit_proof(&root, &NoopWrrocValidator, &FrozenClock::default()).expect("ok");
     assert_eq!(report.verdicts.len(), 6);
     // Minimal fixture should pass 5 substantive invariants (or be unverified)
     let n_fail = report

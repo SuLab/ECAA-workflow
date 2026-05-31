@@ -37,5 +37,7 @@ pub use blocker::{
     SandboxRefusalRecord, StallAction, StallSignalWire, ValidationFailureCause,
 };
 pub use error_envelope::ToolErrorEnvelope;
-pub use invariants::{AuditProofReport, InvariantId, InvariantStatus, InvariantVerdict};
+pub use invariants::{
+    AuditProofReport, EvaluatorInfo, InvariantId, InvariantStatus, InvariantVerdict,
+};
 pub use reexecution::ReexecutionBucket;

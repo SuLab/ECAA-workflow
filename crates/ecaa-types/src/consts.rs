@@ -4,6 +4,14 @@
 //! reference exactly these names; downstream linters import this module
 //! instead of hardcoding string lists.
 
+/// ECAA spec version this implementation emits (`v0.1.md` §9.2).
+/// Stamped into every `audit-proof-report.json` as `ecaa_version`.
+pub const ECAA_VERSION: &str = "0.1";
+
+/// Minimum reader version required to consume packages this
+/// implementation emits (`v0.1.md` §9.2 per-package declaration).
+pub const MIN_READER_VERSION: &str = "0.1";
+
 /// The 25 node-type names in canonical form (matches `v0.1.md` §5
 /// sub-graph table inline code spans).
 pub const NODE_TYPES: &[&str] = &[
@@ -111,6 +119,12 @@ pub const REQUIRED_PROFILE_IRIS: &[&str] = &[
 mod tests {
     use super::*;
     use crate::invariants::InvariantId;
+
+    #[test]
+    fn version_consts_match_spec_v0_1() {
+        assert_eq!(ECAA_VERSION, "0.1");
+        assert_eq!(MIN_READER_VERSION, "0.1");
+    }
 
     #[test]
     fn closed_set_sizes_match_spec() {

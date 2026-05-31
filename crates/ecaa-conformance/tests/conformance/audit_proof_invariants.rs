@@ -20,7 +20,12 @@ fn corpus_passes_audit_proof_or_fails_with_known_reasons() {
             continue;
         }
         total_fixtures += 1;
-        let report = run_audit_proof(&entry.path(), &NoopWrrocValidator).unwrap();
+        let report = run_audit_proof(
+            &entry.path(),
+            &NoopWrrocValidator,
+            &ecaa_workflow_core::clock::WallClock,
+        )
+        .unwrap();
         for v in &report.verdicts {
             match v.status {
                 InvariantStatus::Pass => total_pass += 1,

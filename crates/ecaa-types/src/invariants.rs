@@ -50,10 +50,54 @@ pub struct InvariantVerdict {
     pub n_violations: usize,
 }
 
+/// Evaluator provenance — informative per invariants.md §"audit-proof-report.json shape".
+#[derive(Debug, Clone, Serialize, Deserialize, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct EvaluatorInfo {
+    /// Implementation identifier.
+    pub r#impl: String,
+    /// Evaluator implementation version.
+    pub version: String,
+    /// Warn/fail policy: "warn-only" | "strict" (absent ⇒ normative defaults).
+    pub policy: String,
+}
+
+impl EvaluatorInfo {
+    /// The reference evaluator shipped with this crate.
+    pub fn reference() -> Self {
+        Self {
+            r#impl: "ecaa-workflow-audit-proof".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            policy: "warn-only".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[ts(export)]
 pub struct AuditProofReport {
+    /// On-disk schema version of this report shape.
     pub schema_version: String,
+    /// ECAA spec version this package conforms to (§9.2). Required.
+    pub ecaa_version: String,
+    /// Minimum reader version required to consume the package (§9.2). Required.
+    pub min_reader_version: String,
+    /// Maximum reader version, when the emitter pins an upper bound (§9.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub max_reader_version: Option<String>,
+    /// IRI (or relative path) of the package's ro-crate-metadata.json.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub package_iri: Option<String>,
+    /// RFC-3339 timestamp the report was produced. Excluded from the
+    /// BagIt manifest so it does not break byte-reproducibility.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub evaluated_at: Option<String>,
+    /// Evaluator provenance (informative).
+    pub evaluator: EvaluatorInfo,
+    /// Per-invariant verdicts.
     pub verdicts: Vec<InvariantVerdict>,
 }
 
@@ -61,6 +105,12 @@ impl AuditProofReport {
     pub fn empty() -> Self {
         Self {
             schema_version: "0.1".to_string(),
+            ecaa_version: crate::consts::ECAA_VERSION.to_string(),
+            min_reader_version: crate::consts::MIN_READER_VERSION.to_string(),
+            max_reader_version: None,
+            package_iri: None,
+            evaluated_at: None,
+            evaluator: EvaluatorInfo::reference(),
             verdicts: InvariantId::ALL
                 .iter()
                 .map(|&id| InvariantVerdict {

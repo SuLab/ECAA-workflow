@@ -546,7 +546,11 @@ async fn emit_steps(
     // ECAA_ABLATE_AUDIT_PROOF for the Arm B′ ablation control.
     if !ecaa_workflow_core::ablation::AblationFlag::AuditProof.is_active() {
         let validator = ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
-        match ecaa_workflow_core::audit_proof::run_audit_proof(output_dir, &validator) {
+        match ecaa_workflow_core::audit_proof::run_audit_proof(
+            output_dir,
+            &validator,
+            &ecaa_workflow_core::clock::WallClock,
+        ) {
             Ok(report) => {
                 let path = output_dir.join("runtime").join("audit-proof-report.json");
                 match serde_json::to_string_pretty(&report) {
