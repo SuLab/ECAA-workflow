@@ -22,7 +22,7 @@ This directory holds the v0.1 normative specification for the Evidence-Carrying 
 
 ## Verification
 
-The helpers under [`scripts/spec-check/`](../../scripts/spec-check/) verify the spec: `validate_schemas.sh` checks JSON-Schema syntax, `owl_consistency.py` checks OWL-DL satisfiability, and `project_package.py` projects a reference package's RDF for SHACL conformance. End-to-end conformance is exercised by the `crates/ecaa-conformance/` test suite.
+The helpers under [`scripts/spec-check/`](../../scripts/spec-check/) verify the spec. `_project.py` is the shared `project(pkg_dir) -> rdflib.Graph` helper: it projects a package's 8 sidecars plus the synthesized `ecaa:Package` node into the RDF ABox that both downstream checkers consume. `validate_schemas.sh` checks JSON-Schema syntax; `project_package.py` builds the ABox (serializing it to `<pkg_dir>/package.ttl`) and runs SHACL conformance over real focus nodes; `owl_consistency.py` checks OWL-DL satisfiability of the static ontology, and — given a `<package_dir>` argument — of the ontology merged with the package ABox. End-to-end conformance is exercised by the `crates/ecaa-conformance/` test suite; under `ECAA_CONFORMANCE_MODE=1` the core emit path invokes these validators directly and blocks emission on a real SHACL/OWL failure.
 
 ## Reference implementation
 

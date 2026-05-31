@@ -777,7 +777,15 @@ fn interpret_external_output(label: &str, out: &std::process::Output) -> Externa
             details: stdout.trim().to_string(),
         };
     }
-    if stderr.contains("ModuleNotFoundError") || stdout.contains("ModuleNotFoundError") {
+    // The spec-check scripts (project_package.py / owl_consistency.py /
+    // _project.py) exit 2 on a missing Python dependency — both via an
+    // explicit `ERROR: missing dependency …; pip install …` and via the
+    // bare ImportError path — so exit-2 OR a ModuleNotFoundError string is
+    // the deps-missing signal mapped to `Unavailable` (never `Fail`).
+    if out.status.code() == Some(2)
+        || stderr.contains("ModuleNotFoundError")
+        || stdout.contains("ModuleNotFoundError")
+    {
         let reason = "Python deps missing — install via: pip install --user --break-system-packages pyshacl pyld owlready2 rdflib jsonschema".to_string();
         tracing::warn!(label = %label, reason = %reason, "[ecaa-validation] validator unavailable (missing Python deps)");
         return ExternalCheckOutcome::Unavailable { reason };
@@ -953,16 +961,27 @@ fn disabled_summary(mode: ValidationMode, start: Instant) -> ValidationSummary {
 fn run_external_suite(pkg_root: &Path) -> ExternalValidationResults {
     let timeout = read_external_timeout();
     let scripts_dir = spec_scripts_dir();
+    let pkg_arg = pkg_root.to_str().unwrap_or(".");
     let (shacl, owl) = match scripts_dir.as_ref() {
         Some(dir) => (
             run_external_check(
                 "shacl_projection",
                 "project_package.py",
-                &[pkg_root.to_str().unwrap_or(".")],
+                &[pkg_arg],
                 dir,
                 timeout,
             ),
-            run_external_check("owl_consistency", "owl_consistency.py", &[], dir, timeout),
+            // Pass the package path so owl_consistency builds + checks the
+            // package ABox (merged with the static ontology), not just the
+            // ontology's self-consistency. The no-arg static check still
+            // works when run by hand.
+            run_external_check(
+                "owl_consistency",
+                "owl_consistency.py",
+                &[pkg_arg],
+                dir,
+                timeout,
+            ),
         ),
         None => {
             let reason = "scripts/spec-check/ not found (set ECAA_SPEC_SCRIPTS_DIR)".to_string();

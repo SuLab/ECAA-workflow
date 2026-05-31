@@ -1,0 +1,5 @@
+# project_package.py serializes the projected ABox to <pkg_dir>/package.ttl
+# as a side effect (C5 §8.5). For the hand-authored SHACL fixtures the test
+# only inspects SHACL conformance, not the ttl dump, so the artifact is a
+# transient byproduct of running the conformance suite — keep it untracked.
+package.ttl

@@ -142,14 +142,36 @@ pub(super) fn write_validation_summary(output_dir: &Path) -> Result<()> {
     let schema_failed = !failed.is_empty();
 
     let external_validation = if mode == ValidationMode::Full {
-        Some(json!({
-            "shacl_projection": unavailable_external_check(),
-            "owl_consistency": unavailable_external_check(),
-            "runcrate_validate": unavailable_external_check(),
-        }))
+        // The product (non-conformance) build stays runcrate/python-free:
+        // core emits the deterministic schema validation and records the
+        // external checks as `unavailable`, deferring them to the
+        // conversation/harness validation gate. Under ECAA_CONFORMANCE_MODE
+        // a conformant build MUST actually run the external SHACL/OWL
+        // validators, so we shell them out here over the emitted package.
+        if read_conformance_mode() {
+            Some(run_external_validators(output_dir))
+        } else {
+            Some(json!({
+                "shacl_projection": unavailable_external_check(),
+                "owl_consistency": unavailable_external_check(),
+                "runcrate_validate": unavailable_external_check(),
+            }))
+        }
     } else {
         None
     };
+
+    // Under conformance mode the external SHACL/OWL validators actually ran;
+    // a real `fail` (not `unavailable`/`error`/`pass`) means the package
+    // ABox does not conform, which must block the conformant emit alongside
+    // schema failures. Outside conformance mode the external checks are
+    // `unavailable` stubs and never block. Computed before `summary` moves
+    // `external_validation` into the serialized JSON.
+    let external_failed = read_conformance_mode()
+        && external_validation
+            .as_ref()
+            .map(external_check_failed)
+            .unwrap_or(false);
 
     let summary = json!({
         "schema_version": "0.1",
@@ -167,12 +189,28 @@ pub(super) fn write_validation_summary(output_dir: &Path) -> Result<()> {
         &summary,
     )?;
 
-    if schema_failed && validation_blocks_on_fail() {
+    if (schema_failed || external_failed) && validation_blocks_on_fail() {
         return Err(anyhow!(
-            "ECAA emit-time validation blocked: schema failure(s) and ECAA_VALIDATION_BLOCK_ON_FAIL=1"
+            "ECAA emit-time validation blocked: conformance failure(s) (schema={schema_failed}, external={external_failed}) with block-on-fail engaged"
         ));
     }
     Ok(())
+}
+
+/// True when any external check in the summary's `external_validation`
+/// object reported `status == "fail"`. `unavailable`/`error`/`pass` are not
+/// failures (a missing optional toolchain must never block).
+fn external_check_failed(external: &Value) -> bool {
+    let Some(obj) = external.as_object() else {
+        return false;
+    };
+    obj.values().any(|check| {
+        check
+            .get("status")
+            .and_then(Value::as_str)
+            .map(|s| s == "fail")
+            .unwrap_or(false)
+    })
 }
 
 fn render_intake_conversation_jsonl(
@@ -243,9 +281,12 @@ fn read_validation_mode() -> ValidationMode {
         "schema_only" | "" => ValidationMode::SchemaOnly,
         _ => ValidationMode::SchemaOnly,
     };
-    // A conformant build must never skip validation entirely.
-    if read_conformance_mode() && mode == ValidationMode::Disabled {
-        ValidationMode::SchemaOnly
+    // A conformant build runs the FULL external SHACL/OWL suite (and blocks
+    // on failure via `validation_blocks_on_fail`); it must never run at a
+    // lower tier or be skipped. `ECAA_CONFORMANCE_MODE` therefore forces Full
+    // regardless of `ECAA_VALIDATE_ON_EMIT`.
+    if read_conformance_mode() {
+        ValidationMode::Full
     } else {
         mode
     }
@@ -278,6 +319,116 @@ fn unavailable_external_check() -> Value {
     json!({
         "status": "unavailable",
         "reason": "core emit path performs deterministic schema validation; run external validators from the conversation or harness validation gate",
+    })
+}
+
+/// Resolve `scripts/spec-check/` for the conformance external validators.
+/// Order: `ECAA_SPEC_SCRIPTS_DIR` (if it is an existing directory), then
+/// `CARGO_MANIFEST_DIR/../../scripts/spec-check/`. Returns `None` when
+/// neither resolves — callers then record the checks as `unavailable`.
+fn spec_scripts_dir() -> Option<std::path::PathBuf> {
+    if let Ok(env_dir) = std::env::var("ECAA_SPEC_SCRIPTS_DIR") {
+        let pb = std::path::PathBuf::from(env_dir);
+        if pb.is_dir() {
+            return Some(pb);
+        }
+    }
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/spec-check")
+        .canonicalize()
+        .ok()
+        .filter(|p| p.is_dir())
+}
+
+/// Run one external Python validator (`script` under `scripts_dir`, passed
+/// `args`) and map its exit/stdout/stderr onto the `ExternalCheckOutcome`
+/// wire shape (`{status, details|reason}`). Missing python / missing deps
+/// map to `unavailable`, never `fail`, so the product build never hard-fails
+/// for want of an optional toolchain.
+fn run_python_validator(
+    label: &str,
+    script: &str,
+    args: &[&str],
+    scripts_dir: &Path,
+) -> Value {
+    let script_path = scripts_dir.join(script);
+    if !script_path.exists() {
+        return json!({
+            "status": "unavailable",
+            "reason": format!("{label} script {} not found at {}", script, scripts_dir.display()),
+        });
+    }
+    if std::process::Command::new("python3")
+        .arg("--version")
+        .output()
+        .map(|o| !o.status.success())
+        .unwrap_or(true)
+    {
+        return json!({
+            "status": "unavailable",
+            "reason": "python3 not on PATH",
+        });
+    }
+    let output = std::process::Command::new("python3")
+        .arg(&script_path)
+        .args(args)
+        .output();
+    let out = match output {
+        Ok(o) => o,
+        Err(e) => {
+            return json!({
+                "status": "error",
+                "reason": format!("{label} subprocess spawn failed: {e}"),
+            });
+        }
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if out.status.success() {
+        return json!({ "status": "pass", "details": stdout.trim() });
+    }
+    // exit 2 (or a ModuleNotFoundError) is the scripts' "deps missing" signal.
+    if out.status.code() == Some(2)
+        || stderr.contains("ModuleNotFoundError")
+        || stdout.contains("ModuleNotFoundError")
+    {
+        return json!({
+            "status": "unavailable",
+            "reason": format!(
+                "{label} deps missing — install via: pip install --user --break-system-packages pyld rdflib pyshacl owlready2"
+            ),
+        });
+    }
+    json!({
+        "status": "fail",
+        "details": format!("exit {}: {} {}", out.status.code().unwrap_or(-1), stdout.trim(), stderr.trim()),
+    })
+}
+
+/// Run the external SHACL + OWL validators over the emitted package. Only
+/// invoked under `ECAA_CONFORMANCE_MODE`; the product build never reaches
+/// here (it records the checks as `unavailable`). `runcrate_validate` is left
+/// `unavailable` from the core path — the runcrate round-trip lives in the
+/// harness/conformance gate (it shells the heavier `runcrate` toolchain).
+fn run_external_validators(output_dir: &Path) -> Value {
+    let pkg_arg = output_dir.to_str().unwrap_or(".");
+    let (shacl, owl) = match spec_scripts_dir() {
+        Some(dir) => (
+            run_python_validator("shacl_projection", "project_package.py", &[pkg_arg], &dir),
+            run_python_validator("owl_consistency", "owl_consistency.py", &[pkg_arg], &dir),
+        ),
+        None => {
+            let reason = json!({
+                "status": "unavailable",
+                "reason": "scripts/spec-check/ not found (set ECAA_SPEC_SCRIPTS_DIR)",
+            });
+            (reason.clone(), reason)
+        }
+    };
+    json!({
+        "shacl_projection": shacl,
+        "owl_consistency": owl,
+        "runcrate_validate": unavailable_external_check(),
     })
 }
 

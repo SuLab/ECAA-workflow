@@ -263,6 +263,12 @@ fn walk_for_manifest(
             || rel == std::path::Path::new("runtime/decisions.jsonl.mac")
             || rel == std::path::Path::new("runtime/plot_affordances.jsonl")
             || rel == std::path::Path::new("runtime/affordance_fallbacks.jsonl")
+            // Serialized package ABox from the conformance external-validator
+            // path (project_package.py), only produced under
+            // ECAA_CONFORMANCE_MODE; an external, non-deterministic artifact
+            // kept out of the byte-reproducibility baseline like the other
+            // post-manifest sidecars.
+            || rel == std::path::Path::new("package.ttl")
         {
             continue;
         }
