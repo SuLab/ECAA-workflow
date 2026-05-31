@@ -161,9 +161,11 @@ pub struct ProgressSummary {
 /// envelope so subscribers can drop out-of-order events. The wire
 /// Shape is `{ "seq": N, "type": "...",... }` via `#[serde(flatten)]`.
 ///
-/// The seq is minted at the broadcaster layer (see
-/// `ChatAppState::next_sse_seq` + `BroadcastEventSink::fanout`) so
-/// every subscriber sees the same seq for the same logical event.
+/// The seq is minted immediately before `tx.send` (mint-at-send; see
+/// the shared `event_sink::mint`, used by `ChatAppState::next_sse_seq`,
+/// `ChatAppState::spawn_fanout`, and `BroadcastEventSink::fanout`) so
+/// seq assignment order equals delivery order even when a spawned
+/// fanout races a synchronous broadcast for the same session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvelopedEvent {
     /// Monotonic per-session sequence number; starts at 1.

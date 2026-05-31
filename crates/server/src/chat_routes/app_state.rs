@@ -623,19 +623,16 @@ impl ChatAppState {
             .clone()
     }
 
-    /// Mint the next monotonic sequence number for
-    /// session `id`. Per-session seqs start at 1 and increment by 1 on
-    /// each call. Uses `Relaxed` ordering: program-order causality on a
-    /// per-session atomic is sufficient — cross-session ordering doesn't
-    /// matter to clients, and `Relaxed` avoids the cross-core cache-line
-    /// flush that `SeqCst` would impose on the SSE hot path.
+    /// Mint the next monotonic sequence number for session `id`.
+    /// Delegates to the shared `event_sink::mint` so the entry-init rule
+    /// matches the mint-at-send paths. Used by the synchronous paths that
+    /// mint-then-send inline with nothing between (`broadcast` and the
+    /// events-stream resync frame). The spawned-fanout paths
+    /// (`spawn_fanout`, `BroadcastEventSink::fanout`) mint at send time
+    /// inside their tasks instead, so a spawned event's seq can never be
+    /// minted before but delivered after a racing synchronous broadcast.
     pub fn next_sse_seq(&self, id: SessionId) -> u64 {
-        let entry = self
-            .sse_seq
-            .entry(id)
-            .or_insert_with(|| Arc::new(AtomicU64::new(0)))
-            .clone();
-        entry.fetch_add(1, Ordering::Relaxed) + 1
+        event_sink::mint(&self.sse_seq, id)
     }
 
     /// Atomic get-or-insert + subscribe. The previous events_stream path
@@ -697,10 +694,15 @@ impl ChatAppState {
         };
         let broadcasters = self.broadcasters.clone();
         let counter = self.sse_sent_count.clone();
-        let seq = self.next_sse_seq(id);
+        let sse_seq = self.sse_seq.clone();
         tokio::spawn(async move {
             let _permit = permit; // held across send for the full task
             if let Some(tx) = broadcasters.get(&id).map(|e| e.value().clone()) {
+                // Mint at send time so seq order == send order even when
+                // a synchronous `broadcast` races this spawned fanout.
+                // The per-session atomic serializes the two paths on
+                // whichever executor actually sends first.
+                let seq = event_sink::mint(&sse_seq, id);
                 if tx.send(EnvelopedEvent { seq, payload }).is_ok() {
                     counter.fetch_add(1, Ordering::Relaxed);
                 }

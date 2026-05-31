@@ -161,7 +161,18 @@ export function connectChatStream(
     try {
       const parsed = JSON.parse(msg.data) as ChatSseEvent
       if (typeof parsed.seq === 'number') {
+        // Duplicate / late re-delivery. With server-side mint-at-send
+        // the spawned-fanout vs sync-broadcast race no longer inverts
+        // seqs, so a `<= lastSeq` event is now genuinely a late dup.
         if (parsed.seq <= lastSeq) return
+        // A forward gap (seq > lastSeq + 1) means the server-side
+        // broadcast dropped events for this subscriber. Keep this event
+        // but fire a resync so the consumer refetches state/transcript/
+        // DAG to reconverge. `lastSeq === 0` skips the very first event
+        // after (re)connect, which always looks like a gap.
+        if (lastSeq !== 0 && parsed.seq > lastSeq + 1) {
+          onEvent({ type: 'resync_required', dropped: parsed.seq - lastSeq - 1 })
+        }
         lastSeq = parsed.seq
       }
       onEvent(parsed)

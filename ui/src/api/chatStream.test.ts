@@ -155,6 +155,64 @@ describe('connectChatStream — reconnect detection', () => {
     })
   })
 
+  it('fires resync_required on a forward seq gap but still forwards the event', () => {
+    const onEvent = vi.fn<(e: ChatSseEvent) => void>()
+    connectChatStream('sess-gap', onEvent)
+    const es = FakeEventSource.last!
+
+    // seq 1 establishes lastSeq, then seq 3 skips seq 2: a forward gap
+    // means the server-side broadcast dropped one event for this
+    // subscriber. The consumer must still receive seq 3 AND a resync.
+    es.onmessage?.(
+      new MessageEvent('message', {
+        data: JSON.stringify({ seq: 1, type: 'assistant_token_delta', text: 'a' }),
+      }),
+    )
+    es.onmessage?.(
+      new MessageEvent('message', {
+        data: JSON.stringify({ seq: 3, type: 'assistant_token_delta', text: 'c' }),
+      }),
+    )
+
+    expect(onEvent).toHaveBeenCalledTimes(3)
+    expect(onEvent).toHaveBeenNthCalledWith(1, {
+      seq: 1,
+      type: 'assistant_token_delta',
+      text: 'a',
+    })
+    // The resync fires BEFORE the gapped event is forwarded.
+    expect(onEvent).toHaveBeenNthCalledWith(2, {
+      type: 'resync_required',
+      dropped: 1,
+    })
+    expect(onEvent).toHaveBeenNthCalledWith(3, {
+      seq: 3,
+      type: 'assistant_token_delta',
+      text: 'c',
+    })
+  })
+
+  it('does NOT treat the first event after (re)connect as a gap', () => {
+    const onEvent = vi.fn<(e: ChatSseEvent) => void>()
+    connectChatStream('sess-firstgap', onEvent)
+    const es = FakeEventSource.last!
+
+    // First-ever event with a high seq (lastSeq === 0) is not a gap: the
+    // subscriber simply joined mid-stream. No resync, just forward it.
+    es.onmessage?.(
+      new MessageEvent('message', {
+        data: JSON.stringify({ seq: 42, type: 'assistant_token_delta', text: 'mid' }),
+      }),
+    )
+
+    expect(onEvent).toHaveBeenCalledTimes(1)
+    expect(onEvent).toHaveBeenCalledWith({
+      seq: 42,
+      type: 'assistant_token_delta',
+      text: 'mid',
+    })
+  })
+
   it('drops malformed JSON without throwing', () => {
     const onEvent = vi.fn<(e: ChatSseEvent) => void>()
     connectChatStream('sess-4', onEvent)

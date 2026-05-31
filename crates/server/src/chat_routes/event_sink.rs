@@ -13,7 +13,12 @@
 //!
 //! Every fanout mints a monotonic per-session seq via
 //! the shared `sse_seq` `DashMap` so the wire-format `EnvelopedEvent`
-//! lets subscribers drop out-of-order deliveries.
+//! lets subscribers drop out-of-order deliveries. The seq is minted
+//! INSIDE the spawned task immediately before `tx.send`, so seq
+//! assignment order equals send order even when a synchronous
+//! `ChatAppState::broadcast` races a spawned fanout for the same
+//! session — the per-session `AtomicU64::fetch_add` serializes them on
+//! whatever executor actually performs the send.
 
 use super::{execution, ChatAppState, EnvelopedEvent, SsePayload};
 use dashmap::DashMap;
@@ -21,6 +26,24 @@ use ecaa_workflow_conversation::{ServiceEventSink, SessionId};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
+
+/// Mint the next monotonic per-session seq from the shared `sse_seq`
+/// map. Per-session seqs start at 1 and increment by 1 on each call.
+/// `Relaxed` ordering: program-order causality on a per-session atomic
+/// is sufficient — cross-session ordering doesn't matter to clients,
+/// and `Relaxed` avoids the cross-core cache-line flush `SeqCst` would
+/// impose on the SSE hot path. Shared by `BroadcastEventSink::fanout`
+/// (mint-at-send), `ChatAppState::spawn_fanout` (mint-at-send), and
+/// `ChatAppState::next_sse_seq` (used by the synchronous `broadcast`
+/// and the events-stream subscribe path) so all paths share one
+/// entry-init rule.
+pub(super) fn mint(sse_seq: &DashMap<SessionId, Arc<AtomicU64>>, id: SessionId) -> u64 {
+    let entry = sse_seq
+        .entry(id)
+        .or_insert_with(|| Arc::new(AtomicU64::new(0)))
+        .clone();
+    entry.fetch_add(1, Ordering::Relaxed) + 1
+}
 
 pub(super) struct BroadcastEventSink {
     pub broadcasters: Arc<DashMap<SessionId, broadcast::Sender<EnvelopedEvent>>>,
@@ -43,20 +66,6 @@ pub(super) struct BroadcastEventSink {
 }
 
 impl BroadcastEventSink {
-    /// Mirrors `ChatAppState::next_sse_seq` but operates on the bare
-    /// `sse_seq` handle so the sink can mint without reaching back
-    /// through the `OnceLock`. Per-session monotonic; starts at 1.
-    fn next_seq(&self, id: SessionId) -> u64 {
-        let entry = self
-            .sse_seq
-            .entry(id)
-            .or_insert_with(|| Arc::new(AtomicU64::new(0)))
-            .clone();
-        // Per-session monotonicity is single-publisher; cross-session ordering
-        // doesn't matter to clients. Relaxed avoids cross-core cache-line flush.
-        entry.fetch_add(1, Ordering::Relaxed) + 1
-    }
-
     fn fanout(&self, id: SessionId, payload: SsePayload) {
         // Wraps the payload in an `EnvelopedEvent` with a per-session
         // monotonic seq and increments the success counter on send.
@@ -80,10 +89,15 @@ impl BroadcastEventSink {
         };
         let broadcasters = self.broadcasters.clone();
         let counter = self.sse_sent_count.clone();
-        let seq = self.next_seq(id);
+        let sse_seq = self.sse_seq.clone();
         tokio::spawn(async move {
             let _permit = permit; // held across send for the full task
             if let Some(tx) = broadcasters.get(&id).map(|e| e.value().clone()) {
+                // Mint at send time so seq order == send order even when
+                // a synchronous `ChatAppState::broadcast` races this
+                // spawned fanout. The per-session atomic serializes the
+                // two paths on whichever executor actually sends first.
+                let seq = mint(&sse_seq, id);
                 if tx.send(EnvelopedEvent { seq, payload }).is_ok() {
                     counter.fetch_add(1, Ordering::Relaxed);
                 }
