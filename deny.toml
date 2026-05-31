@@ -6,8 +6,10 @@
 #  - licenses: enforce a copy-left-free allowlist
 #  - sources: pin which registries we accept crates from
 #
-# Run locally: `cargo deny check`
-# Run in CI: see `.github/workflows/rust.yml` (the supply-chain job).
+# Run locally / in CI: `make deny` (alias for `cargo deny check`),
+# which the `make lint` target also invokes. There is no standalone
+# GitHub Actions workflow today; the Makefile target is the single
+# source of enforcement.
 
 [graph]
 # Workspace-wide check; per-crate overrides are rare in practice.
