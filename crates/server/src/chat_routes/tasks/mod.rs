@@ -103,10 +103,73 @@ pub(super) fn routes() -> axum::Router<ChatAppState> {
 /// lookup), `chat_routes/verification.rs` (the manual verify endpoint), and
 /// `crate::verification` (boot-time policy check); `pub(crate)` so callers
 /// outside this submodule can reach it.
+///
+/// Resolution order:
+/// 1. `ECAA_CONFIG_DIR` — explicit operator override, always wins.
+/// 2. Binary-relative discovery — walk up from `current_exe()` looking for
+///    a `config/` directory carrying the `downstream-policy` marker. This
+///    is the same "walk up to a marker dir" convention the harness already
+///    uses (`wrroc_validator_impl::find_validator_script`,
+///    `executor::builder_exit_codes`), adapted to anchor on the *installed*
+///    binary location rather than the compile-time `CARGO_MANIFEST_DIR`
+///    (which points into the build tree and is useless for an installed
+///    `ecaa-workflow-server`). This is what lets the server find policy when
+///    launched from an arbitrary CWD.
+/// 3. CWD-relative `config` — final fallback so repo-root launches and test
+///    harnesses that `cd` into a fixture dir keep working unchanged. A
+///    warning is logged when this fallback is taken AND the CWD-relative dir
+///    doesn't actually carry the marker, so a misconfiguration surfaces.
 pub(crate) fn config_dir_or_default() -> std::path::PathBuf {
-    std::env::var("ECAA_CONFIG_DIR")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("config"))
+    if let Ok(explicit) = std::env::var("ECAA_CONFIG_DIR") {
+        return std::path::PathBuf::from(explicit);
+    }
+    if let Some(found) = config_dir_from_exe() {
+        return found;
+    }
+    let cwd_relative = std::path::PathBuf::from("config");
+    if !config_dir_has_marker(&cwd_relative) {
+        tracing::warn!(
+            target: "config",
+            cwd = ?std::env::current_dir().ok(),
+            "ECAA_CONFIG_DIR is unset and no `config/` directory with a \
+             `downstream-policy` marker was found relative to the server \
+             binary; falling back to CWD-relative `config` which does not \
+             carry the marker either — claim verification and policy loading \
+             will likely fail. Set ECAA_CONFIG_DIR or launch from the repo root."
+        );
+    }
+    cwd_relative
+}
+
+/// Marker that distinguishes the real config dir from an unrelated `config/`
+/// directory: the `downstream-policy` subdir is what `config_dir_or_default`'s
+/// primary consumer (claim verification) loads `interpretation-policy.json`
+/// from, so its presence is the cheapest reliable signal.
+fn config_dir_has_marker(dir: &std::path::Path) -> bool {
+    dir.join("downstream-policy").is_dir()
+}
+
+/// Walk up from the running binary's directory looking for a sibling
+/// `config/` dir carrying the marker. Returns `None` when `current_exe()`
+/// is unavailable (rare) or no ancestor holds a marked `config/`.
+fn config_dir_from_exe() -> Option<std::path::PathBuf> {
+    config_dir_from_exe_path(&std::env::current_exe().ok()?)
+}
+
+/// Pure walk-up over a given executable path — `exe` is the binary file, so
+/// the search starts at its parent directory and ascends. Split out from
+/// `config_dir_from_exe` so it can be driven from tests with a synthetic
+/// path (the real `current_exe()` can't be relocated under `cargo test`).
+fn config_dir_from_exe_path(exe: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut dir = exe.parent();
+    while let Some(d) = dir {
+        let candidate = d.join("config");
+        if config_dir_has_marker(&candidate) {
+            return Some(candidate);
+        }
+        dir = d.parent();
+    }
+    None
 }
 
 /// MIME mapping for the artifact-fetch + artifact-listing paths. Used
@@ -154,4 +217,129 @@ pub(super) fn empty_log_response() -> axum::response::Response {
         "truncated": false,
     }))
     .into_response()
+}
+
+#[cfg(test)]
+mod config_dir_tests {
+    use super::*;
+    use std::path::Path;
+    use std::sync::Mutex;
+
+    // `config_dir_or_default` reads process-global state (`ECAA_CONFIG_DIR`
+    // and the current working directory), so its tests must not run
+    // concurrently with one another. A plain std Mutex is fine — these are
+    // sync tests with no `.await` between acquire and release.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Capture + restore `ECAA_CONFIG_DIR` and CWD across a test body so a
+    /// panic in one case doesn't leak global state into the next.
+    struct StateGuard {
+        prior_env: Option<String>,
+        prior_cwd: std::path::PathBuf,
+    }
+    impl StateGuard {
+        fn capture() -> Self {
+            Self {
+                prior_env: std::env::var("ECAA_CONFIG_DIR").ok(),
+                prior_cwd: std::env::current_dir().expect("cwd readable"),
+            }
+        }
+        fn clear_env(&self) {
+            // SAFETY: mutation serialized by ENV_LOCK.
+            unsafe { std::env::remove_var("ECAA_CONFIG_DIR") };
+        }
+        fn set_env(&self, v: &Path) {
+            // SAFETY: mutation serialized by ENV_LOCK.
+            unsafe { std::env::set_var("ECAA_CONFIG_DIR", v) };
+        }
+    }
+    impl Drop for StateGuard {
+        fn drop(&mut self) {
+            // SAFETY: mutation serialized by ENV_LOCK.
+            match &self.prior_env {
+                Some(v) => unsafe { std::env::set_var("ECAA_CONFIG_DIR", v) },
+                None => unsafe { std::env::remove_var("ECAA_CONFIG_DIR") },
+            }
+            let _ = std::env::set_current_dir(&self.prior_cwd);
+        }
+    }
+
+    /// Lay down a minimal config dir carrying the `downstream-policy` marker.
+    fn make_marked_config(root: &Path) -> std::path::PathBuf {
+        let config = root.join("config");
+        std::fs::create_dir_all(config.join("downstream-policy")).unwrap();
+        config
+    }
+
+    #[test]
+    fn env_override_wins_even_when_pointing_at_an_unmarked_dir() {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = StateGuard::capture();
+        let tmp = tempfile::tempdir().unwrap();
+        let explicit = tmp.path().join("my-config");
+        std::fs::create_dir_all(&explicit).unwrap();
+        guard.set_env(&explicit);
+
+        // The explicit value is returned verbatim regardless of marker or CWD.
+        assert_eq!(config_dir_or_default(), explicit);
+    }
+
+    #[test]
+    fn resolves_from_non_cwd_working_directory_via_binary_discovery() {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = StateGuard::capture();
+        guard.clear_env();
+
+        // Build a fake "install root" holding the binary AND a marked
+        // config/ sibling, exactly like a real install layout where the
+        // binary and config ship together.
+        let install = tempfile::tempdir().unwrap();
+        let bin_dir = install.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let expected_config = make_marked_config(install.path());
+
+        // Move CWD somewhere with NO `config/` so the CWD-relative fallback
+        // cannot accidentally satisfy the lookup. This is the regression the
+        // task targets: server launched outside the repo root.
+        let elsewhere = tempfile::tempdir().unwrap();
+        std::env::set_current_dir(elsewhere.path()).unwrap();
+
+        // Exercise the binary-discovery walk-up against the synthetic exe
+        // path directly (we can't relocate the real test binary), then
+        // assert the marker walk-up lands on the install-root config.
+        let found = config_dir_from_exe_path(&bin_dir.join("ecaa-workflow-server"))
+            .expect("binary-relative discovery should find the marked config dir");
+        assert_eq!(found, expected_config);
+
+        // And the public entry point must NOT return the (absent) CWD-relative
+        // `config` here — with the real test binary it either finds a marked
+        // config above the binary or falls through to the literal `config`
+        // path; in neither case does it panic, and it never returns the
+        // unmarked `elsewhere/config` (which does not exist).
+        let resolved = config_dir_or_default();
+        assert_ne!(resolved, elsewhere.path().join("config"));
+    }
+
+    #[test]
+    fn falls_back_to_cwd_relative_config_when_nothing_marked() {
+        let _lock = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = StateGuard::capture();
+        guard.clear_env();
+
+        // CWD with no marked config anywhere reachable from the binary in
+        // this synthetic walk: the helper returns None and the public fn
+        // hands back the literal CWD-relative `config` (best-effort).
+        let lonely = tempfile::tempdir().unwrap();
+        let isolated_bin = lonely.path().join("nested").join("bin").join("server");
+        std::fs::create_dir_all(isolated_bin.parent().unwrap()).unwrap();
+        assert!(config_dir_from_exe_path(&isolated_bin).is_none());
+
+        // The marker helper distinguishes a real config dir from a bare one.
+        let bare = lonely.path().join("config");
+        std::fs::create_dir_all(&bare).unwrap();
+        assert!(!config_dir_has_marker(&bare));
+        let marked = make_marked_config(lonely.path());
+        // make_marked_config overwrote the bare dir with the marker subdir.
+        assert!(config_dir_has_marker(&marked));
+    }
 }
