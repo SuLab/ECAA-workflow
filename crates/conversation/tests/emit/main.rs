@@ -14,3 +14,5 @@ mod literature_ro_crate;
 mod opaque_sink_integration;
 mod schemars_generation;
 mod sidecar_emission;
+mod validation_conformance_mode;
+mod validation_harness_runtime;

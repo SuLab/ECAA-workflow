@@ -293,6 +293,9 @@ static SCHEMA_CACHE: Lazy<HashMap<&'static str, JSONSchema>> = Lazy::new(|| {
 /// Read `ECAA_VALIDATE_ON_EMIT`. Defaults to `SchemaOnly` for sane
 /// production behavior — pure-Rust validation only, no Python dep.
 /// Local dev / CI sets `=full` to enable the external validators.
+///
+/// Under `ECAA_CONFORMANCE_MODE`, `Disabled` is upgraded to `SchemaOnly`:
+/// a conformant build must never skip validation entirely.
 fn read_mode() -> ValidationMode {
     let raw = std::env::var("ECAA_VALIDATE_ON_EMIT").unwrap_or_default();
     let mode = match raw.as_str() {
@@ -307,11 +310,33 @@ fn read_mode() -> ValidationMode {
             ValidationMode::SchemaOnly
         }
     };
+    let mode = if read_conformance_mode() && matches!(mode, ValidationMode::Disabled) {
+        tracing::info!(
+            "[ecaa-validation] ECAA_CONFORMANCE_MODE upgrades Disabled -> SchemaOnly"
+        );
+        ValidationMode::SchemaOnly
+    } else {
+        mode
+    };
     tracing::debug!(mode = ?mode, "[ecaa-validation] mode resolved");
     mode
 }
 
+/// Read `ECAA_CONFORMANCE_MODE`. When on, a conformant build is asserted:
+/// validation is forced to block on failure and is never fully disabled.
+fn read_conformance_mode() -> bool {
+    matches!(
+        std::env::var("ECAA_CONFORMANCE_MODE")
+            .as_deref()
+            .unwrap_or("0"),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 fn read_block_on_fail() -> bool {
+    if read_conformance_mode() {
+        return true;
+    }
     matches!(
         std::env::var("ECAA_VALIDATION_BLOCK_ON_FAIL")
             .as_deref()
@@ -495,21 +520,26 @@ fn locate_sidecar(
     relpath: &'static str,
     source: SidecarSource,
 ) -> std::result::Result<std::result::Result<PathBuf, SidecarOutcome>, SidecarOutcome> {
-    // Harness-runtime sidecars (subgraph E execution + subgraph Q
-    // verifier-decisions) are written by tasks executing post-emit.
-    // Skip them here so a clean compile-time package isn't blocked
-    // by their absence under BLOCK_ON_FAIL=1. The harness itself
-    // re-checks these files via its own validator once they exist.
+    let abs = pkg_root.join(relpath);
+    // A present file is always validated, regardless of its `SidecarSource`.
+    // A harness-runtime sidecar (subgraph E execution + subgraph Q
+    // verifier-decisions) that the harness has already written into the
+    // package must be checked against its schema like any other sidecar;
+    // skipping a present file would let a malformed runtime sidecar pass
+    // the conformance gate unexamined.
+    if abs.exists() {
+        return Ok(Ok(abs));
+    }
+    // Absent harness-runtime sidecars are expected at emit time (tasks
+    // execute post-emit), so they are skipped rather than reported missing.
+    // This keeps a clean compile-time package from being blocked under
+    // BLOCK_ON_FAIL=1 before the harness has produced these files.
     if matches!(source, SidecarSource::HarnessRuntime) {
         tracing::debug!(
             relpath = %relpath,
-            "[ecaa-validation] sidecar skipped (harness-runtime)"
+            "[ecaa-validation] sidecar skipped (harness-runtime, absent at emit)"
         );
         return Ok(Err(SidecarOutcome::SkippedHarness));
-    }
-    let abs = pkg_root.join(relpath);
-    if abs.exists() {
-        return Ok(Ok(abs));
     }
     if ablated_sidecar(relpath) {
         tracing::debug!(

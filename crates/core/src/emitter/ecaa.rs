@@ -234,7 +234,7 @@ fn render_dependency_proofs_jsonl(dag: &DAG) -> Result<String> {
 }
 
 fn read_validation_mode() -> ValidationMode {
-    match std::env::var("ECAA_VALIDATE_ON_EMIT")
+    let mode = match std::env::var("ECAA_VALIDATE_ON_EMIT")
         .unwrap_or_default()
         .as_str()
     {
@@ -242,10 +242,30 @@ fn read_validation_mode() -> ValidationMode {
         "full" => ValidationMode::Full,
         "schema_only" | "" => ValidationMode::SchemaOnly,
         _ => ValidationMode::SchemaOnly,
+    };
+    // A conformant build must never skip validation entirely.
+    if read_conformance_mode() && mode == ValidationMode::Disabled {
+        ValidationMode::SchemaOnly
+    } else {
+        mode
     }
 }
 
+/// Read `ECAA_CONFORMANCE_MODE`. When on, validation is forced to block
+/// on failure and `Disabled` is upgraded to `SchemaOnly`.
+fn read_conformance_mode() -> bool {
+    matches!(
+        std::env::var("ECAA_CONFORMANCE_MODE")
+            .as_deref()
+            .unwrap_or("0"),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 fn validation_blocks_on_fail() -> bool {
+    if read_conformance_mode() {
+        return true;
+    }
     matches!(
         std::env::var("ECAA_VALIDATION_BLOCK_ON_FAIL")
             .as_deref()
@@ -328,13 +348,16 @@ fn validate_sidecar_schemas(output_dir: &Path) -> Result<(usize, Vec<Value>, usi
     let mut skipped_pending_harness = 0usize;
 
     for (relpath, is_jsonl, schema_src, source) in sidecar_schemas() {
-        if matches!(source, SidecarSource::HarnessRuntime) {
-            skipped_pending_harness += 1;
-            continue;
-        }
-
         let path = output_dir.join(relpath);
+        // A present file is always validated regardless of source: a
+        // harness-runtime sidecar (subgraph E / Q) already written into the
+        // package must be checked against its schema, not skipped. Only an
+        // absent harness-runtime sidecar is skipped (it is produced post-emit).
         if !path.exists() {
+            if matches!(source, SidecarSource::HarnessRuntime) {
+                skipped_pending_harness += 1;
+                continue;
+            }
             if ablated_sidecar(relpath) {
                 continue;
             }

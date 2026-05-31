@@ -1,1 +1,1 @@
-{"task_id":"task_qc_001","obligation_id":"fastqc_produces_html","outcome":"passed","class":"contract_test","outputs":["data/figures/fig_qc.png"]}
+{"nodes_checked":1,"edges_proven":0,"containers_pinned":true,"validators_wired":true,"versions_pinned":true,"summary":"task_qc_001 fastqc_produces_html passed"}

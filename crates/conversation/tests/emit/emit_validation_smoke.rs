@@ -52,6 +52,7 @@ fn clone_fixture(dst: &std::path::Path) {
 fn clear_validation_env() {
     std::env::remove_var("ECAA_VALIDATE_ON_EMIT");
     std::env::remove_var("ECAA_VALIDATION_BLOCK_ON_FAIL");
+    std::env::remove_var("ECAA_CONFORMANCE_MODE");
 }
 
 #[test]
@@ -72,11 +73,14 @@ fn schema_only_mode_runs_on_fixture() {
         summary.schema_validation.passed,
         summary.schema_validation.failed,
     );
-    // R2.9: harness-runtime sidecars (validation-reports.jsonl + verifier-
-    // decisions.jsonl) are skipped at emit time and counted separately.
+    // Harness-runtime sidecars (validation-reports.jsonl + verifier-
+    // decisions.jsonl) are PRESENT in this fixture, so they are validated
+    // rather than skipped. `skipped_pending_harness` counts only absent
+    // harness-runtime sidecars — here there are none.
     assert_eq!(
-        summary.schema_validation.skipped_pending_harness, 2,
-        "expected exactly 2 harness-runtime sidecars to be skipped at emit time"
+        summary.schema_validation.skipped_pending_harness, 0,
+        "present harness-runtime sidecars must be validated, not skipped; got skipped={}",
+        summary.schema_validation.skipped_pending_harness
     );
     write_validation_summary(&pkg, &summary);
     clear_validation_env();
@@ -104,9 +108,9 @@ fn validates_under_block_on_fail_passes_on_clean_fixture() {
     std::env::set_var("ECAA_VALIDATE_ON_EMIT", "schema_only");
     std::env::set_var("ECAA_VALIDATION_BLOCK_ON_FAIL", "1");
     let pkg = fixture_path();
-    // The clean fixture must succeed under BLOCK_ON_FAIL=1 because R2.9
-    // skips the two harness-runtime sidecars rather than recording them
-    // as missing-sidecar failures.
+    // The clean fixture must succeed under BLOCK_ON_FAIL=1. Its two
+    // harness-runtime sidecars are present and schema-valid, so they are
+    // validated (not skipped) and contribute zero failures.
     let summary = validate_emitted_package(&pkg)
         .expect("clean fixture under BLOCK_ON_FAIL=1 should not abort emit");
     assert_eq!(summary.mode, ValidationMode::SchemaOnly);
@@ -115,7 +119,7 @@ fn validates_under_block_on_fail_passes_on_clean_fixture() {
         "clean fixture must have zero schema failures; got {:?}",
         summary.schema_validation.failed
     );
-    assert_eq!(summary.schema_validation.skipped_pending_harness, 2);
+    assert_eq!(summary.schema_validation.skipped_pending_harness, 0);
     clear_validation_env();
 }
 
