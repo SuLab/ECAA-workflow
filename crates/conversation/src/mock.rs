@@ -185,7 +185,7 @@ mod tests {
         let captured = std::sync::Arc::new(Mutex::new(String::new()));
         let cap = captured.clone();
         let sink: crate::anthropic::delta_sink::DeltaSink = std::sync::Arc::new(move |s: &str| {
-            cap.lock().unwrap().push_str(s);
+            cap.lock().unwrap().push_str(s); // lock-unwrap-allow: test
         });
         let resp = mock
             .send_turn_streaming(empty_request(), sink)
@@ -202,13 +202,13 @@ mod tests {
         let captured = std::sync::Arc::new(Mutex::new(String::new()));
         let cap = captured.clone();
         let sink: crate::anthropic::delta_sink::DeltaSink = std::sync::Arc::new(move |s: &str| {
-            cap.lock().unwrap().push_str(s);
+            cap.lock().unwrap().push_str(s); // lock-unwrap-allow: test
         });
         let _ = mock
             .send_turn_streaming(empty_request(), sink)
             .await
             .unwrap();
-        assert_eq!(captured.lock().unwrap().as_str(), "hello world");
+        assert_eq!(captured.lock().unwrap().as_str(), "hello world"); // lock-unwrap-allow: test
     }
 
     /// Deterministic count_tokens stub returns Some(n>0) so the

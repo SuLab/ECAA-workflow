@@ -123,7 +123,7 @@ impl OpaqueAggregator {
         port: &str,
         timestamp: &str,
     ) -> std::io::Result<()> {
-        let _guard = self.lock.lock().unwrap();
+        let _guard = self.lock.lock().unwrap_or_else(|p| p.into_inner());
         let mut entries = self.load_all()?;
         if let Some(entry) = entries.iter_mut().find(|e| e.opaque_hash == opaque_hash) {
             entry.occurrence_count += 1;

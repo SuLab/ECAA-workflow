@@ -230,7 +230,7 @@ mod tests {
     #[async_trait]
     impl LlmBackend for StubBackend {
         async fn send_turn(&self, req: TurnRequest) -> Result<TurnResponse> {
-            self.captured.lock().unwrap().push(req);
+            self.captured.lock().unwrap().push(req); // lock-unwrap-allow: test
             Ok(TurnResponse {
                 assistant_content: self.canned.clone(),
                 tool_uses: Vec::new(),
@@ -366,7 +366,7 @@ mod tests {
         let id = uuid::Uuid::new_v4();
         let ctx = ProposerContext::default();
         let _ = propose_remediations(backend.clone(), &metrics, id, &oom_envelope(), &ctx).await;
-        let reqs = backend.captured.lock().unwrap();
+        let reqs = backend.captured.lock().unwrap(); // lock-unwrap-allow: test
         assert_eq!(reqs[0].model, ModelId::Opus48);
         assert_eq!(reqs[0].model, ModelPolicy::for_remediation_proposer());
     }

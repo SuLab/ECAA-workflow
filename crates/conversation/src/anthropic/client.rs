@@ -1854,7 +1854,7 @@ mod tests {
 
     #[test]
     fn dump_anthropic_payload_skips_when_debug_unset() {
-        let _g = DUMP_TEST_LOCK.lock().unwrap();
+        let _g = DUMP_TEST_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         unsafe { std::env::remove_var("ECAA_DEBUG") };
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("dump.json");
@@ -1870,7 +1870,7 @@ mod tests {
 
     #[test]
     fn dump_anthropic_payload_writes_when_debug_set() {
-        let _g = DUMP_TEST_LOCK.lock().unwrap();
+        let _g = DUMP_TEST_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         unsafe { std::env::set_var("ECAA_DEBUG", "1") };
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("dump.json");
@@ -1888,7 +1888,7 @@ mod tests {
     #[test]
     #[cfg(unix)]
     fn dump_anthropic_payload_forces_0600_mode_under_debug() {
-        let _g = DUMP_TEST_LOCK.lock().unwrap();
+        let _g = DUMP_TEST_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         unsafe { std::env::set_var("ECAA_DEBUG", "1") };
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("dump.json");
@@ -1908,7 +1908,7 @@ mod tests {
     #[test]
     fn dump_anthropic_payload_debug_true_string_also_enables() {
         // The guard accepts "1" or "true" as truthy.
-        let _g = DUMP_TEST_LOCK.lock().unwrap();
+        let _g = DUMP_TEST_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         unsafe { std::env::set_var("ECAA_DEBUG", "true") };
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("dump.json");
@@ -1919,7 +1919,7 @@ mod tests {
 
     #[test]
     fn dump_anthropic_payload_skips_for_other_values() {
-        let _g = DUMP_TEST_LOCK.lock().unwrap();
+        let _g = DUMP_TEST_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         unsafe { std::env::set_var("ECAA_DEBUG", "0") };
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("dump.json");
@@ -1941,7 +1941,7 @@ mod tests {
     /// used by the dump tests above.
     #[test]
     fn resilient_client_rejects_non_loopback_http_base_url() {
-        let _g = DUMP_TEST_LOCK.lock().unwrap();
+        let _g = DUMP_TEST_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         // Inject a non-https, non-loopback base URL.
         let prior_url = std::env::var("ANTHROPIC_BASE_URL").ok();
         let prior_ecaa = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
@@ -1978,7 +1978,7 @@ mod tests {
     /// `ANTHROPIC_BASE_URL=http://127.0.0.1:8080`.
     #[test]
     fn resilient_client_accepts_loopback_http_base_url() {
-        let _g = DUMP_TEST_LOCK.lock().unwrap();
+        let _g = DUMP_TEST_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let prior_url = std::env::var("ANTHROPIC_BASE_URL").ok();
         let prior_ecaa = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
         unsafe {

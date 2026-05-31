@@ -582,7 +582,7 @@ mod tests {
     #[test]
     fn rerun_script_runs_and_exits_zero() {
         // Idempotent wrapper that exits 0 (sentinel not yet present).
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let tmp = tempfile::tempdir().unwrap();
         let task_dir = tmp.path().join("runtime/outputs/t");
         std::fs::create_dir_all(&task_dir).unwrap();
@@ -609,7 +609,7 @@ mod tests {
         // state.patch.json. The probe runs the wrapper and exits;
         // the patch is left for the harness's normal
         // apply_pending_patches pass to merge.
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let tmp = tempfile::tempdir().unwrap();
         let task_dir = tmp.path().join("runtime/outputs/t");
         std::fs::create_dir_all(&task_dir).unwrap();
@@ -633,7 +633,7 @@ mod tests {
 
     #[test]
     fn throttle_skips_back_to_back_probes() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let tmp = tempfile::tempdir().unwrap();
         let task_dir = tmp.path().join("runtime/outputs/t");
         std::fs::create_dir_all(&task_dir).unwrap();
@@ -662,7 +662,7 @@ mod tests {
         // agent every iteration. With the fallback the bare path
         // resolves into `scripts/`, the wrapper runs, and probe returns
         // Ran.
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let tmp = tempfile::tempdir().unwrap();
         let task_dir = tmp.path().join("runtime/outputs/t");
         let scripts_dir = task_dir.join("scripts");
@@ -694,7 +694,7 @@ mod tests {
         // one in scripts/. Detect by writing different stdout markers
         // and asserting the bare wrapper's output appears in the probe
         // sidecar.
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let tmp = tempfile::tempdir().unwrap();
         let task_dir = tmp.path().join("runtime/outputs/t");
         let scripts_dir = task_dir.join("scripts");
@@ -723,7 +723,7 @@ mod tests {
     fn rejects_path_escape_via_dotdot() {
         // Defense in depth — a malicious / buggy blocker.json could
         // declare "../../../etc/passwd" as the script. Refuse.
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let tmp = tempfile::tempdir().unwrap();
         let task_dir = tmp.path().join("runtime/outputs/t");
         std::fs::create_dir_all(&task_dir).unwrap();
@@ -737,7 +737,7 @@ mod tests {
 
     #[test]
     fn rejects_absolute_rel_path() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let tmp = tempfile::tempdir().unwrap();
         let task_dir = tmp.path().join("runtime/outputs/t");
         std::fs::create_dir_all(&task_dir).unwrap();
@@ -750,7 +750,7 @@ mod tests {
 
     #[test]
     fn timeout_terminates_hung_wrapper() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let tmp = tempfile::tempdir().unwrap();
         let task_dir = tmp.path().join("runtime/outputs/t");
         std::fs::create_dir_all(&task_dir).unwrap();
@@ -780,7 +780,7 @@ mod tests {
 
     #[test]
     fn probe_min_interval_clamps() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "1");
         assert_eq!(probe_min_interval_secs(), 5, "must clamp up to 5s");
         std::env::set_var("ECAA_HARNESS_FINALIZE_PROBE_MIN_INTERVAL_SECS", "9999");

@@ -261,7 +261,7 @@ mod tests {
                         }
                         captured_clone
                             .lock()
-                            .unwrap()
+                            .unwrap() // lock-unwrap-allow: test
                             .push((path, String::from_utf8_lossy(&body_bytes).to_string()));
                         let status_line = if reply_status == 204 {
                             "HTTP/1.1 204 No Content\r\n"
@@ -314,14 +314,14 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if !captured.lock().unwrap().is_empty() {
+            if !captured.lock().unwrap().is_empty() { // lock-unwrap-allow: test
                 break;
             }
             thread::sleep(Duration::from_millis(20));
         }
         let _ = handle.join();
 
-        let log = captured.lock().unwrap();
+        let log = captured.lock().unwrap(); // lock-unwrap-allow: test
         assert_eq!(
             log.len(),
             1,
@@ -384,7 +384,7 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if captured.lock().unwrap().len() >= 2 {
+            if captured.lock().unwrap().len() >= 2 { // lock-unwrap-allow: test
                 break;
             }
             thread::sleep(Duration::from_millis(20));
@@ -392,7 +392,7 @@ mod tests {
         let _ = handle.join();
 
         // The relay must have attempted both POSTs without panicking.
-        let log = captured.lock().unwrap();
+        let log = captured.lock().unwrap(); // lock-unwrap-allow: test
         assert_eq!(
             log.len(),
             2,

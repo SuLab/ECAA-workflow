@@ -874,7 +874,7 @@ mod tests {
         let executor: Arc<Mutex<Box<dyn Executor>>> = Arc::new(Mutex::new(inner));
         let held = Arc::clone(&executor);
         let guard_thread = std::thread::spawn(move || {
-            let _guard = held.lock().unwrap();
+            let _guard = held.lock().unwrap(); // lock-unwrap-allow: test
             std::thread::sleep(Duration::from_millis(200));
         });
 

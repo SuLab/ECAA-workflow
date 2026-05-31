@@ -71,7 +71,7 @@ mod budget {
 
     #[test]
     fn defaults_to_500k_when_unset() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let _restore = EnvGuard::capture();
         unsafe { std::env::remove_var("ECAA_SESSION_TOKEN_BUDGET") };
         assert_eq!(read_session_token_budget(), Some(500_000));
@@ -79,7 +79,7 @@ mod budget {
 
     #[test]
     fn explicit_value_wins() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let _restore = EnvGuard::capture();
         unsafe { std::env::set_var("ECAA_SESSION_TOKEN_BUDGET", "750000") };
         assert_eq!(read_session_token_budget(), Some(750_000));
@@ -87,7 +87,7 @@ mod budget {
 
     #[test]
     fn zero_disables_the_budget() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = ENV_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let _restore = EnvGuard::capture();
         unsafe { std::env::set_var("ECAA_SESSION_TOKEN_BUDGET", "0") };
         assert_eq!(read_session_token_budget(), None);

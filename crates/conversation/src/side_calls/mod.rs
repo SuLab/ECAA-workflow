@@ -287,8 +287,8 @@ mod tests {
     #[async_trait]
     impl LlmBackend for CapturingMock {
         async fn send_turn(&self, req: TurnRequest) -> Result<TurnResponse> {
-            self.requests.lock().unwrap().push(req);
-            Ok(self.response.lock().unwrap().clone())
+            self.requests.lock().unwrap().push(req); // lock-unwrap-allow: test
+            Ok(self.response.lock().unwrap().clone()) // lock-unwrap-allow: test
         }
         async fn send_turn_streaming(
             &self,
@@ -326,7 +326,7 @@ mod tests {
 
         // Exactly one request was issued — auto-title is one-shot,
         // never a tool loop.
-        let reqs = backend.requests.lock().unwrap();
+        let reqs = backend.requests.lock().unwrap(); // lock-unwrap-allow: test
         assert_eq!(reqs.len(), 1);
     }
 
@@ -342,7 +342,7 @@ mod tests {
         let _ = generate_session_title(backend.clone(), &metrics, id, &six_turns(), None)
             .await
             .unwrap();
-        let reqs = backend.requests.lock().unwrap();
+        let reqs = backend.requests.lock().unwrap(); // lock-unwrap-allow: test
         assert_eq!(reqs[0].model, ModelId::Haiku45);
         assert_eq!(reqs[0].model, ModelPolicy::for_side_call());
     }
@@ -396,7 +396,7 @@ mod tests {
             err
         );
         // No LLM call should have been made.
-        assert!(backend.requests.lock().unwrap().is_empty());
+        assert!(backend.requests.lock().unwrap().is_empty()); // lock-unwrap-allow: test
     }
 
     #[tokio::test]
@@ -450,7 +450,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let captured = backend.requests.lock().unwrap();
+        let captured = backend.requests.lock().unwrap(); // lock-unwrap-allow: test
         let req = captured.first().expect("captured one request");
         let system_text: String = req
             .system_prompt
@@ -476,7 +476,7 @@ mod tests {
         let _ = generate_session_title(backend.clone(), &metrics, id, &six_turns(), None)
             .await
             .unwrap();
-        let captured = backend.requests.lock().unwrap();
+        let captured = backend.requests.lock().unwrap(); // lock-unwrap-allow: test
         let req = captured.first().expect("captured one request");
         let system_text: String = req
             .system_prompt

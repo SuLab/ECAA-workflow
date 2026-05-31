@@ -828,12 +828,12 @@ mod tests {
         let captured = Arc::new(std::sync::Mutex::new(String::new()));
         let cap = captured.clone();
         let sink: crate::anthropic::delta_sink::DeltaSink =
-            Arc::new(move |s: &str| cap.lock().unwrap().push_str(s));
+            Arc::new(move |s: &str| cap.lock().unwrap().push_str(s)); // lock-unwrap-allow: test
         let _ = backend
             .send_turn_streaming(empty_request(), sink)
             .await
             .unwrap();
-        assert!(!captured.lock().unwrap().is_empty());
+        assert!(!captured.lock().unwrap().is_empty()); // lock-unwrap-allow: test
     }
 
     #[tokio::test]

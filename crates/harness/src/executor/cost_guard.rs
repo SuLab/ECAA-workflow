@@ -658,7 +658,7 @@ mod tests {
         let _server = std::thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(10);
             while Instant::now() < deadline {
-                if *shutdown_clone.lock().unwrap() {
+                if *shutdown_clone.lock().unwrap() { // lock-unwrap-allow: test
                     return;
                 }
                 match listener.accept() {
@@ -691,7 +691,7 @@ mod tests {
                         }
                         captured_clone
                             .lock()
-                            .unwrap()
+                            .unwrap() // lock-unwrap-allow: test
                             .push(String::from_utf8_lossy(&body).to_string());
                         let _ = stream.write_all(
                             b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -712,16 +712,16 @@ mod tests {
         // Wait for the sender thread to drain the event.
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if !captured.lock().unwrap().is_empty() {
+            if !captured.lock().unwrap().is_empty() { // lock-unwrap-allow: test
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
 
-        *shutdown.lock().unwrap() = true;
+        *shutdown.lock().unwrap() = true; // lock-unwrap-allow: test
         drop(pc); // bounded join so we don't leak the sender thread
 
-        let log = captured.lock().unwrap();
+        let log = captured.lock().unwrap(); // lock-unwrap-allow: test
         assert_eq!(log.len(), 1, "exactly one POST must be captured");
         let body = &log[0];
         let v: serde_json::Value = serde_json::from_str(body).expect("body is valid JSON");

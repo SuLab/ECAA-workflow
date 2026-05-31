@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
-# Fails on production `.lock().unwrap()` in the RC-21-converted dirs
-# (git_routes + executor/aws). SCOPED on purpose: the repo has ~124
-# pre-existing prod `.lock().unwrap()` sites elsewhere, so a blanket gate
-# would fail immediately — full coverage is a tracked follow-up that
-# extends `dirs` as each module is converted. Annotate any deliberate
-# exception with a trailing `// lock-unwrap-allow:<reason>`.
+# Fails on production `.lock().unwrap()` anywhere in crates/*/src.
+# RC-21 invariant: never `lock().unwrap()` — always poison-recover via
+# `.lock().unwrap_or_else(|p| p.into_inner())` or a `lock_recover`/
+# `git_lock_recover` helper. Test-module sites are exempt via a trailing
+# `// lock-unwrap-allow:<reason>` annotation; full-line comments are ignored.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-dirs=(crates/server/src/git_routes crates/harness/src/executor/aws)
-
-hits=$(grep -rn '\.lock()\.unwrap()' --include='*.rs' "${dirs[@]}" 2>/dev/null \
+hits=$(grep -rn '\.lock()\.unwrap()' --include='*.rs' crates/*/src 2>/dev/null \
+       | grep -vE ':[0-9]+:[[:space:]]*//' \
        | grep -v 'lock-unwrap-allow' || true)
 
 if [ -n "$hits" ]; then
-  echo "ERROR: bare .lock().unwrap() in an RC-21-hardened dir (use poison-recovery):" >&2
+  echo "ERROR: bare .lock().unwrap() found (use poison-recovery per RC-21):" >&2
   echo "$hits" >&2
   exit 1
 fi
-echo "OK: no bare .lock().unwrap() in ${dirs[*]}"
+echo "OK: no bare .lock().unwrap() in crates/*/src"

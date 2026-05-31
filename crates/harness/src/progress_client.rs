@@ -1314,7 +1314,7 @@ mod tests {
         let m = std::sync::Arc::new(std::sync::Mutex::new(42u32));
         let m_clone = m.clone();
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-            let mut g = m_clone.lock().unwrap();
+            let mut g = m_clone.lock().unwrap(); // lock-unwrap-allow: test
             *g = 99;
             panic!("simulated panic while holding the mutex");
         }));
@@ -1431,7 +1431,7 @@ mod tests {
         let handle = std::thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(10);
             while Instant::now() < deadline {
-                if *shutdown_clone.lock().unwrap() {
+                if *shutdown_clone.lock().unwrap() { // lock-unwrap-allow: test
                     return;
                 }
                 match listener.accept() {
@@ -1470,7 +1470,7 @@ mod tests {
                         }
                         captured_clone
                             .lock()
-                            .unwrap()
+                            .unwrap() // lock-unwrap-allow: test
                             .push((path, String::from_utf8_lossy(&body).to_string()));
                         let _ = stream.write_all(
                             b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -1501,16 +1501,16 @@ mod tests {
         // before it has a chance to drain the queue.
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if !captured.lock().unwrap().is_empty() {
+            if !captured.lock().unwrap().is_empty() { // lock-unwrap-allow: test
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
 
-        *shutdown.lock().unwrap() = true;
+        *shutdown.lock().unwrap() = true; // lock-unwrap-allow: test
         let _ = handle.join();
 
-        let log = captured.lock().unwrap();
+        let log = captured.lock().unwrap(); // lock-unwrap-allow: test
         assert_eq!(log.len(), 1, "exactly one POST captured");
         let (path, body) = &log[0];
         assert_eq!(
@@ -1565,7 +1565,7 @@ mod tests {
                     Ok(s) => s,
                     Err(_) => continue,
                 };
-                _open_streams.lock().unwrap().push(s_clone);
+                _open_streams.lock().unwrap().push(s_clone); // lock-unwrap-allow: test
                 // Drain bytes from the client so it doesn't get
                 // SIGPIPE during our enqueue loop, but never write
                 // back. The handler thread exits when the connection
@@ -1645,7 +1645,7 @@ mod tests {
         let _server = std::thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(10);
             while Instant::now() < deadline {
-                if *done_clone.lock().unwrap() {
+                if *done_clone.lock().unwrap() { // lock-unwrap-allow: test
                     return;
                 }
                 match listener.accept() {
@@ -1694,7 +1694,7 @@ mod tests {
                         );
                         let _ = stream.write_all(response.as_bytes());
                         let _ = stream.shutdown(std::net::Shutdown::Both);
-                        *done_clone.lock().unwrap() = true;
+                        *done_clone.lock().unwrap() = true; // lock-unwrap-allow: test
                         return;
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -1759,7 +1759,7 @@ mod tests {
             "clock skew blocker must be set when server_now is 2h ahead of client_now"
         );
         assert!(
-            *done.lock().unwrap(),
+            *done.lock().unwrap(), // lock-unwrap-allow: test
             "server must have handled at least one request"
         );
     }
@@ -1782,7 +1782,7 @@ mod tests {
         let _server = std::thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(10);
             while Instant::now() < deadline {
-                if *done_clone.lock().unwrap() {
+                if *done_clone.lock().unwrap() { // lock-unwrap-allow: test
                     return;
                 }
                 match listener.accept() {
@@ -1825,7 +1825,7 @@ mod tests {
                         );
                         let _ = stream.write_all(response.as_bytes());
                         let _ = stream.shutdown(std::net::Shutdown::Both);
-                        *done_clone.lock().unwrap() = true;
+                        *done_clone.lock().unwrap() = true; // lock-unwrap-allow: test
                         return;
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -1851,7 +1851,7 @@ mod tests {
         // Wait for the server to handle the request.
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if *done.lock().unwrap() {
+            if *done.lock().unwrap() { // lock-unwrap-allow: test
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));

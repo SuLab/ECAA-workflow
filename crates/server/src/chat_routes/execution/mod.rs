@@ -182,7 +182,7 @@ mod tests {
         let m = Mutex::new(42_u32);
         // Poison the mutex by panicking inside a `lock()` guard.
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let _g = m.lock().unwrap();
+            let _g = m.lock().unwrap(); // lock-unwrap-allow: test
             panic!("inject poison");
         }));
         assert!(

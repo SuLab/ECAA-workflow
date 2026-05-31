@@ -163,7 +163,7 @@ mod tests {
         let buf = Arc::new(std::sync::Mutex::new(String::new()));
         let buf_clone = buf.clone();
         let sink: DeltaSink = Arc::new(move |chunk: &str| {
-            buf_clone.lock().unwrap().push_str(chunk);
+            buf_clone.lock().unwrap().push_str(chunk); // lock-unwrap-allow: test
         });
         (sink, buf)
     }
@@ -204,7 +204,7 @@ mod tests {
         assert_eq!(resp.stop_reason, StopReason::EndTurn);
         assert!(resp.tool_uses.is_empty());
         // The on_delta callback fired for each chunk in order.
-        assert_eq!(captured.lock().unwrap().clone(), "Hello, world!");
+        assert_eq!(captured.lock().unwrap().clone(), "Hello, world!"); // lock-unwrap-allow: test
     }
 
     #[tokio::test]
@@ -260,7 +260,7 @@ mod tests {
         }
         // Tool input bytes should NOT have been streamed to the on_delta
         // callback (deltas are text-only).
-        assert!(captured.lock().unwrap().is_empty());
+        assert!(captured.lock().unwrap().is_empty()); // lock-unwrap-allow: test
     }
 
     #[tokio::test]
@@ -351,7 +351,7 @@ mod tests {
         assert_eq!(resp.assistant_content, "Looking up classification…\n");
         assert_eq!(resp.tool_uses.len(), 1);
         assert_eq!(
-            captured.lock().unwrap().clone(),
+            captured.lock().unwrap().clone(), // lock-unwrap-allow: test
             "Looking up classification…\n"
         );
     }
@@ -474,6 +474,6 @@ mod tests {
         };
         let resp = mock.send_turn_streaming(req, sink).await.unwrap();
         assert_eq!(resp.assistant_content, "default-impl text");
-        assert_eq!(captured.lock().unwrap().clone(), "default-impl text");
+        assert_eq!(captured.lock().unwrap().clone(), "default-impl text"); // lock-unwrap-allow: test
     }
 }

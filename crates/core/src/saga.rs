@@ -149,21 +149,21 @@ mod tests {
 
         Saga::new()
             .step(SagaStep::forward_only("a", move || {
-                log_a.lock().unwrap().push("do_a");
+                log_a.lock().unwrap().push("do_a"); // lock-unwrap-allow: test
                 Ok(())
             }))
             .step(SagaStep::forward_only("b", move || {
-                log_b.lock().unwrap().push("do_b");
+                log_b.lock().unwrap().push("do_b"); // lock-unwrap-allow: test
                 Ok(())
             }))
             .step(SagaStep::forward_only("c", move || {
-                log_c.lock().unwrap().push("do_c");
+                log_c.lock().unwrap().push("do_c"); // lock-unwrap-allow: test
                 Ok(())
             }))
             .execute()
             .unwrap();
 
-        assert_eq!(*log.lock().unwrap(), vec!["do_a", "do_b", "do_c"]);
+        assert_eq!(*log.lock().unwrap(), vec!["do_a", "do_b", "do_c"]); // lock-unwrap-allow: test
     }
 
     #[test]
@@ -180,25 +180,25 @@ mod tests {
             .step(SagaStep::new(
                 "a",
                 move || {
-                    log_a_do.lock().unwrap().push("do_a");
+                    log_a_do.lock().unwrap().push("do_a"); // lock-unwrap-allow: test
                     Ok(())
                 },
                 Some(move || {
-                    log_a_undo.lock().unwrap().push("undo_a");
+                    log_a_undo.lock().unwrap().push("undo_a"); // lock-unwrap-allow: test
                 }),
             ))
             .step(SagaStep::new(
                 "b",
                 move || {
-                    log_b_do.lock().unwrap().push("do_b");
+                    log_b_do.lock().unwrap().push("do_b"); // lock-unwrap-allow: test
                     Ok(())
                 },
                 Some(move || {
-                    log_b_undo.lock().unwrap().push("undo_b");
+                    log_b_undo.lock().unwrap().push("undo_b"); // lock-unwrap-allow: test
                 }),
             ))
             .step(SagaStep::forward_only("c_fails", move || {
-                log_c_do.lock().unwrap().push("do_c");
+                log_c_do.lock().unwrap().push("do_c"); // lock-unwrap-allow: test
                 Err(anyhow::anyhow!("synthetic failure"))
             }))
             .execute();
@@ -212,7 +212,7 @@ mod tests {
         // Forward: a, b, c (which failed). Rollback: b, a (reverse order).
         // c is not rolled back because it didn't complete.
         assert_eq!(
-            *log.lock().unwrap(),
+            *log.lock().unwrap(), // lock-unwrap-allow: test
             vec!["do_a", "do_b", "do_c", "undo_b", "undo_a"]
         );
     }
@@ -229,7 +229,7 @@ mod tests {
                 "a",
                 || Ok(()),
                 Some(move || {
-                    log_a.lock().unwrap().push("undo_a");
+                    log_a.lock().unwrap().push("undo_a"); // lock-unwrap-allow: test
                 }),
             ))
             .step(SagaStep::new(
@@ -240,14 +240,14 @@ mod tests {
                 }),
             ))
             .step(SagaStep::forward_only("c_fails", move || {
-                log_c.lock().unwrap().push("do_c");
+                log_c.lock().unwrap().push("do_c"); // lock-unwrap-allow: test
                 Err(anyhow::anyhow!("trigger"))
             }))
             .execute();
 
         assert!(result.is_err());
         // undo_a must run even though undo_b panicked.
-        assert!(log.lock().unwrap().contains(&"undo_a"));
+        assert!(log.lock().unwrap().contains(&"undo_a")); // lock-unwrap-allow: test
     }
 
     #[test]
@@ -277,12 +277,12 @@ mod tests {
                 "first_fails",
                 || Err(anyhow::anyhow!("first")),
                 Some(move || {
-                    log_a.lock().unwrap().push("undo_a");
+                    log_a.lock().unwrap().push("undo_a"); // lock-unwrap-allow: test
                 }),
             ))
             .execute();
         assert!(
-            log.lock().unwrap().is_empty(),
+            log.lock().unwrap().is_empty(), // lock-unwrap-allow: test
             "no rollback runs when first step fails"
         );
     }

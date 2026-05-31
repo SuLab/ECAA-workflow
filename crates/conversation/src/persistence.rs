@@ -1432,7 +1432,7 @@ mod tests {
                 store
                     .update(id, |s| {
                         let (count_lock, cvar) = &*gate;
-                        let mut entered = count_lock.lock().unwrap();
+                        let mut entered = count_lock.lock().unwrap(); // lock-unwrap-allow: test
                         *entered += 1;
                         cvar.notify_all();
                         let deadline = Instant::now() + StdDuration::from_secs(2);

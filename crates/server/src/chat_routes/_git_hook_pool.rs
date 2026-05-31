@@ -226,8 +226,8 @@ mod tests {
         let rg = reason_got.clone();
 
         let notifier: DropNotifier = Arc::new(move |trigger: &str, reason: &str| {
-            *tg.lock().unwrap() = trigger.to_string();
-            *rg.lock().unwrap() = reason.to_string();
+            *tg.lock().unwrap() = trigger.to_string(); // lock-unwrap-allow: test
+            *rg.lock().unwrap() = reason.to_string(); // lock-unwrap-allow: test
             n.store(true, Ordering::SeqCst);
         });
 
@@ -243,12 +243,12 @@ mod tests {
             "DropNotifier was not called for a saturated-pool drop"
         );
         assert_eq!(
-            *trigger_got.lock().unwrap(),
+            *trigger_got.lock().unwrap(), // lock-unwrap-allow: test
             "emit",
             "trigger passed to notifier must match the spawn call"
         );
         assert_eq!(
-            *reason_got.lock().unwrap(),
+            *reason_got.lock().unwrap(), // lock-unwrap-allow: test
             "pool_saturated",
             "reason must be 'pool_saturated' for a queue-full drop"
         );
@@ -270,7 +270,7 @@ mod tests {
         let rg = reason_got.clone();
 
         let notifier: DropNotifier = Arc::new(move |_trigger: &str, reason: &str| {
-            *rg.lock().unwrap() = reason.to_string();
+            *rg.lock().unwrap() = reason.to_string(); // lock-unwrap-allow: test
             n.store(true, Ordering::SeqCst);
         });
 
@@ -294,9 +294,9 @@ mod tests {
         // Reason format is "timeout_secs=<n>" where n=0 because 100ms
         // rounds to 0 in as_secs(). The key invariant is the prefix.
         assert!(
-            reason_got.lock().unwrap().starts_with("timeout_secs="),
+            reason_got.lock().unwrap().starts_with("timeout_secs="), // lock-unwrap-allow: test
             "reason must start with 'timeout_secs=' for a timeout drop; got {:?}",
-            *reason_got.lock().unwrap()
+            *reason_got.lock().unwrap() // lock-unwrap-allow: test
         );
     }
 }
