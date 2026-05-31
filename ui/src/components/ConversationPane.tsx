@@ -5,6 +5,8 @@ import {
   getTaskResult,
   listDispositions,
   postBranch,
+  postRerun,
+  postSmeSelection,
   startSessionFromIntent,
   type DispositionListEntryWire,
   type LlmAvailability,
@@ -314,21 +316,31 @@ export default function ConversationPane() {
     }
   }, [conv.sessionId, reviewableKeys, sse.reviewableTasks, taskResults])
 
-  // Rerun handler — send a chat turn expressing the SME's intent. The
-  // LLM routes that to the `rerun_task` tool (high-impact, alone-in-
-  // turn). Threading directly through chat instead of a dedicated POST
-  // because rerun_task is one of the deterministic-server-state-gated
-  // high-impact tools and its dispatch lives behind the LLM proxy.
+  // Rerun handler — call the deterministic `/rerun` REST endpoint
+  // directly. The server-side handler is gated on session state, emits
+  // the typed `RerunTask` DecisionRecord at mutation time, and
+  // auto-relaunches the harness — no LLM round-trip required. The chat
+  // `sendTurn` path is kept as a fallback for when the session id is
+  // missing or the REST call fails (the LLM then routes the intent to
+  // the `rerun_task` high-impact tool).
   const onRerunTask = useCallback(
-    (taskId: string, reason?: string) => {
-      const trimmed = reason?.trim() ?? ''
+    async (taskId: string, reason?: string) => {
+      const trimmed = reason?.trim() || undefined
+      if (conv.sessionId) {
+        try {
+          await postRerun(conv.sessionId, taskId, trimmed)
+          return
+        } catch {
+          // Fall through to the LLM path on REST failure.
+        }
+      }
       const text = trimmed
         ? `Please rerun task ${taskId}. Reason: ${trimmed}`
         : `Please rerun task ${taskId}.`
       return conv.sendTurn(text)
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- dep on .sendTurn method ref is intentional; full conv object would re-run on every render
-    [conv.sendTurn],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dep on .sessionId/.sendTurn method refs is intentional; full conv object would re-run on every render
+    [conv.sessionId, conv.sendTurn],
   )
 
   // Narrow the wire-level TaskResultStatus to the inline card's
@@ -346,10 +358,9 @@ export default function ConversationPane() {
   // `stage_id` + `candidates` and the BlockerCard already renders a
   // generic Unblock affordance; the SensitivityComparisonCard adds
   // the radio-group picker so the SME can pick a winner inline. On
-  // submit we route through `unblock` with the choice as rationale
-  // (no dedicated endpoint exists for the LLM-mediated
-  // select_sensitivity_winner tool; the LLM picks it up via
-  // get_session_state on the resume turn).
+  // submit we POST directly to the deterministic `/sme-selection`
+  // endpoint, which emits the typed `SelectSensitivityWinner`
+  // DecisionRecord server-side at mutation time and resumes the DAG.
   const sensitivityBlocker = useMemo(() => {
     if (!blockedState) return null
     // Prefer the first blocker entry whose kind is awaiting_sme_selection;
@@ -367,18 +378,27 @@ export default function ConversationPane() {
 
   const onSelectSensitivityWinner = useCallback(
     async (winner: string, rationale?: string) => {
-      if (!conv.sessionId) return
+      // The AwaitingSmeSelection blocker exposes `stage_id` (NOT
+      // `task_id`); the /sme-selection route is keyed by that id.
+      const taskId = sensitivityBlocker?.stage_id
+      if (conv.sessionId && taskId) {
+        try {
+          // Deterministic, server-gated: emits SelectSensitivityWinner
+          // at mutation time + writes the sme-selection sidecars +
+          // resumes the DAG + auto-relaunches the harness.
+          await postSmeSelection(conv.sessionId, taskId, winner)
+          return
+        } catch {
+          // Fall through to the LLM path on REST failure.
+        }
+      }
       const text = rationale
         ? `Selected ${winner} as the winner. Rationale: ${rationale}`
         : `Selected ${winner} as the winner.`
-      // Send the choice as a chat turn so the LLM picks it up and
-      // dispatches into select_sensitivity_winner. The `unblock`
-      // transition fires only after the LLM acknowledges, so the
-      // chat-turn path is the most-reliable affordance.
       await conv.sendTurn(text)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dep on .sessionId/.sendTurn method refs is intentional; full conv object would re-run on every render
-    [conv.sessionId, conv.sendTurn],
+    [conv.sessionId, conv.sendTurn, sensitivityBlocker],
   )
 
   // v3 P10 — when the LLM is `Disabled` or `Unavailable`, swap the

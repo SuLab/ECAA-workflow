@@ -246,6 +246,49 @@ pub async fn post_sme_selection(
             .into_response();
     }
 
+    // Emit the typed audit record at mutation time. The deterministic
+    // REST path is a direct SME action, so the decision must be durable
+    // here rather than only when the LLM-driven `select_sensitivity_winner`
+    // tool happens to run. Resolve the rejected candidate set from the
+    // live `AwaitingSmeSelection` blocker payload (the candidate list the
+    // SME chose against) so the counterfactual survives replay, mirroring
+    // the LLM-path tool in `tools/sensitivity.rs`. Recorded through the
+    // store, which persists each record immediately to
+    // `runtime/decisions.jsonl`.
+    let chosen = req.chosen.clone();
+    let stage = task_id.clone();
+    let rejected: Vec<String> = match &session.state {
+        ecaa_workflow_conversation::SessionState::Blocked { blockers, .. } => blockers
+            .iter()
+            .filter_map(|b| match &b.kind {
+                ecaa_workflow_core::blocker::BlockerKind::AwaitingSmeSelection {
+                    candidates,
+                    ..
+                } => Some(candidates.clone()),
+                _ => None,
+            })
+            .flatten()
+            .filter(|c| c != &chosen)
+            .collect(),
+        _ => Vec::new(),
+    };
+    let _ = app
+        .conversation
+        .store_handle()
+        .update(session_id, move |s| {
+            s.record_decision(
+                ecaa_workflow_core::decision_log::DecisionType::SelectSensitivityWinner {
+                    stage: stage.clone(),
+                    winner: chosen.clone(),
+                    rejected_candidates: rejected.clone(),
+                },
+                ecaa_workflow_core::decision_log::DecisionActor::Sme,
+                None,
+            );
+            Ok(())
+        })
+        .await;
+
     // Resume blocked tasks in WORKFLOW.json before auto-relaunch — without
     // this the picked task stays Blocked, the auto-relaunch predicate sees
     // no ready task, and the harness sleeps. The SME's mental model is
@@ -984,6 +1027,85 @@ mod tests {
             "/sme-selection must resume the blocked task so the harness re-dispatches; \
              got state.status={status:?}"
         );
+    }
+
+    /// /sme-selection must emit a typed `SelectSensitivityWinner`
+    /// DecisionRecord at mutation time (the deterministic REST path is a
+    /// direct SME action, not an LLM-driven tool call). The rejected
+    /// candidate set is resolved from the live `AwaitingSmeSelection`
+    /// blocker payload so the counterfactual survives replay. Without
+    /// this the SME's pick is recorded as files on disk but never lands
+    /// in the audit trail unless the LLM-path tool happens to run.
+    #[tokio::test]
+    async fn post_sme_selection_emits_select_sensitivity_winner_decision() {
+        let pkg = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(pkg.path().join("runtime/outputs/discover_integration")).unwrap();
+        std::fs::write(pkg.path().join("WORKFLOW.json"), r#"{"tasks":{}}"#).unwrap();
+
+        let (router, app) = make_router(vec![]).await;
+        let id = seed_session_with_completed_task(
+            &app,
+            "discover_integration",
+            Some(pkg.path().to_path_buf()),
+        )
+        .await;
+        // Put the session in a Blocked{AwaitingSmeSelection} state carrying candidates.
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Blocked {
+                    blockers: vec![ecaa_workflow_core::blocker::BlockerEntry::new(
+                        "discover_integration",
+                        ecaa_workflow_core::blocker::BlockerKind::AwaitingSmeSelection {
+                            stage_id: "discover_integration".into(),
+                            candidates: vec!["scVI".into(), "Harmony".into(), "CCA".into()],
+                        },
+                        "pick a winner",
+                    )],
+                    reason: "pick a winner".into(),
+                    recovery_hint: String::new(),
+                    blocker_kind: None,
+                    context: None,
+                };
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/chat/session/{}/task/discover_integration/sme-selection",
+                id
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"chosen":"scVI"}"#))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        let sess = app.conversation.get_session(id).await.unwrap();
+        let found = sess.decisions.iter().any(|d| {
+            matches!(
+                &d.decision,
+                ecaa_workflow_core::decision_log::DecisionType::SelectSensitivityWinner {
+                    stage,
+                    winner,
+                    rejected_candidates,
+                } if stage == "discover_integration"
+                    && winner == "scVI"
+                    && rejected_candidates.contains(&"Harmony".to_string())
+                    && rejected_candidates.contains(&"CCA".to_string())
+                    && !rejected_candidates.contains(&"scVI".to_string())
+            )
+        });
+        assert!(
+            found,
+            "post_sme_selection must emit SelectSensitivityWinner with the rejected set; \
+             decisions={:?}",
+            sess.decisions
+        );
+        drop(pkg);
     }
 
     #[tokio::test]
