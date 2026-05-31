@@ -1,20 +1,35 @@
 //! Invariant 3: evidence-coverage.
-//! Every output node from an Execution task must be referenced
-//! in claim-verification.json::verdicts[].supported_by OR carry
-//! an output_unused assumption.
+//! Every output produced by the execution graph is either referenced
+//! as Evidence (`claim-verification.json::verdicts[].supported_by`)
+//! or explicitly marked unused (an `output_unused` assumption).
+//!
+//! Outputs are derived from the Evidence (E) graph (`proofs.jsonl`),
+//! which the emitter populates with `produces` / `computed_from`
+//! edges. The harness `validation-reports.jsonl` rows are obligation
+//! outcomes (`{task_id, obligation_id, outcome}`) and carry no
+//! `outputs` field, so they cannot be the source here.
 
 use crate::audit_proof::loader::LoadedPackage;
 use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
 use std::collections::BTreeSet;
 
+/// Strip any `#fragment` suffix so evidence references resolve against
+/// the bare output identifier.
+fn strip_fragment(s: &str) -> String {
+    s.split('#').next().unwrap_or(s).to_string()
+}
+
 /// Check evidence coverage.
 pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
     let outputs: Vec<String> = pkg
-        .validation_reports
+        .proofs
         .iter()
-        .filter_map(|r| r.get("outputs").and_then(|v| v.as_array()))
-        .flatten()
-        .filter_map(|v| v.as_str().map(String::from))
+        .filter_map(|p| {
+            p.get("computed_from")
+                .or_else(|| p.get("produces"))
+                .and_then(|v| v.as_str())
+                .map(strip_fragment)
+        })
         .collect();
     if outputs.is_empty() {
         return InvariantVerdict {
@@ -34,12 +49,7 @@ pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
                 .iter()
                 .filter_map(|v| v.get("supported_by").and_then(|s| s.as_array()))
                 .flatten()
-                .filter_map(|v| {
-                    v.as_str().map(|s| {
-                        // Strip any `#fragment` suffix to match output paths
-                        s.split('#').next().unwrap_or(s).to_string()
-                    })
-                })
+                .filter_map(|v| v.as_str().map(strip_fragment))
                 .collect()
         })
         .unwrap_or_default();
@@ -57,12 +67,16 @@ pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
     }
     let n_inspected = outputs.len();
     let n_violations = violators.len();
+    // Spec §3: the default verdict on a violation (or on absent claim
+    // graph) is `Warn`, never `Fail`. Outputs that exist but are not yet
+    // referenced are a soft signal (e.g. a freshly emitted, un-executed
+    // package has no claims yet), not a hard-block condition.
     let status = if pkg.claims.is_none() {
         InvariantStatus::Warn
     } else if n_violations == 0 {
         InvariantStatus::Pass
     } else {
-        InvariantStatus::Fail
+        InvariantStatus::Warn
     };
     let detail = if n_violations == 0 && pkg.claims.is_some() {
         None

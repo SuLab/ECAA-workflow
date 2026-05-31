@@ -6,12 +6,18 @@ use std::collections::BTreeSet;
 
 /// Check cross graph integrity.
 pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
+    // Known outputs come from the Evidence (E) graph (`proofs.jsonl`),
+    // matching evidence_coverage. The harness `validation-reports.jsonl`
+    // rows are obligation outcomes and carry no `outputs` field.
     let known_outputs: BTreeSet<String> = pkg
-        .validation_reports
+        .proofs
         .iter()
-        .filter_map(|r| r.get("outputs").and_then(|v| v.as_array()))
-        .flatten()
-        .filter_map(|v| v.as_str().map(String::from))
+        .filter_map(|p| {
+            p.get("computed_from")
+                .or_else(|| p.get("produces"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.split('#').next().unwrap_or(s).to_string())
+        })
         .collect();
     let known_edges: BTreeSet<String> = pkg
         .proofs

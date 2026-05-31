@@ -1,1 +1,1 @@
-{"edge_id":"e-001","from":"counts","to":"differential_expression","port_contract":"matrix:gene_x_sample","status":"proved"}
+{"id":"workflow:differential_expression","type":"WorkflowStep","from":"counts","to":"differential_expression","port_contract":"matrix:gene_x_sample","status":"proved","computed_from":"runtime/tables/de_results.csv"}

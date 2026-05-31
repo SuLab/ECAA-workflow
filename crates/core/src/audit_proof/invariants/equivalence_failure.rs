@@ -26,6 +26,11 @@ pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
             n_violations: 0,
         };
     }
+    // Real v0.1 assumptions carry `{assumption_id, kind, detail, stage_id}`
+    // and no `edge_id`. Key the ack set on `edge_id` when present
+    // (forward-compatible for when the harness threads it) but fall back
+    // to the free-text `detail`, then match by containment so an ack
+    // whose detail mentions the failed edge still satisfies the predicate.
     let ack: BTreeSet<String> = pkg
         .assumptions
         .iter()
@@ -35,11 +40,16 @@ pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
                 Some("unprovable_edge" | "policy_exception")
             )
         })
-        .filter_map(|a| a.get("edge_id").and_then(|s| s.as_str()).map(String::from))
+        .filter_map(|a| {
+            a.get("edge_id")
+                .and_then(|s| s.as_str())
+                .or_else(|| a.get("detail").and_then(|s| s.as_str()))
+                .map(String::from)
+        })
         .collect();
     let mut violators = Vec::new();
     for e in &failed_edges {
-        if !ack.contains(e) {
+        if !ack.iter().any(|a| a == e || a.contains(e.as_str())) {
             violators.push(e.clone());
         }
     }
