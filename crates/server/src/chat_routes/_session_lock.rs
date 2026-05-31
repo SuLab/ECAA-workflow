@@ -54,15 +54,15 @@ impl ServerSessionStoreLock {
     /// holds it; the caller (`lib::run`) prints the contention
     /// message and exits.
     ///
-    /// Honors `ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS=1` by returning
-    /// a sentinel that holds no real lock — only test harnesses that
-    /// need two server processes deliberately should set it.
-    pub fn acquire(session_store_dir: &Path) -> Result<Self> {
-        if std::env::var("ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS")
-            .ok()
-            .as_deref()
-            == Some("1")
-        {
+    /// `allow_multi_process == true` returns a sentinel that holds no
+    /// real lock — only test harnesses that deliberately need two server
+    /// processes pass `true`. The flag is resolved once at boot from
+    /// `ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS=1` by the caller in
+    /// `lib.rs::run`; taking it as a parameter rather than reading the
+    /// process env here keeps `acquire` free of a global env read that
+    /// raced the multi-threaded test binary.
+    pub fn acquire(session_store_dir: &Path, allow_multi_process: bool) -> Result<Self> {
+        if allow_multi_process {
             return Ok(Self {
                 file: None,
                 path: PathBuf::new(),
@@ -169,15 +169,15 @@ mod tests {
     #[test]
     fn acquire_succeeds_for_fresh_dir() {
         let tmp = tempdir().unwrap();
-        let lock = ServerSessionStoreLock::acquire(tmp.path()).unwrap();
+        let lock = ServerSessionStoreLock::acquire(tmp.path(), false).unwrap();
         assert!(lock.path().exists(), "lockfile must be created on acquire");
     }
 
     #[test]
     fn second_acquire_against_same_dir_fails() {
         let tmp = tempdir().unwrap();
-        let _lock1 = ServerSessionStoreLock::acquire(tmp.path()).unwrap();
-        let result = ServerSessionStoreLock::acquire(tmp.path());
+        let _lock1 = ServerSessionStoreLock::acquire(tmp.path(), false).unwrap();
+        let result = ServerSessionStoreLock::acquire(tmp.path(), false);
         assert!(
             result.is_err(),
             "second acquire against same store dir must fail while first guard is alive"
@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn lockfile_dropped_on_guard_drop() {
         let tmp = tempdir().unwrap();
-        let lock = ServerSessionStoreLock::acquire(tmp.path()).unwrap();
+        let lock = ServerSessionStoreLock::acquire(tmp.path(), false).unwrap();
         let path = lock.path().to_path_buf();
         drop(lock);
         // Drop unlinks the lockfile.
@@ -199,13 +199,12 @@ mod tests {
     }
 
     #[test]
-    fn bypass_env_returns_sentinel() {
-        // SAFETY: process-wide env mutation is sound for single-threaded test scope.
-        std::env::set_var("ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS", "1");
+    fn bypass_flag_returns_sentinel() {
+        // The bypass is now a parameter, not a process-env read, so this
+        // test no longer mutates the shared env table (which raced sibling
+        // tests). Two acquires must both succeed under the bypass.
         let tmp = tempdir().unwrap();
-        // Two acquires must both succeed under the bypass.
-        let _l1 = ServerSessionStoreLock::acquire(tmp.path()).unwrap();
-        let _l2 = ServerSessionStoreLock::acquire(tmp.path()).unwrap();
-        std::env::remove_var("ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS");
+        let _l1 = ServerSessionStoreLock::acquire(tmp.path(), true).unwrap();
+        let _l2 = ServerSessionStoreLock::acquire(tmp.path(), true).unwrap();
     }
 }

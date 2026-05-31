@@ -191,7 +191,16 @@ pub async fn run() {
     // The guard is held by the run() stack frame so it lives exactly
     // as long as the server process.
     let session_store_dir = chat_state.config.chat_sessions_dir.clone();
-    let _store_lock = match chat_routes::ServerSessionStoreLock::acquire(&session_store_dir) {
+    // Resolve the multi-process bypass once here at single-threaded
+    // startup rather than inside `acquire` (which tests call concurrently).
+    let allow_multi_process = std::env::var("ECAA_SERVER_DEBUG_ALLOW_MULTI_PROCESS")
+        .ok()
+        .as_deref()
+        == Some("1");
+    let _store_lock = match chat_routes::ServerSessionStoreLock::acquire(
+        &session_store_dir,
+        allow_multi_process,
+    ) {
         Ok(g) => g,
         Err(e) => {
             eprintln!("FATAL: {}", e);
