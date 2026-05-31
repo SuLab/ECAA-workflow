@@ -45,11 +45,21 @@ const SUBGRAPHS: &[(char, &str)] = &[
     ('F', "failure.schema.json"),
 ];
 
+fn schema_errors(compiled: &JSONSchema, instance: &Value) -> Vec<String> {
+    // Mirror the production validator's `collect_schema_errors`: consume the
+    // borrowing error iterator inside a helper that returns owned strings, so
+    // the iterator's borrow of `compiled`/`instance` never escapes the call.
+    match compiled.validate(instance) {
+        Ok(()) => Vec::new(),
+        Err(errors) => errors.map(|e| e.to_string()).collect(),
+    }
+}
+
 fn assert_valid(letter: char, filename: &str, projection: &[Value]) {
     let compiled = schema(filename);
     let instance = Value::Array(projection.to_vec());
-    if let Err(errors) = compiled.validate(&instance) {
-        let msgs: Vec<String> = errors.map(|e| e.to_string()).collect();
+    let msgs = schema_errors(&compiled, &instance);
+    if !msgs.is_empty() {
         panic!(
             "sub-graph {letter} projection failed {filename}: {}\nprojection: {}",
             msgs.join("; "),

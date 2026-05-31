@@ -3,6 +3,7 @@ import type { AdjudicationQueueEntry } from "./AdjudicationQueueEntry";
 import type { CheckpointMode } from "./CheckpointMode";
 import type { ConfirmationToken } from "./ConfirmationToken";
 import type { DecisionRecord } from "./DecisionRecord";
+import type { ExecutionToken } from "./ExecutionToken";
 import type { HarnessEvent } from "./HarnessEvent";
 import type { InputPathHint } from "./InputPathHint";
 import type { ProjectClass } from "./ProjectClass";
@@ -144,6 +145,16 @@ checkpoint_mode: CheckpointMode,
  * API.
  */
 confirmation_token: ConfirmationToken | null, 
+/**
+ * Single-use execution latch minted by the REST `/start-execution`
+ * button (the human press) and consumed at `start_execution`
+ * dispatch. Gates the LLM `start_execution` tool so it cannot
+ * launch a harness run without a preceding human Start press.
+ *
+ * `#[serde(default)]` so sessions persisted before this field
+ * existed deserialize cleanly with `None`.
+ */
+execution_token: ExecutionToken | null, 
 /**
  * The pending emission this session is about to perform. Populated
  * when transitioning into `PendingConfirmation`; cleared when the

@@ -9,6 +9,7 @@ import type { NodeStatus } from "./NodeStatus";
 import type { PortContract } from "./PortContract";
 import type { Provenance } from "./Provenance";
 import type { RiskClass } from "./RiskClass";
+import type { SafetyPolicy } from "./SafetyPolicy";
 import type { SemVer } from "./SemVer";
 import type { TrustLevel } from "./TrustLevel";
 import type { ValidatorRef } from "./ValidatorRef";
@@ -111,4 +112,11 @@ deprecation?: Deprecation,
  * compatibility; entries that graduate to typed facets are
  * retired here.
  */
-attributes: Record<string, unknown>, };
+attributes: Record<string, unknown>, 
+/**
+ * Coarse atom-level safety policy, carried through v4 lowering onto
+ * `Task.safety` so the harness dispatch gate sees the source atom's
+ * declared network / sandbox / controlled-access posture instead of
+ * the nullified default. Default is suppressed in serialization.
+ */
+safety: SafetyPolicy, };
