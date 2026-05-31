@@ -17,7 +17,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 const TTL_DAYS: i64 = 30;
@@ -259,7 +259,12 @@ pub struct SessionStore {
     /// call lazily fills the cache by enumerating the directory and
     /// loading each file once; subsequent calls hit the cache.
     metadata_populated: Arc<std::sync::atomic::AtomicBool>,
-    prune_hook: Arc<OnceLock<PruneHook>>,
+    /// Multi-subscriber prune-hook list. Every registered hook fires
+    /// once per pruned session id. The conversation service evicts its
+    /// own per-session maps via one hook; the server layer registers a
+    /// second hook to evict `ChatAppState`'s per-session maps and call
+    /// `MetricsStore::forget`.
+    prune_hooks: Arc<std::sync::Mutex<Vec<PruneHook>>>,
 }
 
 impl SessionStore {
@@ -291,7 +296,7 @@ impl SessionStore {
             inner: Arc::new(DashMap::new()),
             metadata: Arc::new(DashMap::new()),
             metadata_populated: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            prune_hook: Arc::new(OnceLock::new()),
+            prune_hooks: Arc::new(std::sync::Mutex::new(Vec::new())),
         };
 
         // Kick off the background prune. If the task panics or the
@@ -335,14 +340,28 @@ impl SessionStore {
         Ok(store)
     }
 
-    /// Register a callback fired once per session id removed during
-    /// `prune_expired_now`. Idempotent: only the first registration
-    /// wins for a store handle and its clones.
+    /// Register a callback fired once per pruned session id. Unlike the
+    /// former `OnceLock` design, every registered hook fires — the
+    /// conversation service evicts its own per-session maps, and the
+    /// server layer registers a second hook to evict `ChatAppState`'s
+    /// per-session maps + `MetricsStore::forget`.
+    pub fn add_prune_hook<F>(&self, hook: F)
+    where
+        F: Fn(SessionId) + Send + Sync + 'static,
+    {
+        self.prune_hooks
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(Arc::new(hook));
+    }
+
+    /// Back-compat shim for the single-hook call site. Equivalent to
+    /// `add_prune_hook`; retained so existing callers don't churn.
     pub fn set_prune_hook<F>(&self, hook: F)
     where
         F: Fn(SessionId) + Send + Sync + 'static,
     {
-        let _ = self.prune_hook.set(Arc::new(hook));
+        self.add_prune_hook(hook);
     }
 
     /// synchronously prune every expired file in the store
@@ -383,7 +402,12 @@ impl SessionStore {
                     // R2-N13: keep the metadata cache coherent with
                     // prune removals.
                     self.metadata.remove(&s.id);
-                    if let Some(hook) = self.prune_hook.get() {
+                    for hook in self
+                        .prune_hooks
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner())
+                        .iter()
+                    {
                         hook(s.id);
                     }
                 }
@@ -1325,6 +1349,33 @@ mod tests {
         store2.prune_expired_now().await.unwrap();
         let loaded = store2.get(s.id).await;
         assert!(loaded.is_none());
+    }
+
+    #[tokio::test]
+    async fn multiple_prune_hooks_all_fire_on_expiry() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::open(dir.path()).await.unwrap();
+
+        let a = Arc::new(AtomicUsize::new(0));
+        let b = Arc::new(AtomicUsize::new(0));
+        let a2 = a.clone();
+        let b2 = b.clone();
+        store.add_prune_hook(move |_id| {
+            a2.fetch_add(1, Ordering::SeqCst);
+        });
+        store.add_prune_hook(move |_id| {
+            b2.fetch_add(1, Ordering::SeqCst);
+        });
+
+        // Persist an expired session (last_activity older than TTL_DAYS).
+        let mut s = Session::new(false);
+        s.last_activity = Utc::now() - Duration::days(TTL_DAYS + 1);
+        store.save(&s).await.unwrap();
+
+        store.prune_expired_now().await.unwrap();
+        assert_eq!(a.load(Ordering::SeqCst), 1, "first hook must fire");
+        assert_eq!(b.load(Ordering::SeqCst), 1, "second hook must fire");
     }
 
     #[tokio::test]

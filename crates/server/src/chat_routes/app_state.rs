@@ -272,6 +272,13 @@ impl RelaunchTracker {
         entry.1 += 1;
         true
     }
+
+    /// Drop the per-session relaunch counter. Wired to the
+    /// `SessionStore` prune hook so an expired session's window entry
+    /// is reclaimed instead of growing monotonically.
+    pub(crate) fn remove(&self, id: &SessionId) {
+        self.inner.remove(id);
+    }
 }
 
 /// Shared server state threaded through every Axum handler via `State<ChatAppState>`.
@@ -504,6 +511,15 @@ impl ChatAppState {
             auto_title_override: None,
         };
         let _ = app_once.set(app.clone());
+        let hook_app = app.clone();
+        app.conversation.store_handle().add_prune_hook(move |id| {
+            let hook_app = hook_app.clone();
+            // Prune fires from an async sweep; the eviction is async
+            // (scorer_cache RwLock + metrics forget), so detach.
+            tokio::spawn(async move {
+                hook_app.evict_session_maps(id).await;
+            });
+        });
         Ok(app)
     }
 
@@ -582,6 +598,15 @@ impl ChatAppState {
             auto_title_override: None,
         };
         let _ = app_once.set(app.clone());
+        let hook_app = app.clone();
+        app.conversation.store_handle().add_prune_hook(move |id| {
+            let hook_app = hook_app.clone();
+            // Prune fires from an async sweep; the eviction is async
+            // (scorer_cache RwLock + metrics forget), so detach.
+            tokio::spawn(async move {
+                hook_app.evict_session_maps(id).await;
+            });
+        });
         app
     }
 
@@ -713,6 +738,36 @@ impl ChatAppState {
         let mut b = bucket.lock().unwrap_or_else(|p| p.into_inner());
         b.try_take(PROGRESS_RATE_PER_SEC, PROGRESS_RATE_BURST)
     }
+
+    /// Evict every per-session map entry for `id`. Wired to the
+    /// `SessionStore` prune hook so a 30-day-expired session's
+    /// in-memory footprint is reclaimed instead of growing
+    /// monotonically. Mirrors the conversation-service prune hook,
+    /// which evicts its own three maps. `executions` is evicted here
+    /// (session expiry) rather than in the exit watcher because the
+    /// post-exit entry is load-bearing for `auto_relaunch_decision`.
+    pub async fn evict_session_maps(&self, id: SessionId) {
+        self.broadcasters.remove(&id);
+        self.sse_seq.remove(&id);
+        self.executions.remove(&id);
+        self.starting_executions.remove(&id);
+        self.progress_rate_limits.remove(&id);
+        self.reconciled_progress_cache.remove(&id);
+        self.relaunch_tracker.remove(&id);
+        self.llm_buckets.turn.remove(&id);
+        self.llm_buckets.score.remove(&id);
+        self.llm_buckets.explain.remove(&id);
+        self.llm_buckets.summary.remove(&id);
+        self.llm_buckets.remediation.remove(&id);
+        self.llm_buckets.start_exec.remove(&id);
+        self.llm_buckets.branch.remove(&id);
+        // Composite-keyed map: retain everything not belonging to `id`.
+        self.artifact_cache.retain(|(sid, _), _| *sid != id);
+        self.scorer_cache.write().await.remove(&id);
+        // Reclaim the metrics counters (forget previously had zero
+        // production callers).
+        self.conversation.metrics().forget(id).await;
+    }
 }
 
 #[allow(dead_code)]
@@ -791,6 +846,56 @@ mod tests {
         assert!(
             !state.config.auto_title,
             "auto_title must default to false in test config"
+        );
+    }
+
+    /// `evict_session_maps` (wired to the `SessionStore` prune hook)
+    /// reclaims every per-session map entry so an expired session's
+    /// in-memory footprint doesn't grow monotonically.
+    #[tokio::test]
+    async fn prune_evicts_every_chat_app_state_map() {
+        use ecaa_workflow_conversation::MockLlmBackend;
+        let tmp = tempfile::tempdir().unwrap();
+        let store = ecaa_workflow_conversation::SessionStore::open(tmp.path())
+            .await
+            .unwrap();
+        let cfg_dir = tmp.path().join("config");
+        std::fs::create_dir_all(&cfg_dir).unwrap();
+        let llm: Arc<dyn ecaa_workflow_conversation::LlmBackend> =
+            Arc::new(MockLlmBackend::new(vec![]));
+        let app = ChatAppState::with_backend(llm, store.clone(), cfg_dir);
+
+        let sid = Uuid::new_v4();
+        // Seed several per-session maps.
+        let _ = app.broadcaster(sid).await;
+        let _ = app.next_sse_seq(sid);
+        let _ = app.try_consume_progress_token(sid).await;
+        app.relaunch_tracker.allow(sid, 4);
+        app.reconciled_progress_cache.insert(
+            sid,
+            ReconciledProgressEntry {
+                progress: Default::default(),
+                blocked_tasks: vec![],
+                valid: true,
+            },
+        );
+        assert!(app.broadcasters.contains_key(&sid));
+
+        // Fire the prune hook directly (simulates SessionStore expiry).
+        app.evict_session_maps(sid).await;
+
+        assert!(
+            !app.broadcasters.contains_key(&sid),
+            "broadcasters not evicted"
+        );
+        assert!(!app.sse_seq.contains_key(&sid), "sse_seq not evicted");
+        assert!(
+            !app.progress_rate_limits.contains_key(&sid),
+            "rate buckets not evicted"
+        );
+        assert!(
+            !app.reconciled_progress_cache.contains_key(&sid),
+            "reconciled cache not evicted"
         );
     }
 }
