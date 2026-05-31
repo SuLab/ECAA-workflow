@@ -178,16 +178,15 @@ pub async fn get_task_result(
     //
     // The report is ALWAYS recomputed FROM SOURCE on the blocking pool
     // (regex + bounded fs walk over the package's narrative + result
-    // tables). We deliberately never read back the emit-time
+    // tables). We deliberately never read back any emit-time
     // `runtime/verification-reports/<task_id>.json` sidecar: the package
     // tree is rw-mounted into the executing agent's container, so a
     // misbehaving/adversarial agent could overwrite that sidecar with an
     // all-clean report. Trusting it would defeat the anti-hallucination
-    // contract. The sidecar writer in `emit::verification_sidecar` is now
-    // dead weight that nothing reads back; a future optimization could
-    // HMAC-sign it with a server-held key and verify the signature here as
-    // a cache, but that is out of scope (and deleting the writer is a
-    // separate follow-up).
+    // contract. The emit-time sidecar writer was therefore removed (it was
+    // write-only-never-read); a future optimization could HMAC-sign such a
+    // cache with a server-held key and verify the signature here, but that
+    // is out of scope.
     let verification: serde_json::Value = match (&session.emitted_package_path, &task.state) {
         (Some(root), TaskState::Completed { .. }) => {
             let config_dir = config_dir_or_default();

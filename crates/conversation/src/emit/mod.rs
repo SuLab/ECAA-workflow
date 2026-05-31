@@ -22,7 +22,6 @@ mod ro_crate;
 mod sidecars;
 mod sme_intake_methods;
 pub mod validation;
-mod verification_sidecar;
 
 // v4 P2 / F18 — re-export the read helper so server / harness callers
 // can pull the typed substrate without depending on the writer module's
@@ -410,15 +409,15 @@ async fn emit_steps(
     let clock: &dyn ecaa_workflow_core::clock::Clock = &ecaa_workflow_core::clock::WallClock;
     apply_checkpoint_mode_auto_advances(session, output_dir, clock)?;
 
-    // P3-4 — per-task verification sidecars. For every Completed task
-    // with a narrative artifact, run claim-extractor + claim-verifier
-    // once at emit time and persist the report under
-    // `runtime/verification-reports/<task_id>.json`. The
-    // `GET /task/:task_id/result` handler reads these instead of
-    // re-running verification synchronously on every poll. Best-effort:
-    // any failure leaves the sidecar absent and the GET handler falls
-    // back to live verification.
-    let _ = verification_sidecar::write_verification_sidecars(output_dir, session, config_dir);
+    // Note: there is deliberately NO emit-time per-task verification
+    // sidecar writer here. The `GET /task/:task_id/result` handler always
+    // recomputes verification FROM SOURCE on the blocking pool — the
+    // package tree is rw-mounted into the executing agent's container, so
+    // trusting a pre-written sidecar would let an adversarial agent
+    // overwrite it with an all-clean report and defeat the
+    // anti-hallucination contract (see `chat_routes/tasks/result.rs`).
+    // The former `verification_sidecar` writer was write-only-never-read
+    // dead weight and has been removed.
 
     // Required safety net (not "fallback"): sessions
     // accumulate SME `set_intake_method` entries whose content must

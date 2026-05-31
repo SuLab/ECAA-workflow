@@ -333,10 +333,16 @@ fn load_interpretation_policy(config_dir: &Path) -> Option<serde_json::Value> {
 ///
 /// Runs the full claim-extractor → claim-verifier → post-hoc-demotion
 /// pipeline for a single task and returns the resulting
-/// `ClaimVerificationReport`. Used by the conversation emit pipeline to
-/// persist `runtime/verification-reports/<task_id>.json` sidecars at emit
-/// time so the `GET /task/:task_id/result` handler can read them instead
-/// of re-running verification on every poll.
+/// `ClaimVerificationReport`.
+///
+/// NOTE: this has no in-tree caller. The former emit-time sidecar writer
+/// (which persisted `runtime/verification-reports/<task_id>.json`) was
+/// removed because the `GET /task/:task_id/result` handler always
+/// recomputes verification from source — the package tree is rw-mounted
+/// into the executing agent's container, so a pre-written sidecar could be
+/// overwritten with an all-clean report and defeat the anti-hallucination
+/// contract. This function is retained as public API for a future
+/// HMAC-signed cache (see `server::chat_routes::tasks::result`).
 ///
 /// Returns `None` when:
 /// - the task has no narrative artifact under `runtime/<task_id>/`, or

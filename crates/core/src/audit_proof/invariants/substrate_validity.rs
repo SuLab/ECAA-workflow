@@ -2,10 +2,18 @@
 //! Delegates to the WRROC v0.5 Tier-3 validator already in core.
 
 use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
-use crate::wrroc_validator::WrrocValidator;
+use crate::wrroc_validator::{WrrocOutcome, WrrocValidator};
 use std::path::Path;
 
 /// Check substrate validity.
+///
+/// Delegates to the injected validator's three-valued
+/// [`WrrocValidator::validate_outcome`]. The mapping is:
+/// - `Pass`        → `InvariantStatus::Pass`
+/// - `Fail(msgs)`  → `InvariantStatus::Fail` (one violation per package run)
+/// - `Unverified`  → `InvariantStatus::Unverified` — including the case
+///   where the injected validator is the no-op adapter (runcrate not run).
+///   A non-run must NOT be recorded as a substrate-validity pass.
 pub fn check_substrate_validity(root: &Path, validator: &dyn WrrocValidator) -> InvariantVerdict {
     let descriptor = root.join("ro-crate-metadata.json");
     if !descriptor.exists() {
@@ -17,37 +25,27 @@ pub fn check_substrate_validity(root: &Path, validator: &dyn WrrocValidator) -> 
             n_violations: 0,
         };
     }
-    match validator.validate_packages(&[root]) {
-        Ok(report) => {
-            let n_failures = report.summary.failed;
-            let status = if n_failures == 0 {
-                InvariantStatus::Pass
-            } else {
-                InvariantStatus::Fail
-            };
-            let detail = if n_failures == 0 {
-                None
-            } else {
-                let msgs: Vec<String> = report
-                    .validated
-                    .iter()
-                    .filter(|p| !p.ok)
-                    .flat_map(|p| p.errors.iter().map(move |e| format!("{}: {}", p.path, e)))
-                    .collect();
-                Some(msgs.join("; "))
-            };
-            InvariantVerdict {
-                id: InvariantId::SubstrateValidity,
-                status,
-                detail,
-                n_inspected: 1,
-                n_violations: n_failures,
-            }
-        }
-        Err(e) => InvariantVerdict {
+    match validator.validate_outcome(&[root]) {
+        WrrocOutcome::Pass => InvariantVerdict {
             id: InvariantId::SubstrateValidity,
+            status: InvariantStatus::Pass,
+            detail: None,
+            n_inspected: 1,
+            n_violations: 0,
+        },
+        WrrocOutcome::Fail(msgs) => InvariantVerdict {
+            id: InvariantId::SubstrateValidity,
+            status: InvariantStatus::Fail,
+            detail: Some(msgs.join("; ")),
+            n_inspected: 1,
+            n_violations: msgs.len(),
+        },
+        WrrocOutcome::Unverified(reason) => InvariantVerdict {
+            id: InvariantId::SubstrateValidity,
+            // The descriptor IS present (we got past the early return), but
+            // no real validation ran — count it as inspected-but-unverified.
             status: InvariantStatus::Unverified,
-            detail: Some(format!("validator error: {}", e)),
+            detail: Some(reason),
             n_inspected: 1,
             n_violations: 0,
         },

@@ -17,6 +17,11 @@ path = "src/bin/ecaa-workflow-audit-proof.rs"
 [dependencies]
 ecaa-workflow-core = { version = "0.1", path = "../core" }
 ecaa-workflow-conversation = { version = "0.1", path = "../conversation" }
+# The standalone `ecaa-workflow-audit-proof` binary selects the
+# runcrate-backed WRROC validator (`PythonRuncrateWrrocValidator`) when
+# ECAA_CONFORMANCE_MODE is set. That adapter lives in the harness (it
+# shells `python3`, which core is forbidden to do).
+ecaa-workflow-harness = { version = "0.1", path = "../harness" }
 clap = { workspace = true }
 rustyline = "14"
 colored = "2"

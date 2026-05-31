@@ -421,7 +421,11 @@ use ecaa_workflow_core::audit_proof::invariants::substrate_validity::check_subst
 use ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
 
 #[test]
-fn substrate_validity_with_noop_validator_passes_on_present_descriptor() {
+fn substrate_validity_with_noop_validator_is_unverified_not_pass() {
+    // The no-op validator does not actually run a WRROC conformance
+    // check, so a present descriptor must yield Unverified — NOT a
+    // spurious Pass. A genuine pass requires a real (runcrate-backed)
+    // validator on the conformance path.
     let tmp = tempfile::TempDir::new().unwrap();
     std::fs::write(
         tmp.path().join("ro-crate-metadata.json"),
@@ -429,7 +433,13 @@ fn substrate_validity_with_noop_validator_passes_on_present_descriptor() {
     )
     .unwrap();
     let v = check_substrate_validity(tmp.path(), &NoopWrrocValidator);
-    assert_eq!(v.status, InvariantStatus::Pass);
+    assert_eq!(v.status, InvariantStatus::Unverified);
+    assert_eq!(v.n_inspected, 1, "descriptor present ⇒ inspected");
+    assert!(
+        v.detail.as_deref().unwrap_or("").contains("runcrate"),
+        "detail should explain runcrate did not run: {:?}",
+        v.detail
+    );
 }
 
 #[test]

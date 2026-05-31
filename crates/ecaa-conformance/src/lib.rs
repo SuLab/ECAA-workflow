@@ -7,4 +7,4 @@
 pub use ecaa_workflow_core::audit_proof::{
     run_audit_proof, AuditProofReport, InvariantId, InvariantStatus, InvariantVerdict,
 };
-pub use ecaa_workflow_core::wrroc_validator::{NoopWrrocValidator, WrrocValidator};
+pub use ecaa_workflow_core::wrroc_validator::{NoopWrrocValidator, WrrocOutcome, WrrocValidator};
