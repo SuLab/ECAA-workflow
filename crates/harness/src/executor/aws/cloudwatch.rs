@@ -50,7 +50,7 @@ impl AwsExecutor {
         }
         // Reset shutdown flag and clone the shared state for the
         // polling thread.
-        *self.stall_shutdown.lock().unwrap() = false;
+        *self.stall_shutdown.lock().unwrap_or_else(|p| p.into_inner()) = false;
         let shutdown = self.stall_shutdown.clone();
         let task_id_cell = self.current_running_task_id.clone();
         let thresholds = thresholds.clone();
@@ -76,7 +76,7 @@ impl AwsExecutor {
     }
 
     pub(super) fn do_stop_stall_monitor(&mut self) {
-        *self.stall_shutdown.lock().unwrap() = true;
+        *self.stall_shutdown.lock().unwrap_or_else(|p| p.into_inner()) = true;
     }
 
     /// Shell out to `aws cloudwatch get-metric-statistics` and return
@@ -242,11 +242,11 @@ fn cloudwatch_stall_loop(
     let mut latches: BTreeMap<(String, SignalKind), LatchState> = BTreeMap::new();
 
     loop {
-        if *shutdown.lock().unwrap() {
+        if *shutdown.lock().unwrap_or_else(|p| p.into_inner()) {
             return;
         }
         std::thread::sleep(interval);
-        if *shutdown.lock().unwrap() {
+        if *shutdown.lock().unwrap_or_else(|p| p.into_inner()) {
             return;
         }
 

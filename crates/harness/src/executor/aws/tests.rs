@@ -980,7 +980,7 @@ fn start_stall_monitor_noop_when_disabled() {
     };
     exec.start_stall_monitor(&thresholds, tx).unwrap();
     // The shutdown flag must still be at its initial `false`.
-    assert!(!*shutdown.lock().unwrap());
+    assert!(!*shutdown.lock().unwrap()); // lock-unwrap-allow: test
 }
 
 #[test]
@@ -1016,7 +1016,7 @@ fn start_stall_monitor_spawns_thread_when_enabled() {
         "no StallSignal should arrive before the monitor shuts down"
     );
     // Shutdown flag must be true.
-    assert!(*exec.stall_shutdown.lock().unwrap());
+    assert!(*exec.stall_shutdown.lock().unwrap()); // lock-unwrap-allow: test
 }
 
 #[test]

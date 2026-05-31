@@ -77,6 +77,7 @@ lint: ## Run architectural-invariant + ts-binding gates
 	bash scripts/check-no-tokio-in-core-harness.sh
 	bash scripts/check-no-hashmap-in-emitter.sh
 	bash scripts/check-ts-bindings-fresh.sh
+	bash scripts/check-no-lock-unwrap.sh
 
 install-hooks: ## Install the repo-local git pre-push hook
 	install -m 0755 scripts/hooks/pre-push "$$(git rev-parse --git-path hooks)/pre-push"

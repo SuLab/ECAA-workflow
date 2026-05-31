@@ -29,6 +29,16 @@ use super::{CommitSummary, GenerateSshKeyRequest, GenerateSshKeyResponse};
 /// single-mutex design is preferred over a per-path registry.
 static GIT_LOCK: Mutex<()> = Mutex::new(());
 
+/// Poison-recovery lock helper for `GIT_LOCK` and other server-side
+/// `std::sync::Mutex` access, per RC-21 (never `lock().unwrap()`).
+/// `PoisonError::into_inner` preserves the inner state — a panic in a
+/// prior holder doesn't corrupt the `()` guard data — so recovery is
+/// behaviorally identical to a fresh lock.
+#[track_caller]
+fn git_lock_recover<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 /// Thin wrapper around the system `git` binary scoped to a single package directory.
 pub struct GitService {
     repo_path: PathBuf,
@@ -76,7 +86,7 @@ impl GitService {
     /// adds the remote if one is configured and none exists yet. No-op
     /// on an already-initialized repo.
     pub fn init(&self) -> Result<()> {
-        let _g = GIT_LOCK.lock().unwrap();
+        let _g = git_lock_recover(&GIT_LOCK);
         std::fs::create_dir_all(&self.repo_path)
             .with_context(|| format!("mkdir {}", self.repo_path.display()))?;
         if !self.repo_path.join(".git").exists() {
@@ -96,7 +106,7 @@ impl GitService {
     /// Idempotent — succeeds whether origin already exists or not.
     /// Requires the repo to be initialized.
     pub fn set_remote(&self, remote_url: &str) -> Result<()> {
-        let _g = GIT_LOCK.lock().unwrap();
+        let _g = git_lock_recover(&GIT_LOCK);
         if !self.repo_path.join(".git").exists() {
             return Err(anyhow!(
                 "cannot set remote on uninitialized repo at {}",
@@ -110,7 +120,7 @@ impl GitService {
     /// no remote is configured. Caller already holds `GIT_LOCK`? — no,
     /// this acquires the lock itself.
     pub fn clear_remote(&self) -> Result<()> {
-        let _g = GIT_LOCK.lock().unwrap();
+        let _g = git_lock_recover(&GIT_LOCK);
         if !self.repo_path.join(".git").exists() {
             return Ok(());
         }
@@ -156,7 +166,7 @@ impl GitService {
     /// Dry-run `git ls-remote` against the configured origin to verify
     /// auth + reachability. Returns Ok on zero-exit.
     pub fn test_remote(&self) -> Result<()> {
-        let _g = GIT_LOCK.lock().unwrap();
+        let _g = git_lock_recover(&GIT_LOCK);
         let remote = self
             .remote_url
             .as_deref()
@@ -185,7 +195,7 @@ impl GitService {
 
     /// `(initialized, last_commit, dirty_count, commit_count)`.
     pub fn status(&self) -> Result<(bool, Option<CommitSummary>, u32, u64)> {
-        let _g = GIT_LOCK.lock().unwrap();
+        let _g = git_lock_recover(&GIT_LOCK);
         let initialized = self.repo_path.join(".git").exists();
         if !initialized {
             return Ok((false, None, 0, 0));
@@ -219,7 +229,7 @@ impl GitService {
 
     /// Return the most recent `limit` log entries from the package repo.
     pub fn log(&self, limit: usize) -> Result<Vec<LogEntry>> {
-        let _g = GIT_LOCK.lock().unwrap();
+        let _g = git_lock_recover(&GIT_LOCK);
         let raw = self.run_git(&["log", "--format=%H%x1f%s%x1f%ct", &format!("-n{}", limit)])?;
         let mut out: Vec<LogEntry> = Vec::new();
         for line in raw.lines() {
@@ -245,7 +255,7 @@ impl GitService {
     /// whether push was attempted. Pre-commit hooks are honored; they
     /// block the commit when they fail.
     pub fn commit_and_maybe_push(&self, input: &CommitInput, push: bool) -> Result<(String, bool)> {
-        let _g = GIT_LOCK.lock().unwrap();
+        let _g = git_lock_recover(&GIT_LOCK);
         // Validate commit paths first: every entry must canonicalize to
         // inside the repository's working tree. Otherwise `..`-bearing
         // paths in the commit body would let a caller stage arbitrary
@@ -290,7 +300,7 @@ impl GitService {
     /// `git push origin HEAD` with the configured SSH key, subject to
     /// `push_timeout_secs`.
     pub fn push(&self) -> Result<()> {
-        let _g = GIT_LOCK.lock().unwrap();
+        let _g = git_lock_recover(&GIT_LOCK);
         self.push_inner()
     }
 
@@ -830,6 +840,21 @@ pub fn hook_commit(
 mod tests {
     use super::*;
 
+    #[test]
+    fn git_lock_recover_returns_guard_after_poison() {
+        use std::sync::Mutex;
+        static M: Mutex<u32> = Mutex::new(7);
+        // Poison the lock from a panicking thread.
+        let _ = std::thread::spawn(|| {
+            let _g = M.lock().unwrap(); // lock-unwrap-allow: test
+            panic!("poison");
+        })
+        .join();
+        // The recovery helper must still hand back the inner state, not panic.
+        let g = git_lock_recover(&M);
+        assert_eq!(*g, 7, "poison recovery preserves inner state");
+    }
+
     fn enabled_cfg() -> GitConfig {
         GitConfig {
             enabled: true,
@@ -1027,7 +1052,7 @@ mod tests {
 
     #[test]
     fn push_drains_large_stderr_without_false_timeout() {
-        let _g = GIT_LOCK.lock().unwrap();
+        let _g = GIT_LOCK.lock().unwrap(); // lock-unwrap-allow: test
         let tmp = tempfile::tempdir().unwrap();
         let bin_dir = tmp.path().join("bin");
         std::fs::create_dir(&bin_dir).unwrap();
