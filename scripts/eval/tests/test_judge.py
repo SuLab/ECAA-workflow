@@ -22,3 +22,12 @@ def test_parse_partial_and_dimension_rollup():
 def test_missing_criterion_scores_zero():
     out = parse_verdict(RUBRIC, "c1: A")  # c2,c3 absent
     assert out["overall"] == 40.0  # only c1: 4 of 10
+
+
+def test_lowercase_levels_scored_identically_to_uppercase():
+    """Judge output with lowercase a/b/c must score the same as uppercase A/B/C."""
+    upper = parse_verdict(RUBRIC, "c1: A\nc2: B\nc3: C")
+    lower = parse_verdict(RUBRIC, "c1: a\nc2: b\nc3: c")
+    assert upper["overall"] == lower["overall"]
+    assert upper["dimensions"] == lower["dimensions"]
+    assert upper["levels"] == lower["levels"]

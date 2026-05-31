@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 _NARRATIVE_NAMES = ("report.md", "interpretation.md", "summary.md", "result.md")
+_RESULT_JSON_KEYS = ("narrative", "interpretation", "summary", "report", "answer", "text")
 
 
 def _topo(tasks: list[dict]) -> list[str]:
@@ -29,12 +30,37 @@ def _topo(tasks: list[dict]) -> list[str]:
 
 
 def _narrative(task_dir: Path) -> str:
+    # (a) result.json — prefer known narrative keys, fall back to full JSON dump
+    rj = task_dir / "result.json"
+    if rj.exists():
+        try:
+            data = json.loads(rj.read_text())
+            if isinstance(data, dict):
+                for key in _RESULT_JSON_KEYS:
+                    val = data.get(key)
+                    if isinstance(val, str) and val.strip():
+                        return val
+                return json.dumps(data, indent=2)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # (b) well-known markdown filenames
     for name in _NARRATIVE_NAMES:
         p = task_dir / name
         if p.exists():
             return p.read_text()
+
+    # (c) any *.md in the dir (sorted)
     mds = sorted(task_dir.glob("*.md"))
-    return mds[0].read_text() if mds else ""
+    if mds:
+        return mds[0].read_text()
+
+    # (d) progress.log
+    pl = task_dir / "progress.log"
+    if pl.exists():
+        return pl.read_text()
+
+    return ""
 
 
 def flatten_outputs(outputs_dir: Path, workflow_json: Path) -> tuple[str, str]:

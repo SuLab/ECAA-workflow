@@ -11,7 +11,7 @@ from pathlib import Path
 
 import requests
 
-_LINE = re.compile(r"^[\s\-*]*([A-Za-z0-9_]+)\s*[:=]\s*([ABC])\b", re.MULTILINE)
+_LINE = re.compile(r"^[\s\-*]*([A-Za-z0-9_]+)\s*[:=]\s*([ABCabc])\b", re.MULTILINE)
 
 
 def parse_verdict(rubric: dict, judge_text: str) -> dict:

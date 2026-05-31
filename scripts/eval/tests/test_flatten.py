@@ -1,7 +1,8 @@
 # scripts/eval/tests/test_flatten.py
 import json
 from pathlib import Path
-from scripts.eval.scoring.flatten import flatten_outputs
+from scripts.eval.scoring.flatten import flatten_outputs, _narrative
+
 
 def _pkg(tmp_path):
     wf = {"tasks": [
@@ -11,14 +12,52 @@ def _pkg(tmp_path):
     ]}
     (tmp_path / "WORKFLOW.json").write_text(json.dumps(wf))
     out = tmp_path / "runtime" / "outputs"
-    for tid, txt in [("load","loaded 4 samples"), ("de","2018 sig genes"),
-                     ("report","Treatment reduces recovery time.")]:
-        d = out / tid; d.mkdir(parents=True)
+    for tid, txt in [("load", "loaded 4 samples"), ("de", "2018 sig genes"),
+                     ("report", "Treatment reduces recovery time.")]:
+        d = out / tid
+        d.mkdir(parents=True)
         (d / "report.md").write_text(f"# {tid}\n{txt}\n")
     return tmp_path
+
 
 def test_flatten_orders_and_picks_terminal(tmp_path):
     pkg = _pkg(tmp_path)
     trace, answer = flatten_outputs(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")
     assert trace.index("load") < trace.index("de") < trace.index("report")
     assert "Treatment reduces recovery time." in answer
+
+
+# --- _narrative unit tests ---
+
+def test_narrative_result_json_narrative_field(tmp_path):
+    """result.json with a `narrative` field is used as narrative text."""
+    d = tmp_path / "task1"
+    d.mkdir()
+    (d / "result.json").write_text(json.dumps({
+        "status": "completed",
+        "narrative": "Identified 2018 differentially expressed genes at FDR<0.05.",
+    }))
+    text = _narrative(d)
+    assert "2018 differentially expressed genes" in text
+
+
+def test_narrative_result_json_no_known_field_falls_back_to_json_dump(tmp_path):
+    """result.json with no recognised narrative key falls back to json.dumps."""
+    d = tmp_path / "task2"
+    d.mkdir()
+    data = {"status": "completed", "metrics": {"n_sig": 42}}
+    (d / "result.json").write_text(json.dumps(data))
+    text = _narrative(d)
+    # The full JSON dump is returned; at minimum the key should appear.
+    assert "n_sig" in text
+    assert "42" in text
+
+
+def test_narrative_progress_log_fallback(tmp_path):
+    """When no result.json or .md files exist, progress.log is returned."""
+    d = tmp_path / "task3"
+    d.mkdir()
+    (d / "progress.log").write_text("Step 1 done\nStep 2 done\n")
+    text = _narrative(d)
+    assert "Step 1 done" in text
+    assert "Step 2 done" in text
