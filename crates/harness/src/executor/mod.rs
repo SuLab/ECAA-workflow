@@ -493,6 +493,11 @@ pub struct IterationCapture {
     pub exit_code: Option<i32>,
     /// Signal name that killed the process (e.g. `"SIGKILL"`), if applicable.
     pub signal: Option<String>,
+    /// True when the harness killed the agent after the hard
+    /// `task_timeout_secs` wall-clock deadline elapsed (SIGTERM then
+    /// SIGKILL), independent of heartbeat/CPU freshness. The harness
+    /// main loop maps this to `BlockerKind::WallClockExceeded`.
+    pub wall_clock_killed: bool,
     /// Elapsed wall-clock time of the iteration in seconds.
     pub wallclock_secs: Option<u64>,
     /// Peak RSS of the agent subprocess in megabytes.
@@ -1033,6 +1038,54 @@ mod safety_tests {
             kind: "local",
         };
         assert!(enforce_safety_policy(&task, &caps).is_none());
+    }
+}
+
+#[cfg(test)]
+mod safety_threading_tests {
+    //! End-to-end proof that an atom's `SafetyPolicy` survives v4
+    //! lowering onto `Task.safety` and is therefore visible to the
+    //! dispatch gate. Without `lower_task` threading `node.safety`,
+    //! the lowered task would carry the default Compute policy and the
+    //! gate would silently pass an atom that demands network egress.
+    use super::*;
+    use ecaa_workflow_core::atom::{NetworkPolicy, SafetyLevel, SafetyPolicy, SandboxRequirement};
+    use ecaa_workflow_core::backend_emitters::workflow_json::{lower_to_workflow_json, EmitContext};
+    use ecaa_workflow_core::workflow_contracts::evidence::AssumptionLedger;
+    use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+    #[test]
+    fn lowered_task_carries_atom_network_safety_into_gate() {
+        let mut node = TaskNode::skeleton("fetch_refs", "Fetch reference genome");
+        node.attributes
+            .insert("role".into(), serde_json::Value::String("operation".into()));
+        node.attributes
+            .insert("assignee".into(), serde_json::Value::String("agent".into()));
+        node.safety = SafetyPolicy {
+            level: SafetyLevel::Network,
+            network: NetworkPolicy::Bridge,
+            ..SafetyPolicy::default()
+        };
+        let dag = WorkflowDag {
+            id: "wf".into(),
+            nodes: vec![node],
+            edges: vec![],
+            assumptions: AssumptionLedger::default(),
+            source_template: None,
+        };
+        let artifact = lower_to_workflow_json(&dag, &EmitContext::defaults()).unwrap();
+        let task = artifact.dag.tasks.get("fetch_refs").unwrap();
+        assert_eq!(task.safety.level, SafetyLevel::Network);
+        let caps = ExecutorCapabilities {
+            sandbox: SandboxRequirement::ProcessIsolation,
+            network: NetworkPolicy::None { allowlist: vec![] },
+            kind: "test",
+        };
+        let blocker = enforce_safety_policy(task, &caps);
+        assert!(
+            matches!(blocker, Some(BlockerKind::NetworkPolicyMismatch { .. })),
+            "gate must see the threaded Network policy, got {blocker:?}"
+        );
     }
 }
 

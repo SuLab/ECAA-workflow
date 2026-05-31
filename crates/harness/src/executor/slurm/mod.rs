@@ -1002,6 +1002,9 @@ impl Executor for SlurmExecutor {
                 stdout: String::new(),
                 exit_code: Some(exit_code),
                 signal,
+                // The wall-clock kill loop is local-only (no PID-bearing
+                // child handle on the remote path); never set here.
+                wall_clock_killed: false,
                 wallclock_secs: None,
                 peak_memory_mb: None,
                 executor_context: ctx,

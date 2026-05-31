@@ -1059,7 +1059,60 @@ impl Executor for LocalExecutor {
                 }
                 buf
             });
-            let status = child.wait().context("waiting on agent")?;
+            // Hard wall-clock deadline, independent of heartbeat/CPU
+            // freshness. A CPU-bound agent that keeps touching
+            // `.heartbeat` (vetoing the stall monitor's CpuStarvation
+            // branch) would otherwise pin this worker thread — and the
+            // billed instance — forever on `child.wait()`. Mirror the
+            // proven try_wait+deadline+kill loop in
+            // `server::git_routes::service::run_git_with_timeout`:
+            // SIGTERM, 10s grace (matching the amendment-cancel path),
+            // then SIGKILL, then reap.
+            let deadline =
+                std::time::Instant::now() + std::time::Duration::from_secs(self.task_timeout_secs);
+            let mut wall_clock_killed = false;
+            let status = loop {
+                match child.try_wait().context("waiting on agent")? {
+                    Some(s) => break s,
+                    None => {
+                        if std::time::Instant::now() >= deadline {
+                            wall_clock_killed = true;
+                            // SIGTERM first; give the agent a 10s grace
+                            // to flush partial output + run its own
+                            // cleanup before the unconditional SIGKILL.
+                            // SAFETY: `libc::kill` with a valid PID and
+                            // signal is a thin FFI wrapper with no memory
+                            // safety contract; `pid` is the live child's
+                            // PID captured above and not yet reaped.
+                            unsafe {
+                                libc::kill(pid as i32, libc::SIGTERM);
+                            }
+                            let grace =
+                                std::time::Instant::now() + std::time::Duration::from_secs(10);
+                            loop {
+                                match child.try_wait().ok().flatten() {
+                                    Some(_s) => break,
+                                    None if std::time::Instant::now() >= grace => {
+                                        // SAFETY: see the SIGTERM call
+                                        // above; same live-PID invariant.
+                                        unsafe {
+                                            libc::kill(pid as i32, libc::SIGKILL);
+                                        }
+                                        break;
+                                    }
+                                    None => {
+                                        std::thread::sleep(std::time::Duration::from_millis(100))
+                                    }
+                                }
+                            }
+                            // Reap so the drain threads' pipe FDs close
+                            // and `child` doesn't leave a zombie.
+                            break child.wait().context("reaping killed agent")?;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                }
+            };
             let stdout_str = stdout_thread.join().unwrap_or_default();
             let stderr_str = stderr_thread.join().unwrap_or_default();
             if let Some(h) = monitor_handle {
@@ -1080,6 +1133,7 @@ impl Executor for LocalExecutor {
                 stdout: stdout_str,
                 exit_code: status.code(),
                 signal,
+                wall_clock_killed,
                 wallclock_secs: Some(started.elapsed().as_secs()),
                 peak_memory_mb: read_vmhwm_kb(pid).map(|kb| kb / 1024),
                 executor_context: local_context(),
@@ -1110,6 +1164,12 @@ impl Executor for LocalExecutor {
                 stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
                 exit_code: output.status.code(),
                 signal,
+                // The duct path has no PID handle and cannot be
+                // signal-killed by the harness. It is only taken when
+                // neither the stall monitor nor the sandbox is active,
+                // where the agent script's own `ECAA_AGENT_WALLCLOCK_SECS`
+                // SIGTERM timer is the wall-clock backstop.
+                wall_clock_killed: false,
                 wallclock_secs: Some(started.elapsed().as_secs()),
                 peak_memory_mb: None,
                 executor_context: local_context(),
@@ -2800,6 +2860,89 @@ mod tests {
             text.contains("ECAA_TEST_INHERIT_PROBE=inherited-value"),
             "bypass flag must restore legacy inherit-all: {}",
             text
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn run_iteration_kills_agent_past_wall_clock_deadline() {
+        // A spinning-but-heartbeating agent must be SIGKILLed once the
+        // hard task_timeout deadline passes, regardless of heartbeat
+        // freshness. Drop a fake agent that ignores SIGTERM and spins
+        // forever; with task_timeout_secs=1 the iteration must return in
+        // a few seconds with a wall-clock-killed capture, not hang.
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path().to_path_buf();
+        let task_dir = pkg.join("runtime/outputs/spin_task");
+        std::fs::create_dir_all(&task_dir).unwrap();
+        // Fresh heartbeat so the (vetoed) CPU branch can never be the
+        // thing that stops it — proving the wall-clock path is independent.
+        std::fs::write(task_dir.join(".heartbeat"), "fresh\n").unwrap();
+
+        let agent = tmp.path().join("spin-agent.sh");
+        std::fs::write(&agent, "#!/bin/sh\ntrap '' TERM\nwhile :; do :; done\n").unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut p = std::fs::metadata(&agent).unwrap().permissions();
+            p.set_mode(0o755);
+            std::fs::set_permissions(&agent, p).unwrap();
+        }
+
+        // Arm the stall monitor so `run_iteration` takes the PID-bearing
+        // std::process path (where the deadline loop lives) rather than
+        // the duct path. The thresholds are intentionally unreachable so
+        // the monitor never itself fires a CpuStarvation/MemoryPressure
+        // signal — the wall-clock deadline is the only thing that can
+        // stop the spinning agent here.
+        let (stall_tx, _stall_rx) = mpsc::channel::<StallSignal>();
+        let thresholds = StallThresholds {
+            enabled: true,
+            cpu_min_pct: 0.0,    // unreachable — never starves
+            cpu_window_mins: 60, // long window so it can't fire in time
+            mem_max_pct: 100.0,  // mem never trips
+            mem_window_mins: 60,
+            gpu_idle_when_training_mins: 9999,
+            runtime_over_expected_mult: 9999.0,
+            sample_interval_secs: 1,
+        };
+
+        let mut e = LocalExecutor {
+            task_timeout_secs: 1,
+            package: pkg.to_string_lossy().to_string(),
+            agent: agent.to_string_lossy().to_string(),
+            stall_tx: Some(stall_tx),
+            stall_thresholds: Some(thresholds),
+            stall_shutdown: Arc::new(Mutex::new(false)),
+            pending_envelope_additions: BTreeMap::new(),
+            session_env_additions: BTreeMap::new(),
+            per_task_image_overrides: BTreeMap::new(),
+            last_capture: None,
+        };
+        let mut envelope = BTreeMap::new();
+        envelope.insert(
+            crate::executor::hardware_envelope::TASK_ID_ENV.to_string(),
+            "spin_task".to_string(),
+        );
+
+        let start = std::time::Instant::now();
+        let outcome = e
+            .run_iteration(&pkg, &agent.to_string_lossy(), &envelope)
+            .expect("run_iteration returns even when the agent is killed");
+        let elapsed = start.elapsed();
+
+        assert!(
+            elapsed < std::time::Duration::from_secs(20),
+            "wall-clock kill must return promptly (1s deadline + 10s grace); waited {:?}",
+            elapsed
+        );
+        assert!(
+            !outcome.agent_status.success(),
+            "a killed agent must not report success"
+        );
+        let cap = e.take_last_capture().expect("capture recorded");
+        assert!(
+            cap.wall_clock_killed,
+            "capture must flag the wall-clock kill so harness main maps WallClockExceeded"
         );
     }
 }

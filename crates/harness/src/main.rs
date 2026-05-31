@@ -150,6 +150,23 @@ fn read_existing_envelope_error_class(package: &Path, task_id: &str) -> Option<S
     Some(env.error_class)
 }
 
+/// Maps a non-success iteration capture onto the `(observed_secs,
+/// threshold_secs)` pair for a `task_wall_clock_exceeded` progress
+/// event when — and only when — the executor SIGKILLed the agent after
+/// the hard `task_timeout_secs` deadline elapsed. The server promotes
+/// the resulting event to `Blocked { BlockerKind::WallClockExceeded }`.
+/// Returns `None` for ordinary (non-wall-clock) agent failures so the
+/// caller falls through to the normal tool-error-envelope path.
+fn wall_clock_blocker_params(
+    capture: &ecaa_workflow_harness::executor::IterationCapture,
+    task_timeout: u64,
+) -> Option<(u64, u64)> {
+    if !capture.wall_clock_killed {
+        return None;
+    }
+    Some((capture.wallclock_secs.unwrap_or(0), task_timeout))
+}
+
 /// Set the outcome on the most recent applied remediation in
 /// `runtime/inputs/<task>/overrides.json`. Best-effort — no-ops when
 /// the file is absent or the audit history is empty.
@@ -2760,6 +2777,27 @@ fn run_loop(
                         // overwrites.
                         let prior_class = read_existing_envelope_error_class(path, &tid);
                         if let Some(cap) = capture {
+                            // The executor SIGKILLed the agent after the
+                            // hard `task_timeout_secs` deadline elapsed
+                            // (independent of heartbeat freshness). Reuse
+                            // the watchdog's `task_wall_clock_exceeded`
+                            // progress event so the server transitions the
+                            // task to `Blocked { WallClockExceeded }` —
+                            // no new server route is needed.
+                            if let Some((observed, threshold)) =
+                                wall_clock_blocker_params(&cap, args.task_timeout)
+                            {
+                                println!(
+                                    "  {} Agent killed after wall-clock deadline on {}: {}s > {}s",
+                                    "⚠".yellow(),
+                                    tid.red(),
+                                    observed,
+                                    threshold,
+                                );
+                                if let Some(ref pc) = progress {
+                                    pc.wall_clock_exceeded(&tid, observed, threshold);
+                                }
+                            }
                             if let Err(e) = write_tool_error_envelope(path, &tid, &cap) {
                                 tracing::warn!(
                                     target: "envelope",
@@ -6029,6 +6067,63 @@ mod watchdog_event_relevance_tests {
             watchdog_wall_clock_event_is_current(tmp.path(), "normalisation"),
             "running task wall-clock alerts should still be forwarded"
         );
+    }
+}
+
+#[cfg(test)]
+mod wall_clock_blocker_mapping_tests {
+    use super::*;
+    use ecaa_workflow_harness::executor::IterationCapture;
+
+    #[test]
+    fn wall_clock_killed_maps_to_blocker() {
+        // A capture flagged wall_clock_killed must yield the
+        // (observed_secs, threshold_secs) pair the harness feeds into
+        // `pc.wall_clock_exceeded`, which the server promotes to
+        // `Blocked { BlockerKind::WallClockExceeded }`. observed_secs is
+        // the capture's measured wallclock; threshold_secs is the
+        // configured task timeout.
+        let cap = IterationCapture {
+            wall_clock_killed: true,
+            wallclock_secs: Some(312),
+            exit_code: None,
+            signal: Some("SIGKILL".into()),
+            ..Default::default()
+        };
+        let task_timeout = 300u64;
+        let params =
+            wall_clock_blocker_params(&cap, task_timeout).expect("wall-clock kill must map");
+        assert_eq!(
+            params,
+            (312, 300),
+            "observed_secs == capture.wallclock_secs and threshold_secs == args.task_timeout"
+        );
+    }
+
+    #[test]
+    fn wall_clock_killed_defaults_observed_to_zero_when_unmeasured() {
+        // Defensive: a kill with no recorded wallclock still maps,
+        // reporting observed == 0 rather than dropping the blocker.
+        let cap = IterationCapture {
+            wall_clock_killed: true,
+            wallclock_secs: None,
+            ..Default::default()
+        };
+        assert_eq!(wall_clock_blocker_params(&cap, 120), Some((0, 120)));
+    }
+
+    #[test]
+    fn ordinary_failure_does_not_map_to_wall_clock_blocker() {
+        // A plain non-zero exit (not a wall-clock kill) must return None
+        // so the caller falls through to the normal tool-error-envelope
+        // path instead of synthesising a WallClockExceeded blocker.
+        let cap = IterationCapture {
+            wall_clock_killed: false,
+            wallclock_secs: Some(42),
+            exit_code: Some(1),
+            ..Default::default()
+        };
+        assert_eq!(wall_clock_blocker_params(&cap, 300), None);
     }
 }
 
