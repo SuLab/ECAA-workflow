@@ -314,7 +314,8 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if !captured.lock().unwrap().is_empty() { // lock-unwrap-allow: test
+            let has_events = !captured.lock().unwrap().is_empty(); // lock-unwrap-allow: test
+            if has_events {
                 break;
             }
             thread::sleep(Duration::from_millis(20));
@@ -384,7 +385,8 @@ mod tests {
 
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if captured.lock().unwrap().len() >= 2 { // lock-unwrap-allow: test
+            let have_two = captured.lock().unwrap().len() >= 2; // lock-unwrap-allow: test
+            if have_two {
                 break;
             }
             thread::sleep(Duration::from_millis(20));

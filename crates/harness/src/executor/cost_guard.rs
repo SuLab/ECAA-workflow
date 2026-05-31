@@ -658,7 +658,8 @@ mod tests {
         let _server = std::thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(10);
             while Instant::now() < deadline {
-                if *shutdown_clone.lock().unwrap() { // lock-unwrap-allow: test
+                let stop = *shutdown_clone.lock().unwrap(); // lock-unwrap-allow: test
+                if stop {
                     return;
                 }
                 match listener.accept() {
@@ -712,7 +713,8 @@ mod tests {
         // Wait for the sender thread to drain the event.
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if !captured.lock().unwrap().is_empty() { // lock-unwrap-allow: test
+            let has_events = !captured.lock().unwrap().is_empty(); // lock-unwrap-allow: test
+            if has_events {
                 break;
             }
             std::thread::sleep(Duration::from_millis(20));
