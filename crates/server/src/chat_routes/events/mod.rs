@@ -491,9 +491,17 @@ mod tests {
 
         let mut clean = false;
         for _ in 0..40 {
-            if git(pkg.path(), &["status", "--porcelain"])
-                .trim()
-                .is_empty()
+            // `--no-optional-locks`: a read-only poll must not take the
+            // index lock, or it races the fire-and-forget commit hook
+            // it is waiting on (`git status` refreshing the index vs the
+            // hook's `git commit`) → "index.lock: File exists" → the
+            // commit is dropped and the artifact never reaches HEAD.
+            if git(
+                pkg.path(),
+                &["--no-optional-locks", "status", "--porcelain"],
+            )
+            .trim()
+            .is_empty()
             {
                 clean = true;
                 break;

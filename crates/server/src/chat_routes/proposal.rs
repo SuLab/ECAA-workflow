@@ -400,7 +400,7 @@ pub(super) async fn signoff_proposal(
             // path isn't tied to git I/O; a hook failure logs but
             // never rolls back the signoff.
             if let Some(pkg) = package_path {
-                let cfg = app.git_config().read().clone();
+                let cfg = app.commit_git_config();
                 let sid_str = session_id.to_string();
                 let subject = title.unwrap_or_else(|| {
                     format!("proposal {} promoted to {}", pid.as_str(), task_node_id)

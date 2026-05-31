@@ -107,7 +107,7 @@ pub(crate) async fn post_add_runtime_package(
             // emit which will fire its own commit hook.
             if let Some(session) = app.conversation.get_session(session_id).await {
                 if let Some(pkg) = session.emitted_package_path.clone() {
-                    let cfg = app.git_config().read().clone();
+                    let cfg = app.commit_git_config();
                     let sid = session_id.to_string();
                     let atom = atom_id.clone();
                     let package = req.package.clone();

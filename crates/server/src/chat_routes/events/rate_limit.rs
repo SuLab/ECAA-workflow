@@ -139,7 +139,7 @@ fn fire_task_completed_git_hook(
     task_id: &str,
     pkg: std::path::PathBuf,
 ) {
-    let cfg = app.git_config().read().clone();
+    let cfg = app.commit_git_config();
     let sid_str = session_id.to_string();
     let task_id = task_id.to_string();
     let app_for_drop = app.clone();

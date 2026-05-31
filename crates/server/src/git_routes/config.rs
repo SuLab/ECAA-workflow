@@ -23,8 +23,11 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct GitConfig {
     /// Top-level kill switch. When false, no git subprocess runs
-    /// regardless of the per-trigger checkboxes below. `ECAA_GIT_
-    /// ENABLED=0` as an env var forces this to false at read time.
+    /// regardless of the per-trigger checkboxes below. The
+    /// `ECAA_GIT_ENABLED=0` env override is captured once at boot into
+    /// `Config::git_enabled` and folded in by
+    /// `ChatAppState::commit_git_config` at the commit boundary — it is
+    /// no longer read per-call here (that raced the test binary).
     #[serde(default)]
     pub enabled: bool,
     /// `origin` remote URL (SSH or HTTPS). Absent = local-only repo
@@ -229,12 +232,16 @@ impl GitConfig {
         Ok(())
     }
 
-    /// Evaluated enabled flag taking `ECAA_GIT_ENABLED=0` into account.
-    /// Handlers consult this when deciding whether to run the commit.
+    /// Whether git provenance is enabled per the FILE config. The
+    /// `ECAA_GIT_ENABLED=0` env kill-switch is no longer read here — a
+    /// per-call `std::env::var` raced the multi-threaded test binary
+    /// (a sibling test's `set_var` could flip the commit decision
+    /// mid-flight). The kill-switch is captured once at boot into
+    /// `Config::git_enabled` and folded into `enabled` by
+    /// `ChatAppState::commit_git_config`, which every commit / push path
+    /// uses to build its `GitConfig`. By the time this is consulted on a
+    /// commit path, `self.enabled` already reflects the kill-switch.
     pub fn effective_enabled(&self) -> bool {
-        if std::env::var("ECAA_GIT_ENABLED").ok().as_deref() == Some("0") {
-            return false;
-        }
         self.enabled
     }
 }
@@ -333,16 +340,29 @@ mod tests {
     }
 
     #[test]
-    fn effective_enabled_respects_kill_switch() {
-        let _guard = ENV_LOCK.lock();
-        let c = GitConfig {
-            enabled: true,
-            ..Default::default()
-        };
-        std::env::set_var("ECAA_GIT_ENABLED", "0");
-        assert!(!c.effective_enabled());
-        std::env::remove_var("ECAA_GIT_ENABLED");
-        assert!(c.effective_enabled());
+    fn effective_enabled_mirrors_file_flag() {
+        // effective_enabled now reflects ONLY the file-config `enabled`
+        // flag — no process-env read, so this test no longer races
+        // sibling tests. The ECAA_GIT_ENABLED kill-switch is captured at
+        // boot into Config::git_enabled (mapping covered race-free in
+        // crates/core/tests/policy/config_parse.rs) and folded in by
+        // ChatAppState::commit_git_config at the commit boundary.
+        assert!(
+            GitConfig {
+                enabled: true,
+                ..Default::default()
+            }
+            .effective_enabled(),
+            "file-enabled config must be effective_enabled"
+        );
+        assert!(
+            !GitConfig {
+                enabled: false,
+                ..Default::default()
+            }
+            .effective_enabled(),
+            "file-disabled config must not be effective_enabled"
+        );
     }
 
     #[test]

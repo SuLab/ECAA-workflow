@@ -117,7 +117,7 @@ pub async fn post_amend_method(
             // Hook commits into the right per-package.git directory.
             if let Some(session) = app.conversation.get_session(session_id).await {
                 if let Some(pkg) = session.emitted_package_path.clone() {
-                    let cfg = app.git_config().read().clone();
+                    let cfg = app.commit_git_config();
                     let sid = session_id.to_string();
                     let stage = task_id.clone();
                     app.git_hook_pool.spawn("amend", move || {

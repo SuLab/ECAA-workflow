@@ -186,7 +186,7 @@ async fn branch_session_inner(
                     if parent_pkg.is_none() && child_pkg.is_none() {
                         return Ok(());
                     }
-                    let cfg = app_for_git.git_config().read().clone();
+                    let cfg = app_for_git.commit_git_config();
                     let parent = parent_id.to_string();
                     let child = child_id_for_git.to_string();
                     let parent_short = parent[..8.min(parent.len())].to_string();

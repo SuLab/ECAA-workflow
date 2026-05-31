@@ -397,6 +397,22 @@ impl ChatAppState {
     pub fn git_config(&self) -> &crate::git_routes::GitConfigHandle {
         &self.git_config
     }
+
+    /// The committing view of the git config: the live file config with
+    /// the boot-time `ECAA_GIT_ENABLED` kill-switch (`Config::git_enabled`,
+    /// read once at startup) folded into `enabled`. Every commit / push
+    /// path builds its `GitConfig` through this so the kill-switch is
+    /// honored WITHOUT a per-call `std::env::var` read — that per-call
+    /// read raced across the multi-threaded test binary (a sibling test's
+    /// `set_var("ECAA_GIT_ENABLED", …)` could flip the commit decision
+    /// mid-flight). Config-display / status / init / remote handlers keep
+    /// reading `git_config()` directly so they report the actual file
+    /// config rather than the kill-switched view.
+    pub fn commit_git_config(&self) -> crate::git_routes::GitConfig {
+        let mut cfg = self.git_config().read().clone();
+        cfg.enabled = cfg.enabled && self.config.git_enabled;
+        cfg
+    }
 }
 
 /// Per-session scorer result cache. Key: session id → `(transcript_len, cached_at, score)`.

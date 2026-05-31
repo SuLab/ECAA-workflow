@@ -824,8 +824,18 @@ async fn spawn_harness_for_session_reserved(
     agent_path: Option<String>,
     max_iterations: Option<u32>,
 ) -> Result<ExecutionHandle, SpawnHarnessError> {
-    let harness_bin = std::env::var("ECAA_HARNESS_BIN_PATH")
-        .unwrap_or_else(|_| "ecaa-workflow-harness".to_string());
+    // Resolved once at boot into the typed `Config` (which reads
+    // `ECAA_HARNESS_BIN_PATH`); read from `app.config` rather than the
+    // process env so a concurrent test mutating the env table cannot
+    // race the spawn. The env table is process-global and shared across
+    // the multi-threaded test binary; reading it here let sibling tests'
+    // `set_var`/`remove_var` flip the harness binary mid-spawn.
+    let harness_bin = app
+        .config
+        .harness_bin_path
+        .as_ref()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "ecaa-workflow-harness".to_string());
     // C-3: the agent path is hard-allowlisted to known
     // scripts under `ECAA_SCRIPTS_DIR`. The LLM tool no longer accepts
     // an override; the REST surface still does for CLI/test flexibility
@@ -1046,7 +1056,7 @@ fn fire_execution_git_hook(
     pkg_dir: &std::path::Path,
     code: i32,
 ) {
-    let cfg = app.git_config().read().clone();
+    let cfg = app.commit_git_config();
     let pkg = pkg_dir.to_path_buf();
     let sid = session_id.to_string();
     let app_for_drop = app.clone();
@@ -1157,7 +1167,8 @@ mod tests {
         AUTO_RELAUNCH_SENTINEL_DEBOUNCE_SECS,
     };
     use crate::chat_routes::test_support::{
-        assistant, body_json, make_router, seed_session_with_completed_task, tool_use,
+        assistant, body_json, make_router, make_router_with_harness_bin,
+        seed_session_with_completed_task, tool_use,
     };
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
@@ -1568,11 +1579,9 @@ mod tests {
             return;
         }
         let pkg = tempfile::tempdir().unwrap();
-        let (router, app) = make_router(vec![]).await;
+        let (router, app) = make_router_with_harness_bin(vec![], "/usr/bin/true").await;
         let id =
             seed_session_with_completed_task(&app, "t_demo", Some(pkg.path().to_path_buf())).await;
-
-        std::env::set_var("ECAA_HARNESS_BIN_PATH", "/usr/bin/true");
 
         let req = Request::builder()
             .method("POST")
@@ -1607,8 +1616,6 @@ mod tests {
             .unwrap();
         let resp = router.oneshot(req).await.unwrap();
         assert_ne!(resp.status(), StatusCode::CONFLICT);
-
-        std::env::remove_var("ECAA_HARNESS_BIN_PATH");
         drop(pkg);
     }
 
@@ -1652,6 +1659,11 @@ mod tests {
         )
         .unwrap();
         let (_router, mut app) = make_router(vec![]).await;
+        {
+            let mut cfg = (*app.config).clone();
+            cfg.harness_bin_path = Some(PathBuf::from("/usr/bin/true"));
+            app.config = Arc::new(cfg);
+        }
         app.git_config = Arc::new(crate::git_routes::GitConfigStore::open_or_default(cfg_path));
         let router = crate::chat_routes::router(app.clone()).layer(axum::Extension(
             crate::auth::RequestPrincipal::test_default(),
@@ -1666,7 +1678,6 @@ mod tests {
 
         let id =
             seed_session_with_completed_task(&app, "t_demo", Some(pkg.path().to_path_buf())).await;
-        std::env::set_var("ECAA_HARNESS_BIN_PATH", "/usr/bin/true");
 
         let req = Request::builder()
             .method("POST")
@@ -1679,9 +1690,16 @@ mod tests {
 
         let mut clean = false;
         for _ in 0..60 {
-            if git(pkg.path(), &["status", "--porcelain"])
-                .trim()
-                .is_empty()
+            // `--no-optional-locks`: a read-only poll must not take the
+            // index lock, or it races the fire-and-forget commit hook it
+            // is waiting on → "index.lock: File exists" → the commit is
+            // dropped and the sidecar never reaches HEAD.
+            if git(
+                pkg.path(),
+                &["--no-optional-locks", "status", "--porcelain"],
+            )
+            .trim()
+            .is_empty()
                 && pkg.path().join("runtime/.execution_status.json").exists()
             {
                 clean = true;
@@ -1702,8 +1720,6 @@ mod tests {
             "execution status sidecar was not committed in HEAD:\n{}",
             head_files
         );
-
-        std::env::remove_var("ECAA_HARNESS_BIN_PATH");
         drop(pkg);
     }
 
@@ -1750,7 +1766,7 @@ mod tests {
         )
         .unwrap();
 
-        let (router, app) = make_router(vec![]).await;
+        let (router, app) = make_router_with_harness_bin(vec![], "/usr/bin/true").await;
         let (id, _) = app.conversation.start_session(false).await.unwrap();
 
         // Move session to Blocked + attach the emitted package path.
@@ -1772,8 +1788,6 @@ mod tests {
             })
             .await
             .unwrap();
-
-        std::env::set_var("ECAA_HARNESS_BIN_PATH", "/usr/bin/true");
 
         let req = Request::builder()
             .method("POST")
@@ -1797,8 +1811,6 @@ mod tests {
             .get(&id)
             .expect("maybe_auto_relaunch_harness must have spawned a harness");
         assert!(entry.value().pid > 0, "spawned process must have a pid");
-
-        std::env::remove_var("ECAA_HARNESS_BIN_PATH");
         drop(pkg);
     }
 }

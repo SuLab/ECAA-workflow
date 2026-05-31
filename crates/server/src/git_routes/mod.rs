@@ -430,7 +430,7 @@ pub async fn post_session_commit(
     AxumPath(session_id): AxumPath<Uuid>,
     Json(req): Json<CommitRequest>,
 ) -> impl IntoResponse {
-    let cfg = app.git_config().read().clone();
+    let cfg = app.commit_git_config();
     if !cfg.effective_enabled() {
         return (
             StatusCode::CONFLICT,
@@ -476,7 +476,7 @@ pub async fn post_session_push(
     State(app): State<ChatAppState>,
     AxumPath(session_id): AxumPath<Uuid>,
 ) -> impl IntoResponse {
-    let cfg = app.git_config().read().clone();
+    let cfg = app.commit_git_config();
     if !cfg.effective_enabled() {
         return (
             StatusCode::CONFLICT,

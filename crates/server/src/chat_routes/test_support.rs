@@ -90,6 +90,31 @@ pub async fn make_router_with_auto_title_enabled(
     (router, app)
 }
 
+/// Like [`make_router`] but injects `harness_bin` into `app.config`'s
+/// `harness_bin_path`, so execution tests can pin the spawned harness to
+/// a stub binary (e.g. `/usr/bin/true`) WITHOUT mutating the
+/// process-global `ECAA_HARNESS_BIN_PATH` env var. The env table is
+/// shared across the multi-threaded test binary; mutating it raced the
+/// harness-binary resolution in `spawn_harness_for_session_reserved`.
+/// Mirrors `make_router_with_auto_title_enabled`'s `auto_title_override`.
+pub async fn make_router_with_harness_bin(
+    scripted: Vec<TurnResponse>,
+    harness_bin: &str,
+) -> (Router, ChatAppState) {
+    let dir = tempfile::tempdir().unwrap();
+    let store = SessionStore::open(dir.path()).await.unwrap();
+    std::mem::forget(dir);
+    let backend: Arc<dyn LlmBackend> = Arc::new(MockLlmBackend::new(scripted));
+    let mut app = ChatAppState::with_backend(backend, store, config_dir());
+    let mut cfg = (*app.config).clone();
+    cfg.harness_bin_path = Some(std::path::PathBuf::from(harness_bin));
+    app.config = Arc::new(cfg);
+    let router = super::router(app.clone()).layer(axum::Extension(
+        crate::auth::RequestPrincipal::test_default(),
+    ));
+    (router, app)
+}
+
 pub async fn body_json(body: Body) -> serde_json::Value {
     let bytes = to_bytes(body, 1_000_000).await.unwrap();
     serde_json::from_slice(&bytes).unwrap()

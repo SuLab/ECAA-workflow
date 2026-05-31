@@ -81,7 +81,7 @@ pub async fn send_turn(
                 );
                 if was_pre_emission && now_emitted {
                     if let Some(pkg) = s.emitted_package_path.clone() {
-                        let cfg = app.git_config().read().clone();
+                        let cfg = app.commit_git_config();
                         let sid_str = session_id.to_string();
                         let subject = s.title.clone().unwrap_or_else(|| {
                             format!("session {}", &sid_str[..8.min(sid_str.len())])
@@ -331,7 +331,7 @@ async fn fire_auto_emit_postlogic(
         }
     }
     if let Some(pkg) = s.emitted_package_path.clone() {
-        let cfg = app.git_config().read().clone();
+        let cfg = app.commit_git_config();
         let sid_str = session_id.to_string();
         let subject = s
             .title
