@@ -36,6 +36,10 @@ pub(super) fn get_session_state(session: &Session) -> ToolResult {
             .collect();
         serde_json::json!({
             "task_count": d.tasks.len(),
+            // Full node-id list so the LLM can satisfy the prompt-role
+            // dedup rule "do not re-propose a capability already a node in
+            // the DAG" — counts alone left it blind to which nodes exist.
+            "task_ids": d.tasks.keys().map(|id| id.as_str()).collect::<Vec<_>>(),
             "completed": completed,
             "ready": ready,
             "blocked": blocked,
@@ -43,6 +47,33 @@ pub(super) fn get_session_state(session: &Session) -> ToolResult {
             "unresolved_discovery_tasks": unresolved_discovery,
         })
     });
+
+    // Hypothesized-node proposals on this session, in deterministic
+    // chronological order. Surfaced so the LLM can satisfy the
+    // prompt-role rule "do not re-propose a capability for which a
+    // proposal already exists under ANY lifecycle". Before this, an
+    // SME button-click promotion (a server-side action the LLM observes
+    // ONLY through get_session_state) was invisible here, so the model
+    // re-proposed already-handled capabilities under fresh slugs. Each
+    // entry carries the node_id, lifecycle kind, and intent so the model
+    // can match on the capability, not just the name.
+    let mut proposals_summary: Vec<&ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal> =
+        session.proposals.values().collect();
+    proposals_summary.sort_by(|a, b| {
+        a.created_at
+            .cmp(&b.created_at)
+            .then_with(|| a.id.0.cmp(&b.id.0))
+    });
+    let proposals_summary: Vec<serde_json::Value> = proposals_summary
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "node_id": p.node_id,
+                "lifecycle": p.lifecycle.kind_str(),
+                "intent": p.intent,
+            })
+        })
+        .collect();
 
     // SME-supplied data inputs registered via the Inputs inspector
     // tab. The LLM sees a compact summary (no per-file manifest, no
@@ -103,6 +134,7 @@ pub(super) fn get_session_state(session: &Session) -> ToolResult {
         // Closed enum, snake_case on the wire.
         "project_class": session.project_class,
         "dag": dag_summary,
+        "proposals": proposals_summary,
         "intake_prose_len": session.intake_prose.len(),
         "inputs": inputs_summary,
         "pending_input_hints": pending_input_hints,
@@ -365,5 +397,45 @@ mod tests {
         let obj = out.as_object().unwrap();
         assert_eq!(obj.len(), 1);
         assert!(obj.contains_key("full_result_available_via"));
+    }
+
+    /// Layer-1 RCA fix: `get_session_state` must surface the proposals
+    /// registry (node_id + lifecycle + intent) so the LLM can see an
+    /// SME-approved promotion — a server-side action it observes ONLY
+    /// through this tool — and not re-propose the same capability.
+    #[test]
+    fn get_session_state_exposes_proposals_for_dedup() {
+        use crate::session::Session;
+        use ecaa_workflow_core::hypothesized_proposal::{
+            HypothesizedProposal, ProposalLifecycle,
+        };
+
+        let mut s = Session::new(false);
+        let mut p = HypothesizedProposal::new(
+            "hic_cell_line_comparison",
+            "Compare TAD boundaries and A/B compartment assignments between two cell lines",
+            vec!["operation:3223".into()],
+            "rationale",
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        );
+        p.lifecycle = ProposalLifecycle::Promoted {
+            task_node_id: "hic_cell_line_comparison".into(),
+        };
+        s.proposals.insert(p.id.clone(), p);
+
+        let out = get_session_state(&s);
+        let proposals = out.content["proposals"]
+            .as_array()
+            .expect("get_session_state must expose a proposals array");
+        assert_eq!(proposals.len(), 1, "promoted proposal must be visible to the LLM");
+        assert_eq!(proposals[0]["node_id"], "hic_cell_line_comparison");
+        assert_eq!(proposals[0]["lifecycle"], "promoted");
+        assert!(proposals[0]["intent"]
+            .as_str()
+            .unwrap()
+            .contains("Compare TAD boundaries"));
     }
 }

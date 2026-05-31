@@ -114,19 +114,32 @@ pub(super) fn propose_hypothesized_node(
     let proposed_tokens: std::collections::BTreeSet<&str> =
         proposed_id.split('_').filter(|t| !t.is_empty()).collect();
     if let Some((existing_id, existing_proposal)) = session.proposals.iter().find(|(_, p)| {
+        // (1) Exact-name re-proposal.
         if p.node_id == proposed_id {
             return true;
         }
+        // (2) Token-permutation re-proposal (`logcpm_pca_plot` ↔
+        // `pca_logcpm_plot`): same `_`-split token SET AND identical
+        // parent terms. Require ≥3 tokens to avoid collapsing short
+        // generic names (`qc_report` ↔ `report_qc` both have 2 tokens
+        // but are not necessarily the same atom).
         let existing_tokens: std::collections::BTreeSet<&str> =
             p.node_id.split('_').filter(|t| !t.is_empty()).collect();
-        // Require ≥3 tokens to avoid collapsing short generic names
-        // (`qc_report` and `report_qc` both have 2 tokens but are not
-        // necessarily the same atom). Real-world hypothesized atom
-        // names regularly have 3+ tokens; the duplicate pattern we
-        // observed (`logcpm_pca_plot` ↔ `pca_logcpm_plot`) is at 3+.
-        existing_tokens.len() >= 3
+        if existing_tokens.len() >= 3
             && existing_tokens == proposed_tokens
             && p.parent_terms.as_slice() == parent_terms
+        {
+            return true;
+        }
+        // (3) Capability-level re-proposal: the same intent under a fresh
+        // slug AND fresh parent terms — the bespoke-synthesis duplicate
+        // (`hic_cell_line_comparison` ↔ `hic_cross_cellline_comparison`,
+        // intents differing by one word) that signals (1) and (2) both
+        // miss because every name/ontology key differs. Keyed on the
+        // intent text, independent of the LLM-chosen name and parents.
+        ecaa_workflow_core::hypothesized_proposal::intents_describe_same_capability(
+            &p.intent, intent,
+        )
     }) {
         return ToolResult::ok(serde_json::json!({
             "outcome": "proposal_accepted",
@@ -407,6 +420,112 @@ mod tests {
             }
             other => panic!("expected json object response, got {other:?}"),
         }
+    }
+
+    /// RCA regression: the same capability re-proposed under a fresh slug
+    /// AND fresh parent terms — with intents differing by one word —
+    /// must be deduped to the original, not added as a second proposal.
+    /// Reproduces the two-cell-line Hi-C duplicate that the exact-name and
+    /// token-permutation guards both miss (every name/ontology key
+    /// differs). Without the intent-level dedup this leaves a pending
+    /// proposal that blocks `propose_summary_confirmation`.
+    #[test]
+    fn same_capability_different_slug_and_parents_is_deduped() {
+        let mut s = fresh_session();
+        let ctx = tool_ctx();
+        let first = propose_hypothesized_node(
+            &mut s,
+            "hic_cell_line_comparison",
+            "Compare TAD boundaries and A/B compartment assignments between \
+             two human cell lines, matched resolution-by-resolution.",
+            &["data:0863".into(), "operation:3223".into()],
+            "SME requested a cross-cell-line comparison of TAD/compartment calls",
+            &[],
+            &[],
+            &[],
+            &[],
+            &ctx,
+        );
+        assert!(!first.is_error);
+        let first_id = s.proposals.values().next().unwrap().id.clone();
+        assert_eq!(s.proposals.len(), 1);
+
+        // Re-proposal: different slug, different parent terms, intent
+        // differs only by the word "human".
+        let dup = propose_hypothesized_node(
+            &mut s,
+            "hic_cross_cellline_comparison",
+            "Compare TAD boundaries and A/B compartment assignments between \
+             two cell lines, matched resolution-by-resolution.",
+            &["operation:3222".into(), "data:0951".into()],
+            "SME requested a cross-cell-line comparison",
+            &[],
+            &[],
+            &[],
+            &[],
+            &ctx,
+        );
+        assert!(!dup.is_error);
+        assert_eq!(
+            s.proposals.len(),
+            1,
+            "same-capability re-proposal under a different slug must not add a second proposal"
+        );
+        match &dup.content {
+            serde_json::Value::Object(map) => {
+                assert_eq!(map.get("duplicate"), Some(&serde_json::Value::Bool(true)));
+                // Dedup returns the ORIGINAL proposal id/name.
+                assert_eq!(
+                    map.get("proposal_id").and_then(|v| v.as_str()),
+                    Some(first_id.as_str())
+                );
+                assert_eq!(
+                    map.get("node_id").and_then(|v| v.as_str()),
+                    Some("hic_cell_line_comparison")
+                );
+            }
+            other => panic!("expected json object response, got {other:?}"),
+        }
+    }
+
+    /// Negative control for the intent-level dedup: two genuinely
+    /// different Hi-C capabilities (TAD calling vs. A/B compartments)
+    /// share some vocabulary but must each get their own proposal.
+    #[test]
+    fn distinct_capabilities_are_not_collapsed_by_intent_dedup() {
+        let mut s = fresh_session();
+        let ctx = tool_ctx();
+        let _ = propose_hypothesized_node(
+            &mut s,
+            "tad_calling",
+            "Call topologically associating domains (TADs) from a Hi-C \
+             contact matrix at multiple bin resolutions.",
+            &["operation:3222".into()],
+            "SME requested TAD calling",
+            &[],
+            &[],
+            &[],
+            &[],
+            &ctx,
+        );
+        let _ = propose_hypothesized_node(
+            &mut s,
+            "ab_compartment_calling",
+            "Define A/B compartments by eigenvector decomposition of the \
+             observed/expected Hi-C contact matrix at multiple resolutions.",
+            &["operation:3223".into()],
+            "SME requested A/B compartments",
+            &[],
+            &[],
+            &[],
+            &[],
+            &ctx,
+        );
+        assert_eq!(
+            s.proposals.len(),
+            2,
+            "distinct capabilities must not be collapsed by the intent-level dedup"
+        );
     }
 
     #[test]

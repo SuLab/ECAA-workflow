@@ -564,9 +564,103 @@ pub fn default_upstream_anchor(
         .find(|cand| *cand != task_node_id && node_present(cand))
 }
 
+/// Minimum word count an intent must have before the fuzzy
+/// same-capability check applies. Short generic intents share too much
+/// vocabulary by chance, so comparing them by word overlap is
+/// collision-prone; below this length the check declines (returns
+/// `false`) and the caller falls back to exact / token-set matching.
+pub const MIN_INTENT_TOKENS_FOR_SIMILARITY: usize = 5;
+
+/// Jaccard word-overlap threshold above which two intents are treated as
+/// describing the same capability. Deliberately conservative: genuinely
+/// distinct analysis steps share far less vocabulary (TAD-calling vs.
+/// compartment-calling intents score ~0.3), while the observed duplicate
+/// pair — a one-word difference between two cross-cell-line comparison
+/// intents — scores ~0.94. A high threshold favours the safe failure
+/// mode: a missed dedup only costs a duplicate card the SME can reject,
+/// whereas a false-positive dedup would silently drop a wanted node.
+pub const INTENT_SIMILARITY_THRESHOLD: f64 = 0.85;
+
+/// Lowercased ASCII-alphanumeric word set of an intent string.
+fn intent_token_set(intent: &str) -> std::collections::BTreeSet<String> {
+    intent
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|t| !t.is_empty())
+        .map(|t| t.to_ascii_lowercase())
+        .collect()
+}
+
+/// True when two proposal intents describe the same capability under
+/// different node names — Jaccard word overlap ≥
+/// [`INTENT_SIMILARITY_THRESHOLD`], with a
+/// [`MIN_INTENT_TOKENS_FOR_SIMILARITY`] length guard on both sides.
+///
+/// This is the capability-level dedup signal the propose handler uses on
+/// top of exact-name and token-permutation matching, so a same-capability
+/// re-proposal under a fresh slug AND fresh parent terms (the observed
+/// `hic_cell_line_comparison` ↔ `hic_cross_cellline_comparison` case,
+/// where every name/ontology key differs) is still recognised as a
+/// duplicate. Symmetric in its arguments.
+pub fn intents_describe_same_capability(a: &str, b: &str) -> bool {
+    let sa = intent_token_set(a);
+    let sb = intent_token_set(b);
+    if sa.len() < MIN_INTENT_TOKENS_FOR_SIMILARITY
+        || sb.len() < MIN_INTENT_TOKENS_FOR_SIMILARITY
+    {
+        return false;
+    }
+    let intersection = sa.intersection(&sb).count();
+    let union = sa.union(&sb).count();
+    if union == 0 {
+        return false;
+    }
+    (intersection as f64) / (union as f64) >= INTENT_SIMILARITY_THRESHOLD
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn intent_similarity_catches_observed_comparison_duplicate() {
+        // The exact pair seen in the two-cell-line Hi-C session: same
+        // capability, different slug + different parent terms, intents
+        // differing only by the word "human".
+        let a = "Compare TAD boundaries and A/B compartment assignments \
+                 between two human cell lines, matched resolution-by-resolution.";
+        let b = "Compare TAD boundaries and A/B compartment assignments \
+                 between two cell lines, matched resolution-by-resolution.";
+        assert!(
+            intents_describe_same_capability(a, b),
+            "near-identical comparison intents must be detected as the same capability"
+        );
+        // Symmetric.
+        assert!(intents_describe_same_capability(b, a));
+    }
+
+    #[test]
+    fn intent_similarity_rejects_distinct_capabilities() {
+        // Two genuinely different Hi-C steps share some vocabulary
+        // (Hi-C, contact, matrix, resolutions) but describe different
+        // analyses — must NOT collapse.
+        let tad = "Call topologically associating domains (TADs) from a \
+                   Hi-C contact matrix at multiple bin resolutions.";
+        let compartment = "Define A/B compartments by eigenvector \
+                           decomposition of the observed/expected Hi-C \
+                           contact matrix at multiple resolutions.";
+        assert!(
+            !intents_describe_same_capability(tad, compartment),
+            "distinct capabilities sharing some vocabulary must not be deduped"
+        );
+    }
+
+    #[test]
+    fn intent_similarity_declines_on_short_intents() {
+        // Below the min-length guard the check declines regardless of
+        // overlap, so short generic intents are never fuzzily collapsed.
+        assert!(!intents_describe_same_capability("call peaks", "call peaks now"));
+        assert!(!intents_describe_same_capability("qc report", "report qc"));
+    }
 
     #[test]
     fn proposal_id_round_trips() {
