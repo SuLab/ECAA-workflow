@@ -2200,6 +2200,45 @@ fn wire_promoted_node(
 
     let mut dirty = wire_upstream_edges(dag, session_id, task_node_id, proposal);
 
+    // Anchor a promoted node that ended up with NO upstream edge (empty or
+    // unresolved `upstream_atom_ids`) to the data-source producer. Without
+    // this it lowers as a spurious DAG root — dispatchable before its inputs
+    // exist — even though the downstream wiring below feeds it into the
+    // report sink. Guarded against a direct cycle (anchor already consumes
+    // the node). This is the upstream mirror of the report-sink fallback.
+    let has_upstream = dag.edges.iter().any(|e| e.to_node == *task_node_id);
+    if !has_upstream {
+        if let Some(anchor) = ecaa_workflow_core::hypothesized_proposal::default_upstream_anchor(
+            |id| dag.nodes.iter().any(|n| n.id == id),
+            task_node_id,
+        ) {
+            let would_cycle = dag
+                .edges
+                .iter()
+                .any(|e| e.from_node == *task_node_id && e.to_node == anchor);
+            if !would_cycle {
+                let proof = CompatibilityProof {
+                    rationale: Some(format!(
+                        "default upstream wiring: promoted hypothesized atom `{}` declared no \
+                         resolvable upstream_atom_ids; anchored to data-source `{}` so it is not \
+                         dispatchable before its inputs exist",
+                        task_node_id, anchor
+                    )),
+                    ..Default::default()
+                };
+                dag.edges.push(EdgeContract {
+                    from_node: anchor.to_string(),
+                    from_port: "_promoted_default_upstream".into(),
+                    to_node: task_node_id.to_string(),
+                    to_port: "_promoted_input".into(),
+                    proof,
+                    chain_of_custody: None,
+                });
+                dirty = true;
+            }
+        }
+    }
+
     let downstream_id = if dag.nodes.iter().any(|n| n.id == "reporting") {
         Some("reporting".to_string())
     } else if dag.nodes.iter().any(|n| n.id == "final_reporting") {

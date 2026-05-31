@@ -221,6 +221,49 @@ pub(super) async fn signoff_proposal(
                         chain_of_custody: None,
                     });
                 }
+                // Anchor a promoted node that ended up with NO upstream
+                // edge (empty or unresolved upstream_atom_ids) to the
+                // data-source producer, mirroring the conversation-crate
+                // `wire_promoted_node` re-injection. Without this the node
+                // lowers as a spurious DAG root — dispatchable before its
+                // inputs exist — despite the downstream report wiring below.
+                let has_upstream =
+                    dag.edges.iter().any(|e| e.to_node == task_node_id);
+                if !has_upstream {
+                    if let Some(anchor) =
+                        ecaa_workflow_core::hypothesized_proposal::default_upstream_anchor(
+                            |id| dag.nodes.iter().any(|n| n.id == id),
+                            &task_node_id,
+                        )
+                    {
+                        let would_cycle = dag.edges.iter().any(|e| {
+                            e.from_node == task_node_id && e.to_node == anchor
+                        });
+                        if !would_cycle {
+                            dag.edges.push(EdgeContract {
+                                from_node: anchor.to_string(),
+                                from_port: "default".to_string(),
+                                to_node: task_node_id.clone(),
+                                to_port: "default".to_string(),
+                                proof: CompatibilityProof {
+                                    producer_type: format!(
+                                        "ecaax:promoted_default_upstream_{anchor}"
+                                    ),
+                                    consumer_type: format!(
+                                        "ecaax:promoted_consumer_{task_node_id}"
+                                    ),
+                                    rationale: Some(format!(
+                                        "Default upstream wiring: promoted hypothesized atom \
+                                         {task_node_id} had no resolvable upstream_atom_ids; \
+                                         anchored to data-source {anchor}"
+                                    )),
+                                    ..CompatibilityProof::default()
+                                },
+                                chain_of_custody: None,
+                            });
+                        }
+                    }
+                }
                 // Wire the promoted node downstream to the terminal
                 // reporting atom (if present) so the lowered Task
                 // reaches `final_reporting` instead of dangling.

@@ -2662,6 +2662,75 @@ mod state_machine_centralization {
         );
     }
 
+    /// A promoted hypothesized node proposed with NO `upstream_atom_ids`
+    /// must not lower as a spurious DAG root. `wire_promoted_node` anchors
+    /// it to the data-source producer (`raw_qc` → … → `data_acquisition`)
+    /// so its lowered `depends_on` is non-empty and it cannot be dispatched
+    /// before its inputs exist. Repro: the two-cell-line Hi-C session where
+    /// `tad_calling` / `ab_compartment_calling` were proposed with empty
+    /// `upstream_atom_ids` and emitted with `depends_on: []` (roots).
+    #[test]
+    fn rebuild_dag_reinject_anchors_no_upstream_promoted_to_data_source() {
+        use crate::session::Session;
+        use ecaa_workflow_core::hypothesized_proposal::{
+            HypothesizedProposal, ProposalLifecycle,
+        };
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        let mut s = Session::new(false);
+        s.workflow_dag = Some(WorkflowDag {
+            id: "wf-hic".into(),
+            nodes: vec![
+                TaskNode::skeleton("data_acquisition", "scaffold root"),
+                TaskNode::skeleton("raw_qc", "scaffold qc"),
+                TaskNode::skeleton("reporting", "scaffold report"),
+            ],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        });
+
+        // Promoted node proposed with EMPTY upstream_atom_ids — the Hi-C bug.
+        let mut promoted = HypothesizedProposal::new(
+            "tad_calling",
+            "Call TADs from Hi-C contact matrices",
+            vec!["operation:3222".into()],
+            "SME requested TAD calling",
+            vec![],
+            vec![],
+            vec![],
+            vec![], // no declared upstream — must be anchored, not left a root
+        );
+        promoted.lifecycle = ProposalLifecycle::Promoted {
+            task_node_id: "tad_calling".into(),
+        };
+        s.proposals.insert(promoted.id.clone(), promoted);
+
+        crate::tools::reinject_promoted_nodes_into_workflow_dag(&mut s);
+
+        let dag = s.workflow_dag.as_ref().expect("workflow_dag present");
+        let incoming: Vec<&String> = dag
+            .edges
+            .iter()
+            .filter(|e| e.to_node == "tad_calling")
+            .map(|e| &e.from_node)
+            .collect();
+        assert!(
+            !incoming.is_empty(),
+            "no-upstream promoted node must be anchored to a data-source, not left a root; \
+             edges: {:?}",
+            dag.edges
+                .iter()
+                .map(|e| format!("{}→{}", e.from_node, e.to_node))
+                .collect::<Vec<_>>()
+        );
+        // raw_qc has priority over data_acquisition in the anchor chain.
+        assert!(
+            incoming.iter().any(|f| *f == "raw_qc"),
+            "anchor should prefer raw_qc; got {incoming:?}"
+        );
+    }
+
     /// When the SME signs off a `propose_hypothesized_node` during
     /// `PendingConfirmation`, the signoff handler splices the
     /// materialized node into `session.workflow_dag`. The subsequent

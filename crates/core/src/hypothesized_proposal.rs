@@ -540,6 +540,30 @@ pub fn now_ts() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
+/// Canonical data-source / QC node ids, in priority order, that a promoted
+/// hypothesized node with no resolvable `upstream_atom_ids` should anchor to
+/// so its lowered `Task.depends_on` is non-empty. Without an anchor, a
+/// promoted analytical node that the LLM proposed without naming an upstream
+/// lowers as a spurious DAG root — dispatchable before its inputs exist, even
+/// though it is wired downstream into `reporting`/`generic_summary`. This is
+/// the upstream mirror of the downstream report-sink fallback chain.
+pub const PROMOTED_DEFAULT_UPSTREAM_CANDIDATES: [&str; 4] =
+    ["raw_qc", "qc_preprocessing", "data_acquisition", "data_import"];
+
+/// Pick the data-source / QC node a no-upstream promoted node should anchor
+/// to. Returns the first [`PROMOTED_DEFAULT_UPSTREAM_CANDIDATES`] entry that
+/// is present (per `node_present`) and is not the node itself. Returns `None`
+/// for a pure minimum-DAG with no data-source producer — there the promoted
+/// node legitimately is the source and staying a root is correct.
+pub fn default_upstream_anchor(
+    node_present: impl Fn(&str) -> bool,
+    task_node_id: &str,
+) -> Option<&'static str> {
+    PROMOTED_DEFAULT_UPSTREAM_CANDIDATES
+        .into_iter()
+        .find(|cand| *cand != task_node_id && node_present(cand))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
