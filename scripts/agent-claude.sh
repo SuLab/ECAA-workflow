@@ -84,10 +84,59 @@ fi
 # wrappers cannot drift on the WAL-guarded state.patch.json contract.
 TASK_EXECUTION_BODY="$(load_task_execution_prompt "$SCRIPT_DIR/agent-prompts/task-execution.md")"
 
+# Per-task resolved context: inline this task's completed-dependency output
+# files and the schema (header row) of registered input tables, so the agent
+# uses concrete paths instead of spending turns ls/cat-ing the package to
+# rediscover where its upstream outputs and input columns live. Best-effort:
+# any failure leaves the block empty and the agent falls back to exploring.
+RESOLVED_CONTEXT_BLOCK=""
+if command -v jq >/dev/null 2>&1 && [ -n "${ECAA_TASK_ID:-}" ] && [ -f "$PACKAGE/WORKFLOW.json" ]; then
+  __dep_block=""
+  __deps="$(jq -r --arg t "$ECAA_TASK_ID" '.tasks[$t].depends_on[]? // empty' "$PACKAGE/WORKFLOW.json" 2>/dev/null || true)"
+  while IFS= read -r __d; do
+    [ -n "$__d" ] || continue
+    __ddir="$PACKAGE/runtime/outputs/$__d"
+    [ -d "$__ddir" ] || continue
+    __files="$( (cd "$__ddir" && find . -maxdepth 2 -type f \
+      ! -name '.*' ! -name 'task-spec.json' ! -name 'agent-*.json' \
+      ! -name 'agent-*.log' ! -name 'progress.log' ! -name 'state.patch*' \
+      ! -name 'env.lock' 2>/dev/null) | sed 's|^\./||' | sort | head -20 || true)"
+    [ -n "$__files" ] || continue
+    __dep_block="${__dep_block}
+- \`${__d}\` -> \`runtime/outputs/${__d}/\`:
+$(printf '%s\n' "$__files" | sed 's|^|    - |')"
+  done <<< "$__deps"
+  __in_block=""
+  if [ -f "$PACKAGE/runtime/inputs.json" ]; then
+    while IFS=$'\t' read -r __root __rel; do
+      [ -n "$__rel" ] || continue
+      case "$__rel" in
+        *.csv|*.tsv|*.CSV|*.TSV)
+          __hdr="$(head -n 1 "$__root/$__rel" 2>/dev/null | head -c 400 || true)"
+          [ -n "$__hdr" ] && __in_block="${__in_block}
+    - \`${__rel}\` columns: ${__hdr}" ;;
+      esac
+    done < <(jq -r '.[]? | select(.kind=="local_path") | .root_path as $r | (.files[]? | [$r, .relpath] | @tsv)' "$PACKAGE/runtime/inputs.json" 2>/dev/null || true)
+  fi
+  if [ -n "$__dep_block" ] || [ -n "$__in_block" ]; then
+    RESOLVED_CONTEXT_BLOCK="
+
+## Resolved context for this task (${ECAA_TASK_ID})
+These already exist on disk — use these paths directly; do NOT ls/cat the package to rediscover them.
+
+### Completed dependency outputs${__dep_block:-
+- (no completed dependencies)}
+
+### Registered input tables (header row = schema)${__in_block:-
+    - (none registered)}"
+  fi
+fi
+
 PROMPT="$(cat "$PACKAGE/PROMPT.md")${MEMORY_DISCIPLINE_BLOCK}
 
 ## Package location
 All paths are relative to: $PACKAGE
+${RESOLVED_CONTEXT_BLOCK}
 
 ${TASK_EXECUTION_BODY}"
 
@@ -732,11 +781,45 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # path won't exist inside the container, and a properly-built bio
   # container ships with a parallel BLAS by default.
   docker pull "$CONTAINER_IMAGE" >/dev/null 2>&1 || true
+
+  # Image-agnostic canonical-interpreter discovery. The python that carries the
+  # numpy/pandas/matplotlib substrate the shipped renderers need lives at a
+  # different path per image (bio-min: /opt/conda/bin; other images vary), so
+  # nothing here hardcodes a layout. Probe THIS image once (cached by image id)
+  # for a python3 that imports the substrate, then put its dir first on PATH and
+  # export ECAA_PY so `python`/`pip`/`ecaa-install`/the renderer resolve to it —
+  # the agent never has to probe interpreters at runtime. Operator override:
+  # ECAA_CONTAINER_PYTHON_BIN (skips the probe entirely). Empty result is safe:
+  # PATH is left as the image default and the agent falls back to `python3`.
+  CANON_PY_BIN="${ECAA_CONTAINER_PYTHON_BIN:-}"
+  if [ -z "$CANON_PY_BIN" ]; then
+    __img_id="$(docker image inspect --format '{{.Id}}' "$CONTAINER_IMAGE" 2>/dev/null | sed 's/^sha256://' | cut -c1-16 || true)"
+    __pybin_cache="${ECAA_AGENT_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}/_canon-pybin"
+    mkdir -p "$__pybin_cache" 2>/dev/null || true
+    __pybin_cf="$__pybin_cache/${__img_id:-unknown}"
+    if [ -n "$__img_id" ] && [ -s "$__pybin_cf" ]; then
+      CANON_PY_BIN="$(cat "$__pybin_cf" 2>/dev/null || true)"
+    else
+      CANON_PY_BIN="$(docker run --rm --entrypoint sh "$CONTAINER_IMAGE" -c '
+        for c in python3 python /opt/conda/bin/python3 /usr/local/bin/python3; do
+          p="$(command -v "$c" 2>/dev/null)" || continue
+          [ -n "$p" ] || continue
+          "$p" -c "import numpy, pandas, matplotlib" >/dev/null 2>&1 && { dirname "$p"; exit 0; }
+        done
+        exit 1' 2>/dev/null || true)"
+      [ -n "$__img_id" ] && [ -n "$CANON_PY_BIN" ] && printf '%s' "$CANON_PY_BIN" > "$__pybin_cf" 2>/dev/null || true
+    fi
+  fi
+  [ -n "$CANON_PY_BIN" ] && echo "agent-claude.sh: canonical python bin for $CONTAINER_IMAGE -> $CANON_PY_BIN" >&2
+
   __agent_build_env_forward_pairs
   DOCKER_ENV_ARGS=()
   for __agent_kv in "${_AGENT_ENV_FORWARD_PAIRS[@]}"; do
     DOCKER_ENV_ARGS+=(-e "$__agent_kv")
   done
+  # Hand the agent the discovered canonical interpreter so ecaa-install + the
+  # renderer use it regardless of PATH resolution order in the image.
+  [ -n "$CANON_PY_BIN" ] && DOCKER_ENV_ARGS+=(-e "ECAA_PY=$CANON_PY_BIN/python3")
   unset __agent_kv
   DOCKER_SECRET_ENV_ARGS=()
   if [ "${ECAA_AGENT_BILLING:-subscription}" = "api" ] \
@@ -860,7 +943,13 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   if [ -n "$CLAUDE_CODE_INSTALL_DIR" ] && [ -n "$CLAUDE_CODE_INSTALLED_VERSION" ]; then
     DOCKER_CACHE_ARGS+=(
       -v "$CLAUDE_CODE_INSTALL_DIR/node_modules":/opt/claude-code/node_modules:ro
-      -e "PATH=/opt/claude-code/node_modules/.bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      # The discovered canonical-python dir ($CANON_PY_BIN, image-agnostic — see
+      # the probe above) is prepended after the claude bin so `python`/`python3`/
+      # `pip` resolve to the interpreter that carries the numpy/pandas/matplotlib
+      # substrate the shipped renderers need. Without this the image's bare
+      # `python3` ordering is ambiguous and the agent burns turns probing which
+      # interpreter has matplotlib. Empty $CANON_PY_BIN => image default PATH.
+      -e "PATH=/opt/claude-code/node_modules/.bin:${CANON_PY_BIN:+$CANON_PY_BIN:}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     )
   fi
 
@@ -1020,6 +1109,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     "${DOCKER_LABEL_ARGS[@]}" \
     -v "$PACKAGE":"$PACKAGE":rw \
     -v "$AGENT_HOME_DIR":"$HOME":rw \
+    -v "$SCRIPT_DIR/ecaa-install":/usr/local/bin/ecaa-install:ro \
     "${DOCKER_CACHE_ARGS[@]}" \
     "${DOCKER_SCRATCH_ARGS[@]}" \
     "${DOCKER_INPUT_BIND_ARGS[@]}" \

@@ -79,6 +79,15 @@ pub(super) const REQUIRED_INHERITED_KEYS: &[&str] = &[
     // the task prompt and uses the billing mode when choosing Claude auth.
     "ECAA_AGENT_BILLING",
     "MAX_TURNS_PER_TASK",
+    // Per-session install-cache policy. `agent-claude.sh` keys its pip/conda/
+    // R-libs cache on ECAA_CHAT_SESSION_ID and only engages caching when it is
+    // set; the cache base + mode come from the sibling vars. Without these in
+    // the allowlist the agent re-installs heavy packages (DESeq2, fgsea) per
+    // task because env_clear strips them before the agent shell runs.
+    "ECAA_CHAT_SESSION_ID",
+    "ECAA_AGENT_CACHE_DIR",
+    "ECAA_AGENT_CACHE_GLOBAL",
+    "ECAA_AGENT_CACHE_DISABLE",
 ];
 
 /// `ECAA_DISABLE_ENV_CLEAR=1` legacy bypass.

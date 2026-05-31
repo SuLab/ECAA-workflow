@@ -885,6 +885,17 @@ fn main() -> Result<()> {
     let args = Args::parse();
     let path = Path::new(&args.package);
 
+    // Export the chat session id into the harness process environment so it
+    // reaches the agent subprocess (via the local executor's
+    // REQUIRED_INHERITED_KEYS allowlist, which survives env_clear). The agent
+    // wrapper gates its per-session install cache on ECAA_CHAT_SESSION_ID; if
+    // it is unset the agent falls back to a package-scoped cache home and a
+    // heavy R/conda install (DESeq2 etc.) is never reused across sibling
+    // tasks. Set once, before any agent dispatch.
+    if let Some(ref sid) = args.session_id {
+        std::env::set_var("ECAA_CHAT_SESSION_ID", sid);
+    }
+
     // Wire `tracing-subscriber` for the harness binary
     // so dispatch_wal events, executor decisions, and stall-monitor
     // warnings emit at runtime. RUST_LOG controls the filter; default
@@ -4534,6 +4545,33 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
         "probed_at": ecaa_workflow_core::time_helpers::now_rfc3339(),
         "harness_version": env!("CARGO_PKG_VERSION"),
         "host_os": std::env::consts::OS,
+        // Standardized execution-environment contract for the bio-min
+        // container. Declared (not probed) so the agent uses the canonical
+        // interpreters + install verb + renderer instead of discovering them
+        // turn-by-turn. The `capabilities`/`methods` blocks below say WHICH
+        // analysis packages are present; this block says HOW to use the
+        // environment and install the rest. See AGENT-EXECUTOR.md.
+        "environment": {
+            "note": "Image-agnostic execution contract. The dispatch wrapper resolves the canonical interpreter for whatever container image is configured and puts it first on PATH (and in $ECAA_PY), so these defaults hold regardless of image layout. Use them; do not search for interpreters or guess install commands.",
+            "python": {
+                "interpreter": "python3",
+                "note": "`python3` on PATH (also `$ECAA_PY`) is the canonical interpreter the wrapper selected for this image — the one carrying the scientific-python substrate (numpy/pandas/matplotlib) the shipped renderers use. Use it directly; do not hunt for alternate pythons. If an import is genuinely missing, add it with `ecaa-install py <pkg>`."
+            },
+            "r": {
+                "interpreter": "Rscript",
+                "note": "`Rscript` on PATH. Install extra R packages with `ecaa-install r|bioc` so they land in the user library appended to the base .libPaths() — base graphics (cairo/ragg) stay importable. Do NOT create an isolated R/conda env, which drops base packages."
+            },
+            "figure_rendering": {
+                "use": "runtime/plotting",
+                "how": "python3 -c \"import sys; sys.path.insert(0, '<PACKAGE>'); from runtime.plotting.core import generate; generate(stage_id='<task_id>', outputs_dir='runtime/outputs/<task_id>', required=[...])\"",
+                "note": "Render every required figure via the shipped renderer. Do not hand-roll matplotlib/ggplot figures."
+            },
+            "install": {
+                "command": "ecaa-install <ecosystem> <pkg>...",
+                "ecosystems": ["py", "r", "bioc"],
+                "note": "Standard install verb on PATH. Routes py->pip, r->install.packages, bioc->BiocManager, into the shared per-session cache and the canonical env. Use it instead of raw pip/conda/mamba/BiocManager so installs are cached, reused across tasks, and never shadow base packages."
+            }
+        },
         "capabilities": {
             "r_seurat": r_seurat,
             "r_cellchat": r_cellchat,

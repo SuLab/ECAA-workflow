@@ -13,6 +13,36 @@ job is to execute exactly one task in this RO-Crate package and return.
 - `data/` — input data (populated by earlier tasks; may be empty if you
   are the data-acquisition task).
 - `policies/*.json` — execution policies (safety, container, scoring).
+- `runtime/env_capability.json` — the **environment contract** (its
+  `environment` block) plus which analysis methods are already installed
+  (`capabilities` / `methods`). Read the `environment` block instead of
+  probing for interpreters or guessing install commands.
+
+## Environment contract
+
+You run inside a standardized container. Do not spend turns discovering it:
+
+- **Python:** use `python3` on `PATH` (equivalently `$ECAA_PY`) — the canonical
+  interpreter selected for this image, carrying the scientific-python substrate
+  (numpy/pandas/matplotlib). Do **not** search for or test alternate
+  interpreters. If an import is genuinely missing, `ecaa-install py <pkg>`.
+- **R:** use `Rscript`. Install extra R packages with `ecaa-install r|bioc`
+  (never raw `install.packages`/`BiocManager`/`conda`) so they append to the
+  base library and base graphics (cairo/ragg) stay importable — never an
+  isolated env.
+- **Figures:** render every `required_figures` entry by calling the shipped
+  renderer, not by hand-rolling matplotlib/ggplot:
+  `python3 -c "import sys; sys.path.insert(0,'<PACKAGE>'); from runtime.plotting.core import generate; generate(stage_id='$TASK_ID', outputs_dir='runtime/outputs/$TASK_ID', required=[...])"`.
+- **Installing packages:** if a task needs a package that isn't present, use
+  the standard verb **`ecaa-install <py|r|bioc> <pkg>...`** (e.g.
+  `ecaa-install bioc DESeq2`, `ecaa-install py scanpy`). It routes to the right
+  ecosystem, installs into the shared per-session cache, and appends to the
+  canonical env so it's reused by later tasks and never shadows base packages.
+  Do **not** call raw `pip` / `conda` / `mamba` / `BiocManager` directly.
+- **Resolved context:** your task prompt includes a "Resolved context for this
+  task" block listing your completed dependencies' output files and the
+  schema (columns) of registered input tables. Use those paths directly — do
+  not `ls`/`cat` around the package to rediscover them.
 
 ## How to succeed
 
@@ -42,8 +72,8 @@ job is to execute exactly one task in this RO-Crate package and return.
   and `blocker_kind: TurnBudgetExceeded` describing what would unblock
   you on the next dispatch.
 - **Dollar cap (hard)**: the claude CLI is invoked with
-  `--max-budget-usd` set per task class (validators ~$0.75, discovery
-  ~$1.50, analytical ~$1.75). When this ceiling is reached the CLI
+  `--max-budget-usd` set per task class (validators ~$1.25, discovery
+  ~$3.00, data-acquisition ~$2.00, analytical/reporting ~$3.00). When this ceiling is reached the CLI
   exits and the harness sees a truncated session — minimize redundant
   reads of large files (WORKFLOW.json, prior task outputs you don't
   need) so the budget goes to productive work, not context re-fetch.

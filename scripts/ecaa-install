@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# ecaa-install — the standard package-install verb for execution agents.
+#
+# Usage:
+#   ecaa-install py   <pip-pkg>...     # Python via pip (user/site cache)
+#   ecaa-install r    <CRAN-pkg>...    # R via install.packages
+#   ecaa-install bioc <Bioc-pkg>...    # R/Bioconductor via BiocManager
+#
+# Why a verb instead of raw pip/conda/mamba/BiocManager:
+#  - ONE method per ecosystem, so installs are deterministic and the
+#    per-session cache (PIP_CACHE_DIR / R_LIBS_USER / CONDA_PKGS_DIRS) is
+#    actually reused across sibling tasks — a heavy install (DESeq2, fgsea)
+#    happens once per session, not once per task.
+#  - R packages install into R_LIBS_USER, which is *prepended* to the base
+#    .libPaths(). Base packages (ragg, cairo, grid) stay importable, so the
+#    shipped renderer's graphics backend keeps working — unlike an isolated
+#    conda R env, which silently drops base graphics ("no package 'ragg'").
+#  - Idempotent: already-present packages are skipped fast.
+set -uo pipefail
+
+eco="${1:-}"; shift || true
+if [ -z "$eco" ] || [ "$#" -eq 0 ]; then
+  echo "usage: ecaa-install <py|r|bioc> <pkg>..." >&2
+  exit 2
+fi
+
+PY="${ECAA_PY:-python3}"
+RSCRIPT="${ECAA_RSCRIPT:-Rscript}"
+CRAN="${ECAA_CRAN_REPO:-https://cloud.r-project.org}"
+
+r_vec() { # join args as an R c("a","b") vector
+  local out="" a
+  for a in "$@"; do out="${out:+$out, }\"$a\""; done
+  printf 'c(%s)' "$out"
+}
+
+case "$eco" in
+  py|python|pip)
+    # PIP_USER + PYTHONUSERBASE + PIP_CACHE_DIR are set by the container, so
+    # this lands in the per-session user-site cache and is reused next task.
+    exec "$PY" -m pip install --no-input --disable-pip-version-check "$@"
+    ;;
+  r|cran)
+    pkgs="$(r_vec "$@")"
+    exec "$RSCRIPT" --no-save -e "
+      pkgs <- ${pkgs}
+      need <- pkgs[!vapply(pkgs, function(p) requireNamespace(p, quietly=TRUE), logical(1))]
+      if (length(need)) install.packages(need, repos='${CRAN}', Ncpus=max(1L, parallel::detectCores()))
+      ok <- vapply(pkgs, function(p) requireNamespace(p, quietly=TRUE), logical(1))
+      if (!all(ok)) { message('ecaa-install: FAILED: ', paste(pkgs[!ok], collapse=', ')); quit(status=1) }
+      message('ecaa-install: ok (r): ', paste(pkgs, collapse=', '))
+    "
+    ;;
+  bioc|bioconductor)
+    pkgs="$(r_vec "$@")"
+    exec "$RSCRIPT" --no-save -e "
+      if (!requireNamespace('BiocManager', quietly=TRUE)) install.packages('BiocManager', repos='${CRAN}')
+      pkgs <- ${pkgs}
+      need <- pkgs[!vapply(pkgs, function(p) requireNamespace(p, quietly=TRUE), logical(1))]
+      if (length(need)) BiocManager::install(need, update=FALSE, ask=FALSE, Ncpus=max(1L, parallel::detectCores()))
+      ok <- vapply(pkgs, function(p) requireNamespace(p, quietly=TRUE), logical(1))
+      if (!all(ok)) { message('ecaa-install: FAILED: ', paste(pkgs[!ok], collapse=', ')); quit(status=1) }
+      message('ecaa-install: ok (bioc): ', paste(pkgs, collapse=', '))
+    "
+    ;;
+  *)
+    echo "ecaa-install: unknown ecosystem '$eco' (expected py|r|bioc)" >&2
+    exit 2
+    ;;
+esac
