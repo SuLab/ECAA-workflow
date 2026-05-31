@@ -7,7 +7,7 @@
 
 .PHONY: help build build-release install bootstrap test test-runner test-doc \
         test-fast test-core test-conversation test-harness test-server test-cli \
-        test-ui lint-ui clippy fmt check types e2e e2e-playwright bench \
+        test-ui conformance lint-ui clippy fmt check types e2e e2e-playwright bench \
         bio-min dev-server dev-ui clean doctor lint deny install-hooks
 
 help: ## Print this help.
@@ -61,6 +61,9 @@ test-cli: ## Unit + integration for crates/cli
 
 test-ui: ## Vitest + axe a11y for ui/
 	cd ui && npm run test
+
+conformance: ## ECAA conformance suite (block-on-fail; ECAA_CONFORMANCE_MODE=1)
+	ECAA_CONFORMANCE_MODE=1 cargo test -p ecaa-workflow-conformance
 
 # ── Lint / format / type-check ───────────────────────────────────────────────
 
