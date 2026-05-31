@@ -8,7 +8,8 @@
 .PHONY: help build build-release install bootstrap test test-runner test-doc \
         test-fast test-core test-conversation test-harness test-server test-cli \
         test-ui conformance lint-ui clippy fmt check types e2e e2e-playwright bench \
-        bio-min dev-server dev-ui clean doctor lint deny install-hooks
+        bio-min dev-server dev-ui clean doctor lint deny install-hooks \
+        eval-biomnibench eval-biomnibench-smoke eval-nekrutenko eval-nekrutenko-smoke eval-tests
 
 help: ## Print this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -117,6 +118,21 @@ dev-ui: ## Run the Vite dev server on :5173 (proxies /api/* to :3000)
 
 bench: ## Criterion benches under crates/core
 	cargo bench -p ecaa-workflow-core
+
+eval-biomnibench: ## Operator-run BiomniBench-DA (needs ECAA_EVAL_LIVE=1 + GEMINI_API_KEY + ECAA_ANTHROPIC_API_KEY)
+	@python -m scripts.eval.eval_runner biomnibench $(EVAL_ARGS)
+
+eval-biomnibench-smoke: ## BiomniBench smoke (2 tasks, 1 trial)
+	@python -m scripts.eval.eval_runner biomnibench --smoke $(EVAL_ARGS)
+
+eval-nekrutenko: ## Operator-run Nekrutenko mtDNA eval (needs ECAA_EVAL_LIVE=1)
+	@python -m scripts.eval.eval_runner nekrutenko $(EVAL_ARGS)
+
+eval-nekrutenko-smoke: ## Nekrutenko smoke (1 trial)
+	@python -m scripts.eval.eval_runner nekrutenko --smoke $(EVAL_ARGS)
+
+eval-tests: ## Offline unit tests for the eval harness (no live API)
+	@python -m pytest scripts/eval/tests -q
 
 clean: ## Remove build artifacts
 	cargo clean
