@@ -1512,12 +1512,26 @@ mod tests {
             2,
             "amendment-lineage.json invalidated_tasks count"
         );
+        // The parent is identified by its content-addressed workflow id
+        // (`parent_package_id`), never by an absolute on-disk path — a
+        // `$HOME`-rooted path is non-reproducible across machines and
+        // would leak into the BagIt manifest. Assert the id is present
+        // and that no absolute path leaked into the hashed payload.
         assert!(
-            policy["parent"]["parent_path"]
+            policy["parent"]["parent_package_id"]
                 .as_str()
-                .unwrap()
-                .contains(parent_tmp.path().to_string_lossy().as_ref()),
-            "amendment-lineage parent_path should point at parent package"
+                .map(|s| !s.is_empty())
+                .unwrap_or(false),
+            "amendment-lineage must carry content-addressed parent_package_id"
+        );
+        assert!(
+            policy["parent"].get("parent_path").is_none(),
+            "amendment-lineage must not serialize an absolute parent_path"
+        );
+        let policy_str = serde_json::to_string(&policy).unwrap();
+        assert!(
+            !policy_str.contains(parent_tmp.path().to_string_lossy().as_ref()),
+            "amendment-lineage leaked the parent's absolute path: {policy_str}"
         );
 
         // RO-Crate root Dataset has prov:wasDerivedFrom

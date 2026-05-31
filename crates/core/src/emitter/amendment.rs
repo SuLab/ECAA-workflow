@@ -21,8 +21,13 @@ pub(super) struct ParentLink {
     /// `parent_package_id` in the lineage policy so distinct packages
     /// don't collide on the literal `./` root id.
     pub(super) workflow_id: String,
-    /// Absolute path to the parent package dir — surfaced in the policy
-    /// so operators can find the prior emission on disk.
+    /// Absolute path to the parent package dir. Retained for
+    /// diagnostics only — deliberately NOT serialized into any hashed
+    /// payload (`amendment-lineage.json`, `ro-crate-metadata.json`)
+    /// because a `$HOME`-rooted path is non-reproducible across machines
+    /// and leaks the host path into `manifest-sha512.txt`. The
+    /// content-addressed `workflow_id` is used in every payload instead.
+    #[allow(dead_code)]
     pub(super) path: std::path::PathBuf,
 }
 
@@ -90,7 +95,6 @@ pub(super) fn emit_amendment_lineage_policy(
         serde_json::json!({
             "parent_package_id": p.workflow_id,
             "parent_root_id": p.root_id,
-            "parent_path": p.path.to_string_lossy(),
         })
     });
     // `created_at` enters the BagIt manifest, so emit-pipeline callers
@@ -140,7 +144,7 @@ pub(super) fn patch_ro_crate_with_branch(metadata: &mut serde_json::Value, paren
             "@type": "Dataset",
             "name": format!("Branched-from package {}", parent.workflow_id),
             "identifier": parent.workflow_id,
-            "url": parent.path.to_string_lossy(),
+            "url": parent_id,
         }));
     }
 }
@@ -179,7 +183,7 @@ pub(super) fn patch_ro_crate_with_amendment(
             "@type": "Dataset",
             "name": format!("Parent package {}", parent.workflow_id),
             "identifier": parent.workflow_id,
-            "url": parent.path.to_string_lossy(),
+            "url": parent_id.clone(),
         }));
     }
 
@@ -216,4 +220,53 @@ pub(super) fn patch_ro_crate_with_amendment(
             .collect::<Vec<_>>(),
     });
     graph.push(action);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clock::FrozenClock;
+
+    fn parent_link() -> ParentLink {
+        ParentLink {
+            root_id: "./".to_string(),
+            workflow_id: "wf-parent-1234".to_string(),
+            path: std::path::PathBuf::from("/home/alan/scripps/ecaa-pkg-parent"),
+        }
+    }
+    fn amend_ctx() -> AmendContext {
+        AmendContext {
+            reason: Some("swap aligner".into()),
+            amended_stage: "alignment".into(),
+            invalidated_tasks: vec!["quantification".into()],
+        }
+    }
+
+    #[test]
+    fn amendment_ro_crate_patch_carries_no_absolute_path() {
+        let mut meta = serde_json::json!({"@graph": [{"@id": "./", "@type": "Dataset"}]});
+        patch_ro_crate_with_amendment(&mut meta, &amend_ctx(), &parent_link());
+        let rendered = serde_json::to_string(&meta).unwrap();
+        assert!(!rendered.contains("/home/"), "leaked absolute path: {rendered}");
+        assert!(rendered.contains("wf-parent-1234"));
+    }
+    #[test]
+    fn branch_ro_crate_patch_carries_no_absolute_path() {
+        let mut meta = serde_json::json!({"@graph": [{"@id": "./", "@type": "Dataset"}]});
+        patch_ro_crate_with_branch(&mut meta, &parent_link());
+        let rendered = serde_json::to_string(&meta).unwrap();
+        assert!(!rendered.contains("/home/"), "leaked absolute path: {rendered}");
+        assert!(rendered.contains("wf-parent-1234"));
+    }
+    #[test]
+    fn lineage_policy_carries_no_absolute_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let clock = FrozenClock::default();
+        emit_amendment_lineage_policy(dir.path(), &amend_ctx(), Some(&parent_link()), &clock)
+            .unwrap();
+        let body =
+            std::fs::read_to_string(dir.path().join("policies/amendment-lineage.json")).unwrap();
+        assert!(!body.contains("/home/"), "leaked absolute path: {body}");
+        assert!(body.contains("wf-parent-1234"));
+    }
 }
