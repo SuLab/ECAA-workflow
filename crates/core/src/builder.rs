@@ -1,6 +1,6 @@
 use crate::dag::{
-    validate_dag, Assignee, DiscoveryKind, EscalationPath, ResolutionStrategy, ResourceClass, Task,
-    TaskKind, TaskState, DAG,
+    validate_dag_typed, Assignee, DiscoveryKind, EscalationPath, ResolutionStrategy, ResourceClass,
+    Task, TaskKind, TaskState, DAG,
 };
 use crate::ids::TaskId;
 use crate::taxonomy::{DiscoveryRequirement, StageCardinality, StageSpec};
@@ -186,8 +186,8 @@ pub fn build_dag_from_workflow_dag(
     // Override workflow_id so the caller's choice (typically the
     // session id) wins over the WorkflowDag's stable id.
     dag.workflow_id = workflow_id.to_string();
-    crate::dag::validate_dag(&dag)
-        .map_err(|e| anyhow::anyhow!("Phase 16 lowered DAG failed validation: {:?}", e))?;
+    crate::dag::validate_dag_typed(&dag)
+        .map_err(|e| anyhow::anyhow!("Phase 16 lowered DAG failed validation: {}", e))?;
     Ok(dag)
 }
 
@@ -257,7 +257,9 @@ pub fn build_dag_from_composition(
 
     dag.rebuild_reverse_deps();
     dag.propagate_readiness();
-    validate_dag(&dag).context("DAG validation failed after composition build")?;
+    validate_dag_typed(&dag)
+        .map_err(anyhow::Error::from)
+        .context("DAG validation failed after composition build")?;
 
     Ok(dag)
 }
@@ -1020,6 +1022,139 @@ mod tests {
 
         // Workflow id propagates.
         assert_eq!(dag.workflow_id, "test-composition");
+    }
+
+    /// The composition emit path must gate on `validate_dag_typed`, not the
+    /// weaker `validate_dag` (cycles + dangling-dependency only). Two
+    /// Discovery atoms whose stage ids share the `discover_alignment`
+    /// prefix root (after `__` stripping) collide under
+    /// `self_describing_prefix`, surfacing `DagError::DuplicatePrefix` —
+    /// which `validate_dag` ignores. The second atom depends on the first
+    /// so neither is an orphan; the only failure surface is the duplicate
+    /// prefix. `emit_stage` inserts self-describing discovery stage ids
+    /// verbatim into `dag.tasks`, so both bucket under `discover_alignment`.
+    #[test]
+    fn build_dag_from_composition_rejects_duplicate_discover_prefix() {
+        use crate::atom::{AtomAssignee, AtomDefinition, AtomRole, ResourceProfile};
+        use crate::composer::{ComposedAtom, CompositionResult, ResourceEstimate};
+        use crate::goal_spec::GoalSpec;
+
+        let discover_a = AtomDefinition {
+            id: "discover_alignment".into(),
+            version: "1.0.0".into(),
+            role: AtomRole::Discovery,
+            discovery_kind: None,
+            description: "Discover alignment method".into(),
+            edam_operation: "operation:0335".into(),
+            edam_data: Some("data:2044".into()),
+            edam_format: Some("format:1930".into()),
+            assignee: AtomAssignee::Agent,
+            depends_on: vec![],
+            excludes: vec![],
+            attributes: BTreeMap::new(),
+            joint_with: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            method_choice: None,
+            resource_profile: Some(ResourceProfile {
+                cpu: Some("light".into()),
+                memory: Some("small".into()),
+                gpu: false,
+                runtime_class: Some("seconds".into()),
+            }),
+            preferred_container: None,
+            claim_boundary: None,
+            iterate: None,
+            condition: None,
+            required_figures: vec![],
+            plot_stage_id: None,
+            figure_exempt: None,
+            expected_artifacts: vec![],
+            required_artifacts: vec![],
+            validators: vec![],
+            runtime_packages: Default::default(),
+            safety: Default::default(),
+        };
+        let discover_b = AtomDefinition {
+            id: "discover_alignment__rerun_2".into(),
+            version: "1.0.0".into(),
+            role: AtomRole::Discovery,
+            discovery_kind: None,
+            description: "Re-discover alignment method".into(),
+            edam_operation: "operation:0335".into(),
+            edam_data: Some("data:2044".into()),
+            edam_format: Some("format:1930".into()),
+            assignee: AtomAssignee::Agent,
+            depends_on: vec!["discover_alignment".into()],
+            excludes: vec![],
+            attributes: BTreeMap::new(),
+            joint_with: vec![],
+            inputs: vec![],
+            outputs: vec![],
+            method_choice: None,
+            resource_profile: Some(ResourceProfile {
+                cpu: Some("light".into()),
+                memory: Some("small".into()),
+                gpu: false,
+                runtime_class: Some("seconds".into()),
+            }),
+            preferred_container: None,
+            claim_boundary: None,
+            iterate: None,
+            condition: None,
+            required_figures: vec![],
+            plot_stage_id: None,
+            figure_exempt: None,
+            expected_artifacts: vec![],
+            required_artifacts: vec![],
+            validators: vec![],
+            runtime_packages: Default::default(),
+            safety: Default::default(),
+        };
+        let composition = CompositionResult {
+            matched_archetype: Some("test_archetype".into()),
+            match_score: 6,
+            atoms: vec![
+                ComposedAtom {
+                    stage_id: "discover_alignment".into(),
+                    atom: discover_a,
+                    depends_on: vec![],
+                    required: true,
+                    bindings: Vec::new(),
+                    container: None,
+                },
+                ComposedAtom {
+                    stage_id: "discover_alignment__rerun_2".into(),
+                    atom: discover_b,
+                    depends_on: vec!["discover_alignment".into()],
+                    required: true,
+                    bindings: Vec::new(),
+                    container: None,
+                },
+            ],
+            goal: GoalSpec {
+                edam_data: "data:2044".into(),
+                edam_format: Some("format:1930".into()),
+                modifiers: BTreeMap::new(),
+                source_prose: None,
+                confidence: 0.95,
+            },
+            rationale: "synthesized for test".into(),
+            atom_rationales: BTreeMap::new(),
+            resource_estimate: ResourceEstimate::default(),
+        };
+
+        let err = build_dag_from_composition(&composition, "wf-collide", &BTreeMap::new(), &[])
+            .expect_err("duplicate discover prefix must fail emission");
+        // The composition site wraps the `DagError` with `.context(...)`,
+        // so the `DuplicatePrefix` diagnostic lives in the error source
+        // chain — surfaced via anyhow's alternate (`{:#}`) formatter, not
+        // the bare `to_string()` (which shows only the outermost context).
+        let rendered = format!("{err:#}");
+        assert!(
+            rendered.contains("duplicate stage prefix"),
+            "expected DuplicatePrefix diagnostic, got: {rendered}"
+        );
     }
 
     /// Atom-level `condition` field threads through
