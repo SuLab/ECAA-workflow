@@ -170,11 +170,12 @@ pub(crate) async fn fail_blocked_tasks_in_workflow(
 }
 
 /// `POST /api/chat/session/:id/start-execution` — launch the harness subprocess for an emitted package.
-#[tracing::instrument(skip(app, headers, body), fields(session_id = %session_id))]
+#[tracing::instrument(skip(app, headers, body, principal), fields(session_id = %session_id))]
 pub async fn start_execution(
     State(app): State<ChatAppState>,
     Path(session_id): Path<Uuid>,
     headers: axum::http::HeaderMap,
+    axum::extract::Extension(principal): axum::extract::Extension<crate::auth::RequestPrincipal>,
     body: Option<BoundedJson<StartExecutionRequest>>,
 ) -> axum::response::Response {
     // `Idempotency-Key` short-circuit. Prevents a
@@ -186,13 +187,43 @@ pub async fn start_execution(
     if let Some(replay) = ticket.cached_response() {
         return replay;
     }
-    let response = start_execution_inner(app.clone(), session_id, body).await;
+    // R4: attribute the Start press to the authenticated SME owner. The
+    // press is a high-leverage state mutation gating the LLM's
+    // `start_execution` tool; binding the token to the real principal
+    // (never the request body) keeps the audit trail honest. Derived
+    // from `RequestPrincipal::audit_actor()` — the same principal
+    // `verify_owner_middleware` already extracted from `X-Scripps-User`.
+    let granted_by = audit_actor_for_execution_token(&principal);
+    let response = start_execution_inner(app.clone(), session_id, granted_by, body).await;
     ticket.store(&app.idempotency, response).await
+}
+
+/// Map the request's authenticated `RequestPrincipal` to the
+/// conversation-crate `AuditActor` stamped onto the execution token.
+///
+/// There is no `From<server::AuditActor>` impl on the conversation type
+/// (the two enums are kept aligned by hand — see
+/// `crates/conversation/src/audit_actor.rs`), so the conversion is
+/// spelled out here. `RequestPrincipal::audit_actor()` is the canonical
+/// principal→actor map; we re-shape its server-side result into the
+/// conversation-crate variant so the token-mint helper stays at the
+/// bottom of the dep arrow.
+fn audit_actor_for_execution_token(
+    principal: &crate::auth::RequestPrincipal,
+) -> ecaa_workflow_conversation::audit_actor::AuditActor {
+    use ecaa_workflow_conversation::audit_actor::AuditActor as ConvActor;
+    match principal.audit_actor() {
+        crate::auth::AuditActor::User(user) => ConvActor::User(user),
+        crate::auth::AuditActor::ShareViewer => ConvActor::ShareViewer,
+        crate::auth::AuditActor::Harness => ConvActor::Harness,
+        crate::auth::AuditActor::System => ConvActor::System,
+    }
 }
 
 async fn start_execution_inner(
     app: ChatAppState,
     session_id: Uuid,
+    granted_by: ecaa_workflow_conversation::audit_actor::AuditActor,
     body: Option<BoundedJson<StartExecutionRequest>>,
 ) -> axum::response::Response {
     // Every
@@ -227,21 +258,17 @@ async fn start_execution_inner(
     // Start button. Mirrors `/confirm` minting the ConfirmationToken.
     // The LLM `start_execution` tool refuses unless this token is present
     // and unconsumed, so an autonomous agent can only ride a press the
-    // SME already made. `start_execution_inner` has no RequestPrincipal
-    // extractor and there is no actor-from-principal helper here, so the
-    // token is attributed to `AuditActor::System` (the documented
-    // "cannot identify a principal" sentinel); threading the
-    // `X-Scripps-User` owner identity is a follow-up. The button path
-    // below still spawns directly, so a missing/failed mint never blocks
-    // the human press — it only affects the LLM tool's ability to ride it.
+    // SME already made. `granted_by` is the authenticated owner derived
+    // from the request's `RequestPrincipal` (R4) — `AuditActor::System`
+    // only when the principal could not be identified (e.g. Anonymous /
+    // CLI offline paths). The button path below still spawns directly, so
+    // a missing/failed mint never blocks the human press — it only
+    // affects the LLM tool's ability to ride it.
     if let Err(e) = app
         .conversation
         .store_handle()
-        .update(session_id, |s| {
-            s.mint_execution_token(
-                chrono::Utc::now(),
-                ecaa_workflow_conversation::audit_actor::AuditActor::System,
-            );
+        .update(session_id, move |s| {
+            s.mint_execution_token(chrono::Utc::now(), granted_by);
             Ok(())
         })
         .await
@@ -1186,8 +1213,8 @@ pub(super) mod execution_status_sidecar {
 #[cfg(test)]
 mod tests {
     use super::{
-        auto_relaunch_decision, clean_stale_sentinels, has_ready_task,
-        has_sentinel_pending_with_fresh_heartbeat,
+        audit_actor_for_execution_token, auto_relaunch_decision, clean_stale_sentinels,
+        has_ready_task, has_sentinel_pending_with_fresh_heartbeat,
         task_matches_sentinel_pending_with_fresh_heartbeat, AUTO_RELAUNCH_DEBOUNCE_SECS,
         AUTO_RELAUNCH_SENTINEL_DEBOUNCE_SECS,
     };
@@ -1642,6 +1669,85 @@ mod tests {
         let resp = router.oneshot(req).await.unwrap();
         assert_ne!(resp.status(), StatusCode::CONFLICT);
         drop(pkg);
+    }
+
+    /// R4: the Start press must attribute the minted ExecutionToken to
+    /// the authenticated SME owner (from the request's
+    /// `RequestPrincipal`), not the `System` sentinel. `make_router`'s
+    /// `RequestPrincipal::test_default()` is `Owner { user: "local" }`,
+    /// so a successful press mints a token with
+    /// `granted_by = AuditActor::User("local")`.
+    #[tokio::test]
+    async fn start_execution_attributes_token_to_principal_owner() {
+        use ecaa_workflow_conversation::audit_actor::AuditActor;
+
+        if !std::path::Path::new("/usr/bin/true").exists() {
+            eprintln!("skip: /usr/bin/true missing");
+            return;
+        }
+        let pkg = tempfile::tempdir().unwrap();
+        let (router, app) = make_router_with_harness_bin(vec![], "/usr/bin/true").await;
+        let id =
+            seed_session_with_completed_task(&app, "t_demo", Some(pkg.path().to_path_buf())).await;
+
+        // The mint helper binds to `pending_emission_id`; the seed
+        // helper doesn't set one, so establish it here or the token is
+        // never stored (mint returns None).
+        let emission = Uuid::new_v4();
+        app.conversation
+            .store_handle()
+            .update(id, move |s| {
+                s.pending_emission_id = Some(emission);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!("/api/chat/session/{}/start-execution", id))
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let session = app.conversation.get_session(id).await.unwrap();
+        let token = session
+            .execution_token
+            .expect("a Start press must mint an execution token when a pending emission is set");
+        assert_eq!(
+            token.granted_by,
+            AuditActor::User("local".to_string()),
+            "execution token must be attributed to the authenticated owner, not System"
+        );
+        assert_eq!(token.request_id, emission);
+        drop(pkg);
+    }
+
+    /// R4: the principal→actor map preserves the owner identity and
+    /// folds Anonymous (CLI/offline) to the `System` sentinel.
+    #[test]
+    fn audit_actor_for_execution_token_maps_principal_variants() {
+        use ecaa_workflow_conversation::audit_actor::AuditActor;
+
+        assert_eq!(
+            audit_actor_for_execution_token(&crate::auth::RequestPrincipal::Owner {
+                user: "alan".to_string(),
+                bearer_authenticated: true,
+            }),
+            AuditActor::User("alan".to_string())
+        );
+        assert_eq!(
+            audit_actor_for_execution_token(&crate::auth::RequestPrincipal::Anonymous),
+            AuditActor::System
+        );
+        assert_eq!(
+            audit_actor_for_execution_token(&crate::auth::RequestPrincipal::HarnessAgent {
+                session_id: Uuid::new_v4(),
+            }),
+            AuditActor::Harness
+        );
     }
 
     #[tokio::test]
