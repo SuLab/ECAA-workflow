@@ -106,21 +106,27 @@ def conforms_to_iris(metadata):
     """Extract the package-level `conformsTo` profile IRIs from an
     ro-crate-metadata.json document.
 
-    The IRIs live on the root Dataset (`@id == "./"`); fall back to the
-    metadata-descriptor node. Each entry is either `{"@id": iri}` or a bare
-    string. Returns a de-duplicated, order-preserving list.
+    The §3.1 profile IRIs may be carried on the root Dataset (`@id == "./"`)
+    OR on the metadata-descriptor node (`@id == "ro-crate-metadata.json"`) —
+    the spec names the root dataset, but the reference emitter currently
+    places them on the descriptor. Union both carriers so the synthesized
+    `ecaa:Package` node sees the full set regardless of placement (the prior
+    `./ or descriptor` short-circuit silently dropped them when `./` existed
+    but was empty). Each entry is either `{"@id": iri}` or a bare string.
+    Returns a de-duplicated, order-preserving list.
     """
     graph = metadata.get("@graph", [])
     by_id = {node.get("@id"): node for node in graph if isinstance(node, dict)}
-    carrier = by_id.get("./") or by_id.get("ro-crate-metadata.json") or {}
-    raw = carrier.get("conformsTo", [])
-    if isinstance(raw, dict):
-        raw = [raw]
     out = []
-    for item in raw:
-        iri = item.get("@id") if isinstance(item, dict) else item
-        if iri and iri not in out:
-            out.append(iri)
+    for carrier_id in ("./", "ro-crate-metadata.json"):
+        carrier = by_id.get(carrier_id) or {}
+        raw = carrier.get("conformsTo", [])
+        if isinstance(raw, dict):
+            raw = [raw]
+        for item in raw:
+            iri = item.get("@id") if isinstance(item, dict) else item
+            if iri and iri not in out:
+                out.append(iri)
     return out
 
 

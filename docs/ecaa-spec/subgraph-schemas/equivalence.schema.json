@@ -16,7 +16,7 @@
       "properties": {
         "id": {
           "type": "string",
-          "pattern": "^Q:[A-Za-z0-9_\\-]+$",
+          "pattern": "^Q:[A-Za-z0-9_.:\\-]+$",
           "description": "Prefix-tagged node id (§4.2)."
         },
         "type": {

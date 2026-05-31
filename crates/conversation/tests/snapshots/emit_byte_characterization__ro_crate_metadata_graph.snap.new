@@ -1,5 +1,6 @@
 ---
 source: crates/conversation/tests/emit_byte_characterization.rs
+assertion_line: 101
 expression: value
 ---
 {
