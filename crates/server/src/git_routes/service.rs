@@ -253,13 +253,13 @@ impl GitService {
         let _validated_paths = validate_commit_paths(&self.repo_path, &input.paths)
             .map_err(|e| anyhow!("invalid commit path: {e}"))?;
         if input.paths.is_empty() {
-            self.run_git(&["add", "-A"])?;
+            self.run_git_retry_on_lock(&["add", "-A"])?;
         } else {
             let mut args = vec!["add", "--"];
             for p in &input.paths {
                 args.push(p);
             }
-            self.run_git(&args)?;
+            self.run_git_retry_on_lock(&args)?;
         }
         // `git diff --cached --quiet` returns exit 1 when there are
         // staged changes, 0 when clean. Flip the semantics.
@@ -277,7 +277,7 @@ impl GitService {
         if dirty.success() {
             return Err(anyhow!("no changes to commit"));
         }
-        self.run_git(&["commit", "-m", &input.subject])?;
+        self.run_git_retry_on_lock(&["commit", "-m", &input.subject])?;
         let sha = self.run_git(&["rev-parse", "HEAD"])?.trim().to_string();
         let mut pushed = false;
         if push && self.remote_url.is_some() {
@@ -478,6 +478,35 @@ impl GitService {
             ));
         }
         Ok(stdout_buf)
+    }
+
+    /// Run a lock-taking git command (`add` / `commit`) with bounded
+    /// retries on transient `.git/index.lock` contention — another git
+    /// process (a concurrent provenance hook committing to the same
+    /// package, or a `git status` refresh) briefly held the index lock.
+    /// Any non-lock failure returns immediately. This hardens production
+    /// against `git_hook_pool`'s concurrent commits to one package
+    /// silently dropping a commit.
+    fn run_git_retry_on_lock(&self, args: &[&str]) -> Result<String> {
+        const MAX_ATTEMPTS: usize = 6;
+        const BACKOFF: std::time::Duration = std::time::Duration::from_millis(50);
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            match self.run_git(args) {
+                Ok(out) => return Ok(out),
+                Err(e) => {
+                    let msg = e.to_string();
+                    let transient_lock =
+                        msg.contains("index.lock") || msg.contains("File exists");
+                    if transient_lock && attempt < MAX_ATTEMPTS {
+                        std::thread::sleep(BACKOFF);
+                        continue;
+                    }
+                    return Err(e);
+                }
+            }
+        }
     }
 }
 
