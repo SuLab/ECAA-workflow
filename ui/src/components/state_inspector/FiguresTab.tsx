@@ -144,8 +144,14 @@ export function FiguresPane({ sessionId, dag }: Props) {
         // task per cycle).
         if (id.startsWith('discover_') || id.startsWith('validate_')) return false
         const status = task.state?.status
+        // Probe only terminal states. A `running` task writes its
+        // figures/manifest.json at its render step (near completion), so
+        // polling it mid-run almost always 404s — that produced ~one 404
+        // per compute task per cycle (hundreds of console errors over a
+        // long execution). Figures still surface promptly: the manifest
+        // is fetched on the next poll cycle once the task flips to
+        // `completed`.
         return (
-          status === 'running' ||
           status === 'completed' ||
           status === 'blocked' ||
           status === 'failed'
