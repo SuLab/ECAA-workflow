@@ -1327,17 +1327,26 @@ def volcano(
     n_total = int(len(log_fc))
     ax.set_title(f"{title}\nn = {n_total} features")
 
-    # Up/down counts in the upper corners, axis-coords so they don't
-    # collide with points regardless of data range.
+    # Reserve headroom at the top so the top-N gene labels (placed near
+    # their points, which cluster at high −log10 p) don't collide with the
+    # up/down count annotations pinned in the upper corners.
+    _y0, _y1 = ax.get_ylim()
+    if np.isfinite(_y0) and np.isfinite(_y1) and _y1 > _y0:
+        ax.set_ylim(_y0, _y1 + 0.12 * (_y1 - _y0))
+    # Up/down counts in the upper corners, axis-coords so they don't collide
+    # with points regardless of data range. A white bbox + high z-order keeps
+    # them legible even if a gene label lands nearby.
+    _count_bbox = dict(boxstyle="round,pad=0.2", facecolor="white",
+                       edgecolor="none", alpha=0.85)
     ax.text(
-        0.99, 0.97, f"↑ {n_up}",
+        0.99, 0.98, f"↑ {n_up}",
         transform=ax.transAxes, ha="right", va="top",
-        color=sig_up, fontweight="bold",
+        color=sig_up, fontweight="bold", zorder=6, bbox=_count_bbox,
     )
     ax.text(
-        0.01, 0.97, f"↓ {n_down}",
+        0.01, 0.98, f"↓ {n_down}",
         transform=ax.transAxes, ha="left", va="top",
-        color=sig_down, fontweight="bold",
+        color=sig_down, fontweight="bold", zorder=6, bbox=_count_bbox,
     )
 
     if labels is not None and label_top_n > 0:
