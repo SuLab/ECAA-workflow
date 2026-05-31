@@ -173,67 +173,61 @@ pub async fn get_task_result(
     // policy has a `verifiableEntities` block, run claim verification
     // and attach the report. This is the reactive (GET-only) path — no
     // state mutation. The companion POST endpoint
-    // `/session/:id/task/:task_id/verify` is what flips the session to
-    // Blocked on mismatch.
+    // `/session/:id/task/:task_id/verify` and the on-completion re-verify
+    // hook are what flip the session to Blocked on mismatch.
     //
-    // Fast-path: a sibling agent writes
-    // `runtime/verification-reports/<task_id>.json` at emit time. When
-    // the sidecar is present we deserialize it directly; otherwise we
-    // fall back to live verification on the blocking pool so the async
-    // worker isn't tied up in regex + filesystem walks.
+    // The report is ALWAYS recomputed FROM SOURCE on the blocking pool
+    // (regex + bounded fs walk over the package's narrative + result
+    // tables). We deliberately never read back the emit-time
+    // `runtime/verification-reports/<task_id>.json` sidecar: the package
+    // tree is rw-mounted into the executing agent's container, so a
+    // misbehaving/adversarial agent could overwrite that sidecar with an
+    // all-clean report. Trusting it would defeat the anti-hallucination
+    // contract. The sidecar writer in `emit::verification_sidecar` is now
+    // dead weight that nothing reads back; a future optimization could
+    // HMAC-sign it with a server-held key and verify the signature here as
+    // a cache, but that is out of scope (and deleting the writer is a
+    // separate follow-up).
     let verification: serde_json::Value = match (&session.emitted_package_path, &task.state) {
         (Some(root), TaskState::Completed { .. }) => {
-            let sidecar = root
-                .join("runtime")
-                .join("verification-reports")
-                .join(format!("{}.json", task_id));
-            if let Ok(bytes) = tokio::fs::read(&sidecar).await {
-                serde_json::from_slice::<
-                    ecaa_workflow_core::claim_verifier::ClaimVerificationReport,
-                >(&bytes)
-                .ok()
-                .and_then(|r| serde_json::to_value(r).ok())
-                .unwrap_or(serde_json::Value::Null)
-            } else {
-                let config_dir = config_dir_or_default();
-                let project_class = session.project_class;
-                let decisions = session.decisions.clone();
-                let is_confirmatory = session.mode.is_confirmatory();
-                let root_clone = root.clone();
-                let task_id_clone = task_id.clone();
-                let outcome = tokio::task::spawn_blocking(move || {
-                    crate::verification::verify_task_with_context(
-                        &root_clone,
-                        &task_id_clone,
-                        &config_dir,
-                        project_class,
-                        &decisions,
-                        is_confirmatory,
-                    )
-                })
-                .await
-                .ok();
-                match outcome {
-                    Some(crate::verification::VerifyOutcome::Verified(v)) => {
-                        serde_json::to_value(v.report).unwrap_or(serde_json::Value::Null)
-                    }
-                    // Policy intentionally off / nothing to verify: benign null.
-                    Some(crate::verification::VerifyOutcome::Disabled) | None => {
-                        serde_json::Value::Null
-                    }
-                    // Policy absent/unreadable/malformed — a configuration
-                    // defect. Surface it explicitly rather than a silent null
-                    // so the UI / caller can tell "broken" from "disabled".
-                    // The load helper already logged a tracing::error!.
-                    Some(crate::verification::VerifyOutcome::Unavailable { reason }) => {
-                        tracing::error!(
-                            target: "verification",
-                            %task_id,
-                            %reason,
-                            "GET task-result: interpretation policy unavailable — verification not run"
-                        );
-                        serde_json::json!({ "policy_unavailable": reason })
-                    }
+            let config_dir = config_dir_or_default();
+            let project_class = session.project_class;
+            let decisions = session.decisions.clone();
+            let is_confirmatory = session.mode.is_confirmatory();
+            let root_clone = root.clone();
+            let task_id_clone = task_id.clone();
+            let outcome = tokio::task::spawn_blocking(move || {
+                crate::verification::verify_task_with_context(
+                    &root_clone,
+                    &task_id_clone,
+                    &config_dir,
+                    project_class,
+                    &decisions,
+                    is_confirmatory,
+                )
+            })
+            .await
+            .ok();
+            match outcome {
+                Some(crate::verification::VerifyOutcome::Verified(v)) => {
+                    serde_json::to_value(v.report).unwrap_or(serde_json::Value::Null)
+                }
+                // Policy intentionally off / nothing to verify: benign null.
+                Some(crate::verification::VerifyOutcome::Disabled) | None => {
+                    serde_json::Value::Null
+                }
+                // Policy absent/unreadable/malformed — a configuration
+                // defect. Surface it explicitly rather than a silent null
+                // so the UI / caller can tell "broken" from "disabled".
+                // The load helper already logged a tracing::error!.
+                Some(crate::verification::VerifyOutcome::Unavailable { reason }) => {
+                    tracing::error!(
+                        target: "verification",
+                        %task_id,
+                        %reason,
+                        "GET task-result: interpretation policy unavailable — verification not run"
+                    );
+                    serde_json::json!({ "policy_unavailable": reason })
                 }
             }
         }
@@ -1473,6 +1467,68 @@ mod tests {
         assert_eq!(agent_code["started_at"], "2026-05-22T10:00:00Z");
         assert_eq!(agent_code["completed_at"], "2026-05-22T10:05:00Z");
         assert_eq!(agent_code["language"], "unknown");
+        drop(pkg);
+    }
+
+    #[tokio::test]
+    async fn task_result_ignores_agent_authored_all_clean_sidecar() {
+        // The package tree is rw-mounted into the executing agent's
+        // container, so the agent can overwrite
+        // `runtime/verification-reports/<task_id>.json` with an all-clean
+        // report. The GET handler must NEVER read that sidecar back — it
+        // must recompute the verification FROM SOURCE (narrative + tables)
+        // so a real mismatch is surfaced regardless of what the agent wrote.
+        let pkg = tempfile::tempdir().unwrap();
+        let task_dir = pkg.path().join("runtime").join("t_interp");
+        std::fs::create_dir_all(&task_dir).unwrap();
+        std::fs::write(
+            task_dir.join("report.md"),
+            "ACAN was upregulated (log2FC=2.1, padj=0.001, Table S1).\n",
+        )
+        .unwrap();
+        let tables = pkg.path().join("results").join("tables");
+        std::fs::create_dir_all(&tables).unwrap();
+        std::fs::write(
+            tables.join("summary_s1.tsv"),
+            "gene\tlog2FC\tpadj\nACAN\t-1.2\t0.001\n",
+        )
+        .unwrap();
+        // Adversarial all-clean sidecar the agent wrote into the rw-mounted
+        // package. It must be ignored.
+        let reports = pkg.path().join("runtime").join("verification-reports");
+        std::fs::create_dir_all(&reports).unwrap();
+        std::fs::write(
+            reports.join("t_interp.json"),
+            serde_json::to_vec(
+                &ecaa_workflow_core::claim_verifier::ClaimVerificationReport::empty(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        std::env::set_var(
+            "ECAA_CONFIG_DIR",
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config"),
+        );
+
+        let (router, app) = make_router(vec![]).await;
+        let id =
+            seed_session_with_completed_task(&app, "t_interp", Some(pkg.path().to_path_buf()))
+                .await;
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/api/chat/session/{}/task/t_interp/result", id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = body_json(resp.into_body()).await;
+        // Recomputed from source: must reflect the real mismatch, NOT the
+        // all-clean sidecar (which reports n_checked=0, n_mismatch=0).
+        assert!(
+            body["verification"]["n_mismatch"].as_u64().unwrap_or(0) >= 1,
+            "GET must recompute from source, got {}",
+            body["verification"]
+        );
         drop(pkg);
     }
 

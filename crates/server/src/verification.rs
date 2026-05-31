@@ -181,6 +181,131 @@ pub fn verify_task_with_context(
     })
 }
 
+/// Transition the session to `Blocked { ValidationFailed }` when a freshly
+/// computed verification report contains ≥1 claim mismatch. Shared by the
+/// manual `POST /verify` endpoint and the on-completion re-verify hook so
+/// both drive identical state transitions and identical blocker payloads.
+///
+/// No-op when the report has no mismatch. The `block_from_harness` call is
+/// best-effort/idempotent: a session that is already `Blocked` (or no longer
+/// in an execution state) returns `Err`, which is the benign double-fire
+/// case — the earlier blocker stays surfaced.
+pub(crate) async fn block_on_mismatch(
+    app: &crate::chat_routes::ChatAppState,
+    session_id: uuid::Uuid,
+    task_id: &str,
+    report: &ClaimVerificationReport,
+) {
+    if !report.has_mismatch() {
+        return;
+    }
+    let first_mismatch = report
+        .verdicts
+        .iter()
+        .find(|v| {
+            matches!(
+                &v.status,
+                ecaa_workflow_core::claim_verifier::ClaimStatus::Mismatch { .. }
+            )
+        })
+        .map(|v| v.claim.entity.clone())
+        .unwrap_or_else(|| "unknown".into());
+    let detail = format!(
+        "{} claim mismatch(es) detected on completion of task {} (first: {})",
+        report.n_mismatch, task_id, first_mismatch
+    );
+    let kind = ecaa_workflow_core::blocker::BlockerKind::ValidationFailed {
+        check: format!("claim_verification:{}", task_id),
+        message: detail.clone(),
+        cause: None,
+    };
+    if let Err(e) = app
+        .conversation
+        .block_from_harness(session_id, task_id.to_string(), detail, kind)
+        .await
+    {
+        // Soft-fail: the session most likely isn't in an execution state
+        // anymore (already Blocked), which is the idempotent case.
+        tracing::debug!(
+            ?session_id,
+            %task_id,
+            error = %e,
+            "block_on_mismatch: block_from_harness no-op"
+        );
+    }
+}
+
+/// Re-run claim verification for a completed task FROM SOURCE and, on
+/// mismatch, transition the session to `Blocked { ValidationFailed }`.
+/// Shared by the manual `POST /verify` endpoint's completion hook so the
+/// agent-writable verification sidecar is never trusted: the report is
+/// always recomputed against the package's narrative + result tables.
+///
+/// Best-effort: returns the recomputed [`VerifyOutcome`] (`Verified` whether
+/// or not it found a mismatch), or `None` when the session/package is gone or
+/// the blocking-pool task panicked. The blocking work runs on
+/// `spawn_blocking` so the regex + bounded-fs walk never ties up an async
+/// worker, mirroring the GET handler's live-verify path.
+pub async fn reverify_and_block_on_mismatch(
+    app: &crate::chat_routes::ChatAppState,
+    session_id: uuid::Uuid,
+    task_id: &str,
+) -> Option<VerifyOutcome> {
+    let session = app.conversation.get_session(session_id).await?;
+    let root = session.emitted_package_path.clone()?;
+    let config_dir = crate::chat_routes::config_dir_or_default();
+    let project_class = session.project_class;
+    let decisions = session.decisions.clone();
+    let is_confirmatory = session.mode.is_confirmatory();
+    let root_c = root.clone();
+    let task_c = task_id.to_string();
+    let outcome = tokio::task::spawn_blocking(move || {
+        verify_task_with_context(
+            &root_c,
+            &task_c,
+            &config_dir,
+            project_class,
+            &decisions,
+            is_confirmatory,
+        )
+    })
+    .await
+    .ok()?;
+
+    match &outcome {
+        VerifyOutcome::Verified(v) => {
+            // Hallucination-proxy telemetry: accumulate claims-checked +
+            // mismatches into the session metrics so `claim_mismatch_rate`
+            // stays observable on the completion path, not just the manual
+            // POST /verify path. Best-effort.
+            app.conversation
+                .metrics()
+                .record_claim_verification(
+                    session_id,
+                    v.report.n_checked as u64,
+                    v.report.n_mismatch as u64,
+                )
+                .await;
+            block_on_mismatch(app, session_id, task_id, &v.report).await;
+        }
+        VerifyOutcome::Disabled => {}
+        VerifyOutcome::Unavailable { reason } => {
+            // A configuration defect on the completion path is just as loud
+            // as on the GET path: log it so a CWD/ECAA_CONFIG_DIR
+            // misconfiguration that silently disables verification fleet-wide
+            // is visible. The load helper already logged at error level too.
+            tracing::error!(
+                target: "verification",
+                ?session_id,
+                %task_id,
+                %reason,
+                "on-completion re-verify: interpretation policy unavailable — verification not run"
+            );
+        }
+    }
+    Some(outcome)
+}
+
 /// Load a task's structured claims from `result.json`'s `claims` array.
 /// Returns an empty vec when the file is missing, unparsable, or has no
 /// `claims` field — structured claims are optional, not an error.

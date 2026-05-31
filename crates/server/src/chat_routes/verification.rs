@@ -351,42 +351,14 @@ pub async fn verify_task_endpoint(
         .await;
 
     // On mismatch, block the session so the UI's BlockerCard surfaces
-    // the recovery affordances (amend_stage_method or rerun_task). Use
-    // the Validation variant of BlockerKind so the dispatch lands in
-    // the right UI branch.
+    // the recovery affordances (amend_stage_method or rerun_task). The
+    // block-on-mismatch transition is factored into
+    // `crate::verification::block_on_mismatch` so the manual POST /verify
+    // path and the on-completion re-verify hook drive identical state
+    // transitions + identical blocker payloads.
     if verified.report.has_mismatch() {
-        let first_mismatch = verified
-            .report
-            .verdicts
-            .iter()
-            .find(|v| {
-                matches!(
-                    &v.status,
-                    ecaa_workflow_core::claim_verifier::ClaimStatus::Mismatch { .. }
-                )
-            })
-            .map(|v| v.claim.entity.clone())
-            .unwrap_or_else(|| "unknown".into());
-        let detail = format!(
-            "{} claim mismatch(es) detected while verifying task {} (first: {})",
-            verified.report.n_mismatch, task_id, first_mismatch
-        );
-        let kind = ecaa_workflow_core::blocker::BlockerKind::ValidationFailed {
-            check: format!("claim_verification:{}", task_id),
-            message: detail.clone(),
-            cause: None,
-        };
-        if let Err(e) = app
-            .conversation
-            .block_from_harness(session_id, task_id.clone(), detail, kind)
-            .await
-        {
-            // Soft-fail: still return the report. Most likely cause is
-            // the session isn't in Emitted anymore (already Blocked),
-            // which is the idempotent case — the UI shows the report
-            // and the earlier blocker stays surfaced.
-            eprintln!("[verify_task_endpoint] block_from_harness no-op: {}", e);
-        } else if let Some(s) = app.conversation.get_session(session_id).await {
+        crate::verification::block_on_mismatch(&app, session_id, &task_id, &verified.report).await;
+        if let Some(s) = app.conversation.get_session(session_id).await {
             app.broadcast(
                 session_id,
                 SsePayload::StateAdvanced {

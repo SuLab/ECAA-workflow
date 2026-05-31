@@ -750,6 +750,33 @@ async fn handle_task_completed_extras(
         )
         .await;
     }
+    // Server-side claim re-verification on completion. Recompute FROM
+    // SOURCE — never trust the agent-rw `runtime/verification-reports/`
+    // sidecar — and transition the session to `Blocked { ValidationFailed }`
+    // on mismatch, exactly the transition the manual `POST /verify`
+    // endpoint performs. Awaited inline (not detached) so the completion
+    // POST observes the block deterministically: the verify is a bounded
+    // regex + fs walk (the same work the GET result handler runs today),
+    // so the added latency is small and the harness's terminal-event POST
+    // is the right place to make the anti-hallucination guarantee visible.
+    if !event.task_id.is_empty() {
+        let _ = crate::verification::reverify_and_block_on_mismatch(
+            app,
+            session_id,
+            &event.task_id,
+        )
+        .await;
+        if let Some(s) = app.conversation.get_session(session_id).await {
+            app.broadcast(
+                session_id,
+                SsePayload::StateAdvanced {
+                    new_state: s.state.clone(),
+                },
+            )
+            .await;
+        }
+    }
+
     // auto-fire the narrative
     // dashboard summary when the reporting stage completes. The
     // side-call module caches by source fingerprint, so re-entry
@@ -832,4 +859,96 @@ fn spawn_dashboard_summary(app: &ChatAppState, session_id: Uuid) {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::chat_routes::test_support::{make_router, seed_session_with_completed_task};
+
+    #[tokio::test]
+    async fn task_completed_with_claim_mismatch_blocks_session_server_side() {
+        // A `task_completed` progress POST must re-run claim verification
+        // FROM SOURCE (never trusting the agent-rw verification sidecar) and
+        // transition the session to Blocked { ValidationFailed } when the
+        // narrative contradicts the result tables.
+        let pkg = tempfile::tempdir().unwrap();
+        // Real package: narrative asserts UP, table says log2FC is negative →
+        // mismatch.
+        let task_dir = pkg.path().join("runtime").join("t_interp");
+        std::fs::create_dir_all(&task_dir).unwrap();
+        std::fs::write(
+            task_dir.join("report.md"),
+            "ACAN was upregulated (log2FC=2.1, padj=0.001, Table S1).\n",
+        )
+        .unwrap();
+        let tables = pkg.path().join("results").join("tables");
+        std::fs::create_dir_all(&tables).unwrap();
+        std::fs::write(
+            tables.join("summary_s1.tsv"),
+            "gene\tlog2FC\tpadj\nACAN\t-1.2\t0.001\n",
+        )
+        .unwrap();
+        // Agent-authored all-clean sidecar that must NOT be trusted.
+        let reports = pkg.path().join("runtime").join("verification-reports");
+        std::fs::create_dir_all(&reports).unwrap();
+        std::fs::write(
+            reports.join("t_interp.json"),
+            serde_json::to_vec(
+                &ecaa_workflow_core::claim_verifier::ClaimVerificationReport::empty(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        // Point the verifier at the repo's real config dir (has the default
+        // policy with `verifiableEntities`).
+        std::env::set_var(
+            "ECAA_CONFIG_DIR",
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config"),
+        );
+
+        let (router, app) = make_router(vec![]).await;
+        let id =
+            seed_session_with_completed_task(&app, "t_interp", Some(pkg.path().to_path_buf()))
+                .await;
+        // Move the session to Emitted so block_from_harness accepts the
+        // transition.
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Emitted;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/api/chat/session/{}/progress", id))
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "kind": "task_completed",
+                    "task_id": "t_interp",
+                    "status": "ok",
+                    "detail": "done"
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        let resp = tower::util::ServiceExt::oneshot(router, req).await.unwrap();
+        assert_eq!(resp.status(), axum::http::StatusCode::NO_CONTENT);
+
+        // Re-verification must have run FROM SOURCE (ignoring the all-clean
+        // sidecar) and blocked the session.
+        let sess = app.conversation.get_session(id).await.unwrap();
+        assert!(
+            matches!(
+                sess.state,
+                ecaa_workflow_conversation::SessionState::Blocked { .. }
+            ),
+            "expected ValidationFailed block from on-completion re-verify, got {:?}",
+            sess.state
+        );
+        drop(pkg);
+    }
 }
