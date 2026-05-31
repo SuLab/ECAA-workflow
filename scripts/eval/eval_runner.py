@@ -10,7 +10,6 @@ import argparse
 import os
 import sys
 import tempfile
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,7 +24,23 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = {"biomnibench": BiomniBench, "nekrutenko": Nekrutenko}
 
 
-def _run_one(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int):
+def _stage_inputs(pkg_dir: Path, inputs: dict[str, Path]) -> None:
+    """Copy each task input file into pkg_dir/inputs/ so the agent has data.
+
+    Missing source files are silently skipped so a partially-staged task still
+    runs (the agent will surface the missing file as an error, not a harness
+    crash).
+    """
+    import shutil
+    dest = pkg_dir / "inputs"
+    dest.mkdir(parents=True, exist_ok=True)
+    for _name, src in inputs.items():
+        if src.exists():
+            shutil.copy2(src, dest / src.name)
+
+
+def _run_one(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int,
+             error_matrix: bool = False):
     spec = plugin.build_run(task, arm, workdir)
     if spec.kind == "ecaa_package":
         intake = workdir / "intake.txt"
@@ -36,12 +51,31 @@ def _run_one(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int):
                         "-o", str(pkg), "--config", "config"],
                        cwd=str(REPO_ROOT), check=True)
         spec.package_dir = pkg
+        _stage_inputs(pkg, task.inputs)
         res = agent_runner.run_ecaa_package(pkg, max_iterations=max_iter)
         out = plugin.collect(spec, pkg)
     else:
         res = agent_runner.run_bare(workdir, spec.instruction)
         out = plugin.collect(spec, workdir)
     out.exit_ok, out.wall_secs = res.exit_ok, res.wall_secs
+
+    if error_matrix:
+        # Inject a real run_fn closure so the plugin can re-run the arm under
+        # each PATH-shim without knowing which arm is active.
+        def _live_run_fn(cell_workdir, env):
+            if spec.kind == "ecaa_package":
+                r = agent_runner.run_ecaa_package(spec.package_dir,
+                                                  max_iterations=max_iter,
+                                                  env=env)
+            else:
+                r = agent_runner.run_bare(cell_workdir, spec.instruction,
+                                          env=env)
+            return r
+
+        cells = plugin.error_matrix(task, arm, workdir, _live_run_fn)
+        if cells is not None:
+            out.artifacts["error_cells"] = cells
+
     return plugin.score(task, arm, out, trial)
 
 
@@ -52,6 +86,9 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--arms", default="ecaa,claude-direct")
     ap.add_argument("--trials", type=int, default=3)
     ap.add_argument("--max-iterations", type=int, default=20)
+    ap.add_argument("--error-matrix", action="store_true",
+                    help="Run the 36-cell PATH-shim fault-injection matrix "
+                         "(Nekrutenko only; ignored by other plugins).")
     args = ap.parse_args(argv)
 
     if os.environ.get("ECAA_EVAL_LIVE") != "1":
@@ -72,7 +109,9 @@ def main(argv: list[str]) -> int:
             for arm in arms:
                 for trial in range(trials):
                     wd = base / f"{task.task_id}-{arm.value}-{trial}"
-                    scores.append(_run_one(plugin, task, arm, trial, wd, args.max_iterations))
+                    scores.append(_run_one(plugin, task, arm, trial, wd,
+                                           args.max_iterations,
+                                           error_matrix=args.error_matrix))
 
     card = plugin.report(scores)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

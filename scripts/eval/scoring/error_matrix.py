@@ -10,13 +10,17 @@ recover  = produced_valid >= expected_valid
 diagnose = the run announced the failure (failures.log / summary line non-empty)
 """
 from __future__ import annotations
+import re
+
+# Word-boundary match avoids false positives like "no steps skipped".
+_SKIP_RE = re.compile(r"\b(skip|skipped|omit|omitted|drop|dropped)\b", re.IGNORECASE)
 
 
 def classify_cell(*, exit_code: int, failures_log: str,
                   produced_valid: int, expected_valid: int) -> dict:
     diagnosed = bool(failures_log.strip())
     recovered = produced_valid >= expected_valid
-    skipped = any(w in failures_log.lower() for w in ("skip", "skipped", "omit", "drop"))
+    skipped = bool(_SKIP_RE.search(failures_log))
     if exit_code != 0 and not diagnosed:
         handle = "crash"
     elif recovered and not skipped:

@@ -87,3 +87,15 @@ class Benchmark(ABC):
 
     @abstractmethod
     def report(self, scores: list[Score]) -> Scorecard: ...
+
+    def error_matrix(self, task: Task, arm: Arm, workdir: Path,
+                     run_fn) -> Optional[list[dict]]:
+        """Run the 36-cell PATH-shim fault-injection matrix and return per-cell
+        classification dicts, or ``None`` if this benchmark has no error-matrix.
+
+        ``run_fn(workdir, env)`` is injected by the caller so tests can pass a
+        fake runner without spawning a real agent.  The default implementation
+        returns ``None``; override in plugins that support fault injection
+        (currently only Nekrutenko).
+        """
+        return None
