@@ -20,3 +20,4 @@ ecaa-workflow-types = { version = "0.1", path = "../ecaa-types" }
 strum = { workspace = true }
 pulldown-cmark = { version = "0.10", default-features = false }
 regex = "1"
+serial_test = "3"
