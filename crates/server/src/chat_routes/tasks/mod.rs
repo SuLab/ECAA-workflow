@@ -221,6 +221,11 @@ pub(super) fn empty_log_response() -> axum::response::Response {
 
 #[cfg(test)]
 mod config_dir_tests {
+    // Workspace lint is `unsafe_code = "deny"`; the env-mutating helpers below
+    // use `unsafe { std::env::set_var / remove_var }` (unsafe under the pinned
+    // toolchain), serialized by ENV_LOCK. Mirrors the established pattern in
+    // `read_only.rs`.
+    #![allow(unsafe_code)]
     use super::*;
     use std::path::Path;
     use std::sync::Mutex;
