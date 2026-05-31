@@ -1,6 +1,5 @@
 use anyhow::Result;
 use colored::Colorize;
-use rustyline::DefaultEditor;
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::builder::{
@@ -12,6 +11,7 @@ use ecaa_workflow_core::dag::{dag_to_dot, Task, TaskKind, TaskState, DAG};
 use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use ecaa_workflow_core::taxonomy::StageTaxonomy;
+use rustyline::DefaultEditor;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -89,9 +89,9 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                         compute_profiles_dir.as_deref().filter(|p| p.exists());
                     let intake_facts =
                         ecaa_workflow_core::intake_facts::IntakeFacts::from_classification(&clf);
-                    let runtime_prereqs = current_taxonomy.as_ref().map(|t| {
-                        ecaa_workflow_core::runtime_prereqs::aggregate_taxonomy(t, &[])
-                    });
+                    let runtime_prereqs = current_taxonomy
+                        .as_ref()
+                        .map(|t| ecaa_workflow_core::runtime_prereqs::aggregate_taxonomy(t, &[]));
                     // Per-atom runtime-prereqs map. The harness reads
                     // `policies/atom-prereqs/<atom_id>.json` per task
                     // under ECAA_PER_TASK_IMAGES (default on); a missing
@@ -258,8 +258,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                 // SME sees the revised confidence rather than a silent loop.
                 conversation.push_str(&format!("\n{}", line));
                 let new_clf = classifier.classify(&conversation);
-                if new_clf.confidence
-                    >= ecaa_workflow_core::classify_gates::CONFIDENCE_GATE_MEDIUM
+                if new_clf.confidence >= ecaa_workflow_core::classify_gates::CONFIDENCE_GATE_MEDIUM
                     && !new_clf.modality.is_empty()
                     && new_clf.modality != "generic_omics"
                 {

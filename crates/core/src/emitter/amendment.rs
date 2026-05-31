@@ -247,7 +247,10 @@ mod tests {
         let mut meta = serde_json::json!({"@graph": [{"@id": "./", "@type": "Dataset"}]});
         patch_ro_crate_with_amendment(&mut meta, &amend_ctx(), &parent_link());
         let rendered = serde_json::to_string(&meta).unwrap();
-        assert!(!rendered.contains("/home/"), "leaked absolute path: {rendered}");
+        assert!(
+            !rendered.contains("/home/"),
+            "leaked absolute path: {rendered}"
+        );
         assert!(rendered.contains("wf-parent-1234"));
     }
     #[test]
@@ -255,7 +258,10 @@ mod tests {
         let mut meta = serde_json::json!({"@graph": [{"@id": "./", "@type": "Dataset"}]});
         patch_ro_crate_with_branch(&mut meta, &parent_link());
         let rendered = serde_json::to_string(&meta).unwrap();
-        assert!(!rendered.contains("/home/"), "leaked absolute path: {rendered}");
+        assert!(
+            !rendered.contains("/home/"),
+            "leaked absolute path: {rendered}"
+        );
         assert!(rendered.contains("wf-parent-1234"));
     }
     #[test]

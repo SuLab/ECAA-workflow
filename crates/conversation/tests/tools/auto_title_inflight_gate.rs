@@ -24,9 +24,7 @@
 use async_trait::async_trait;
 use ecaa_workflow_conversation::anthropic::{LlmBackend, TurnRequest, TurnResponse, Usage};
 use ecaa_workflow_conversation::model_policy::ModelId;
-use ecaa_workflow_conversation::{
-    ConversationService, SessionId, SessionStore, StopReason, Tool,
-};
+use ecaa_workflow_conversation::{ConversationService, SessionId, SessionStore, StopReason, Tool};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

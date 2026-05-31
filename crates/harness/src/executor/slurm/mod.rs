@@ -28,9 +28,9 @@ use crate::constants::{
     SLURM_DEFAULT_TIME_LIMIT, SLURM_MAX_QUEUE_WAIT_SECS_DEFAULT, SLURM_POLL_INTERVAL_SECS_DEFAULT,
 };
 use anyhow::{anyhow, Context, Result};
-use parking_lot::Mutex;
 use ecaa_workflow_core::dag::{Task, TaskState, DAG};
 use ecaa_workflow_core::remediation::{ExecutorOverrides, ResourceTarget};
+use parking_lot::Mutex;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -599,8 +599,7 @@ fn apply_overrides_to_spec(spec: &mut SbatchSpec, ov: &ExecutorOverrides) {
         // `foo,LD_PRELOAD=/tmp/x.so`) or injects directives. Refuse
         // anything outside `^[A-Z_][A-Z0-9_]*$` after normalization,
         // and refuse values containing `\n` / `\r` / `,` / `=` / `\0`.
-        let Some(suffix) = ecaa_workflow_core::env_validator::sanitize_lib_env_suffix(lib)
-        else {
+        let Some(suffix) = ecaa_workflow_core::env_validator::sanitize_lib_env_suffix(lib) else {
             tracing::warn!(
                 library = %lib,
                 "rejecting invalid library name in SLURM export (C-9 hardening)"
@@ -826,8 +825,7 @@ impl Executor for SlurmExecutor {
     // on the SLURM apptainer pull path — but it is honored on the
     // local docker login path via `registry_login_if_configured`).
     fn capabilities(&self) -> super::ExecutorCapabilities {
-        let sandbox = if ecaa_workflow_core::env_helpers::env_bool("ECAA_SLURM_NATIVE_CONTAINER")
-        {
+        let sandbox = if ecaa_workflow_core::env_helpers::env_bool("ECAA_SLURM_NATIVE_CONTAINER") {
             ecaa_workflow_core::atom::SandboxRequirement::ProcessIsolation
         } else {
             ecaa_workflow_core::atom::SandboxRequirement::None

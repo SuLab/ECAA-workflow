@@ -27,8 +27,8 @@ fn schema(filename: &str) -> JSONSchema {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../docs/ecaa-spec/subgraph-schemas")
         .join(filename);
-    let raw = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
+    let raw =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
     let value: Value = serde_json::from_str(&raw).expect("schema parses");
     JSONSchema::compile(&value).expect("schema compiles")
 }
@@ -86,8 +86,14 @@ fn intent_projection_has_required_node_types() {
         .filter_map(|n| n.get("type").and_then(Value::as_str))
         .collect();
     // §5.1 cardinality: ≥1 Question, exactly one Modality, ≥1 ExpectedOutput.
-    assert!(types.contains(&"Question"), "I must have a Question; got {types:?}");
-    assert!(types.contains(&"Modality"), "I must have a Modality; got {types:?}");
+    assert!(
+        types.contains(&"Question"),
+        "I must have a Question; got {types:?}"
+    );
+    assert!(
+        types.contains(&"Modality"),
+        "I must have a Modality; got {types:?}"
+    );
     assert!(
         types.contains(&"ExpectedOutput"),
         "I must have an ExpectedOutput; got {types:?}"
@@ -101,7 +107,8 @@ fn execution_projection_emits_workflow_step() {
     // The minimal fixture's proofs.jsonl carries one EdgeContract
     // (input_fastq → task_qc_001), which projects to a WorkflowStep node.
     assert!(
-        e.iter().any(|n| n.get("type").and_then(Value::as_str) == Some("WorkflowStep")),
+        e.iter()
+            .any(|n| n.get("type").and_then(Value::as_str) == Some("WorkflowStep")),
         "E projection must contain a WorkflowStep; got {e:?}"
     );
 }

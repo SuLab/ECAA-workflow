@@ -1510,9 +1510,8 @@ mod tests {
         );
 
         let (router, app) = make_router(vec![]).await;
-        let id =
-            seed_session_with_completed_task(&app, "t_interp", Some(pkg.path().to_path_buf()))
-                .await;
+        let id = seed_session_with_completed_task(&app, "t_interp", Some(pkg.path().to_path_buf()))
+            .await;
         let req = Request::builder()
             .method("GET")
             .uri(format!("/api/chat/session/{}/task/t_interp/result", id))

@@ -203,16 +203,15 @@ pub async fn run() {
         .ok()
         .as_deref()
         == Some("1");
-    let _store_lock = match chat_routes::ServerSessionStoreLock::acquire(
-        &session_store_dir,
-        allow_multi_process,
-    ) {
-        Ok(g) => g,
-        Err(e) => {
-            eprintln!("FATAL: {}", e);
-            std::process::exit(2);
-        }
-    };
+    let _store_lock =
+        match chat_routes::ServerSessionStoreLock::acquire(&session_store_dir, allow_multi_process)
+        {
+            Ok(g) => g,
+            Err(e) => {
+                eprintln!("FATAL: {}", e);
+                std::process::exit(2);
+            }
+        };
 
     let addr = resolve_bind_addr(port);
     let is_lan_bind = addr.starts_with("0.0.0.0") || addr.starts_with("[::]");

@@ -51,10 +51,9 @@ async fn boot_session() -> Session {
 /// wall-clock or the random tempdir name.
 fn normalize(raw: &str, output_dir: &Path) -> String {
     // ISO-8601 datetimes: 2026-05-29T12:34:56(.789)?(Z|+00:00)
-    let ts = regex::Regex::new(
-        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?",
-    )
-    .unwrap();
+    let ts =
+        regex::Regex::new(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?")
+            .unwrap();
     // `uuid_short()` workflow id — the one intentional random field in the
     // graph (allowed by the determinism contract). Normalize so it doesn't
     // mask a real content diff.

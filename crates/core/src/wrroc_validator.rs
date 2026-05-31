@@ -205,7 +205,9 @@ mod tests {
     fn noop_validator_outcome_is_unverified_not_pass() {
         let p = PathBuf::from("/tmp/pkg-a");
         // The legacy report shape still reports zero failures…
-        let report = NoopWrrocValidator.validate_packages(&[p.as_path()]).unwrap();
+        let report = NoopWrrocValidator
+            .validate_packages(&[p.as_path()])
+            .unwrap();
         assert_eq!(report.summary.failed, 0);
         // …but the three-valued outcome must NOT claim a pass, because no
         // real WRROC conformance check was performed.
@@ -285,6 +287,9 @@ mod tests {
     #[test]
     fn default_outcome_maps_clean_report_to_pass() {
         let p = PathBuf::from("/tmp/pkg-a");
-        assert_eq!(CleanStub.validate_outcome(&[p.as_path()]), WrrocOutcome::Pass);
+        assert_eq!(
+            CleanStub.validate_outcome(&[p.as_path()]),
+            WrrocOutcome::Pass
+        );
     }
 }

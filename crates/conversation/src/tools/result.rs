@@ -57,8 +57,9 @@ pub(super) fn get_session_state(session: &Session) -> ToolResult {
     // re-proposed already-handled capabilities under fresh slugs. Each
     // entry carries the node_id, lifecycle kind, and intent so the model
     // can match on the capability, not just the name.
-    let mut proposals_summary: Vec<&ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal> =
-        session.proposals.values().collect();
+    let mut proposals_summary: Vec<
+        &ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal,
+    > = session.proposals.values().collect();
     proposals_summary.sort_by(|a, b| {
         a.created_at
             .cmp(&b.created_at)
@@ -406,9 +407,7 @@ mod tests {
     #[test]
     fn get_session_state_exposes_proposals_for_dedup() {
         use crate::session::Session;
-        use ecaa_workflow_core::hypothesized_proposal::{
-            HypothesizedProposal, ProposalLifecycle,
-        };
+        use ecaa_workflow_core::hypothesized_proposal::{HypothesizedProposal, ProposalLifecycle};
 
         let mut s = Session::new(false);
         let mut p = HypothesizedProposal::new(
@@ -430,7 +429,11 @@ mod tests {
         let proposals = out.content["proposals"]
             .as_array()
             .expect("get_session_state must expose a proposals array");
-        assert_eq!(proposals.len(), 1, "promoted proposal must be visible to the LLM");
+        assert_eq!(
+            proposals.len(),
+            1,
+            "promoted proposal must be visible to the LLM"
+        );
         assert_eq!(proposals[0]["node_id"], "hic_cell_line_comparison");
         assert_eq!(proposals[0]["lifecycle"], "promoted");
         assert!(proposals[0]["intent"]

@@ -21,10 +21,10 @@
 //!    carry the alone-in-turn sentinel reason.
 //!
 
-use proptest::prelude::*;
 use ecaa_workflow_conversation::{
     dispatch_batch, BatchableTool, HighImpactTool, Session, Tool, ToolContext,
 };
+use proptest::prelude::*;
 use std::path::PathBuf;
 use uuid::Uuid;
 

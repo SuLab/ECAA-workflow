@@ -631,9 +631,7 @@ pub struct ExecutionStatusResponse {
 /// Map a `SessionState` variant to its canonical string discriminant.
 /// Used by callers that need a stable string key without depending on
 /// serde's tag representation.
-pub(crate) fn session_state_kind(
-    state: &ecaa_workflow_conversation::SessionState,
-) -> &'static str {
+pub(crate) fn session_state_kind(state: &ecaa_workflow_conversation::SessionState) -> &'static str {
     use ecaa_workflow_conversation::SessionState as S;
     match state {
         S::Greeting => "greeting",

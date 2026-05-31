@@ -102,10 +102,10 @@ impl ArchetypeRegistry {
             let archetype = if slots_path.exists() {
                 let slots_raw = std::fs::read_to_string(&slots_path)
                     .with_context(|| format!("reading slot sidecar {}", slots_path.display()))?;
-                let slots: crate::archetype_slots::SlotManifest = serde_yaml_ng::from_str(&slots_raw)
-                    .with_context(|| {
-                    format!("parsing slot sidecar {}", slots_path.display())
-                })?;
+                let slots: crate::archetype_slots::SlotManifest =
+                    serde_yaml_ng::from_str(&slots_raw).with_context(|| {
+                        format!("parsing slot sidecar {}", slots_path.display())
+                    })?;
                 ArchetypeDefinition {
                     slots: Some(slots),
                     ..archetype

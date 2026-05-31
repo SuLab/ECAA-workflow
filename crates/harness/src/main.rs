@@ -7,7 +7,6 @@ mod progress_client;
 use anyhow::{Context, Result};
 use clap::Parser;
 use colored::Colorize;
-use progress_client::ProgressClient;
 use ecaa_workflow_core::clock::{Clock, WallClock};
 use ecaa_workflow_core::dag::{TaskId, TaskState, DAG};
 use ecaa_workflow_harness::dag_patch::{
@@ -18,9 +17,8 @@ use ecaa_workflow_harness::dispatch_wal::{
     recover_orphaned_dispatches_with_denylist, truncate_wal, AlwaysDeadProbe, DispatchRecord,
     HeartbeatLivenessProbe, LivenessProbe,
 };
-use ecaa_workflow_harness::executor::hardware_envelope::{
-    render_envelope, HardwareEnvelopeInputs,
-};
+use ecaa_workflow_harness::ecaa_io::{read_bytes_capped, read_capped, resolve_max_bytes};
+use ecaa_workflow_harness::executor::hardware_envelope::{render_envelope, HardwareEnvelopeInputs};
 use ecaa_workflow_harness::executor::host_probe::{
     allocate_for_picks, resolve_high_water_for, OverheadPolicy,
 };
@@ -38,8 +36,8 @@ use ecaa_workflow_harness::scheduler::{
 use ecaa_workflow_harness::scratch_cleanup::cleanup_task_scratch;
 use ecaa_workflow_harness::sme_skip;
 use ecaa_workflow_harness::stall_relay;
-use ecaa_workflow_harness::ecaa_io::{read_bytes_capped, read_capped, resolve_max_bytes};
 use ecaa_workflow_harness::watchdog::{Watchdog, WatchdogConfig, WatchdogEvent};
+use progress_client::ProgressClient;
 use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -1675,8 +1673,7 @@ fn run_loop(
     // (re-)dispatched this iteration are observed, so a live long-running
     // agent (skipped by the orphan-recovery is_live probe) is never
     // charged. See `dispatch_guard`.
-    let mut noprogress_guard =
-        ecaa_workflow_harness::dispatch_guard::NoProgressGuard::from_env();
+    let mut noprogress_guard = ecaa_workflow_harness::dispatch_guard::NoProgressGuard::from_env();
     // Terminal-state scratch cleanup needs to
     // fire exactly once per task per failure transition. The existing
     // `is_failed` event-emit branch below is guarded by
@@ -2249,17 +2246,17 @@ fn run_loop(
             // so refuse to dispatch ANY task — not just transitively-
             // dependent ones. Otherwise an unreachable-server window
             // would still spawn agents whose POSTs immediately 404.
-            let raw_picks: Vec<ecaa_workflow_core::ids::TaskId> =
-                if dispatch_gate_failed_this_iter {
-                    Vec::new()
-                } else if session_pausing {
-                    raw_picks
-                        .into_iter()
-                        .filter(|id| !pause_excluded.contains(id.as_str()))
-                        .collect()
-                } else {
-                    raw_picks
-                };
+            let raw_picks: Vec<ecaa_workflow_core::ids::TaskId> = if dispatch_gate_failed_this_iter
+            {
+                Vec::new()
+            } else if session_pausing {
+                raw_picks
+                    .into_iter()
+                    .filter(|id| !pause_excluded.contains(id.as_str()))
+                    .collect()
+            } else {
+                raw_picks
+            };
             let confirmed_stages = read_confirmed_review_stages(path);
             let picks_pre_sandbox: Vec<String> =
                 filter_picks_respecting_sme_gate(&dag_mut, raw_picks, &confirmed_stages)
@@ -2314,8 +2311,8 @@ fn run_loop(
             //   sme_review_required — in budget picks but filtered by SME gate
             //   slot_exhausted     — Ready but not reached by budget picker
             {
-                use picker_decisions::{append_picker_decisions, PickerDecisionRecord};
                 use ecaa_workflow_core::blocker::BlockerKind;
+                use picker_decisions::{append_picker_decisions, PickerDecisionRecord};
 
                 let now_ts = chrono::Utc::now().to_rfc3339();
                 // Re-run the budget picker (pure read over in-memory dag;
@@ -5674,9 +5671,7 @@ mod settle_tests {
     //! re-iterating. These tests cover the predicate + helpers; the
     //! full sleep wiring is exercised by the integration smoke runs.
     use super::*;
-    use ecaa_workflow_core::dag::{
-        Assignee, BlockedRecord, ResourceClass, Task, TaskId, TaskKind,
-    };
+    use ecaa_workflow_core::dag::{Assignee, BlockedRecord, ResourceClass, Task, TaskId, TaskKind};
     use std::collections::BTreeMap;
 
     fn task(id: &str, state: TaskState) -> (TaskId, Task) {

@@ -20,8 +20,8 @@
 //! `impl Session` blocks across files in the same crate).
 
 use chrono::Utc;
-use rand::RngCore;
 use ecaa_workflow_core::builder::IntakeMethods;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

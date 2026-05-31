@@ -291,25 +291,24 @@ mod tests {
                 }
                 s.conversation = std::sync::Arc::new(turns);
                 if with_classification {
-                    s.classification =
-                        Some(ecaa_workflow_core::classify::ClassificationResult {
-                            modality: "single_cell_rnaseq".into(),
-                            taxonomy_path: String::new(),
-                            domain: String::new(),
-                            workflow_description: String::new(),
-                            edam_topic: String::new(),
-                            edam_operation: String::new(),
-                            confidence: 0.9,
-                            confidence_label: "high".into(),
-                            organisms: vec![],
-                            methods_specified: vec![],
-                            data_sources: vec![],
-                            intake_text: String::new(),
-                            goal: None,
-                            archetype_id: None,
-                            additional_modalities: vec![],
-                            tie_candidates: vec![],
-                        });
+                    s.classification = Some(ecaa_workflow_core::classify::ClassificationResult {
+                        modality: "single_cell_rnaseq".into(),
+                        taxonomy_path: String::new(),
+                        domain: String::new(),
+                        workflow_description: String::new(),
+                        edam_topic: String::new(),
+                        edam_operation: String::new(),
+                        confidence: 0.9,
+                        confidence_label: "high".into(),
+                        organisms: vec![],
+                        methods_specified: vec![],
+                        data_sources: vec![],
+                        intake_text: String::new(),
+                        goal: None,
+                        archetype_id: None,
+                        additional_modalities: vec![],
+                        tie_candidates: vec![],
+                    });
                 }
                 Ok(())
             })

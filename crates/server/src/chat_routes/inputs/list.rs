@@ -75,10 +75,7 @@ pub(super) fn allowlisted_roots(owner_user: &str) -> Vec<PathBuf> {
 }
 
 pub(super) fn max_file_bytes() -> u64 {
-    ecaa_workflow_core::env_helpers::env_parse(
-        "ECAA_INPUT_MAX_FILE_BYTES",
-        DEFAULT_MAX_FILE_BYTES,
-    )
+    ecaa_workflow_core::env_helpers::env_parse("ECAA_INPUT_MAX_FILE_BYTES", DEFAULT_MAX_FILE_BYTES)
 }
 
 pub(super) fn max_total_bytes() -> u64 {

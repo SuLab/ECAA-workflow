@@ -311,9 +311,7 @@ fn read_mode() -> ValidationMode {
         }
     };
     let mode = if read_conformance_mode() && matches!(mode, ValidationMode::Disabled) {
-        tracing::info!(
-            "[ecaa-validation] ECAA_CONFORMANCE_MODE upgrades Disabled -> SchemaOnly"
-        );
+        tracing::info!("[ecaa-validation] ECAA_CONFORMANCE_MODE upgrades Disabled -> SchemaOnly");
         ValidationMode::SchemaOnly
     } else {
         mode

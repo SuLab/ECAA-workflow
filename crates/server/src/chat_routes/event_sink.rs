@@ -130,11 +130,7 @@ impl ServiceEventSink for BroadcastEventSink {
         self.fanout(id, SsePayload::AssistantTokenDelta { text: text.into() });
     }
 
-    fn state_advanced(
-        &self,
-        id: SessionId,
-        new_state: &ecaa_workflow_conversation::SessionState,
-    ) {
+    fn state_advanced(&self, id: SessionId, new_state: &ecaa_workflow_conversation::SessionState) {
         self.fanout(
             id,
             SsePayload::StateAdvanced {

@@ -131,8 +131,13 @@ mod tests {
         assert_eq!(g.observe("t", false), None, "dispatch 1");
         assert_eq!(g.observe("t", false), None, "dispatch 2");
         let fired = g.observe("t", false);
-        assert!(fired.is_some(), "dispatch 3 must trip the guard at budget=3");
-        assert!(fired.unwrap().contains("without writing a terminal state patch"));
+        assert!(
+            fired.is_some(),
+            "dispatch 3 must trip the guard at budget=3"
+        );
+        assert!(fired
+            .unwrap()
+            .contains("without writing a terminal state patch"));
     }
 
     #[test]

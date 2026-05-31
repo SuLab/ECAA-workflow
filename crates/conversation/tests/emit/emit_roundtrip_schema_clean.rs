@@ -34,10 +34,10 @@
 //! it as the empty array — that is the correct ECAA "no rows yet" state
 //! at emit-time and validates cleanly against the spec's `type: array`.
 
-use jsonschema::JSONSchema;
 use ecaa_workflow_conversation::emit::emit_with_conversation_log;
 use ecaa_workflow_conversation::session::Session;
 use ecaa_workflow_conversation::tools::{dispatch_one, BatchableTool, Tool, ToolContext};
+use jsonschema::JSONSchema;
 use serde_json::Value;
 use serial_test::serial;
 use std::path::{Path, PathBuf};

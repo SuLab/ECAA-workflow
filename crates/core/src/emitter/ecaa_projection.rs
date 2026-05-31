@@ -287,8 +287,7 @@ impl SpecEdge {
 fn is_prefix_tagged(id: &str) -> bool {
     match id.split_once(':') {
         Some((letter, rest)) => {
-            !rest.is_empty()
-                && matches!(letter, "I" | "D" | "E" | "V" | "C" | "Q" | "F" | "A")
+            !rest.is_empty() && matches!(letter, "I" | "D" | "E" | "V" | "C" | "Q" | "F" | "A")
         }
         None => false,
     }
@@ -385,11 +384,7 @@ impl ProjectToSpec for crate::workflow_contracts::evidence::Assumption {
         // serializes to an object `{"kind": "..."}`; lift the tag string.
         let resolution = serde_json::to_value(&self.resolution)
             .ok()
-            .and_then(|v| {
-                v.get("kind")
-                    .and_then(Value::as_str)
-                    .map(str::to_string)
-            });
+            .and_then(|v| v.get("kind").and_then(Value::as_str).map(str::to_string));
         let mut node = SpecNode::new(&self.id, SpecNodeType::Blocker)
             .with_prop("statement", Value::String(self.statement.clone()));
         if let Some(r) = resolution {
@@ -623,7 +618,10 @@ fn project_audit_proof_subgraph(report: &Value) -> Vec<Value> {
         } else {
             invariant_id.to_string()
         };
-        let status = v.get("status").and_then(Value::as_str).unwrap_or("unverified");
+        let status = v
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("unverified");
         let node = SpecNode::new(&id, SpecNodeType::InvariantVerdict)
             .with_prop("invariant_id", json!(invariant_id))
             .with_prop("verdict", json!(status));
@@ -653,10 +651,9 @@ pub fn project_subgraph(letter: char, pkg: &LoadedPackage) -> Vec<Value> {
             .map(|n| n.to_value('I'))
             .collect(),
         'D' => project_typed_jsonl::<crate::decision_log::DecisionRecord>(&pkg.decisions, 'D'),
-        'E' => project_typed_jsonl::<crate::workflow_contracts::edge::EdgeContract>(
-            &pkg.proofs,
-            'E',
-        ),
+        'E' => {
+            project_typed_jsonl::<crate::workflow_contracts::edge::EdgeContract>(&pkg.proofs, 'E')
+        }
         'V' => project_evidence_subgraph(pkg),
         'C' => project_claim_subgraph(pkg),
         'Q' => pkg
@@ -773,7 +770,10 @@ mod tests {
     fn node_type_enum_matches_consts() {
         let wire: Vec<&str> = ALL_NODE_TYPES.iter().map(|n| n.as_str()).collect();
         let expected: Vec<&str> = NODE_TYPES.to_vec();
-        assert_eq!(wire, expected, "SpecNodeType drifted from consts::NODE_TYPES");
+        assert_eq!(
+            wire, expected,
+            "SpecNodeType drifted from consts::NODE_TYPES"
+        );
     }
 
     #[test]
@@ -804,7 +804,11 @@ mod tests {
 
         let cross = SpecEdge::new("c", "V:fig_1", SpecPredicate::SupportedBy).to_value('C');
         assert_eq!(cross["source_id"], json!("C:c"));
-        assert_eq!(cross["target_id"], json!("V:fig_1"), "already-tagged target kept");
+        assert_eq!(
+            cross["target_id"],
+            json!("V:fig_1"),
+            "already-tagged target kept"
+        );
     }
 
     #[test]

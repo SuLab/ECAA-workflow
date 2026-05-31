@@ -4,10 +4,8 @@
 
 use anyhow::{Context, Result};
 use colored::Colorize;
+use ecaa_workflow_conversation::{AnthropicClient, ConversationService, LlmBackend, SessionStore};
 use rustyline::DefaultEditor;
-use ecaa_workflow_conversation::{
-    AnthropicClient, ConversationService, LlmBackend, SessionStore,
-};
 use std::path::PathBuf;
 use std::sync::Arc;
 

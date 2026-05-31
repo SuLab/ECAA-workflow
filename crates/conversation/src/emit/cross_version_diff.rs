@@ -56,12 +56,9 @@ pub(super) async fn write_cross_version_diff(
         ecaa_workflow_core::cross_version_diff::CrossVersionConfig::from_policy(&policy_json);
 
     // 3. Run the diff (sync, pure Rust).
-    let report = ecaa_workflow_core::cross_version_diff::diff_packages(
-        &parent_path,
-        output_dir,
-        &diff_cfg,
-    )
-    .context("cross_version_diff::diff_packages")?;
+    let report =
+        ecaa_workflow_core::cross_version_diff::diff_packages(&parent_path, output_dir, &diff_cfg)
+            .context("cross_version_diff::diff_packages")?;
 
     // 4. Write the JSON report + per-table CSVs.
     let runtime = output_dir.join("runtime");

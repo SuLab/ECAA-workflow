@@ -6,10 +6,8 @@
 //! contributor splices a string into `pkg.join(...)` without the
 //! helper.
 
+use ecaa_workflow_server::chat_routes::{assert_under_root, safe_relative_join, safe_segment_join};
 use proptest::prelude::*;
-use ecaa_workflow_server::chat_routes::{
-    assert_under_root, safe_relative_join, safe_segment_join,
-};
 use std::path::{Path, PathBuf};
 
 proptest! {

@@ -297,7 +297,10 @@ impl FakeSshSession {
         outcome: SshOutcome,
     ) {
         let key = rsync_key(direction, local, remote);
-        self.responses.lock().unwrap_or_else(|p| p.into_inner()).insert(key, outcome);
+        self.responses
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(key, outcome);
     }
 
     pub fn calls(&self) -> Vec<String> {
@@ -319,7 +322,10 @@ fn rsync_key(direction: RsyncDirection, local: &str, remote: &str) -> String {
 
 impl SshSession for FakeSshSession {
     fn run(&self, command: &str) -> Result<SshOutcome> {
-        self.calls.lock().unwrap_or_else(|p| p.into_inner()).push(command.to_string());
+        self.calls
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(command.to_string());
         let responses = self.responses.lock().unwrap_or_else(|p| p.into_inner());
         // Exact match first, then prefix match so tests can stub by
         // command family (e.g. "sbatch " matches "sbatch /path/script.sh").
@@ -343,7 +349,10 @@ impl SshSession for FakeSshSession {
     ) -> Result<SshOutcome> {
         let key = rsync_key(direction, local, remote);
         let trace = format!("{key} flags={}", extra_flags.join(","));
-        self.calls.lock().unwrap_or_else(|p| p.into_inner()).push(trace);
+        self.calls
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(trace);
         let responses = self.responses.lock().unwrap_or_else(|p| p.into_inner());
         Ok(responses
             .get(&key)

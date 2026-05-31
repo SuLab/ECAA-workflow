@@ -117,5 +117,9 @@ fn conforms_to_declares_all_six_required_profile_iris() {
             "missing required conformsTo IRI {iri}; got {ids:?}"
         );
     }
-    assert_eq!(ids.len(), 6, "descriptor must declare exactly 6 profile IRIs; got {ids:?}");
+    assert_eq!(
+        ids.len(),
+        6,
+        "descriptor must declare exactly 6 profile IRIs; got {ids:?}"
+    );
 }

@@ -504,9 +504,7 @@ pub async fn post_sme_decisions(
                 .into_response();
         }
     };
-    if let Err(e) =
-        ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&final_path, &payload)
-    {
+    if let Err(e) = ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&final_path, &payload) {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("atomic write failed: {}", e),
@@ -1153,19 +1151,16 @@ mod tests {
         // Verify two AppliedStructuredDecision entries are present in
         // the session's in-memory decision log.
         let session = app.conversation.get_session(id).await.unwrap();
-        let applied: Vec<_> =
-            session
-                .decisions
-                .iter()
-                .filter(|d| {
-                    matches!(
+        let applied: Vec<_> = session
+            .decisions
+            .iter()
+            .filter(|d| {
+                matches!(
                     d.decision,
-                    ecaa_workflow_core::decision_log::DecisionType::AppliedStructuredDecision {
-                        ..
-                    }
+                    ecaa_workflow_core::decision_log::DecisionType::AppliedStructuredDecision { .. }
                 )
-                })
-                .collect();
+            })
+            .collect();
         assert_eq!(applied.len(), 2);
     }
 

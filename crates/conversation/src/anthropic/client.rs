@@ -1942,7 +1942,7 @@ mod tests {
     #[test]
     fn resilient_client_rejects_non_loopback_http_base_url() {
         let _g = DUMP_TEST_LOCK.lock().unwrap(); // lock-unwrap-allow: test
-        // Inject a non-https, non-loopback base URL.
+                                                 // Inject a non-https, non-loopback base URL.
         let prior_url = std::env::var("ANTHROPIC_BASE_URL").ok();
         let prior_ecaa = std::env::var("ECAA_ANTHROPIC_API_KEY").ok();
         unsafe {

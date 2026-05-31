@@ -140,7 +140,11 @@ fn parse_triple_count(stdout: &str) -> Option<usize> {
     for line in stdout.lines() {
         let line = line.trim();
         if let Some(rest) = line.strip_prefix("projected:") {
-            let n: String = rest.trim().chars().take_while(|c| c.is_ascii_digit()).collect();
+            let n: String = rest
+                .trim()
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
             if let Ok(v) = n.parse::<usize>() {
                 return Some(v);
             }

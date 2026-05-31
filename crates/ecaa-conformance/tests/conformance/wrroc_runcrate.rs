@@ -110,7 +110,11 @@ fn emit_real_descriptor(out_dir: &Path) {
         tie_candidates: vec![],
     };
 
-    let metadata = build_metadata(&dag, &clf, &ecaa_workflow_core::clock::FrozenClock::default());
+    let metadata = build_metadata(
+        &dag,
+        &clf,
+        &ecaa_workflow_core::clock::FrozenClock::default(),
+    );
     let bytes = serde_json::to_vec_pretty(&metadata).expect("serialize metadata");
     std::fs::write(out_dir.join("ro-crate-metadata.json"), bytes).expect("write descriptor");
 }
@@ -139,25 +143,29 @@ fn runcrate_validates_emitted_descriptor_with_all_six_iris() {
         .iter()
         .find(|e| e["@id"] == "ro-crate-metadata.json")
         .expect("descriptor entry");
-    let conforms = descriptor["conformsTo"].as_array().expect("conformsTo array");
-    let ids: Vec<&str> = conforms
-        .iter()
-        .filter_map(|c| c["@id"].as_str())
-        .collect();
+    let conforms = descriptor["conformsTo"]
+        .as_array()
+        .expect("conformsTo array");
+    let ids: Vec<&str> = conforms.iter().filter_map(|c| c["@id"].as_str()).collect();
     for iri in ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS {
         assert!(
             ids.contains(iri),
             "emitted descriptor must declare required profile IRI {iri}; got {ids:?}"
         );
     }
-    assert_eq!(ids.len(), 6, "expected exactly 6 conformsTo IRIs; got {ids:?}");
+    assert_eq!(
+        ids.len(),
+        6,
+        "expected exactly 6 conformsTo IRIs; got {ids:?}"
+    );
 
     // 2. runcrate validates it with zero failures.
     let report = PythonRuncrateWrrocValidator
         .validate_packages(&[dir.path()])
         .expect("invoking wrroc-validate.py");
     assert_eq!(
-        report.summary.failed, 0,
+        report.summary.failed,
+        0,
         "real emitted descriptor must validate cleanly; errors: {:?}",
         report
             .validated

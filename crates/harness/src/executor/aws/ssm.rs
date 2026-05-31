@@ -171,7 +171,10 @@ impl AwsExecutor {
             // remaining task is pending/blocked. Fall through to the
             // harness main loop, which already handles both cases via
             // is_complete() and the no-progress streak counter.
-            *self.current_running_task_id.lock().unwrap_or_else(|p| p.into_inner()) = None;
+            *self
+                .current_running_task_id
+                .lock()
+                .unwrap_or_else(|p| p.into_inner()) = None;
             return Ok(IterationOutcome {
                 agent_status: ExitStatus::from_raw(0),
                 remote: None,
@@ -180,7 +183,10 @@ impl AwsExecutor {
 
         // Publish the current task id so the stall monitor's emitted
         // signals carry it. Reset when the iteration exits below.
-        *self.current_running_task_id.lock().unwrap_or_else(|p| p.into_inner()) = Some(task_id.clone());
+        *self
+            .current_running_task_id
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(task_id.clone());
 
         // Resolve per-task SSM timeout from the emitted compute profiles.
         let stage_class = task_stage_class(&task);
@@ -449,7 +455,10 @@ impl AwsExecutor {
             });
         }
 
-        *self.current_running_task_id.lock().unwrap_or_else(|p| p.into_inner()) = None;
+        *self
+            .current_running_task_id
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = None;
         let exit_code = if success { 0 } else { 1 };
         Ok(IterationOutcome {
             agent_status: ExitStatus::from_raw(exit_code << 8),

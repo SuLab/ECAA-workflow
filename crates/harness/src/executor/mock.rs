@@ -22,10 +22,7 @@ pub struct MockExecutor {
     /// calls `apply_overrides` on this executor. Lets tests assert the
     /// orchestration order (apply-before-run) and the overrides
     /// payload arrives intact.
-    pub apply_overrides_log: Vec<(
-        String,
-        ecaa_workflow_core::remediation::ExecutorOverrides,
-    )>,
+    pub apply_overrides_log: Vec<(String, ecaa_workflow_core::remediation::ExecutorOverrides)>,
 }
 
 impl MockExecutor {

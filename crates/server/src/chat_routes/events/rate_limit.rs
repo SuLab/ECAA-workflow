@@ -760,12 +760,9 @@ async fn handle_task_completed_extras(
     // so the added latency is small and the harness's terminal-event POST
     // is the right place to make the anti-hallucination guarantee visible.
     if !event.task_id.is_empty() {
-        let _ = crate::verification::reverify_and_block_on_mismatch(
-            app,
-            session_id,
-            &event.task_id,
-        )
-        .await;
+        let _ =
+            crate::verification::reverify_and_block_on_mismatch(app, session_id, &event.task_id)
+                .await;
         if let Some(s) = app.conversation.get_session(session_id).await {
             app.broadcast(
                 session_id,
@@ -907,9 +904,8 @@ mod tests {
         );
 
         let (router, app) = make_router(vec![]).await;
-        let id =
-            seed_session_with_completed_task(&app, "t_interp", Some(pkg.path().to_path_buf()))
-                .await;
+        let id = seed_session_with_completed_task(&app, "t_interp", Some(pkg.path().to_path_buf()))
+            .await;
         // Move the session to Emitted so block_from_harness accepts the
         // transition.
         app.conversation

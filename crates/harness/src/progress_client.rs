@@ -1568,10 +1568,10 @@ mod tests {
                     Err(_) => continue,
                 };
                 _open_streams.lock().unwrap().push(s_clone); // lock-unwrap-allow: test
-                // Drain bytes from the client so it doesn't get
-                // SIGPIPE during our enqueue loop, but never write
-                // back. The handler thread exits when the connection
-                // closes.
+                                                             // Drain bytes from the client so it doesn't get
+                                                             // SIGPIPE during our enqueue loop, but never write
+                                                             // back. The handler thread exits when the connection
+                                                             // closes.
                 std::thread::spawn(move || {
                     let mut s = stream;
                     let mut buf = [0u8; 4096];

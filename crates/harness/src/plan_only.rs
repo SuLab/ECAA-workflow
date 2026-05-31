@@ -3,11 +3,11 @@
 //! order, and prints a per-task plan summary. Side-effect free: no
 //! multiprocess lock, no executor provisioning, no agent invocation.
 
+use crate::ecaa_io::read_capped_default;
 use crate::executor::{
     self, enforce_safety_policy, host_probe::resolve_high_water_for, sizing::resolve_instance_type,
     ExecutorArgs,
 };
-use crate::ecaa_io::read_capped_default;
 use anyhow::Context;
 use ecaa_workflow_core::blocker::BlockerKind;
 use ecaa_workflow_core::dag::{validate_dag_typed, Task, TaskState, DAG};
@@ -213,9 +213,7 @@ fn blocker_variant_name(b: &BlockerKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ecaa_workflow_core::atom::{
-        NetworkPolicy, SafetyLevel, SafetyPolicy, SandboxRequirement,
-    };
+    use ecaa_workflow_core::atom::{NetworkPolicy, SafetyLevel, SafetyPolicy, SandboxRequirement};
     use ecaa_workflow_core::dag::{Assignee, Task, TaskKind, TaskState, DAG};
     use ecaa_workflow_core::ids::TaskId;
     use std::collections::BTreeMap;

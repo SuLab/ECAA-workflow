@@ -561,8 +561,7 @@ fn emit_minimal_package(out: &std::path::Path) {
 fn emitted_package_invariants_inspect_real_content() {
     let tmp = tempfile::TempDir::new().unwrap();
     emit_minimal_package(tmp.path());
-    let report =
-        run_audit_proof(tmp.path(), &NoopWrrocValidator, &FrozenClock::default()).unwrap();
+    let report = run_audit_proof(tmp.path(), &NoopWrrocValidator, &FrozenClock::default()).unwrap();
     let total_inspected: usize = report.verdicts.iter().map(|v| v.n_inspected).sum();
     assert!(
         total_inspected > 1,

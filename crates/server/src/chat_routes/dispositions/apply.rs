@@ -483,5 +483,4 @@ mod tests {
                 if outcome == "err" && error_reason.is_some()
         )));
     }
-
 }

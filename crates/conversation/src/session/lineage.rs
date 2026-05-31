@@ -6,8 +6,8 @@
 
 use super::{Session, SessionId, SessionLineage as _SessionLineageAlias};
 use chrono::{DateTime, Utc};
-use rand::RngCore;
 use ecaa_workflow_core::dag::TaskState;
+use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use ts_rs::TS;

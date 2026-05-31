@@ -8,12 +8,12 @@ use super::{
 };
 use axum::http::StatusCode;
 use dashmap::{DashMap, DashSet};
-use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use ecaa_workflow_conversation::{
     AnthropicClient, BatcherConfig, ConversationService, HarnessBatcher, LlmBackend,
     MockLlmBackend, ServiceEventSink, SessionId, SessionStore,
 };
 use ecaa_workflow_core::config::Config;
+use governor::{DefaultDirectRateLimiter, Quota, RateLimiter};
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
@@ -830,9 +830,7 @@ mod tests {
         let tmp = tempdir().unwrap();
         let store = tokio::runtime::Runtime::new()
             .unwrap()
-            .block_on(ecaa_workflow_conversation::SessionStore::open(
-                tmp.path(),
-            ))
+            .block_on(ecaa_workflow_conversation::SessionStore::open(tmp.path()))
             .unwrap();
         let config_dir = tmp.path().join("config");
         std::fs::create_dir_all(&config_dir).unwrap();

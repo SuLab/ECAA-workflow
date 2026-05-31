@@ -10,8 +10,8 @@
 use axum::body::Body;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use http_body_util::BodyExt;
 use ecaa_workflow_server::error::ApiError;
+use http_body_util::BodyExt;
 
 async fn body_json(b: Body) -> serde_json::Value {
     let bytes = b.collect().await.unwrap().to_bytes();

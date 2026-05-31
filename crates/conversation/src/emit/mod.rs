@@ -789,8 +789,7 @@ pub async fn sync_user_inputs_to_package(
 
     // Machine-readable manifest.
     let manifest_path = runtime_dir.join("inputs.json");
-    let manifest_json =
-        serde_json::to_vec_pretty(inputs).context("serializing inputs.json")?;
+    let manifest_json = serde_json::to_vec_pretty(inputs).context("serializing inputs.json")?;
     tokio::fs::write(&manifest_path, &manifest_json)
         .await
         .with_context(|| format!("writing {}", manifest_path.display()))?;

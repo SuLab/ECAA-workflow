@@ -666,8 +666,7 @@ pub struct Session {
     /// into `SessionMetrics::affordance_fallbacks`.
     #[serde(skip)]
     #[ts(skip)]
-    pub affordance_fallback_counter:
-        ecaa_workflow_core::plot_affordance::AffordanceFallbackCounter,
+    pub affordance_fallback_counter: ecaa_workflow_core::plot_affordance::AffordanceFallbackCounter,
     /// V3 session-scoped adjudication queue for the six
     /// non-monotonic lifecycle edges from design §7. Populated by
     /// `tools::rebuild_dag` when a non-monotonic lifecycle edge fires.

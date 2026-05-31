@@ -322,7 +322,9 @@ mod tests {
             .unwrap();
         agg.record_usage("ecaax:y", "Y", "y", &[], "m", "s2", true)
             .unwrap();
-        let cand = agg.check_graduation("ecaax:y", &thr, &[]).expect("eligible");
+        let cand = agg
+            .check_graduation("ecaax:y", &thr, &[])
+            .expect("eligible");
         assert!(cand.usage_count >= 5);
         assert!(cand.unique_sessions >= 3);
         assert!(cand.success_rate >= 0.6);

@@ -64,8 +64,8 @@ fn schema_path(filename: &str) -> PathBuf {
 
 fn load_schema(filename: &str) -> Value {
     let path = schema_path(filename);
-    let raw = std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
+    let raw =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
     serde_json::from_str(&raw).unwrap_or_else(|e| panic!("parse {}: {}", path.display(), e))
 }
 
@@ -149,8 +149,10 @@ fn schema_predicates_match_consts() {
 /// Guards against pasting the wrong sub-graph's enum into a schema.
 #[test]
 fn each_schema_enum_is_a_subset_of_consts() {
-    let node_types: BTreeSet<&str> =
-        ecaa_workflow_types::consts::NODE_TYPES.iter().copied().collect();
+    let node_types: BTreeSet<&str> = ecaa_workflow_types::consts::NODE_TYPES
+        .iter()
+        .copied()
+        .collect();
     let predicates: BTreeSet<&str> = ecaa_workflow_types::consts::EDGE_PREDICATES
         .iter()
         .copied()
@@ -180,7 +182,8 @@ fn node_edge_schemas_are_arrays_of_node_or_edge() {
     for file in NODE_EDGE_SCHEMAS {
         let schema = load_schema(file);
         assert_eq!(
-            schema["type"], Value::String("array".into()),
+            schema["type"],
+            Value::String("array".into()),
             "{file}: spec sub-graph schema must be a JSON array of nodes/edges"
         );
         let one_of = &schema["items"]["oneOf"];

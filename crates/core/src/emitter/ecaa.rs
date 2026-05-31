@@ -345,12 +345,7 @@ fn spec_scripts_dir() -> Option<std::path::PathBuf> {
 /// wire shape (`{status, details|reason}`). Missing python / missing deps
 /// map to `unavailable`, never `fail`, so the product build never hard-fails
 /// for want of an optional toolchain.
-fn run_python_validator(
-    label: &str,
-    script: &str,
-    args: &[&str],
-    scripts_dir: &Path,
-) -> Value {
+fn run_python_validator(label: &str, script: &str, args: &[&str], scripts_dir: &Path) -> Value {
     let script_path = scripts_dir.join(script);
     if !script_path.exists() {
         return json!({
@@ -604,9 +599,9 @@ fn validate_sidecar_schemas(output_dir: &Path) -> Result<(usize, Vec<Value>, usi
         // Build the instance to validate: spec projection for the 7
         // node/edge sub-graphs; the report document for A.
         let instance = match sidecar_letter(relpath) {
-            Some(letter) => Value::Array(
-                crate::emitter::ecaa_projection::project_subgraph(letter, &pkg),
-            ),
+            Some(letter) => Value::Array(crate::emitter::ecaa_projection::project_subgraph(
+                letter, &pkg,
+            )),
             None => {
                 if raw.trim().is_empty() {
                     Value::Null

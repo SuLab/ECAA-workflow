@@ -114,9 +114,7 @@ pub(super) fn propose_quick_replies(
     if let Some(pair_id) = &session.pending_disambiguation {
         let disambig_path = config_dir.join("classifier-disambiguation.yaml");
         if disambig_path.exists() {
-            match ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(
-                &disambig_path,
-            ) {
+            match ecaa_workflow_core::disambiguation::DisambiguationRegistry::load(&disambig_path) {
                 Ok(reg) => {
                     if let Some(pair) = reg.pairs.iter().find(|p| p.id == *pair_id) {
                         let chips: Vec<serde_json::Value> = pair

@@ -232,11 +232,7 @@ pub(super) async fn write_reexecution_sidecar(session: &Session, output_dir: &Pa
     // blocking the async executor — all file reads in core are blocking.
     let output_dir_owned = output_dir.to_path_buf();
     let report = tokio::task::spawn_blocking(move || {
-        ecaa_workflow_core::reexecution::classify_reexecution(
-            &parent_path,
-            &output_dir_owned,
-            None,
-        )
+        ecaa_workflow_core::reexecution::classify_reexecution(&parent_path, &output_dir_owned, None)
     })
     .await
     .context("reexecution classifier task panicked")?

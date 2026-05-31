@@ -547,8 +547,12 @@ pub fn now_ts() -> i64 {
 /// lowers as a spurious DAG root — dispatchable before its inputs exist, even
 /// though it is wired downstream into `reporting`/`generic_summary`. This is
 /// the upstream mirror of the downstream report-sink fallback chain.
-pub const PROMOTED_DEFAULT_UPSTREAM_CANDIDATES: [&str; 4] =
-    ["raw_qc", "qc_preprocessing", "data_acquisition", "data_import"];
+pub const PROMOTED_DEFAULT_UPSTREAM_CANDIDATES: [&str; 4] = [
+    "raw_qc",
+    "qc_preprocessing",
+    "data_acquisition",
+    "data_import",
+];
 
 /// Pick the data-source / QC node a no-upstream promoted node should anchor
 /// to. Returns the first [`PROMOTED_DEFAULT_UPSTREAM_CANDIDATES`] entry that
@@ -604,9 +608,7 @@ fn intent_token_set(intent: &str) -> std::collections::BTreeSet<String> {
 pub fn intents_describe_same_capability(a: &str, b: &str) -> bool {
     let sa = intent_token_set(a);
     let sb = intent_token_set(b);
-    if sa.len() < MIN_INTENT_TOKENS_FOR_SIMILARITY
-        || sb.len() < MIN_INTENT_TOKENS_FOR_SIMILARITY
-    {
+    if sa.len() < MIN_INTENT_TOKENS_FOR_SIMILARITY || sb.len() < MIN_INTENT_TOKENS_FOR_SIMILARITY {
         return false;
     }
     let intersection = sa.intersection(&sb).count();
@@ -658,7 +660,10 @@ mod tests {
     fn intent_similarity_declines_on_short_intents() {
         // Below the min-length guard the check declines regardless of
         // overlap, so short generic intents are never fuzzily collapsed.
-        assert!(!intents_describe_same_capability("call peaks", "call peaks now"));
+        assert!(!intents_describe_same_capability(
+            "call peaks",
+            "call peaks now"
+        ));
         assert!(!intents_describe_same_capability("qc report", "report qc"));
     }
 

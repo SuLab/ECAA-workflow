@@ -449,7 +449,10 @@ fn load_interpretation_policy(config_dir: &Path) -> PolicyLoad {
 /// True when the interpretation policy at `config_dir` is present,
 /// parseable, and has `verifiableEntities.enabled: true`.
 pub fn default_policy_is_loadable(config_dir: &Path) -> bool {
-    matches!(load_interpretation_policy(config_dir), PolicyLoad::Loaded(_))
+    matches!(
+        load_interpretation_policy(config_dir),
+        PolicyLoad::Loaded(_)
+    )
 }
 
 /// Boot-time check: emit a loud error + telemetry signal (no panic) when
@@ -825,7 +828,10 @@ mod tests {
         let policy_dir = cfg.path().join("downstream-policy");
         fs::create_dir_all(&policy_dir).unwrap();
         // Truncated / malformed JSON — a configuration defect, not "disabled".
-        write(&policy_dir.join("interpretation-policy.json"), "{ this is not json ");
+        write(
+            &policy_dir.join("interpretation-policy.json"),
+            "{ this is not json ",
+        );
         match load_interpretation_policy(cfg.path()) {
             PolicyLoad::Unavailable { reason } => assert!(!reason.is_empty()),
             other => panic!("malformed policy must be Unavailable, got {:?}", other),

@@ -2133,7 +2133,11 @@ fn is_excluded_from_baseline(rel: &std::path::Path) -> bool {
 /// surfaces as a file-set / byte mismatch rather than being silently
 /// normalized away.
 fn collect_baseline(root: &std::path::Path) -> BTreeMap<String, Vec<u8>> {
-    fn walk(root: &std::path::Path, current: &std::path::Path, out: &mut BTreeMap<String, Vec<u8>>) {
+    fn walk(
+        root: &std::path::Path,
+        current: &std::path::Path,
+        out: &mut BTreeMap<String, Vec<u8>>,
+    ) {
         for entry in std::fs::read_dir(current).expect("read_dir") {
             let entry = entry.expect("dir entry");
             let path = entry.path();

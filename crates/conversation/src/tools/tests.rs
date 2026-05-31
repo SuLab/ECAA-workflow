@@ -2484,9 +2484,7 @@ mod state_machine_centralization {
     #[test]
     fn rebuild_dag_reinject_wires_promoted_to_promoted_chain() {
         use crate::session::Session;
-        use ecaa_workflow_core::hypothesized_proposal::{
-            HypothesizedProposal, ProposalLifecycle,
-        };
+        use ecaa_workflow_core::hypothesized_proposal::{HypothesizedProposal, ProposalLifecycle};
         use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         let mut s = Session::new(false);
@@ -2601,9 +2599,7 @@ mod state_machine_centralization {
     #[test]
     fn rebuild_dag_reinject_wires_promoted_to_generic_summary() {
         use crate::session::Session;
-        use ecaa_workflow_core::hypothesized_proposal::{
-            HypothesizedProposal, ProposalLifecycle,
-        };
+        use ecaa_workflow_core::hypothesized_proposal::{HypothesizedProposal, ProposalLifecycle};
         use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         let mut s = Session::new(false);
@@ -2672,9 +2668,7 @@ mod state_machine_centralization {
     #[test]
     fn rebuild_dag_reinject_anchors_no_upstream_promoted_to_data_source() {
         use crate::session::Session;
-        use ecaa_workflow_core::hypothesized_proposal::{
-            HypothesizedProposal, ProposalLifecycle,
-        };
+        use ecaa_workflow_core::hypothesized_proposal::{HypothesizedProposal, ProposalLifecycle};
         use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         let mut s = Session::new(false);
@@ -2756,9 +2750,7 @@ mod state_machine_centralization {
     #[test]
     fn reinject_promoted_refreshes_lowered_dag_cache() {
         use crate::session::Session;
-        use ecaa_workflow_core::hypothesized_proposal::{
-            HypothesizedProposal, ProposalLifecycle,
-        };
+        use ecaa_workflow_core::hypothesized_proposal::{HypothesizedProposal, ProposalLifecycle};
         use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         let mut s = Session::new(false);
@@ -3357,8 +3349,16 @@ fn counts_level_entry_from_exclusion_prunes_fastq_block() {
 
     fn node(id: &str) -> TaskNode {
         let mut n = TaskNode::skeleton(id, format!("intent {id}"));
-        n.outputs = vec![PortContract::from_edam("out", Some("data:0006"), Some("format:1915"))];
-        n.inputs = vec![PortContract::from_edam("in", Some("data:0006"), Some("format:1915"))];
+        n.outputs = vec![PortContract::from_edam(
+            "out",
+            Some("data:0006"),
+            Some("format:1915"),
+        )];
+        n.inputs = vec![PortContract::from_edam(
+            "in",
+            Some("data:0006"),
+            Some("format:1915"),
+        )];
         n
     }
     fn edge(from: &str, to: &str) -> EdgeContract {
@@ -3408,30 +3408,62 @@ fn counts_level_entry_from_exclusion_prunes_fastq_block() {
     // Empty registered inputs (no Inputs-tab registration) — the old gate
     // would NOT fire here. The counts-level signal comes from the exclusion.
     let mut s = crate::session::Session::new(false);
-    s.excluded_atoms = vec!["sequence_trimming".into(), "alignment".into(), "quantification".into()];
-    assert!(s.inputs.is_empty(), "test models the no-registered-input path");
+    s.excluded_atoms = vec![
+        "sequence_trimming".into(),
+        "alignment".into(),
+        "quantification".into(),
+    ];
+    assert!(
+        s.inputs.is_empty(),
+        "test models the no-registered-input path"
+    );
 
     let dropped = super::prune_counts_only_input_workflow_dag(&mut wf, &s);
 
     let ids: std::collections::BTreeSet<&str> = wf.nodes.iter().map(|n| n.id.as_str()).collect();
-    for x in ["raw_qc", "sequence_trimming", "alignment", "quantification", "validate_raw_qc"] {
-        assert!(!ids.contains(x), "{x} must be pruned at counts-level entry; got {ids:?}");
+    for x in [
+        "raw_qc",
+        "sequence_trimming",
+        "alignment",
+        "quantification",
+        "validate_raw_qc",
+    ] {
+        assert!(
+            !ids.contains(x),
+            "{x} must be pruned at counts-level entry; got {ids:?}"
+        );
     }
-    assert!(dropped.contains("raw_qc"), "raw_qc must be reported in the dropped set");
-    for keep in ["data_acquisition", "qc_preprocessing", "normalisation", "differential_expression", "reporting"] {
+    assert!(
+        dropped.contains("raw_qc"),
+        "raw_qc must be reported in the dropped set"
+    );
+    for keep in [
+        "data_acquisition",
+        "qc_preprocessing",
+        "normalisation",
+        "differential_expression",
+        "reporting",
+    ] {
         assert!(ids.contains(keep), "{keep} must survive");
     }
     // The chain drop must splice data_acquisition → qc_preprocessing so the
     // surviving downstream isn't left with an empty depends_on.
     assert!(
-        wf.edges.iter().any(|e| super::edge_node_id(&e.from_node) == "data_acquisition"
-            && super::edge_node_id(&e.to_node) == "qc_preprocessing"),
+        wf.edges
+            .iter()
+            .any(|e| super::edge_node_id(&e.from_node) == "data_acquisition"
+                && super::edge_node_id(&e.to_node) == "qc_preprocessing"),
         "expected spliced data_acquisition -> qc_preprocessing edge; edges={:?}",
-        wf.edges.iter().map(|e| (e.from_node.as_str(), e.to_node.as_str())).collect::<Vec<_>>()
+        wf.edges
+            .iter()
+            .map(|e| (e.from_node.as_str(), e.to_node.as_str()))
+            .collect::<Vec<_>>()
     );
     assert!(
-        !wf.edges.iter().any(|e| super::edge_node_id(&e.from_node) == "raw_qc"
-            || super::edge_node_id(&e.to_node) == "raw_qc"),
+        !wf.edges
+            .iter()
+            .any(|e| super::edge_node_id(&e.from_node) == "raw_qc"
+                || super::edge_node_id(&e.to_node) == "raw_qc"),
         "no edge may reference pruned raw_qc"
     );
 }

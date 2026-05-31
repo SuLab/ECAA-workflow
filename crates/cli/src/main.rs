@@ -464,10 +464,8 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
         .iter()
         .map(|ca| ca.atom.clone())
         .collect();
-    let runtime_prereqs = ecaa_workflow_core::runtime_prereqs::aggregate_archetype(
-        &archetype_obj,
-        &composed_atoms,
-    );
+    let runtime_prereqs =
+        ecaa_workflow_core::runtime_prereqs::aggregate_archetype(&archetype_obj, &composed_atoms);
     // Build the per-atom runtime-prereqs map alongside the union manifest so
     // the emitter writes one policies/atom-prereqs/<atom_id>.json per
     // buildable atom. Empty atoms (no install delta) are skipped at emit
@@ -589,10 +587,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     let intake_text = std::fs::read_to_string(input)
         .map_err(|e| anyhow::anyhow!("Cannot read intake file '{}': {}", input, e))?;
 
-    println!(
-        "{}",
-        "ECAA-workflow Compiler — intake mode".bold().cyan()
-    );
+    println!("{}", "ECAA-workflow Compiler — intake mode".bold().cyan());
     println!("  Input: {}", input.cyan());
 
     let classifier = Classifier::load(&keywords_path)

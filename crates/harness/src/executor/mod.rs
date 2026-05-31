@@ -1050,7 +1050,9 @@ mod safety_threading_tests {
     //! gate would silently pass an atom that demands network egress.
     use super::*;
     use ecaa_workflow_core::atom::{NetworkPolicy, SafetyLevel, SafetyPolicy, SandboxRequirement};
-    use ecaa_workflow_core::backend_emitters::workflow_json::{lower_to_workflow_json, EmitContext};
+    use ecaa_workflow_core::backend_emitters::workflow_json::{
+        lower_to_workflow_json, EmitContext,
+    };
     use ecaa_workflow_core::workflow_contracts::evidence::AssumptionLedger;
     use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
