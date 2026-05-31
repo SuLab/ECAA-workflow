@@ -1097,6 +1097,22 @@ def violin(
     return savefig(fig, out)
 
 
+def _bar_fill_palette(n: int) -> List[str]:
+    """Fill colors for a bar chart.
+
+    Identical to ``categorical_palette`` except a *single* bar never fills
+    pure black. The Wong colorblind-safe palette leads with black (#000000),
+    which is the right reference color for a line/scatter series but, for a
+    lone bar, reads as a broken or blank render rather than a category color —
+    and the x-axis label already names the one category. Multi-bar charts keep
+    the canonical Wong ordering (black encodes the reference category and is
+    perceptually distinct alongside the chromatic entries)."""
+    palette = list(categorical_palette(n, name="bar"))
+    if n == 1 and palette and palette[0].lower() in ("#000000", "#000", "black", "k"):
+        return [next((c for c in _WONG_PALETTE if c.lower() != "#000000"), "#0072B2")]
+    return palette
+
+
 def bar(
     names: List[str],
     values: List[float],
@@ -1128,7 +1144,7 @@ def bar(
     if annotate_counts is None:
         annotate_counts = n <= 20
     fig, ax = plt.subplots(figsize=figsize)
-    palette = categorical_palette(n, name="bar")
+    palette = _bar_fill_palette(n)
     positions = np.arange(n)
 
     err = None

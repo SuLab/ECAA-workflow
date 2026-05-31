@@ -24,6 +24,7 @@ from lib.plotting.core import (  # noqa: E402
     THEME,
     FigureManifest,
     __version__,
+    _bar_fill_palette,
     apply_theme,
     bar,
     categorical_palette,
@@ -140,6 +141,22 @@ def test_bar_produces_figure(tmp_path):
         title="t", ylabel="y", out=tmp_path / "b.png",
     )
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_single_bar_fill_is_not_black():
+    """A lone bar must not fill pure black. The Wong palette leads with black,
+    which reads as a broken/blank render for a single-category bar (the x-axis
+    already labels the one category)."""
+    fill = _bar_fill_palette(1)
+    assert len(fill) == 1
+    assert fill[0].lower() not in ("#000000", "#000", "black", "k")
+
+
+def test_multi_bar_fill_keeps_canonical_wong_ordering():
+    """Multi-bar charts keep the canonical Wong ordering (black = reference
+    category), so the single-bar fix does not perturb existing figures."""
+    for n in (2, 3, 5, 8):
+        assert _bar_fill_palette(n) == list(categorical_palette(n, name="bar"))
 
 
 def test_scatter_produces_figure(tmp_path):
