@@ -87,10 +87,16 @@ pub fn hypothesized_renderer_dispatch(
 /// Closed tool vocabulary, partitioned into two sealed bucket enums
 /// (`BatchableTool` for read-only + intake mutation + conversational
 /// tools, `HighImpactTool` for the 8 alone-in-turn high-impact tools).
-/// The partition makes the alone-in-turn rule structurally enforced:
-/// the dispatcher's batch entry point takes a `Vec<(Uuid, BatchableTool)>`
-/// and the single-call entry point takes a `(Uuid, HighImpactTool)`, so
-/// a mixed batch is a type error rather than a runtime rejection.
+/// The partition makes [`Tool::is_alone_in_turn`] a structural `matches!`
+/// on the variant (no per-row flag a future tool can forget to set). It
+/// does NOT make a mixed batch a compile error: the LLM emits a
+/// `Vec<(Uuid, Tool)>`, [`dispatch_one`] takes `&Tool`, and
+/// [`dispatch_batch`] enforces alone-in-turn at RUNTIME — rejecting the
+/// batch with `ToolError::PreconditionFailure` and recording a
+/// `BatchedHighImpactTools` violation for the eval runner. Keeping the
+/// check at runtime is deliberate: a batched high-impact tool is an
+/// adversarial/eval signal the system must observe and count, not a case
+/// the type system erases.
 ///
 /// The on-wire JSON shape is preserved by `#[serde(untagged)]` here +
 /// `#[serde(tag = "tool_name", rename_all = "snake_case")]` on each
