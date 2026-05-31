@@ -914,7 +914,7 @@ def _write_differential_accessibility_fixture(out: Path) -> None:
         ["peak", "log2fc", "pvalue", "adj_pvalue", "baseMean"],
         rows,
     )
-    write_json(out / "manifest.json", {"comparisons": [{"id": "case_vs_control", "table_path": "differential_peaks.tsv"}]})
+    write_json(out / "manifest.json", {"differential_peaks_table": "differential_peaks.tsv", "comparisons": [{"id": "case_vs_control", "table_path": "differential_peaks.tsv"}]})
 
 
 def _write_dtu_fixture(out: Path) -> None:
@@ -958,7 +958,7 @@ def _write_primary_endpoint_fixture(out: Path) -> None:
         ["label", "effect", "ci_lo", "ci_hi", "weight"],
         [["overall", -0.35, -0.62, -0.08, 200], ["age_lt65", -0.28, -0.58, 0.02, 110], ["age_ge65", -0.44, -0.80, -0.08, 90]],
     )
-    write_json(out / "manifest.json", {"survival_table": "survival.tsv", "forest_table": "forest.tsv"})
+    write_json(out / "manifest.json", {"km_table": "survival.tsv", "survival_table": "survival.tsv", "forest_table": "forest.tsv"})
 
 
 def _write_enhancer_activity_fixture(out: Path) -> None:
@@ -979,7 +979,7 @@ def _write_methylation_expression_fixture(out: Path) -> None:
         corr = -0.75 + (i % 7) * 0.08
         rows.append([f"gene_{i:03d}", f"{meth:.4f}", f"{expr:.4f}", f"{corr:.4f}"])
     _write_tsv(out / "correlations.tsv", ["gene", "methylation", "expression", "correlation"], rows)
-    write_json(out / "manifest.json", {"correlations_path": "correlations.tsv"})
+    write_json(out / "manifest.json", {"expr_meth_table": "correlations.tsv"})
 
 
 def _write_hla_peptidomics_fixture(out: Path) -> None:
@@ -1078,7 +1078,7 @@ def _write_peak_to_gene_fixture(out: Path) -> None:
         start = 100_000 + i * 5_000
         rows.append([f"peak_{i:03d}", f"gene_{i % 10}", start, start + 20_000 + (i % 5) * 4_000, f"{0.2 + (i % 9) * 0.07:.4f}", f"cluster_{i % 3}"])
     _write_tsv(out / "links.tsv", ["peak", "gene", "peak_start", "tss", "score", "cluster"], rows)
-    write_json(out / "manifest.json", {"links_path": "links.tsv"})
+    write_json(out / "manifest.json", {"links_table": "links.tsv"})
 
 
 def _write_population_definition_fixture(out: Path) -> None:
