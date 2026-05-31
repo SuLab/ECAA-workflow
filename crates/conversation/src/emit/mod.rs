@@ -763,7 +763,20 @@ async fn write_report_json<T: serde::Serialize>(out: &std::path::Path, report: &
 /// Both are no-ops when `session.inputs` is empty, keeping byte-
 /// reproducibility for sessions without registered inputs.
 async fn write_user_inputs_artifacts(session: &Session, output_dir: &Path) -> Result<()> {
-    if session.inputs.is_empty() {
+    sync_user_inputs_to_package(&session.inputs, output_dir).await
+}
+
+/// Write `runtime/inputs.json` + refresh the `## SME-supplied data inputs`
+/// section of CONTEXT.md from the given inputs. Shared by the emit path and
+/// the server's post-emit input-registration sync, so an input registered
+/// AFTER a package is emitted reaches both the machine-readable manifest AND
+/// the agent-facing CONTEXT.md narrative. Idempotent — the section is rebuilt
+/// (prior block stripped) every call.
+pub async fn sync_user_inputs_to_package(
+    inputs: &[crate::session::state::UserInput],
+    output_dir: &Path,
+) -> Result<()> {
+    if inputs.is_empty() {
         return Ok(());
     }
     let runtime_dir = output_dir.join("runtime");
@@ -774,7 +787,7 @@ async fn write_user_inputs_artifacts(session: &Session, output_dir: &Path) -> Re
     // Machine-readable manifest.
     let manifest_path = runtime_dir.join("inputs.json");
     let manifest_json =
-        serde_json::to_vec_pretty(&session.inputs).context("serializing inputs.json")?;
+        serde_json::to_vec_pretty(inputs).context("serializing inputs.json")?;
     tokio::fs::write(&manifest_path, &manifest_json)
         .await
         .with_context(|| format!("writing {}", manifest_path.display()))?;
@@ -796,7 +809,7 @@ async fn write_user_inputs_artifacts(session: &Session, output_dir: &Path) -> Re
              `sme_supplied_uploaded_files`); fall back to public-repo fetchers \
              ONLY if a registered source is unreadable.\n\n",
         );
-        for input in &session.inputs {
+        for input in inputs {
             let total_bytes: u64 = input.files.iter().map(|f| f.size_bytes).sum();
             let kind_label = match input.kind {
                 crate::session::state::UserInputKind::LocalPath => "local path",

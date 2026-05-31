@@ -294,21 +294,25 @@ pub(crate) async fn register_input_path(
             // Best-effort: tracing::warn on failure so emission errors
             // surface, but never fail the HTTP request.
             if let Some(pkg) = s.emitted_package_path.clone() {
-                let inputs_json = serde_json::to_vec_pretty(&s.inputs).ok();
-                if let Some(bytes) = inputs_json {
-                    let path = pkg.join("runtime").join("inputs.json");
-                    if let Some(parent) = path.parent() {
-                        let _ = tokio::fs::create_dir_all(parent).await;
-                    }
-                    if let Err(e) = tokio::fs::write(&path, bytes).await {
-                        tracing::warn!(
-                            target: "register_input_path",
-                            session_id = %session_id,
-                            path = %path.display(),
-                            error = %e,
-                            "failed to mirror inputs.json into emitted package; agent will not see the newly registered input"
-                        );
-                    }
+                // Sync the registration into the emitted package: both
+                // runtime/inputs.json (machine-readable, read by the agent at
+                // data_acquisition) AND the CONTEXT.md "## SME-supplied data
+                // inputs" narrative. The shared emit helper rebuilds both
+                // idempotently, so an input registered AFTER emit is fully
+                // reflected — previously only inputs.json was mirrored and
+                // CONTEXT.md silently went stale. Best-effort: warn on
+                // failure, never fail the HTTP request.
+                if let Err(e) =
+                    ecaa_workflow_conversation::emit::sync_user_inputs_to_package(&s.inputs, &pkg)
+                        .await
+                {
+                    tracing::warn!(
+                        target: "register_input_path",
+                        session_id = %session_id,
+                        package = %pkg.display(),
+                        error = %e,
+                        "failed to sync registered inputs into emitted package (inputs.json + CONTEXT.md); agent may not see the newly registered input"
+                    );
                 }
             }
             Json(s.inputs.clone()).into_response()
