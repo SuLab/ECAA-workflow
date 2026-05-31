@@ -404,6 +404,7 @@ impl ExternalImporter for LocalCwlImporter {
             trust_level,
             deprecation: None,
             attributes: Default::default(),
+            safety: crate::atom::SafetyPolicy::default(),
         })
     }
 }

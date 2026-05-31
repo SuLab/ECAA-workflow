@@ -509,7 +509,7 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
             .get("atom_id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
-        safety: Default::default(),
+        safety: node.safety.clone(),
     })
 }
 

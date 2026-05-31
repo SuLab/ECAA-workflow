@@ -103,6 +103,7 @@ impl TaskNode {
             trust_level: super::lifecycle::TrustLevel::Unverified,
             deprecation: None,
             attributes,
+            safety: atom.safety.clone(),
         }
     }
 }
@@ -496,5 +497,19 @@ mod tests {
             node.provenance.source.as_deref(),
             Some("config/stage-atoms/align_reads.yaml")
         );
+    }
+
+    #[test]
+    fn from_atom_threads_safety_policy() {
+        use crate::atom::{NetworkPolicy, SafetyLevel, SafetyPolicy};
+        let mut atom = minimal_atom("fetch_refs");
+        atom.safety = SafetyPolicy {
+            level: SafetyLevel::Network,
+            network: NetworkPolicy::Bridge,
+            ..SafetyPolicy::default()
+        };
+        let node = TaskNode::from_atom(&atom);
+        assert_eq!(node.safety.level, SafetyLevel::Network);
+        assert!(matches!(node.safety.network, NetworkPolicy::Bridge));
     }
 }

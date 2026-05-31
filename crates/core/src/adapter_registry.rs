@@ -214,6 +214,7 @@ impl AdapterSpec {
             trust_level: TrustLevel::Reviewed,
             deprecation: None,
             attributes: attrs,
+            safety: crate::atom::SafetyPolicy::default(),
         }
     }
 

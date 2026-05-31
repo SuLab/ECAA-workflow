@@ -211,6 +211,13 @@ pub struct TaskNode {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[ts(type = "Record<string, unknown>")]
     pub attributes: BTreeMap<String, serde_json::Value>,
+
+    /// Coarse atom-level safety policy, carried through v4 lowering onto
+    /// `Task.safety` so the harness dispatch gate sees the source atom's
+    /// declared network / sandbox / controlled-access posture instead of
+    /// the nullified default. Default is suppressed in serialization.
+    #[serde(default, skip_serializing_if = "crate::atom::SafetyPolicy::is_default")]
+    pub safety: crate::atom::SafetyPolicy,
 }
 
 fn is_empty_evidence(e: &EvidenceSet) -> bool {
@@ -254,6 +261,7 @@ impl TaskNode {
             trust_level: TrustLevel::default(),
             deprecation: None,
             attributes: BTreeMap::new(),
+            safety: crate::atom::SafetyPolicy::default(),
         }
     }
 
