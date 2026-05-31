@@ -497,8 +497,7 @@ impl GitService {
                 Ok(out) => return Ok(out),
                 Err(e) => {
                     let msg = e.to_string();
-                    let transient_lock =
-                        msg.contains("index.lock") || msg.contains("File exists");
+                    let transient_lock = msg.contains("index.lock") || msg.contains("File exists");
                     if transient_lock && attempt < MAX_ATTEMPTS {
                         std::thread::sleep(BACKOFF);
                         continue;
