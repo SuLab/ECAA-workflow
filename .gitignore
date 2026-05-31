@@ -63,3 +63,7 @@ docs/
 !docs/ecaa-spec
 
 .playwright-mcp
+
+# Eval harness: large pinned datasets + per-run artifacts (operator-run)
+runtime/eval-runs/
+.eval-cache/
