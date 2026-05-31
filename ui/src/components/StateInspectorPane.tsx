@@ -359,6 +359,8 @@ export default function StateInspectorPane() {
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
+        minWidth: 0,
+        overflow: 'hidden',
         background: 'var(--color-surface-0)',
       }}
     >
@@ -370,12 +372,15 @@ export default function StateInspectorPane() {
           borderBottom: '1px solid var(--color-border-default)',
           background: 'var(--color-surface-1)',
           flexShrink: 0,
+          minWidth: 0,
+          overflowX: 'auto',
+          overflowY: 'hidden',
         }}
       >
         <div
           role="tablist"
           aria-label="State inspector"
-          style={{ display: 'flex', gap: '0.25rem' }}
+          style={{ display: 'flex', gap: '0.25rem', flexShrink: 0 }}
         >
           {TABS.filter((t) => {
             // Compare tab only shows when the session has a parent to
@@ -406,6 +411,7 @@ export default function StateInspectorPane() {
                 cursor: 'pointer',
                 fontSize: '0.82rem',
                 fontWeight: 600,
+                whiteSpace: 'nowrap',
               }}
             >
               {t.label}

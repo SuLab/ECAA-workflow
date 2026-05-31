@@ -327,11 +327,27 @@ export default function App() {
           onTurnAppended={conv.appendTurn}
         >
         <UndoStackProvider>
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100vh',
+            width: '100vw',
+            overflow: 'hidden',
+          }}
+        >
           {titleBar}
           <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
             {topView === 'settings' ? (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }}
+              >
                 <ErrorBoundary fallbackLabel="settings">
                   <GitSettingsPage onClose={() => setTopView('chat')} />
                 </ErrorBoundary>
@@ -350,14 +366,30 @@ export default function App() {
                     <ConversationPane />
                   </ErrorBoundary>
                 </div>
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <div
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    overflow: 'hidden',
+                  }}
+                >
                   <ErrorBoundary fallbackLabel="the state inspector">
                     <StateInspectorPane />
                   </ErrorBoundary>
                 </div>
               </>
             ) : (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+              <div
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  overflow: 'hidden',
+                }}
+              >
                 <div
                   ref={chatPaneRef}
                   tabIndex={-1}
@@ -366,6 +398,7 @@ export default function App() {
                     display: mobileView === 'chat' ? 'flex' : 'none',
                     flexDirection: 'column',
                     flex: 1,
+                    minWidth: 0,
                     minHeight: 0,
                     outline: 'none',
                   }}
@@ -382,6 +415,7 @@ export default function App() {
                     display: mobileView === 'state' ? 'flex' : 'none',
                     flexDirection: 'column',
                     flex: 1,
+                    minWidth: 0,
                     minHeight: 0,
                     outline: 'none',
                   }}

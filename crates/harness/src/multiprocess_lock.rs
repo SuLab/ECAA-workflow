@@ -291,17 +291,16 @@ fn is_pid_alive(pid: i32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
-    // Tests in this module all mutate the process-wide HOME env. The
-    // workspace runs them in parallel by default; this Mutex
-    // serialises so the redirect each test installs isn't clobbered
-    // before its assertions run.
-    static HOME_LOCK: Mutex<()> = Mutex::new(());
+    fn lock_test_env() -> std::sync::MutexGuard<'static, ()> {
+        crate::executor::ECAA_AWS_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+    }
 
     #[test]
     fn lockfile_path_sanitises_path_traversal() {
-        let _g = HOME_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = lock_test_env();
         let scratch = tempfile::tempdir().unwrap();
         #[allow(unsafe_code)]
         unsafe {
@@ -317,7 +316,7 @@ mod tests {
 
     #[test]
     fn live_peer_sessions_skips_stale_lockfiles() {
-        let _g = HOME_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = lock_test_env();
         let scratch = tempfile::tempdir().unwrap();
         #[allow(unsafe_code)]
         unsafe {
@@ -348,7 +347,7 @@ mod tests {
 
     #[test]
     fn live_peer_sessions_excludes_self() {
-        let _g = HOME_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = lock_test_env();
         let scratch = tempfile::tempdir().unwrap();
         #[allow(unsafe_code)]
         unsafe {
@@ -384,7 +383,7 @@ mod tests {
     /// unlinks the stale inode and retries exactly once.
     #[test]
     fn acquire_retries_after_stale_lockfile_with_dead_pid() {
-        let _g = HOME_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = lock_test_env();
         let scratch = tempfile::tempdir().unwrap();
         #[allow(unsafe_code)]
         unsafe {
@@ -408,7 +407,7 @@ mod tests {
     /// the recorded holder is dead.
     #[test]
     fn acquire_refuses_when_recorded_pid_is_live() {
-        let _g = HOME_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _g = lock_test_env();
         let scratch = tempfile::tempdir().unwrap();
         #[allow(unsafe_code)]
         unsafe {

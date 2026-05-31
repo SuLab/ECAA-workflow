@@ -527,18 +527,6 @@ mod tests {
         make_session_dir(scratch.path(), "session_old", 1_000_000, -3600);
         make_session_dir(scratch.path(), "session_new", 1_000_000, 0);
 
-        // Debug
-        for n in ["session_old", "session_new"] {
-            let p = scratch.path().join(n);
-            let m = fs::metadata(&p).unwrap();
-            eprintln!(
-                "{}: atime={:?} size={}",
-                n,
-                m.accessed().unwrap(),
-                dir_size(&p).unwrap()
-            );
-        }
-
         let ev = CacheEvictor::new(scratch.path().to_path_buf(), 1_500_000);
         ev.enforce().unwrap();
 
