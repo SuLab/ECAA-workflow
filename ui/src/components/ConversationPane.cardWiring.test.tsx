@@ -35,7 +35,7 @@ vi.mock('../api/chatClient', async (importOriginal) => {
     ...actual,
     getLlmAvailability: vi.fn().mockResolvedValue({ kind: 'available' }),
     listDispositions: vi.fn().mockResolvedValue({ dispositions: [] }),
-    getProposals: vi.fn().mockResolvedValue({ proposals: [] }),
+    getProposals: vi.fn().mockResolvedValue([]),
     getTaskResult: vi.fn().mockResolvedValue(null),
     // BlockerCard also renders for the awaiting_sme_selection blocker and
     // polls these on mount — stub so no real fetch fires in jsdom.
