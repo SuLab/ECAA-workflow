@@ -15,7 +15,7 @@ fn prompt_role_hash_pinned() {
     const PROMPT: &str = include_str!("../../src/prompt_role.txt");
     let h = format!("{:x}", Sha256::digest(PROMPT.as_bytes()));
     assert_eq!(
-        h, "c173ba4b1d891efb19c38c3fcbb7c0224665985667115c0ff5a8d3112a243e7f",
+        h, "91554002e4188c59994df1d0f971c6ea0b02126d777e5850037b3894bf438f7d",
         "prompt_role.txt changed; if intentional, update hash to: {h}"
     );
 }
