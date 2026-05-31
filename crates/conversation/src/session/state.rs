@@ -396,6 +396,15 @@ pub struct Session {
         deserialize_with = "deserialize_confirmation_token_legacy"
     )]
     pub confirmation_token: Option<crate::session::ConfirmationToken>,
+    /// Single-use execution latch minted by the REST `/start-execution`
+    /// button (the human press) and consumed at `start_execution`
+    /// dispatch. Gates the LLM `start_execution` tool so it cannot
+    /// launch a harness run without a preceding human Start press.
+    ///
+    /// `#[serde(default)]` so sessions persisted before this field
+    /// existed deserialize cleanly with `None`.
+    #[serde(default)]
+    pub execution_token: Option<crate::session::ExecutionToken>,
     /// The pending emission this session is about to perform. Populated
     /// when transitioning into `PendingConfirmation`; cleared when the
     /// state machine leaves that state (Confirm → ReadyToEmit retains

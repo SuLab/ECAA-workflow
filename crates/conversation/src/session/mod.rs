@@ -34,6 +34,8 @@ pub mod confirmation_token;
 pub mod cross_session_aggregator;
 pub mod decision_helpers;
 pub mod derived_dag;
+/// Per-button single-use execution token (gates `start_execution`).
+pub mod execution_token;
 pub mod invalidation_guard;
 pub mod lineage;
 pub mod opaque_aggregator;
@@ -47,6 +49,7 @@ mod tests;
 // keep using `crate::session::Session`, `SessionState`, etc. without
 // caring which submodule each item lives in.
 pub use confirmation_token::ConfirmationToken;
+pub use execution_token::ExecutionToken;
 pub use invalidation_guard::WorkflowDagMut;
 pub use lineage::{session_lineage_schema_version, SessionLineage};
 pub use state::{
@@ -190,6 +193,10 @@ impl Session {
             // `ConversationService::confirm_with_modes` against a
             // pending_emission_id set by `propose_summary_confirmation`.
             confirmation_token: None,
+            // Fresh sessions hold no execution token; the single-use
+            // latch is minted only by the REST /start-execution button
+            // and consumed at start_execution dispatch.
+            execution_token: None,
             pending_emission_id: None,
             emitted_package_path: None,
             harness_events: vec![],
@@ -412,6 +419,68 @@ impl Session {
             );
         }
         self.confirmation_token = None;
+    }
+
+    // ── ExecutionToken latch helpers ──────────────────────────────
+    //
+    // Mirrors the ConfirmationToken helpers above. The token is minted
+    // only by the REST `/start-execution` button (the human press) and
+    // verified + consumed at `start_execution` tool dispatch so the LLM
+    // cannot launch a harness run autonomously.
+
+    /// Mint a single-use execution token bound to the current pending
+    /// emission. Returns `None` when there's nothing to bind to (no
+    /// pending emission); caller treats that as "no token minted".
+    pub fn mint_execution_token(
+        &mut self,
+        granted_at: chrono::DateTime<chrono::Utc>,
+        granted_by: crate::audit_actor::AuditActor,
+    ) -> Option<&crate::session::ExecutionToken> {
+        let request = self.pending_emission_id?;
+        tracing::info!(
+            target: "ecaa::execution",
+            session_id = %self.id,
+            operation = "set",
+            request_id = %request,
+            granted_by = ?granted_by,
+            "execution_token mutated"
+        );
+        self.execution_token = Some(crate::session::ExecutionToken::new(
+            request, granted_at, granted_by,
+        ));
+        self.execution_token.as_ref()
+    }
+
+    /// True iff a human pressed Start for THIS emission and the token
+    /// hasn't been consumed. Mirrors [`Session::is_confirmed`].
+    pub fn execution_authorized(&self) -> bool {
+        match (&self.execution_token, self.pending_emission_id) {
+            (Some(t), Some(req)) => t.authorizes(req),
+            _ => false,
+        }
+    }
+
+    /// Consume the execution token after a successful dispatch so a
+    /// replayed `start_execution` requires a fresh Start press.
+    pub fn consume_execution_token(&mut self) {
+        if let Some(t) = self.execution_token.as_mut() {
+            t.consume();
+        }
+    }
+
+    /// Clear the latch on any emit-shape transition (amend, branch,
+    /// reject). Called beside `clear_confirmation`.
+    pub fn clear_execution_token(&mut self) {
+        if self.execution_token.is_some() {
+            tracing::info!(
+                target: "ecaa::execution",
+                session_id = %self.id,
+                operation = "clear",
+                request_id = ?self.pending_emission_id,
+                "execution_token mutated"
+            );
+        }
+        self.execution_token = None;
     }
 
     /// Lowercase hex SHA-256 of the CURRENT plan-shape canonical

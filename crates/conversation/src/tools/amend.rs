@@ -134,6 +134,10 @@ pub(crate) fn amend_stage_method(
     // even without this explicit clear; the clear keeps the on-disk
     // state explicit instead of relying on the hash-drift check.
     session.clear_confirmation();
+    // Clear the execution latch too: the amended package is a different
+    // emission, so any prior Start press no longer authorizes it. The
+    // SME must re-confirm and re-press Start for the new plan.
+    session.clear_execution_token();
     session.pending_emission_id = None;
 
     let _ = config_dir; // placeholder for future policy reloads

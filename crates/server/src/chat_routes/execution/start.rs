@@ -223,6 +223,31 @@ async fn start_execution_inner(
         )
             .into_response();
     }
+    // Mint the single-use execution latch: this REST route IS the human
+    // Start button. Mirrors `/confirm` minting the ConfirmationToken.
+    // The LLM `start_execution` tool refuses unless this token is present
+    // and unconsumed, so an autonomous agent can only ride a press the
+    // SME already made. `start_execution_inner` has no RequestPrincipal
+    // extractor and there is no actor-from-principal helper here, so the
+    // token is attributed to `AuditActor::System` (the documented
+    // "cannot identify a principal" sentinel); threading the
+    // `X-Scripps-User` owner identity is a follow-up. The button path
+    // below still spawns directly, so a missing/failed mint never blocks
+    // the human press — it only affects the LLM tool's ability to ride it.
+    if let Err(e) = app
+        .conversation
+        .store_handle()
+        .update(session_id, |s| {
+            s.mint_execution_token(
+                chrono::Utc::now(),
+                ecaa_workflow_conversation::audit_actor::AuditActor::System,
+            );
+            Ok(())
+        })
+        .await
+    {
+        tracing::warn!(session_id = %session_id, error = %e, "minting execution token failed");
+    }
     match spawn_harness_for_session(&app, session_id, req.agent_path, req.max_iterations).await {
         Ok(handle) => Json(ExecutionStatusResponse {
             pid: handle.pid,

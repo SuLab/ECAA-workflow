@@ -525,6 +525,10 @@ impl ConversationService {
                 // PendingConfirmation cycle mints a fresh UUID — the
                 // rejected emission_id must never be re-bindable.
                 s.clear_confirmation();
+                // Also drop any execution latch: a reject re-arms both
+                // gates so neither emit nor start_execution can ride the
+                // prior authorization.
+                s.clear_execution_token();
                 s.pending_emission_id = None;
                 s.record_decision(
                     ecaa_workflow_core::decision_log::DecisionType::Reject,

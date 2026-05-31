@@ -39,6 +39,19 @@ pub(super) fn start_execution_tool(
             hint: "Re-emit the package.".into(),
         });
     };
+    // Deterministic SME-intent latch: the LLM tool can only ride a Start
+    // press the human already made. The REST `/start-execution` button
+    // mints a single-use ExecutionToken; this tool refuses unless that
+    // token is present and unconsumed (mirrors emit_package's
+    // ConfirmationToken gate).
+    if !session.execution_authorized() {
+        return ToolResult::err(ToolError::PreconditionFailure {
+            reason: "start_execution requires a human Start press (no valid execution token)"
+                .into(),
+            hint: "Press Start Execution in the UI; the LLM cannot launch a run autonomously."
+                .into(),
+        });
+    }
     // Fire-and-forget sink notification. The server's impl looks up the
     // session's emitted_package_path and spawns the harness. The tool
     // has no way to confirm the spawn succeeded synchronously, which is
@@ -51,6 +64,9 @@ pub(super) fn start_execution_tool(
     if let (Some(sink), Some(sid)) = (&ctx.event_sink, ctx.session_id) {
         sink.execution_requested(sid, None, max_iterations);
     }
+    // Single-use: consume the latch so a replayed start_execution (or an
+    // autonomous LLM retry) requires a fresh human Start press.
+    session.consume_execution_token();
     ToolResult::ok(serde_json::json!({
         "status": "requested",
         "package_dir": pkg.to_string_lossy(),
@@ -165,10 +181,26 @@ mod tests {
             .join("config")
     }
 
+    /// An Emitted session with a fresh execution token already minted,
+    /// as the REST `/start-execution` button would. Used by the tests
+    /// that exercise the post-gate response shape.
     fn emitted_session() -> Session {
+        let mut s = emitted_session_no_token();
+        // Simulate the human Start press minting the latch.
+        s.mint_execution_token(chrono::Utc::now(), crate::audit_actor::AuditActor::System);
+        s
+    }
+
+    /// An Emitted session with a bound `pending_emission_id` but NO
+    /// execution token — the state the LLM tool sees before a human
+    /// presses Start.
+    fn emitted_session_no_token() -> Session {
         let mut s = Session::new(false);
         s.state = SessionState::Emitted;
         s.emitted_package_path = Some(PathBuf::from("/tmp/pkg-stub"));
+        // `mint_execution_token` binds to `pending_emission_id`, so a
+        // pending emission must be set for the latch to be mintable.
+        s.pending_emission_id = Some(uuid::Uuid::new_v4());
         s
     }
 
@@ -197,5 +229,35 @@ mod tests {
         let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
         let res = start_execution_tool(&mut s, Some(7), &ctx);
         assert_eq!(res.content["max_iterations"], 7);
+    }
+
+    #[test]
+    fn start_execution_tool_requires_execution_token() {
+        // No token minted → the LLM tool must refuse (the human hasn't
+        // pressed Start yet).
+        let mut s = emitted_session_no_token();
+        let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
+        let denied = start_execution_tool(&mut s, None, &ctx);
+        assert!(
+            denied.is_error,
+            "start_execution without a button-minted token must fail"
+        );
+
+        // Mint as the REST button would, then it succeeds + consumes.
+        s.mint_execution_token(chrono::Utc::now(), crate::audit_actor::AuditActor::System);
+        assert!(s.execution_authorized(), "token must authorize once minted");
+        let ok = start_execution_tool(&mut s, None, &ctx);
+        assert!(!ok.is_error, "with a fresh token start_execution proceeds");
+        assert!(
+            !s.execution_authorized(),
+            "token must be consumed after dispatch"
+        );
+
+        // A replay after consumption is refused (single-use).
+        let replay = start_execution_tool(&mut s, None, &ctx);
+        assert!(
+            replay.is_error,
+            "a consumed token must not authorize a second dispatch"
+        );
     }
 }

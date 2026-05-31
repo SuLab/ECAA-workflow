@@ -209,6 +209,10 @@ impl Session {
             // pending_emission_id so the branch flows through its own
             // PendingConfirmation gate.
             confirmation_token: None,
+            // Branches do NOT inherit the parent's execution token: a
+            // branch is a different emission and must earn its own human
+            // Start press before the LLM tool can launch a run.
+            execution_token: None,
             pending_emission_id: None,
             emitted_package_path: None,
             harness_events: vec![],
@@ -353,7 +357,7 @@ mod branch_from_exhaustiveness {
     //! field. Without a gate, missed fields silently default to whatever
     //! `Self {.. }` syntax fills (which `branch_from` doesn't use — but
     //! a future refactor could). This test pins the answer to the
-    //! current 49 fields: every field is named explicitly. Adding a new
+    //! current 50 fields: every field is named explicitly. Adding a new
     //! `Session` field forces the test to fail-to-compile until the test
     //! and `branch_from` agree on the inheritance decision.
     //!
@@ -400,6 +404,8 @@ mod branch_from_exhaustiveness {
             task_states: _,
             // Mirrors the prior user_confirmed bool gate.
             confirmation_token: _,
+            // Single-use start_execution latch; branches do not inherit it.
+            execution_token: _,
             pending_emission_id: _,
             emitted_package_path: _,
             harness_events: _,
