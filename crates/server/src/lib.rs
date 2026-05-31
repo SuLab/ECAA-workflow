@@ -183,6 +183,12 @@ pub async fn run() {
         }
     };
 
+    // Boot-time check that the default interpretation policy is present,
+    // parseable, and enabled. Emits a loud error + telemetry signal (never
+    // panics) when a CWD/ECAA_CONFIG_DIR misconfiguration would otherwise
+    // silently disable claim verification fleet-wide.
+    crate::verification::assert_default_policy_present(&chat_routes::config_dir_or_default());
+
     // R3.7: acquire a host-level flock on the configured session-store
     // directory so two server processes pointed at the same store can
     // never race on the atomic-rename writes inside `SessionStore`.

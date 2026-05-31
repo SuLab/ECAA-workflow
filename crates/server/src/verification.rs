@@ -27,13 +27,46 @@ pub struct TaskVerification {
     pub report: ClaimVerificationReport,
 }
 
+/// Outcome of attempting verification for a single task, distinguishing
+/// the three states a caller must handle differently:
+///
+/// - `Verified` — verification actually ran over ≥1 claim (mismatch or not);
+///   inspect the report.
+/// - `Disabled` — the policy is present but `verifiableEntities` is off, OR
+///   the task genuinely had nothing to verify under an enabled policy (no
+///   narrative + no structured claims). Either way this is a benign
+///   "nothing to do", NOT a configuration defect.
+/// - `Unavailable` — the policy file is absent/unreadable/malformed, or its
+///   extractor config failed to build. A configuration defect that callers
+///   must surface loudly rather than treating as a benign 200.
+pub enum VerifyOutcome {
+    Verified(TaskVerification),
+    Disabled,
+    Unavailable { reason: String },
+}
+
+impl VerifyOutcome {
+    /// Short discriminant label for logging / diagnostics without requiring
+    /// `Debug` on the embedded `TaskVerification`.
+    pub fn label(&self) -> &'static str {
+        match self {
+            VerifyOutcome::Verified(_) => "verified",
+            VerifyOutcome::Disabled => "disabled",
+            VerifyOutcome::Unavailable { .. } => "unavailable",
+        }
+    }
+}
+
 /// Class-aware + confirmatory-aware task verifier. Picks the
 /// `interpretation-policy.<class>.json` overlay,
 /// runs the verifier, and then demotes claims whose supporting stage
-/// lineage contains a `PostHocDeviation` record. Returns `None` for
-/// any task without a narrative artifact or when the policy lacks a
-/// `verifiableEntities` block — both treated as "nothing to verify"
-/// rather than errors so the endpoint stays cheap in the common case.
+/// lineage contains a `PostHocDeviation` record.
+///
+/// Returns a typed [`VerifyOutcome`] so an unreadable/malformed policy
+/// (`Unavailable`) is observable and never silently collapses into the same
+/// "nothing to verify" branch as an intentionally disabled policy
+/// (`Disabled`). A task with no narrative AND no structured claims is
+/// reported as `Disabled` (cheap common case), not `Unavailable`.
 pub fn verify_task_with_context(
     package_root: &Path,
     task_id: &str,
@@ -41,10 +74,28 @@ pub fn verify_task_with_context(
     project_class: ProjectClass,
     decisions: &[DecisionRecord],
     is_confirmatory: bool,
-) -> Option<TaskVerification> {
-    let policy = load_interpretation_policy(config_dir)?;
+) -> VerifyOutcome {
+    let policy = match load_interpretation_policy(config_dir) {
+        PolicyLoad::Loaded(value) => value,
+        PolicyLoad::Disabled => return VerifyOutcome::Disabled,
+        PolicyLoad::Unavailable { reason } => return VerifyOutcome::Unavailable { reason },
+    };
     let policy_dir = config_dir.join("downstream-policy");
-    let cfg = ExtractorConfig::from_policy_for_class(&policy, &policy_dir, project_class).ok()?;
+    let cfg = match ExtractorConfig::from_policy_for_class(&policy, &policy_dir, project_class) {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            tracing::error!(
+                target: "verification",
+                config_dir = %config_dir.display(),
+                error = %e,
+                "interpretation policy parsed but extractor config failed to build — \
+                 claim verification is NOT running"
+            );
+            return VerifyOutcome::Unavailable {
+                reason: format!("extractor config: {}", e),
+            };
+        }
+    };
 
     let narrative_path = find_narrative_artifact(package_root, task_id);
     let mut report = ClaimVerificationReport::empty();
@@ -80,9 +131,11 @@ pub fn verify_task_with_context(
         report.push(v);
     }
 
-    // Nothing to verify: no narrative AND no structured claims.
+    // Nothing to verify: no narrative AND no structured claims. The policy
+    // is enabled and loadable here — this is a benign "nothing to do", not a
+    // configuration defect, so report it as Disabled rather than Unavailable.
     if narrative_path.is_none() && report.n_checked == 0 {
-        return None;
+        return VerifyOutcome::Disabled;
     }
 
     demote_claims_from_deviations(&mut report, decisions, is_confirmatory);
@@ -122,7 +175,7 @@ pub fn verify_task_with_context(
             .unwrap_or_else(|| package_root.join("runtime").join(task_id))
     });
 
-    Some(TaskVerification {
+    VerifyOutcome::Verified(TaskVerification {
         narrative_path,
         report,
     })
@@ -206,12 +259,94 @@ fn find_narrative_artifact(package_root: &Path, task_id: &str) -> Option<PathBuf
     candidates.into_iter().next()
 }
 
-fn load_interpretation_policy(config_dir: &Path) -> Option<serde_json::Value> {
+/// Three-state load result for the interpretation policy so callers can
+/// distinguish *intentionally disabled* from *broken configuration*.
+///
+/// - `Disabled` — file present + parsed, but no `verifiableEntities.enabled`
+///   → verification is off by design; return the benign "disabled" response.
+/// - `Loaded` — file present + parsed + `verifiableEntities.enabled: true`.
+/// - `Unavailable` — file absent, unreadable, or malformed JSON. This is a
+///   configuration defect (wrong CWD / `ECAA_CONFIG_DIR`), NOT a legitimate
+///   "nothing to verify". Callers must surface it loudly rather than silently
+///   returning a clean 200.
+#[derive(Debug)]
+pub enum PolicyLoad {
+    Disabled,
+    Loaded(serde_json::Value),
+    Unavailable { reason: String },
+}
+
+fn load_interpretation_policy(config_dir: &Path) -> PolicyLoad {
     let path = config_dir
         .join("downstream-policy")
         .join("interpretation-policy.json");
-    let raw = std::fs::read_to_string(&path).ok()?;
-    serde_json::from_str(&raw).ok()
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!(
+                target: "verification",
+                policy_path = %path.display(),
+                error = %e,
+                "interpretation-policy.json unreadable — claim verification is NOT running; \
+                 check ECAA_CONFIG_DIR / working directory"
+            );
+            return PolicyLoad::Unavailable {
+                reason: format!("read {}: {}", path.display(), e),
+            };
+        }
+    };
+    let value: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!(
+                target: "verification",
+                policy_path = %path.display(),
+                error = %e,
+                "interpretation-policy.json is malformed — claim verification is NOT running"
+            );
+            return PolicyLoad::Unavailable {
+                reason: format!("parse {}: {}", path.display(), e),
+            };
+        }
+    };
+    let enabled = value
+        .get("verifiableEntities")
+        .and_then(|v| v.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if enabled {
+        PolicyLoad::Loaded(value)
+    } else {
+        PolicyLoad::Disabled
+    }
+}
+
+/// True when the interpretation policy at `config_dir` is present,
+/// parseable, and has `verifiableEntities.enabled: true`.
+pub fn default_policy_is_loadable(config_dir: &Path) -> bool {
+    matches!(load_interpretation_policy(config_dir), PolicyLoad::Loaded(_))
+}
+
+/// Boot-time check: emit a loud error + telemetry signal (no panic) when
+/// the default policy is unavailable, so a CWD/`ECAA_CONFIG_DIR`
+/// misconfiguration is visible rather than silently disabling verification
+/// fleet-wide. Deliberately does NOT panic — host-mode / no-LLM deployments
+/// may legitimately run without claim verification.
+pub fn assert_default_policy_present(config_dir: &Path) {
+    match load_interpretation_policy(config_dir) {
+        PolicyLoad::Loaded(_) => {}
+        PolicyLoad::Disabled => tracing::warn!(
+            target: "verification",
+            config_dir = %config_dir.display(),
+            "interpretation policy present but verifiableEntities disabled — claim verification off by config"
+        ),
+        PolicyLoad::Unavailable { reason } => tracing::error!(
+            target: "verification",
+            config_dir = %config_dir.display(),
+            %reason,
+            "DEFAULT interpretation policy UNAVAILABLE at boot — claim verification will not run fleet-wide"
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -253,8 +388,8 @@ mod tests {
                 &[],
                 false,
             ) {
-                None => {}
-                Some(v) => {
+                VerifyOutcome::Disabled | VerifyOutcome::Unavailable { .. } => {}
+                VerifyOutcome::Verified(v) => {
                     let r = &v.report;
                     if r.n_checked == 0 {
                         continue;
@@ -286,6 +421,14 @@ mod tests {
             fs::create_dir_all(parent).unwrap();
         }
         fs::write(path, body).unwrap();
+    }
+
+    /// Test helper: assert verification ran and return the `TaskVerification`.
+    fn expect_verified(outcome: VerifyOutcome) -> TaskVerification {
+        match outcome {
+            VerifyOutcome::Verified(v) => v,
+            other => panic!("expected VerifyOutcome::Verified, got {:?}", other.label()),
+        }
     }
 
     fn scaffold_config_dir(dir: &Path) {
@@ -331,53 +474,58 @@ mod tests {
             "gene\tlog2FC\tpadj\nACAN\t2.1\t0.001\n",
         );
 
-        let out = verify_task_with_context(
+        let out = expect_verified(verify_task_with_context(
             pkg.path(),
             "task_interp",
             cfg.path(),
             ProjectClass::Bioinformatics,
             &[],
             false,
-        )
-        .unwrap();
+        ));
         assert_eq!(out.report.n_verified, 1, "{:?}", out.report.verdicts);
         assert_eq!(out.report.n_mismatch, 0);
     }
 
     #[test]
-    fn returns_none_when_no_narrative_artifact() {
+    fn returns_disabled_when_no_narrative_artifact() {
         let pkg = tempdir().unwrap();
         let cfg = tempdir().unwrap();
         scaffold_config_dir(cfg.path());
-        // Empty runtime dir — no report.md
+        // Empty runtime dir — no report.md. Policy is enabled + loadable, so
+        // this is a benign "nothing to verify" → Disabled, not Unavailable.
         fs::create_dir_all(pkg.path().join("runtime").join("t1")).unwrap();
-        assert!(verify_task_with_context(
-            pkg.path(),
-            "t1",
-            cfg.path(),
-            ProjectClass::Bioinformatics,
-            &[],
-            false,
-        )
-        .is_none());
+        assert!(matches!(
+            verify_task_with_context(
+                pkg.path(),
+                "t1",
+                cfg.path(),
+                ProjectClass::Bioinformatics,
+                &[],
+                false,
+            ),
+            VerifyOutcome::Disabled
+        ));
     }
 
     #[test]
-    fn returns_none_when_policy_missing() {
+    fn returns_unavailable_when_policy_missing() {
         let pkg = tempdir().unwrap();
         let cfg = tempdir().unwrap();
-        // No config/downstream-policy/interpretation-policy.json
+        // No config/downstream-policy/interpretation-policy.json — a
+        // configuration defect, surfaced as Unavailable (never Disabled).
         let task_dir = pkg.path().join("runtime").join("task_interp");
         write(&task_dir.join("report.md"), "ACAN was upregulated.\n");
-        assert!(verify_task_with_context(
-            pkg.path(),
-            "task_interp",
-            cfg.path(),
-            ProjectClass::Bioinformatics,
-            &[],
-            false,
-        )
-        .is_none());
+        assert!(matches!(
+            verify_task_with_context(
+                pkg.path(),
+                "task_interp",
+                cfg.path(),
+                ProjectClass::Bioinformatics,
+                &[],
+                false,
+            ),
+            VerifyOutcome::Unavailable { .. }
+        ));
     }
 
     #[test]
@@ -417,15 +565,14 @@ mod tests {
             DecisionActor::Sme,
             Some("site imbalance".into()),
         );
-        let out = verify_task_with_context(
+        let out = expect_verified(verify_task_with_context(
             pkg.path(),
             "task_interp",
             cfg.path(),
             ProjectClass::Bioinformatics,
             &[deviation],
             true,
-        )
-        .unwrap();
+        ));
         // At least one claim must be demoted to PostHoc.
         assert!(out
             .report
@@ -465,15 +612,14 @@ mod tests {
             DecisionActor::Sme,
             None,
         );
-        let out = verify_task_with_context(
+        let out = expect_verified(verify_task_with_context(
             pkg.path(),
             "task_interp",
             cfg.path(),
             ProjectClass::Bioinformatics,
             &[deviation],
             false,
-        )
-        .unwrap();
+        ));
         assert!(out
             .report
             .verdicts
@@ -504,15 +650,14 @@ mod tests {
             "{\"kind\":\"method_selected\",\"value\":\"m1\"}\n",
         );
 
-        let out = verify_task_with_context(
+        let out = expect_verified(verify_task_with_context(
             pkg.path(),
             "task_interp",
             cfg.path(),
             ProjectClass::Bioinformatics,
             &[],
             false,
-        )
-        .unwrap();
+        ));
         assert_eq!(
             out.report.runtime_decision_log_path.as_deref(),
             Some("runtime/task_interp/runtime-decisions.jsonl")
@@ -536,15 +681,70 @@ mod tests {
             "gene\tlog2FC\tpadj\nACAN\t-1.2\t0.001\n",
         );
 
-        let out = verify_task_with_context(
+        let out = expect_verified(verify_task_with_context(
             pkg.path(),
             "task_interp",
             cfg.path(),
             ProjectClass::Bioinformatics,
             &[],
             false,
-        )
-        .unwrap();
+        ));
         assert!(out.report.has_mismatch(), "{:?}", out.report.verdicts);
+    }
+
+    // ── T2: disabled vs. unavailable policy distinction ──────────────────
+
+    #[test]
+    fn malformed_policy_is_unavailable_not_disabled() {
+        let cfg = tempdir().unwrap();
+        let policy_dir = cfg.path().join("downstream-policy");
+        fs::create_dir_all(&policy_dir).unwrap();
+        // Truncated / malformed JSON — a configuration defect, not "disabled".
+        write(&policy_dir.join("interpretation-policy.json"), "{ this is not json ");
+        match load_interpretation_policy(cfg.path()) {
+            PolicyLoad::Unavailable { reason } => assert!(!reason.is_empty()),
+            other => panic!("malformed policy must be Unavailable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn missing_policy_is_unavailable_not_disabled() {
+        let cfg = tempdir().unwrap();
+        // No downstream-policy dir at all.
+        match load_interpretation_policy(cfg.path()) {
+            PolicyLoad::Unavailable { .. } => {}
+            other => panic!("missing policy must be Unavailable, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn policy_without_verifiable_entities_is_disabled() {
+        let cfg = tempdir().unwrap();
+        let policy_dir = cfg.path().join("downstream-policy");
+        fs::create_dir_all(&policy_dir).unwrap();
+        // Valid JSON, no verifiableEntities block → intentionally disabled.
+        write(
+            &policy_dir.join("interpretation-policy.json"),
+            r#"{"schemaVersion":"1.1"}"#,
+        );
+        assert!(matches!(
+            load_interpretation_policy(cfg.path()),
+            PolicyLoad::Loaded(_) | PolicyLoad::Disabled
+        ));
+    }
+
+    #[test]
+    fn default_policy_check_flags_unavailable_config_dir() {
+        let cfg = tempdir().unwrap(); // empty → no policy
+        assert!(
+            !default_policy_is_loadable(cfg.path()),
+            "empty config dir must report not-loadable"
+        );
+        // Repo's real config dir must be loadable.
+        let real = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config");
+        assert!(
+            default_policy_is_loadable(&real),
+            "shipped default policy must be loadable + enabled"
+        );
     }
 }

@@ -181,7 +181,7 @@ pub async fn get_task_result(
     // the sidecar is present we deserialize it directly; otherwise we
     // fall back to live verification on the blocking pool so the async
     // worker isn't tied up in regex + filesystem walks.
-    let verification = match (&session.emitted_package_path, &task.state) {
+    let verification: serde_json::Value = match (&session.emitted_package_path, &task.state) {
         (Some(root), TaskState::Completed { .. }) => {
             let sidecar = root
                 .join("runtime")
@@ -192,6 +192,8 @@ pub async fn get_task_result(
                     ecaa_workflow_core::claim_verifier::ClaimVerificationReport,
                 >(&bytes)
                 .ok()
+                .and_then(|r| serde_json::to_value(r).ok())
+                .unwrap_or(serde_json::Value::Null)
             } else {
                 let config_dir = config_dir_or_default();
                 let project_class = session.project_class;
@@ -199,7 +201,7 @@ pub async fn get_task_result(
                 let is_confirmatory = session.mode.is_confirmatory();
                 let root_clone = root.clone();
                 let task_id_clone = task_id.clone();
-                tokio::task::spawn_blocking(move || {
+                let outcome = tokio::task::spawn_blocking(move || {
                     crate::verification::verify_task_with_context(
                         &root_clone,
                         &task_id_clone,
@@ -208,14 +210,34 @@ pub async fn get_task_result(
                         &decisions,
                         is_confirmatory,
                     )
-                    .map(|v| v.report)
                 })
                 .await
-                .ok()
-                .flatten()
+                .ok();
+                match outcome {
+                    Some(crate::verification::VerifyOutcome::Verified(v)) => {
+                        serde_json::to_value(v.report).unwrap_or(serde_json::Value::Null)
+                    }
+                    // Policy intentionally off / nothing to verify: benign null.
+                    Some(crate::verification::VerifyOutcome::Disabled) | None => {
+                        serde_json::Value::Null
+                    }
+                    // Policy absent/unreadable/malformed — a configuration
+                    // defect. Surface it explicitly rather than a silent null
+                    // so the UI / caller can tell "broken" from "disabled".
+                    // The load helper already logged a tracing::error!.
+                    Some(crate::verification::VerifyOutcome::Unavailable { reason }) => {
+                        tracing::error!(
+                            target: "verification",
+                            %task_id,
+                            %reason,
+                            "GET task-result: interpretation policy unavailable — verification not run"
+                        );
+                        serde_json::json!({ "policy_unavailable": reason })
+                    }
+                }
             }
         }
-        _ => None,
+        _ => serde_json::Value::Null,
     };
 
     // include the cross-version diff when present so

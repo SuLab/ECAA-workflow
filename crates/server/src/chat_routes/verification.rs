@@ -278,19 +278,37 @@ pub async fn verify_task_endpoint(
         return (StatusCode::FORBIDDEN, format!("path escapes root: {}", e)).into_response();
     }
     let config_dir = super::tasks::config_dir_or_default();
-    let Some(verified) = crate::verification::verify_task_with_context(
+    let verified = match crate::verification::verify_task_with_context(
         &root,
         &task_id,
         &config_dir,
         session.project_class,
         &session.decisions,
         session.mode.is_confirmatory(),
-    ) else {
-        return Json(serde_json::json!({
-            "report": serde_json::Value::Null,
-            "reason": "no narrative artifact, no policy, or verification disabled",
-        }))
-        .into_response();
+    ) {
+        crate::verification::VerifyOutcome::Verified(v) => v,
+        crate::verification::VerifyOutcome::Disabled => {
+            // Policy intentionally off, or nothing to verify — benign 200.
+            return Json(serde_json::json!({
+                "report": serde_json::Value::Null,
+                "reason": "no narrative artifact, no structured claims, or verification disabled",
+            }))
+            .into_response();
+        }
+        crate::verification::VerifyOutcome::Unavailable { reason } => {
+            // The interpretation policy is absent/unreadable/malformed: a
+            // configuration defect, NOT "nothing to verify". Fail LOUD —
+            // never return an indistinguishable clean 200. The
+            // load helper already logged a tracing::error!.
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "report": serde_json::Value::Null,
+                    "policy_unavailable": reason,
+                })),
+            )
+                .into_response();
+        }
     };
 
     // Write a `DecisionType::ClaimVerification` row regardless of

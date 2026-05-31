@@ -258,6 +258,11 @@ pub use _path_jail::{
     PathJailError,
 };
 
+// Re-export the config-dir resolver so the boot-time interpretation-policy
+// presence check in `lib::run` (and `crate::verification`) can reach it
+// without widening the private `tasks` submodule.
+pub(crate) use tasks::config_dir_or_default;
+
 // Re-export the bounded git-hook pool and its drop-notifier type so
 // call sites can wire SSE fanouts for dropped hooks and integration
 // tests can reach them at the same import path the production handlers
