@@ -401,8 +401,8 @@ mod tests {
             runtime_baseline: Default::default(),
             cross_omics_modalities: vec![],
         };
-        let yaml = serde_yml::to_string(&arch).unwrap();
-        let back: ArchetypeDefinition = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&arch).unwrap();
+        let back: ArchetypeDefinition = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(arch, back);
     }
 
@@ -444,11 +444,11 @@ mod tests {
             runtime_baseline: Default::default(),
             cross_omics_modalities: vec![],
         };
-        let yaml = serde_yml::to_string(&arch).unwrap();
+        let yaml = serde_yaml_ng::to_string(&arch).unwrap();
         assert!(yaml.contains("preferred_container"));
         assert!(yaml.contains("clinical-trial-runner"));
         assert!(yaml.contains("kind: none"), "NetworkPolicy::None tagged");
-        let back: ArchetypeDefinition = serde_yml::from_str(&yaml).unwrap();
+        let back: ArchetypeDefinition = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(arch, back);
     }
 
@@ -478,21 +478,21 @@ mod tests {
             runtime_baseline: Default::default(),
             cross_omics_modalities: vec!["bulk_rnaseq".into(), "proteomics".into()],
         };
-        let yaml = serde_yml::to_string(&arch).unwrap();
+        let yaml = serde_yaml_ng::to_string(&arch).unwrap();
         assert!(
             yaml.contains("cross_omics_modalities"),
             "non-empty list should serialize"
         );
         assert!(yaml.contains("bulk_rnaseq"));
         assert!(yaml.contains("proteomics"));
-        let back: ArchetypeDefinition = serde_yml::from_str(&yaml).unwrap();
+        let back: ArchetypeDefinition = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(arch, back);
 
         let single = ArchetypeDefinition {
             cross_omics_modalities: vec![],
             ..arch
         };
-        let single_yaml = serde_yml::to_string(&single).unwrap();
+        let single_yaml = serde_yaml_ng::to_string(&single).unwrap();
         assert!(
             !single_yaml.contains("cross_omics_modalities"),
             "empty list should be suppressed from YAML"
@@ -512,8 +512,8 @@ mod tests {
                 id_prefix: None,
                 replace_atoms: BTreeMap::new(),
             };
-            let yaml = serde_yml::to_string(&r).unwrap();
-            let back: ComposeRef = serde_yml::from_str(&yaml).unwrap();
+            let yaml = serde_yaml_ng::to_string(&r).unwrap();
+            let back: ComposeRef = serde_yaml_ng::from_str(&yaml).unwrap();
             assert_eq!(r, back);
         }
     }
@@ -532,10 +532,10 @@ mod tests {
             id_prefix: Some("rnaseq_".into()),
             replace_atoms: replace,
         };
-        let yaml = serde_yml::to_string(&r).unwrap();
+        let yaml = serde_yaml_ng::to_string(&r).unwrap();
         assert!(yaml.contains("id_prefix: rnaseq_"));
         assert!(yaml.contains("replace_atoms:"));
-        let back: ComposeRef = serde_yml::from_str(&yaml).unwrap();
+        let back: ComposeRef = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(r, back);
 
         let bare = ComposeRef {
@@ -544,7 +544,7 @@ mod tests {
             id_prefix: None,
             replace_atoms: BTreeMap::new(),
         };
-        let bare_yaml = serde_yml::to_string(&bare).unwrap();
+        let bare_yaml = serde_yaml_ng::to_string(&bare).unwrap();
         assert!(
             !bare_yaml.contains("id_prefix"),
             "id_prefix=None must not serialize, got:\n{}",
@@ -570,10 +570,10 @@ mod tests {
             expected_artifacts: None,
             required_artifacts: None,
         };
-        let yaml = serde_yml::to_string(&r).unwrap();
+        let yaml = serde_yaml_ng::to_string(&r).unwrap();
         // required: true is not the default we suppress; default is
         // true so the value is always emitted. Lock the round-trip.
-        let back: ArchetypeAtomRef = serde_yml::from_str(&yaml).unwrap();
+        let back: ArchetypeAtomRef = serde_yaml_ng::from_str(&yaml).unwrap();
         assert!(back.required);
     }
 }

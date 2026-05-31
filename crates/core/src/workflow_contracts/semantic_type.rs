@@ -487,7 +487,7 @@ members:
     label: "Annotation track"
     ontology_version: "EDAM-1.25"
 "#;
-        let st: SemanticType = serde_yml::from_str(yaml).expect("yaml round-trip failed");
+        let st: SemanticType = serde_yaml_ng::from_str(yaml).expect("yaml round-trip failed");
         assert_eq!(st.variant_key(), "union");
         match &st {
             SemanticType::Union { members } => {

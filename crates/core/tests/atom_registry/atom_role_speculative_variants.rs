@@ -9,7 +9,7 @@
 
 use ecaa_workflow_core::atom::{AtomDefinition, AtomRole};
 
-fn try_parse_role(role_yaml: &str) -> Result<AtomDefinition, serde_yml::Error> {
+fn try_parse_role(role_yaml: &str) -> Result<AtomDefinition, serde_yaml_ng::Error> {
     let yaml = format!(
         r#"
 id: test_atom
@@ -20,7 +20,7 @@ edam_operation: "operation:0004"
 assignee: agent
 "#
     );
-    serde_yml::from_str(&yaml)
+    serde_yaml_ng::from_str(&yaml)
 }
 
 #[test]

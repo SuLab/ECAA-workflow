@@ -396,8 +396,8 @@ mod tests {
                 reference: None,
             }],
         };
-        let yaml = serde_yml::to_string(&o).unwrap();
-        let back: ComposeOutcome = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&o).unwrap();
+        let back: ComposeOutcome = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(o, back);
     }
 }

@@ -607,7 +607,7 @@ profiles:
       memory_gb: 16
       storage_gb: 20
 "#;
-    let v: serde_json::Value = serde_yml::from_str(yaml).unwrap();
+    let v: serde_json::Value = serde_yaml_ng::from_str(yaml).unwrap();
     std::fs::write(
         policies.join("compute-resource-policy.json"),
         serde_json::to_string(&v).unwrap(),

@@ -210,8 +210,8 @@ impl AwsExecutor {
             // Parse via serde_json then re-encode as YAML so the sizing
             // loader (YAML-only) consumes it.
             let v: serde_json::Value = serde_json::from_str(&raw)?;
-            let yaml = serde_yml::to_string(&v)?;
-            Some(serde_yml::from_str::<ComputeProfiles>(&yaml)?)
+            let yaml = serde_yaml_ng::to_string(&v)?;
+            Some(serde_yaml_ng::from_str::<ComputeProfiles>(&yaml)?)
         } else {
             None
         };

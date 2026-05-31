@@ -1126,7 +1126,7 @@ default:
   description: "fallback"
   requirements: { vcpus: 2, memory_gb: 8, storage_gb: 50 }
 "#;
-        let profiles: ComputeProfiles = serde_yml::from_str(yaml).unwrap();
+        let profiles: ComputeProfiles = serde_yaml_ng::from_str(yaml).unwrap();
 
         let prior = std::env::var("ECAA_AWS_SSM_TIMEOUT_SECS").ok();
         unsafe { std::env::set_var("ECAA_AWS_SSM_TIMEOUT_SECS", "1800") };

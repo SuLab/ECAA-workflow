@@ -66,7 +66,7 @@ pub fn load_yaml_dir<T: DeserializeOwned>(
     for entry in entries {
         let path = entry.path();
         let raw = crate::fs_helpers::read_to_string_ctx(&path)?;
-        let yaml_value: serde_yml::Value = serde_yml::from_str(&raw)
+        let yaml_value: serde_yaml_ng::Value = serde_yaml_ng::from_str(&raw)
             .with_context(|| format!("parsing {} YAML at {}", noun, path.display()))?;
         let json_value: serde_json::Value = serde_json::to_value(&yaml_value)
             .with_context(|| format!("yaml->json for {} at {}", noun, path.display()))?;

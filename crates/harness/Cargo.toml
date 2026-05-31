@@ -30,7 +30,7 @@ csv.workspace = true
 regex.workspace = true
 serde_json.workspace = true
 serde.workspace = true
-serde_yml = { workspace = true }
+serde_yaml_ng = { workspace = true }
 chrono.workspace = true
 ureq = { version = "2", default-features = false, features = ["json"] }
 uuid.workspace = true

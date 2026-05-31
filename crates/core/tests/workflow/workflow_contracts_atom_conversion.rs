@@ -76,9 +76,9 @@ fn every_converted_node_round_trips_through_yaml() {
     for (id, atom) in registry.iter() {
         let node = TaskNode::from_atom(atom);
         let yaml =
-            serde_yml::to_string(&node).unwrap_or_else(|e| panic!("atom {id} serialize: {e}"));
+            serde_yaml_ng::to_string(&node).unwrap_or_else(|e| panic!("atom {id} serialize: {e}"));
         let back: TaskNode =
-            serde_yml::from_str(&yaml).unwrap_or_else(|e| panic!("atom {id} deserialize: {e}"));
+            serde_yaml_ng::from_str(&yaml).unwrap_or_else(|e| panic!("atom {id} deserialize: {e}"));
         assert_eq!(node, back, "atom {id} YAML round-trip changed shape");
     }
 }

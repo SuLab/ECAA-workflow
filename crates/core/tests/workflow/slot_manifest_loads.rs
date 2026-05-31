@@ -27,7 +27,7 @@ values:
     keywords: []
     extra_atoms: []
 "#;
-    let manifest: SlotManifest = serde_yml::from_str(yaml).unwrap();
+    let manifest: SlotManifest = serde_yaml_ng::from_str(yaml).unwrap();
     assert_eq!(manifest.slot_name, "integrator");
     assert_eq!(manifest.values.len(), 2);
     assert_eq!(manifest.default, "generic");
@@ -120,7 +120,7 @@ default: generic
 values:
   - { id: generic, keywords: [], extra_atoms: [] }
 "#;
-    let manifest: SlotManifest = serde_yml::from_str(yaml).unwrap();
+    let manifest: SlotManifest = serde_yaml_ng::from_str(yaml).unwrap();
     assert_eq!(manifest.values.len(), 1);
     let v: &SlotValue = &manifest.values[0];
     assert!(v.keywords.is_empty());
@@ -130,7 +130,7 @@ values:
 #[test]
 fn resolve_slot_picks_keyword_match() {
     use ecaa_workflow_core::archetype_slots::{resolve_slot_value, SlotManifest};
-    let m: SlotManifest = serde_yml::from_str(
+    let m: SlotManifest = serde_yaml_ng::from_str(
         r#"
 slot_name: integrator
 slot_kind: closed_enum
@@ -154,7 +154,7 @@ values:
 fn expand_atoms_appends_slot_extras() {
     use ecaa_workflow_core::archetype::ArchetypeAtomRef;
     use ecaa_workflow_core::archetype_slots::{expand_atoms, SlotManifest};
-    let m: SlotManifest = serde_yml::from_str(
+    let m: SlotManifest = serde_yaml_ng::from_str(
         r#"
 slot_name: integrator
 slot_kind: closed_enum

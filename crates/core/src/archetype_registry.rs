@@ -60,7 +60,7 @@ impl ArchetypeRegistry {
         for path in entries {
             let raw = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading archetype file {}", path.display()))?;
-            let yaml_val: serde_yml::Value = serde_yml::from_str(&raw)
+            let yaml_val: serde_yaml_ng::Value = serde_yaml_ng::from_str(&raw)
                 .with_context(|| format!("parsing archetype YAML {}", path.display()))?;
             let parsed: Value = serde_json::to_value(&yaml_val)
                 .with_context(|| format!("yaml→json reshape for {}", path.display()))?;
@@ -102,7 +102,7 @@ impl ArchetypeRegistry {
             let archetype = if slots_path.exists() {
                 let slots_raw = std::fs::read_to_string(&slots_path)
                     .with_context(|| format!("reading slot sidecar {}", slots_path.display()))?;
-                let slots: crate::archetype_slots::SlotManifest = serde_yml::from_str(&slots_raw)
+                let slots: crate::archetype_slots::SlotManifest = serde_yaml_ng::from_str(&slots_raw)
                     .with_context(|| {
                     format!("parsing slot sidecar {}", slots_path.display())
                 })?;

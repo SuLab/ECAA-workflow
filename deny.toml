@@ -33,11 +33,6 @@ ignore = [
     # exists in the ecosystem today; the upstream author has not responded
     # to maintenance-transfer requests. Re-evaluate quarterly.
     { id = "RUSTSEC-2024-0436", reason = "paste is unmaintained but widely depended-on via clap proc-macros; no safe replacement today" },
-    # serde_yml 0.0.12: archived (RUSTSEC-2025-0068). Replacement for
-    # serde_yaml itself archived by its author. Transitive via several
-    # config-loading paths. Migration to serde_yaml 0.9 or an equivalent
-    # is tracked in the audit remediation plan; no same-API upgrade exists.
-    { id = "RUSTSEC-2025-0068", reason = "serde_yml is archived; migration tracked in audit remediation plan, no safe upgrade today" },
 ]
 
 [licenses]

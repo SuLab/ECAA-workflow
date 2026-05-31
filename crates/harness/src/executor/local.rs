@@ -1462,8 +1462,8 @@ fn load_profiles(package: &Path) -> Option<ComputeProfiles> {
     }
     let raw = std::fs::read_to_string(&p).ok()?;
     let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    let yaml = serde_yml::to_string(&value).ok()?;
-    serde_yml::from_str(&yaml).ok()
+    let yaml = serde_yaml_ng::to_string(&value).ok()?;
+    serde_yaml_ng::from_str(&yaml).ok()
 }
 
 /// Load intake facts from the emitted `policies/intake-facts.json`.

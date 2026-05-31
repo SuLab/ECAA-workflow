@@ -10,4 +10,5 @@ mod lineage_task_pair;
 mod no_keys_in_emit;
 mod opaque_aggregation;
 mod parameter_connection_emission;
+mod serde_yaml_ng_roundtrip;
 mod stage_class_coverage;

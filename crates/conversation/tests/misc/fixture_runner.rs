@@ -283,7 +283,7 @@ fn load_fixture(name: &str) -> (Fixture, tempfile::TempDir) {
     let temp_str = temp.path().to_string_lossy().to_string();
     // Substitute the {tempdir} placeholder so per-fixture emit paths are isolated.
     let resolved = raw.replace("{tempdir}", &temp_str);
-    let fixture: Fixture = serde_yml::from_str(&resolved)
+    let fixture: Fixture = serde_yaml_ng::from_str(&resolved)
         .unwrap_or_else(|e| panic!("parsing {}: {}", path.display(), e));
     (fixture, temp)
 }

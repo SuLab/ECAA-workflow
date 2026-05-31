@@ -542,8 +542,8 @@ mod tests {
             semantic_type: SemanticType::edam("data:0863", "Sequence alignment"),
             ..Default::default()
         });
-        let yaml = serde_yml::to_string(&n).unwrap();
-        let back: TaskNode = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&n).unwrap();
+        let back: TaskNode = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(n, back);
     }
 

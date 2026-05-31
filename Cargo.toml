@@ -125,15 +125,14 @@ walkdir = "2"
 # from producing false `Unverifiable` verdicts.
 unicode-normalization = "0.1"
 
-# R3-D1 — migrate off abandoned `serde_yaml` (0.9.34+deprecated) to
-# `serde_yml`, the most-popular drop-in fork. The legacy crate has
-# been unmaintained since 2024-03 and won't accept fixes; staying on
-# it ships unpatched dependencies to every downstream consumer. The
-# API surface is compatible (`from_str`, `to_string`, `Value`,
-# `Error`); existing call sites only need the `serde_yaml::` → `serde_yml::`
-# rename. Per-crate `Cargo.toml` files inherit the version via
-# `serde_yml.workspace = true`.
-serde_yml = "0.0.12"
+# Migrated off the abandoned `serde_yaml` (0.9.34+deprecated) and then
+# off the archived `serde_yml` (0.0.12, RUSTSEC-2025-0068, pulling the
+# unmaintained `libyml` unsafe FFI) to `serde_yaml_ng`, the maintained
+# drop-in fork. The API surface is compatible (`from_str`, `to_string`,
+# `Value`, `Error`); call sites use the `serde_yml::` → `serde_yaml_ng::`
+# rename only. Per-crate `Cargo.toml` files inherit the version via
+# `serde_yaml_ng.workspace = true`.
+serde_yaml_ng = "0.10"
 # v3 P7 — SemVer for `schema_version` IR fields. Promoted from
 # `u32` so future minor/patch bumps don't require a migration cycle.
 # Custom serde adapter accepts both legacy `u64` JSON values and

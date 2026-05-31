@@ -38,14 +38,14 @@ pub fn read_json<T: DeserializeOwned>(path: &Path) -> Result<T> {
 /// surface the path in their error context.
 pub fn read_yaml<T: DeserializeOwned>(path: &Path) -> Result<T> {
     let s = read_to_string_ctx(path)?;
-    serde_yml::from_str(&s).with_context(|| format!("parsing YAML from {}", path.display()))
+    serde_yaml_ng::from_str(&s).with_context(|| format!("parsing YAML from {}", path.display()))
 }
 
 /// Read `path` as YAML and re-encode as a `serde_json::Value`. Convenient
 /// for downstream JSON Schema validation (jsonschema accepts only
 /// `serde_json::Value`).
 pub fn read_yaml_as_json(path: &Path) -> Result<serde_json::Value> {
-    let v: serde_yml::Value = read_yaml(path)?;
+    let v: serde_yaml_ng::Value = read_yaml(path)?;
     serde_json::to_value(v)
         .with_context(|| format!("yaml->json conversion failed for {}", path.display()))
 }

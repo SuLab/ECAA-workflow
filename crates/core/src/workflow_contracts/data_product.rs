@@ -539,8 +539,8 @@ mod tests {
             }],
             description_only: false,
         };
-        let yaml = serde_yml::to_string(&dp).unwrap();
-        let back: DataProductContract = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&dp).unwrap();
+        let back: DataProductContract = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(dp, back);
     }
 }

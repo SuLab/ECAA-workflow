@@ -176,7 +176,7 @@ impl PromotionGatePolicy {
             message: e.to_string(),
         })?;
         let p: PromotionGatePolicy =
-            serde_yml::from_str(&raw).map_err(|e| PromotionGateError::Parse {
+            serde_yaml_ng::from_str(&raw).map_err(|e| PromotionGateError::Parse {
                 message: e.to_string(),
             })?;
         Ok(Arc::new(p))
@@ -452,8 +452,8 @@ mod tests {
     #[test]
     fn round_trips_through_yaml() {
         let policy = locally_validated_minimal();
-        let yaml = serde_yml::to_string(&policy).unwrap();
-        let back: PromotionGatePolicy = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&policy).unwrap();
+        let back: PromotionGatePolicy = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(policy, back);
     }
 }

@@ -27,8 +27,8 @@ pub(super) fn load_aws_profiles(package: &Path) -> Result<ComputeProfiles> {
         });
     }
     let v: serde_json::Value = ecaa_workflow_core::fs_helpers::read_json(&profiles_path)?;
-    let yaml = serde_yml::to_string(&v)?;
-    serde_yml::from_str::<ComputeProfiles>(&yaml).map_err(Into::into)
+    let yaml = serde_yaml_ng::to_string(&v)?;
+    serde_yaml_ng::from_str::<ComputeProfiles>(&yaml).map_err(Into::into)
 }
 
 /// Load sizing facts from `policies/intake-facts.json`. Missing /

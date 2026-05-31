@@ -539,7 +539,7 @@ profiles:
       memory_gb: 16
       storage_gb: 20
 "#;
-        serde_yml::from_str(yaml).unwrap()
+        serde_yaml_ng::from_str(yaml).unwrap()
     }
 
     fn facts() -> SizingIntakeFacts {

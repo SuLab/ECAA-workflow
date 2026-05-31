@@ -96,7 +96,7 @@ impl GraduationConfig {
             path: p.display().to_string(),
             source: e,
         })?;
-        let parsed: GraduationConfig = serde_yml::from_str(&raw)?;
+        let parsed: GraduationConfig = serde_yaml_ng::from_str(&raw)?;
         parsed.validate()?;
         Ok(parsed)
     }
@@ -167,7 +167,7 @@ pub enum GraduationConfigError {
     },
     #[error("graduation config YAML parse error: {0}")]
     /// Parse variant.
-    Parse(#[from] serde_yml::Error),
+    Parse(#[from] serde_yaml_ng::Error),
     #[error("graduation config invalid version: {got}")]
     /// Variant.
     /// Field value.

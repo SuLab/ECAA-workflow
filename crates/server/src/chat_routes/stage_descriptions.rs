@@ -57,7 +57,7 @@ pub(super) async fn get_stage_descriptions() -> impl IntoResponse {
             .into_response();
         }
     };
-    match serde_yml::from_str::<StageDescriptionsFile>(&raw) {
+    match serde_yaml_ng::from_str::<StageDescriptionsFile>(&raw) {
         Ok(parsed) => Json(StageDescriptionsResponse {
             version: parsed.version,
             stages: parsed.stages,

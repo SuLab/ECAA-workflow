@@ -88,7 +88,7 @@ impl OntologyScopeMatrix {
             path: p.display().to_string(),
             source: e,
         })?;
-        let parsed: OntologyScopeMatrix = serde_yml::from_str(&raw)?;
+        let parsed: OntologyScopeMatrix = serde_yaml_ng::from_str(&raw)?;
         parsed.validate()?;
         Ok(Arc::new(parsed))
     }
@@ -181,7 +181,7 @@ pub enum OntologyScopeError {
     },
     #[error("yaml parse: {0}")]
     /// Parse variant.
-    Parse(#[from] serde_yml::Error),
+    Parse(#[from] serde_yaml_ng::Error),
     #[error("invalid version: {got}")]
     /// Variant.
     /// Field value.

@@ -340,7 +340,7 @@ impl Classifier {
     ) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("reading classifier config '{}'", path.display()))?;
-        let mut config: ModalityKeywordsConfig = serde_yml::from_str(&content)
+        let mut config: ModalityKeywordsConfig = serde_yaml_ng::from_str(&content)
             .with_context(|| format!("parsing classifier config '{}'", path.display()))?;
 
         let modalities_dir = path
@@ -2283,7 +2283,7 @@ pub struct ProjectClassEntry {
 pub fn load_project_class_keywords(path: &Path) -> Result<ProjectClassKeywordsConfig> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("reading project-class config '{}'", path.display()))?;
-    let config: ProjectClassKeywordsConfig = serde_yml::from_str(&content)
+    let config: ProjectClassKeywordsConfig = serde_yaml_ng::from_str(&content)
         .with_context(|| format!("parsing project-class config '{}'", path.display()))?;
     Ok(config)
 }

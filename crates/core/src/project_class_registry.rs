@@ -97,7 +97,7 @@ impl ProjectClassRegistry {
         for path in entries {
             let raw = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading project-class file {}", path.display()))?;
-            let yaml_val: serde_yml::Value = serde_yml::from_str(&raw)
+            let yaml_val: serde_yaml_ng::Value = serde_yaml_ng::from_str(&raw)
                 .with_context(|| format!("parsing project-class YAML {}", path.display()))?;
             let parsed: Value = serde_json::to_value(&yaml_val)
                 .with_context(|| format!("yaml→json reshape for {}", path.display()))?;

@@ -80,7 +80,7 @@ impl DisambiguationRegistry {
     pub fn load(path: &Path) -> Result<Self> {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("reading disambiguation file {}", path.display()))?;
-        let reg: Self = serde_yml::from_str(&raw)
+        let reg: Self = serde_yaml_ng::from_str(&raw)
             .with_context(|| format!("parsing disambiguation file {}", path.display()))?;
         Ok(reg)
     }

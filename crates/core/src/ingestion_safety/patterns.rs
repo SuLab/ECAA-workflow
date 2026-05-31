@@ -144,7 +144,7 @@ pub enum InjectionPatternError {
     },
     #[error("catalog YAML parse error: {0}")]
     /// Parse variant.
-    Parse(#[from] serde_yml::Error),
+    Parse(#[from] serde_yaml_ng::Error),
     #[error("catalog invalid version: {got}")]
     /// Variant.
     /// Field value.
@@ -178,7 +178,7 @@ impl InjectionPatternCatalog {
             path: p.display().to_string(),
             source: e,
         })?;
-        let parsed: InjectionPatternCatalog = serde_yml::from_str(&raw)?;
+        let parsed: InjectionPatternCatalog = serde_yaml_ng::from_str(&raw)?;
         parsed.validate()?;
         Ok(parsed)
     }
@@ -247,7 +247,7 @@ patterns:
     severity: high
     default_action: quarantine
 "#;
-        let parsed: InjectionPatternCatalog = serde_yml::from_str(yaml).unwrap();
+        let parsed: InjectionPatternCatalog = serde_yaml_ng::from_str(yaml).unwrap();
         parsed.validate().unwrap();
         assert_eq!(parsed.patterns.len(), 1);
         assert_eq!(parsed.patterns[0].id, "ignore-previous-instructions");

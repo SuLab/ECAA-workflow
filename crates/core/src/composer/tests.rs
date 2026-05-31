@@ -411,7 +411,7 @@ fn registry_from(atoms: Vec<AtomDefinition>) -> AtomRegistry {
     let tmp = tempfile::tempdir().unwrap();
     for atom in &atoms {
         let path = tmp.path().join(format!("{}.yaml", atom.id));
-        let yaml = serde_yml::to_string(atom).unwrap();
+        let yaml = serde_yaml_ng::to_string(atom).unwrap();
         std::fs::write(&path, yaml).unwrap();
     }
     AtomRegistry::load_from_dir(tmp.path()).unwrap()

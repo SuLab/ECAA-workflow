@@ -352,8 +352,8 @@ mod tests {
             facets,
             ..Default::default()
         };
-        let yaml = serde_yml::to_string(&p).unwrap();
-        let back: PortContract = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&p).unwrap();
+        let back: PortContract = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(p, back);
     }
 

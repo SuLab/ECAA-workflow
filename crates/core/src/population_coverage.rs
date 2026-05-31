@@ -149,7 +149,7 @@ pub enum PopulationCoverageError {
     Io(#[from] std::io::Error),
     /// YAML parse error.
     #[error("yaml parse: {0}")]
-    YamlParse(#[from] serde_yml::Error),
+    YamlParse(#[from] serde_yaml_ng::Error),
 }
 
 impl PopulationCoverageStatement {
@@ -170,7 +170,7 @@ impl PopulationCoverageStatement {
             return Err(PopulationCoverageError::NoStatement(id));
         }
         let yaml = std::fs::read_to_string(p)?;
-        let stmt: PopulationCoverageStatement = serde_yml::from_str(&yaml)?;
+        let stmt: PopulationCoverageStatement = serde_yaml_ng::from_str(&yaml)?;
         Ok(stmt)
     }
 

@@ -141,8 +141,8 @@ mod tests {
             ),
             confidence: 0.92,
         };
-        let yaml = serde_yml::to_string(&goal).unwrap();
-        let back: GoalSpec = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&goal).unwrap();
+        let back: GoalSpec = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(goal, back);
     }
 
@@ -161,7 +161,7 @@ mod tests {
             source_prose: None,
             confidence: 0.0,
         };
-        let yaml = serde_yml::to_string(&goal).unwrap();
+        let yaml = serde_yaml_ng::to_string(&goal).unwrap();
         let a_pos = yaml.find("a_axis").unwrap();
         let m_pos = yaml.find("m_axis").unwrap();
         let z_pos = yaml.find("z_axis").unwrap();
@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn confidence_default_is_zero() {
         let raw = r#"edam_data: data:3917"#;
-        let goal: GoalSpec = serde_yml::from_str(raw).unwrap();
+        let goal: GoalSpec = serde_yaml_ng::from_str(raw).unwrap();
         assert_eq!(goal.confidence, 0.0);
         assert!(goal.modifiers.is_empty());
     }
@@ -187,7 +187,7 @@ mod tests {
             source_prose: None,
             confidence: 0.0,
         };
-        let yaml = serde_yml::to_string(&goal).unwrap();
+        let yaml = serde_yaml_ng::to_string(&goal).unwrap();
         assert!(!yaml.contains("edam_format"));
         assert!(!yaml.contains("modifiers"));
         assert!(!yaml.contains("source_prose"));

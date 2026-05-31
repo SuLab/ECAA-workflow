@@ -10,7 +10,7 @@ description = "Deterministic offline compiler for natural-language bioinformatic
 ecaa-workflow-types = { version = "0.1", path = "../ecaa-types" }
 serde.workspace = true
 serde_json.workspace = true
-serde_yml = { workspace = true }
+serde_yaml_ng = { workspace = true }
 petgraph = "0.6"
 anyhow.workspace = true
 chrono.workspace = true

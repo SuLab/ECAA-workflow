@@ -745,8 +745,8 @@ pub(super) fn resolve_ssm_timeout_for_stage(package: &str, stage_class: &str) ->
         match std::fs::read_to_string(&profiles_path)
             .ok()
             .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-            .and_then(|v| serde_yml::to_string(&v).ok())
-            .and_then(|yaml| serde_yml::from_str::<ComputeProfiles>(&yaml).ok())
+            .and_then(|v| serde_yaml_ng::to_string(&v).ok())
+            .and_then(|yaml| serde_yaml_ng::from_str::<ComputeProfiles>(&yaml).ok())
         {
             Some(p) => p,
             None => return fallback_ssm_timeout(),

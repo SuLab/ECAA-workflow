@@ -180,7 +180,7 @@ pub enum AssumptionPolicyError {
     NotFound(String),
     #[error("yaml parse: {0}")]
     /// YamlParse variant.
-    YamlParse(#[from] serde_yml::Error),
+    YamlParse(#[from] serde_yaml_ng::Error),
     #[error("duplicate entry for ({0:?}, {1:?})")]
     /// Duplicate variant.
     Duplicate(DefectClass, PolicyPrivacyClass),
@@ -214,7 +214,7 @@ impl AssumptionPolicyTable {
             return Err(AssumptionPolicyError::NotFound(p.display().to_string()));
         }
         let yaml = std::fs::read_to_string(p)?;
-        let raw: RawTable = serde_yml::from_str(&yaml)?;
+        let raw: RawTable = serde_yaml_ng::from_str(&yaml)?;
         let mut entries = BTreeMap::new();
         for e in raw.entries {
             let key = (e.defect_class, e.privacy_class);

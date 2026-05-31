@@ -180,7 +180,7 @@ fn synth_registry(atoms: Vec<AtomDefinition>) -> AtomRegistry {
     let tmp = tempfile::tempdir().expect("tempdir");
     for atom in &atoms {
         let path = tmp.path().join(format!("{}.yaml", atom.id));
-        let yaml = serde_yml::to_string(atom).expect("serialise atom");
+        let yaml = serde_yaml_ng::to_string(atom).expect("serialise atom");
         std::fs::write(&path, yaml).expect("write atom yaml");
     }
     // Tempdir leaks; AtomRegistry holds no file handles, so the
@@ -208,7 +208,7 @@ fn synth_archetypes(
     let tmp = tempfile::tempdir().expect("tempdir");
     for arch in &archetypes {
         let path = tmp.path().join(format!("{}.yaml", arch.id));
-        let yaml = serde_yml::to_string(arch).expect("serialise archetype");
+        let yaml = serde_yaml_ng::to_string(arch).expect("serialise archetype");
         std::fs::write(&path, yaml).expect("write archetype yaml");
     }
     let leaked = Box::leak(Box::new(tmp));

@@ -226,8 +226,8 @@ mod tests {
                 snapshot_id: "1.25-20251112T1620Z".into(),
             }],
         };
-        let yaml = serde_yml::to_string(&p).unwrap();
-        let back: CompatibilityProof = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&p).unwrap();
+        let back: CompatibilityProof = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(p, back);
     }
 

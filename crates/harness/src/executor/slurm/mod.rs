@@ -769,11 +769,11 @@ fn load_profiles(path: &Path) -> ComputeProfiles {
         Ok(v) => v,
         Err(_) => return empty_profiles(),
     };
-    let yaml = match serde_yml::to_string(&v) {
+    let yaml = match serde_yaml_ng::to_string(&v) {
         Ok(y) => y,
         Err(_) => return empty_profiles(),
     };
-    serde_yml::from_str(&yaml).unwrap_or_else(|_| empty_profiles())
+    serde_yaml_ng::from_str(&yaml).unwrap_or_else(|_| empty_profiles())
 }
 
 fn empty_profiles() -> ComputeProfiles {

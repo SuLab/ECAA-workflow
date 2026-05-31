@@ -146,7 +146,7 @@ impl YamlPlotAffordanceRegistry {
                 continue; // skip schema sidecars
             }
             let body = std::fs::read_to_string(&path)?;
-            let file: RegisteredAffordancesFile = serde_yml::from_str(&body)
+            let file: RegisteredAffordancesFile = serde_yaml_ng::from_str(&body)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
             for entry in file.affordances {
                 parents.insert(entry.semantic_type.clone(), entry.parents.clone());

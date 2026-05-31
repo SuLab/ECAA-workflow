@@ -596,8 +596,8 @@ mod tests {
             legacy_intake_facts: BTreeMap::new(),
             sample_cohort: None,
         };
-        let yaml = serde_yml::to_string(&i).unwrap();
-        let back: WorkflowIntent = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&i).unwrap();
+        let back: WorkflowIntent = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(i, back);
     }
 }

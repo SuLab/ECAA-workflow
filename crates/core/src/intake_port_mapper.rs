@@ -90,7 +90,7 @@ impl PortMappingRegistry {
         }
         let raw = crate::fs_helpers::read_to_string_ctx(path)?;
         let file: PortMappingFile =
-            serde_yml::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
+            serde_yaml_ng::from_str(&raw).with_context(|| format!("parsing {}", path.display()))?;
         let mut rules = BTreeMap::new();
         for r in file.rules {
             // Validate EDAM IRI shape — same regex as the atom

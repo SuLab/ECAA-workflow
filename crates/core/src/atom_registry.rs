@@ -72,13 +72,13 @@ impl AtomRegistry {
             let raw = crate::fs_helpers::read_to_string_ctx(&path)?;
             // Parse to serde_json::Value for jsonschema validation;
             // jsonschema works on serde_json::Value, but the YAML
-            // syntax is what humans author. serde_yml has a
+            // syntax is what humans author. serde_yaml_ng has a
             // documented round-trip via serde_json::to_value.
-            let yaml_val: serde_yml::Value = serde_yml::from_str(&raw)
+            let yaml_val: serde_yaml_ng::Value = serde_yaml_ng::from_str(&raw)
                 .with_context(|| format!("parsing atom YAML {}", path.display()))?;
             let parsed: Value = serde_json::to_value(&yaml_val)
                 .with_context(|| format!("yaml→json reshape for {}", path.display()))?;
-            // Schema validate first; serde_yml::from_str on a
+            // Schema validate first; serde_yaml_ng::from_str on a
             // missing-field shape would panic at deserialize time
             // with a message that doesn't point at the source line.
             if let Err(errors) = schema.validate(&parsed) {

@@ -44,7 +44,7 @@ struct ClaimEntry {
     // unused here and dropped from the struct; serde silently ignores
     // unknown fields, so the YAML schema stays intact for the verifier.
     #[serde(default)]
-    expected_value: serde_yml::Value,
+    expected_value: serde_yaml_ng::Value,
 }
 
 impl ClaimEntry {
@@ -90,7 +90,7 @@ fn load_corpus() -> Vec<(PathBuf, ClaimsFile)> {
         }
         let raw = fs::read_to_string(&claims_path)
             .unwrap_or_else(|e| panic!("read {}: {e}", claims_path.display()));
-        let parsed: ClaimsFile = serde_yml::from_str(&raw)
+        let parsed: ClaimsFile = serde_yaml_ng::from_str(&raw)
             .unwrap_or_else(|e| panic!("parse {}: {e}", claims_path.display()));
         out.push((claims_path, parsed));
     }

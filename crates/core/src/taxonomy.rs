@@ -317,7 +317,7 @@ discovery: none
 depends_on: []
 description: qc
 "#;
-        let stage: StageSpec = serde_yml::from_str(yaml).unwrap();
+        let stage: StageSpec = serde_yaml_ng::from_str(yaml).unwrap();
         assert!(!stage.is_sensitivity_comparison());
         assert!(stage.variants.is_empty());
     }
@@ -335,7 +335,7 @@ variants:
   - scanorama
   - bbknn
 "#;
-        let stage: StageSpec = serde_yml::from_str(yaml).unwrap();
+        let stage: StageSpec = serde_yaml_ng::from_str(yaml).unwrap();
         assert!(stage.is_sensitivity_comparison());
         assert_eq!(stage.variants, vec!["harmony", "scanorama", "bbknn"]);
     }

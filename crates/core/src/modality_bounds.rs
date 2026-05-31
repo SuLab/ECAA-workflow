@@ -98,7 +98,7 @@ pub fn load_bounds_for_modality(
 ) -> std::io::Result<Vec<SemanticEquivalenceBound>> {
     let manifest_path = modalities_dir.join(format!("{modality_id}.yaml"));
     let contents = std::fs::read_to_string(&manifest_path)?;
-    let slice: ModalityManifestBoundsSlice = serde_yml::from_str(&contents).map_err(|e| {
+    let slice: ModalityManifestBoundsSlice = serde_yaml_ng::from_str(&contents).map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(

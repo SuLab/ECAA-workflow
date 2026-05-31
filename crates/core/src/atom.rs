@@ -1193,8 +1193,8 @@ mod tests {
             runtime_packages: Default::default(),
             safety: Default::default(),
         };
-        let yaml = serde_yml::to_string(&atom).expect("serialize");
-        let back: AtomDefinition = serde_yml::from_str(&yaml).expect("roundtrip");
+        let yaml = serde_yaml_ng::to_string(&atom).expect("serialize");
+        let back: AtomDefinition = serde_yaml_ng::from_str(&yaml).expect("roundtrip");
         assert_eq!(atom, back);
     }
 
@@ -1236,7 +1236,7 @@ mod tests {
             runtime_packages: Default::default(),
             safety: Default::default(),
         };
-        let yaml = serde_yml::to_string(&atom).unwrap();
+        let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         assert!(yaml.contains("discovery_kind: method"));
         assert!(yaml.contains("speed: fast"));
     }
@@ -1283,7 +1283,7 @@ mod tests {
             runtime_packages: Default::default(),
             safety: Default::default(),
         };
-        let yaml = serde_yml::to_string(&atom).unwrap();
+        let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         // Default arch is suppressed by skip_serializing_if so the
         // YAML stays minimal in the typical case.
         assert!(!yaml.contains("arch:"), "default arch leaked into YAML");
@@ -1304,23 +1304,23 @@ mod tests {
     #[test]
     fn network_policy_serde_roundtrip() {
         let bridge = NetworkPolicy::Bridge;
-        let yaml = serde_yml::to_string(&bridge).unwrap();
+        let yaml = serde_yaml_ng::to_string(&bridge).unwrap();
         assert!(yaml.contains("kind: bridge"), "got: {yaml}");
-        let back: NetworkPolicy = serde_yml::from_str(&yaml).unwrap();
+        let back: NetworkPolicy = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(bridge, back);
 
         let none_with_list = NetworkPolicy::None {
             allowlist: vec!["github.com".into(), "ghcr.io".into()],
         };
-        let yaml = serde_yml::to_string(&none_with_list).unwrap();
+        let yaml = serde_yaml_ng::to_string(&none_with_list).unwrap();
         assert!(yaml.contains("kind: none"), "got: {yaml}");
         assert!(yaml.contains("github.com"), "allowlist serialized");
-        let back: NetworkPolicy = serde_yml::from_str(&yaml).unwrap();
+        let back: NetworkPolicy = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(none_with_list, back);
 
         let none_empty = NetworkPolicy::None { allowlist: vec![] };
-        let yaml = serde_yml::to_string(&none_empty).unwrap();
-        let back: NetworkPolicy = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&none_empty).unwrap();
+        let back: NetworkPolicy = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(none_empty, back);
     }
 
@@ -1330,7 +1330,7 @@ mod tests {
     #[test]
     fn container_source_serde_roundtrip() {
         let image = ContainerSource::Image;
-        let yaml = serde_yml::to_string(&image).unwrap();
+        let yaml = serde_yaml_ng::to_string(&image).unwrap();
         assert!(yaml.contains("kind: image"), "got: {yaml}");
 
         let mut packages: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -1339,15 +1339,15 @@ mod tests {
         let conda = ContainerSource::Conda {
             conda_packages: packages.clone(),
         };
-        let yaml = serde_yml::to_string(&conda).unwrap();
+        let yaml = serde_yaml_ng::to_string(&conda).unwrap();
         assert!(yaml.contains("kind: conda"), "got: {yaml}");
         assert!(yaml.contains("r-seurat"), "package serialized");
-        let back: ContainerSource = serde_yml::from_str(&yaml).unwrap();
+        let back: ContainerSource = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(conda, back);
 
         let host = ContainerSource::Host;
-        let yaml = serde_yml::to_string(&host).unwrap();
-        let back: ContainerSource = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&host).unwrap();
+        let back: ContainerSource = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(host, back);
     }
 
@@ -1361,7 +1361,7 @@ mod tests {
     fn container_spec_back_compat_no_source_field() {
         let yaml = "image: ghcr.io/scripps/scripps-bio-base\n\
                     tag: 0.1.0\n";
-        let spec: ContainerSpec = serde_yml::from_str(yaml).unwrap();
+        let spec: ContainerSpec = serde_yaml_ng::from_str(yaml).unwrap();
         assert_eq!(spec.source, ContainerSource::Image);
         assert_eq!(spec.network, None);
         assert_eq!(spec.image, "ghcr.io/scripps/scripps-bio-base");
@@ -1404,7 +1404,7 @@ mod tests {
             runtime_packages: Default::default(),
             safety: Default::default(),
         };
-        let yaml = serde_yml::to_string(&atom).unwrap();
+        let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         let a_pos = yaml.find("- a").unwrap();
         let b_pos = yaml.find("- b").unwrap();
         let c_pos = yaml.find("- c").unwrap();
@@ -1414,8 +1414,8 @@ mod tests {
     #[test]
     fn safety_policy_default_roundtrips() {
         let p = SafetyPolicy::default();
-        let yaml = serde_yml::to_string(&p).unwrap();
-        let back: SafetyPolicy = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&p).unwrap();
+        let back: SafetyPolicy = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(p, back);
         // Defaults: Compute level, no-network, no code, no sandbox,
         // DeclaredOnly provisioning.
@@ -1437,8 +1437,8 @@ mod tests {
             provisioning: ProvisioningPolicy::Allowlisted,
             controlled_access: false,
         };
-        let yaml = serde_yml::to_string(&p).unwrap();
-        let back: SafetyPolicy = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&p).unwrap();
+        let back: SafetyPolicy = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(p, back);
         // Serialized YAML uses snake_case discriminants.
         assert!(yaml.contains("level: exec"));
@@ -1458,8 +1458,8 @@ mod tests {
             provisioning: ProvisioningPolicy::Allowlisted,
             controlled_access: false,
         };
-        let yaml = serde_yml::to_string(&atom).unwrap();
-        let back: AtomDefinition = serde_yml::from_str(&yaml).unwrap();
+        let yaml = serde_yaml_ng::to_string(&atom).unwrap();
+        let back: AtomDefinition = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(atom, back);
         assert!(yaml.contains("safety:"));
         assert!(yaml.contains("level: exec"));
@@ -1468,7 +1468,7 @@ mod tests {
     #[test]
     fn atom_definition_default_safety_suppressed_from_yaml() {
         let atom = AtomDefinition::test_default("plain_atom");
-        let yaml = serde_yml::to_string(&atom).unwrap();
+        let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         // Default SafetyPolicy must be skipped — keeps existing atom YAMLs
         // byte-identical after the field is added.
         assert!(!yaml.contains("safety:"), "default safety leaked: {yaml}");

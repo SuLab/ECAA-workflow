@@ -199,9 +199,9 @@ pub struct ModelRoutingTable {
 /// Error loading or parsing the model-routing YAML.
 #[derive(Debug, thiserror::Error)]
 pub enum RoutingLoadError {
-    /// YAML parse error from `serde_yml`.
+    /// YAML parse error from `serde_yaml_ng`.
     #[error("parsing model-policy YAML: {0}")]
-    Parse(#[from] serde_yml::Error),
+    Parse(#[from] serde_yaml_ng::Error),
     /// A predicate string in the YAML was not parseable.
     #[error("rule {index} ({raw:?}): {source}")]
     Predicate {
@@ -290,7 +290,7 @@ impl ModelRoutingTable {
     /// Opus 4.8 (~5x Sonnet per token); raising it lets more uncertain
     /// decisions ride Sonnet.
     pub fn parse(yaml: &str) -> Result<Self, RoutingLoadError> {
-        let spec: ModelRoutingTableSpec = serde_yml::from_str(yaml)?;
+        let spec: ModelRoutingTableSpec = serde_yaml_ng::from_str(yaml)?;
         if spec.rules.is_empty() {
             return Err(RoutingLoadError::NoRules);
         }

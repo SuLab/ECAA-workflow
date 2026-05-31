@@ -336,7 +336,7 @@ impl AdapterRegistry {
                 message: e.to_string(),
             })?;
             let spec: AdapterSpec =
-                serde_yml::from_str(&bytes).map_err(|e| AdapterLoadError::Parse {
+                serde_yaml_ng::from_str(&bytes).map_err(|e| AdapterLoadError::Parse {
                     path: path.clone(),
                     message: e.to_string(),
                 })?;
