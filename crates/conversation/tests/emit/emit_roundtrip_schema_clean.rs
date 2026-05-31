@@ -38,7 +38,7 @@ use jsonschema::JSONSchema;
 use ecaa_workflow_conversation::emit::emit_with_conversation_log;
 use ecaa_workflow_conversation::session::Session;
 use ecaa_workflow_conversation::tools::{dispatch_one, BatchableTool, Tool, ToolContext};
-use serde_json::{json, Value};
+use serde_json::Value;
 use serial_test::serial;
 use std::path::{Path, PathBuf};
 use tempfile::tempdir;
@@ -88,25 +88,6 @@ fn compile_subgraph_schema(stem: &str) -> JSONSchema {
     JSONSchema::compile(&value).unwrap_or_else(|e| panic!("compile {}: {}", path.display(), e))
 }
 
-/// Load one of the JSONL sidecars and return its rows as a JSON array.
-/// Missing file → empty array (the correct ECAA "no rows yet" state).
-fn load_jsonl_as_array(path: &Path) -> Value {
-    if !path.exists() {
-        return json!([]);
-    }
-    let raw =
-        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {}", path.display(), e));
-    let rows: Vec<Value> = raw
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| {
-            serde_json::from_str::<Value>(l)
-                .unwrap_or_else(|e| panic!("parse {}: {}", path.display(), e))
-        })
-        .collect();
-    Value::Array(rows)
-}
-
 /// Load a single-object sidecar. Missing file → None (skipped at validation).
 fn load_object(path: &Path) -> Option<Value> {
     if !path.exists() {
@@ -132,13 +113,21 @@ fn validate(schema: &JSONSchema, value: &Value) -> Result<(), String> {
     }
 }
 
-/// One ECAA sidecar slot. Shape determines whether to load it as an array
-/// (JSONL) or single object (JSON).
+/// One ECAA sidecar slot. As of C1 Phase-2 the schemas validate the SPEC
+/// node/edge projection, so each node/edge sub-graph carries its sub-graph
+/// `letter` and is validated by projecting the loaded package through
+/// `ecaa_projection::project_subgraph`. The A audit-proof report
+/// (`letter = None`) is validated as the report DOCUMENT.
 struct Sidecar {
     schema_stem: &'static str,
     file: &'static str,
+    /// Sub-graph letter for the 7 node/edge schemas; `None` for the A
+    /// report document.
+    letter: Option<char>,
     /// `true` → JSONL (load as array, validate against array-typed schema).
-    /// `false` → single JSON object.
+    /// `false` → single JSON object. Retained for documentation of the
+    /// on-disk shape; the projection path keys on `letter`, not this flag.
+    #[allow(dead_code)]
     is_jsonl: bool,
     /// `true` → required; missing file is a test failure.
     /// `false` → optional; missing file → array(JSONL) is `[]` or object
@@ -150,18 +139,21 @@ const SIDECARS: &[Sidecar] = &[
     Sidecar {
         schema_stem: "intent",
         file: "intake-conversation.jsonl",
+        letter: Some('I'),
         is_jsonl: true,
         required_at_emit: true,
     },
     Sidecar {
         schema_stem: "decision",
         file: "decisions.jsonl",
+        letter: Some('D'),
         is_jsonl: true,
         required_at_emit: true,
     },
     Sidecar {
         schema_stem: "execution",
         file: "validation-reports.jsonl",
+        letter: Some('E'),
         is_jsonl: true,
         // Post-harness; emit-time it's the empty array.
         required_at_emit: false,
@@ -169,30 +161,35 @@ const SIDECARS: &[Sidecar] = &[
     Sidecar {
         schema_stem: "evidence",
         file: "proofs.jsonl",
+        letter: Some('V'),
         is_jsonl: true,
         required_at_emit: false,
     },
     Sidecar {
         schema_stem: "equivalence",
         file: "verifier-decisions.jsonl",
+        letter: Some('Q'),
         is_jsonl: true,
         required_at_emit: false,
     },
     Sidecar {
         schema_stem: "failure",
         file: "assumptions.jsonl",
+        letter: Some('F'),
         is_jsonl: true,
         required_at_emit: false,
     },
     Sidecar {
         schema_stem: "claim",
         file: "claim-verification.json",
+        letter: Some('C'),
         is_jsonl: false,
         required_at_emit: false,
     },
     Sidecar {
         schema_stem: "audit-proof",
         file: "audit-proof-report.json",
+        letter: None,
         is_jsonl: false,
         required_at_emit: true,
     },
@@ -203,28 +200,41 @@ const SIDECARS: &[Sidecar] = &[
 /// `real_emit_passes_all_8_schemas` assertion test and the
 /// `scripts/refresh-real-fixture.sh` keep-output binary path.
 fn validate_all_eight(pkg_root: &Path) -> (usize, Vec<(String, String)>) {
+    use ecaa_workflow_core::audit_proof::loader::LoadedPackage;
+    use ecaa_workflow_core::emitter::ecaa_projection::project_subgraph;
+
     let runtime = pkg_root.join("runtime");
     let mut passed = 0usize;
     let mut failed: Vec<(String, String)> = Vec::new();
+
+    // C1 Phase-2: the schemas validate the SPEC node/edge PROJECTION, not
+    // the raw impl-typed sidecars. Load the package once and project each
+    // sub-graph; the A report is validated as a document.
+    let pkg = LoadedPackage::from_root(pkg_root).expect("load emitted package");
+
     for sidecar in SIDECARS {
         let schema = compile_subgraph_schema(sidecar.schema_stem);
-        let path = runtime.join(sidecar.file);
-        let value: Option<Value> = if sidecar.is_jsonl {
-            // JSONL: always load as array (missing → empty array, which
-            // is a valid instance of `type: array`).
-            Some(load_jsonl_as_array(&path))
-        } else if sidecar.required_at_emit {
-            // Required single-object sidecar — must exist.
-            let v = load_object(&path).unwrap_or_else(|| {
-                panic!(
-                    "required sidecar missing after real emit: {}",
-                    path.display()
-                )
-            });
-            Some(v)
-        } else {
-            // Optional single-object sidecar.
-            load_object(&path)
+        let value: Option<Value> = match sidecar.letter {
+            Some(letter) => {
+                // Node/edge sub-graph: validate the projection (empty array
+                // is a valid `type: array` instance for sub-graphs with no
+                // rows yet at emit).
+                Some(Value::Array(project_subgraph(letter, &pkg)))
+            }
+            None => {
+                // A audit-proof report — document validation.
+                let path = runtime.join(sidecar.file);
+                if sidecar.required_at_emit {
+                    Some(load_object(&path).unwrap_or_else(|| {
+                        panic!(
+                            "required sidecar missing after real emit: {}",
+                            path.display()
+                        )
+                    }))
+                } else {
+                    load_object(&path)
+                }
+            }
         };
         let Some(v) = value else {
             // Optional + missing — not counted toward pass or fail.

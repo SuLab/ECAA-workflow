@@ -1,5 +1,12 @@
 {
   "schema_version": "0.1",
+  "ecaa_version": "0.1",
+  "min_reader_version": "0.1",
+  "evaluator": {
+    "impl": "ecaa-workflow-audit-proof",
+    "version": "0.1.0",
+    "policy": "warn-only"
+  },
   "verdicts": [
     {"id": "claim_completeness", "status": "pass", "detail": null, "n_inspected": 0, "n_violations": 0},
     {"id": "decision_justification", "status": "pass", "detail": null, "n_inspected": 1, "n_violations": 0},

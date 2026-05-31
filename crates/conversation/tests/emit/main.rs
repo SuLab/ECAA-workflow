@@ -12,6 +12,7 @@ mod emit_roundtrip_schema_clean;
 mod emit_validation_smoke;
 mod literature_ro_crate;
 mod opaque_sink_integration;
+mod projection_roundtrip;
 mod schemars_generation;
 mod sidecar_emission;
 mod validation_conformance_mode;

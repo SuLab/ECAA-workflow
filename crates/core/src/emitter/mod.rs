@@ -17,6 +17,7 @@ mod amendment;
 mod bagit;
 mod copy_libs;
 mod ecaa;
+pub mod ecaa_projection;
 mod policies;
 use amendment::{
     emit_amendment_lineage_policy, patch_ro_crate_with_amendment, patch_ro_crate_with_branch,

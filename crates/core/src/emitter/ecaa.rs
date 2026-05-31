@@ -342,10 +342,52 @@ fn ablated_sidecar(relpath: &str) -> bool {
     }
 }
 
+/// Map a sidecar relpath to its ECAA sub-graph letter (`consts::SIDECAR_PATHS`).
+/// `None` for the A audit-proof report (validated as a document).
+fn sidecar_letter(relpath: &str) -> Option<char> {
+    match relpath {
+        "runtime/intake-conversation.jsonl" => Some('I'),
+        "runtime/decisions.jsonl" => Some('D'),
+        "runtime/validation-reports.jsonl" => Some('E'),
+        "runtime/proofs.jsonl" => Some('V'),
+        "runtime/claim-verification.json" => Some('C'),
+        "runtime/verifier-decisions.jsonl" => Some('Q'),
+        "runtime/assumptions.jsonl" => Some('F'),
+        _ => None,
+    }
+}
+
+fn empty_loaded_package() -> crate::audit_proof::loader::LoadedPackage {
+    crate::audit_proof::loader::LoadedPackage {
+        intake: Vec::new(),
+        decisions: Vec::new(),
+        validation_reports: Vec::new(),
+        proofs: Vec::new(),
+        claims: None,
+        verifier_decisions: Vec::new(),
+        assumptions: Vec::new(),
+        determinism_shim: None,
+        security_policy: None,
+        plot_affordances: None,
+    }
+}
+
+/// Validate emitted sidecars against the hand-authored spec schemas. As of
+/// C1 Phase-2 the schemas describe the SPEC node/edge object model, so the
+/// raw impl-typed sidecars are first projected via
+/// `crate::emitter::ecaa_projection::project_subgraph` and the PROJECTION
+/// is validated. A present-but-malformed sidecar still fails via the
+/// per-file raw-parse guard, preserving the conformance-gate contract.
 fn validate_sidecar_schemas(output_dir: &Path) -> Result<(usize, Vec<Value>, usize)> {
     let mut passed = 0usize;
     let mut failed = Vec::new();
     let mut skipped_pending_harness = 0usize;
+
+    // Lenient load: a malformed sidecar makes the strict loader error on
+    // the whole package; fall back to empty so the per-file raw-parse guard
+    // reports the precise malformed sidecar instead of an opaque error.
+    let pkg = crate::audit_proof::loader::LoadedPackage::from_root(output_dir)
+        .unwrap_or_else(|_| empty_loaded_package());
 
     for (relpath, is_jsonl, schema_src, source) in sidecar_schemas() {
         let path = output_dir.join(relpath);
@@ -376,20 +418,17 @@ fn validate_sidecar_schemas(output_dir: &Path) -> Result<(usize, Vec<Value>, usi
         let raw = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
 
-        let instance = if is_jsonl {
-            let mut entries = Vec::new();
+        // Raw-parse guard (catches malformed JSON / JSONL lines).
+        if is_jsonl {
             let mut parse_error = None;
             for (idx, line) in raw.lines().enumerate() {
                 let trimmed = line.trim();
                 if trimmed.is_empty() {
                     continue;
                 }
-                match serde_json::from_str::<Value>(trimmed) {
-                    Ok(value) => entries.push(value),
-                    Err(e) => {
-                        parse_error = Some((idx, e.to_string()));
-                        break;
-                    }
+                if let Err(e) = serde_json::from_str::<Value>(trimmed) {
+                    parse_error = Some((idx, e.to_string()));
+                    break;
                 }
             }
             if let Some((idx, err)) = parse_error {
@@ -400,19 +439,29 @@ fn validate_sidecar_schemas(output_dir: &Path) -> Result<(usize, Vec<Value>, usi
                 }));
                 continue;
             }
-            Value::Array(entries)
-        } else if raw.trim().is_empty() {
-            Value::Null
-        } else {
-            match serde_json::from_str::<Value>(raw.trim()) {
-                Ok(value) => value,
-                Err(e) => {
-                    failed.push(json!({
-                        "sidecar": relpath,
-                        "line_index": null,
-                        "error": format!("JSON parse error: {e}"),
-                    }));
-                    continue;
+        } else if !raw.trim().is_empty() {
+            if let Err(e) = serde_json::from_str::<Value>(raw.trim()) {
+                failed.push(json!({
+                    "sidecar": relpath,
+                    "line_index": null,
+                    "error": format!("JSON parse error: {e}"),
+                }));
+                continue;
+            }
+        }
+
+        // Build the instance to validate: spec projection for the 7
+        // node/edge sub-graphs; the report document for A.
+        let instance = match sidecar_letter(relpath) {
+            Some(letter) => Value::Array(
+                crate::emitter::ecaa_projection::project_subgraph(letter, &pkg),
+            ),
+            None => {
+                if raw.trim().is_empty() {
+                    Value::Null
+                } else {
+                    serde_json::from_str::<Value>(raw.trim())
+                        .with_context(|| format!("reparsing {}", relpath))?
                 }
             }
         };

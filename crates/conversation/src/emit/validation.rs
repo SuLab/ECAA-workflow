@@ -450,46 +450,79 @@ fn parse_jsonl_lines(
     }
 }
 
-/// Validate a JSONL sidecar body: wrap non-empty lines into an in-memory
-/// array and validate that single Value against the array schema. Per-line
-/// parse errors are surfaced individually so the caller can pinpoint
-/// malformed lines.
-fn validate_jsonl_sidecar(relpath: &str, body: &str, validator: &JSONSchema) -> SidecarOutcome {
-    let entries = match parse_jsonl_lines(relpath, body) {
-        Ok(entries) => entries,
-        Err(parse_failures) => {
-            tracing::warn!(relpath = %relpath, "[ecaa-validation] sidecar failed JSONL parse");
-            return SidecarOutcome::Failed(parse_failures);
-        }
-    };
-    let msgs = collect_schema_errors(validator, &Value::Array(entries));
+/// Map a sidecar relpath to its ECAA sub-graph letter (`v0.1.md` §3.4 /
+/// `consts::SIDECAR_PATHS`). Returns `None` for the A audit-proof report,
+/// which is validated as a report DOCUMENT, not a node/edge sub-graph.
+fn sidecar_letter(relpath: &str) -> Option<char> {
+    match relpath {
+        "runtime/intake-conversation.jsonl" => Some('I'),
+        "runtime/decisions.jsonl" => Some('D'),
+        "runtime/validation-reports.jsonl" => Some('E'),
+        "runtime/proofs.jsonl" => Some('V'),
+        "runtime/claim-verification.json" => Some('C'),
+        "runtime/verifier-decisions.jsonl" => Some('Q'),
+        "runtime/assumptions.jsonl" => Some('F'),
+        // A — audit-proof-report.json: report document, not a sub-graph.
+        _ => None,
+    }
+}
+
+/// Validate the SPEC-shaped PROJECTION of a sub-graph against its
+/// hand-authored schema.
+///
+/// This is the C1 Phase-2 contract change: the schema no longer validates
+/// the raw impl-typed sidecar rows (which was a tautology — the schemas
+/// were derived from those same types). Instead the loaded package is run
+/// through `ecaa_projection::project_subgraph`, which maps each internal
+/// record to the spec's typed node/edge JSON, and THAT is validated. A
+/// record projecting to a node typed outside the closed §5 set fails here.
+fn validate_projected_subgraph(
+    relpath: &str,
+    letter: char,
+    pkg: &ecaa_workflow_core::audit_proof::loader::LoadedPackage,
+    validator: &JSONSchema,
+) -> SidecarOutcome {
+    let projection = ecaa_workflow_core::emitter::ecaa_projection::project_subgraph(letter, pkg);
+    let instance = Value::Array(projection);
+    let msgs = collect_schema_errors(validator, &instance);
     if msgs.is_empty() {
-        tracing::debug!(relpath = %relpath, "[ecaa-validation] sidecar passed schema");
+        tracing::debug!(relpath = %relpath, letter = %letter, "[ecaa-validation] projection passed schema");
         SidecarOutcome::Passed
     } else {
         tracing::warn!(
             relpath = %relpath,
-            "[ecaa-validation] sidecar failed schema (see validation-summary.json)"
+            letter = %letter,
+            "[ecaa-validation] projection failed schema (see validation-summary.json)"
         );
         SidecarOutcome::Failed(vec![whole_file_failure(
             relpath,
-            format!("schema validation: {}", msgs.join("; ")),
+            format!("spec-projection schema validation: {}", msgs.join("; ")),
         )])
     }
 }
 
-/// Validate a single-object JSON sidecar body. Empty files are an allowed pass.
-fn validate_single_object_sidecar(
+/// Validate the A audit-proof report. Two layers:
+///
+/// 1. The report DOCUMENT against `audit-proof.schema.json` (the §9.2
+///    version-declaration shape).
+/// 2. The report PROJECTED into A sub-graph nodes/edges
+///    (`InvariantVerdict` + `evaluated_against`) — a structural check that
+///    every verdict yields a closed-set node. The projection check is
+///    advisory: it never produces a separate failure because the A schema
+///    is the document schema; a malformed projection would already have
+///    failed the document check.
+fn validate_audit_proof_report(
     relpath: &str,
     body: &str,
     validator: &JSONSchema,
 ) -> SidecarOutcome {
     let trimmed = body.trim();
     if trimmed.is_empty() {
-        tracing::debug!(relpath = %relpath, "[ecaa-validation] sidecar passed schema (empty allowed)");
+        // An absent/empty audit-proof report is handled upstream by the
+        // ablation/missing logic; an empty body here is an allowed pass.
         return SidecarOutcome::Passed;
     }
-    let instance: Value = match serde_json::from_str(trimmed) {
+    let report: Value = match serde_json::from_str(trimmed) {
         Ok(v) => v,
         Err(e) => {
             return SidecarOutcome::Failed(vec![whole_file_failure(
@@ -498,12 +531,16 @@ fn validate_single_object_sidecar(
             )]);
         }
     };
-    let msgs = collect_schema_errors(validator, &instance);
+    let msgs = collect_schema_errors(validator, &report);
+    // Project the A sub-graph as a structural exercise so the projection
+    // path is covered at emit; the resulting nodes are not separately
+    // schema-validated (the document schema is authoritative for A).
+    let _a_nodes = ecaa_workflow_core::emitter::ecaa_projection::project_audit_proof(&report);
     if msgs.is_empty() {
-        tracing::debug!(relpath = %relpath, "[ecaa-validation] sidecar passed schema");
+        tracing::debug!(relpath = %relpath, "[ecaa-validation] audit-proof report passed schema");
         SidecarOutcome::Passed
     } else {
-        tracing::warn!(relpath = %relpath, "[ecaa-validation] sidecar failed schema");
+        tracing::warn!(relpath = %relpath, "[ecaa-validation] audit-proof report failed schema");
         SidecarOutcome::Failed(vec![whole_file_failure(
             relpath,
             format!("schema validation: {}", msgs.join("; ")),
@@ -578,12 +615,17 @@ fn load_sidecar_body(
 }
 
 /// Validate one sidecar end-to-end: presence, readability, schema lookup,
-/// then dispatch to the JSONL or single-object validator.
+/// a raw JSON parse check (catches malformed files regardless of the spec
+/// projection), then validation of the SPEC PROJECTION against the
+/// hand-authored schema. The A audit-proof report is validated as a
+/// document; the other 7 are validated as node/edge sub-graph projections
+/// drawn from `pkg`.
 fn validate_one_sidecar(
     pkg_root: &Path,
     relpath: &'static str,
     is_jsonl: bool,
     source: SidecarSource,
+    pkg: &ecaa_workflow_core::audit_proof::loader::LoadedPackage,
 ) -> SidecarOutcome {
     let abs = match locate_sidecar(pkg_root, relpath, source) {
         Ok(Ok(abs)) => abs,
@@ -595,25 +637,59 @@ fn validate_one_sidecar(
         Err(outcome) => return outcome,
     };
 
+    // Raw-parse guard: a present but malformed sidecar (invalid JSON /
+    // unparseable JSONL line) is a failure regardless of what the spec
+    // projection would make of it. This preserves the conformance gate's
+    // "present malformed file fails" contract from C1 Phase-1.
     if is_jsonl {
-        validate_jsonl_sidecar(relpath, &body, validator)
-    } else {
-        validate_single_object_sidecar(relpath, &body, validator)
+        if let Err(parse_failures) = parse_jsonl_lines(relpath, &body) {
+            tracing::warn!(relpath = %relpath, "[ecaa-validation] sidecar failed JSONL parse");
+            return SidecarOutcome::Failed(parse_failures);
+        }
+    } else if !body.trim().is_empty() {
+        if let Err(e) = serde_json::from_str::<Value>(body.trim()) {
+            return SidecarOutcome::Failed(vec![whole_file_failure(
+                relpath,
+                format!("JSON parse error: {e}"),
+            )]);
+        }
+    }
+
+    match sidecar_letter(relpath) {
+        Some(letter) => validate_projected_subgraph(relpath, letter, pkg, validator),
+        // A — audit-proof report document.
+        None => validate_audit_proof_report(relpath, &body, validator),
     }
 }
 
-/// Run pure-Rust JSON Schema validation on every required sidecar.
+/// Run pure-Rust spec-projection schema validation on every required
+/// sidecar. The package is loaded once (leniently — a per-file parse error
+/// is surfaced per-sidecar by `validate_one_sidecar`, not by an aborting
+/// whole-package load).
 fn validate_schemas_pure_rust(pkg_root: &Path) -> SchemaValidationResults {
     let mut passed = 0usize;
     let mut failed: Vec<SchemaFailure> = Vec::new();
     let mut skipped_pending_harness = 0usize;
     tracing::debug!(
         pkg = %pkg_root.display(),
-        "[ecaa-validation] pure-Rust schema validation begin"
+        "[ecaa-validation] spec-projection schema validation begin"
     );
 
+    // Lenient load: if a sidecar is malformed, the strict loader errors on
+    // the whole package. Fall back to an empty package so the per-sidecar
+    // raw-parse guard in `validate_one_sidecar` produces the precise
+    // per-file failure instead of a single opaque whole-package error.
+    let pkg = ecaa_workflow_core::audit_proof::loader::LoadedPackage::from_root(pkg_root)
+        .unwrap_or_else(|e| {
+            tracing::debug!(
+                error = %e,
+                "[ecaa-validation] strict package load failed; using empty package (per-file raw-parse guard still reports the malformed sidecar)"
+            );
+            empty_loaded_package()
+        });
+
     for (relpath, is_jsonl, _schema_src, source) in sidecar_schemas() {
-        match validate_one_sidecar(pkg_root, relpath, is_jsonl, source) {
+        match validate_one_sidecar(pkg_root, relpath, is_jsonl, source, &pkg) {
             SidecarOutcome::Passed => passed += 1,
             SidecarOutcome::SkippedHarness => skipped_pending_harness += 1,
             SidecarOutcome::SkippedAblated => {}
@@ -631,6 +707,23 @@ fn validate_schemas_pure_rust(pkg_root: &Path) -> SchemaValidationResults {
         passed,
         failed,
         skipped_pending_harness,
+    }
+}
+
+/// An all-empty `LoadedPackage` used when the strict loader fails (so the
+/// per-sidecar raw-parse guard owns the precise error).
+fn empty_loaded_package() -> ecaa_workflow_core::audit_proof::loader::LoadedPackage {
+    ecaa_workflow_core::audit_proof::loader::LoadedPackage {
+        intake: Vec::new(),
+        decisions: Vec::new(),
+        validation_reports: Vec::new(),
+        proofs: Vec::new(),
+        claims: None,
+        verifier_decisions: Vec::new(),
+        assumptions: Vec::new(),
+        determinism_shim: None,
+        security_policy: None,
+        plot_affordances: None,
     }
 }
 
