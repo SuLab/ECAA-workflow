@@ -86,3 +86,36 @@ fn conforms_to_asserts_wrroc_v05() {
         "must assert WRROC Provenance Run Crate 0.5; got {ids:?}"
     );
 }
+
+#[test]
+fn conforms_to_declares_all_six_required_profile_iris() {
+    let dag = fixture_dag();
+    let metadata = build_metadata(
+        &dag,
+        &fixture_classification(),
+        &ecaa_workflow_core::clock::FrozenClock::default(),
+    );
+    let graph = metadata["@graph"]
+        .as_array()
+        .expect("@graph must be an array");
+
+    let descriptor = graph
+        .iter()
+        .find(|e| e["@id"] == "ro-crate-metadata.json")
+        .expect("ro-crate-metadata.json descriptor must exist");
+
+    let ids: Vec<&str> = descriptor["conformsTo"]
+        .as_array()
+        .expect("conformsTo must be an array")
+        .iter()
+        .map(|c| c["@id"].as_str().expect("each conformsTo entry needs @id"))
+        .collect();
+
+    for iri in ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS {
+        assert!(
+            ids.contains(iri),
+            "missing required conformsTo IRI {iri}; got {ids:?}"
+        );
+    }
+    assert_eq!(ids.len(), 6, "descriptor must declare exactly 6 profile IRIs; got {ids:?}");
+}

@@ -28,22 +28,22 @@ pub fn build_metadata(
 
     let mut graph: Vec<Value> = vec![
         // RO-Crate metadata descriptor.
-        // Grant v19 D1 / G1 — `conformsTo` asserts WRROC v0.5
-        // (process / workflow / provenance Tier-3 profiles) alongside
-        // the base RO-Crate 1.1 IRI. The Tier-3 entity builders
-        // (`parameter_connection_entity`, `p_plan_entity`) wire into
-        // `build_metadata` via Tasks C1 / C2; this descriptor change is
-        // valid standalone because `conformsTo` declares the intended
-        // profile set, not the per-entity emission.
+        // `conformsTo` asserts the full normative profile set — base
+        // RO-Crate 1.1, the WorkflowHub workflow-ro-crate 1.0 profile,
+        // the WRROC v0.5 Tier-3 profiles (process / workflow /
+        // provenance), and the ECAA v0.1 profile — built from the single
+        // `REQUIRED_PROFILE_IRIS` source of truth so the descriptor and
+        // the spec-conformance post-checks never drift. The Tier-3 entity
+        // builders (`parameter_connection_entity`, `p_plan_entity`) wire
+        // into `build_metadata` separately; this descriptor declares the
+        // intended profile set, not the per-entity emission.
         json!({
             "@id": "ro-crate-metadata.json",
             "@type": "CreativeWork",
-            "conformsTo": [
-                {"@id": "https://w3id.org/ro/crate/1.1"},
-                {"@id": "https://w3id.org/ro/wfrun/process/0.5"},
-                {"@id": "https://w3id.org/ro/wfrun/workflow/0.5"},
-                {"@id": "https://w3id.org/ro/wfrun/provenance/0.5"}
-            ],
+            "conformsTo": ecaa_workflow_types::consts::REQUIRED_PROFILE_IRIS
+                .iter()
+                .map(|iri| json!({"@id": iri}))
+                .collect::<Vec<_>>(),
             "about": {"@id": "./"}
         }),
         // Root dataset.
