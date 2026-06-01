@@ -90,6 +90,39 @@ class BiomniBench(Benchmark):
         return Output(trace_md=trace, answer_txt=answer, artifacts={},
                       exit_ok=True, wall_secs=0.0)
 
+    def judge_requests(self, task, arm, output):
+        """Return two batch judge requests per output: Gemini headline + Anthropic cross."""
+        return [
+            {
+                "role": "headline",
+                "judge_id": "gemini-3.1-pro",
+                "rubric": task.rubric,
+                "trace": output.trace_md,
+                "answer": output.answer_txt,
+            },
+            {
+                "role": "cross",
+                "judge_id": "anthropic-opus",
+                "rubric": task.rubric,
+                "trace": output.trace_md,
+                "answer": output.answer_txt,
+            },
+        ]
+
+    def assemble_score(self, task, arm, output, trial, verdicts):
+        """Build a Score from pre-fetched batch verdicts (headline + cross)."""
+        headline = verdicts["headline"]
+        cross = verdicts["cross"]
+        exact = per_criterion_exact(headline.get("levels", {}), cross.get("levels", {}))
+        kappa = linear_weighted_kappa(headline.get("levels", {}), cross.get("levels", {}))
+        return Score(task_id=task.task_id, arm=arm.value, trial=trial,
+                     overall=headline["overall"], dimensions=headline["dimensions"],
+                     jaccard=None, error_cells=None, judge_id="gemini-3.1-pro",
+                     extra={"cross_check": cross["overall"],
+                            "judge_exact": exact,
+                            "judge_kappa": kappa,
+                            "judge_cost_usd": headline.get("cost_usd", 0.0) + cross.get("cost_usd", 0.0)})
+
     def score(self, task, arm, output, trial):
         headline = judge("gemini-3.1-pro", task.rubric, output.trace_md, output.answer_txt)
         cross = judge("anthropic-opus", task.rubric, output.trace_md, output.answer_txt)

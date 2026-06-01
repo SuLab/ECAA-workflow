@@ -17,6 +17,7 @@ from scripts.eval.benchmark import Arm
 from scripts.eval.plugins.biomnibench import BiomniBench
 from scripts.eval.plugins.nekrutenko import Nekrutenko
 from scripts.eval.services import agent_runner
+from scripts.eval.services import judge as judge_mod
 from scripts.eval.services.datasets import cache_root
 from scripts.eval.services.scorecard import write_scorecard
 
@@ -51,6 +52,11 @@ def _stage_inputs(pkg_dir: Path, inputs: dict[str, Path]) -> None:
 
 def _run_one(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int,
              error_matrix: bool = False):
+    """Run the agent for one (task, arm, trial) and collect Output.
+
+    Returns (output, spec) so the caller can build judge requests and score
+    in a separate phase.
+    """
     spec = plugin.build_run(task, arm, workdir)
     if spec.kind == "ecaa_package":
         intake = workdir / "intake.txt"
@@ -89,7 +95,7 @@ def _run_one(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int,
         if cells is not None:
             out.artifacts["error_cells"] = cells
 
-    return plugin.score(task, arm, out, trial)
+    return out, spec
 
 
 def main(argv: list[str]) -> int:
@@ -115,16 +121,47 @@ def main(argv: list[str]) -> int:
     handle = plugin.fetch(cache_root())
     tasks = plugin.tasks(handle, smoke=args.smoke)
 
-    scores = []
+    # PHASE 1: Run all agents, collect outputs, accumulate judge requests.
+    stored: list[tuple[int, object, Arm, int, object]] = []
+    all_judge_requests: list[dict] = []
+
     with tempfile.TemporaryDirectory() as td:
         base = Path(td)
+        global_idx = 0
         for task in tasks:
             for arm in arms:
                 for trial in range(trials):
                     wd = base / f"{task.task_id}-{arm.value}-{trial}"
-                    scores.append(_run_one(plugin, task, arm, trial, wd,
-                                           args.max_iterations,
-                                           error_matrix=args.error_matrix))
+                    out, _spec = _run_one(plugin, task, arm, trial, wd,
+                                         args.max_iterations,
+                                         error_matrix=args.error_matrix)
+                    stored.append((global_idx, task, arm, trial, out))
+                    for req in plugin.judge_requests(task, arm, out):
+                        all_judge_requests.append(
+                            {**req, "key": f"{global_idx}:{req['role']}"}
+                        )
+                    global_idx += 1
+
+    # PHASE 2: Batch-score all judge requests, then assemble scores.
+    all_verdicts: dict[str, dict] = {}
+    if all_judge_requests:
+        all_verdicts = judge_mod.judge_batch(all_judge_requests)
+
+    scores = []
+    for idx, task, arm, trial, out in stored:
+        # Collect the verdicts for this item's roles.
+        verdicts: dict[str, dict] = {}
+        for req in plugin.judge_requests(task, arm, out):
+            k = f"{idx}:{req['role']}"
+            if k in all_verdicts:
+                verdicts[req["role"]] = all_verdicts[k]
+
+        if verdicts:
+            score = plugin.assemble_score(task, arm, out, trial, verdicts)
+        else:
+            # Plugin produced no judge requests (e.g. Nekrutenko deterministic).
+            score = plugin.score(task, arm, out, trial)
+        scores.append(score)
 
     for arm in arms:
         arm_rows = [s for s in scores if s.arm == arm.value]

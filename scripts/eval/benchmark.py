@@ -88,6 +88,25 @@ class Benchmark(ABC):
     @abstractmethod
     def report(self, scores: list[Score]) -> Scorecard: ...
 
+    def judge_requests(self, task: "Task", arm: "Arm", output: "Output") -> list[dict]:
+        """Return judge requests for batch scoring.
+
+        Each dict: {"role", "judge_id", "rubric", "trace", "answer"}.
+        Default implementation returns an empty list; override in plugins that
+        use the batch scoring path.
+        """
+        return []
+
+    def assemble_score(self, task: "Task", arm: "Arm", output: "Output",
+                       trial: int, verdicts: dict) -> "Score":
+        """Build a Score from pre-fetched judge verdicts keyed by role.
+
+        ``verdicts`` maps role name to the dict returned by ``judge_batch``
+        for that request. Default falls back to synchronous ``score()``,
+        ignoring ``verdicts``.
+        """
+        return self.score(task, arm, output, trial)
+
     def error_matrix(self, task: Task, arm: Arm, workdir: Path,
                      run_fn) -> Optional[list[dict]]:
         """Run the 36-cell PATH-shim fault-injection matrix and return per-cell
