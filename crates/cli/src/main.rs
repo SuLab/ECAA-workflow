@@ -661,7 +661,14 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         .collect();
 
     let workflow_id = workflow_id_from_intake(&intake_text);
-    let output_compose = compose_with_modalities_full(
+    // Capture methods the classifier matched in the intake prose (e.g.
+    // "lofreq", "bwa") so the discover companions rank a named method #1
+    // and auto-advance instead of blocking for an absent SME.
+    let preferred_methods =
+        ecaa_workflow_core::preferred_methods::PreferredMethods::from_method_specs(
+            &clf.methods_specified,
+        );
+    let output_compose = ecaa_workflow_core::composer::compose_with_modalities_full_pref(
         &goal,
         project_class_str,
         &atoms,
@@ -672,6 +679,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         // chat session attached, so the opaque sink stays None.
         None,
         None,
+        &preferred_methods,
     )
     .map_err(|e| anyhow::anyhow!("v4 composer dispatch failed: {:?}", e))?;
     let dag = if let Some(workflow_dag) = output_compose.workflow_dag.as_ref() {

@@ -18,6 +18,7 @@ attributes:
     - mutect2
     - strelka2
     - dragen
+    - lofreq
 resource_profile:
   cpu: heavy
   memory: large

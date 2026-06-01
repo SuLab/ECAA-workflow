@@ -263,7 +263,11 @@ pub fn plan(
         // `discover_X → X` `EdgeContract` so the lowering pass folds
         // the dependency into `Task.depends_on`. Without the edge,
         // every `discover_*` lowers as an orphan in `WORKFLOW.json`.
-        super::discover_companion_synthesis::synthesize_discover_companions(&mut dag, atom_reg);
+        super::discover_companion_synthesis::synthesize_discover_companions(
+            &mut dag,
+            atom_reg,
+            &ctx.preferred_methods,
+        );
         // Insert one `survey_method_landscape` task upstream of every
         // synthesized `discover_*` companion (and downstream of any
         // data-characterization producer present). The discover atoms
@@ -364,7 +368,11 @@ pub fn plan(
             // folds the dependency into `Task.depends_on`. Without
             // the edge, every `discover_*` lowers as an orphan in
             // `WORKFLOW.json`.
-            super::discover_companion_synthesis::synthesize_discover_companions(&mut dag, atom_reg);
+            super::discover_companion_synthesis::synthesize_discover_companions(
+                &mut dag,
+                atom_reg,
+                &ctx.preferred_methods,
+            );
             // Insert the `survey_method_landscape` gate at parity with
             // the archetype-seed branch above — discover companions rank
             // from its method-landscape table, so it must gate them.

@@ -237,7 +237,9 @@ mod tests {
             TaskNode::skeleton("differential_expression", "t"),
         ]);
         crate::composer_v4::discover_companion_synthesis::synthesize_discover_companions(
-            &mut dag, &reg,
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
         );
         synthesize_survey_method_landscape(&mut dag, &reg);
 
@@ -298,7 +300,9 @@ mod tests {
         // discover companion is synthesized → no survey either.
         let mut dag = dag_with(vec![TaskNode::skeleton("data_acquisition", "t")]);
         crate::composer_v4::discover_companion_synthesis::synthesize_discover_companions(
-            &mut dag, &reg,
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
         );
         synthesize_survey_method_landscape(&mut dag, &reg);
         assert!(
@@ -325,7 +329,9 @@ mod tests {
         let reg = real_registry();
         let mut dag = dag_with(vec![TaskNode::skeleton("alignment", "t")]);
         crate::composer_v4::discover_companion_synthesis::synthesize_discover_companions(
-            &mut dag, &reg,
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
         );
         synthesize_survey_method_landscape(&mut dag, &reg);
 
@@ -375,7 +381,9 @@ mod tests {
             TaskNode::skeleton("alignment", "t"),
         ]);
         crate::composer_v4::discover_companion_synthesis::synthesize_discover_companions(
-            &mut dag, &reg,
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
         );
         synthesize_survey_method_landscape(&mut dag, &reg);
         assert!(

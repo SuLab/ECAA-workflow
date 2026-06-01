@@ -92,7 +92,11 @@ use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 /// Mirrors `synthesize_validate_companions` — snapshot existing ids,
 /// iterate, append, then sort `dag.nodes` and `dag.edges` for
 /// byte-stable replay.
-pub fn synthesize_discover_companions(dag: &mut WorkflowDag, atom_reg: &AtomRegistry) {
+pub fn synthesize_discover_companions(
+    dag: &mut WorkflowDag,
+    atom_reg: &AtomRegistry,
+    preferred: &crate::preferred_methods::PreferredMethods,
+) {
     // Snapshot the existing node ids so we can detect existing
     // companions without rescanning per iteration.
     let existing_ids: BTreeSet<String> = dag.nodes.iter().map(|n| n.id.clone()).collect();
@@ -133,7 +137,31 @@ pub fn synthesize_discover_companions(dag: &mut WorkflowDag, atom_reg: &AtomRegi
             continue;
         }
 
-        let options = candidate_tools(atom).unwrap_or_default();
+        let curated = candidate_tools(atom).unwrap_or_default();
+
+        // Augment the candidate pool with an out-of-catalog requested
+        // method when the SME/classifier named one for this axis that is
+        // not already a curated member (compared on normalized ids).
+        // Determinism: curated ids keep their authored order; a single
+        // augmented id is appended last.
+        let mut options = curated.clone();
+        let mut candidate_pool_augmented = false;
+        let mut spec_preferred: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+        if let Some(pref) = preferred.get(&axis) {
+            let pref_id = crate::preferred_methods::normalize_method_id(&pref.id);
+            spec_preferred.insert(
+                pref_id.clone(),
+                serde_json::Value::String(pref.source.rationale().to_string()),
+            );
+            let already_present = curated
+                .iter()
+                .any(|o| crate::preferred_methods::normalize_method_id(o) == pref_id);
+            if !already_present {
+                options.push(pref_id);
+                candidate_pool_augmented = true;
+            }
+        }
+
         let mut discover_node =
             TaskNode::synthesize_discover(&discover_id, &axis, &options, &node.id);
         // Stamp the atom-id back-reference so `lower_to_workflow_json`
@@ -156,6 +184,22 @@ pub fn synthesize_discover_companions(dag: &mut WorkflowDag, atom_reg: &AtomRegi
             "stage_class".into(),
             serde_json::Value::String(axis.clone()),
         );
+        // Stamp the SME/intake preference so the lowering pass folds it
+        // into `Task.spec.spec_preferred_methods` (turns ON the specMatch
+        // axis + the rank-#1/auto-advance prompt rule) and flags the pool
+        // augmentation so the agent honors an out-of-catalog requested
+        // method as a first-class candidate. Guarded by a non-empty map so
+        // the no-preference path is byte-identical to today.
+        if !spec_preferred.is_empty() {
+            discover_node.attributes.insert(
+                "spec_preferred_methods".into(),
+                serde_json::Value::Object(spec_preferred),
+            );
+            discover_node.attributes.insert(
+                "candidate_pool_augmented".into(),
+                serde_json::Value::Bool(candidate_pool_augmented),
+            );
+        }
 
         // Wire the discover node as an upstream gate for the target
         // node. The lowering pass (`lower_to_workflow_json`) only
@@ -359,7 +403,11 @@ mod tests {
             "differential_transcript_usage",
             "test",
         )]);
-        synthesize_discover_companions(&mut dag, &reg);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+        );
 
         let companions: Vec<&TaskNode> = dag
             .nodes
@@ -393,7 +441,11 @@ mod tests {
     fn synthesize_uses_candidate_tools_when_no_method_choice() {
         let reg = real_registry();
         let mut dag = dag_with(vec![TaskNode::skeleton("alignment", "test")]);
-        synthesize_discover_companions(&mut dag, &reg);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+        );
 
         let companions: Vec<&TaskNode> = dag
             .nodes
@@ -431,7 +483,11 @@ mod tests {
     fn synthesize_skips_atoms_without_signal() {
         let reg = real_registry();
         let mut dag = dag_with(vec![TaskNode::skeleton("data_acquisition", "test")]);
-        synthesize_discover_companions(&mut dag, &reg);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+        );
         let companions: Vec<&TaskNode> = dag
             .nodes
             .iter()
@@ -460,7 +516,11 @@ mod tests {
             "select_alignment",
         ] {
             let mut dag = dag_with(vec![TaskNode::skeleton(skip_id, "test")]);
-            synthesize_discover_companions(&mut dag, &reg);
+            synthesize_discover_companions(
+                &mut dag,
+                &reg,
+                &crate::preferred_methods::PreferredMethods::new(),
+            );
             // The dag should still contain only the original node;
             // any new node would have to be a `discover_*` companion
             // for the skip_id, and the prefix-skip rule fires first.
@@ -483,14 +543,22 @@ mod tests {
     fn synthesize_is_idempotent() {
         let reg = real_registry();
         let mut dag = dag_with(vec![TaskNode::skeleton("alignment", "test")]);
-        synthesize_discover_companions(&mut dag, &reg);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+        );
         let after_first_n = dag.nodes.len();
         let after_first_e = dag.edges.len();
         assert_eq!(after_first_n, 2, "expected one companion added");
         assert_eq!(after_first_e, 1, "expected one edge added");
 
         // Run again; nothing should change.
-        synthesize_discover_companions(&mut dag, &reg);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+        );
         assert_eq!(
             dag.nodes.len(),
             after_first_n,
@@ -517,7 +585,11 @@ mod tests {
             TaskNode::skeleton("quantification", "test"),
             TaskNode::skeleton("alignment", "test"),
         ]);
-        synthesize_discover_companions(&mut dag, &reg);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+        );
 
         let companions: Vec<&TaskNode> = dag
             .nodes
@@ -586,7 +658,11 @@ mod tests {
             TaskNode::skeleton("quantification", "test"),
             TaskNode::skeleton("differential_expression", "test"),
         ]);
-        synthesize_discover_companions(&mut dag, &reg);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+        );
 
         let discover_ids: Vec<String> = dag
             .nodes
@@ -651,7 +727,11 @@ mod tests {
     fn lowered_workflow_json_contains_discover_target_dependency() {
         let reg = real_registry();
         let mut dag = dag_with(vec![TaskNode::skeleton("alignment", "test")]);
-        synthesize_discover_companions(&mut dag, &reg);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+        );
 
         // Lower the v4 WorkflowDag through the same path the
         // emitter uses. The lowering pass reads `dag.edges` to
@@ -688,6 +768,104 @@ mod tests {
         );
     }
 
+    /// SME/intake-preferred method gets stamped onto the discover node
+    /// spec and, when out-of-catalog, augments the candidate pool — the
+    /// mechanism that makes a named method (e.g. `lofreq`) rank #1.
+    #[test]
+    fn preferred_method_stamps_spec_and_augments_pool() {
+        use crate::classify::MethodSpec;
+        use crate::preferred_methods::PreferredMethods;
+        let reg = real_registry();
+
+        // (a) out-of-pool (octopus is NOT a curated variant_calling tool):
+        // stamped on spec_preferred_methods AND appended to method_options,
+        // with candidate_pool_augmented = true.
+        let mut dag = dag_with(vec![TaskNode::skeleton("variant_calling", "test")]);
+        let pref = PreferredMethods::from_method_specs(&[MethodSpec {
+            stage: "variant_calling".into(),
+            method: "Octopus".into(),
+        }]);
+        synthesize_discover_companions(&mut dag, &reg, &pref);
+        let node = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "discover_variant_calling")
+            .expect("discover_variant_calling synthesized");
+        let spm = node
+            .attributes
+            .get("spec_preferred_methods")
+            .and_then(|v| v.as_object())
+            .expect("spec_preferred_methods stamped");
+        assert!(
+            spm.contains_key("octopus"),
+            "octopus must be a preferred key, got {spm:?}"
+        );
+        assert_eq!(
+            node.attributes.get("candidate_pool_augmented"),
+            Some(&serde_json::Value::Bool(true)),
+            "out-of-pool method must flag candidate_pool_augmented=true"
+        );
+        let opts = node
+            .attributes
+            .get("method_options")
+            .and_then(|v| v.as_array())
+            .expect("method_options present");
+        assert!(
+            opts.iter().any(|o| o.as_str() == Some("octopus")),
+            "augmented pool must contain octopus, got {opts:?}"
+        );
+
+        // Lowering round-trip: the stamp folds into Task.spec.
+        let lowered =
+            crate::builder::build_dag_from_workflow_dag(&dag, "wf-test").expect("lower v4 dag");
+        let spec = lowered
+            .tasks
+            .get("discover_variant_calling")
+            .and_then(|t| t.spec.as_ref())
+            .and_then(|s| s.as_object())
+            .expect("discover_variant_calling spec lowered");
+        assert!(
+            spec.get("spec_preferred_methods")
+                .and_then(|v| v.as_object())
+                .map(|m| m.contains_key("octopus"))
+                .unwrap_or(false),
+            "lowered spec must carry spec_preferred_methods[octopus], got {spec:?}"
+        );
+        assert_eq!(
+            spec.get("candidate_pool_augmented"),
+            Some(&serde_json::Value::Bool(true)),
+        );
+
+        // (b) in-pool (mutect2 IS curated): stamped, but pool NOT augmented.
+        let mut dag_b = dag_with(vec![TaskNode::skeleton("variant_calling", "test")]);
+        let pref_b = PreferredMethods::from_method_specs(&[MethodSpec {
+            stage: "variant_calling".into(),
+            method: "mutect2".into(),
+        }]);
+        synthesize_discover_companions(&mut dag_b, &reg, &pref_b);
+        let node_b = dag_b
+            .nodes
+            .iter()
+            .find(|n| n.id == "discover_variant_calling")
+            .unwrap();
+        assert_eq!(
+            node_b.attributes.get("candidate_pool_augmented"),
+            Some(&serde_json::Value::Bool(false)),
+            "in-pool method must NOT augment the pool"
+        );
+
+        // (c) no preference: NEITHER attribute present (byte-identical to today).
+        let mut dag_c = dag_with(vec![TaskNode::skeleton("variant_calling", "test")]);
+        synthesize_discover_companions(&mut dag_c, &reg, &PreferredMethods::new());
+        let node_c = dag_c
+            .nodes
+            .iter()
+            .find(|n| n.id == "discover_variant_calling")
+            .unwrap();
+        assert!(node_c.attributes.get("spec_preferred_methods").is_none());
+        assert!(node_c.attributes.get("candidate_pool_augmented").is_none());
+    }
+
     /// Every synthesized `discover_*` task must carry `stage_class` on
     /// both the `TaskNode.attributes` map (so the lowering pass can
     /// see it) AND the lowered `Task.spec` (so the agent's auto-approve
@@ -708,7 +886,11 @@ mod tests {
             TaskNode::skeleton("alignment", "test"),
             TaskNode::skeleton("time_series_model_fitting", "test"),
         ]);
-        synthesize_discover_companions(&mut dag, &reg);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+        );
 
         for (companion_id, expected_axis) in [
             ("discover_alignment", "alignment"),

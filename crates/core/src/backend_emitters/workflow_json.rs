@@ -481,6 +481,16 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     if let Some(sc) = node.attributes.get("stage_class") {
         spec_map.insert("stage_class".into(), sc.clone());
     }
+    // SME/intake-requested methods stamped by the discover-companion
+    // synthesis. Presence turns ON the agent prompt's specMatch boost +
+    // rank-#1/auto-advance rule; `candidate_pool_augmented` tells the
+    // agent an out-of-catalog requested method was added to the pool.
+    if let Some(spm) = node.attributes.get("spec_preferred_methods") {
+        spec_map.insert("spec_preferred_methods".into(), spm.clone());
+    }
+    if let Some(aug) = node.attributes.get("candidate_pool_augmented") {
+        spec_map.insert("candidate_pool_augmented".into(), aug.clone());
+    }
     let spec = if spec_map.is_empty() {
         None
     } else {

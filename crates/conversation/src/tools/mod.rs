@@ -2467,7 +2467,6 @@ fn try_build_via_composer(
     use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
     use ecaa_workflow_core::atom_registry::AtomRegistry;
     use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
-    use ecaa_workflow_core::composer::compose_with_modalities_full;
     use ecaa_workflow_core::goal_spec::GoalSpec;
     use ecaa_workflow_core::project_class::ProjectClass;
 
@@ -3048,8 +3047,15 @@ fn try_build_via_composer(
         crate::session::opaque_aggregator::OpaqueObservationSinkImpl::new(aggregator),
     );
     let session_id_str = session.id.to_string();
+    // Fold SME `set_intake_method` selections into the preferred-methods
+    // map so the discover companions stamp `spec_preferred_methods` and
+    // rank a named method #1. `methods` is also consumed by the legacy
+    // `build_dag_from_composition` fallback below.
+    let methods = session.intake_methods.to_core();
+    let preferred_methods =
+        ecaa_workflow_core::preferred_methods::PreferredMethods::from_intake_methods(&methods);
 
-    let output = match compose_with_modalities_full(
+    let output = match ecaa_workflow_core::composer::compose_with_modalities_full_pref(
         &goal,
         project_class_str,
         &atoms,
@@ -3058,6 +3064,7 @@ fn try_build_via_composer(
         policy_ctx_owned.as_ref(),
         Some(opaque_sink),
         Some(session_id_str.as_str()),
+        &preferred_methods,
     ) {
         Ok(c) => c,
         Err(e) => {
@@ -3106,7 +3113,6 @@ fn try_build_via_composer(
     // produce a typed `WorkflowDag` (today: never on the success path,
     // but the fallback is preserved as a safety net so a regression in
     // v4 lowering doesn't break composition entirely).
-    let methods = session.intake_methods.to_core();
     let dag_result = if let Some(workflow_dag) = output.workflow_dag.as_ref() {
         tracing::debug!(
             session_id = %session.id,
