@@ -15,11 +15,15 @@ from scripts.eval.benchmark import Arm, Benchmark, Output, RunSpec, Score, Score
 from scripts.eval.scoring.variant_overlap import mean_jaccard
 from scripts.eval.scoring.error_matrix import classify_cell
 
-# Relative paths confirmed in Step 1 (edit to match the probe):
-_PLAN = "plans/v2.md"
-_SAMPLES = "data"
-_ANSWER_KEY = "ground_truth"
-_SHIMS = "harness/shims"
+# Relative paths from the pinned nekrut/LLM-eval-paper repo (1175f72a…):
+#   plan/PLAN.md          — default v2 implementation plan
+#   data/raw/             — 4 paired-end .fq.gz samples + chrM.fa.gz
+#   ground_truth/results/ — canonical .vcf.gz + collapsed.tsv answer key
+#   harness/error_shims/  — flat dir: bwa (script), lofreq (script), shim.py
+_PLAN = "plan/PLAN.md"
+_SAMPLES = "data/raw"
+_ANSWER_KEY = "ground_truth/results"
+_SHIMS = "harness/error_shims"
 
 # 12 (pattern, tool) combinations from the Nekrutenko paper (Table 5).
 # 5 patterns target both bwa and lofreq (10 cells); 2 are lofreq-only (2 cells).
@@ -60,7 +64,7 @@ class Nekrutenko(Benchmark):
 
     def tasks(self, handle: Path, *, smoke: bool):
         from scripts.eval.benchmark import Task
-        samples = {p.name: p for p in (handle / _SAMPLES).glob("*.fastq*")}
+        samples = {p.name: p for p in (handle / _SAMPLES).glob("*.fq.gz")}
         return [Task(task_id="mtdna", prompt=_WORKFLOW_PROMPT, inputs=samples,
                      rubric=None, answer_key=handle / _ANSWER_KEY,
                      meta={"handle": str(handle)})]
@@ -83,8 +87,12 @@ class Nekrutenko(Benchmark):
     def score(self, task, arm, output, trial):
         key_dir = task.answer_key
         pairs = []
-        for kvcf in sorted(Path(key_dir).glob("*.vcf")):
-            obs = output.artifacts["vcfs"].get(kvcf.name)
+        # Canonical answer-key VCFs are bgzip-compressed (.vcf.gz); agents may
+        # produce plain .vcf outputs.  Match by stem (strip .gz if present) so
+        # M117-bl.vcf.gz pairs with the agent's M117-bl.vcf.
+        for kvcf in sorted(Path(key_dir).glob("*.vcf.gz")):
+            stem = kvcf.name[:-3] if kvcf.name.endswith(".gz") else kvcf.name
+            obs = output.artifacts["vcfs"].get(stem) or output.artifacts["vcfs"].get(kvcf.name)
             if obs:
                 pairs.append((obs, kvcf))
         j = mean_jaccard(pairs) if pairs else 0.0
@@ -131,12 +139,18 @@ class Nekrutenko(Benchmark):
         """Run the 36-cell PATH-shim fault-injection sweep.
 
         For each of the 12 pattern×tool combinations × 3 seeds (36 cells total),
-        prepend a per-cell scratch dir containing the fault shim onto PATH, set
-        the shim contract env vars (``EVAL_INJECT_PATTERN``, ``EVAL_INJECT_TARGET``,
-        ``EVAL_INJECT_SEED``), call ``run_fn(cell_workdir, env)`` (which returns
-        an object with ``.exit_ok``), read ``failures.log`` from the cell workdir
-        if present, count produced valid VCFs, then classify the cell via
-        ``classify_cell``.
+        prepare a per-cell ``_eval_bin/`` directory that symlinks the real shim
+        wrapper scripts (``bwa`` and ``lofreq``) from ``harness/error_shims/``
+        into a per-run bin dir, then prepend that dir onto PATH.  The shim
+        contract env vars mirror run_one.py's ``setup_inject()``:
+
+          EVAL_INJECT_PATTERN  — which failure mode to inject
+          EVAL_INJECT_TARGET   — which tool the pattern applies to
+          EVAL_INJECT_STATE    — per-run state dir for cross-call counters
+          EVAL_REAL_BIN_DIR    — where the real (non-shimmed) binaries live
+
+        There is no EVAL_INJECT_SEED env var; seed isolation is achieved by
+        using a fresh EVAL_INJECT_STATE directory for each cell.
 
         ``run_fn`` is injected so offline tests can pass a fake without spawning
         a real agent.  The live driver passes a closure that re-runs the arm via
@@ -151,17 +165,27 @@ class Nekrutenko(Benchmark):
                 with tempfile.TemporaryDirectory() as td:
                     cell_dir = Path(td)
 
+                    # Per-cell state dir isolates cross-call counters between seeds.
+                    state_dir = cell_dir / "_eval_state"
+                    state_dir.mkdir()
+
+                    # Build a bin dir with symlinks to the real shim wrapper scripts
+                    # (bwa and lofreq).  In offline tests shims_root is None and we
+                    # create placeholder paths; the fake run_fn never invokes them.
+                    bin_dir = cell_dir / "_eval_bin"
+                    bin_dir.mkdir()
+                    if shims_root is not None:
+                        for shimmed_tool in ("bwa", "lofreq"):
+                            link = bin_dir / shimmed_tool
+                            link.symlink_to(shims_root / shimmed_tool)
+
                     # Build an env with the fault shim dir prepended to PATH
                     # and the shim contract vars set so shims know what to inject.
                     env = os.environ.copy()
-                    if shims_root is not None:
-                        shim_dir = shims_root / pattern
-                    else:
-                        shim_dir = cell_dir / "shims" / pattern
-                    env["PATH"] = str(shim_dir) + os.pathsep + env.get("PATH", "")
+                    env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
                     env["EVAL_INJECT_PATTERN"] = pattern
                     env["EVAL_INJECT_TARGET"] = tool
-                    env["EVAL_INJECT_SEED"] = str(seed)
+                    env["EVAL_INJECT_STATE"] = str(state_dir)
 
                     result = run_fn(cell_dir, env)
 
