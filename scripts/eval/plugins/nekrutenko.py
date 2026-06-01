@@ -100,6 +100,13 @@ class Nekrutenko(Benchmark):
 
     def collect(self, spec, run_dir):
         vcfs = {p.name: p for p in run_dir.rglob("*.vcf")}
+        # Agents (and lofreq) routinely emit bgzipped .vcf.gz — the answer keys
+        # themselves are .vcf.gz. Index those too, under both their own name and
+        # the plain-.vcf stem, so score()'s stem-match (which strips .gz off the
+        # answer keys) pairs them. A plain .vcf already present wins (setdefault).
+        for p in run_dir.rglob("*.vcf.gz"):
+            vcfs.setdefault(p.name, p)
+            vcfs.setdefault(p.name[:-3], p)
         return Output(trace_md="", answer_txt="", artifacts={"vcf_dir": run_dir,
                       "vcfs": vcfs}, exit_ok=True, wall_secs=0.0)  # exit/wall set by driver
 

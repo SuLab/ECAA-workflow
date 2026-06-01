@@ -215,12 +215,15 @@ def main(argv: list[str]) -> int:
     out_by_key: dict[str, Output] = {}
     score_by_key: dict[str, Score] = {}
 
-    base_tmp = tempfile.TemporaryDirectory(dir=scratch_root())
+    # ECAA_EVAL_KEEP_SCRATCH=1 keeps the per-run package tree (for post-mortem
+    # inspection of agent outputs / state.patch / VCFs); default cleans it.
+    _keep_scratch = os.environ.get("ECAA_EVAL_KEEP_SCRATCH") == "1"
+    base_dir = Path(tempfile.mkdtemp(dir=scratch_root()))
 
     # ---- PHASE 1a: base runs (parallel) ----
     def _run_base_item(item):
         task, arm, trial = item
-        wd = Path(base_tmp.name) / f"{task.task_id}-{arm.value}-{trial}"
+        wd = base_dir / f"{task.task_id}-{arm.value}-{trial}"
         out, spec = run_base(plugin, task, arm, trial, wd, args.max_iterations)
         rec = {"kind": "base", "key": _base_key(task.task_id, arm.value, trial),
                "task_id": task.task_id, "arm": arm.value, "trial": trial,
@@ -276,7 +279,7 @@ def main(argv: list[str]) -> int:
             spec = spec_by_key.get(bk)
             if spec is None:
                 # Resumed base run with no live spec — re-emit the package only.
-                wd = Path(base_tmp.name) / f"{task.task_id}-{arm.value}-{trial}-reemit"
+                wd = base_dir / f"{task.task_id}-{arm.value}-{trial}-reemit"
                 spec = _emit_ecaa_package(plugin, task, arm, wd)
                 spec_by_key[bk] = spec
             for cs in plugin.error_matrix_specs():
@@ -342,7 +345,10 @@ def main(argv: list[str]) -> int:
                 print(f"[judge] no verdict for {bk} — left unscored; --resume re-judges",
                       file=sys.stderr)
 
-    base_tmp.cleanup()
+    if _keep_scratch:
+        print(f"[eval] kept scratch for inspection: {base_dir}", file=sys.stderr)
+    else:
+        shutil.rmtree(base_dir, ignore_errors=True)
 
     for arm in arms:
         if not [s for s in scores if s.arm == arm.value]:
