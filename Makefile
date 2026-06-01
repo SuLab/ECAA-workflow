@@ -8,6 +8,7 @@
 .PHONY: help build build-release install bootstrap test test-runner test-doc \
         test-fast test-core test-conversation test-harness test-server test-cli \
         test-ui conformance lint-ui clippy fmt check types e2e e2e-playwright bench \
+        verify-reproducibility \
         bio-min dev-server dev-ui clean doctor lint deny install-hooks \
         eval eval-dryrun eval-e2e \
         eval-biomnibench eval-biomnibench-smoke eval-nekrutenko eval-nekrutenko-smoke eval-tests \
@@ -65,8 +66,8 @@ test-cli: ## Unit + integration for crates/cli
 test-ui: ## Vitest + axe a11y for ui/
 	cd ui && npm run test
 
-conformance: ## ECAA conformance suite (block-on-fail; ECAA_CONFORMANCE_MODE=1)
-	ECAA_CONFORMANCE_MODE=1 cargo test -p ecaa-workflow-conformance
+conformance: ## ECAA conformance suite (block-on-fail; ECAA_CONFORMANCE_MODE=1 + ECAA_VALIDATION_BLOCK_ON_FAIL=1)
+	ECAA_CONFORMANCE_MODE=1 ECAA_VALIDATION_BLOCK_ON_FAIL=1 cargo test -p ecaa-workflow-conformance
 
 # ── Lint / format / type-check ───────────────────────────────────────────────
 
@@ -120,6 +121,9 @@ dev-ui: ## Run the Vite dev server on :5173 (proxies /api/* to :3000)
 
 bench: ## Criterion benches under crates/core
 	cargo bench -p ecaa-workflow-core
+
+verify-reproducibility: ## Assert emitted packages are byte-reproducible across repeated emits
+	bash scripts/verify-reproducibility.sh
 
 # ── Eval suite (operator-run; never CI) ───────────────────────────────────────
 # Every eval target is gated on ECAA_EVAL_LIVE=1 (the runner prints SKIP and exits
