@@ -264,6 +264,18 @@ pub fn plan(
         // the dependency into `Task.depends_on`. Without the edge,
         // every `discover_*` lowers as an orphan in `WORKFLOW.json`.
         super::discover_companion_synthesis::synthesize_discover_companions(&mut dag, atom_reg);
+        // Insert one `survey_method_landscape` task upstream of every
+        // synthesized `discover_*` companion (and downstream of any
+        // data-characterization producer present). The discover atoms
+        // rank curated ∪ literature-surfaced candidates from the survey's
+        // method-landscape table, so the survey must gate them. Runs
+        // immediately after discover-companion synthesis so the companions
+        // exist when the survey scans for them; appends the survey node +
+        // `survey → discover_*` edges so the lowering pass folds the
+        // dependency into `Task.depends_on`.
+        super::survey_method_landscape_synthesis::synthesize_survey_method_landscape(
+            &mut dag, atom_reg,
+        );
         // Wire stranded analytical atoms into the reporting terminal.
         // Some archetype shapes (multi-omics integrator slots,
         // cross-omics compose: branches, optional reporting consumers)
@@ -353,6 +365,12 @@ pub fn plan(
             // the edge, every `discover_*` lowers as an orphan in
             // `WORKFLOW.json`.
             super::discover_companion_synthesis::synthesize_discover_companions(&mut dag, atom_reg);
+            // Insert the `survey_method_landscape` gate at parity with
+            // the archetype-seed branch above — discover companions rank
+            // from its method-landscape table, so it must gate them.
+            super::survey_method_landscape_synthesis::synthesize_survey_method_landscape(
+                &mut dag, atom_reg,
+            );
             // Wire stranded analytical atoms into the reporting
             // terminal — see the archetype-seed branch above for the
             // full rationale. Runs at parity with the archetype-seed
