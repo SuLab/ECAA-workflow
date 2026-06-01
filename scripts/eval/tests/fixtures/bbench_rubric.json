@@ -1,0 +1,5 @@
+{"criteria":[
+  {"id":"k1","dimension":"method selection","points":4,"text":"chose an appropriate DE method"},
+  {"id":"k2","dimension":"statistical rigor","weight":2,"description":"multiple-testing correction applied"},
+  {"criterion_id":"k3","axis":"source reliability","max_points":3,"criterion":"cites the primary dataset"}
+]}
