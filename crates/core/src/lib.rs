@@ -138,6 +138,7 @@ pub mod remediation;
 // `RepairProposal`s; only `LowAutoAttempt`-classified proposals auto-
 // apply, and substrate emission is mandatory for every proposal.
 pub mod repair;
+pub mod retrieval_routes;
 /// Ro crate module.
 pub mod ro_crate;
 pub mod runtime_prereqs;

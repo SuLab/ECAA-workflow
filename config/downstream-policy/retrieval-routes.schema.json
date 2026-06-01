@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Retrieval Routes",
+  "description": "Sidecar schema validating retrieval-routes.json. Maps each literature source class (primary_literature, conference_proceedings, tool_documentation) to the concrete hosts and optional domain suffixes the agent may fetch from. Used to build the survey atom egress allowlist and to bound the agent literature fetcher.",
+  "type": "object",
+  "required": ["schemaVersion", "routesByClass"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "type": "string" },
+    "routesByClass": {
+      "type": "object",
+      "description": "Source class -> concrete fetch targets.",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["hosts"],
+        "additionalProperties": false,
+        "properties": {
+          "hosts": {
+            "type": "array",
+            "description": "Exact hostnames the agent may fetch from for this class.",
+            "items": { "type": "string" }
+          },
+          "domainSuffixes": {
+            "type": "array",
+            "description": "Optional domain suffixes (e.g. .readthedocs.io) bounding a subdomain family.",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
