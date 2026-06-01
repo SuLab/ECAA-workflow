@@ -14,6 +14,10 @@
 // ts-rs type, so callers map whatever shape they hold into these.
 
 import { useState } from 'react'
+import type {
+  MethodLandscape,
+  MethodLandscapeCandidate,
+} from '../api/chatClient'
 
 export interface MethodEvidence {
   sourceClass: string
@@ -29,6 +33,62 @@ export interface MethodOption {
   /** Not in the curated pool; requires promotion before it can run. */
   tentative?: boolean
   evidence: MethodEvidence[]
+}
+
+/// Strip the `discover_` prefix from a blocker `stage_id` to get the
+/// method-choice axis key the survey artifact is keyed by
+/// (e.g. `discover_alignment` -> `alignment`). A non-`discover_` id is
+/// returned unchanged so the helper is safe to call defensively.
+export function axisFromStageId(stageId: string): string {
+  return stageId.startsWith('discover_')
+    ? stageId.slice('discover_'.length)
+    : stageId
+}
+
+/// Build a single MethodEvidence row from a landscape candidate's
+/// evidence entry. Null locator parts collapse to a readable ref.
+function toMethodEvidence(
+  e: MethodLandscapeCandidate['evidence'][number],
+): MethodEvidence {
+  const kind = e.source_ref_kind?.trim()
+  const ref = e.source_ref?.trim()
+  // Prefer `KIND:ref` (e.g. `pmid:30000000`) when both present; otherwise
+  // whichever locator part exists; otherwise the source class so the row
+  // is never blank.
+  const display =
+    ref && kind ? `${kind}:${ref}` : ref || kind || e.source_class
+  return {
+    sourceClass: e.source_class,
+    ref: display,
+    quote: e.evidence_quote,
+    ...(e.version_context ? { versionContext: e.version_context } : {}),
+  }
+}
+
+/// Map a `survey_method_landscape` artifact into the ranked
+/// `MethodOption[]` this card renders, for one method-choice `axis`
+/// (the `discover_`-stripped blocker stage id). Returns `null` when the
+/// landscape is missing or the axis is absent so the caller can fall
+/// back to bare candidate names. Candidates are sorted by descending
+/// `support_score` (stable on ties by method name) so rank-1 — the
+/// "★ Recommended" zero-touch default — is the highest-scored method.
+export function mapLandscapeToOptions(
+  landscape: MethodLandscape | null | undefined,
+  axis: string,
+): MethodOption[] | null {
+  const candidates = landscape?.axes?.[axis]?.candidates
+  if (!candidates || candidates.length === 0) return null
+  return candidates
+    .map((c) => ({
+      method: c.method,
+      score: c.support_score,
+      literatureEligible: c.literature_eligible,
+      tentative: c.tentative,
+      evidence: (c.evidence ?? []).map(toMethodEvidence),
+    }))
+    .sort((a, b) =>
+      b.score !== a.score ? b.score - a.score : a.method.localeCompare(b.method),
+    )
 }
 
 interface Props {
