@@ -10,7 +10,13 @@
 //! - which secret env vars are present and redacted from the capture
 //!   (recorded by name only — never values);
 //! - the seed policy (SOURCE_DATE_EPOCH if set, else "process-default");
-//! - the temp-path strategy + root (stable-by-task-id under $TMPDIR);
+//! - the temp-path strategy + a DETERMINISTIC symbolic root. The root
+//!   deliberately does NOT capture the host `$TMPDIR` (e.g.
+//!   `/tmp/claude-1000`): that value is host-specific and would leak
+//!   host state into the package, defeating the byte-reproducibility
+//!   intent. The harness always places per-task scratch under the
+//!   package-relative `runtime/scratch/<task_id>` regardless of host
+//!   `$TMPDIR`, so the symbolic root is both accurate and deterministic;
 //! - the active locale + timezone;
 //! - the `ablation_engaged` flag mirroring
 //!   [`crate::ablation::AblationFlag::ReexecutionClass`].
@@ -117,7 +123,13 @@ pub fn serialize_active_settings() -> DeterminismShimSidecar {
         },
         temp_path_policy: TempPathPolicy {
             strategy: "stable-by-task-id".into(),
-            root: env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into()),
+            // DETERMINISTIC by design: the harness scratch root is the
+            // package-relative `runtime/scratch/<task_id>`, never the
+            // host `$TMPDIR`. Capturing the literal `$TMPDIR`
+            // (e.g. `/tmp/claude-1000`) would bake host state into the
+            // sidecar and break byte-reproducibility, so we record the
+            // symbolic package-relative root instead.
+            root: "runtime/scratch".into(),
         },
         locale: env::var("LC_ALL")
             .or_else(|_| env::var("LANG"))
@@ -141,6 +153,33 @@ mod tests {
     fn temp_path_policy_is_stable_by_task_id() {
         let s = serialize_active_settings();
         assert_eq!(s.temp_path_policy.strategy, "stable-by-task-id");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn temp_path_root_is_deterministic_and_does_not_leak_host_tmpdir() {
+        // det-07 — the temp-path root must be a deterministic,
+        // package-relative symbolic value, never the host `$TMPDIR`.
+        // Set a bogus TMPDIR and assert the sidecar root ignores it.
+        // `serial_test::serial` keeps this off the other env-mutating
+        // suites; restore the prior value before returning.
+        let prev = env::var("TMPDIR").ok();
+        env::set_var("TMPDIR", "/tmp/claude-99999");
+        let s = serialize_active_settings();
+        assert_eq!(
+            s.temp_path_policy.root, "runtime/scratch",
+            "temp_path_policy.root must be the deterministic package-relative \
+             scratch root, not the host $TMPDIR"
+        );
+        assert!(
+            !s.temp_path_policy.root.contains("/tmp/"),
+            "host $TMPDIR leaked into determinism-shim: {}",
+            s.temp_path_policy.root
+        );
+        match prev {
+            Some(v) => env::set_var("TMPDIR", v),
+            None => env::remove_var("TMPDIR"),
+        }
     }
 
     #[test]
