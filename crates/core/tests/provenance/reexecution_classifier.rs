@@ -293,6 +293,6 @@ fn scenario_ablation_engaged_sidecar_empty() {
     assert!(report.per_artifact.is_empty());
     assert!(report.bucket_counts.is_empty());
 
-    drop(normal.bucket_counts.insert("failed".to_string(), 3));
+    let _ = normal.bucket_counts.insert("failed".to_string(), 3);
     assert_eq!(normal.bucket_counts.len(), 3);
 }

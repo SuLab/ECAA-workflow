@@ -160,6 +160,21 @@ pub fn is_list_negated(preceding: &str, vocab: &std::collections::BTreeSet<Strin
     false
 }
 
+/// Expand a base archetype's atoms by appending the chosen slot
+/// value's extra_atoms. Deduplication is the caller's responsibility
+/// — slots should not introduce alias clashes with base atoms.
+pub fn expand_atoms(
+    base_atoms: &[ArchetypeAtomRef],
+    manifest: &SlotManifest,
+    slot_value_id: &str,
+) -> Vec<ArchetypeAtomRef> {
+    let mut out: Vec<ArchetypeAtomRef> = base_atoms.to_vec();
+    if let Some(v) = manifest.values.iter().find(|v| v.id == slot_value_id) {
+        out.extend(v.extra_atoms.iter().cloned());
+    }
+    out
+}
+
 #[cfg(test)]
 mod negation_tests {
     use super::*;
@@ -223,19 +238,4 @@ mod negation_tests {
             "generic"
         );
     }
-}
-
-/// Expand a base archetype's atoms by appending the chosen slot
-/// value's extra_atoms. Deduplication is the caller's responsibility
-/// — slots should not introduce alias clashes with base atoms.
-pub fn expand_atoms(
-    base_atoms: &[ArchetypeAtomRef],
-    manifest: &SlotManifest,
-    slot_value_id: &str,
-) -> Vec<ArchetypeAtomRef> {
-    let mut out: Vec<ArchetypeAtomRef> = base_atoms.to_vec();
-    if let Some(v) = manifest.values.iter().find(|v| v.id == slot_value_id) {
-        out.extend(v.extra_atoms.iter().cloned());
-    }
-    out
 }

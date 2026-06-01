@@ -172,7 +172,7 @@ fn blocker_variant_names() -> Vec<String> {
         let line_starts_at_depth = depth;
         depth += opens - closes;
         if depth <= 0 {
-            in_enum = false;
+            // Reached the close of the enum block — stop scanning.
             break;
         }
         if line_starts_at_depth != 1 {

@@ -1170,7 +1170,7 @@ mod tests {
         let report = diff_packages(&p, &c, &wildcard_cfg()).unwrap();
         let t = &report.tables[0];
         let rho = t.spearman_rho.expect("spearman_rho should be Some");
-        assert!(rho >= -1.0 && rho <= 1.0, "rho out of range: {}", rho);
+        assert!((-1.0..=1.0).contains(&rho), "rho out of range: {}", rho);
     }
 
     #[test]

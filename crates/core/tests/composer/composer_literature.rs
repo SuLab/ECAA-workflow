@@ -13,7 +13,7 @@
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::composer::{
-    compose_with_intake, compose_with_version, compose_with_version_and_modality, IntakeContext,
+    compose_with_intake, compose_with_version_and_modality, IntakeContext,
     LITERATURE_OPT_IN_ATOM_IDS,
 };
 use ecaa_workflow_core::goal_spec::GoalSpec;

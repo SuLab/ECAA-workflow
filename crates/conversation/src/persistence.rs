@@ -1882,9 +1882,7 @@ mod tests {
         if let Some(t) = s.confirmation_token.as_mut() {
             t.consume();
         }
-        s.emitted_package_path = Some(std::path::PathBuf::from(
-            dir.path().join("scripps-pkg-deadbeef"),
-        ));
+        s.emitted_package_path = Some(dir.path().join("scripps-pkg-deadbeef"));
         let id = s.id;
         store.save(&s).await.unwrap();
 

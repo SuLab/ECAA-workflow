@@ -129,7 +129,6 @@ struct ClassifiedScenario {
     project_class: ProjectClass,
     project_class_str: &'static str,
     modalities: Vec<String>,
-    taxonomy_path: PathBuf,
 }
 
 fn classify_scenario(request_text: &str) -> Result<ClassifiedScenario, String> {
@@ -183,7 +182,6 @@ fn classify_scenario(request_text: &str) -> Result<ClassifiedScenario, String> {
         project_class,
         project_class_str,
         modalities,
-        taxonomy_path,
     })
 }
 

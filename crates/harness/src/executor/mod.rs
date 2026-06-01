@@ -859,7 +859,7 @@ mod tests {
         use std::sync::{Arc, Mutex};
         use std::time::{Duration, Instant};
 
-        let mut inner = Box::new(MockExecutor::with_successes(0)) as Box<dyn Executor>;
+        let inner = Box::new(MockExecutor::with_successes(0)) as Box<dyn Executor>;
 
         // shutdown_flag() returns None for MockExecutor (no blocking
         // poll loop). This tests the trait contract: the call itself

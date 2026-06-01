@@ -85,7 +85,7 @@ mod tests {
     #[test]
     fn aws_secret_keys_chain_is_union() {
         let from_chain: Vec<&str> = aws_secret_keys().copied().collect();
-        let mut expected: Vec<&str> = BASE_SECRET_KEYS.iter().copied().collect();
+        let mut expected: Vec<&str> = BASE_SECRET_KEYS.to_vec();
         expected.extend(AWS_EXTRA_SECRET_KEYS.iter().copied());
         assert_eq!(from_chain, expected);
     }

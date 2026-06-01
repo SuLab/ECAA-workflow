@@ -106,7 +106,6 @@ fn dag_with_archetype(archetype_id: &str) -> WorkflowDag {
         edges: Vec::new(),
         assumptions: Default::default(),
         source_template: Some(archetype_id.into()),
-        ..Default::default()
     }
 }
 
@@ -319,7 +318,6 @@ fn search_only_dag_has_no_archetype_id_and_skips_gate() {
         edges: Vec::new(),
         assumptions: Default::default(),
         source_template: None, // no archetype
-        ..Default::default()
     };
     let policy = clinical_policy_context();
     let outcome = ecaa_workflow_core::composer_v4::planner::classify_outcome_with_policy(
