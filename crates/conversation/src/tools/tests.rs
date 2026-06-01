@@ -2213,30 +2213,35 @@ async fn user_gene_expression_proteomics_text_builds_full_multiomics_dag() {
     );
 }
 
-// Ignored: the v4 multi-branch synthesizer (Pillar A) IS implemented and
-// correct for this scenario — see the core acceptance test
+// Full chat-path canary for v4 multi-branch synthesis (Pillar A). The
+// classifier surfaces {proteomics (primary), bulk_rnaseq, single_cell_rnaseq}
+// for this tri-omics prose; no registered cross-omics archetype covers all
+// three, so the v4 planner's first-class multi-branch dispatch fires,
+// planning each modality through the full single-modality planner,
+// namespace-prefixing every branch, and joining at the reused `reporting`
+// atom (aliased `multi_modal_thematic_comparison`) -> `final_reporting`.
+//
+// Two layer bugs gated this test (both fixed):
+//   1. composer_v4 `prefix_branch` renamed each branch node's `id` but left
+//      the `stage_id` attribute bare, so `lower_dag_to_composition_result`
+//      collapsed every branch's `data_acquisition`/`raw_qc`/… onto one
+//      `ComposedAtom.stage_id`; `validate_composition`'s Kahn pass then
+//      raised a spurious `CycleDetected { cycle: [] }` (duplicate keys make
+//      `popped < atoms.len()` with no surviving in-degree). The composer
+//      returned that as an Err, the legacy fallback cleared
+//      `additional_modalities`, and the retry degraded to the 2-way
+//      `cross_omics_rnaseq_proteomics` archetype (dropping single_cell).
+//   2. The scope-reset correction's NEGATED comma-list
+//      ("Bulk RNA-seq … only (no proteomics, no single-cell …)") tripped
+//      `is_n_way_intent`, which `try_build_via_composer` propagated as
+//      `goal.modifiers["n_way_intent"]` even though the structured set had
+//      collapsed to a single modality — letting the planner prose-subset
+//      match a 2-way cross-omics archetype off the stray modality nouns.
+//      Now gated on `modalities.len() >= 2`.
+//
+// The companion structured-input acceptance test is
 // `composer_v4::multi_branch_synthesis::tests::
-// full_plan_multi_branch_three_modalities_structured_grounded`, which feeds
-// the *structured* set {bulk_rnaseq, single_cell_rnaseq, proteomics} and
-// asserts all three prefixed branches, a grounded proteomics branch
-// (Pillar B), the `multi_modal_thematic_comparison` join, and zero
-// off-modality leakage. This chat-path test still fails for a DISTINCT,
-// out-of-scope reason: for this tri-omics prose the *classifier* surfaces
-// `modality=proteomics, additional=[]` (it under-counts — the three
-// modalities exist only in the prose, recovered via the `n_way_intent`
-// flag), so the structured modality set reaching the composer is
-// {proteomics}. The `n_way` prose-subset matcher in
-// `find_match_cross_omics` then matches the 2-way `cross_omics_rnaseq_
-// proteomics` archetype (best available, prose-supported), which correctly
-// pre-empts multi-branch — but drops `single_cell_rnaseq` because no 3-way
-// archetype covers this set and the prose-named modalities never reach the
-// structured set. Un-ignoring this requires a CLASSIFIER fix (surface all
-// three modalities as the structured set) — explicitly out of scope for the
-// composer work (design spec: "the classifier is producing correct
-// modalities here" / Out of scope). Tracked for a follow-up classifier pass.
-#[ignore = "blocked on classifier under-counting tri-omics prose (out of composer scope); \
-            multi-branch composer proven via core acceptance test \
-            full_plan_multi_branch_three_modalities_structured_grounded"]
+// full_plan_multi_branch_three_modalities_structured_grounded`.
 #[tokio::test]
 async fn latest_session_shape_composes_three_branches_then_allows_scope_reset() {
     let mut s = crate::session::Session::new(false);
@@ -2259,10 +2264,65 @@ async fn latest_session_shape_composes_three_branches_then_allows_scope_reset() 
     let dag = s.dag.as_ref().expect("cross-omics DAG must be built");
     let task_ids: std::collections::HashSet<&str> =
         dag.tasks.keys().map(|id| id.as_str()).collect();
-    assert!(task_ids.contains("bulk_rnaseq_differential_expression"));
-    assert!(task_ids.contains("single_cell_rnaseq_differential_expression"));
-    assert!(task_ids.contains("proteomics_differential_expression"));
-    assert!(task_ids.contains("multi_modal_thematic_comparison"));
+    // The tri-omics request resolves to first-class multi-branch
+    // synthesis (no registered cross-omics archetype covers all three):
+    // one namespace-prefixed branch per modality, joined at the reused
+    // `reporting` atom (aliased `multi_modal_thematic_comparison`) ->
+    // `final_reporting`. The two RNA branches each ground to a
+    // `<modality>_differential_expression` analytical node.
+    assert!(
+        task_ids.contains("bulk_rnaseq_differential_expression"),
+        "bulk RNA branch DE node missing: {task_ids:?}"
+    );
+    assert!(
+        task_ids.contains("single_cell_rnaseq_differential_expression"),
+        "single-cell RNA branch DE node missing: {task_ids:?}"
+    );
+    // Proteomics GROUNDS to proteomics atoms (Pillar B — no RNA
+    // wandering): its branch carries `proteomics_peptide_search` /
+    // `proteomics_protein_quantification`, NOT a `differential_expression`
+    // node. Assert the grounded analytical node is present rather than the
+    // (wrong) `proteomics_differential_expression`.
+    assert!(
+        task_ids
+            .iter()
+            .any(|id| id.starts_with("proteomics_")
+                && (id.contains("peptide_search")
+                    || id.contains("protein_quantification")
+                    || id.contains("differential_abundance"))),
+        "proteomics branch must ground to proteomics atoms: {task_ids:?}"
+    );
+    assert!(
+        task_ids.contains("multi_modal_thematic_comparison"),
+        "cross-modality join node missing: {task_ids:?}"
+    );
+    // Structural no-off-modality invariant: every task id is the
+    // join/terminal pair or carries one of the three requested-modality
+    // prefixes — proves multi-branch synthesis fired and nothing leaked.
+    for id in &task_ids {
+        let ok = *id == "multi_modal_thematic_comparison"
+            || *id == "final_reporting"
+            || *id == "validate_multi_modal_thematic_comparison"
+            || *id == "validate_final_reporting"
+            || id.starts_with("bulk_rnaseq_")
+            || id.starts_with("single_cell_rnaseq_")
+            || id.starts_with("proteomics_");
+        assert!(ok, "off-modality task leaked into 3-way multi-branch DAG: {id}");
+    }
+    // The legacy 2-way-archetype degrade path must NOT have fired: it
+    // would alias `bulk_rnaseq_differential_expression` ->
+    // `rnaseq_differential_expression` and drop single_cell entirely.
+    assert!(
+        !task_ids.contains("rnaseq_differential_expression"),
+        "2-way cross-omics archetype alias leaked (degrade path fired): {task_ids:?}"
+    );
+    // No wrong-modality atoms anywhere.
+    assert!(
+        !task_ids
+            .iter()
+            .any(|id| id.contains("translation_efficiency") || id.contains("vdj")),
+        "no wrong-modality atoms expected: {task_ids:?}"
+    );
 
     let correction = "Bulk RNA-seq transcriptomics analysis only (no proteomics, no \
         single-cell/single-nucleus this session). Human postmortem brain tissue only. \
