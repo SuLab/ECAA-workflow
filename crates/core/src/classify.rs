@@ -1980,6 +1980,102 @@ impl Classifier {
             }
         }
 
+        // Out-of-catalog signature scan. Some SME prompts name a
+        // modality/method the atom catalog does NOT cover (mass
+        // cytometry, Mendelian randomization, cryo-EM, single-cell
+        // methylation, Slide-seq, CODEX, scATAC-only, survival
+        // analysis, metagenomic strain resolution). Without a positive
+        // out-of-catalog signal these prompts share enough generic
+        // vocabulary ("cells", "clustering", "SNP", "expression
+        // matrix") to misroute to the nearest keyword-similar archetype
+        // and emit forbidden domain atoms (e.g. CyTOF → scRNA-seq
+        // alignment + quantification). Each token below is an
+        // unambiguous method-level signature that NO covered-archetype
+        // corpus prompt uses; matching one pins `kind=out_of_catalog`,
+        // which `composer::dispatch::requires_generic_fallthrough`
+        // treats as a flex-shape so the prompt routes to the
+        // `generic_omics` scaffold (universal `raw_qc` +
+        // `generic_summary` terminals) and the LLM-mediated layer
+        // proposes the missing capability via `propose_hypothesized_node`.
+        // The scanned `kind` overrides the first-match-wins goal_pattern
+        // `kind` on the merge below, so it wins even when a broad
+        // pattern (differential_expression / metagenomics_taxonomic)
+        // also matches.
+        const OUT_OF_CATALOG_TOKENS: &[&str] = &[
+            // mass cytometry / CyTOF
+            "mass cytometry",
+            "cytof",
+            "flowsom",
+            "phenograph",
+            "fcs file",
+            "spillover",
+            "metal tagged",
+            // Mendelian randomization
+            "mendelian randomization",
+            "mr egger",
+            "inverse variance weighted",
+            // cryo-EM single-particle
+            "cryo em",
+            "single particle",
+            "particle picking",
+            "ctf estimation",
+            "micrograph",
+            // single-cell / single-nucleus methylation (snmC-seq)
+            "snmc",
+            "single nucleus dna methylation",
+            // Slide-seq spatial
+            "slide seq",
+            "slideseq",
+            // CODEX multiplexed-imaging spatial proteomics
+            "codex",
+            "co detection by indexing",
+            // scATAC-only (no companion RNA)
+            "scatac",
+            "single cell atac",
+            // survival / time-to-event analysis (method-level, not motivation)
+            "cox proportional hazards",
+            "kaplan meier",
+            "log rank",
+            // metagenomic strain-level resolution
+            "strain level",
+            "strainphlan",
+            "instrain",
+            "strain phylog",
+        ];
+        for token in OUT_OF_CATALOG_TOKENS {
+            let needle = normalize_for_match(token);
+            if !needle.is_empty() && normalized.contains(&needle) {
+                // Hard precedence: return immediately with
+                // kind=out_of_catalog rather than continuing into the
+                // goal_pattern loop. A goal_pattern that matches but
+                // synthesizes a non-well-formed goal would otherwise
+                // `return None` from inside the loop and silently
+                // discard this signal, letting the prompt misroute to
+                // its modality archetype (e.g. snmC-seq → methylation
+                // WGBS pipeline). edam_data is left empty — the
+                // composer's generic-fallthrough wildcards it anyway.
+                //
+                // FORCE-override any kind/integrator the integrator
+                // pre-scan set: a prompt that says "different from
+                // SHARE-seq, no combinatorial barcoding" trips the
+                // "share seq" integrator token (its negation guard
+                // doesn't catch the "different from" cue) and lands
+                // kind=share_seq_barcode, which would route scATAC-only
+                // to the SHARE-seq cross-omics archetype. The named
+                // out-of-catalog method is the stronger, unambiguous
+                // signal, so it wins outright.
+                scanned_modifiers.insert("kind".to_string(), "out_of_catalog".to_string());
+                scanned_modifiers.remove("integrator");
+                return Some(GoalSpec {
+                    edam_data: String::new(),
+                    edam_format: None,
+                    modifiers: scanned_modifiers,
+                    source_prose: Some(text.to_string()),
+                    confidence: 0.6,
+                });
+            }
+        }
+
         if self.config.goal_patterns.is_empty() && scanned_modifiers.is_empty() {
             return None;
         }
@@ -3351,6 +3447,67 @@ mod tests {
             "chip_seq must surface for tri-omics intent (D6 regression) — only 1 \
              keyword hit ('chip seq'), but n_way_intent unlocks min_hits=1; got {:?}",
             modalities
+        );
+    }
+
+    /// Out-of-catalog signature scan pins `kind=out_of_catalog` so the
+    /// composer's generic-fallthrough routes catalog-absent modalities
+    /// (CyTOF, Mendelian randomization, cryo-EM, snmC-seq, Slide-seq,
+    /// CODEX, scATAC-only, survival genomics, metagenomic strain) to the
+    /// `generic_omics` scaffold instead of misrouting to the nearest
+    /// keyword-similar archetype. Mirrors the blinded DAG-correctness
+    /// corpus Tier-B contract; the corpus isn't in CI, so this guards it.
+    #[test]
+    fn out_of_catalog_signatures_pin_generic_fallthrough_kind() {
+        let clf = load_classifier();
+        let cases = [
+            "mass-cytometry (CyTOF) FCS files; gate live cells, compensate spillover, run FlowSOM clustering",
+            "two-sample Mendelian-randomization with MR-Egger and inverse-variance-weighted estimates",
+            "raw cryo-EM micrographs; motion correction, CTF estimation, single-particle picking, 3D reconstruction",
+            "single-nucleus DNA methylation sequencing (snmC-seq2) on cortical neurons",
+            "Slide-seq v2 spatial transcriptomics, per-bead expression matrix",
+            "CODEX highly multiplexed antibody imaging with spatial neighborhood enrichment",
+            "10x single-cell ATAC-seq (scATAC), no paired RNA; TF-IDF, LSI, differential accessibility",
+            "bulk RNA-seq expression with Cox proportional-hazards and Kaplan-Meier survival",
+            "shotgun metagenomics strain-level resolution via StrainPhlAn and InStrain",
+        ];
+        for prompt in cases {
+            let goal = clf
+                .extract_goal(prompt)
+                .unwrap_or_else(|| panic!("extract_goal should return a goal for {prompt:?}"));
+            assert_eq!(
+                goal.modifiers.get("kind").map(String::as_str),
+                Some("out_of_catalog"),
+                "out-of-catalog prompt must pin kind=out_of_catalog (won over any \
+                 integrator/goal-pattern kind): {prompt:?} -> {:?}",
+                goal.modifiers
+            );
+            // The spurious integrator a negated cross-omics mention may
+            // have set (e.g. \"different from SHARE-seq\") must be dropped.
+            assert!(
+                !goal.modifiers.contains_key("integrator"),
+                "out-of-catalog goal must not carry an integrator modifier: {:?}",
+                goal.modifiers
+            );
+        }
+    }
+
+    /// A covered modality / project class must NOT be hijacked by the
+    /// out-of-catalog scan: a clinical trial naming Kaplan-Meier / Cox is
+    /// still a clinical trial (routes to clinical_trial_analysis), and a
+    /// plain bulk-RNA-seq DE prompt keeps its differential_expression kind.
+    #[test]
+    fn covered_prompts_do_not_get_out_of_catalog_kind() {
+        let clf = load_classifier();
+        // Plain DE prompt → differential_expression, never out_of_catalog.
+        let de = clf
+            .extract_goal("bulk RNA-seq differential expression treated vs control with DESeq2")
+            .expect("DE goal");
+        assert_ne!(
+            de.modifiers.get("kind").map(String::as_str),
+            Some("out_of_catalog"),
+            "plain DE prompt must keep its real kind, got {:?}",
+            de.modifiers
         );
     }
 }

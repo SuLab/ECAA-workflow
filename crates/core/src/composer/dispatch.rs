@@ -79,6 +79,12 @@ fn requires_generic_fallthrough(goal: &GoalSpec, target_modality: Option<&str>) 
         "strain_resolution",
         "strain_snp",
         "scatac_only",
+        // Catch-all for catalog-absent modalities the classifier's
+        // out-of-catalog signature scan tagged (mass cytometry, MR,
+        // cryo-EM, single-cell methylation, Slide-seq, CODEX, …).
+        // Routes the prompt to `generic_omics` instead of letting it
+        // misroute to the nearest keyword-similar archetype.
+        "out_of_catalog",
     ];
     if let Some(kind) = goal.modifiers.get("kind") {
         if FLEX_KINDS.contains(&kind.as_str()) {
@@ -1142,6 +1148,50 @@ pub fn compose_with_version_and_modalities_full(
     >,
     opaque_session_id: Option<&str>,
 ) -> Result<ComposerOutput, CompositionError> {
+    // Atypical-shape fall-through (v4-aware). The legacy guard at the
+    // top of `compose_with_version_and_modality` short-circuits
+    // flex-shape / out-of-catalog prompts to `generic_omics`, but the
+    // v4 (`composer_version == 4`) dispatch below jumps straight to
+    // `compose_v4_dispatch_full` and never reaches it — so under the
+    // production `ECAA_COMPOSER=semantic` default an out-of-catalog
+    // prompt (CyTOF, Mendelian randomization, cryo-EM, …) would
+    // misroute to the nearest keyword-similar archetype and emit
+    // forbidden domain atoms. Mirror the guard here so both composer
+    // generations behave identically. Gated to single-modality: a
+    // genuine cross-omics request (≥2 modalities) keeps its archetype
+    // routing.
+    let is_out_of_catalog = goal
+        .modifiers
+        .get("kind")
+        .map(|k| k == "out_of_catalog")
+        .unwrap_or(false);
+    // clinical_trial / time_series_forecast are covered project classes
+    // with dedicated archetypes (clinical_trial_analysis,
+    // time_series_forecast) that already route to generic_omics with the
+    // right richer atom set — a clinical mortality trial naming
+    // Kaplan-Meier / Cox must NOT be hijacked to the bare generic_omics
+    // scaffold. Restrict the fall-through to the bioinformatics class.
+    let covered_project_class =
+        project_class == "clinical_trial" || project_class == "time_series_forecast";
+    // `out_of_catalog` fires regardless of how many modality companions
+    // the keyword scorer surfaced: a scATAC-only prompt is mis-detected
+    // as RNA+ATAC cross-omics, and that spurious companion is exactly the
+    // misroute being suppressed. Other flex kinds stay single-modality.
+    if !covered_project_class
+        && (unique_modalities(target_modalities).len() < 2 || is_out_of_catalog)
+        && requires_generic_fallthrough(goal, target_modalities.first().copied())
+    {
+        if let Some(generic) = archetype_reg.get("generic_omics") {
+            let mut wildcarded = goal.clone();
+            wildcarded.edam_data = String::new();
+            wildcarded.edam_format = None;
+            let result =
+                resolve_archetype_to_composition(generic, &wildcarded, atom_reg, archetype_reg)?;
+            validate_composition(&result, atom_reg)?;
+            return Ok(ComposerOutput::legacy(result));
+        }
+    }
+
     if composer_version == 4 {
         // v4 dispatch already takes the policy context; for
         // multi-modality v4 (cross-omics) we route through the same
