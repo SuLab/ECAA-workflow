@@ -65,11 +65,31 @@ fn modality_prefix(modality: &str, used: &mut BTreeSet<String>) -> String {
 /// uses `machine_name` as the atom-registry lookup key — and the
 /// branch's companions were already synthesized inside the sub-plan, so
 /// the whole branch (companions included) is prefixed as a unit.
+///
+/// The `stage_id` attribute (stamped by `lift_to_workflow_dag` for
+/// byte-stable re-lowering) is ALSO prefixed so it stays aligned with
+/// the renamed `node.id`. Without this, `lower_dag_to_composition_result`
+/// reads the bare `stage_id` attribute and every branch's
+/// `data_acquisition`/`raw_qc`/`differential_expression` node collapses
+/// onto the SAME `ComposedAtom.stage_id` — `validate_composition`'s Kahn
+/// pass then counts `popped < atoms.len()` (the deduped key map is
+/// smaller than the duplicate-laden vec) yet finds no surviving in-degree
+/// and reports a spurious `CycleDetected { cycle: [] }`. The same logic
+/// prefixes `plot_stage_id` because it points at an intra-branch plotting
+/// stage; the bare `atom_id` attribute is intentionally NOT prefixed (it
+/// is the registry lookup key, exactly like `machine_name`).
 fn prefix_branch(dag: &mut WorkflowDag, prefix: &str) {
     for n in &mut dag.nodes {
         n.id = format!("{prefix}{}", n.id);
         n.human_name = format!("{prefix}{}", n.human_name);
         // machine_name intentionally NOT prefixed.
+        for attr in ["stage_id", "plot_stage_id"] {
+            if let Some(serde_json::Value::String(v)) = n.attributes.get(attr) {
+                let prefixed = format!("{prefix}{v}");
+                n.attributes
+                    .insert(attr.into(), serde_json::Value::String(prefixed));
+            }
+        }
     }
     for e in &mut dag.edges {
         e.from_node = format!("{prefix}{}", e.from_node);
