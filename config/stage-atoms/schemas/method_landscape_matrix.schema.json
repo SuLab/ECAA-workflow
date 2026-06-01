@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MethodLandscapeMatrixRow",
+  "description": "Row schema for method_landscape.csv emitted by survey_method_landscape. Each row is one candidate method on one runtime method-choice axis, anchored to a single resolvable source (PMID/DOI/arXiv/URL) with a verbatim, substring-verifiable evidence_quote. No ranking or synthesis: the downstream discover_* atoms rank curated ∪ literature-surfaced candidates deterministically from this table.",
+  "type": "object",
+  "required": ["axis", "candidate_method", "entity", "entity_kind", "source_ref_kind", "source_ref",
+               "source_class", "evidence_role", "evidence_quote", "evidence_quote_offset",
+               "source_kind", "source_hash", "retrieval_ts", "redistributable", "verified"],
+  "additionalProperties": false,
+  "properties": {
+    "axis": { "type": "string", "minLength": 1 },
+    "candidate_method": { "type": "string", "minLength": 1 },
+    "entity": { "type": "string", "minLength": 1 },
+    "entity_kind": { "type": "string", "enum": ["gene", "region", "variant", "pathway", "cell_type", "tool", "method"] },
+    "pmid": { "type": "string", "pattern": "^[1-9][0-9]{6,8}$" },
+    "prior_pmids": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[1-9][0-9]{6,8}$" }
+    },
+    "source_ref_kind": { "type": "string", "enum": ["pmid", "doi", "arxiv", "url"] },
+    "source_ref": { "type": "string", "minLength": 1 },
+    "source_class": { "type": "string", "enum": ["primary_literature", "conference_proceedings", "tool_documentation"] },
+    "evidence_role": { "type": "string", "enum": ["recommendation_or_benchmark", "capability_or_version"] },
+    "version_context": { "type": "string" },
+    "context_match_flags": { "type": "string" },
+    "recency_year": { "type": "integer", "minimum": 1900, "maximum": 2100 },
+    "evidence_quote": { "type": "string", "minLength": 1 },
+    "evidence_quote_offset": { "type": "integer", "minimum": 0 },
+    "source_kind": { "type": "string", "enum": ["pmc_oa_full_text", "abstract_only", "external_pdf_local_only", "openalex", "crossref", "doc_page"] },
+    "source_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "retrieval_ts": { "type": "string", "format": "date-time" },
+    "redistributable": { "type": "boolean" },
+    "verified": { "type": "boolean" }
+  }
+}
