@@ -48,6 +48,19 @@ struct ClaimsMatrixRow {
     pub pmid: Option<String>,
     #[serde(default)]
     pub prior_pmids: Option<Vec<String>>,
+    // Typed-locator columns. Absent on legacy PMID-only rows (which
+    // anchor via `pmid`/`prior_pmids`); present on locator-generalized
+    // rows where `source_ref_kind` selects the dispatch branch.
+    #[serde(default)]
+    pub source_ref_kind: Option<String>,
+    #[serde(default)]
+    pub source_ref: Option<String>,
+    #[serde(default)]
+    pub source_class: Option<String>,
+    #[serde(default)]
+    pub evidence_role: Option<String>,
+    #[serde(default)]
+    pub version_context: Option<String>,
     #[serde(default)]
     pub concordance_flag: Option<String>,
     pub evidence_quote: String,
@@ -75,7 +88,20 @@ struct EvidenceManifest {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 struct EvidenceEntry {
-    pub pmid: String,
+    // Optional so non-PMID locator entries (DOI/arXiv/URL) validate;
+    // legacy PMID entries continue to carry it.
+    #[serde(default)]
+    pub pmid: Option<String>,
+    #[serde(default)]
+    pub source_ref_kind: Option<String>,
+    #[serde(default)]
+    pub source_ref: Option<String>,
+    #[serde(default)]
+    pub source_class: Option<String>,
+    #[serde(default)]
+    pub evidence_role: Option<String>,
+    #[serde(default)]
+    pub version_context: Option<String>,
     pub source_kind: String,
     pub path: String,
     pub sha256_binary: String,
@@ -137,7 +163,7 @@ pub fn run_pmid_resolves(
     let manifest_pmids: BTreeMap<String, &EvidenceEntry> = manifest
         .entries
         .iter()
-        .map(|e| (e.pmid.clone(), e))
+        .map(|e| (e.pmid.clone().unwrap_or_default(), e))
         .collect();
 
     let pmid_re = regex::Regex::new(r"^[1-9][0-9]{6,8}$").unwrap();
@@ -189,6 +215,108 @@ pub fn run_pmid_resolves(
 }
 
 // ============================================================================
+// Runner 1b: source_resolves (locator-generalized successor to pmid_resolves)
+// ============================================================================
+
+/// Build a `LiteratureClaim` failure cause for a row.
+fn lit_fail(row_index: u64, artifact: &str, kind: LiteratureClaimFailureKind) -> ValidationFailureCause {
+    ValidationFailureCause::LiteratureClaim {
+        row_index,
+        artifact: artifact.to_string(),
+        kind,
+    }
+}
+
+/// Collect the locator strings a row anchors against, dispatched on its
+/// resolved locator kind. Legacy PMID rows pull from `pmid`/`prior_pmids`;
+/// non-PMID rows pull from the typed `source_ref` column.
+fn row_source_refs(row: &ClaimsMatrixRow, kind: &str) -> Vec<String> {
+    if kind == "pmid" {
+        row.pmid
+            .iter()
+            .cloned()
+            .chain(row.prior_pmids.iter().flat_map(|v| v.iter().cloned()))
+            .collect()
+    } else {
+        row.source_ref.iter().cloned().collect()
+    }
+}
+
+/// Generalized successor to `run_pmid_resolves`. For each row, dispatch on
+/// `source_ref_kind`:
+///   - `pmid` (or absent — legacy) → PMID well-formedness + manifest
+///     presence + artifact-on-disk check (byte-identical to
+///     `run_pmid_resolves`).
+///   - `doi` / `arxiv` / `url` → require a manifest entry whose `source_ref`
+///     (falling back to `pmid` for older manifests) matches AND whose
+///     snapshot file exists on disk. Any miss → `SourceUnresolvable`.
+pub fn run_source_resolves(
+    csv_path: &Path,
+    manifest_path: &Path,
+) -> Result<(), (u64, ValidationFailureCause)> {
+    let artifact = csv_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
+    let rows = load_rows(csv_path).map_err(|_| {
+        (
+            0,
+            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+        )
+    })?;
+    let manifest = load_manifest(manifest_path).map_err(|_| {
+        (
+            0,
+            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+        )
+    })?;
+    let by_ref: BTreeMap<String, &EvidenceEntry> = manifest
+        .entries
+        .iter()
+        .map(|e| {
+            let key = e
+                .source_ref
+                .clone()
+                .or_else(|| e.pmid.clone())
+                .unwrap_or_default();
+            (key, e)
+        })
+        .collect();
+    let pmid_re = regex::Regex::new(r"^[1-9][0-9]{6,8}$").unwrap();
+    let ev_dir = manifest_path.parent().unwrap();
+
+    for (i, row) in rows.iter().enumerate() {
+        let kind = row.source_ref_kind.as_deref().unwrap_or("pmid");
+        let refs = row_source_refs(row, kind);
+        for r in refs {
+            if kind == "pmid" && !pmid_re.is_match(&r) {
+                return Err((
+                    i as u64,
+                    lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::PmidMalformed),
+                ));
+            }
+            let Some(entry) = by_ref.get(&r) else {
+                let fk = if kind == "pmid" {
+                    LiteratureClaimFailureKind::PmidNotFound
+                } else {
+                    LiteratureClaimFailureKind::SourceUnresolvable
+                };
+                return Err((i as u64, lit_fail(i as u64, &artifact, fk)));
+            };
+            if !ev_dir.join(&entry.path).exists() {
+                let fk = if kind == "pmid" {
+                    LiteratureClaimFailureKind::EvidenceArtifactMissing
+                } else {
+                    LiteratureClaimFailureKind::SourceUnresolvable
+                };
+                return Err((i as u64, lit_fail(i as u64, &artifact, fk)));
+            }
+        }
+    }
+    Ok(())
+}
+
+// ============================================================================
 // Runner 2: evidence_quote_substring_match
 // ============================================================================
 
@@ -225,7 +353,7 @@ pub fn run_evidence_quote_substring_match(
     let manifest_by_pmid: BTreeMap<String, &EvidenceEntry> = manifest
         .entries
         .iter()
-        .map(|e| (e.pmid.clone(), e))
+        .map(|e| (e.pmid.clone().unwrap_or_default(), e))
         .collect();
     let manifest_dir = manifest_path.parent().unwrap();
 
@@ -546,6 +674,18 @@ impl ValidatorRunner for PmidResolvesRunner {
     }
 }
 
+/// `ValidatorRunner` wrapping `run_source_resolves` for the `source_resolves`
+/// obligation — the locator-generalized successor to `pmid_resolves`.
+pub struct SourceResolvesRunner;
+impl ValidatorRunner for SourceResolvesRunner {
+    fn obligation_id(&self) -> &'static str {
+        "source_resolves"
+    }
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        runner_dispatch(artifact_path, true, run_source_resolves)
+    }
+}
+
 /// `ValidatorRunner` wrapping `run_evidence_quote_substring_match` for the `evidence_quote_substring_match` obligation.
 pub struct EvidenceQuoteSubstringMatchRunner;
 impl ValidatorRunner for EvidenceQuoteSubstringMatchRunner {
@@ -643,12 +783,13 @@ impl ValidatorRunner for ConcordanceFlagInClosedSetRunner {
     }
 }
 
-/// Five trait-wrapped runners for the literature obligations. Used by
+/// Trait-wrapped runners for the literature obligations. Used by
 /// `crate::validators::default_runners` so the harness post-task hook
 /// routes literature obligation ids to the right runner.
 pub fn literature_runners() -> Vec<Box<dyn ValidatorRunner>> {
     vec![
         Box::new(PmidResolvesRunner) as Box<dyn ValidatorRunner>,
+        Box::new(SourceResolvesRunner),
         Box::new(EvidenceQuoteSubstringMatchRunner),
         Box::new(RedistributableOrMarkedRunner),
         Box::new(ClaimRowHasFindingIdRunner),
@@ -762,6 +903,64 @@ mod tests {
             err.1,
             ValidationFailureCause::LiteratureClaim {
                 kind: LiteratureClaimFailureKind::RedistributableTagInconsistent,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn source_resolves_accepts_doi_and_rejects_missing_url_snapshot() {
+        let dir = TempDir::new().unwrap();
+        let evdir = dir.path().join("evidence");
+        std::fs::create_dir_all(&evdir).unwrap();
+        // snapshot present for the DOI row
+        std::fs::write(evdir.join("doi_ok.json"), b"hello").unwrap();
+        let manifest = serde_json::json!({
+            "schema_version": 2,
+            "entries": [
+                {"source_ref_kind":"doi","source_ref":"10.1/ok","source_class":"conference_proceedings",
+                 "source_kind":"abstract_only","path":"doi_ok.json","sha256_binary":"a".repeat(64),
+                 "sha256_extracted_text":"b".repeat(64),"extracted_text_normalization":"collapse_whitespace_lowercase_v1",
+                 "bytes":5,"retrieval_ts":"2026-05-31T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"CC-BY-4.0"}
+            ]
+        });
+        std::fs::write(
+            evdir.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        std::fs::write(&csv, "entity,entity_kind,source_ref_kind,source_ref,source_class,evidence_role,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified\nflair,gene,doi,10.1/ok,conference_proceedings,recommendation_or_benchmark,hello,0,abstract_only,deadbeef,2026-05-31T00:00:00Z,true,true\n").unwrap();
+        assert!(run_source_resolves(&csv, &evdir.join("manifest.json")).is_ok());
+
+        // A URL row with no snapshot on disk → SourceUnresolvable.
+        let csv2 = dir.path().join("ml2.csv");
+        std::fs::write(&csv2, "entity,entity_kind,source_ref_kind,source_ref,source_class,evidence_role,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified\nstar,gene,url,https://x/y,tool_documentation,capability_or_version,hello,0,doc_page,deadbeef,2026-05-31T00:00:00Z,false,true\n").unwrap();
+        let err = run_source_resolves(&csv2, &evdir.join("manifest.json")).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::SourceUnresolvable,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn source_resolves_pmid_branch_byte_identical_to_legacy() {
+        // A legacy PMID row (no source_ref_kind) must behave exactly like
+        // run_pmid_resolves: malformed PMID → PmidMalformed.
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("prior_claims_matrix.csv");
+        write(&csv, "entity,entity_kind,pmid,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified\nACAN,gene,123,foo,0,pmc_oa_full_text,sha256:abc,2026-05-14T00:00:00Z,true,true\n");
+        let manifest = dir.path().join("evidence/manifest.json");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        write(&manifest, r#"{"schema_version":1,"entries":[]}"#);
+        let err = run_source_resolves(&csv, &manifest).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::PmidMalformed,
                 ..
             }
         ));
