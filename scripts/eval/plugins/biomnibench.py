@@ -181,5 +181,11 @@ class BiomniBench(Benchmark):
         return Scorecard(benchmark=self.name, rows=scores,
                          meta={"judge": "gemini-3.1-pro+anthropic-crosscheck",
                                "dimensions": dim_means,
+                               "dimension_source": "heuristic_title_match",
+                               "dimension_note": (
+                                   "Per-dimension means are a heuristic: criteria are "
+                                   "bucketed by title-keyword match. BiomniBench-DA "
+                                   "defines no dimensions; only the overall 0-100 score "
+                                   "is benchmark-faithful."),
                                "published_best": "Claude Code+Opus 4.7 = 73.34",
                                "judge_agreement": judge_agreement})

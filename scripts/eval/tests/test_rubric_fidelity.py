@@ -43,13 +43,33 @@ def test_real_rubric_yields_multiple_weighted_criteria():
     norm = normalize_rubric(_load_real_rubric_text())
     crits = norm["criteria"]
     assert len(crits) >= 2, "structured rubric must yield >=2 criteria"
+    # A real rubric (A-weights sum to 100) uses the dataset's absolute model.
+    assert norm["scoring"] == "absolute"
+    assert norm["dimension_source"] == "heuristic_title_match"
     # Summed A-weight points approximate 100 (source-reliability A=0 contributes 0).
     total_points = sum(c["points"] for c in crits)
     assert abs(total_points - 100.0) <= 1.0, f"summed A-weights={total_points}, expected ~100"
     for c in crits:
         assert set(c) >= {"id", "dimension", "points", "levels"}
-        assert c["levels"]["A"] == 1.0
-        assert c["levels"]["C"] == 0.0
+        # Absolute per-level points: A equals the criterion max; C is 0 for
+        # scored criteria but -10 for the source-reliability penalty.
+        assert c["levels"]["A"] == c["points"]
+        assert c["levels"]["C"] <= 0.0
+
+
+def test_real_rubric_penalty_criterion_subtracts():
+    """The trailing source-reliability criterion is a penalty (A=0, C=-10): a
+    perfect analysis that fails sourcing must score below an all-A perfect."""
+    norm = normalize_rubric(_load_real_rubric_text())
+    ids = [c["id"] for c in norm["criteria"]]
+    penalty_id = ids[-1]
+    perfect = "\n".join(f"{cid}: A" for cid in ids)
+    bad_src = "\n".join(f"{cid}: A" for cid in ids[:-1]) + f"\n{penalty_id}: C"
+    assert parse_verdict(norm, perfect)["overall"] == 100.0
+    bad = parse_verdict(norm, bad_src)["overall"]
+    assert bad < 100.0
+    # Penalty C is -10 in every real rubric -> exactly 90.
+    assert bad == 90.0
 
 
 def test_real_rubric_ids_are_stable_and_sequential():

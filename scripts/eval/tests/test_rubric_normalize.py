@@ -100,14 +100,21 @@ def test_structured_text_rubric_produces_n_weighted_criteria():
     assert by_id["criterion_4"]["points"] == 0.0  # source-reliability A=0
 
 
-def test_structured_text_rubric_partial_weight_is_faithful():
-    """B level maps to wB/wA so a B on a 40-point criterion earns 20."""
+def test_structured_text_rubric_is_absolute_scoring():
+    """A real-shaped rubric (A-weights sum to 100) is flagged absolute scoring."""
+    norm = normalize_rubric(_STRUCTURED_TEXT_RUBRIC)
+    assert norm["scoring"] == "absolute"
+    assert norm["dimension_source"] == "heuristic_title_match"
+
+
+def test_structured_text_rubric_levels_are_absolute_points():
+    """Levels carry ABSOLUTE per-level points straight off the Levels: line."""
     norm = normalize_rubric(_STRUCTURED_TEXT_RUBRIC)
     by_id = {c["id"]: c for c in norm["criteria"]}
-    # Criterion 2: A=40 B=20 -> B fraction = 20/40 = 0.5
-    assert by_id["criterion_2"]["levels"]["B"] == 0.5
-    assert by_id["criterion_2"]["levels"]["A"] == 1.0
-    assert by_id["criterion_2"]["levels"]["C"] == 0.0
+    # Criterion 2: Levels A=40 B=20 C=0 -> absolute points, not fractions.
+    assert by_id["criterion_2"]["levels"] == {"A": 40.0, "B": 20.0, "C": 0.0}
+    # Penalty criterion: A=0 B=-5 C=-10 -> negative absolute points preserved.
+    assert by_id["criterion_4"]["levels"] == {"A": 0.0, "B": -5.0, "C": -10.0}
 
 
 def test_structured_text_rubric_dimensions_assigned():
@@ -150,3 +157,36 @@ def test_unstructured_text_rubric_all_A_scores_100():
     norm = normalize_rubric(_UNSTRUCTURED_TEXT_RUBRIC)
     out = parse_verdict(norm, "overall: A")
     assert out["overall"] == 100.0
+
+
+def test_unstructured_and_dict_rubrics_use_fraction_scoring():
+    """Holistic-fallback + dict rubrics keep the percentage (fraction) model."""
+    assert normalize_rubric(_UNSTRUCTURED_TEXT_RUBRIC)["scoring"] == "fraction"
+    assert normalize_rubric(_DICT_RUBRIC)["scoring"] == "fraction"
+
+
+def test_structured_penalty_subtracts_on_C_but_all_A_is_perfect():
+    """Faithful to llm_judge.py: all-A sums to exactly 100; a perfect analysis
+    with C on the source-reliability penalty (A=0 B=-5 C=-10) scores 100-10=90."""
+    norm = normalize_rubric(_STRUCTURED_TEXT_RUBRIC)
+    assert norm["scoring"] == "absolute"
+    # All A across every criterion (penalty A=0) -> 30+40+30+0 = 100.
+    perfect = parse_verdict(norm, "\n".join(
+        f"criterion_{i}: A" for i in range(1, 5)))
+    assert perfect["overall"] == 100.0
+    # Perfect analysis but unsourced (penalty at C=-10) -> 100 + (-10) = 90 < 100.
+    bad_sourcing = parse_verdict(
+        norm, "criterion_1: A\ncriterion_2: A\ncriterion_3: A\ncriterion_4: C")
+    assert bad_sourcing["overall"] == 90.0
+    assert bad_sourcing["overall"] < perfect["overall"]
+    # Penalty at B=-5 -> 95.
+    mid_sourcing = parse_verdict(
+        norm, "criterion_1: A\ncriterion_2: A\ncriterion_3: A\ncriterion_4: B")
+    assert mid_sourcing["overall"] == 95.0
+
+
+def test_structured_absolute_clamps_to_zero_floor():
+    """All-C (every criterion fails + penalty -10) clamps at the 0 floor."""
+    norm = normalize_rubric(_STRUCTURED_TEXT_RUBRIC)
+    out = parse_verdict(norm, "\n".join(f"criterion_{i}: C" for i in range(1, 5)))
+    assert out["overall"] == 0.0

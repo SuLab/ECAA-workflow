@@ -16,7 +16,19 @@ _LINE = re.compile(r"^[\s\-*]*([A-Za-z0-9_]+)\s*[:=]\s*([ABCabc])\b", re.MULTILI
 
 
 def parse_verdict(rubric: dict, judge_text: str) -> dict:
-    """Map per-criterion A/B/C levels to 0-100 overall + per-dimension.
+    """Map per-criterion A/B/C levels to a 0-100 overall + per-dimension scores.
+
+    Two scoring modes, selected by ``rubric.get("scoring")`` (default
+    ``"fraction"`` so bare dict rubrics keep their historic behavior):
+
+    * ``"absolute"`` — the dataset's reference scorer
+      (``<task>/tests/llm_judge.py``). ``levels`` hold ABSOLUTE per-level points
+      (incl. negatives, e.g. the source-reliability penalty ``{A:0,B:-5,C:-10}``).
+      The score is the SUM of the chosen levels' points, clamped to [0,100] — no
+      division. A perfect run is 100; bad sourcing subtracts up to 10.
+    * ``"fraction"`` — synthetic / dict / holistic rubrics. ``levels`` hold
+      fractions of each criterion's ``points`` max; the score is the weighted
+      percentage ``100 * earned / total``.
 
     Criterion ids are matched case-insensitively: a judge line `Overall: A` or
     `CRITERION_1: A` still credits ids `overall` / `criterion_1`."""
@@ -24,6 +36,7 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
     # case-insensitive; the returned `levels` map preserves the rubric's casing.
     parsed = {m.group(1).lower(): m.group(2).upper()
               for m in _LINE.finditer(judge_text)}
+    absolute = rubric.get("scoring") == "absolute"
     total_pts = 0.0
     earned_pts = 0.0
     dim_total: dict[str, float] = {}
@@ -33,14 +46,32 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
         pts = float(c["points"])
         level = parsed.get(str(c["id"]).lower(), "C")
         levels[c["id"]] = level
-        frac = c["levels"].get(level, 0.0)
-        total_pts += pts
-        earned_pts += pts * frac
-        dim_total[c["dimension"]] = dim_total.get(c["dimension"], 0.0) + pts
-        dim_earned[c["dimension"]] = dim_earned.get(c["dimension"], 0.0) + pts * frac
-    overall = 100.0 * earned_pts / total_pts if total_pts else 0.0
-    dims = {d: (100.0 * dim_earned[d] / dim_total[d] if dim_total[d] else 0.0)
-            for d in dim_total}
+        dim = c["dimension"]
+        if absolute:
+            # `levels` are absolute per-level points; the criterion's max is its
+            # A-weight (`points`). Sum points; max bounds the per-dimension roll-up.
+            earned = float(c["levels"].get(level, 0.0))
+            total_pts += pts
+            earned_pts += earned
+            dim_total[dim] = dim_total.get(dim, 0.0) + pts
+            dim_earned[dim] = dim_earned.get(dim, 0.0) + earned
+        else:
+            frac = c["levels"].get(level, 0.0)
+            total_pts += pts
+            earned_pts += pts * frac
+            dim_total[dim] = dim_total.get(dim, 0.0) + pts
+            dim_earned[dim] = dim_earned.get(dim, 0.0) + pts * frac
+    if absolute:
+        # Sum-and-clamp: a penalty criterion (A=0) drags a perfect-but-unsourced
+        # run below 100; an all-A run sums to 100 exactly.
+        overall = max(0.0, min(100.0, earned_pts))
+        dims = {d: max(0.0, min(100.0,
+                                100.0 * dim_earned[d] / dim_total[d] if dim_total[d] else 0.0))
+                for d in dim_total}
+    else:
+        overall = 100.0 * earned_pts / total_pts if total_pts else 0.0
+        dims = {d: (100.0 * dim_earned[d] / dim_total[d] if dim_total[d] else 0.0)
+                for d in dim_total}
     return {"overall": round(overall, 4), "dimensions": dims, "levels": levels}
 
 

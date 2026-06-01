@@ -6,15 +6,26 @@ Real per-task rubrics are either:
       a `CRITERIA (N):` header followed by repeated `Criterion K: <title>`
       blocks, each with a `Levels: A=<wA> B=<wB> C=<wC>` line whose A-weights
       sum to 100 across the scored criteria (the trailing "Source Reliability"
-      criterion is a penalty with A=0). We mirror the dataset's own reference
-      scorer (`<task>/tests/llm_judge.py::parse_rubric_levels`) — one criterion
-      per `Criterion K` block, A-weight as max points — so the headline score is
-      the weighted 0–100 comparable to the paper, not a {0,50,100} collapse.
+      criterion is a penalty with `A=0 B=-5 C=-10`). We mirror the dataset's own
+      reference scorer (`<task>/tests/llm_judge.py`): each level maps to its
+      ABSOLUTE points (including the negative penalty points), the scorer sums
+      all criteria, and clamps the total to [0, 100]. A perfect run scores 100;
+      bad sourcing subtracts up to 10. We store the absolute per-level points in
+      `levels` and flag the rubric `scoring="absolute"` so `parse_verdict`
+      reproduces sum-and-clamp (NO division). For the legacy dict-rubric path,
+      the holistic fallback, and any structured rubric whose A-weights do NOT sum
+      to ~100, we flag `scoring="fraction"` and keep the percentage formula so
+      synthetic rubrics still land on 0–100.
 
       Only when the text has NO parseable `Criterion`/`Levels` structure do we
       fall back to a single holistic criterion.
 
-Maps input to {"criteria":[{"id","dimension","points","levels":{"A","B","C"}}]}.
+Maps input to
+  {"scoring": "absolute"|"fraction",
+   "dimension_source": "heuristic_title_match",
+   "criteria": [{"id","dimension","points","levels":{"A","B","C"}}]}.
+The per-criterion `dimension` is a HEURISTIC (title-keyword match); the dataset
+defines no dimensions, hence the `dimension_source` marker.
 """
 from __future__ import annotations
 
@@ -85,21 +96,32 @@ def _dim_for_title(title: str) -> str:
     return "scientific_reasoning"
 
 
+# A-weights of a real BiomniBench rubric.txt sum to 100 across all scored
+# criteria (the source-reliability penalty contributes A=0). When the summed
+# A-weights land in this band we treat the rubric as the dataset's ABSOLUTE
+# sum-and-clamp model; otherwise (synthetic / partial rubrics) we keep the
+# fraction model so the headline still lands on 0–100.
+_ABSOLUTE_AWEIGHT_LO = 99.0
+_ABSOLUTE_AWEIGHT_HI = 101.0
+
+
 def _levels_from_weights(weights: dict[str, int]) -> tuple[float, dict[str, float]]:
     """Return (points, levels) for one criterion from its A/B/C weights.
 
-    `points` is the A-weight (the criterion's max). Levels are fractions of
-    that max so weighted points stay faithful: A=1.0, B=wB/wA (0.5 fallback when
-    wA is 0, e.g. the source-reliability penalty criterion), C=0.0."""
+    `points` is the A-weight (the criterion's max, for reference). `levels` are
+    the ABSOLUTE per-level points straight off the `Levels:` line — including
+    negatives, e.g. the source-reliability penalty `{A:0, B:-5, C:-10}`. The
+    absolute-mode scorer sums these and clamps to [0, 100]."""
     wa = float(weights.get("A", 0))
     wb = float(weights.get("B", 0))
-    b_frac = (wb / wa) if wa else 0.5
-    return wa, {"A": 1.0, "B": b_frac, "C": 0.0}
+    wc = float(weights.get("C", 0))
+    return wa, {"A": wa, "B": wb, "C": wc}
 
 
 def _parse_structured_text(raw: str) -> list[dict] | None:
     """Parse a structured rubric.txt into criterion dicts, or None if it has no
-    parseable `Criterion`/`Levels` structure."""
+    parseable `Criterion`/`Levels` structure. Levels carry ABSOLUTE per-level
+    points (see `_levels_from_weights`)."""
     parts = _CRITERION_SPLIT.split(raw)
     # split() yields [preamble, n1, body1, n2, body2, ...]; <2 captures => no structure.
     if len(parts) < 3:
@@ -131,21 +153,52 @@ def _parse_structured_text(raw: str) -> list[dict] | None:
     return out or None
 
 
+def _wrap(criteria: list[dict], scoring: str) -> dict:
+    """Wrap criteria with the scoring mode + the dimension-honesty marker.
+
+    `dimension_source` flags that per-criterion `dimension` is a title-keyword
+    heuristic, NOT a benchmark-defined axis — downstream per-dimension metrics
+    must carry that caveat."""
+    return {
+        "scoring": scoring,
+        "dimension_source": "heuristic_title_match",
+        "criteria": criteria,
+    }
+
+
 def normalize_rubric(raw) -> dict:
-    """Normalize a rubric (dict or plain text) into the judge's internal schema."""
+    """Normalize a rubric (dict or plain text) into the judge's internal schema.
+
+    The returned dict carries a `scoring` flag: `"absolute"` when the parsed
+    structured rubric's A-weights sum to ~100 (the real BiomniBench rubric.txt,
+    scored by summing absolute per-level points then clamping to [0,100]), else
+    `"fraction"` (dict rubrics, holistic fallback, synthetic structured rubrics
+    whose weights do not sum to ~100 — scored as a weighted percentage)."""
     if isinstance(raw, str):
         structured = _parse_structured_text(raw)
         if structured:
-            return {"criteria": structured}
+            # The penalty criterion has A=0; summing all criteria's A-weight
+            # tells us whether this is the dataset's 100-point absolute rubric.
+            aweight_sum = sum(c["points"] for c in structured)
+            if _ABSOLUTE_AWEIGHT_LO <= aweight_sum <= _ABSOLUTE_AWEIGHT_HI:
+                return _wrap(structured, "absolute")
+            # Synthetic / partial structured rubric: scored as a fraction. Convert
+            # absolute levels to per-criterion fractions so the percentage formula
+            # in parse_verdict stays faithful (A=1.0, B=wB/wA, C=0.0).
+            for c in structured:
+                wa = c["points"]
+                wb = c["levels"].get("B", 0.0)
+                c["levels"] = {"A": 1.0, "B": (wb / wa if wa else 0.5), "C": 0.0}
+            return _wrap(structured, "fraction")
         # No parseable structure: wrap the whole text as one holistic criterion
         # so the judge still emits a parseable `overall: A` line.
-        return {"criteria": [{
+        return _wrap([{
             "id": "overall",
             "dimension": "scientific_reasoning",
             "points": 10.0,
             "levels": {"A": 1.0, "B": 0.5, "C": 0.0},
             "text": raw.strip(),
-        }]}
+        }], "fraction")
     criteria_in = raw.get("criteria") or raw.get("rubric") or []
     out = []
     for i, c in enumerate(criteria_in):
@@ -156,4 +209,4 @@ def normalize_rubric(raw) -> dict:
             "levels": {"A": 1.0, "B": 0.5, "C": 0.0},
             "text": str(c.get("text", c.get("description", c.get("criterion", "")))),
         })
-    return {"criteria": out}
+    return _wrap(out, "fraction")
