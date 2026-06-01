@@ -69,3 +69,53 @@ fn survey_method_landscape_atom_loads_and_is_agent_assigned() {
         "survey atom must declare retrieval_tools attribute"
     );
 }
+
+/// The non-PubMed validators (`claim_support_satisfied`, `doc_page_matches_tool`)
+/// are attached once their obligations land.
+#[test]
+fn survey_method_landscape_carries_non_pubmed_validators() {
+    let reg = AtomRegistry::load_from_dir(&config_root().join("stage-atoms"))
+        .expect("registry loads with the new atom");
+    let atom = reg
+        .get("survey_method_landscape")
+        .expect("survey_method_landscape atom must be registered");
+    for v in ["claim_support_satisfied", "doc_page_matches_tool"] {
+        assert!(
+            atom.validators.iter().any(|x| x == v),
+            "survey atom must carry {v}; got {:?}",
+            atom.validators
+        );
+    }
+}
+
+/// The survey atom's bounded egress allowlist must be a superset of every
+/// host the retrieval-routes config declares for the literature + tool-doc
+/// source classes — otherwise `enforce_safety_policy` would refuse a route
+/// the agent is told to use.
+#[test]
+fn survey_egress_allowlist_covers_retrieval_routes() {
+    use ecaa_workflow_core::retrieval_routes::RetrievalRoutes;
+    let cfg = config_root();
+    let reg = AtomRegistry::load_from_dir(&cfg.join("stage-atoms")).expect("registry loads");
+    let atom = reg
+        .get("survey_method_landscape")
+        .expect("survey atom present");
+    let allow = match &atom.safety.network {
+        NetworkPolicy::None { allowlist } => allowlist.clone(),
+        other => panic!("expected None{{allowlist}}, got {other:?}"),
+    };
+    let routes = RetrievalRoutes::load(&cfg.join("downstream-policy/retrieval-routes.json"))
+        .expect("retrieval-routes.json loads");
+    for class in [
+        "primary_literature",
+        "conference_proceedings",
+        "tool_documentation",
+    ] {
+        for h in routes.hosts_for_class(class) {
+            assert!(
+                allow.contains(&h),
+                "survey egress allowlist missing host {h} (class {class}); allowlist={allow:?}"
+            );
+        }
+    }
+}

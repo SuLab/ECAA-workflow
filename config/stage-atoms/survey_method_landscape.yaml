@@ -51,6 +51,8 @@ validators:
   - source_resolves
   - evidence_quote_substring_match
   - redistributable_or_marked
+  - claim_support_satisfied
+  - doc_page_matches_tool
 figure_exempt:
   reason: "Structured-text outputs only; no canonical plot affordance."
   category: non_plottable
@@ -62,6 +64,13 @@ safety:
     allowlist:
       - eutils.ncbi.nlm.nih.gov
       - ftp.ncbi.nlm.nih.gov
+      - api.openalex.org
+      - api.crossref.org
+      - readthedocs.io
+      - bioconductor.org
+      - github.com
+      - raw.githubusercontent.com
+      - nf-core.re
 claim_boundary: |
   Every row in method_landscape.csv is a verbatim quote from one resolvable
   source (PMID/DOI/URL), with its locator, source_class, and evidence_role.
