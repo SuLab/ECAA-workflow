@@ -2,23 +2,29 @@
 
 Usage: python -m scripts.eval.eval_runner <benchmark> [--smoke]
        [--arms ecaa,claude-direct] [--trials N] [--max-iterations N]
+       [--error-matrix] [--max-parallel N] [--resume <run_dir>]
 Requires ECAA_EVAL_LIVE=1 plus GEMINI_API_KEY / ECAA_ANTHROPIC_API_KEY
 (biomnibench) to actually run; otherwise prints SKIP and exits 0.
 """
 from __future__ import annotations
 import argparse
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.eval.benchmark import Arm
+from scripts.eval.benchmark import Arm, Output, Score
 from scripts.eval.plugins.biomnibench import BiomniBench
 from scripts.eval.plugins.nekrutenko import Nekrutenko
+from scripts.eval.scheduler import run_phase
 from scripts.eval.services import agent_runner
 from scripts.eval.services import judge as judge_mod
-from scripts.eval.services.datasets import cache_root, scratch_root, stage_file
+from scripts.eval.services.datasets import (cache_root, eval_runs_dir,
+                                            scratch_root, stage_file)
+from scripts.eval.services.journal import Journal
 from scripts.eval.services.scorecard import write_scorecard
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -28,7 +34,6 @@ PLUGINS = {"biomnibench": BiomniBench, "nekrutenko": Nekrutenko}
 def _isolated_pkg_copy(src_pkg: Path, dest: Path) -> Path:
     """Copy an emitted package tree to a fresh dir so each error-matrix cell
     runs on a clean, re-runnable package (avoids completed-task state bleed)."""
-    import shutil
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src_pkg, dest)
@@ -36,11 +41,10 @@ def _isolated_pkg_copy(src_pkg: Path, dest: Path) -> Path:
 
 
 def _stage_inputs(pkg_dir: Path, inputs: dict[str, Path]) -> None:
-    """Copy each task input file into pkg_dir/inputs/ so the agent has data.
+    """Hardlink each task input file into pkg_dir/inputs/ (copy across devices).
 
     Missing source files are silently skipped so a partially-staged task still
-    runs (the agent will surface the missing file as an error, not a harness
-    crash).
+    runs (the agent surfaces the missing file as an error, not a harness crash).
     """
     dest = pkg_dir / "inputs"
     dest.mkdir(parents=True, exist_ok=True)
@@ -49,19 +53,33 @@ def _stage_inputs(pkg_dir: Path, inputs: dict[str, Path]) -> None:
             stage_file(src, dest / src.name)
 
 
-def _run_one(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int,
-             error_matrix: bool = False):
-    """Run the agent for one (task, arm, trial) and collect Output.
+def _emit_ecaa_package(plugin, task, arm: Arm, workdir: Path):
+    """Build + emit the ECAA package via `intake` only (no agent run).
 
-    Returns (output, spec) so the caller can build judge requests and score
-    in a separate phase.
-    """
+    Used by the error-matrix resume path: when a base run is journaled-complete
+    but its live spec was lost on restart, cells still need an emitted package
+    to copy. Re-emitting is cheap (deterministic compile); re-running the base
+    agent would not be. For the bare arm, build_run already carries everything."""
     spec = plugin.build_run(task, arm, workdir)
     if spec.kind == "ecaa_package":
         intake = workdir / "intake.txt"
         intake.write_text(spec.instruction)
         pkg = workdir / "pkg"
-        import subprocess
+        subprocess.run(["ecaa-workflow", "intake", "-i", str(intake),
+                        "-o", str(pkg), "--config", "config"],
+                       cwd=str(REPO_ROOT), check=True)
+        spec.package_dir = pkg
+        _stage_inputs(pkg, task.inputs)
+    return spec
+
+
+def run_base(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int):
+    """Run one (task, arm, trial) base run; return (output, spec)."""
+    spec = plugin.build_run(task, arm, workdir)
+    if spec.kind == "ecaa_package":
+        intake = workdir / "intake.txt"
+        intake.write_text(spec.instruction)
+        pkg = workdir / "pkg"
         subprocess.run(["ecaa-workflow", "intake", "-i", str(intake),
                         "-o", str(pkg), "--config", "config"],
                        cwd=str(REPO_ROOT), check=True)
@@ -74,27 +92,36 @@ def _run_one(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int,
         (workdir / "agent-stdout.json").write_text(res.stdout or "")
         out = plugin.collect(spec, workdir)
     out.exit_ok, out.wall_secs = res.exit_ok, res.wall_secs
-
-    if error_matrix:
-        # Inject a real run_fn closure so the plugin can re-run the arm under
-        # each PATH-shim without knowing which arm is active.
-        def _live_run_fn(cell_workdir, env):
-            if spec.kind == "ecaa_package":
-                pkg_copy = _isolated_pkg_copy(spec.package_dir,
-                                              cell_workdir / "pkg")
-                r = agent_runner.run_ecaa_package(pkg_copy,
-                                                  max_iterations=max_iter,
-                                                  env=env)
-            else:
-                r = agent_runner.run_bare(cell_workdir, spec.instruction,
-                                          env=env)
-            return r
-
-        cells = plugin.error_matrix(task, arm, workdir, _live_run_fn)
-        if cells is not None:
-            out.artifacts["error_cells"] = cells
-
     return out, spec
+
+
+def _cell_run_fn(spec, max_iter):
+    """Closure that re-runs the arm under a PATH-shim env for one cell."""
+    def _fn(cell_workdir, env):
+        if spec.kind == "ecaa_package":
+            pkg_copy = _isolated_pkg_copy(spec.package_dir, cell_workdir / "pkg")
+            return agent_runner.run_ecaa_package(pkg_copy, max_iterations=max_iter, env=env)
+        return agent_runner.run_bare(cell_workdir, spec.instruction, env=env)
+    return _fn
+
+
+def _base_key(task_id, arm, trial):
+    return f"{task_id}:{arm}:{trial}"
+
+
+def _cell_key(task_id, arm, trial, pattern, tool, seed):
+    return f"{task_id}:{arm}:{trial}:cell:{pattern}:{tool}:{seed}"
+
+
+def _score_to_dict(s: Score) -> dict:
+    return {"task_id": s.task_id, "arm": s.arm, "trial": s.trial,
+            "overall": s.overall, "dimensions": s.dimensions, "jaccard": s.jaccard,
+            "error_cells": s.error_cells, "judge_id": s.judge_id, "extra": s.extra}
+
+
+def _score_from_dict(d: dict) -> Score:
+    return Score(d["task_id"], d["arm"], d["trial"], d["overall"], d["dimensions"],
+                 d["jaccard"], d.get("error_cells"), d["judge_id"], d.get("extra", {}))
 
 
 def main(argv: list[str]) -> int:
@@ -105,8 +132,11 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--trials", type=int, default=3)
     ap.add_argument("--max-iterations", type=int, default=20)
     ap.add_argument("--error-matrix", action="store_true",
-                    help="Run the 36-cell PATH-shim fault-injection matrix "
-                         "(Nekrutenko only; ignored by other plugins).")
+                    help="Run the 36-cell PATH-shim matrix (Nekrutenko only).")
+    ap.add_argument("--max-parallel", type=int, default=1,
+                    help="Max concurrent agent runs (pool size = global cap).")
+    ap.add_argument("--resume", default=None,
+                    help="Resume into an existing run dir; skip journaled work.")
     args = ap.parse_args(argv)
 
     if os.environ.get("ECAA_EVAL_LIVE") != "1":
@@ -120,63 +150,161 @@ def main(argv: list[str]) -> int:
     handle = plugin.fetch(cache_root())
     tasks = plugin.tasks(handle, smoke=args.smoke)
 
-    # PHASE 1: Run all agents, collect outputs, accumulate judge requests.
-    stored: list[tuple[int, object, Arm, int, object]] = []
-    all_judge_requests: list[dict] = []
+    if args.resume:
+        run_dir = Path(args.resume)
+    else:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run_dir = eval_runs_dir() / f"{args.benchmark}-{stamp}"
+    journal = Journal(run_dir)
+    resuming = bool(args.resume)
 
-    # Workdirs live on scratch_root() (the large mounted disk), not /tmp, so
-    # staging multi-GB task inputs cannot fill the root filesystem.
-    with tempfile.TemporaryDirectory(dir=scratch_root()) as td:
-        base = Path(td)
-        global_idx = 0
-        for task in tasks:
-            for arm in arms:
-                for trial in range(trials):
-                    wd = base / f"{task.task_id}-{arm.value}-{trial}"
-                    out, _spec = _run_one(plugin, task, arm, trial, wd,
-                                         args.max_iterations,
-                                         error_matrix=args.error_matrix)
-                    stored.append((global_idx, task, arm, trial, out))
-                    for req in plugin.judge_requests(task, arm, out):
-                        all_judge_requests.append(
-                            {**req, "key": f"{global_idx}:{req['role']}"}
-                        )
-                    global_idx += 1
+    # Only consult the journal when explicitly resuming. A fresh run never skips
+    # work or reconstructs from a pre-existing journal (guards against a stamp
+    # collision or a stale dir silently poisoning a new run).
+    done = journal.completed_keys() if resuming else set()
+    base_recs = ({r["key"]: r for r in journal.records() if r.get("kind") == "base"}
+                 if resuming else {})
+    cell_recs: dict[str, list[dict]] = {}
+    if resuming:
+        for r in journal.records():
+            if r.get("kind") == "cell":
+                cell_recs.setdefault(r["parent_key"], []).append(r["cell"])
 
-    # PHASE 2: Batch-score all judge requests, then assemble scores.
-    all_verdicts: dict[str, dict] = {}
-    if all_judge_requests:
-        all_verdicts = judge_mod.judge_batch(all_judge_requests)
+    # A plugin is "deterministic" (no LLM judge) iff it emits no judge requests.
+    is_deterministic = not plugin.judge_requests(
+        tasks[0], arms[0], Output("", "", {}, True, 0.0)) if tasks else True
 
-    scores = []
-    for idx, task, arm, trial, out in stored:
-        # Collect the verdicts for this item's roles.
-        verdicts: dict[str, dict] = {}
-        for req in plugin.judge_requests(task, arm, out):
-            k = f"{idx}:{req['role']}"
-            if k in all_verdicts:
-                verdicts[req["role"]] = all_verdicts[k]
+    base_items = [(task, arm, trial)
+                  for task in tasks for arm in arms for trial in range(trials)]
+    spec_by_key: dict[str, object] = {}
+    out_by_key: dict[str, Output] = {}
+    score_by_key: dict[str, Score] = {}
 
-        if verdicts:
-            score = plugin.assemble_score(task, arm, out, trial, verdicts)
+    base_tmp = tempfile.TemporaryDirectory(dir=scratch_root())
+
+    # ---- PHASE 1a: base runs (parallel) ----
+    def _run_base_item(item):
+        task, arm, trial = item
+        wd = Path(base_tmp.name) / f"{task.task_id}-{arm.value}-{trial}"
+        out, spec = run_base(plugin, task, arm, trial, wd, args.max_iterations)
+        rec = {"kind": "base", "key": _base_key(task.task_id, arm.value, trial),
+               "task_id": task.task_id, "arm": arm.value, "trial": trial,
+               "exit_ok": out.exit_ok, "wall_secs": out.wall_secs}
+        if is_deterministic:
+            # Score NOW while the run dir is alive (VCFs etc. still exist).
+            rec["score"] = _score_to_dict(plugin.score(task, arm, out, trial))
         else:
-            # Plugin produced no judge requests (e.g. Nekrutenko deterministic).
-            score = plugin.score(task, arm, out, trial)
-        scores.append(score)
+            rec["trace_md"] = out.trace_md
+            rec["answer_txt"] = out.answer_txt
+        return item, spec, out, rec
+
+    pending_base = [it for it in base_items
+                    if _base_key(it[0].task_id, it[1].value, it[2]) not in done]
+    for _it, result in run_phase(pending_base, max_parallel=args.max_parallel,
+                                 run_fn=_run_base_item):
+        if isinstance(result, Exception):
+            continue
+        item, spec, out, rec = result
+        k = rec["key"]
+        spec_by_key[k] = spec
+        out_by_key[k] = out
+        if "score" in rec:
+            score_by_key[k] = _score_from_dict(rec["score"])
+        journal.append(rec)
+
+    # Reconstruct already-journaled base runs (resume) from the journal.
+    for it in base_items:
+        k = _base_key(it[0].task_id, it[1].value, it[2])
+        if k in spec_by_key or k not in base_recs:
+            continue
+        r = base_recs[k]
+        if "score" in r:
+            score_by_key[k] = _score_from_dict(r["score"])
+        else:
+            out_by_key[k] = Output(r.get("trace_md", ""), r.get("answer_txt", ""),
+                                   {}, r["exit_ok"], r["wall_secs"])
+
+    # ---- PHASE 1b: Nekrutenko error-matrix cells (parallel, flat) ----
+    if args.error_matrix and hasattr(plugin, "error_matrix_specs"):
+        cell_items = []
+        for it in base_items:
+            task, arm, trial = it
+            bk = _base_key(task.task_id, arm.value, trial)
+            spec = spec_by_key.get(bk)
+            if spec is None:
+                # Resumed base run with no live spec — re-emit the package only.
+                wd = Path(base_tmp.name) / f"{task.task_id}-{arm.value}-{trial}-reemit"
+                spec = _emit_ecaa_package(plugin, task, arm, wd)
+                spec_by_key[bk] = spec
+            for cs in plugin.error_matrix_specs():
+                ck = _cell_key(task.task_id, arm.value, trial, *cs)
+                if ck not in done:
+                    cell_items.append((task, arm, trial, cs, spec))
+
+        def _run_cell_item(item):
+            task, arm, trial, cs, spec = item
+            cell = plugin.run_error_cell(task, cs, _cell_run_fn(spec, args.max_iterations))
+            bk = _base_key(task.task_id, arm.value, trial)
+            return {"kind": "cell",
+                    "key": _cell_key(task.task_id, arm.value, trial, *cs),
+                    "parent_key": bk, "cell": cell}
+
+        for _it, rec in run_phase(cell_items, max_parallel=args.max_parallel,
+                                  run_fn=_run_cell_item):
+            if isinstance(rec, Exception):
+                continue
+            cell_recs.setdefault(rec["parent_key"], []).append(rec["cell"])
+            journal.append(rec)
+
+        for bk, cells in cell_recs.items():
+            if bk in score_by_key:
+                score_by_key[bk].error_cells = cells
+
+    # ---- PHASE 2: scores ----
+    ordered = [(t, a, tr) for t in tasks for a in arms for tr in range(trials)]
+    scores: list[Score] = []
+    if is_deterministic:
+        scores = [score_by_key[_base_key(t.task_id, a.value, tr)]
+                  for (t, a, tr) in ordered
+                  if _base_key(t.task_id, a.value, tr) in score_by_key]
+    else:
+        all_requests = []
+        idx_by_key: dict[str, int] = {}
+        for i, (t, a, tr) in enumerate(ordered):
+            bk = _base_key(t.task_id, a.value, tr)
+            idx_by_key[bk] = i
+            out = out_by_key.get(bk)
+            if out is None:
+                continue
+            for req in plugin.judge_requests(t, a, out):
+                all_requests.append({**req, "key": f"{i}:{req['role']}"})
+        verdicts = judge_mod.judge_batch(all_requests) if all_requests else {}
+        for (t, a, tr) in ordered:
+            bk = _base_key(t.task_id, a.value, tr)
+            out = out_by_key.get(bk)
+            if out is None:
+                continue
+            i = idx_by_key[bk]
+            vd = {}
+            for req in plugin.judge_requests(t, a, out):
+                key = f"{i}:{req['role']}"
+                if key in verdicts:
+                    vd[req["role"]] = verdicts[key]
+            scores.append(plugin.assemble_score(t, a, out, tr, vd) if vd
+                          else plugin.score(t, a, out, tr))
+
+    base_tmp.cleanup()
 
     for arm in arms:
-        arm_rows = [s for s in scores if s.arm == arm.value]
-        if not arm_rows:
-            print(f"ERROR: arm '{arm.value}' produced zero score rows — "
-                  "check plugin or task list", file=sys.stderr)
+        if not [s for s in scores if s.arm == arm.value]:
+            print(f"ERROR: arm '{arm.value}' produced zero score rows", file=sys.stderr)
             return 1
 
     card = plugin.report(scores)
-    card.meta["cost"] = {"judge_usd": round(sum(s.extra.get("judge_cost_usd", 0.0) for s in scores), 4)}
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out_dir = REPO_ROOT / "runtime" / "eval-runs" / f"{args.benchmark}-{stamp}"
-    write_scorecard(card, out_dir)
-    print(f"wrote {out_dir}/scorecard.md")
+    card.meta["cost"] = {"judge_usd": round(
+        sum(s.extra.get("judge_cost_usd", 0.0) for s in scores), 4)}
+    write_scorecard(card, run_dir)
+    print(f"wrote {run_dir}/scorecard.md")
     return 0
 
 
