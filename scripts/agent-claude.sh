@@ -640,6 +640,14 @@ if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
   fi
 fi
 
+# Single-model override. When set it REPLACES any per-task tier-selected model so
+# every task runs the same model — used by the eval harness for a fair same-model
+# cross-arm comparison (the bare arm runs one model, so the ECAA arm must too) and
+# by operators pinning a model. Budget caps are unaffected. No-op when unset.
+if [ -n "${ECAA_AGENT_MODEL_OVERRIDE:-}" ]; then
+  MODEL_FLAG_ARGS=(--model "$ECAA_AGENT_MODEL_OVERRIDE")
+fi
+
 # Host-path memory cap. When ECAA_AGENT_MEMORY_CAP_GB is set, wrap the
 # host-path CLI invocation in a systemd-run --user --scope so the
 # claude subprocess tree runs in a dedicated cgroup with

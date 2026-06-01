@@ -23,6 +23,13 @@ class RunResult:
     stdout: str = ""
 
 
+def eval_model() -> str:
+    """The single model BOTH arms run, so the ecaa-vs-direct delta isolates the
+    scaffolding rather than model capability (the bare arm runs one model, so the
+    ECAA arm must too). Override with ECAA_EVAL_MODEL."""
+    return os.environ.get("ECAA_EVAL_MODEL", "claude-sonnet-4-6")
+
+
 def run_ecaa_package(package_dir: Path, *, max_iterations: int = 20,
                      timeout: int = 3600,
                      env: dict | None = None) -> RunResult:
@@ -30,9 +37,14 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 20,
     cmd = ["ecaa-workflow-harness", "--package", str(package_dir),
            "--agent", agent, "--max-iterations", str(max_iterations),
            "--no-interactive"]
+    # Pin the ECAA arm to the same model as the bare arm (fairness): the override
+    # makes agent-claude.sh bypass per-task model tiering. setdefault so an
+    # explicit caller/operator value wins.
+    effective_env = (env.copy() if env is not None else os.environ.copy())
+    effective_env.setdefault("ECAA_AGENT_MODEL_OVERRIDE", eval_model())
     t0 = time.time()
     proc = subprocess.run(cmd, cwd=str(REPO_ROOT), timeout=timeout,
-                          env=env if env is not None else None)
+                          env=effective_env)
     return RunResult(proc.returncode == 0, time.time() - t0, package_dir)
 
 
@@ -72,6 +84,7 @@ def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,
     # bare runner carries no ecaa task scaffolding.
     effective_env = env.copy() if env is not None else os.environ.copy()
     effective_env.setdefault("ECAA_DEFAULT_CONTAINER_IMAGE", "bio-min:local")
+    effective_env.setdefault("ECAA_EVAL_BARE_MODEL", eval_model())
     for sysdir in ("/usr/bin", "/bin"):
         if sysdir not in effective_env.get("PATH", "").split(os.pathsep):
             effective_env["PATH"] = effective_env.get("PATH", "") + os.pathsep + sysdir
