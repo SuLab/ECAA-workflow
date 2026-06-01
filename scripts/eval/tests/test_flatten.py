@@ -61,3 +61,37 @@ def test_narrative_progress_log_fallback(tmp_path):
     text = _narrative(d)
     assert "Step 1 done" in text
     assert "Step 2 done" in text
+
+
+def test_narrative_real_agent_result_json_shape(tmp_path):
+    """result.json with the full shape written by AGENT-EXECUTOR.md is handled correctly.
+
+    The AGENT-EXECUTOR.md template (crates/core/templates/AGENT-EXECUTOR.md, line 52-57)
+    instructs the agent to write result.json with: task_id, status, claims (list with
+    evidence paths), figures (list of paths), and `narrative` (human-readable summary).
+    The `narrative` key must be extracted as the task narrative; structured fields like
+    `claims`, `figures`, and `status` must not be mistaken for it.
+    """
+    d = tmp_path / "differential_expression"
+    d.mkdir()
+    (d / "result.json").write_text(json.dumps({
+        "task_id": "differential_expression",
+        "status": "completed",
+        "claims": [
+            {
+                "claim_id": "c-001",
+                "narrative_text": "2018 genes are differentially expressed at FDR<0.05.",
+                "supported_by": ["differential_expression/de_results.csv"],
+            }
+        ],
+        "figures": ["differential_expression/figures/volcano.png"],
+        "narrative": (
+            "DESeq2 analysis identified 2018 differentially expressed genes "
+            "between treatment and control at FDR < 0.05 (padj threshold)."
+        ),
+    }))
+    text = _narrative(d)
+    assert "DESeq2 analysis identified 2018 differentially expressed genes" in text
+    # structured fields must not surface as the narrative
+    assert "claim_id" not in text
+    assert "supported_by" not in text
