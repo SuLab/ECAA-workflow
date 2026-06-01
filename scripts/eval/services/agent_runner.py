@@ -31,19 +31,28 @@ def eval_model() -> str:
 
 
 def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
-                     timeout: int = 3600,
+                     timeout: int | None = None,
                      env: dict | None = None) -> RunResult:
     agent = str(REPO_ROOT / "scripts" / "agent-claude.sh")
+    # Per-task wall deadline (default 600s, env-tunable): variant calling + an
+    # in-container tool install exceed the harness's 300s default. The harness
+    # exposes --task-timeout (main.rs); the eval never passed it before.
+    task_timeout = int(os.environ.get("ECAA_EVAL_TASK_TIMEOUT", "600"))
     cmd = ["ecaa-workflow-harness", "--package", str(package_dir),
            "--agent", agent, "--max-iterations", str(max_iterations),
-           "--no-interactive"]
+           "--task-timeout", str(task_timeout), "--no-interactive"]
     # Pin the ECAA arm to the same model as the bare arm (fairness): the override
     # makes agent-claude.sh bypass per-task model tiering. setdefault so an
     # explicit caller/operator value wins.
     effective_env = (env.copy() if env is not None else os.environ.copy())
     effective_env.setdefault("ECAA_AGENT_MODEL_OVERRIDE", eval_model())
+    effective_env.setdefault("MAX_TURNS_PER_TASK", "60")  # was 40 — too tight w/ installs
+    # Whole-harness subprocess ceiling: a multi-task DAG with per-task deadlines
+    # needs more than 1h. Env-tunable; default 2h.
+    harness_timeout = timeout if timeout is not None else int(
+        os.environ.get("ECAA_EVAL_HARNESS_TIMEOUT", "7200"))
     t0 = time.time()
-    proc = subprocess.run(cmd, cwd=str(REPO_ROOT), timeout=timeout,
+    proc = subprocess.run(cmd, cwd=str(REPO_ROOT), timeout=harness_timeout,
                           env=effective_env)
     return RunResult(proc.returncode == 0, time.time() - t0, package_dir)
 
