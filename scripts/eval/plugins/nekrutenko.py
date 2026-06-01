@@ -10,6 +10,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from statistics import mean
 from scripts.eval.benchmark import Arm, Benchmark, Output, RunSpec, Score, Scorecard
 from scripts.eval.scoring.variant_overlap import mean_jaccard
 from scripts.eval.scoring.error_matrix import classify_cell
@@ -93,8 +94,38 @@ class Nekrutenko(Benchmark):
                      judge_id="deterministic")
 
     def report(self, scores):
-        return Scorecard(benchmark=self.name, rows=scores,
-                         meta={"scorer": "variant_overlap_jaccard+error_matrix"})
+        error_matrix: dict = {}
+        for row in scores:
+            cells = row.error_cells
+            if not cells:
+                continue
+            arm = row.arm
+            arm_entry = error_matrix.setdefault(arm, {
+                "recover_rate": 0.0,
+                "diagnose_rate": 0.0,
+                "n_cells": 0,
+                "by_pattern": {},
+            })
+            arm_entry["recover_rate"] = mean(c["recover"] for c in cells)
+            arm_entry["diagnose_rate"] = mean(c["diagnose"] for c in cells)
+            arm_entry["n_cells"] = len(cells)
+            by_pattern: dict = {}
+            for cell in cells:
+                pat = cell["pattern"]
+                by_pattern.setdefault(pat, {"recover": [], "diagnose": []})
+                by_pattern[pat]["recover"].append(cell["recover"])
+                by_pattern[pat]["diagnose"].append(cell["diagnose"])
+            arm_entry["by_pattern"] = {
+                pat: {
+                    "recover_rate": mean(v["recover"]),
+                    "diagnose_rate": mean(v["diagnose"]),
+                }
+                for pat, v in by_pattern.items()
+            }
+        meta: dict = {"scorer": "variant_overlap_jaccard+error_matrix"}
+        if error_matrix:
+            meta["error_matrix"] = error_matrix
+        return Scorecard(benchmark=self.name, rows=scores, meta=meta)
 
     def error_matrix(self, task, arm, workdir, run_fn):
         """Run the 36-cell PATH-shim fault-injection sweep.
