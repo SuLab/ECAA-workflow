@@ -47,6 +47,9 @@ vi.mock('../api/chatClient', async (importOriginal) => {
     postRerun: vi
       .fn()
       .mockResolvedValue({ task_id: 't1', invalidated_tasks: [] }),
+    // A `discover_*` blocker triggers a mount-time method-landscape fetch;
+    // stub it to null so the card falls back to placeholder options.
+    getMethodLandscape: vi.fn().mockResolvedValue(null),
   }
 })
 
@@ -180,9 +183,9 @@ describe('ConversationPane card wiring → deterministic REST', () => {
     })
     renderPane(conv, makeSse())
 
-    // The SensitivityComparisonCard renders off the awaiting_sme_selection
-    // blocker. Pick a winner + submit.
-    await user.click(await screen.findByRole('radio', { name: /Select scVI/i }))
+    // A `discover_*` stage routes to the literature-ranked MethodOptionsCard;
+    // selecting an option still posts to /sme-selection. Pick + submit.
+    await user.click(await screen.findByRole('radio', { name: /scVI/i }))
     await user.click(screen.getByRole('button', { name: /Record choice/i }))
 
     await waitFor(() => {
