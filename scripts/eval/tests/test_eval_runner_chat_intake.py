@@ -34,7 +34,7 @@ def test_chat_intake_sets_session_and_package(monkeypatch, tmp_path):
     monkeypatch.setattr(eval_runner, "drive_chat_intake", fake_drive)
     # Don't actually stage/auto-approve real files beyond the emitted dir.
     monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
-    monkeypatch.setattr(eval_runner, "_write_auto_approve_all", lambda *a, **k: None)
+    monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate", lambda *a, **k: None)
 
     class _Server:
         base_url = "http://127.0.0.1:9999"
@@ -62,7 +62,7 @@ def test_cli_fallback_uses_intake_subprocess(monkeypatch, tmp_path):
 
     monkeypatch.setattr(eval_runner.subprocess, "run", fake_run)
     monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
-    monkeypatch.setattr(eval_runner, "_write_auto_approve_all", lambda *a, **k: None)
+    monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate", lambda *a, **k: None)
 
     spec = eval_runner._chat_intake_or_cli(
         _EcaaPlugin(), _task(), Arm.ECAA_WORKFLOW, tmp_path / "wd", None)
@@ -95,7 +95,7 @@ def test_ensure_package_for_cells_reemits_when_dir_gone(monkeypatch, tmp_path):
     monkeypatch.setattr(eval_runner, "drive_chat_intake",
                         lambda *a, **k: ("sid-new", fresh))
     monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
-    monkeypatch.setattr(eval_runner, "_write_auto_approve_all", lambda *a, **k: None)
+    monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate", lambda *a, **k: None)
 
     class _Server:
         base_url = "http://127.0.0.1:1"

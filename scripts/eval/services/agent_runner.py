@@ -54,10 +54,16 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
     # explicit caller/operator value wins.
     effective_env = (env.copy() if env is not None else os.environ.copy())
     effective_env.setdefault("ECAA_AGENT_MODEL_OVERRIDE", eval_model())
-    # Unattended eval: uniformly bypass every SME gate so the harness never
-    # parks on `waiting_for_sme`. Harmless when the harness build predates the
-    # env-read — the marker-file path (_write_auto_approve_all) still applies.
-    effective_env.setdefault("ECAA_SME_AUTO_APPROVE_ALL", "1")
+    # eval-02: do NOT set ECAA_SME_AUTO_APPROVE_ALL. That env flag is an
+    # all-or-nothing bypass — `sme_skip::detect_intent` returns EmitSentinel for
+    # EVERY task and `scheduler::filter_picks_respecting_sme_gate` short-circuits,
+    # which disables the silent-completion, missing-artifact, and
+    # validation/claim guards we now KEEP active to measure ECAA's
+    # error-catching. The discovery review gate (the only SME step with no
+    # claude-direct analog) is cleared narrowly by the marker files
+    # `_write_auto_approve_discovery_gate` writes into the package, not by this
+    # blanket flag. If a caller pre-set it (e.g. a debugging operator run), we
+    # leave their value untouched and surface it in the guard-outcome dimension.
     effective_env.setdefault("MAX_TURNS_PER_TASK", "60")  # was 40 — too tight w/ installs
     # Whole-harness subprocess ceiling: a multi-task DAG with per-task deadlines
     # needs more than 1h. Env-tunable; default 2h.
