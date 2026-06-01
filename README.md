@@ -2,7 +2,7 @@
 
 A deterministic, offline compiler that turns a natural-language description of a bioinformatics analysis into a self-contained, agent-executable [RO-Crate](https://www.researchobject.org/ro-crate/) package — with a full-lifecycle conversational shell wrapped around the executing package.
 
-The compiler classifies the intake, selects an archetype, builds a task DAG, emits a package, and an execution harness drives an agent (Claude Code, a shell script, anything callable with a package path) against the emitted DAG. The emitted package is an **ECAA** (Evidence-Carrying Analysis Artifact) — a typed RO-Crate that carries, alongside the analysis itself, the claims it supports, the evidence backing each claim, and the decision record that produced them. Conformance is enforced by an embedded **ECAA validator** that gates emission on a machine-checkable contract over those subgraphs.
+The compiler classifies the intake, selects an archetype, builds a task DAG, emits a package, and an execution harness drives an agent (Claude Code, a shell script, anything callable with a package path) against the emitted DAG. The emitted package is an **ECAA** (Evidence-Carrying Analysis Artifact) — a typed RO-Crate that carries, alongside the analysis itself, the claims it supports, the evidence backing each claim, and the decision record that produced them. An embedded **ECAA validator** checks the package against a machine-checkable contract over those subgraphs. This validation is **advisory (warn-only) by default** on a plain emit and only blocks emission when `ECAA_VALIDATION_BLOCK_ON_FAIL=1`; the local conformance gate (`make conformance`, `ECAA_CONFORMANCE_MODE=1`) runs it block-on-fail.
 
 ## Layout
 
@@ -12,7 +12,7 @@ The compiler classifies the intake, selects an archetype, builds a task DAG, emi
 | Conversation shim | `crates/conversation` | Closed tool vocabulary wraps the compiler. LLM is a UX shim only. |
 | Chat server | `crates/server` | Axum HTTP + SSE backend at `/api/chat/*` and `/api/git/*`. |
 | Execution harness | `crates/harness` | Loops an agent subprocess against ready tasks. `Local` / `Mock` / `AWS` / `SLURM` executors. |
-| ECAA validator | `crates/{ecaa-conformance, ecaa-types}` + `docs/ecaa-spec/` | Emits + validates the ECAA conformance contract. |
+| ECAA validator | `crates/{ecaa-conformance, ecaa-types}` + `docs/ecaa-spec/` | Emits + validates the ECAA conformance contract. `ecaa-conformance` re-exports core's public API and is the conformance harness a second implementer runs against their own packages — not an independent reimplementation of core. |
 | Web UI | `ui/` | React 18 + Vite + TypeScript chat surface. |
 
 ## Setup

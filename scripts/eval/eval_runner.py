@@ -28,7 +28,7 @@ from scripts.eval.services.chat_server import ChatServer
 from scripts.eval.services.datasets import (cache_root, eval_runs_dir,
                                             scratch_root, stage_file)
 from scripts.eval.services.journal import Journal
-from scripts.eval.services.scorecard import write_scorecard
+from scripts.eval.services.scorecard import collect_guard_outcomes, write_scorecard
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = {"biomnibench": BiomniBench, "nekrutenko": Nekrutenko}
@@ -95,42 +95,44 @@ def _write_auto_approve_discoveries(pkg: Path) -> None:
         {"allow": sorted(axes) if axes else ["*"], "deny": []}, indent=2))
 
 
-def _write_auto_approve_all(pkg: Path) -> None:
-    """Unattended eval: pre-approve EVERY SME gate so the harness never hangs on
-    `waiting_for_sme`.
+def _write_auto_approve_discovery_gate(pkg: Path) -> None:
+    """Unattended eval: auto-advance ONLY the discovery SME-review/selection
+    gate — the human-in-the-loop step that has no claude-direct analog.
 
-    A benchmark has no SME and no web UI to click the BlockerCard, so any task
-    the harness parks behind an SME decision strands the critical path forever
-    (observed live: `review_prior_work` completed with a real result, but the
-    harness-guard flipped it `completed -> blocked [validation_failed]` and the
-    reporting tasks that depend on it never ran — the harness then loops on
-    `Wrote waiting_for_sme to LOG.jsonl. Waiting for server to patch...`).
+    Policy (eval-02): a benchmark has no SME to click the discovery-selection
+    BlockerCard, and a `discover_*` review gate that never clears strands every
+    downstream compute task at Ready (the harness idle-loops to max-iterations).
+    That gate is the ONE step the bare arm has no counterpart for, so clearing
+    it keeps the comparison fair without softening ECAA.
 
-    There are two distinct SME-gate classes; this writes the marker/decision
-    files the SHIPPED harness already honors so both auto-advance (no harness
-    rebuild, no env flag — none exists):
+    What this DOES NOT touch — and why that is deliberate:
 
-    1. Discovery review gate (`scheduler::filter_picks_respecting_sme_gate`).
-       Downstream tasks stay Ready until a `discover_*` review is confirmed.
-       Cleared by ANY of: `runtime/.sme-auto-approve-discoveries`,
-       `runtime/sme-review-confirmed-<task_id>.json`, or a per-task
-       `decision.json` with `auto_picked: true`. We write the marker (via
-       `_write_auto_approve_discoveries`) AND a `sme-review-confirmed-*` sidecar
-       per discover_* task as belt-and-suspenders.
+    * The silent-completion / empty-result-sentinel guard,
+    * the required-artifact guard, and
+    * the validation-contract / claim-verification guard
+      (all in `crates/harness/src/main.rs`, bypassed only by a per-task
+      `runtime/outputs/<task_id>/sme-decisions.json` skip option or by
+      `ECAA_SME_AUTO_APPROVE_ALL=1`).
 
-    2. Harness-guard re-block (`crates/harness/src/main.rs` silent-completion /
-       required-artifact / validator guards, which flip a Completed task back to
-       Blocked with `[validation_failed]` / `[missing_artifact]` / sentinel
-       reasons). The ONLY generic bypass in the shipped harness is
-       `runtime/outputs/<task_id>/sme-decisions.json` carrying a skip option id
-       (`crates/harness/src/sme_skip.rs::detect_intent`, re-read every iteration).
-       We pre-write that file for EVERY task with `chosen: "skip_with_deviation"`
-       so a completed-but-validation-failed task (the `review_prior_work` case)
-       keeps its real result instead of being re-blocked. Pre-writing is safe:
-       `detect_intent` only fires after a task is Completed, so it never forces a
-       premature completion — it only suppresses the guard's re-block.
+    The previous `_write_auto_approve_all` neutered all three by pre-writing a
+    `skip_with_deviation` `sme-decisions.json` for EVERY task and by setting
+    `ECAA_SME_AUTO_APPROVE_ALL=1`. That hid exactly the error-catching this eval
+    is supposed to measure: ECAA's guards catching a task that completed empty,
+    skipped a required artifact, or made an unsupported claim. We keep those
+    guards ACTIVE; their outcomes are now a scored dimension (see
+    `scorecard.guard_dimension` / `guard_outcomes`).
+
+    The discovery gate (`scheduler::filter_picks_respecting_sme_gate` ->
+    `read_confirmed_review_stages`) is on a SEPARATE on-disk signal from the
+    post-completion guards, so scoping the bypass is achievable with the shipped
+    harness — no rebuild, no env flag. Cleared by ANY of:
+    `runtime/.sme-auto-approve-discoveries`,
+    `runtime/sme-review-confirmed-<task_id>.json`, or a per-task `decision.json`
+    with `auto_picked: true`. We write the marker (via
+    `_write_auto_approve_discoveries`) AND a `sme-review-confirmed-*` sidecar per
+    `discover_*` task as belt-and-suspenders.
     """
-    # (1a) discovery axis marker (existing behavior, unchanged).
+    # (1) discovery axis marker: clears filter_picks_respecting_sme_gate.
     _write_auto_approve_discoveries(pkg)
 
     task_ids = _read_workflow_task_ids(pkg)
@@ -139,34 +141,22 @@ def _write_auto_approve_all(pkg: Path) -> None:
     runtime.mkdir(parents=True, exist_ok=True)
 
     for tid in task_ids:
-        # (1b) per-discover review-confirmed sidecar — mirrors the server's
+        # (2) per-discover review-confirmed sidecar — mirrors the server's
         # /sme-selection write so filter_picks_respecting_sme_gate clears the
-        # gate even if the agent never writes decision.auto_picked.
+        # gate even if the agent never writes decision.auto_picked. ONLY
+        # discover_* tasks get this; non-discovery tasks keep every guard active.
         if tid.startswith("discover_"):
             sidecar = runtime / f"sme-review-confirmed-{tid}.json"
             sidecar.write_text(json.dumps({
                 "stage": tid,
-                "via": "unattended_eval_auto_approve",
+                "via": "unattended_eval_auto_approve_discovery_gate",
                 "auto_approved": True,
             }, indent=2))
 
-        # (2) per-task SME skip decision — bypasses the harness-guard re-block
-        # for any task (validation/sentinel/missing-artifact). Shape matches
-        # crates/harness/src/sme_skip.rs::detect_intent (reads decisions[].chosen
-        # against the canonical skip-option id set).
-        out_dir = runtime / "outputs" / tid
-        out_dir.mkdir(parents=True, exist_ok=True)
-        (out_dir / "sme-decisions.json").write_text(json.dumps({
-            "task_id": tid,
-            "via": "unattended_eval_auto_approve",
-            "decisions": [
-                {"id": "unattended_auto_approve", "chosen": "skip_with_deviation"}
-            ],
-            "rationale": "Unattended benchmark run: no SME present to resolve "
-                         "an SME gate; auto-accepting the agent's completion so "
-                         "the harness advances instead of hanging on "
-                         "waiting_for_sme.",
-        }, indent=2))
+
+# Back-compat alias: callers/tests that imported the old name still work, but
+# the behaviour is now the discovery-gate-only scope.
+_write_auto_approve_all = _write_auto_approve_discovery_gate
 
 
 def _intake_mode() -> str:
@@ -209,7 +199,7 @@ def _chat_intake_or_cli(plugin, task, arm: Arm, workdir: Path,
     else:
         _cli_intake(spec, task, workdir)
     _stage_inputs(spec.package_dir, task.inputs)
-    _write_auto_approve_all(spec.package_dir)
+    _write_auto_approve_discovery_gate(spec.package_dir)
     return spec
 
 
@@ -285,6 +275,37 @@ def _score_to_dict(s: Score) -> dict:
 def _score_from_dict(d: dict) -> Score:
     return Score(d["task_id"], d["arm"], d["trial"], d["overall"], d["dimensions"],
                  d["jaccard"], d.get("error_cells"), d["judge_id"], d.get("extra", {}))
+
+
+def _package_dir_for_score(s: Score, spec_by_key: dict, base_recs: dict) -> Path | None:
+    """Resolve the executed ECAA package dir for one score row. Prefers the live
+    spec; falls back to the journaled `package_dir`. Returns None for the bare
+    arm or when no package dir is known/extant."""
+    if s.arm != Arm.ECAA_WORKFLOW.value:
+        return None
+    bk = _base_key(s.task_id, s.arm, s.trial)
+    spec = spec_by_key.get(bk)
+    pkg = getattr(spec, "package_dir", None) if spec is not None else None
+    if pkg is None:
+        recorded = (base_recs.get(bk) or {}).get("package_dir")
+        pkg = Path(recorded) if recorded else None
+    if pkg is None:
+        return None
+    pkg = Path(pkg)
+    return pkg if pkg.exists() else None
+
+
+def _attach_guard_outcomes(scores: list[Score], spec_by_key: dict,
+                           base_recs: dict) -> None:
+    """Stash per-row ECAA guard-outcome counts into Score.extra["guard_outcomes"]
+    (scorecard aggregates them into the per-arm guard dimension). In-place;
+    best-effort (a missing package dir is skipped silently)."""
+    for s in scores:
+        pkg = _package_dir_for_score(s, spec_by_key, base_recs)
+        if pkg is None:
+            continue
+        s.extra = dict(s.extra or {})
+        s.extra["guard_outcomes"] = collect_guard_outcomes(pkg)
 
 
 def main(argv: list[str]) -> int:
@@ -516,6 +537,14 @@ def main(argv: list[str]) -> int:
             if not [s for s in scores if s.arm == arm.value]:
                 print(f"ERROR: arm '{arm.value}' produced zero score rows", file=sys.stderr)
                 return 1
+
+        # eval-02: attach ECAA guard-outcome evidence to each score row. The
+        # silent-completion / missing-artifact / validation / claim guards stay
+        # active (only the discovery review gate is auto-advanced), so their
+        # catches are measured here rather than hidden. Bare-arm rows have no
+        # package and carry nothing. Best-effort: a missing/cleaned package dir
+        # yields no guard_outcomes (the package survives unless KEEP_SCRATCH).
+        _attach_guard_outcomes(scores, spec_by_key, base_recs)
 
         card = plugin.report(scores)
         # Cost breakdown (per provider + totals), tolerant of partial/deterministic rows.

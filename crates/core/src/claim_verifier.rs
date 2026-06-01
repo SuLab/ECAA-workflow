@@ -487,10 +487,11 @@ fn verify_thresholded(
 
 /// Verify a rank / top-N membership claim.
 ///
-/// Checks whether the entity appears in the top-N rows of the source table,
-/// ordered by the first configured effect-size column (descending by absolute
-/// value, matching the typical DE table convention). When the claim excerpt
-/// doesn't name an explicit N, uses a generous default of 10.
+/// Checks whether the entity appears in the top-N rows of the source table
+/// when ranked by absolute effect size descending — recomputed here rather
+/// than trusting the table's physical row order, which may be sorted by
+/// p-value, gene name, or anything else. When the claim excerpt doesn't name
+/// an explicit N, uses a generous default of 10.
 fn verify_rank_top_n(
     claim: &Claim,
     index: &TableIndex,
@@ -516,21 +517,69 @@ fn verify_rank_top_n(
             .unwrap_or(10)
     };
 
-    // Sort rows by absolute effect size descending.
-    let mut sorted_rows: Vec<&str> = cached.rows.iter().map(|r| r.entity.as_str()).collect();
-    // Keep only first N (already ordered by table row; the table is assumed
-    // pre-sorted, which is standard for DE result tables).
-    sorted_rows.truncate(n);
+    // Locate the claimed entity's row. If it isn't in the table at all, the
+    // top-N question is unverifiable rather than a fabrication mismatch.
+    let Some(claimed_row) = cached.get_by_normalized(&normalize(&claim.entity)) else {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "entity `{}` not found in table `{}` — cannot check rank membership",
+                claim.entity,
+                table_label(&path)
+            ),
+        };
+    };
 
-    let in_top_n = sorted_rows
+    // The claimed entity must itself carry a numeric effect size; without one
+    // it cannot be ranked, so its top-N membership is unverifiable.
+    if lookup_numeric(&claimed_row.values, &cfg.effect_size_columns).is_none() {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "entity `{}` has no numeric effect size in `{}` — cannot rank",
+                claim.entity,
+                table_label(&path)
+            ),
+        };
+    }
+
+    // Rank by |effect size| descending, recomputed from the configured
+    // effect-size columns. Rows that lack a numeric effect size are dropped
+    // (they cannot be ranked) rather than silently kept in row order. The
+    // tie-break on entity name keeps the ordering stable + deterministic.
+    let mut ranked: Vec<(&str, f64)> = cached
+        .rows
         .iter()
-        .any(|e| e.eq_ignore_ascii_case(&claim.entity));
+        .filter_map(|r| {
+            lookup_numeric(&r.values, &cfg.effect_size_columns)
+                .map(|eff| (r.entity.as_str(), eff.abs()))
+        })
+        .collect();
+
+    // If no row in the table carries an effect size, there is nothing to rank.
+    if ranked.is_empty() {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "table `{}` has no configured effect-size column — cannot rank",
+                table_label(&path)
+            ),
+        };
+    }
+
+    ranked.sort_by(|a, b| {
+        b.1.partial_cmp(&a.1)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(b.0))
+    });
+    ranked.truncate(n);
+
+    let in_top_n = ranked
+        .iter()
+        .any(|(e, _)| e.eq_ignore_ascii_case(&claim.entity));
     if in_top_n {
         ClaimStatus::Verified
     } else {
         ClaimStatus::Mismatch {
             detail: format!(
-                "entity `{}` is not in the top-{} rows of `{}`",
+                "entity `{}` is not in the top-{} rows of `{}` ranked by |effect size|",
                 claim.entity,
                 n,
                 table_label(&path)
@@ -744,12 +793,18 @@ fn verify_one(
     if let Some(direction) = claim.direction {
         let observed = lookup_numeric(&row.values, &cfg.effect_size_columns);
         if let Some(obs) = observed {
-            let observed_direction = if obs >= 0.0 {
-                Direction::Up
+            // A zero observed effect size agrees with NEITHER direction — an
+            // "upregulated"/"downregulated" claim on a no-change row is a
+            // fabrication, not a confirm. Mirrors the strict `> 0.0` / `< 0.0`
+            // direction guards on the count-recompute path.
+            let observed_direction = if obs > 0.0 {
+                Some(Direction::Up)
+            } else if obs < 0.0 {
+                Some(Direction::Down)
             } else {
-                Direction::Down
+                None
             };
-            if observed_direction != direction {
+            if observed_direction != Some(direction) {
                 return ClaimStatus::Mismatch {
                     detail: format!(
                         "direction: narrative says {:?}, table effect size is {:+.4}",
@@ -2184,6 +2239,157 @@ mod tests {
             matches!(verdict.status, ClaimStatus::Mismatch { .. }),
             "TNF not in top-2; expected Mismatch, got {:?}",
             verdict.status
+        );
+    }
+
+    /// RankTopN must rank by |effect size|, NOT trust physical row order.
+    /// This table is sorted by gene name (alphabetical), so row order does
+    /// not match |log2FC| order. The true |log2FC| ranking is
+    /// ZED(5.0) > ALK(4.0) > BAR(2.0) > COL2A1(0.5). A "top-2" claim about
+    /// ALK (physically the FIRST row, but rank 2 by |log2FC|) must verify,
+    /// and a "top-2" claim about BAR (physically 2nd row, but rank 3) must
+    /// be rejected — exactly the case the old row-order code got wrong.
+    #[test]
+    fn rank_top_n_ranks_by_effect_size_not_row_order() {
+        use crate::claim_contract::ClaimContract;
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // Alphabetical row order — NOT sorted by |log2FC|.
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nALK\t4.0\t0.01\nBAR\t2.0\t0.02\nCOL2A1\t0.5\t0.03\nZED\t5.0\t0.04\n",
+        );
+
+        // ALK is physically first but is rank 2 by |log2FC| — in the top-2.
+        let alk_claims = extract_claims("ALK is in the top-2 hits (Table S1).", &cfg);
+        let alk = alk_claims.iter().find(|c| c.entity == "ALK").unwrap();
+        assert_eq!(alk.contract, ClaimContract::RankTopN);
+        let alk_report = verify_claims(&alk_claims, tmp.path(), &cfg);
+        let alk_v = alk_report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "ALK")
+            .unwrap();
+        assert!(
+            matches!(alk_v.status, ClaimStatus::Verified),
+            "ALK ranks 2 by |log2FC|; expected Verified, got {:?}",
+            alk_v.status
+        );
+
+        // BAR is physically 2nd but is rank 3 by |log2FC| — NOT in top-2.
+        // The old row-order code would have falsely confirmed this.
+        let bar_claims = extract_claims("BAR is in the top-2 hits (Table S1).", &cfg);
+        let bar = bar_claims.iter().find(|c| c.entity == "BAR").unwrap();
+        assert_eq!(bar.contract, ClaimContract::RankTopN);
+        let bar_report = verify_claims(&bar_claims, tmp.path(), &cfg);
+        let bar_v = bar_report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "BAR")
+            .unwrap();
+        assert!(
+            matches!(bar_v.status, ClaimStatus::Mismatch { .. }),
+            "BAR ranks 3 by |log2FC|; expected Mismatch, got {:?}",
+            bar_v.status
+        );
+    }
+
+    /// RankTopN: claimed entity present but lacking a numeric effect size
+    /// cannot be ranked → Unverifiable (not a silent keep / false confirm).
+    #[test]
+    fn rank_top_n_entity_without_effect_size_is_unverifiable() {
+        use crate::claim_contract::ClaimContract;
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // GAP has no parseable log2FC value.
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nALK\t4.0\t0.01\nGAP\tNA\t0.02\nZED\t5.0\t0.04\n",
+        );
+        let claims = extract_claims("GAP is in the top-5 hits (Table S1).", &cfg);
+        let gap = claims.iter().find(|c| c.entity == "GAP").unwrap();
+        assert_eq!(gap.contract, ClaimContract::RankTopN);
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "GAP")
+            .unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Unverifiable { .. }),
+            "GAP has no effect size; expected Unverifiable, got {:?}",
+            v.status
+        );
+    }
+
+    /// Direction cross-check: an "upregulated" claim on a row whose observed
+    /// effect size is exactly 0.0 must NOT be confirmed — zero change agrees
+    /// with neither Up nor Down. Guards against the `obs >= 0.0 => Up` bug.
+    #[test]
+    fn direction_zero_effect_size_does_not_confirm_upregulated() {
+        use crate::claim_contract::ClaimContract;
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nFLAT\t0.0\t0.001\n",
+        );
+        let claim = Claim {
+            entity: "FLAT".into(),
+            direction: Some(Direction::Up),
+            effect_size: None,
+            pvalue: None,
+            source_table: Some("de_s1.tsv".into()),
+            excerpt: "FLAT was upregulated (Table S1).".into(),
+            contract: ClaimContract::NumericTableLookup,
+        };
+        let report = verify_claims(&[claim], tmp.path(), &cfg);
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "FLAT")
+            .unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Mismatch { .. }),
+            "log2FC=0.0 is not upregulated; expected Mismatch, got {:?}",
+            v.status
+        );
+    }
+
+    /// Companion to the zero-effect direction guard: a strictly positive
+    /// effect size still confirms an "upregulated" claim (no over-correction).
+    #[test]
+    fn direction_positive_effect_size_confirms_upregulated() {
+        use crate::claim_contract::ClaimContract;
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(
+            tmp.path(),
+            "de_s1.tsv",
+            "gene\tlog2FC\tpadj\nRISE\t1.2\t0.001\n",
+        );
+        let claim = Claim {
+            entity: "RISE".into(),
+            direction: Some(Direction::Up),
+            effect_size: None,
+            pvalue: None,
+            source_table: Some("de_s1.tsv".into()),
+            excerpt: "RISE was upregulated (Table S1).".into(),
+            contract: ClaimContract::NumericTableLookup,
+        };
+        let report = verify_claims(&[claim], tmp.path(), &cfg);
+        let v = report
+            .verdicts
+            .iter()
+            .find(|v| v.claim.entity == "RISE")
+            .unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Verified),
+            "log2FC=1.2 is upregulated; expected Verified, got {:?}",
+            v.status
         );
     }
 

@@ -587,5 +587,5 @@ You don't need to know which path applied; the Figures tab just shows what was p
 ## 15. Getting help
 
 - For how to run the system locally, configure it, or contribute code, see [`README.md`](README.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
-- For deeper operator and contributor references — API routes, configuration files, env vars, remote compute, container runtime, git provenance — see [`docs/`](docs/).
+- For deeper references: API routes are the router registration in `crates/server/src/main.rs`; configuration files live under `config/` (with per-subdir READMEs); env vars are catalogued in `.env.example` and `crates/core/src/config.rs`; the ECAA package contract is specified in [`docs/ecaa-spec/`](docs/ecaa-spec/). (This is the slim OSS surface — standalone operator/runtime reference docs are not bundled here.)
 - For questions that this guide doesn't cover, ask Alan (alan@hueb.org) or the Scripps workflow team.

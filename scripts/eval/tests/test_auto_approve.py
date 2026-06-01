@@ -1,5 +1,7 @@
-"""The unattended eval must pre-approve discover_* selections so the workflow
-advances instead of stalling on AwaitingSmeApproval (no SME in a benchmark)."""
+"""eval-02: the unattended eval auto-advances ONLY the discovery review gate
+(the human-in-the-loop SME step with no claude-direct analog) and KEEPS the
+silent-completion / missing-artifact / validation / claim-verification guards
+ACTIVE so ECAA's error-catching is measured, not hidden."""
 import json
 from scripts.eval import eval_runner
 
@@ -30,32 +32,18 @@ def test_write_auto_approve_no_workflow_json(tmp_path):
     assert data["deny"] == []
 
 
-# ── _write_auto_approve_all: broader unattended bypass ──────────────────────
-#
-# The discoveries marker alone only clears the discover_* review gate. The
-# observed live hang was a NON-discovery task (review_prior_work) flipped
-# completed -> blocked [validation_failed] by the harness-guard, whose only
-# generic bypass is runtime/outputs/<task_id>/sme-decisions.json carrying a
-# skip option id. These tests pin that _write_auto_approve_all writes every
-# marker/decision file the shipped harness honors.
-
-# Canonical skip-option ids the harness recognizes
-# (crates/harness/src/sme_skip.rs::SKIP_OPTION_IDS). The chosen value MUST be
-# one of these or detect_intent returns None and the guard re-blocks anyway.
-_HARNESS_SKIP_OPTION_IDS = {
-    "emit_skip_sentinel_row",
-    "mark_task_failed_documented_deviation",
-    "drop_stage_from_workflow",
-    "skip_with_deviation",
-    "skip_with_documented_deviation",
-}
+# ── _write_auto_approve_discovery_gate: discovery-gate-only scope ────────────
 
 
 def _workflow(tasks: dict) -> str:
     return json.dumps({"tasks": tasks})
 
 
-def test_write_auto_approve_all_writes_sme_decisions_for_every_task(tmp_path):
+def test_discovery_gate_does_not_write_blanket_skip_decisions(tmp_path):
+    """eval-02 regression: the OLD bypass wrote a `skip_with_deviation`
+    `sme-decisions.json` for EVERY task, which neutered the harness silent-
+    completion / missing-artifact / validation guards. The new policy must write
+    NO such files — those guards must run their strict path."""
     pkg = tmp_path / "pkg"
     pkg.mkdir()
     (pkg / "WORKFLOW.json").write_text(_workflow({
@@ -64,34 +52,28 @@ def test_write_auto_approve_all_writes_sme_decisions_for_every_task(tmp_path):
         "variant_calling": {"spec": {}},
         "reporting": {"spec": {}},
     }))
-    eval_runner._write_auto_approve_all(pkg)
+    eval_runner._write_auto_approve_discovery_gate(pkg)
 
-    # Every task gets a sme-decisions.json with a recognized skip option id so
-    # the harness-guard re-block (validation/sentinel/missing-artifact) is
-    # bypassed and a real completion is kept.
+    # NO task gets an sme-decisions.json (the guard-bypass file).
     for tid in ("discover_variant_calling", "review_prior_work",
                 "variant_calling", "reporting"):
         dec = pkg / "runtime" / "outputs" / tid / "sme-decisions.json"
-        assert dec.exists(), f"missing sme-decisions.json for {tid}"
-        data = json.loads(dec.read_text())
-        assert data["task_id"] == tid
-        chosen = {d["chosen"] for d in data["decisions"]}
-        assert chosen, f"no decision rows for {tid}"
-        assert chosen <= _HARNESS_SKIP_OPTION_IDS, (
-            f"{tid} chose {chosen}, not in harness SKIP_OPTION_IDS "
-            f"{_HARNESS_SKIP_OPTION_IDS} — detect_intent would return None"
+        assert not dec.exists(), (
+            f"{tid} got a guard-bypassing sme-decisions.json — the silent-"
+            f"completion/missing-artifact/validation guards would be disabled"
         )
 
 
-def test_write_auto_approve_all_writes_review_confirmed_sidecars(tmp_path):
+def test_discovery_gate_writes_review_confirmed_sidecars_for_discover_only(tmp_path):
     pkg = tmp_path / "pkg"
     pkg.mkdir()
     (pkg / "WORKFLOW.json").write_text(_workflow({
         "discover_alignment": {"spec": {"stage_class": "alignment"}},
         "discover_variant_calling": {"spec": {"stage_class": "variant_calling"}},
         "alignment": {"spec": {}},        # non-discover -> no sidecar
+        "review_prior_work": {"spec": {}},
     }))
-    eval_runner._write_auto_approve_all(pkg)
+    eval_runner._write_auto_approve_discovery_gate(pkg)
 
     runtime = pkg / "runtime"
     # discover_* tasks get a sme-review-confirmed sidecar (review gate clear).
@@ -101,18 +83,19 @@ def test_write_auto_approve_all_writes_review_confirmed_sidecars(tmp_path):
         data = json.loads(sidecar.read_text())
         assert data["stage"] == tid
         assert data["auto_approved"] is True
-    # non-discover task gets NO review-confirmed sidecar.
+    # non-discover tasks get NO review-confirmed sidecar.
     assert not (runtime / "sme-review-confirmed-alignment.json").exists()
+    assert not (runtime / "sme-review-confirmed-review_prior_work.json").exists()
 
 
-def test_write_auto_approve_all_still_writes_discoveries_marker(tmp_path):
+def test_discovery_gate_still_writes_discoveries_marker(tmp_path):
     pkg = tmp_path / "pkg"
     pkg.mkdir()
     (pkg / "WORKFLOW.json").write_text(_workflow({
         "discover_alignment": {"spec": {"stage_class": "alignment"}},
         "review_prior_work": {"spec": {}},
     }))
-    eval_runner._write_auto_approve_all(pkg)
+    eval_runner._write_auto_approve_discovery_gate(pkg)
 
     marker = pkg / "runtime" / ".sme-auto-approve-discoveries"
     assert marker.exists()
@@ -121,16 +104,28 @@ def test_write_auto_approve_all_still_writes_discoveries_marker(tmp_path):
     assert data["deny"] == []
 
 
-def test_write_auto_approve_all_no_workflow_json(tmp_path):
+def test_discovery_gate_no_workflow_json(tmp_path):
     # No WORKFLOW.json: must not raise, still writes the allow-all discoveries
     # marker, and writes no per-task files (no task ids to iterate).
     pkg = tmp_path / "pkg"
     pkg.mkdir()
-    eval_runner._write_auto_approve_all(pkg)  # must not raise
+    eval_runner._write_auto_approve_discovery_gate(pkg)  # must not raise
     marker = pkg / "runtime" / ".sme-auto-approve-discoveries"
     assert json.loads(marker.read_text())["allow"] == ["*"]
     outputs = pkg / "runtime" / "outputs"
     assert not outputs.exists() or not any(outputs.iterdir())
+
+
+def test_legacy_alias_points_at_discovery_gate_only(tmp_path):
+    """The old name `_write_auto_approve_all` is kept as an alias but now has
+    the discovery-gate-only behaviour (no blanket guard bypass)."""
+    assert (eval_runner._write_auto_approve_all
+            is eval_runner._write_auto_approve_discovery_gate)
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "WORKFLOW.json").write_text(_workflow({"reporting": {"spec": {}}}))
+    eval_runner._write_auto_approve_all(pkg)
+    assert not (pkg / "runtime" / "outputs" / "reporting" / "sme-decisions.json").exists()
 
 
 def test_read_workflow_task_ids_malformed(tmp_path):
