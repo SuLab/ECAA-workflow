@@ -55,6 +55,16 @@ pub enum LiteratureClaimFailureKind {
     RedistributableTagInconsistent,
     FindingIdOrphan,
     InvalidConcordanceFlag,
+    /// A non-PMID locator (DOI / arXiv / URL) failed to resolve or its
+    /// stored snapshot is missing from the evidence manifest / on disk.
+    SourceUnresolvable,
+    /// Candidate lacks the policy-required corroboration
+    /// (≥1 paper-class source AND ≥`minimumIndependentSources`).
+    InsufficientCorroboration,
+    /// A tool-doc page snapshot does not reference the named tool.
+    DocPageToolMismatch,
+    /// A tool-doc method claim row is missing its required `version_context`.
+    VersionContextMissing,
 }
 
 /// Why a task or session is blocked. Closed taxonomy (47 variants;
@@ -758,5 +768,25 @@ impl BlockerEntry {
             self.recovery_hint = Some(hint);
         }
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_failure_kinds_serialize_snake_case() {
+        use LiteratureClaimFailureKind::*;
+        let cases = [
+            (SourceUnresolvable, "source_unresolvable"),
+            (InsufficientCorroboration, "insufficient_corroboration"),
+            (DocPageToolMismatch, "doc_page_tool_mismatch"),
+            (VersionContextMissing, "version_context_missing"),
+        ];
+        for (variant, wire) in cases {
+            let v = serde_json::to_value(variant).unwrap();
+            assert_eq!(v, serde_json::Value::String(wire.into()));
+        }
     }
 }

@@ -135,6 +135,69 @@ pub enum LitSourceScope {
     AllSourcesLocalOnly,
 }
 
+/// Authority granted to the execution agent over *which* method sources it
+/// may consult when building the method landscape. Documented under
+/// `ECAA_METHOD_SOURCE_AUTHORITY`. Distinct from [`LitSourceScope`], which
+/// selects *which literature tiers* are in play — this selects how freely the
+/// agent may seek new candidate methods at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodSourceAuthority {
+    /// No live discovery: the agent ranks only the curated candidate pool.
+    /// Used to preserve original provenance on a rerun/amend of an
+    /// already-emitted package.
+    Frozen,
+    /// Default. Live discovery is permitted, bounded to the source classes
+    /// enabled by the scope and the hosts in the retrieval routes.
+    Bounded,
+    /// Reserved for broader open-ended discovery. In v1 this is still bounded
+    /// by the retrieval routes (behaves like `Bounded`); the variant exists so
+    /// the policy surface is stable ahead of the open-ended path.
+    OpenEnded,
+}
+
+impl MethodSourceAuthority {
+    /// Returns the canonical `ECAA_METHOD_SOURCE_AUTHORITY` string.
+    pub fn as_env_str(self) -> &'static str {
+        match self {
+            Self::Frozen => "frozen",
+            Self::Bounded => "bounded",
+            Self::OpenEnded => "open_ended",
+        }
+    }
+
+    /// Parses an `ECAA_METHOD_SOURCE_AUTHORITY` string. Returns `None` on
+    /// unrecognised values. Mirrors the parse-with-fallback precedent of the
+    /// harness `LiteratureScope::parse`.
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "frozen" => Some(Self::Frozen),
+            "bounded" => Some(Self::Bounded),
+            "open_ended" => Some(Self::OpenEnded),
+            _ => None,
+        }
+    }
+
+    /// Reads the authority from a raw env value (already `.copied()` out of an
+    /// env map or `env::var`). Unset / empty / unrecognised → `Bounded`, with a
+    /// `tracing::warn!` on the unrecognised case (mirrors the
+    /// `ECAA_LIT_SOURCE_SCOPE` warn-fall-back so a typo never bricks a
+    /// long-running harness loop mid-run).
+    pub fn from_env_str(raw: Option<&str>) -> Self {
+        match raw {
+            None | Some("") => Self::Bounded,
+            Some(s) => match Self::parse(s) {
+                Some(v) => v,
+                None => {
+                    tracing::warn!(
+                        "ECAA_METHOD_SOURCE_AUTHORITY={s:?} not recognized; falling back to bounded"
+                    );
+                    Self::Bounded
+                }
+            },
+        }
+    }
+}
+
 /// Literature-atom configuration block. Wraps the four `ECAA_LIT_*` env
 /// vars consumed by `crates/harness/src/literature_scope.rs` and the
 /// `scripts/agent_literature_fetch.py` helper.
@@ -966,6 +1029,55 @@ fn parse_pricing_overrides(env: &HashMap<&str, &str>) -> Result<HashMap<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn method_source_authority_parse_canonical() {
+        assert_eq!(
+            MethodSourceAuthority::parse("frozen"),
+            Some(MethodSourceAuthority::Frozen)
+        );
+        assert_eq!(
+            MethodSourceAuthority::parse("bounded"),
+            Some(MethodSourceAuthority::Bounded)
+        );
+        assert_eq!(
+            MethodSourceAuthority::parse("open_ended"),
+            Some(MethodSourceAuthority::OpenEnded)
+        );
+        assert_eq!(MethodSourceAuthority::parse("bogus"), None);
+    }
+
+    #[test]
+    fn method_source_authority_defaults_to_bounded() {
+        // Unset / empty → Bounded.
+        assert_eq!(
+            MethodSourceAuthority::from_env_str(None),
+            MethodSourceAuthority::Bounded
+        );
+        assert_eq!(
+            MethodSourceAuthority::from_env_str(Some("")),
+            MethodSourceAuthority::Bounded
+        );
+    }
+
+    #[test]
+    fn method_source_authority_invalid_falls_back_to_bounded() {
+        assert_eq!(
+            MethodSourceAuthority::from_env_str(Some("nonsense")),
+            MethodSourceAuthority::Bounded
+        );
+    }
+
+    #[test]
+    fn method_source_authority_env_str_round_trips() {
+        for v in [
+            MethodSourceAuthority::Frozen,
+            MethodSourceAuthority::Bounded,
+            MethodSourceAuthority::OpenEnded,
+        ] {
+            assert_eq!(MethodSourceAuthority::parse(v.as_env_str()), Some(v));
+        }
+    }
 
     #[test]
     fn parse_finite_f64_rejects_nan_and_inf() {

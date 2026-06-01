@@ -132,13 +132,36 @@ These already exist on disk — use these paths directly; do NOT ls/cat the pack
   fi
 fi
 
+# Literature-retrieval runbook. When this task's spec declares a non-empty
+# `attributes.retrieval_tools` array (e.g. the survey_method_landscape /
+# review_prior_work atoms), append the literature-retrieval contract so the
+# agent uses scripts/agent_literature_fetch.py with the host-bounded egress
+# allowlist and emits the locator-anchored method_landscape.csv +
+# evidence/manifest.json. Best-effort: silently skipped when jq is
+# unavailable, WORKFLOW.json is absent, or retrieval_tools is empty/absent,
+# which preserves byte-identical prompts for non-retrieval tasks.
+LITERATURE_RETRIEVAL_BLOCK=""
+if command -v jq >/dev/null 2>&1 \
+   && [ -n "${ECAA_TASK_ID:-}" ] \
+   && [ -f "$PACKAGE/WORKFLOW.json" ] \
+   && [ -f "$SCRIPT_DIR/agent-prompts/literature-retrieval.md" ]; then
+  __retrieval_tools_count="$(jq -r --arg t "$ECAA_TASK_ID" \
+    '(.tasks[$t].spec.attributes.retrieval_tools // []) | if type == "array" then length else 0 end' \
+    "$PACKAGE/WORKFLOW.json" 2>/dev/null || echo 0)"
+  if [ -n "$__retrieval_tools_count" ] && [ "$__retrieval_tools_count" -gt 0 ] 2>/dev/null; then
+    LITERATURE_RETRIEVAL_BLOCK="
+
+$(cat "$SCRIPT_DIR/agent-prompts/literature-retrieval.md")"
+  fi
+fi
+
 PROMPT="$(cat "$PACKAGE/PROMPT.md")${MEMORY_DISCIPLINE_BLOCK}
 
 ## Package location
 All paths are relative to: $PACKAGE
 ${RESOLVED_CONTEXT_BLOCK}
 
-${TASK_EXECUTION_BODY}"
+${TASK_EXECUTION_BODY}${LITERATURE_RETRIEVAL_BLOCK}"
 
 # Bundle D — harness agent cost ingestion.
 #

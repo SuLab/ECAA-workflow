@@ -112,6 +112,7 @@ pub mod local_extension_graduation;
 // Closes design see `migration::SchemaVersionsManifest` for
 // the per-package manifest written at emit time and
 // `migration::replay_provenance` for the read-side replay surface.
+pub mod method_landscape;
 pub mod migration;
 pub mod modality_bounds;
 pub mod modality_registry;
@@ -137,6 +138,7 @@ pub mod remediation;
 // `RepairProposal`s; only `LowAutoAttempt`-classified proposals auto-
 // apply, and substrate emission is mandatory for every proposal.
 pub mod repair;
+pub mod retrieval_routes;
 /// Ro crate module.
 pub mod ro_crate;
 pub mod runtime_prereqs;

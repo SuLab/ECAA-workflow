@@ -275,7 +275,11 @@ async fn start_execution_inner(
     {
         tracing::warn!(session_id = %session_id, error = %e, "minting execution token failed");
     }
-    match spawn_harness_for_session(&app, session_id, req.agent_path, req.max_iterations).await {
+    // Fresh `/execution/start`: a first run honours the configured
+    // method-source authority — no freeze (plan Task 5.2).
+    match spawn_harness_for_session(&app, session_id, req.agent_path, req.max_iterations, false)
+        .await
+    {
         Ok(handle) => Json(ExecutionStatusResponse {
             pid: handle.pid,
             pgid: handle.pgid,
@@ -425,6 +429,56 @@ pub(super) fn auto_relaunch_decision(
     Ok(())
 }
 
+/// Whether an auto-relaunch with the given `trigger` is a deliberate
+/// rerun/amend of an already-emitted package, and therefore must freeze
+/// the harness's method-source authority (plan Task 5.2).
+///
+/// `rerun_task`, `amend_method`, and `undo_amend` re-execute a previously
+/// emitted package against a (re-)materialised plan; preserving the
+/// original method-landscape provenance means no fresh live discovery may
+/// run, so the harness is launched with `--frozen-method-source`.
+///
+/// `unblock` / `apply_remediation` are continuations of the *same* in-flight
+/// run (recovery, not a rerun) and the fresh-start path
+/// (`POST /execution/start`, `start_execution`) never routes through the
+/// auto-relaunch hook at all — neither freezes, so a first run honours the
+/// configured `ECAA_METHOD_SOURCE_AUTHORITY`.
+fn trigger_freezes_method_source(trigger: &str) -> bool {
+    matches!(trigger, "rerun_task" | "amend_method" | "undo_amend")
+}
+
+/// Build the ordered argv (excluding the binary itself) for a harness
+/// spawn. Extracted as a pure function so the conditional
+/// `--frozen-method-source` flag (plan Task 5.2) is unit-testable without
+/// spawning a process. `frozen_method_source` is appended last when set so
+/// the base args are stable across fresh and frozen relaunches.
+fn harness_command_args(
+    package_dir: &std::path::Path,
+    agent_path: &str,
+    max_iter: u32,
+    session_id: SessionId,
+    server_url: &str,
+    frozen_method_source: bool,
+) -> Vec<String> {
+    let mut args = vec![
+        "--package".to_string(),
+        package_dir.to_string_lossy().into_owned(),
+        "--agent".to_string(),
+        agent_path.to_string(),
+        "--max-iterations".to_string(),
+        max_iter.to_string(),
+        "--session-id".to_string(),
+        session_id.to_string(),
+        "--server-url".to_string(),
+        server_url.to_string(),
+        "--no-interactive".to_string(),
+    ];
+    if frozen_method_source {
+        args.push("--frozen-method-source".to_string());
+    }
+    args
+}
+
 /// Scan the package's `runtime/outputs/<task>/blocker.json` files for
 /// any task whose `block_reason` indicates an in-flight compute
 /// sentinel is pending AND whose `.heartbeat` is younger than the
@@ -566,7 +620,13 @@ pub(crate) async fn maybe_auto_relaunch_harness(
         return;
     }
 
-    let outcome = spawn_harness_for_session(app, session_id, None, None).await;
+    // Freeze method-source discovery when this relaunch is a deliberate
+    // rerun/amend of an already-emitted package, so the harness preserves
+    // the original method-landscape provenance instead of running fresh
+    // live discovery (plan Task 5.2).
+    let frozen_method_source = trigger_freezes_method_source(trigger);
+    let outcome =
+        spawn_harness_for_session(app, session_id, None, None, frozen_method_source).await;
     log_auto_relaunch_outcome(session_id, trigger, outcome);
 }
 
@@ -835,6 +895,7 @@ pub(crate) async fn spawn_harness_for_session(
     session_id: SessionId,
     agent_path: Option<String>,
     max_iterations: Option<u32>,
+    frozen_method_source: bool,
 ) -> Result<ExecutionHandle, SpawnHarnessError> {
     let session = app
         .conversation
@@ -863,6 +924,7 @@ pub(crate) async fn spawn_harness_for_session(
         package_dir,
         agent_path,
         max_iterations,
+        frozen_method_source,
     )
     .await;
     app.starting_executions.remove(&session_id);
@@ -875,6 +937,7 @@ async fn spawn_harness_for_session_reserved(
     package_dir: std::path::PathBuf,
     agent_path: Option<String>,
     max_iterations: Option<u32>,
+    frozen_method_source: bool,
 ) -> Result<ExecutionHandle, SpawnHarnessError> {
     // Resolved once at boot into the typed `Config` (which reads
     // `ECAA_HARNESS_BIN_PATH`); read from `app.config` rather than the
@@ -935,26 +998,23 @@ async fn spawn_harness_for_session_reserved(
         .map_err(SpawnHarnessError::SpawnFailed)?;
 
     let mut cmd = tokio::process::Command::new(&harness_bin);
-    cmd.arg("--package")
-        .arg(package_dir.as_os_str())
-        .arg("--agent")
-        .arg(&agent_path)
-        .arg("--max-iterations")
-        .arg(max_iter.to_string())
-        .arg("--session-id")
-        .arg(session_id.to_string())
-        .arg("--server-url")
-        .arg(&server_url)
-        .arg("--no-interactive")
-        .stdout(std::process::Stdio::from(log_file))
-        .stderr(std::process::Stdio::from(log_file_stderr))
-        // Belt-and-suspenders: if the `Child` ever drops before
-        // `try_wait()`/`wait()`/`start_kill()` is called (e.g. an
-        // early-return path bypasses the `ExecutionHandle` reaper
-        // task), tokio will SIGKILL the child instead of orphaning
-        // it to init. Pairs with the `setsid()`-based pgroup kill
-        // path used by `/execution/kill`.
-        .kill_on_drop(true);
+    cmd.args(harness_command_args(
+        &package_dir,
+        &agent_path,
+        max_iter,
+        session_id,
+        &server_url,
+        frozen_method_source,
+    ))
+    .stdout(std::process::Stdio::from(log_file))
+    .stderr(std::process::Stdio::from(log_file_stderr))
+    // Belt-and-suspenders: if the `Child` ever drops before
+    // `try_wait()`/`wait()`/`start_kill()` is called (e.g. an
+    // early-return path bypasses the `ExecutionHandle` reaper
+    // task), tokio will SIGKILL the child instead of orphaning
+    // it to init. Pairs with the `setsid()`-based pgroup kill
+    // path used by `/execution/kill`.
+    .kill_on_drop(true);
 
     // Put the harness (and its agent + claude descendants) in their
     // own POSIX process group so `/execution/kill` can SIGTERM the
@@ -1214,9 +1274,9 @@ pub(super) mod execution_status_sidecar {
 mod tests {
     use super::{
         audit_actor_for_execution_token, auto_relaunch_decision, clean_stale_sentinels,
-        has_ready_task, has_sentinel_pending_with_fresh_heartbeat,
-        task_matches_sentinel_pending_with_fresh_heartbeat, AUTO_RELAUNCH_DEBOUNCE_SECS,
-        AUTO_RELAUNCH_SENTINEL_DEBOUNCE_SECS,
+        harness_command_args, has_ready_task, has_sentinel_pending_with_fresh_heartbeat,
+        task_matches_sentinel_pending_with_fresh_heartbeat, trigger_freezes_method_source,
+        SessionId, AUTO_RELAUNCH_DEBOUNCE_SECS, AUTO_RELAUNCH_SENTINEL_DEBOUNCE_SECS,
     };
     use crate::chat_routes::test_support::{
         assistant, body_json, make_router, make_router_with_harness_bin,
@@ -1255,6 +1315,67 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join("runtime")).unwrap();
         clean_stale_sentinels(tmp.path()).unwrap();
+    }
+
+    // ── frozen-method-source on rerun/amend relaunch (plan Task 5.2) ──────
+
+    #[test]
+    fn rerun_amend_triggers_freeze_method_source() {
+        // A relaunch driven by a deliberate rerun/amend of an
+        // already-emitted package must freeze the method-source authority
+        // so no fresh live discovery occurs.
+        for trigger in ["rerun_task", "amend_method", "undo_amend"] {
+            assert!(
+                trigger_freezes_method_source(trigger),
+                "{trigger} must freeze method source"
+            );
+        }
+    }
+
+    #[test]
+    fn recovery_and_fresh_triggers_do_not_freeze_method_source() {
+        // unblock / remediation are continuations of the in-flight run, and
+        // fresh starts are not reruns; none should freeze discovery.
+        for trigger in ["unblock", "apply_remediation", "start_execution"] {
+            assert!(
+                !trigger_freezes_method_source(trigger),
+                "{trigger} must NOT freeze method source"
+            );
+        }
+    }
+
+    #[test]
+    fn harness_args_appends_frozen_flag_only_when_requested() {
+        let pkg = PathBuf::from("/tmp/pkg");
+        let session = SessionId::new_v4();
+
+        let frozen = harness_command_args(
+            &pkg,
+            "scripts/agent-claude.sh",
+            8,
+            session,
+            "http://127.0.0.1:3737",
+            true,
+        );
+        assert!(
+            frozen.iter().any(|a| a == "--frozen-method-source"),
+            "frozen relaunch must carry the flag: {frozen:?}"
+        );
+
+        let fresh = harness_command_args(
+            &pkg,
+            "scripts/agent-claude.sh",
+            8,
+            session,
+            "http://127.0.0.1:3737",
+            false,
+        );
+        assert!(
+            !fresh.iter().any(|a| a == "--frozen-method-source"),
+            "fresh relaunch must NOT carry the flag: {fresh:?}"
+        );
+        // The base args are identical apart from the trailing flag.
+        assert_eq!(&frozen[..fresh.len()], &fresh[..]);
     }
 
     // ── auto_relaunch_decision predicate ──────────────────────────────────

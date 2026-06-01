@@ -157,6 +157,41 @@ pub async fn post_sme_selection(
     let Some(pkg) = session.emitted_package_path.clone() else {
         return (StatusCode::BAD_REQUEST, "session has no emitted package").into_response();
     };
+
+    // Promotion gate: a literature-surfaced method that is NOT in the
+    // curated pool is tracked as a `HypothesizedProposal` whose lifecycle
+    // is anything other than `Promoted` until the validator → sandbox →
+    // SME-signoff pipeline clears it. Selecting such a TENTATIVE method
+    // here would mark it executable (writes sme-selection.json + the
+    // review-confirmed sidecar, records a winner, resumes the DAG) while
+    // skipping the gate entirely. Refuse with 412 and point at the
+    // awaiting-approval blocker so the SME routes through signoff instead
+    // of a bare method pick. The session's own `proposals` registry is
+    // the authoritative server-side source for the tentative/promoted
+    // status — a tentative method is minted into it as a proposal keyed
+    // by `node_id == <method>`. A curated method has no matching proposal
+    // and so is never refused here (the normal flow is untouched).
+    let chosen_is_tentative_unpromoted = session.proposals.values().any(|p| {
+        p.node_id == req.chosen
+            && !matches!(
+                p.lifecycle,
+                ecaa_workflow_core::hypothesized_proposal::ProposalLifecycle::Promoted { .. }
+            )
+    });
+    if chosen_is_tentative_unpromoted {
+        return (
+            StatusCode::PRECONDITION_FAILED,
+            format!(
+                "method '{}' is a literature-surfaced candidate that is not yet promoted; \
+                 it must clear the promotion pipeline (validator -> sandbox -> SME signoff, \
+                 surfaced as blocker kind `awaiting_sme_approval`) before it can be selected \
+                 for execution",
+                req.chosen
+            ),
+        )
+            .into_response();
+    }
+
     // Route through `runtime_outputs_for_task` so every task_id-bearing
     // handler shares the same centralized path-jail / traversal-rejection
     // logic.
@@ -1101,6 +1136,262 @@ mod tests {
             found,
             "post_sme_selection must emit SelectSensitivityWinner with the rejected set; \
              decisions={:?}",
+            sess.decisions
+        );
+        drop(pkg);
+    }
+
+    /// Regression: a `discover_*` method selection must land a typed
+    /// `SelectSensitivityWinner` record in the ON-DISK
+    /// `runtime/decisions.jsonl` audit log (not only the in-memory
+    /// `session.decisions` Vec). `record_decision` appends to the file
+    /// whenever the session has an `emitted_package_path`; this pins the
+    /// discover-method path so a future sensitivity-only guard can't
+    /// silently drop the record for discover stages.
+    #[tokio::test]
+    async fn discover_method_selection_records_decision_to_jsonl() {
+        let pkg = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(pkg.path().join("runtime/outputs/discover_alignment")).unwrap();
+        std::fs::write(pkg.path().join("WORKFLOW.json"), r#"{"tasks":{}}"#).unwrap();
+
+        let (router, app) = make_router(vec![]).await;
+        let id = seed_session_with_completed_task(
+            &app,
+            "discover_alignment",
+            Some(pkg.path().to_path_buf()),
+        )
+        .await;
+        // Put the session in Blocked{AwaitingSmeSelection} carrying the
+        // candidate pool so the rejected-set resolution exercises the
+        // discover path the same way the sensitivity path does.
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Blocked {
+                    blockers: vec![ecaa_workflow_core::blocker::BlockerEntry::new(
+                        "discover_alignment",
+                        ecaa_workflow_core::blocker::BlockerKind::AwaitingSmeSelection {
+                            stage_id: "discover_alignment".into(),
+                            candidates: vec!["star".into(), "hisat2".into()],
+                        },
+                        "pick an aligner",
+                    )],
+                    reason: "pick an aligner".into(),
+                    recovery_hint: String::new(),
+                    blocker_kind: None,
+                    context: None,
+                };
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/chat/session/{}/task/discover_alignment/sme-selection",
+                id
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"chosen":"hisat2"}"#))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+        // Assert the ON-DISK decisions.jsonl gained the record.
+        let jsonl = pkg.path().join("runtime/decisions.jsonl");
+        assert!(
+            jsonl.exists(),
+            "runtime/decisions.jsonl must exist after a discover-method selection"
+        );
+        let raw = std::fs::read_to_string(&jsonl).unwrap();
+        let found = raw.lines().any(|line| {
+            let v: serde_json::Value = match serde_json::from_str(line) {
+                Ok(v) => v,
+                Err(_) => return false,
+            };
+            v["decision"]["kind"] == "select_sensitivity_winner"
+                && v["decision"]["stage"] == "discover_alignment"
+                && v["decision"]["winner"] == "hisat2"
+        });
+        assert!(
+            found,
+            "decisions.jsonl must contain a select_sensitivity_winner record with \
+             stage=discover_alignment, winner=hisat2; got:\n{raw}"
+        );
+        drop(pkg);
+    }
+
+    /// A literature-surfaced method that is NOT in the curated pool is
+    /// tracked as a `HypothesizedProposal` whose lifecycle is anything
+    /// other than `Promoted` until the validator → sandbox → SME-signoff
+    /// gate clears. Selecting such a method via `/sme-selection` must NOT
+    /// mark it executable — the server refuses with `412
+    /// Precondition Failed` (pointing at the awaiting-approval blocker
+    /// kind) and records NO `SelectSensitivityWinner` winner. The
+    /// promotion pipeline, not a method pick, is the only path that makes
+    /// a tentative method runnable.
+    #[tokio::test]
+    async fn post_sme_selection_refuses_tentative_unpromoted_method() {
+        let pkg = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(
+            pkg.path()
+                .join("runtime/outputs/discover_isoform_quantification"),
+        )
+        .unwrap();
+        std::fs::write(pkg.path().join("WORKFLOW.json"), r#"{"tasks":{}}"#).unwrap();
+
+        let (router, app) = make_router(vec![]).await;
+        let id = seed_session_with_completed_task(
+            &app,
+            "discover_isoform_quantification",
+            Some(pkg.path().to_path_buf()),
+        )
+        .await;
+        // Register a tentative (PendingValidation, i.e. NOT promoted)
+        // proposal whose node_id is the literature-surfaced method name.
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                let proposal = ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal::new(
+                    "flair",
+                    "Use the literature-surfaced method `flair` for the \
+                     `isoform_quantification` axis.",
+                    vec!["operation:0305".into()],
+                    "surfaced from the method landscape; not curated",
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                );
+                assert!(
+                    !matches!(
+                        proposal.lifecycle,
+                        ecaa_workflow_core::hypothesized_proposal::ProposalLifecycle::Promoted { .. }
+                    ),
+                    "precondition: freshly-minted proposal must not be Promoted"
+                );
+                s.proposals.insert(proposal.id.clone(), proposal);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/chat/session/{}/task/discover_isoform_quantification/sme-selection",
+                id
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"chosen":"flair"}"#))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::PRECONDITION_FAILED,
+            "selecting a tentative, not-yet-promoted method must be refused with 412"
+        );
+
+        // The guard must fire BEFORE any decision is recorded — no
+        // winner for a refused tentative pick.
+        let sess = app.conversation.get_session(id).await.unwrap();
+        let recorded_winner = sess.decisions.iter().any(|d| {
+            matches!(
+                &d.decision,
+                ecaa_workflow_core::decision_log::DecisionType::SelectSensitivityWinner {
+                    winner,
+                    ..
+                } if winner == "flair"
+            )
+        });
+        assert!(
+            !recorded_winner,
+            "a refused tentative selection must NOT record a SelectSensitivityWinner; \
+             decisions={:?}",
+            sess.decisions
+        );
+        // And nothing should have been written to the on-disk audit log.
+        let jsonl = pkg.path().join("runtime/decisions.jsonl");
+        if jsonl.exists() {
+            let raw = std::fs::read_to_string(&jsonl).unwrap();
+            assert!(
+                !raw.contains("\"winner\":\"flair\""),
+                "no winner=flair line may appear in decisions.jsonl; got:\n{raw}"
+            );
+        }
+        drop(pkg);
+    }
+
+    /// Companion to the tentative-refusal test: a curated selection (no
+    /// matching tentative proposal on the session) still flows through
+    /// normally — 204 + a recorded decision. Guards against the 412 guard
+    /// over-firing and breaking the existing curated-method path.
+    #[tokio::test]
+    async fn post_sme_selection_allows_curated_method_when_no_tentative_proposal() {
+        let pkg = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(pkg.path().join("runtime/outputs/discover_alignment")).unwrap();
+        std::fs::write(pkg.path().join("WORKFLOW.json"), r#"{"tasks":{}}"#).unwrap();
+
+        let (router, app) = make_router(vec![]).await;
+        let id = seed_session_with_completed_task(
+            &app,
+            "discover_alignment",
+            Some(pkg.path().to_path_buf()),
+        )
+        .await;
+        // A tentative proposal exists for a DIFFERENT method (`flair`);
+        // the SME picks the curated `star`, which has no matching
+        // proposal — the guard must NOT fire.
+        app.conversation
+            .store_handle()
+            .update(id, |s| {
+                let proposal = ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal::new(
+                    "flair",
+                    "tentative method",
+                    vec!["operation:0305".into()],
+                    "rationale",
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                );
+                s.proposals.insert(proposal.id.clone(), proposal);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri(format!(
+                "/api/chat/session/{}/task/discover_alignment/sme-selection",
+                id
+            ))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"chosen":"star"}"#))
+            .unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::NO_CONTENT,
+            "a curated method (no matching tentative proposal) must still flow through"
+        );
+
+        let sess = app.conversation.get_session(id).await.unwrap();
+        let recorded = sess.decisions.iter().any(|d| {
+            matches!(
+                &d.decision,
+                ecaa_workflow_core::decision_log::DecisionType::SelectSensitivityWinner {
+                    stage,
+                    winner,
+                    ..
+                } if stage == "discover_alignment" && winner == "star"
+            )
+        });
+        assert!(
+            recorded,
+            "curated selection must still record SelectSensitivityWinner; decisions={:?}",
             sess.decisions
         );
         drop(pkg);

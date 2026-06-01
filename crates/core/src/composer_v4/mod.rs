@@ -13,6 +13,7 @@ pub mod planner;
 pub mod policy_gate;
 pub mod reporting_consumer_synthesis;
 pub mod scoring;
+pub mod survey_method_landscape_synthesis;
 
 pub use backward_search::{
     backward_search, search_backward, BackwardRequirement, BackwardSearchInput, ResolvedAtom,

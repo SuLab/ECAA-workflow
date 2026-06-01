@@ -531,6 +531,55 @@ pub fn promoted_proposal_to_atom_definition(
     })
 }
 
+/// Mint a fresh `tentative` [`HypothesizedProposal`] from a literature-surfaced
+/// method-landscape candidate that is NOT in the axis's curated pool.
+///
+/// A non-curated method may be shown/selected in the
+/// [`crate::method_landscape::CuratedCandidate`] list but MUST route through
+/// the proposal/promotion pipeline before it can execute. This helper produces
+/// the proposal record that the pipeline drives; like every freshly-constructed
+/// proposal it starts at [`ProposalLifecycle::PendingValidation`] — i.e. NOT
+/// [`ProposalLifecycle::Promoted`] — so the SME signoff + gate machinery still
+/// owe a decision before the method is executable.
+///
+/// Mirrors the construction in `conversation::tools::hypothesized_node`: the
+/// candidate's `method` becomes the `node_id`, an axis-scoped sentence becomes
+/// the `intent`, and `parent_terms` are seeded from the supplied operation
+/// term(s). `validation_tests` / `upstream_atom_ids` are left empty here — the
+/// caller fills them from atom context when promoting; an empty set is the same
+/// shape `propose_hypothesized_node` accepts for a bare proposal.
+///
+/// Returns `None` for a candidate that is already curated
+/// (`tentative == false`): a curated method does not need promotion and must
+/// never be minted as a hypothesized proposal.
+pub fn proposal_from_landscape_candidate(
+    candidate: &crate::method_landscape::CuratedCandidate,
+    axis: &str,
+    parent_terms: Vec<String>,
+) -> Option<HypothesizedProposal> {
+    if !candidate.tentative {
+        return None;
+    }
+    let intent = format!(
+        "Use the literature-surfaced method `{}` for the `{}` method-choice axis.",
+        candidate.method, axis
+    );
+    let llm_rationale = format!(
+        "Surfaced from the method landscape for axis `{axis}` but not in the \
+         curated pool; routed through the promotion pipeline before it can run."
+    );
+    Some(HypothesizedProposal::new(
+        candidate.method.clone(),
+        intent,
+        parent_terms,
+        llm_rationale,
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+        Vec::new(),
+    ))
+}
+
 /// Unix-epoch seconds. Centralized so `created_at`,
 /// `last_transition_at`, and `GateOutcome::recorded_at` share one
 /// clock source. `chrono::Utc::now().timestamp()` returns `i64` and
@@ -761,6 +810,45 @@ mod tests {
             let back: ProposalLifecycle = serde_json::from_str(&json).unwrap();
             assert_eq!(lc, back);
         }
+    }
+
+    #[test]
+    fn proposal_from_landscape_mints_tentative_non_promoted() {
+        use crate::composite_score::CandidateMetadata;
+        use crate::method_landscape::CuratedCandidate;
+
+        let tentative = CuratedCandidate {
+            method: "flair".to_string(),
+            metadata: CandidateMetadata::default(),
+            tentative: true,
+        };
+        let proposal = proposal_from_landscape_candidate(
+            &tentative,
+            "isoform_quantification",
+            vec!["operation:0305".to_string()],
+        )
+        .expect("tentative candidate yields a proposal");
+        // A freshly minted proposal must NOT be Promoted — it is awaiting the
+        // promotion pipeline.
+        assert!(
+            !matches!(proposal.lifecycle, ProposalLifecycle::Promoted { .. }),
+            "tentative candidate must not be minted as Promoted, got {:?}",
+            proposal.lifecycle
+        );
+        assert_eq!(proposal.lifecycle, ProposalLifecycle::PendingValidation);
+        assert!(proposal.lifecycle.is_pending_sme());
+        assert_eq!(proposal.node_id, "flair");
+
+        // A curated (non-tentative) candidate must NOT mint a proposal.
+        let curated = CuratedCandidate {
+            method: "salmon".to_string(),
+            metadata: CandidateMetadata::default(),
+            tentative: false,
+        };
+        assert!(
+            proposal_from_landscape_candidate(&curated, "isoform_quantification", vec![]).is_none(),
+            "curated candidate must not be minted as a hypothesized proposal"
+        );
     }
 
     #[test]

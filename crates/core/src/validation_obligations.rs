@@ -47,8 +47,8 @@ pub struct ValidationRegistry {
 /// in `ValidationRegistry::with_starters()`.
 pub const RENDERER_VALIDATION_BUNDLE_ID: &str = "renderer_output_v1";
 
-/// Bundle id for the five literature-atom validation obligations (Task 3 of
-/// the literature-atom plan). Runners live in `crates/harness/src/literature_validators.rs`.
+/// Bundle id for the literature-atom validation obligations. Runners live in
+/// `crates/harness/src/literature_validators.rs`.
 pub const LITERATURE_VALIDATION_BUNDLE_ID: &str = "literature_v1";
 
 impl ValidationRegistry {
@@ -217,6 +217,17 @@ fn literature_obligations() -> Vec<ValidationObligation> {
             reference: Some("prior_claims_matrix.csv|claims_evidence_matrix.csv".into()),
         },
         ValidationObligation {
+            id: "source_resolves".into(),
+            kind: "literature_integrity".into(),
+            statement: "Every locator (PMID/DOI/arXiv/URL) in the matrix has a \
+                        matching evidence-manifest entry whose snapshot exists on disk; \
+                        PMID locators are well-formed."
+                .into(),
+            reference: Some(
+                "method_landscape.csv|prior_claims_matrix.csv|claims_evidence_matrix.csv".into(),
+            ),
+        },
+        ValidationObligation {
             id: "evidence_quote_substring_match".into(),
             kind: "literature_integrity".into(),
             statement: "For each row, evidence_quote is a substring of the retrieved source \
@@ -248,10 +259,30 @@ fn literature_obligations() -> Vec<ValidationObligation> {
                 .into(),
             reference: Some("claims_evidence_matrix.csv".into()),
         },
+        ValidationObligation {
+            id: "claim_support_satisfied".into(),
+            kind: "literature_integrity".into(),
+            statement: "A default/recommended candidate (tier == defaultRecommended, or — \
+                        when no tier column is present — a candidate that is \
+                        literature_eligible) has ≥1 verified paper-class source \
+                        (primary_literature or conference_proceedings) AND ≥minimumIndependentSources \
+                        distinct verified sources per source-discovery-policy.json."
+                .into(),
+            reference: Some("method_landscape.csv".into()),
+        },
+        ValidationObligation {
+            id: "doc_page_matches_tool".into(),
+            kind: "literature_integrity".into(),
+            statement: "Every tool_documentation row names its candidate_method in the \
+                        retrieved doc-page snapshot (after normalization) and carries a \
+                        non-empty version_context."
+                .into(),
+            reference: Some("method_landscape.csv".into()),
+        },
     ]
 }
 
-/// Construct the `ValidationBundle` that groups the five literature-atom
+/// Construct the `ValidationBundle` that groups the literature-atom
 /// obligations. Registered by `ValidationRegistry::with_starters()`.
 pub fn literature_validation_bundle() -> ValidationBundle {
     ValidationBundle {
@@ -348,10 +379,13 @@ mod tests {
             ids,
             vec![
                 "pmid_resolves",
+                "source_resolves",
                 "evidence_quote_substring_match",
                 "redistributable_or_marked",
                 "claim_row_has_finding_id",
                 "concordance_flag_in_closed_set",
+                "claim_support_satisfied",
+                "doc_page_matches_tool",
             ]
         );
     }
