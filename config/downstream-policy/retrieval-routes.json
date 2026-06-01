@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "routesByClass": {
+    "primary_literature": {
+      "hosts": ["eutils.ncbi.nlm.nih.gov", "ftp.ncbi.nlm.nih.gov"]
+    },
+    "conference_proceedings": {
+      "hosts": ["api.openalex.org", "api.crossref.org"]
+    },
+    "tool_documentation": {
+      "hosts": [
+        "readthedocs.io",
+        "bioconductor.org",
+        "github.com",
+        "raw.githubusercontent.com",
+        "nf-core.re"
+      ],
+      "domainSuffixes": [".github.io", ".readthedocs.io"]
+    }
+  }
+}
