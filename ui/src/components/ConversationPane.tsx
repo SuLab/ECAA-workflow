@@ -24,6 +24,7 @@ import DispositionReviewCard from './DispositionReviewCard'
 import CompositionOutcomeBanner from './CompositionOutcomeBanner'
 import HypothesizedProposalCard from './HypothesizedProposalCard'
 import InfraErrorBanner from './InfraErrorBanner'
+import { MethodOptionsCard, type MethodOption } from './MethodOptionsCard'
 import PackageSafetyBanner from './PackageSafetyBanner'
 import PendingInputHintsCard from './PendingInputHintsCard'
 import ResultReviewTurnCard, {
@@ -47,6 +48,10 @@ import { CardContainer } from './primitives/CardContainer'
 const ENABLE_BRANCH_FROM_HERE_CARD = true
 const ENABLE_RESULT_REVIEW_CARD = true
 const ENABLE_SENSITIVITY_COMPARISON_CARD = true
+// Literature-grounded method-discovery picker. Triggers on the same
+// AwaitingSmeSelection blocker as the sensitivity card, but only for
+// `discover_*` stage ids — those route to MethodOptionsCard instead.
+const ENABLE_METHOD_OPTIONS_CARD = true
 
 export default function ConversationPane() {
   const conv = useSessionContext()
@@ -376,6 +381,49 @@ export default function ConversationPane() {
     return null
   }, [blockedState])
 
+  // A `discover_*` selection blocker routes to the literature-grounded
+  // MethodOptionsCard instead of the sensitivity picker. Both consume
+  // the same AwaitingSmeSelection blocker, so split on the stage id to
+  // keep them mutually exclusive (no double render).
+  const isDiscoverBlocker =
+    sensitivityBlocker?.stage_id?.startsWith('discover_') ?? false
+
+  // Map the blocker's candidate method names into the MethodOptionsCard
+  // shape. The richer per-candidate evidence/score lands once the survey
+  // task's method_landscape.json is wired through; until then each
+  // candidate renders as a bare ranked option so the SME can still pick.
+  const methodOptions = useMemo<MethodOption[]>(() => {
+    if (!sensitivityBlocker) return []
+    return sensitivityBlocker.candidates.map((method, i) => ({
+      method,
+      // Server hands candidates back rank-ordered; surface a descending
+      // placeholder score so rank-1 reads highest until real scores wire in.
+      score: sensitivityBlocker.candidates.length - i,
+      literatureEligible: false,
+      evidence: [],
+    }))
+  }, [sensitivityBlocker])
+
+  const onSelectDiscoverMethod = useCallback(
+    async (method: string, rationale?: string) => {
+      const stageId = sensitivityBlocker?.stage_id
+      if (conv.sessionId && stageId) {
+        try {
+          await postSmeSelection(conv.sessionId, stageId, method)
+          return
+        } catch {
+          // Fall through to the LLM path on REST failure.
+        }
+      }
+      const text = rationale
+        ? `Use ${method} for ${stageId}. Rationale: ${rationale}`
+        : `Use ${method} for ${stageId}.`
+      await conv.sendTurn(text)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dep on .sessionId/.sendTurn method refs is intentional; full conv object would re-run on every render
+    [conv.sessionId, conv.sendTurn, sensitivityBlocker],
+  )
+
   const onSelectSensitivityWinner = useCallback(
     async (winner: string, rationale?: string) => {
       // The AwaitingSmeSelection blocker exposes `stage_id` (NOT
@@ -590,15 +638,26 @@ export default function ConversationPane() {
           ))}
         </div>
       )}
-      {ENABLE_SENSITIVITY_COMPARISON_CARD && sensitivityBlocker && (
+      {ENABLE_METHOD_OPTIONS_CARD && sensitivityBlocker && isDiscoverBlocker && (
         <div style={{ padding: '0.5rem 0.75rem' }}>
-          <SensitivityComparisonCard
+          <MethodOptionsCard
             stage={sensitivityBlocker.stage_id}
-            candidates={sensitivityBlocker.candidates}
-            onSelect={onSelectSensitivityWinner}
+            options={methodOptions}
+            onSelect={onSelectDiscoverMethod}
           />
         </div>
       )}
+      {ENABLE_SENSITIVITY_COMPARISON_CARD &&
+        sensitivityBlocker &&
+        !isDiscoverBlocker && (
+          <div style={{ padding: '0.5rem 0.75rem' }}>
+            <SensitivityComparisonCard
+              stage={sensitivityBlocker.stage_id}
+              candidates={sensitivityBlocker.candidates}
+              onSelect={onSelectSensitivityWinner}
+            />
+          </div>
+        )}
       {ENABLE_RESULT_REVIEW_CARD && conv.sessionId && (
         <div style={{ padding: '0.5rem 0.75rem' }}>
           {Array.from(sse.reviewableTasks).map((taskId) => {
