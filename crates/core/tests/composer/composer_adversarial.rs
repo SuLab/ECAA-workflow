@@ -1596,6 +1596,17 @@ const CASES: &[AdversarialCase] = &[
     },
 ];
 
+// This corpus exercises the retired v1/v2/v3 compose() semantics over
+// SYNTHETIC registries: backward-chain happy paths (Category::Succeeds
+// single-atom / two-step-chain cases) and the precise legacy error variants
+// (NoArchetypeMatch / CycleDetected / GoalUnreachable / ...). v4 is now the
+// sole composer and behaves differently on bare synthetic atoms (it composes
+// from the real catalog with rich port contracts) and surfaces most negative
+// inputs uniformly as ComposerV4OutcomeNotExecutable { PartialDag }. v4's
+// outcome coverage lives in crates/core/tests/composer_v4/. Re-author this
+// corpus for v4 as follow-up (see
+// docs/superpowers/specs/2026-06-01-general-goal-dag-synthesis-design.md).
+#[ignore = "legacy v1/v2/v3 compose() corpus over synthetic registries; re-author for v4"]
 #[test]
 fn every_case_runs_to_expected_outcome() {
     for case in CASES {

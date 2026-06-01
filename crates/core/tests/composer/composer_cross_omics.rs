@@ -103,6 +103,12 @@ fn dispatch_is_order_insensitive_on_modality_set() {
     );
 }
 
+// Asserts the generic multi-branch fallback (deleted with v2's
+// synthesize_generic_multi_modal_composition). v4 reimplements this as
+// Pillar A (per-modality branch decomposition); un-ignore + adapt to the
+// v4 output when docs/superpowers/plans/2026-06-01-general-goal-dag-synthesis.md
+// Phase 1 lands.
+#[ignore = "v4 multi-branch synthesis (general goal->DAG, Pillar A) not yet implemented"]
 #[test]
 fn synthesizes_generic_multi_branch_when_no_cross_omics_match() {
     let (atoms, archetypes) = load_registries();
@@ -134,6 +140,7 @@ fn synthesizes_generic_multi_branch_when_no_cross_omics_match() {
     assert!(stage_ids.contains("multi_modal_final_reporting"));
 }
 
+#[ignore = "v4 multi-branch synthesis (general goal->DAG, Pillar A) not yet implemented"]
 #[test]
 fn generic_fallback_preserves_bulk_single_cell_and_proteomics() {
     let (atoms, archetypes) = load_registries();
@@ -161,6 +168,7 @@ fn generic_fallback_preserves_bulk_single_cell_and_proteomics() {
     assert!(stage_ids.contains("multi_modal_thematic_comparison"));
 }
 
+#[ignore = "v4 multi-branch synthesis (general goal->DAG, Pillar A) not yet implemented"]
 #[test]
 fn generic_fallback_builds_valid_dag_for_three_modalities() {
     let (atoms, archetypes) = load_registries();

@@ -174,6 +174,10 @@ fn ternary_dispatch_is_order_insensitive() {
     assert_eq!(r1.matched_archetype, r2.matched_archetype);
 }
 
+// Generic multi-branch fallback (deleted with v2); restored by v4 Pillar A.
+// Un-ignore + adapt when docs/superpowers/plans/2026-06-01-general-goal-dag-synthesis.md
+// Phase 1 lands.
+#[ignore = "v4 multi-branch synthesis (general goal->DAG, Pillar A) not yet implemented"]
 #[test]
 fn unregistered_triple_synthesizes_generic_multi_branch_dag() {
     let (atoms, archetypes) = load_registries();
