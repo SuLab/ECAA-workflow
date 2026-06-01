@@ -618,12 +618,64 @@ fn stamp_dispatch_identity(
 /// the per-task envelope. The agent helper
 /// (`scripts/agent_literature_fetch.py`) reads them at task-execution
 /// time to select source-scope tier, NCBI rate limit, evidence storage
-/// cap, and institutional-access opt-in.
-fn stamp_literature_scope(env: &mut std::collections::BTreeMap<String, String>) {
+/// cap, institutional-access opt-in, and the method-source authority
+/// (`ECAA_METHOD_SOURCE_AUTHORITY`).
+///
+/// `freeze_method_authority` is the frozen-on-rerun seam: when `true`,
+/// the method-source authority is forced to `frozen` regardless of the
+/// configured value, so a rerun/amend of an already-emitted package
+/// performs no fresh live discovery and preserves the original
+/// provenance. The decision is supplied by the caller via
+/// [`should_freeze_method_authority`]; see that helper for why this is
+/// wired to a conservative default today.
+fn stamp_literature_scope(
+    env: &mut std::collections::BTreeMap<String, String>,
+    freeze_method_authority: bool,
+) {
     let cfg = ecaa_workflow_harness::literature_scope::LiteratureScopeConfig::from_env();
     for (k, v) in cfg.agent_env_vars() {
         env.insert(k, v);
     }
+    if freeze_method_authority {
+        env.insert(
+            "ECAA_METHOD_SOURCE_AUTHORITY".into(),
+            ecaa_workflow_core::config::MethodSourceAuthority::Frozen
+                .as_env_str()
+                .to_string(),
+        );
+    }
+}
+
+/// Frozen-on-rerun decision seam (plan Task 5.2).
+///
+/// When re-running/amending an already-emitted package, the method-source
+/// authority must be forced to `frozen` so no new live discovery occurs and
+/// the original method-landscape provenance is preserved.
+///
+/// **No grounded per-dispatch rerun/amend signal exists at the env-stamp
+/// seam today**, so this returns `false` (no override) by default:
+///   * `rerun_task` delegates to `amend_stage_method` (server-side), which
+///     transitions the session to `Amending`. That state is observable only
+///     *during* the in-flight amend window (when the harness soft-cancels
+///     Running tasks via `ProgressClient::get_amending_invalidated_tasks`),
+///     and requires `--session-id`. By the time the survey task is
+///     *re-dispatched* (post re-emit), the session is back to `Emitted`, so
+///     `Amending` is no longer observable here.
+///   * The harness never reads the package `prov:wasDerivedFrom` lineage, and
+///     the per-pick envelope carries no rerun marker.
+///   * The dispatch WAL records prior `harness_run_id`s but conflates
+///     legitimate resume/continuation with a deliberate rerun.
+///
+/// Inventing a detection mechanism here would not be grounded in the real
+/// dispatch flow. The honest seam: a future integration that surfaces an
+/// explicit rerun/amend signal (e.g. a `--rerun` / `--frozen-method-source`
+/// harness flag set by the server when relaunching for a rerun/amend, or a
+/// per-task marker written into WORKFLOW.json on rerun) plugs in here by
+/// returning `true` for the survey task. Until then the env knob
+/// (`ECAA_METHOD_SOURCE_AUTHORITY=frozen`) is the supported way to freeze a
+/// rerun.
+fn should_freeze_method_authority() -> bool {
+    false
 }
 
 /// Render the per-task `provisioning.json` and
@@ -2655,7 +2707,7 @@ fn run_loop(
                         };
                         let mut env = render_envelope(path, id, dag_snapshot, &inputs);
                         stamp_dispatch_identity(&mut env, dispatch_by_task.get(id));
-                        stamp_literature_scope(&mut env);
+                        stamp_literature_scope(&mut env, should_freeze_method_authority());
                         stamp_provisioning_policy(&mut env, path, dag_snapshot, id, &declared);
                         stamp_safety_network(&mut env, dag_snapshot, id);
                         (id.clone(), env)
@@ -2669,7 +2721,7 @@ fn run_loop(
                     .map(|id| {
                         let mut env = render_envelope(path, id, dag_snapshot, &inputs);
                         stamp_dispatch_identity(&mut env, dispatch_by_task.get(id));
-                        stamp_literature_scope(&mut env);
+                        stamp_literature_scope(&mut env, should_freeze_method_authority());
                         stamp_provisioning_policy(&mut env, path, dag_snapshot, id, &declared);
                         stamp_safety_network(&mut env, dag_snapshot, id);
                         (id.clone(), env)
@@ -6308,5 +6360,79 @@ mod amend_cancel_tests {
         assert!(reason.contains("[cancelled_by_amendment]"));
         assert!(reason.contains("task=align_reads"));
         assert!(reason.contains("target_stage=alignment"));
+    }
+}
+
+#[cfg(test)]
+mod frozen_method_authority_tests {
+    //! Unit tests for the frozen-on-rerun method-source-authority seam
+    //! (plan Task 5.2). These pin the stamping behaviour of
+    //! `stamp_literature_scope` under the `freeze_method_authority` flag
+    //! without a live server or executor.
+    use super::*;
+
+    // Process-global env is shared across all tests in this binary; serialize
+    // every set_var/remove_var window so a parallel test's mutation cannot
+    // leak into another's read (mirrors literature_scope::tests::ENV_LOCK).
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn with_authority_env<F: FnOnce()>(value: Option<&str>, f: F) {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let restore = std::env::var("ECAA_METHOD_SOURCE_AUTHORITY").ok();
+        match value {
+            Some(v) => std::env::set_var("ECAA_METHOD_SOURCE_AUTHORITY", v),
+            None => std::env::remove_var("ECAA_METHOD_SOURCE_AUTHORITY"),
+        }
+        f();
+        match restore {
+            Some(v) => std::env::set_var("ECAA_METHOD_SOURCE_AUTHORITY", v),
+            None => std::env::remove_var("ECAA_METHOD_SOURCE_AUTHORITY"),
+        }
+    }
+
+    #[test]
+    fn freeze_override_forces_frozen_authority() {
+        // Even when the env opts into bounded discovery, the rerun freeze
+        // override must stamp `frozen`.
+        with_authority_env(Some("bounded"), || {
+            let mut env = std::collections::BTreeMap::new();
+            stamp_literature_scope(&mut env, true);
+            assert_eq!(
+                env.get("ECAA_METHOD_SOURCE_AUTHORITY").map(String::as_str),
+                Some("frozen")
+            );
+        });
+    }
+
+    #[test]
+    fn no_override_honours_configured_authority() {
+        with_authority_env(Some("bounded"), || {
+            let mut env = std::collections::BTreeMap::new();
+            stamp_literature_scope(&mut env, false);
+            assert_eq!(
+                env.get("ECAA_METHOD_SOURCE_AUTHORITY").map(String::as_str),
+                Some("bounded")
+            );
+        });
+    }
+
+    #[test]
+    fn default_authority_is_bounded_without_freeze() {
+        with_authority_env(None, || {
+            let mut env = std::collections::BTreeMap::new();
+            stamp_literature_scope(&mut env, false);
+            assert_eq!(
+                env.get("ECAA_METHOD_SOURCE_AUTHORITY").map(String::as_str),
+                Some("bounded")
+            );
+        });
+    }
+
+    #[test]
+    fn should_freeze_is_conservative_default_today() {
+        // No grounded per-dispatch rerun signal exists at the env-stamp seam;
+        // the decision helper returns false until an explicit rerun/amend
+        // signal is wired (see should_freeze_method_authority docs).
+        assert!(!should_freeze_method_authority());
     }
 }
