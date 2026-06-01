@@ -8,6 +8,21 @@ use petgraph::graph::DiGraph;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
+/// Build a dereferenceable EDAM ontology IRI from a CURIE-style local id.
+///
+/// EDAM ids are carried internally as CURIEs (`topic:3308`,
+/// `operation:3223`), but the canonical dereferenceable IRI uses an
+/// underscore in the local id (`https://edamontology.org/topic_3308`),
+/// which 303-redirects to the term. Emitting the raw colon form
+/// (`https://edamontology.org/topic:3308`) yields a 404. Replace every
+/// `:` with `_` so the emitted IRI always dereferences.
+fn edam_iri(local_id: &str) -> String {
+    format!(
+        "https://edamontology.org/{}",
+        local_id.replace(':', "_")
+    )
+}
+
 /// Build the complete ro-crate-metadata.json JSON-LD graph.
 ///
 /// When `dag.run_id` is `Some`, the root Dataset entity includes a
@@ -108,10 +123,10 @@ pub fn build_metadata(
             },
             "programmingLanguage": {"@id": "#ecaa-workflow-dag"},
             "applicationSubCategory": {
-                "@id": format!("https://edamontology.org/{}", classification.edam_topic)
+                "@id": edam_iri(&classification.edam_topic)
             },
             "featureList": {
-                "@id": format!("https://edamontology.org/{}", classification.edam_operation)
+                "@id": edam_iri(&classification.edam_operation)
             },
             "step": topo_order.iter()
                 .map(|id| json!({"@id": format!("#step-{}", id)}))
@@ -283,7 +298,7 @@ pub fn build_metadata(
         if let Some(spec) = &task.spec {
             if let Some(edam) = spec.get("edam_operation").and_then(|v| v.as_str()) {
                 step["instrument"] = json!({
-                    "@id": format!("https://edamontology.org/{}", edam)
+                    "@id": edam_iri(edam)
                 });
             }
         }
@@ -500,4 +515,138 @@ pub fn append_prov_entities(metadata: &mut Value, prov_activities: Vec<Value>) -
         graph.push(activity);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clock::FrozenClock;
+    use regex::Regex;
+
+    #[test]
+    fn edam_iri_converts_curie_colon_to_underscore() {
+        // CURIE-style ids carry a colon internally; the dereferenceable
+        // EDAM IRI must use an underscore in the local id.
+        assert_eq!(
+            edam_iri("topic:3673"),
+            "https://edamontology.org/topic_3673"
+        );
+        assert_eq!(
+            edam_iri("operation:3223"),
+            "https://edamontology.org/operation_3223"
+        );
+        // Already-underscore ids pass through unchanged.
+        assert_eq!(
+            edam_iri("topic_3308"),
+            "https://edamontology.org/topic_3308"
+        );
+    }
+
+    /// Build a minimal one-task DAG whose single task carries an
+    /// `edam_operation` spec, so `build_metadata` exercises all three
+    /// edamontology.org IRI build sites (applicationSubCategory,
+    /// featureList, and the per-step instrument annotation).
+    fn one_task_dag() -> DAG {
+        let task: crate::dag::Task = serde_json::from_value(json!({
+            "kind": "computation",
+            "state": {"status": "pending"},
+            "depends_on": [],
+            "assignee": "agent",
+            "description": "test task",
+            "spec": {"edam_operation": "operation:3223"}
+        }))
+        .expect("minimal task deserializes");
+        let mut tasks = std::collections::BTreeMap::new();
+        tasks.insert(TaskId::from("t1"), task);
+        let mut dag = DAG {
+            version: "1.0".into(),
+            schema_version: crate::dag::current_dag_schema_version(),
+            workflow_id: "test".into(),
+            current_task: None,
+            tasks,
+            run_id: None,
+            reverse_deps: std::collections::BTreeMap::new(),
+        };
+        dag.rebuild_reverse_deps();
+        dag
+    }
+
+    #[test]
+    fn emitted_edam_iris_are_dereferenceable_underscore_form() {
+        let dag = one_task_dag();
+        let classification = ClassificationResult {
+            domain: "genomics".into(),
+            workflow_description: "test workflow".into(),
+            intake_text: "test intake".into(),
+            edam_topic: "topic:3673".into(),
+            edam_operation: "operation:3223".into(),
+            ..Default::default()
+        };
+
+        let metadata = build_metadata(&dag, &classification, &FrozenClock::default());
+
+        // Collect every "@id" string that points at edamontology.org,
+        // descending the whole @graph so workflow-level and per-step
+        // IRIs are both checked.
+        let mut edam_ids: Vec<String> = Vec::new();
+        collect_edam_ids(&metadata, &mut edam_ids);
+
+        // applicationSubCategory + featureList + instrument => 3 sites.
+        assert_eq!(
+            edam_ids.len(),
+            3,
+            "expected 3 edamontology IRIs, got {edam_ids:?}"
+        );
+
+        let topic_re = Regex::new(r"^https://edamontology\.org/topic_\d+$").unwrap();
+        let op_re = Regex::new(r"^https://edamontology\.org/operation_\d+$").unwrap();
+        for id in &edam_ids {
+            // No raw colon may survive in the local id.
+            let local = id
+                .strip_prefix("https://edamontology.org/")
+                .expect("edam IRI keeps its base prefix");
+            assert!(
+                !local.contains(':'),
+                "edam IRI local id still contains ':': {id}"
+            );
+            assert!(
+                topic_re.is_match(id) || op_re.is_match(id),
+                "edam IRI not in canonical topic_N / operation_N form: {id}"
+            );
+        }
+
+        // Exactly one topic_ IRI and two operation_ IRIs (featureList +
+        // per-step instrument both come from edam_operation).
+        assert_eq!(
+            edam_ids.iter().filter(|i| topic_re.is_match(i)).count(),
+            1
+        );
+        assert_eq!(
+            edam_ids.iter().filter(|i| op_re.is_match(i)).count(),
+            2
+        );
+    }
+
+    /// Recursively gather every `@id` value whose string points at
+    /// edamontology.org.
+    fn collect_edam_ids(v: &Value, out: &mut Vec<String>) {
+        match v {
+            Value::Object(map) => {
+                if let Some(Value::String(id)) = map.get("@id") {
+                    if id.starts_with("https://edamontology.org/") {
+                        out.push(id.clone());
+                    }
+                }
+                for (_, child) in map {
+                    collect_edam_ids(child, out);
+                }
+            }
+            Value::Array(items) => {
+                for item in items {
+                    collect_edam_ids(item, out);
+                }
+            }
+            _ => {}
+        }
+    }
 }
