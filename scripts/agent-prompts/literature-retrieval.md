@@ -70,9 +70,22 @@ request and raises on a host that is not listed. Do not bypass the helper to
 fetch from an arbitrary host. If a class you need is not enabled by the
 scope, leave it out — do not reach for an un-allowlisted source.
 
-### When retrieval finds nothing
+### When retrieval finds nothing — curated fallback (never block)
 
-If a class is disabled or an axis yields no usable rows, that is fine: emit
-the artifacts you do have and record what was unavailable in `result.json`.
-Do not block solely because literature was thin — the downstream
-`discover_*` task has its own handling for sparse evidence.
+If a class is disabled, you are offline, every route fails, or an axis yields
+no usable rows, that is fine and must NOT block the task. The helper handles
+this for you: pass the axis's curated candidate pool (its task-spec
+`attributes.candidate_tools`) to `fetch_for_axis(..., curated=[...])`. When
+retrieval produces zero usable rows for the axis, the helper emits one
+fallback row per curated candidate with `source_class=curated_baseline`,
+`verified=false`, and no locator (empty `source_ref_kind`/`source_ref` and
+empty `evidence_quote`). These rows let the downstream `discover_*` task still
+offer the curated pool; the locator-resolution and corroboration validators
+skip `curated_baseline` rows, so nothing fails. A transport/availability
+failure inside the helper degrades to this fallback automatically — only a
+route-allowlist misconfiguration surfaces as an error.
+
+`fetch_for_axis` also (re)writes `method_landscape.json` from the full CSV on
+every call — in both the normal and the fallback path — so the downstream UI
+and loader always have a current per-axis candidate view. You do not need to
+write that file by hand.
