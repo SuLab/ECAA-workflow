@@ -109,18 +109,29 @@ class BiomniBench(Benchmark):
         ]
 
     def assemble_score(self, task, arm, output, trial, verdicts):
-        """Build a Score from pre-fetched batch verdicts (headline + cross)."""
-        headline = verdicts["headline"]
-        cross = verdicts["cross"]
-        exact = per_criterion_exact(headline.get("levels", {}), cross.get("levels", {}))
-        kappa = linear_weighted_kappa(headline.get("levels", {}), cross.get("levels", {}))
+        """Build a Score from pre-fetched judge verdicts.
+
+        Gemini headline is the primary score when present; if Gemini is absent
+        (e.g. out of credits) the Opus cross-check becomes the primary so the run
+        still yields a usable score, flagged ``partial_judging``. Inter-judge
+        agreement is computed only when both providers are present."""
+        headline = verdicts.get("headline")
+        cross = verdicts.get("cross")
+        primary = headline or cross
+        judge_id = "gemini-3.1-pro" if headline else "anthropic-opus"
+        extra = {"judge_cost_usd": (headline.get("cost_usd", 0.0) if headline else 0.0)
+                                   + (cross.get("cost_usd", 0.0) if cross else 0.0)}
+        if headline and cross:
+            extra["cross_check"] = cross["overall"]
+            extra["judge_exact"] = per_criterion_exact(
+                headline.get("levels", {}), cross.get("levels", {}))
+            extra["judge_kappa"] = linear_weighted_kappa(
+                headline.get("levels", {}), cross.get("levels", {}))
+        else:
+            extra["partial_judging"] = True
         return Score(task_id=task.task_id, arm=arm.value, trial=trial,
-                     overall=headline["overall"], dimensions=headline["dimensions"],
-                     jaccard=None, error_cells=None, judge_id="gemini-3.1-pro",
-                     extra={"cross_check": cross["overall"],
-                            "judge_exact": exact,
-                            "judge_kappa": kappa,
-                            "judge_cost_usd": headline.get("cost_usd", 0.0) + cross.get("cost_usd", 0.0)})
+                     overall=primary["overall"], dimensions=primary["dimensions"],
+                     jaccard=None, error_cells=None, judge_id=judge_id, extra=extra)
 
     def score(self, task, arm, output, trial):
         headline = judge("gemini-3.1-pro", task.rubric, output.trace_md, output.answer_txt)

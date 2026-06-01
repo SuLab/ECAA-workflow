@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 from pathlib import Path
 
 import requests
@@ -295,6 +296,24 @@ def _fetch_provider(misses: list[dict], batch_fn, sync_fn) -> dict[str, tuple[st
     return {m["key"]: sync_fn(m["prompt"]) for m in misses}
 
 
+def _resolve_provider(misses: list[dict], batch_fn, sync_fn,
+                      results: dict[str, dict]) -> None:
+    """Fetch + cache + score one provider's cache-misses into ``results``.
+
+    Each verdict is cached only after a successful fetch, so a provider failure
+    (which raises out of this function) leaves nothing cached for that provider —
+    ``--resume`` then retries exactly the unscored requests."""
+    fetched = _fetch_provider(misses, batch_fn, sync_fn)
+    for entry in misses:
+        key = entry["key"]
+        text, in_tok, out_tok = fetched[key]
+        _cache_path(entry["judge_id"], entry["rubric"],
+                    entry["trace"], entry["answer"]).write_text(text)
+        verdict = parse_verdict(entry["rubric"], text)
+        verdict["cost_usd"] = _judge_cost_usd(entry["judge_id"], in_tok, out_tok)
+        results[key] = verdict
+
+
 def judge_batch(requests_list: list[dict]) -> dict[str, dict]:
     """Score a list of judge requests in batch, grouped by provider.
 
@@ -336,28 +355,21 @@ def judge_batch(requests_list: list[dict]) -> dict[str, dict]:
             else:
                 misses_anthropic.append(entry)
 
-    # Fetch misses per provider: sync below the threshold, batch at/above it.
-    if misses_gemini:
-        fetched = _fetch_provider(misses_gemini, _gemini_batch, _gemini_call)
-        for entry in misses_gemini:
-            key = entry["key"]
-            text, in_tok, out_tok = fetched[key]
-            _cache_path(entry["judge_id"], entry["rubric"],
-                        entry["trace"], entry["answer"]).write_text(text)
-            verdict = parse_verdict(entry["rubric"], text)
-            verdict["cost_usd"] = _judge_cost_usd(entry["judge_id"], in_tok, out_tok)
-            results[key] = verdict
-
-    if misses_anthropic:
-        fetched = _fetch_provider(misses_anthropic, _anthropic_batch, _anthropic_call)
-        for entry in misses_anthropic:
-            key = entry["key"]
-            text, in_tok, out_tok = fetched[key]
-            _cache_path(entry["judge_id"], entry["rubric"],
-                        entry["trace"], entry["answer"]).write_text(text)
-            verdict = parse_verdict(entry["rubric"], text)
-            verdict["cost_usd"] = _judge_cost_usd(entry["judge_id"], in_tok, out_tok)
-            results[key] = verdict
+    # Fetch misses per provider, each fault-isolated: a provider that fails
+    # (e.g. out of credits) is logged and skipped — the other still scores, and
+    # the failed provider is left un-cached so --resume retries only those.
+    # Sync below ECAA_EVAL_JUDGE_BATCH_MIN, batch at/above it.
+    for provider, misses, batch_fn, sync_fn in (
+        ("gemini-3.1-pro", misses_gemini, _gemini_batch, _gemini_call),
+        ("anthropic-opus", misses_anthropic, _anthropic_batch, _anthropic_call),
+    ):
+        if not misses:
+            continue
+        try:
+            _resolve_provider(misses, batch_fn, sync_fn, results)
+        except Exception as e:
+            print(f"[judge] provider {provider} failed; {len(misses)} request(s) "
+                  f"left unscored + un-cached (resume to retry): {e}", file=sys.stderr)
 
     return results
 
