@@ -1,61 +1,98 @@
 # Scripts
 
-Operational scripts used by the Make targets, CI, and manual end-to-end runs. Organized by role. For the developer-focused script conventions (fail-fast, determinism, session isolation), see [AGENTS.md](AGENTS.md).
+Operational scripts used by the Make targets and manual end-to-end runs, organized by role. This is the slim OSS surface — there is no GitHub CI; the gates below run locally via `make` and the installed git pre-push hook. Files prefixed with `_` are internal helpers sourced by the user-facing scripts.
 
-## Current (Rust workspace)
-
-These scripts are the current active set, wired into the Rust workspace Make targets.
-
-### Agent harness
+## Agent execution
 
 | Script | Purpose |
 |---|---|
-| `agent-claude.sh` | Invoked by `ecaa-workflow-harness` as the execution agent. Takes a package directory, delegates the next ready task to Claude Code, and writes the task result back to `WORKFLOW.json`. Requires `ANTHROPIC_API_KEY`. |
-| `agent-claude-aws.sh` | AWS executor variant of `agent-claude.sh`. Used when the harness is configured to delegate compute-heavy tasks to AWS instances. See [docs/remote-compute-operator-reference.md](../docs/remote-compute-operator-reference.md). |
-| `agent-claude-slurm.sh` | SLURM executor variant of `agent-claude.sh`. Submits the task via `sbatch` over SSH onto the configured partition; driven from the `SlurmExecutor` backend. |
-| `agent-mock-blocker.sh` | Deterministic mock blocker agent used by the UI tests and `conversation/tools/execution.rs`. No LLM dependency; emits a canned blocker to exercise `BlockerCard` dispatch paths. |
-| `run-task-on-instance.sh` | SSM wrapper that runs a single ready task on a provisioned AWS instance. Driven from `agent-claude-aws.sh`; depends on `aws ssm`. |
-| `run-task-on-slurm.sh` | SSH + sbatch wrapper that runs a single ready task inside a SLURM job. Driven from `harness/executor/slurm/sbatch.rs`. |
+| `agent-claude.sh` | Invoked by `ecaa-workflow-harness` as the local execution agent. Takes a package directory, delegates the next ready task to Claude Code, and writes the task result back to `WORKFLOW.json`. Defaults to subscription billing via `~/.claude/.credentials.json`. |
+| `agent-claude-aws.sh` | AWS executor variant of `agent-claude.sh`, used when the harness delegates compute to AWS instances. |
+| `agent-claude-slurm.sh` | SLURM executor variant: submits the task via `sbatch` over SSH; driven from the `SlurmExecutor` backend. |
+| `agent-claude-common.sh` | Shared shell library sourced by the three `agent-claude-*.sh` wrappers (credential refresh, container plumbing, result-writeback). |
+| `_agent-blas-bootstrap.sh` | Internal: BLAS/LAPACK bootstrap for the agent container. |
+| `agent-fixture-plots.sh` | Fixture-executor agent that renders deterministic plots for breadth/QA runs without an LLM. |
+| `agent_literature_fetch.py` | Literature-atom retrieval helper (PMC OA / E-utilities) used by the agent at runtime. |
+| `run-task-on-instance.sh` | SSM wrapper that runs a single ready task on a provisioned AWS instance; driven from `agent-claude-aws.sh`. |
+| `run-task-on-slurm.sh` | SSH + sbatch wrapper that runs a single ready task inside a SLURM job; driven from the SLURM executor. |
+| `agent-prompts/` | Prompt templates for the execution agent (`task-execution.md`, `literature-retrieval.md`). |
 
-### Test drivers
+## Container images
+
+| Script | Purpose |
+|---|---|
+| `build-bio-min.sh` | Build the `bio-min` agent execution container (`make bio-min` / `make bootstrap`). |
+| `build-bio-domain.sh` | Build the larger bio-domain container with heavier toolchains. |
+| `build-derived-image.sh` | Build a per-task derived image keyed by atom content hash (flocks the buildkit cache). |
+| `build-fixture-packages.sh` | Emit the fixture packages used by breadth/QA runs. |
+
+## Architectural-invariant gates (`make lint`)
+
+| Script | Checks |
+|---|---|
+| `check-no-tokio-in-core-harness.sh` | No `tokio` dependency leaks into `crates/core` or `crates/harness`. |
+| `check-no-hashmap-in-emitter.sh` | The emitter uses `BTreeMap`, never `HashMap` (deterministic output). |
+| `check-no-lock-unwrap.sh` | No `lock().unwrap()` on poison-prone mutexes. |
+| `check-ts-bindings-fresh.sh` | `ui/src/types/` is in sync with the ts-rs source (run `make types` if it drifts). |
+
+## Determinism / reproducibility
+
+| Script | Purpose |
+|---|---|
+| `verify-emit-reproducibility.sh` | Emits the same scenario twice and byte-diffs the packages (excluding the conversation/decision logs). |
+| `verify-reproducibility.sh` | Broader reproducibility sweep across scenarios. |
+| `regenerate-goldens.sh` | Regenerate golden fixtures after an intentional emit-shape change. |
+| `refresh-real-fixture.sh` | Refresh a real captured fixture package. |
+
+## ECAA spec / schema validation
+
+| Script | Purpose |
+|---|---|
+| `spec-check/validate_schemas.sh` | Validate emitted subgraph sidecars against the JSON Schemas in `docs/ecaa-spec/subgraph-schemas/`. |
+| `spec-check/owl_consistency.py` | OWL consistency check of the ECAA ontology projection. |
+| `spec-check/project_package.py` | Project an emitted package into the ECAA subgraph view for validation. |
+| `wrroc-validate.py` | WRROC Tier-3 round-trip validation against the fixture corpus. |
+
+## Test drivers
 
 | Script | Make target | Purpose |
 |---|---|---|
 | `test-e2e.sh` | `make e2e` | Smoke test: build, emit, inspect a small package. |
-| `test-ivd.sh` | `make ivd`, `make ivd-execute` | IVD real-world compile test. Asserts 25-task DAG and all Fix 1–8 artifacts. `KEEP_PACKAGE=1` preserves output at `/tmp/scripps-ivd-latest`. |
-| `test-ivd-chat.sh` | `make ivd-chat` | IVD scenario driven through deterministic `ecaa-workflow chat`. Includes the lotz alignment closed-loop assertion via `scripts/helpers/lotz_ledger.py`. |
-| `test-ivd-chat-llm.sh` | `make ivd-chat-llm` | IVD scenario driven through LLM-mediated `ecaa-workflow chat-llm`. Skipped without `ANTHROPIC_API_KEY`. |
-| `test-ivd-web-execute.sh` | `make ivd-web-execute` | Web chat session + harness with `--session-id`, end-to-end with `curl + jq`. Skipped without `ANTHROPIC_API_KEY`. |
-| `test-ivd-web-execute-mock.sh` | `make ivd-web-execute-mock` | Mock-backend smoke of the web chat + harness path. No `ANTHROPIC_API_KEY` needed. |
-| `test-ivd-cross-version.sh` | `make ivd-cross-version` | IVD v1→v5 cross-version regression. Invoked from `rust.yml` on PR and on demand locally. |
-| `test-chat-confirm.sh` | `make chat-confirm` | Regression test for the `awaiting_confirm` auto-proceed behavior. |
-| `measure-latency-baseline.sh` | `make latency-baseline` | Fixture latency baseline. Gated on `ECAA_FIXTURE_TIMEOUT_MS` (default 8000 ms). |
-| `check-test-counts.sh` | `test-count-check` CI job | Reproduces `.github/ci/expected-test-counts.json` baseline locally; fails on drift-down. |
+| `test-chat-confirm.sh` | — | Regression for the deterministic-chat confirmation auto-proceed behavior. |
+| `test_agent_claude_common.py` | — | Unit tests for `agent-claude-common.sh` plumbing. |
+| `test_build_bio_min.py` | — | Unit tests for the bio-min container build. |
+| `test_agent_fixture_plots.py`, `test_harness_fixture_plots.py` | — | Tests for the fixture-plot agent + harness path. |
+| `test-atom-proposal.py`, `test-inputs-upload.py`, `test-small-subset-dag.py` | — | Targeted integration checks. |
+| `tests/test_agent_literature_fetch.py` | — | Unit tests for `agent_literature_fetch.py`. |
 
-### Provenance / lifecycle
-
-| Script | Make target | Purpose |
-|---|---|---|
-| `enrich_provenance.py` | `make enrich PKG=<dir>` | Enriches an emitted package with additional provenance metadata. Requires Python 3.10+. |
-| `prune-lineage.sh` | `make prune-lineage [APPLY=1]` | Walks `$ECAA_PACKAGE_ROOT` and lists (dry-run by default) every amendment chain longer than `--keep-last` (default 3); `APPLY=1` deletes. |
-
-### Helpers
+## QA / breadth utilities
 
 | Script | Purpose |
 |---|---|
-| `helpers/lotz_ledger.py` | Reads the lotz SME ledger at `testdata/IVD_prompt/lotz-sme-decisions.yaml` and exposes two subcommands: `emit-resolves` (emit `/resolve` lines for the deterministic chat REPL) and `drift-report` (compare an emitted `WORKFLOW.json` against the ledger and write `runtime/lotz-alignment-report.md`). Used by `make ivd-chat` and `make ivd-execute`. |
+| `audit_dag.py` | Audit an emitted `WORKFLOW.json` for cycles, orphans, modality pollution, and missing terminal reporting. |
+| `dag_compare.py` | Diff two emitted DAGs. |
+| `claim_verify_injection_harness.py` | Adversarial claim-verification injection harness. |
+| `enumerate_plot_atoms.py`, `generate_plot_stubs.py` | Enumerate plot-bearing atoms / scaffold renderer stubs. |
+| `migrate_atom_safety.py` | One-shot migration helper for atom `safety:` blocks. |
+| `scan_container_network.sh` | Audit container network policy. |
+| `scrub-keys-from-traces.sh` | Redact secrets from captured traces. |
+| `strip-comment-noise.py` | Strip phase/ticket-prefixed comment noise. |
+| `docgen_repo.py` | Repo-root resolver + markdown link audit. |
+| `prune-lineage.sh` | Walk `$ECAA_PACKAGE_ROOT` and list (dry-run by default; `APPLY=1` deletes) amendment chains longer than `--keep-last`. |
 
-### Repo hygiene
+## Helpers / libraries
 
-| Script | Purpose |
+| Path | Purpose |
 |---|---|
-| `check_repo_hygiene.sh` | Portability, tracked-junk, and compiler-byproduct gate. Run by CI. |
-| `docgen_repo.py` | Repo-root resolver, markdown link audit, documentation-governance audit. Backs `check_repo_hygiene.sh` and the `docs-link-audit` / `docs-governance-audit` subcommands. |
+| `helpers/cngb_fetch.py` | CNGB dataset fetch helper. |
+| `helpers/provision_r_bioconductor.sh` | Provision R + Bioconductor inside the agent container. |
+| `lib/test-helpers.sh` | Shared shell test helpers. |
+| `hooks/pre-push` | The repo-local pre-push hook installed by `make install-hooks`; runs `make lint`. |
 
-## Legacy (pre-Rust migration)
+## Eval harness (`scripts/eval/`, operator-run)
 
-See [legacy/README.md](legacy/README.md) for the three surviving pre-Rust scripts.
+Live evaluation is operator-run only (never invoked by any CI), gated behind `ECAA_EVAL_LIVE=1`, and driven by `make eval TIER={dryrun|e2e|biomnibench|nekrutenko}`. The harness lives under `scripts/eval/` (Python): `eval_runner.py`, `scheduler.py`, `benchmark.py`, `rubric_normalize.py`, plus `plugins/` (BiomniBench + Nekrutenko), `scoring/`, and `services/`. Offline unit tests run via `make eval-tests`. See the `eval-*` targets in `make help`.
 
-## Script conventions
+## Conventions
 
-Keep scripts fail-fast (`set -euo pipefail`), deterministic by default, and derive the repo root dynamically instead of hardcoding a machine-local path. Do not silently downgrade validation failures to warnings. For the full guide, see [AGENTS.md](AGENTS.md).
+Keep scripts fail-fast (`set -euo pipefail`), deterministic by default, and derive the repo root dynamically instead of hardcoding a machine-local path. Do not silently downgrade validation failures to warnings.
