@@ -300,7 +300,7 @@ async fn emit_steps(
     // Aggregate the runtime-prereqs manifest from the taxonomy's
     // `runtime_baseline` (the legacy path has no
     // atom catalog in scope; per-atom prereqs flow through the
-    // composer-driven path on composer_version >= 2). Empty baseline
+    // composer-driven path). Empty baseline
     // produces an empty-but-valid manifest, which the harness pre-
     // flight short-circuits on.
     let runtime_prereqs = ecaa_workflow_core::runtime_prereqs::aggregate_taxonomy(taxonomy, &[]);
@@ -1807,116 +1807,4 @@ mod tests {
         }
     }
 
-    /// Flip-default smoke. With
-    /// `read_composer_version` defaulting to v4 for new sessions, a fresh
-    /// session that goes through `dispatch_one(AppendIntakeProse)` for a
-    /// scrnaseq prose must:
-    /// 1. Pin `composer_version = 4` (verified by Session::new + env unset).
-    /// 2. Cache a `WorkflowDag` on the session via `tools::rebuild_dag`.
-    /// 3. Emit the five v4-specific sidecars at emit time:
-    /// - `runtime/proofs.jsonl`
-    /// - `runtime/assumptions.jsonl`
-    /// - `runtime/policy-decisions.jsonl` (only when policy gate
-    /// recorded a decision; absent when no bundle is active)
-    /// - `runtime/validation-reports.jsonl` (post-harness; only the
-    /// obligation hooks land at emit time, the file appends at
-    /// run time)
-    /// - `runtime/plot_affordances.jsonl`
-    ///
-    /// Marked `#[ignore]` to keep CI fast. Run with:
-    /// cargo test -p ecaa-workflow-conversation -- --ignored v4_default_emits_sidecars
-    #[tokio::test]
-    #[ignore]
-    async fn v4_default_emits_sidecars() {
-        // Make sure ECAA_COMPOSER is unset so we exercise the default.
-        std::env::remove_var("ECAA_COMPOSER");
-
-        let mut session = Session::new(false);
-        assert_eq!(
-            session.composer_version, 4,
-            "Phase 5 default flip: new sessions with ECAA_COMPOSER unset must pin composer_version=4"
-        );
-
-        let ctx = ToolContext::new(config_dir(), "claude-sonnet-4-6");
-        // Use a prose that triggers both modality + goal classification.
-        // Bulk RNA-seq DE is the canonical test path with a clear goal pattern
-        // ("differential expression").
-        dispatch_one(
-            &Tool::Batchable(BatchableTool::AppendIntakeProse {
-                prose:
-                    "bulk RNA-seq differential expression analysis comparing IBD vs healthy controls, \
-                     30 samples, human GRCh38"
-                        .into(),
-            }),
-            &mut session,
-            &ctx,
-        )
-        .await;
-
-        assert!(
-            session.workflow_dag.is_some(),
-            "v4 dispatch must cache a WorkflowDag on the session"
-        );
-        assert!(
-            session.archetype_snapshot.is_some(),
-            "bulk RNA-seq + DE goal must pin the bulk_rnaseq_de archetype_snapshot"
-        );
-
-        let tmp = tempfile::tempdir().unwrap();
-        emit_with_conversation_log(&mut session, tmp.path(), &config_dir())
-            .await
-            .unwrap();
-
-        let runtime = tmp.path().join("runtime");
-        let proofs = runtime.join("proofs.jsonl");
-        let plot_affordances = runtime.join("plot_affordances.jsonl");
-
-        // proofs.jsonl is the load-bearing v4 emit: the WorkflowDag's
-        // edges carry CompatibilityProofs that must round-trip through
-        // the audit log so downstream Workflow Run RO-Crate consumers
-        // can verify the typed-port matches.
-        assert!(
-            proofs.exists(),
-            "v4 emit must write runtime/proofs.jsonl (got missing at {})",
-            proofs.display()
-        );
-        // plot_affordances.jsonl is unconditionally written (even when
-        // empty) at every emit by Phase A1–A3 wiring.
-        assert!(
-            plot_affordances.exists(),
-            "every emit must write runtime/plot_affordances.jsonl (got missing at {})",
-            plot_affordances.display()
-        );
-        // assumptions.jsonl is presence-gated on the AssumptionLedger
-        // having entries. Ranking-style archetypes (bulk_rnaseq_de) don't
-        // populate the ledger, so absence is acceptable for this smoke;
-        // only assert presence when the workflow_dag actually carries
-        // assumptions.
-        if !session
-            .workflow_dag
-            .as_ref()
-            .unwrap()
-            .assumptions
-            .entries
-            .is_empty()
-        {
-            assert!(
-                runtime.join("assumptions.jsonl").exists(),
-                "assumptions.jsonl must exist when workflow_dag carries ledger entries"
-            );
-        }
-        // policy-decisions.jsonl is presence-gated on the policy gate
-        // having recorded any decision. For scrnaseq with no clinical
-        // bundle that's typically empty, so we only assert the file
-        // exists when session.policy_decisions is non-empty.
-        if !session.policy_decisions.is_empty() {
-            assert!(
-                runtime.join("policy-decisions.jsonl").exists(),
-                "policy-decisions.jsonl must exist when policy_decisions is non-empty"
-            );
-        }
-        // validation-reports.jsonl is appended at harness runtime, not
-        // emit time. We don't assert its presence here — emit only
-        // wires the obligation hooks via task-nodes.json.
-    }
 }

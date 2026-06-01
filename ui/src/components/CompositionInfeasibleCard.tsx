@@ -71,9 +71,7 @@ export default function CompositionInfeasibleCard({
  * Link out to the dedicated Composition tab where the SME
  * can see the full typed outcome (refusal report, novel-node spec,
  * adapter warnings, assumption ledger, ranked alternatives) without
- * leaving the session. Falls through harmlessly when the session is
- * on a legacy composer (the tab still renders, just shows the
- * legacy-composer notice).
+ * leaving the session.
  */
 function CompositionTabLink() {
   return (

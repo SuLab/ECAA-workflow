@@ -12,7 +12,7 @@
 //! `opaque_aggregation.rs` integration test (which covers the
 //! cross-session aggregator wiring). This test verifies the
 //! wire-through from `tools::rebuild_dag` →
-//! `compose_with_version_and_modalities_full` → engine
+//! `compose_with_modalities_full` → engine
 //! `PlanningContext` → `OpaqueObservationSinkImpl` → JSONL.
 //!
 //! Tolerant of "no Opaque observation fired" — many archetypes
@@ -82,7 +82,7 @@ async fn rebuild_dag_writes_opaque_observation_with_real_session_id() {
 
     // Script: one `AppendIntakeProse` (which funnels through
     // `rebuild_dag` and therefore through
-    // `compose_with_version_and_modalities_full` with the live sink)
+    // `compose_with_modalities_full` with the live sink)
     // followed by an end-turn assistant text. The prose names a bare
     // modality with no canonical goal phrase so the composer routes
     // through the bare-modality fallback path — the one most likely

@@ -56,7 +56,7 @@
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom::{AtomAssignee, AtomDefinition, AtomRole};
 use ecaa_workflow_core::atom_registry::AtomRegistry;
-use ecaa_workflow_core::composer::{self, compose_with_version, CompositionError};
+use ecaa_workflow_core::composer::{self, compose, CompositionError};
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -314,7 +314,7 @@ const CASES: &[AdversarialCase] = &[
             // bogus project_class. The default compose() now routes to v4, which
             // returns ComposerV4OutcomeNotExecutable { PartialDag } for this input.
             // Mirrors the pin in composer.rs internal tests (~line 3130).
-            match compose_with_version(&goal, "this_class_does_not_exist", &atoms, &archetypes, 2) {
+            match compose(&goal, "this_class_does_not_exist", &atoms, &archetypes) {
                 Ok(r) => panic!(
                     "bogus-class case should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -347,7 +347,7 @@ const CASES: &[AdversarialCase] = &[
             };
             // Pin to v2: v2 archetype fast-path returns NoArchetypeMatch when score=0
             // for every archetype. v4 returns ComposerV4OutcomeNotExecutable { PartialDag }.
-            match compose_with_version(&goal, "no_such_class", &atoms, &archetypes, 2) {
+            match compose(&goal, "no_such_class", &atoms, &archetypes) {
                 Ok(r) => panic!(
                     "all-mismatched case should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -421,13 +421,11 @@ const CASES: &[AdversarialCase] = &[
                 vec!["cycle_a"],
             );
             let atoms = synth_registry(vec![a, b]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                3,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => panic!("cycle should fail; got Ok with {} atoms", r.atoms.len()),
                 Err(e) => Outcome::Err(e),
             }
@@ -450,13 +448,11 @@ const CASES: &[AdversarialCase] = &[
             let b = synth_atom("ring_b", AtomRole::Operation, None, None, vec!["ring_c"]);
             let c = synth_atom("ring_c", AtomRole::Operation, None, None, vec!["ring_a"]);
             let atoms = synth_registry(vec![a, b, c]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                3,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => panic!("ring should fail; got Ok with {} atoms", r.atoms.len()),
                 Err(e) => Outcome::Err(e),
             }
@@ -483,13 +479,11 @@ const CASES: &[AdversarialCase] = &[
                 ));
             }
             let reg = synth_registry(atoms);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &reg,
-                &empty_archetypes(),
-                3,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("deep cycle should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -513,13 +507,11 @@ const CASES: &[AdversarialCase] = &[
             );
             atom.excludes = vec!["ghost_that_was_never_authored".into()];
             let atoms = synth_registry(vec![atom]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("malformed exclusion should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -542,13 +534,11 @@ const CASES: &[AdversarialCase] = &[
             );
             atom.excludes = vec!["ghost_a".into(), "ghost_b".into()];
             let atoms = synth_registry(vec![atom]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("multi-ghost exclusion should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -571,13 +561,11 @@ const CASES: &[AdversarialCase] = &[
                 vec!["leaf"],
             );
             let atoms = synth_registry(vec![leaf, producer]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("transitive-ghost exclusion should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -603,13 +591,11 @@ const CASES: &[AdversarialCase] = &[
             helper_a.excludes = vec!["helper_b".into()];
             let helper_b = synth_atom("helper_b", AtomRole::Operation, None, None, vec![]);
             let atoms = synth_registry(vec![producer, helper_a, helper_b]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => panic!(
                     "exclusion-conflict should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -636,13 +622,11 @@ const CASES: &[AdversarialCase] = &[
             a.excludes = vec!["dep_helper".into()];
             let dep = synth_atom("dep_helper", AtomRole::Operation, None, None, vec![]);
             let atoms = synth_registry(vec![a, dep]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => panic!(
                     "self-conflict should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -661,7 +645,7 @@ const CASES: &[AdversarialCase] = &[
         runner: || -> Outcome {
             let atoms = synth_registry(vec![]);
             let archetypes = empty_archetypes();
-            match compose_with_version(&de_table_goal(), "bioinformatics", &atoms, &archetypes, 2) {
+            match compose(&de_table_goal(), "bioinformatics", &atoms, &archetypes) {
                 Ok(_) => panic!("empty registries should yield NoArchetypeMatch"),
                 Err(e) => Outcome::Err(e),
             }
@@ -686,13 +670,11 @@ const CASES: &[AdversarialCase] = &[
                 deferred_to: "phantom_discoverer".into(),
             });
             let atoms = synth_registry(vec![a]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => panic!(
                     "missing-discovery method-choice should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -722,13 +704,11 @@ const CASES: &[AdversarialCase] = &[
             });
             let target = synth_atom("mis_role", AtomRole::Operation, None, None, vec![]);
             let atoms = synth_registry(vec![producer, target]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("operation-as-discovery should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -766,13 +746,11 @@ const CASES: &[AdversarialCase] = &[
                 serde_json::Value::String("run_two".into()),
             );
             let atoms = synth_registry(vec![consumer, a, b]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("joint mismatch should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -806,13 +784,11 @@ const CASES: &[AdversarialCase] = &[
             // m_b lacks source_atom on purpose.
             let b = synth_atom("m_b", AtomRole::Operation, None, None, vec![]);
             let atoms = synth_registry(vec![consumer, a, b]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("missing source_atom should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -835,13 +811,11 @@ const CASES: &[AdversarialCase] = &[
                 vec![],
             );
             let atoms = synth_registry(vec![producer]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => Outcome::Ok {
                     atom_count: r.atoms.len(),
                 },
@@ -865,13 +839,11 @@ const CASES: &[AdversarialCase] = &[
                 vec!["upstream"],
             );
             let atoms = synth_registry(vec![upstream, producer]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => {
                     assert!(
                         r.atoms.iter().any(|c| c.stage_id.as_str() == "upstream"),
@@ -906,13 +878,11 @@ const CASES: &[AdversarialCase] = &[
             });
             let discoverer = synth_atom("the_discoverer", AtomRole::Discovery, None, None, vec![]);
             let atoms = synth_registry(vec![op, discoverer]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => Outcome::Ok {
                     atom_count: r.atoms.len(),
                 },
@@ -944,13 +914,11 @@ const CASES: &[AdversarialCase] = &[
                 vec!["self_loop"],
             );
             let atoms = synth_registry(vec![producer]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                3,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => panic!("self-loop should fail; got Ok with {} atoms", r.atoms.len()),
                 Err(e) => Outcome::Err(e),
             }
@@ -985,13 +953,11 @@ const CASES: &[AdversarialCase] = &[
                 vec!["method_choice_op"],
             );
             let atoms = synth_registry(vec![op, mc]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                3,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("method-choice cycle should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1017,13 +983,11 @@ const CASES: &[AdversarialCase] = &[
                 vec!["d_left", "d_right"],
             );
             let atoms = synth_registry(vec![bottom, left, right, top]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => panic!(
                     "diamond exclusion should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -1071,13 +1035,11 @@ const CASES: &[AdversarialCase] = &[
                 vec!["chain_l4"],
             );
             let atoms = synth_registry(vec![leaf, l2, l3, l4, top]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("deep transitive-exclusion should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1104,13 +1066,11 @@ const CASES: &[AdversarialCase] = &[
             });
             let disc = synth_atom("typo_disc", AtomRole::Discovery, None, None, vec![]);
             let atoms = synth_registry(vec![op, disc]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("typo'd method-choice should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1139,13 +1099,11 @@ const CASES: &[AdversarialCase] = &[
             });
             let orphan = synth_atom("orphan_disc", AtomRole::Discovery, None, None, vec![]);
             let atoms = synth_registry(vec![op, orphan]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("orphan discovery should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1198,13 +1156,11 @@ const CASES: &[AdversarialCase] = &[
                 serde_json::Value::String("run_Y".into()),
             );
             let atoms = synth_registry(vec![consumer, a, b, c]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("3-way joint mismatch should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1239,13 +1195,11 @@ const CASES: &[AdversarialCase] = &[
                 serde_json::Value::String("run_one".into()),
             );
             let atoms = synth_registry(vec![consumer, a, b]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!("empty-string source vs concrete should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1264,13 +1218,11 @@ const CASES: &[AdversarialCase] = &[
             let d1 = synth_atom("disc1", AtomRole::Discovery, None, None, vec![]);
             let d2 = synth_atom("disc2", AtomRole::Discovery, None, None, vec![]);
             let atoms = synth_registry(vec![d1, d2]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(_) => panic!(
                     "discovery-only registry should yield NoArchetypeMatch \
                      for an Operation-typed goal"
@@ -1300,13 +1252,11 @@ const CASES: &[AdversarialCase] = &[
                 vec![],
             );
             let atoms = synth_registry(vec![producer]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => panic!(
                     "format-mismatch should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -1355,13 +1305,11 @@ const CASES: &[AdversarialCase] = &[
                 vec!["happy_l3"],
             );
             let atoms = synth_registry(vec![l0, l1, l2, l3, top]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => {
                     assert!(
                         r.atoms.len() >= 5,
@@ -1407,13 +1355,11 @@ const CASES: &[AdversarialCase] = &[
                 serde_json::Value::String("run_alpha".into()),
             );
             let atoms = synth_registry(vec![consumer, a, b]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => Outcome::Ok {
                     atom_count: r.atoms.len(),
                 },
@@ -1440,13 +1386,11 @@ const CASES: &[AdversarialCase] = &[
                 vec!["fan_h1", "fan_h2", "fan_h3"],
             );
             let atoms = synth_registry(vec![h1, h2, h3, top]);
-            match compose_with_version(
+            match compose(
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes(),
-                2,
-            ) {
+                &empty_archetypes()) {
                 Ok(r) => {
                     assert!(
                         r.atoms.len() >= 4,
@@ -1501,7 +1445,7 @@ const CASES: &[AdversarialCase] = &[
                 vec!["ghost_atom_never_authored"],
             );
             let archetypes = synth_archetypes(vec![arch]);
-            match compose_with_version(&de_table_goal(), "bioinformatics", &atoms, &archetypes, 2) {
+            match compose(&de_table_goal(), "bioinformatics", &atoms, &archetypes) {
                 Ok(_) => panic!("ghost-archetype-atom should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1532,7 +1476,7 @@ const CASES: &[AdversarialCase] = &[
                 vec!["real_one", "first_ghost", "second_ghost"],
             );
             let archetypes = synth_archetypes(vec![arch]);
-            match compose_with_version(&de_table_goal(), "bioinformatics", &atoms, &archetypes, 2) {
+            match compose(&de_table_goal(), "bioinformatics", &atoms, &archetypes) {
                 Ok(_) => panic!("multi-ghost archetype should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1569,7 +1513,7 @@ const CASES: &[AdversarialCase] = &[
                 vec!["needs_helper"], // 'helper_dep' missing from scaffold
             );
             let archetypes = synth_archetypes(vec![arch]);
-            match compose_with_version(&de_table_goal(), "bioinformatics", &atoms, &archetypes, 2) {
+            match compose(&de_table_goal(), "bioinformatics", &atoms, &archetypes) {
                 Ok(_) => panic!("archetype omitting required dep should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1603,7 +1547,7 @@ const CASES: &[AdversarialCase] = &[
                 vec!["excl_left", "excl_right"],
             );
             let archetypes = synth_archetypes(vec![arch]);
-            match compose_with_version(&de_table_goal(), "bioinformatics", &atoms, &archetypes, 2) {
+            match compose(&de_table_goal(), "bioinformatics", &atoms, &archetypes) {
                 Ok(_) => panic!("archetype with mutually-excluding atoms should fail"),
                 Err(e) => Outcome::Err(e),
             }

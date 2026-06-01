@@ -39,7 +39,6 @@ fn defaults_when_env_empty() {
         cfg.git_enabled,
         "git enabled by default unless ECAA_GIT_ENABLED=0"
     );
-    assert_eq!(cfg.composer, "semantic");
 }
 
 #[test]
@@ -348,12 +347,10 @@ fn builder_overrides_propagate() {
     let cfg = Config::for_test()
         .harness_batch_window_secs(5)
         .auto_title(true)
-        .composer("proof-carrying")
         .port(8080)
         .build();
     assert_eq!(cfg.harness_batch_window_secs, 5);
     assert!(cfg.auto_title);
-    assert_eq!(cfg.composer, "proof-carrying");
     assert_eq!(cfg.port, 8080);
 }
 

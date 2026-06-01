@@ -72,10 +72,6 @@ const DEFAULT_BIND_ADDR: &str = "127.0.0.1";
 /// SME-facing chat-server documented default in CLAUDE.md is `3000`.)
 const DEFAULT_PORT: u16 = 3000;
 
-/// Default composer engine alias. `semantic` and `proof-carrying` both route
-/// to the v4 proof-carrying planner.
-const DEFAULT_COMPOSER: &str = "semantic";
-
 /// AWS pricing-region multiplier acceptable range. Outside this range the
 /// loader rejects the value — a 10× multiplier or 0.01× discount is far
 /// outside any documented AWS region pricing band and almost certainly an
@@ -308,11 +304,6 @@ pub struct Config {
     /// Treats `0` / `false` / `no` / `off` as disabled; everything else
     /// (including unset) is enabled (default `true`).
     pub git_enabled: bool,
-    /// `ECAA_COMPOSER`. Default `"semantic"`; the v4 proof-carrying planner
-    /// also accepts `"proof-carrying"`. Legacy values warn and route to v4
-    /// at the conversation crate's session-create site, so they're not
-    /// rejected here.
-    pub composer: String,
 
     // Core classifier policy ---------------------------------------------
     /// `ECAA_MODALITY_DRIFT_MODE`. Controls how `Classifier::load`
@@ -493,12 +484,6 @@ impl Config {
             Some("0") => false,
             _ => true,
         };
-        let composer = env
-            .get("ECAA_COMPOSER")
-            .copied()
-            .filter(|s| !s.is_empty())
-            .unwrap_or(DEFAULT_COMPOSER)
-            .to_string();
 
         // -- Core classifier policy ------------------------------------
         let modality_drift_mode = match env.get("ECAA_MODALITY_DRIFT_MODE").copied() {
@@ -540,7 +525,6 @@ impl Config {
             bind_addr,
             port,
             git_enabled,
-            composer,
             modality_drift_mode,
             ecaa_mode,
         })
@@ -593,7 +577,6 @@ impl std::fmt::Debug for Config {
             .field("bind_addr", &self.bind_addr)
             .field("port", &self.port)
             .field("git_enabled", &self.git_enabled)
-            .field("composer", &self.composer)
             .field("modality_drift_mode", &self.modality_drift_mode)
             .field("ecaa_mode", &self.ecaa_mode)
             .finish()
@@ -652,7 +635,6 @@ impl Default for ConfigBuilder {
                 bind_addr: DEFAULT_BIND_ADDR.to_string(),
                 port: DEFAULT_PORT,
                 git_enabled: true,
-                composer: DEFAULT_COMPOSER.to_string(),
                 modality_drift_mode: ModalityDriftMode::Warn,
                 ecaa_mode: crate::emit_mode::EcaaMode::Full,
             },
@@ -792,12 +774,6 @@ impl ConfigBuilder {
     /// Git enabled.
     pub fn git_enabled(mut self, v: bool) -> Self {
         self.inner.git_enabled = v;
-        self
-    }
-
-    /// Composer.
-    pub fn composer(mut self, c: impl Into<String>) -> Self {
-        self.inner.composer = c.into();
         self
     }
 

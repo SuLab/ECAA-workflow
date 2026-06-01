@@ -21,7 +21,7 @@ fn minimal_dag() -> ecaa_workflow_core::dag::DAG {
     use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
     use ecaa_workflow_core::atom_registry::AtomRegistry;
     use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
-    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::composer::compose_with_modalities_full;
     use ecaa_workflow_core::goal_spec::GoalSpec;
     let config = config_root();
     let atoms = AtomRegistry::load_from_dir(&config.join("stage-atoms")).expect("atoms");
@@ -34,12 +34,11 @@ fn minimal_dag() -> ecaa_workflow_core::dag::DAG {
         source_prose: Some("ablation contract fixture".into()),
         confidence: 0.0,
     };
-    let out = compose_with_version_and_modalities_full(
+    let out = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &["bulk_rnaseq"],
         None,
         None,

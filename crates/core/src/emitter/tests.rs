@@ -10,7 +10,7 @@ use tempfile::TempDir;
 fn dag_from_archetype(archetype_id: &str, modality: &str) -> DAG {
     use crate::archetype_registry::ArchetypeRegistry;
     use crate::atom_registry::AtomRegistry;
-    use crate::composer::compose_with_version_and_modalities_full;
+    use crate::composer::compose_with_modalities_full;
     use crate::goal_spec::GoalSpec;
     let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -27,12 +27,11 @@ fn dag_from_archetype(archetype_id: &str, modality: &str) -> DAG {
         source_prose: Some("emitter test (bare-modality fallback)".into()),
         confidence: 0.0,
     };
-    let output = compose_with_version_and_modalities_full(
+    let output = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &[modality],
         None,
         None,

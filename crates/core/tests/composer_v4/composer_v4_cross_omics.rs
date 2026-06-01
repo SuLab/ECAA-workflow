@@ -28,7 +28,7 @@ use std::collections::BTreeSet;
 
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
-use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::composer::compose_with_modalities_full;
 use ecaa_workflow_core::goal_spec::GoalSpec;
 
 const ATOMS_DIR: &str = "../../config/stage-atoms";
@@ -70,12 +70,11 @@ fn dispatch_cross_omics() -> BTreeSet<String> {
     // PlanningContext threads both through to the planner.
     let modalities: Vec<&str> = vec!["bulk_rnaseq", "proteomics"];
 
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atom_reg,
-        &archetype_reg,
-        4, // v4
+        &archetype_reg, // v4
         &modalities,
         None,
         None,

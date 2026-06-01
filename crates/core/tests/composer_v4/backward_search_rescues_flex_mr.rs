@@ -10,7 +10,7 @@
 fn backward_search_synthesizes_chain_for_mr_goal() {
     use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
     use ecaa_workflow_core::atom_registry::AtomRegistry;
-    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::composer::compose_with_modalities_full;
     use ecaa_workflow_core::goal_spec::GoalSpec;
 
     let archetypes = ArchetypeRegistry::load_from_dir(
@@ -44,12 +44,11 @@ fn backward_search_synthesizes_chain_for_mr_goal() {
         source_prose: Some("two-sample mendelian randomization".into()),
         confidence: 0.5,
     };
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &[],
         None,
         None,

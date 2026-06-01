@@ -80,7 +80,7 @@ fn emit_package_for_fixture(fixture: &IntakeFixture, out_dir: &Path) -> bool {
     use ecaa_workflow_core::atom_registry::AtomRegistry;
     use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
     use ecaa_workflow_core::classify::Classifier;
-    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::composer::compose_with_modalities_full;
     use ecaa_workflow_core::goal_spec::GoalSpec;
     use ecaa_workflow_core::ro_crate::build_metadata;
     use std::collections::BTreeMap;
@@ -133,12 +133,11 @@ fn emit_package_for_fixture(fixture: &IntakeFixture, out_dir: &Path) -> bool {
 
     let modalities: Vec<&str> = vec![clf.modality.as_str()];
 
-    let compose_result = compose_with_version_and_modalities_full(
+    let compose_result = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &modalities,
         None,
         None,

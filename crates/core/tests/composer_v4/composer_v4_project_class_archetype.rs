@@ -23,7 +23,7 @@ use std::collections::BTreeSet;
 
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
-use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::composer::compose_with_modalities_full;
 use ecaa_workflow_core::goal_spec::GoalSpec;
 
 const ATOMS_DIR: &str = "../../config/stage-atoms";
@@ -100,12 +100,11 @@ fn clinical_trial_uses_clinical_archetype() {
     let (atom_reg, archetype_reg) = load_registries();
     let goal = clinical_trial_goal();
 
-    let output = compose_with_version_and_modalities_full(
+    let output = compose_with_modalities_full(
         &goal,
         "clinical_trial",
         &atom_reg,
         &archetype_reg,
-        4,
         &["generic_omics"],
         None,
         None,
@@ -170,12 +169,11 @@ fn gwas_modality_overrides_false_clinical_project_class() {
     let (atom_reg, archetype_reg) = load_registries();
     let goal = gwas_coloc_goal();
 
-    let output = compose_with_version_and_modalities_full(
+    let output = compose_with_modalities_full(
         &goal,
         "clinical_trial",
         &atom_reg,
         &archetype_reg,
-        4,
         &["gwas"],
         None,
         None,
@@ -232,12 +230,11 @@ fn time_series_does_not_use_bulk_rnaseq_archetype() {
     let (atom_reg, archetype_reg) = load_registries();
     let goal = time_series_goal();
 
-    match compose_with_version_and_modalities_full(
+    match compose_with_modalities_full(
         &goal,
         "time_series_forecast",
         &atom_reg,
         &archetype_reg,
-        4,
         &["generic_omics"],
         None,
         None,
@@ -335,12 +332,11 @@ fn bioinformatics_target_skips_project_class_archetypes() {
         source_prose: Some("bulk RNA-seq differential expression".into()),
         confidence: 0.9,
     };
-    let output = compose_with_version_and_modalities_full(
+    let output = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atom_reg,
         &archetype_reg,
-        4,
         &["bulk_rnaseq"],
         None,
         None,

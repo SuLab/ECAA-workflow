@@ -164,8 +164,7 @@ pub enum CompositionError {
         inherited_archetype_id: String,
         target_atom_id: crate::ids::AtomId,
     },
-    /// `composer_version=4`
-    /// (proof-carrying planner) returned an outcome other than
+    /// The v4 proof-carrying planner returned an outcome other than
     /// `ValidatedExecutableDag`. Surfaces the typed `ComposeOutcome`
     /// kind + summary so the conversation layer can route to the right
     /// blocker card (PartialDag → CompositionInfeasible; DraftDag →
@@ -174,12 +173,9 @@ pub enum CompositionError {
     ///
     /// The full forward / backward / meet-in-the-middle planner
     /// lives in `composer_v4::plan` and produces real `ComposeOutcome`
-    /// variants. `composer_version=4` is opt-in via
-    /// `ECAA_COMPOSER=semantic` at session creation so v1-v3 users
-    /// see no behavior change until their fixtures + persisted
-    /// sessions migrate.
+    /// variants.
     #[error(
-        "composer_version=4 returned {outcome_kind} (not executable): {summary}{}",
+        "v4 composer returned {outcome_kind} (not executable): {summary}{}",
         format_gaps_suffix(gaps)
     )]
     ComposerV4OutcomeNotExecutable {

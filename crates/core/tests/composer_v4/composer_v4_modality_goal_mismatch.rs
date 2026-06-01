@@ -23,7 +23,7 @@
 
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
-use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::composer::compose_with_modalities_full;
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -62,12 +62,11 @@ fn atac_with_de_goal() -> GoalSpec {
 fn atac_seq_with_de_goal_does_not_fail_with_goal_unreachable() {
     let (atoms, archetypes) = workspace_config();
     let goal = atac_with_de_goal();
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &["atac_seq"],
         None,
         None,
