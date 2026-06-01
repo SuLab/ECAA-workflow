@@ -111,17 +111,19 @@ def _gemini_batch(items: list[dict]) -> dict[str, tuple[str, int, int]]:
     Returns ``{key: (text, in_tok, out_tok)}``.
 
     Uses the Gemini Batch API inline-requests path:
-      POST https://generativelanguage.googleapis.com/v1beta/batches
+      POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:batchGenerateContent
+    The model is encoded in the URL path (not a per-request field).
     Each inline request carries a metadata.key for correlation.
-    Poll GET .../batches/{name} until state == "JOB_STATE_SUCCEEDED",
-    then read dest.inlined_responses paired with input keys.
+    Poll GET v1beta/{name} until state == "JOB_STATE_SUCCEEDED",
+    then read response.inlinedResponses[] paired with input keys.
     See: https://ai.google.dev/gemini-api/docs/batch-api
     """
     import time
     key = os.environ["GEMINI_API_KEY"]
+    model = "gemini-3.1-pro-preview"
     base = "https://generativelanguage.googleapis.com/v1beta"
 
-    # Build inline batch payload.
+    # Build inline batch payload. Model goes in URL, not per-request body.
     requests_payload = [
         {
             "request": {"contents": [{"parts": [{"text": item["prompt"]}]}],
@@ -131,7 +133,7 @@ def _gemini_batch(items: list[dict]) -> dict[str, tuple[str, int, int]]:
         for item in items
     ]
     r = requests.post(
-        f"{base}/batches",
+        f"{base}/models/{model}:batchGenerateContent",
         params={"key": key},
         json={"batch": {
             "display_name": "ecaa-eval-judge",
@@ -140,6 +142,7 @@ def _gemini_batch(items: list[dict]) -> dict[str, tuple[str, int, int]]:
         timeout=60,
     )
     r.raise_for_status()
+    # "name" is a full resource path like "batches/123456789".
     batch_name = r.json()["name"]
 
     # Poll until succeeded or failed.
@@ -154,13 +157,17 @@ def _gemini_batch(items: list[dict]) -> dict[str, tuple[str, int, int]]:
         if state in ("JOB_STATE_FAILED", "JOB_STATE_CANCELLED", "JOB_STATE_EXPIRED"):
             raise RuntimeError(f"Gemini batch ended with state {state}")
 
-    # Pair inlined_responses with original keys (same order as submitted).
-    inlined = body.get("dest", {}).get("inlined_responses", [])
+    # Pair inlinedResponses with original keys (same order as submitted).
+    # Completed response shape: {"name":…, "state":…, "response": {"inlinedResponses": […]}}
+    inlined = body.get("response", {}).get("inlinedResponses", [])
     results: dict[str, tuple[str, int, int]] = {}
     for item, resp_obj in zip(items, inlined):
-        resp = resp_obj.get("response", {})
-        text = resp.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        usage = resp.get("usageMetadata", {})
+        # Each element is a GenerateContentResponse (or a status object on error).
+        text = (resp_obj.get("candidates", [{}])[0]
+                        .get("content", {})
+                        .get("parts", [{}])[0]
+                        .get("text", ""))
+        usage = resp_obj.get("usageMetadata", {})
         in_tok = usage.get("promptTokenCount", 0)
         out_tok = usage.get("candidatesTokenCount", 0)
         results[item["key"]] = (text, in_tok, out_tok)
