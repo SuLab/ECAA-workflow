@@ -24,6 +24,37 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
+// ── Typed-locator schema shape ────────────────────────────────────────────────
+
+/// A non-PMID manifest entry (source_class=conference_proceedings, locator=DOI)
+/// carries the typed-locator columns and round-trips as the JSON shape the
+/// evidence-manifest schema (schema_version 2) accepts.
+#[test]
+fn manifest_accepts_doi_locator_entry() {
+    let json = serde_json::json!({
+        "schema_version": 2,
+        "entries": [{
+            "source_ref_kind": "doi",
+            "source_ref": "10.1093/bioinformatics/btchunk",
+            "source_class": "conference_proceedings",
+            "source_kind": "abstract_only",
+            "path": "doi_10.1093_btchunk.json",
+            "sha256_binary": "ab".repeat(32),
+            "sha256_extracted_text": "cd".repeat(32),
+            "extracted_text_normalization": "collapse_whitespace_lowercase_v1",
+            "bytes": 12u64,
+            "retrieval_ts": "2026-05-31T00:00:00Z",
+            "retrieval_query_id": "q1",
+            "redistributable": true,
+            "license": "CC-BY-4.0"
+        }]
+    });
+    let parsed: serde_json::Value = json.clone();
+    assert_eq!(parsed["entries"][0]["source_ref_kind"], "doi");
+    assert_eq!(parsed["schema_version"], 2);
+    assert!(parsed["entries"][0].get("pmid").is_none());
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn write(p: &Path, s: &str) {
