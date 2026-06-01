@@ -34,6 +34,7 @@ mod compact;
 pub(crate) mod conversational;
 mod emit;
 pub(crate) mod execution;
+mod gap_proposals;
 mod hypothesized_node;
 mod hypothesized_renderer;
 mod intake;
@@ -3199,6 +3200,16 @@ fn try_build_via_composer(
                 session.workflow_dag = workflow_dag_for_session;
             }
             session.compose_outcome = output.compose_outcome.clone();
+            // Pillar C (Phase 2): when the multi-branch composer reports
+            // an unsatisfiable modality as a `PartialDag` gap, upgrade
+            // each `unsatisfiable_modality:<m>` gap into a
+            // `HypothesizedProposal` advanced through the existing gates
+            // (→ `AwaitingSignoff`/`Blocked`) so it awaits SME signoff
+            // instead of dying as a dead gap. Idempotent + side-effect
+            // only on `session.proposals`; no DAG mutation.
+            if let Some(outcome) = output.compose_outcome.as_ref() {
+                gap_proposals::surface_unsatisfiable_modality_proposals(session, outcome);
+            }
             session.ranked_alternatives = output.ranked_alternatives.clone();
             session.policy_decisions = output.policy_decisions.clone();
             // Thread the planner's matched archetype back into the
