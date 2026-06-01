@@ -8,6 +8,22 @@ def per_criterion_exact(a: dict, b: dict) -> float:
         return 0.0
     return sum(1 for k in keys if a[k] == b[k]) / len(keys)
 
+def agreement_overlap(a: dict, b: dict) -> dict:
+    """Describe how much the two judges' criterion sets overlap.
+
+    ``per_criterion_exact``/``linear_weighted_kappa`` score only the key
+    intersection, so a partial verdict (one judge returning fewer criterion
+    ids) can read as high agreement on a thin overlap. Callers consult this to
+    tell whether the agreement figure spans the whole rubric (``complete``) or
+    just a subset.
+    """
+    ka, kb = set(a), set(b)
+    return {
+        "n_overlap": len(ka & kb),
+        "n_union": len(ka | kb),
+        "complete": ka == kb,
+    }
+
 def linear_weighted_kappa(a: dict, b: dict) -> float:
     keys = sorted(set(a) & set(b))
     if not keys:

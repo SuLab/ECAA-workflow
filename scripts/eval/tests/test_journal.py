@@ -39,3 +39,14 @@ def test_append_is_thread_safe(tmp_path):
     for ln in lines:
         json.loads(ln)  # every line is valid JSON (no interleaving)
     assert len(j.completed_keys()) == 160
+
+
+def test_append_uses_append_semantics_across_instances(tmp_path):
+    """Separate Journal instances pointing at the same dir append (O_APPEND),
+    never truncate: earlier records survive later appends from a new instance."""
+    Journal(tmp_path).append({"key": "first"})
+    Journal(tmp_path).append({"key": "second"})
+    Journal(tmp_path).append({"key": "third"})
+    keys = [r["key"] for r in Journal(tmp_path).records()]
+    assert keys == ["first", "second", "third"]
+

@@ -25,9 +25,9 @@ def _render_error_matrix(em: dict) -> list[str]:
     for arm in arms:
         entry = em[arm]
         lines.append(
-            f"- {arm}: recover {entry['recover_rate']:.3f},"
-            f" diagnose {entry['diagnose_rate']:.3f}"
-            f" (n={entry['n_cells']})"
+            f"- {arm}: recover {entry.get('recover_rate', 0.0):.3f},"
+            f" diagnose {entry.get('diagnose_rate', 0.0):.3f}"
+            f" (n={entry.get('n_cells', 0)})"
         )
     lines.append("")
     # Collect union of patterns across all arms.
@@ -52,7 +52,10 @@ def _render_error_matrix(em: dict) -> list[str]:
             for arm in arms:
                 bp = em[arm].get("by_pattern", {}).get(pat)
                 if bp:
-                    row_cols += [f"{bp['recover_rate']:.3f}", f"{bp['diagnose_rate']:.3f}"]
+                    row_cols += [
+                        f"{bp.get('recover_rate', 0.0):.3f}",
+                        f"{bp.get('diagnose_rate', 0.0):.3f}",
+                    ]
                 else:
                     row_cols += ["", ""]
             lines.append("| " + " | ".join(row_cols) + " |")
@@ -131,8 +134,9 @@ def _markdown(card: Scorecard) -> str:
             lines.append("")
             lines += _render_judge_agreement(card.meta["judge_agreement"])
         if "cost" in card.meta:
+            cost = card.meta["cost"] or {}
             lines.append("")
-            lines.append(f"Judge cost (USD): {card.meta['cost']['judge_usd']}")
+            lines.append(f"Judge cost (USD): {cost.get('judge_usd', '')}")
 
     return "\n".join(lines) + "\n"
 
