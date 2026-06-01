@@ -1,10 +1,19 @@
-"""Per-sample variant-overlap Jaccard for the Nekrutenko mtDNA task.
+"""Variant-overlap Jaccard for the Nekrutenko mtDNA task.
 
 A variant key is (chrom, pos, ref, alt) of a PASS (or unfiltered) record.
 Multiallelic records (ALT = comma-separated alleles) are decomposed into one
 key per ALT allele so each allele matches independently against a single-allele
 answer key. Two shared keys match only if their AF agrees within af_tol.
 Jaccard = |matched| / |union of keys|.
+
+Two flavours:
+
+* Per-sample (``jaccard`` / ``mean_jaccard``): one obs VCF vs one key VCF,
+  paired by the caller.
+* Recipe-agnostic (``flat_variant_set`` / ``flat_jaccard``): pool ALL obs VCFs
+  into one call set and ALL key VCFs into another, then compare. This compares
+  the CALL SETS regardless of per-sample-vs-cohort organisation or file naming,
+  and excludes gVCF intermediates (by name + non-variant ALT).
 """
 from __future__ import annotations
 import gzip
@@ -76,6 +85,73 @@ def parse_vcf_variants(path: Path) -> dict[tuple[str, int, str, str], float]:
                 af = 0.0
             variants[(chrom, pos, ref, allele)] = af
     return variants
+
+
+# ALT values that mark a record as NON-variant (gVCF reference blocks, missing
+# calls). These never represent an actual short-variant call and must not enter
+# the pooled set.
+_NON_VARIANT_ALTS = {"<NON_REF>", ".", ""}
+
+
+def _is_gvcf_path(path: Path) -> bool:
+    """Cheap heuristic: a file whose name ends in ``.g.vcf`` / ``.g.vcf.gz`` is a
+    gVCF (per-sample intermediate with reference blocks), not a final call set."""
+    name = Path(path).name.lower()
+    return name.endswith(".g.vcf") or name.endswith(".g.vcf.gz")
+
+
+def _flat_variant_map(
+    paths: list[Path],
+) -> dict[tuple[str, int, str, str], float]:
+    """Pool a FLAT {(chrom, pos, ref, alt): af} map across a LIST of VCFs.
+
+    Recipe-agnostic: the union of per-allele variant keys across every given
+    VCF, so a single cohort VCF and a set of per-sample VCFs that encode the
+    same calls compare equal. gVCF content is excluded two ways:
+
+    * files whose name ends ``.g.vcf`` / ``.g.vcf.gz`` are skipped wholesale
+      (gVCFs are intermediates, not final calls);
+    * any record whose ALT is ``<NON_REF>``, ``.`` or empty is dropped even from
+      a plainly-named file (defensive against gVCF content in a non-`.g.` name).
+
+    Reuses ``parse_vcf_variants`` (per-allele split + gzip handling). On a key
+    seen in more than one file the last AF wins; the AF only gates the ±tol
+    match in ``flat_jaccard`` and per-sample AFs for the same call agree closely.
+    """
+    pooled: dict[tuple[str, int, str, str], float] = {}
+    for path in paths:
+        if _is_gvcf_path(path):
+            continue
+        for key, af in parse_vcf_variants(path).items():
+            if key[3] in _NON_VARIANT_ALTS:
+                continue
+            pooled[key] = af
+    return pooled
+
+
+def flat_variant_set(paths: list[Path]) -> set[tuple[str, int, str, str]]:
+    """The pooled set of (chrom, pos, ref, alt) variant keys across a LIST of
+    VCFs — recipe-agnostic, gVCF/non-variant-excluding (see ``_flat_variant_map``)."""
+    return set(_flat_variant_map(paths))
+
+
+def flat_jaccard(
+    obs_paths: list[Path], ref_paths: list[Path], af_tol: float = 0.02
+) -> float:
+    """Recipe-agnostic Jaccard over CALL SETS pooled across two lists of VCFs.
+
+    Pools all observed VCFs into one variant set and all reference VCFs into
+    another (``flat_variant_set`` semantics: gVCF + non-variant exclusion), then
+    scores |matched| / |union| with the same AF ±``af_tol`` tolerance the
+    per-sample ``jaccard`` uses. An empty union is a vacuous 1.0.
+    """
+    a = _flat_variant_map(obs_paths)
+    b = _flat_variant_map(ref_paths)
+    union = set(a) | set(b)
+    if not union:
+        return 1.0
+    matched = sum(1 for k in (set(a) & set(b)) if abs(a[k] - b[k]) <= af_tol)
+    return matched / len(union)
 
 
 def jaccard(obs: Path, key: Path, af_tol: float = 0.02) -> float:

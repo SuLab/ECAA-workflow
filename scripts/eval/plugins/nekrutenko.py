@@ -11,7 +11,7 @@ import tempfile
 from pathlib import Path
 from statistics import mean
 from scripts.eval.benchmark import Arm, Benchmark, Output, RunSpec, Score, Scorecard
-from scripts.eval.scoring.variant_overlap import mean_jaccard
+from scripts.eval.scoring.variant_overlap import flat_jaccard, _is_gvcf_path
 from scripts.eval.scoring.error_matrix import classify_cell
 from scripts.eval.services.datasets import scratch_root, stage_file
 
@@ -99,11 +99,14 @@ class Nekrutenko(Benchmark):
         return RunSpec(arm, workdir, "bare", instr)
 
     def collect(self, spec, run_dir):
+        # rglob pulls every VCF anywhere under the run dir, including cohort /
+        # annotated / per-sample outputs in nested stage dirs. score() pools all
+        # of them into one flat call set (dropping gVCF intermediates), so naming
+        # and per-sample-vs-cohort organisation don't matter at scoring time.
         vcfs = {p.name: p for p in run_dir.rglob("*.vcf")}
         # Agents (and lofreq) routinely emit bgzipped .vcf.gz — the answer keys
         # themselves are .vcf.gz. Index those too, under both their own name and
-        # the plain-.vcf stem, so score()'s stem-match (which strips .gz off the
-        # answer keys) pairs them. A plain .vcf already present wins (setdefault).
+        # the plain-.vcf stem. A plain .vcf already present wins (setdefault).
         for p in run_dir.rglob("*.vcf.gz"):
             vcfs.setdefault(p.name, p)
             vcfs.setdefault(p.name[:-3], p)
@@ -111,17 +114,28 @@ class Nekrutenko(Benchmark):
                       "vcfs": vcfs}, exit_ok=True, wall_secs=0.0)  # exit/wall set by driver
 
     def score(self, task, arm, output, trial):
+        # Recipe-agnostic CALL-SET overlap: the ECAA arm legitimately compiles a
+        # germline GATK joint-genotyping workflow (per-sample gVCFs + a cohort
+        # VCF), while the lofreq answer key is 4 per-sample VCFs. A per-sample
+        # stem-match would score ~0 by construction on the naming mismatch even
+        # when the same variants were called. Instead we pool ALL of the agent's
+        # final-call VCFs (everything collect() indexed, minus gVCF
+        # intermediates) and ALL answer-key VCFs into two flat variant sets and
+        # take their Jaccard with the same ±0.02 AF tolerance.
         key_dir = task.answer_key
-        pairs = []
-        # Canonical answer-key VCFs are bgzip-compressed (.vcf.gz); agents may
-        # produce plain .vcf outputs.  Match by stem (strip .gz if present) so
-        # M117-bl.vcf.gz pairs with the agent's M117-bl.vcf.
-        for kvcf in sorted(Path(key_dir).glob("*.vcf.gz")):
-            stem = kvcf.name[:-3] if kvcf.name.endswith(".gz") else kvcf.name
-            obs = output.artifacts["vcfs"].get(stem) or output.artifacts["vcfs"].get(kvcf.name)
-            if obs:
-                pairs.append((obs, kvcf))
-        j = mean_jaccard(pairs) if pairs else 0.0
+        ref_paths = sorted(Path(key_dir).glob("*.vcf.gz")) if key_dir else []
+        # collect() indexes each VCF under one or more keys; de-dup by resolved
+        # path so a file indexed under both name + stem isn't double-counted, and
+        # drop gVCF intermediates (.g.vcf / .g.vcf.gz) — they are not final calls.
+        seen: set = set()
+        obs_paths: list[Path] = []
+        for p in output.artifacts.get("vcfs", {}).values():
+            rp = Path(p).resolve()
+            if rp in seen or _is_gvcf_path(p):
+                continue
+            seen.add(rp)
+            obs_paths.append(p)
+        j = flat_jaccard(obs_paths, ref_paths) if ref_paths else 0.0
         return Score(task_id=task.task_id, arm=arm.value, trial=trial,
                      overall=round(j * 100.0, 2), dimensions={}, jaccard=j,
                      error_cells=output.artifacts.get("error_cells"),
