@@ -14,11 +14,13 @@
 
 use std::collections::BTreeSet;
 
+use crate::archetype_registry::ArchetypeRegistry;
 use crate::atom_registry::AtomRegistry;
 use crate::composer::{ComposedAtom, CompositionResult};
 use crate::goal_spec::GoalSpec;
 use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
 use crate::workflow_contracts::lifecycle::LifecycleState;
+use crate::workflow_contracts::outcome::{ComposeOutcome, GapReport};
 use crate::workflow_contracts::task_node::WorkflowDag;
 
 /// Hard cap on branch count so a pathological modality list can't fan
@@ -228,10 +230,131 @@ fn assemble(
     })
 }
 
+/// Phase-1 proposal stub for a modality with no catalog satisfier. A
+/// `GapReport` carries the unsatisfiable modality through the
+/// `PartialDag` outcome with a `propose_hypothesized_node` suggestion;
+/// Phase 2 upgrades this into a full `HypothesizedProposal`.
+fn missing_modality_gap(modality: &str) -> GapReport {
+    GapReport {
+        id: format!("unsatisfiable_modality:{modality}"),
+        statement: format!(
+            "modality '{modality}' has no catalog satisfier (no archetype matched and \
+             search produced no executable branch); surface a hypothesized-node proposal \
+             instead of dropping it"
+        ),
+        missing_port: None,
+        suggestions: vec![
+            format!("Propose a hypothesized pipeline for '{modality}' via propose_hypothesized_node"),
+            "Add an archetype or atoms covering this modality".into(),
+        ],
+    }
+}
+
+/// The assembled multi-branch DAG plus any unsatisfiable-modality gaps.
+/// Scoring/classification of `dag` is done by the caller (`plan()`),
+/// which holds the planner-private helpers.
+pub(crate) struct MultiBranchComposition {
+    pub dag: WorkflowDag,
+    pub unresolved: Vec<GapReport>,
+}
+
+/// Plan each requested modality through the FULL single-modality planner
+/// (recursive, guarded `plan()` call), prefix + strip + assemble. A
+/// modality whose sub-plan yields no executable DAG becomes a
+/// `GapReport` (never a silent drop). The caller guarantees >=2
+/// modalities and no cross-omics archetype.
+///
+/// Branches are iterated in a fixed order (primary first, then
+/// `additional_modalities` in stored order), which is load-bearing for
+/// `modality_prefix` collision-suffix assignment — keep this collection
+/// ordered so a future refactor does not feed an unordered set.
+pub(crate) fn compose_branches(
+    ctx: &crate::composer_v4::PlanningContext,
+    goal: &GoalSpec,
+    project_class: &str,
+    atom_reg: &AtomRegistry,
+    archetype_reg: &ArchetypeRegistry,
+) -> MultiBranchComposition {
+    let mut modalities: Vec<String> = Vec::new();
+    if let Some(m) = ctx.intent.modality.as_deref() {
+        modalities.push(m.to_string());
+    }
+    for m in &ctx.additional_modalities {
+        if !modalities.contains(m) {
+            modalities.push(m.clone());
+        }
+    }
+    if modalities.len() > MAX_MODALITY_BRANCHES {
+        tracing::warn!(
+            requested = modalities.len(),
+            cap = MAX_MODALITY_BRANCHES,
+            "multi_branch: truncating modality list to cap"
+        );
+        modalities.truncate(MAX_MODALITY_BRANCHES);
+    }
+
+    let mut used_prefixes = BTreeSet::new();
+    let mut branch_dags: Vec<WorkflowDag> = Vec::new();
+    let mut terminals_per_branch: Vec<Vec<String>> = Vec::new();
+    let mut unresolved: Vec<GapReport> = Vec::new();
+
+    for modality in &modalities {
+        // Single-modality sub-goal + sub-context. Clear the n_way signal
+        // so the branch sub-plan can't attempt a cross-omics seed, and
+        // set the recursion guard so the top-of-`plan()` dispatch refuses
+        // to re-enter.
+        let mut sub_goal = goal.clone();
+        sub_goal.modifiers.remove("n_way_intent");
+        let mut sub = ctx.clone();
+        sub.intent.modality = Some(modality.clone());
+        sub.additional_modalities = Vec::new();
+        sub.in_branch_subplan = true;
+
+        let result = crate::composer_v4::planner::plan(
+            &sub,
+            &sub_goal,
+            project_class,
+            atom_reg,
+            archetype_reg,
+        );
+
+        let branch_dag: Option<WorkflowDag> = match result.primary {
+            ComposeOutcome::ValidatedExecutableDag { dag, .. }
+            | ComposeOutcome::DraftDag { dag, .. } => Some(dag),
+            ComposeOutcome::PartialDag { dag, .. } if !dag.nodes.is_empty() => Some(dag),
+            _ => {
+                // NovelNodeSpec / Refusal / empty PartialDag → proposal stub.
+                unresolved.push(missing_modality_gap(modality));
+                None
+            }
+        };
+
+        if let Some(mut dag) = branch_dag {
+            strip_branch_final_report(&mut dag);
+            let prefix = modality_prefix(modality, &mut used_prefixes);
+            prefix_branch(&mut dag, &prefix);
+            let terms = branch_terminals(&dag);
+            branch_dags.push(dag);
+            terminals_per_branch.push(terms);
+        }
+    }
+
+    let dag = assemble(branch_dags, terminals_per_branch, ctx, goal, atom_reg).unwrap_or_else(|| {
+        WorkflowDag {
+            id: format!("composed:{}", ctx.intent.id),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            assumptions: Default::default(),
+            source_template: None,
+        }
+    });
+
+    MultiBranchComposition { dag, unresolved }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::archetype_registry::ArchetypeRegistry;
     use crate::composer_v4::planner::planning_context_for_goal_with_modalities;
     use crate::workflow_contracts::task_node::TaskNode;
     use std::path::Path;
@@ -243,12 +366,35 @@ mod tests {
         (atoms, archs)
     }
     fn de_goal() -> GoalSpec {
-        // Differential-expression-style goal. If branch sub-plans don't
-        // resolve their archetypes with this edam_data, set it to the
-        // `goal_data` the bulk_rnaseq / proteomics PRIMARY archetypes
-        // declare (grep config/archetypes for their `goal_data:`).
+        // Differential-expression goal. `data:0951` is the `goal_data`
+        // the `bulk_rnaseq_de` PRIMARY archetype declares (so its seed
+        // fires definitively) and is registry-producible, so the
+        // `proteomics` branch — whose two archetypes (`proteomics_dda` /
+        // `proteomics_dia`) tie on `modality_hint` and therefore yield no
+        // archetype seed — still composes through the backward-search
+        // fallback. Both modalities resolve; the assembled join is clean.
         GoalSpec {
             edam_data: "data:0951".to_string(),
+            source_prose: Some("differential expression across groups".to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// A differential-expression goal whose `edam_data` is a well-formed
+    /// but registry-unproducible IRI. A modality with a single matching
+    /// archetype (e.g. `bulk_rnaseq_de`) still resolves through the
+    /// modality-aware archetype seed (`score_archetype_full` scores
+    /// `modality_hint` + project class even when `goal_data` differs),
+    /// while a modality with NO matching archetype falls through to the
+    /// modality-blind backward-search fallback — which finds no producer
+    /// for this IRI and yields an empty branch, surfacing the Phase-1
+    /// unsatisfiable-modality `GapReport`. With a producible IRI the
+    /// modality-blind fallback satisfies even an unknown modality
+    /// (root-cause #1, addressed in Phase 3), so the gap path could not
+    /// be exercised in Phase 1.
+    fn unproducible_de_goal() -> GoalSpec {
+        GoalSpec {
+            edam_data: "ecaax:multi_branch_unproducible_de_goal".to_string(),
             source_prose: Some("differential expression across groups".to_string()),
             ..Default::default()
         }
@@ -402,5 +548,62 @@ mod tests {
         let mut sorted = actual.clone();
         sorted.sort();
         assert_eq!(actual, sorted);
+    }
+
+    #[test]
+    fn compose_branches_produces_prefixed_branches_and_join_for_known_modalities() {
+        let (atoms, archs) = registries();
+        let goal = de_goal();
+        let ctx = planning_context_for_goal_with_modalities(
+            "test-cb",
+            &goal,
+            Some("bulk_rnaseq"),
+            &["proteomics"],
+            Some("bioinformatics"),
+            &[],
+        );
+        let comp = compose_branches(&ctx, &goal, "bioinformatics", &atoms, &archs);
+        assert!(
+            comp.unresolved.is_empty(),
+            "both modalities have archetypes: {:?}",
+            comp.unresolved
+        );
+        let ids: BTreeSet<&str> = comp.dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert!(ids.contains("multi_modal_thematic_comparison"));
+        assert!(ids.contains("final_reporting"));
+        // Structural invariant: every node is a join id or carries a known modality prefix.
+        for n in &comp.dag.nodes {
+            let ok = n.id == "multi_modal_thematic_comparison"
+                || n.id == "final_reporting"
+                || n.id.starts_with("bulk_rnaseq_")
+                || n.id.starts_with("proteomics_");
+            assert!(ok, "unexpected/off-modality node id: {}", n.id);
+        }
+    }
+
+    #[test]
+    fn compose_branches_surfaces_a_gap_for_an_unsatisfiable_modality_without_dropping_the_rest() {
+        let (atoms, archs) = registries();
+        // Unproducible goal IRI so the modality-blind backward-search
+        // fallback cannot rescue the unknown modality (see
+        // `unproducible_de_goal` for the rationale). `bulk_rnaseq` still
+        // resolves via its single matching archetype seed.
+        let goal = unproducible_de_goal();
+        let ctx = planning_context_for_goal_with_modalities(
+            "test-cb-miss",
+            &goal,
+            Some("bulk_rnaseq"),
+            &["totally_unknown_modality"],
+            Some("bioinformatics"),
+            &[],
+        );
+        let comp = compose_branches(&ctx, &goal, "bioinformatics", &atoms, &archs);
+        // The resolvable branch is still composed...
+        assert!(comp.dag.nodes.iter().any(|n| n.id.starts_with("bulk_rnaseq_")));
+        // ...and the unsatisfiable modality is surfaced, not dropped.
+        assert!(comp
+            .unresolved
+            .iter()
+            .any(|g| g.id == "unsatisfiable_modality:totally_unknown_modality"));
     }
 }
