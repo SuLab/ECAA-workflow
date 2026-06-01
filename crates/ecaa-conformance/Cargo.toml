@@ -21,3 +21,6 @@ strum = { workspace = true }
 pulldown-cmark = { version = "0.10", default-features = false }
 regex = "1"
 serial_test = "3"
+
+[lints]
+workspace = true

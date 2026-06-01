@@ -196,6 +196,12 @@ unreachable_pub = "deny"
 [workspace.lints.clippy]
 await_holding_lock = "deny"
 missing_assert_message = "warn"
+# Pervasive doc-comment continuation style across the doc-heavy core
+# crates: indented wrapped lines in `///` lists/blocks that clippy now
+# flags as needing a continuation marker. Exempted workspace-wide as a
+# stylistic preference; every substantive (non-doc-style) clippy lint is
+# fixed rather than suppressed.
+doc_lazy_continuation = "allow"
 # `unwrap_or_default()` silently substitutes `T::default()` when
 # the source value is `None`/`Err`. That's almost always a bug
 # masquerading as ergonomic sugar: empty strings, zero counters,
