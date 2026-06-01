@@ -18,7 +18,7 @@ from scripts.eval.plugins.biomnibench import BiomniBench
 from scripts.eval.plugins.nekrutenko import Nekrutenko
 from scripts.eval.services import agent_runner
 from scripts.eval.services import judge as judge_mod
-from scripts.eval.services.datasets import cache_root
+from scripts.eval.services.datasets import cache_root, scratch_root, stage_file
 from scripts.eval.services.scorecard import write_scorecard
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -42,12 +42,11 @@ def _stage_inputs(pkg_dir: Path, inputs: dict[str, Path]) -> None:
     runs (the agent will surface the missing file as an error, not a harness
     crash).
     """
-    import shutil
     dest = pkg_dir / "inputs"
     dest.mkdir(parents=True, exist_ok=True)
     for _name, src in inputs.items():
         if src.exists():
-            shutil.copy2(src, dest / src.name)
+            stage_file(src, dest / src.name)
 
 
 def _run_one(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int,
@@ -125,7 +124,9 @@ def main(argv: list[str]) -> int:
     stored: list[tuple[int, object, Arm, int, object]] = []
     all_judge_requests: list[dict] = []
 
-    with tempfile.TemporaryDirectory() as td:
+    # Workdirs live on scratch_root() (the large mounted disk), not /tmp, so
+    # staging multi-GB task inputs cannot fill the root filesystem.
+    with tempfile.TemporaryDirectory(dir=scratch_root()) as td:
         base = Path(td)
         global_idx = 0
         for task in tasks:

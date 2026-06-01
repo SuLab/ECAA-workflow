@@ -7,6 +7,7 @@ by revision); git repos by clone+checkout. Fetched into ECAA_EVAL_CACHE_DIR
 from __future__ import annotations
 import json
 import os
+import shutil
 import subprocess
 import tomllib
 from dataclasses import dataclass
@@ -37,6 +38,38 @@ def cache_root() -> Path:
                                Path.home() / ".ecaa-workflow" / "eval-cache"))
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def scratch_root() -> Path:
+    """Base dir for eval workdirs + staged task inputs.
+
+    Defaults to a sibling of the dataset cache so that multi-GB staging lands on
+    the same (large, mounted) disk as the cache rather than on the root
+    filesystem / /tmp — BiomniBench task inputs reach 15+ GB and would otherwise
+    fill the root device (ENOSPC). Override with ECAA_EVAL_SCRATCH_DIR.
+    """
+    base = Path(os.environ.get("ECAA_EVAL_SCRATCH_DIR",
+                               cache_root().parent / "eval-scratch"))
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def stage_file(src: Path, dst: Path) -> None:
+    """Stage a task input into an agent workdir.
+
+    Hardlinks when src and dst share a filesystem — instant and using no extra
+    space, which matters because inputs reach 15+ GB and scratch_root() is on
+    the same mounted disk as the dataset cache. Falls back to a byte copy across
+    devices (EXDEV) or any other link failure. Overwrites an existing dst.
+    """
+    src = Path(src)
+    dst = Path(dst)
+    if dst.exists() or dst.is_symlink():
+        dst.unlink()
+    try:
+        os.link(src, dst)
+    except OSError:
+        shutil.copy(src, dst)
 
 
 def ensure(entry: LockEntry) -> Path:

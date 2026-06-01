@@ -7,13 +7,13 @@ Scored by per-sample VCF Jaccard + the 36-cell PATH-shim error matrix
 """
 from __future__ import annotations
 import os
-import shutil
 import tempfile
 from pathlib import Path
 from statistics import mean
 from scripts.eval.benchmark import Arm, Benchmark, Output, RunSpec, Score, Scorecard
 from scripts.eval.scoring.variant_overlap import mean_jaccard
 from scripts.eval.scoring.error_matrix import classify_cell
+from scripts.eval.services.datasets import stage_file
 
 # Relative paths from the pinned nekrut/LLM-eval-paper repo (1175f72a…):
 #   plan/PLAN.md          — default v2 implementation plan
@@ -78,7 +78,7 @@ class Nekrutenko(Benchmark):
         # bare arm: problem statement + explicit tool inventory, no plan
         instr = task.prompt + "\n\nAvailable tools: bwa, samtools, lofreq, bcftools, awk."
         for name, src in task.inputs.items():
-            shutil.copy(src, workdir / name)
+            stage_file(src, workdir / name)
         return RunSpec(arm, workdir, "bare", instr)
 
     def collect(self, spec, run_dir):

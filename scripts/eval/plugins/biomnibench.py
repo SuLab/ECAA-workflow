@@ -6,14 +6,13 @@ question. Scored by Gemini 3.1 Pro (headline) + Anthropic (cross-check).
 """
 from __future__ import annotations
 import json
-import shutil
 from pathlib import Path
 from statistics import mean
 from scripts.eval.benchmark import Arm, Benchmark, Output, RunSpec, Score, Scorecard, Task
 from scripts.eval.rubric_normalize import normalize_rubric
 from scripts.eval.scoring.agreement import per_criterion_exact, linear_weighted_kappa
 from scripts.eval.scoring.flatten import flatten_outputs
-from scripts.eval.services.datasets import load_records
+from scripts.eval.services.datasets import load_records, stage_file
 from scripts.eval.services.judge import judge
 
 # BiomniBench-DA per-task directory layout (da-{paper}-{task}/):
@@ -61,7 +60,7 @@ class BiomniBench(Benchmark):
             return RunSpec(arm, workdir, "ecaa_package", task.prompt + _OUTPUT_CONTRACT)
         for name, src in task.inputs.items():
             if src.exists():
-                shutil.copy(src, workdir / name)
+                stage_file(src, workdir / name)
         return RunSpec(arm, workdir, "bare", task.prompt + _OUTPUT_CONTRACT)
 
     def collect(self, spec, run_dir):
