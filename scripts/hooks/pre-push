@@ -1,5 +1,38 @@
 #!/usr/bin/env bash
-# Installed to .git/hooks/pre-push by `make install-hooks`.
-# Runs the local architectural-invariant + binding-freshness gates.
+# Installed to the active git hooks dir by `make install-hooks`.
+#
+# This is the REAL local enforcement gate for the OSS repo: there is no GitHub
+# CI, so a push must not proceed unless the full local gate is green. The gate is
+#   make lint        — architectural-invariant + ts-binding + supply-chain checks
+#   make test        — cargo nextest + doc tests across the workspace
+#   make conformance — ECAA conformance suite in block-on-fail mode
+# Any failure aborts the push (non-zero exit).
+#
+# Emergency opt-out: set ECAA_SKIP_PREPUSH_TESTS=1 to skip the (slow) `make test`
+# and `make conformance` stages. `make lint` always runs — it is cheap and is the
+# minimum bar. Use the opt-out only when you know what you are doing.
 set -euo pipefail
-exec make lint
+
+# Run from the repo root so `make` finds the Makefile regardless of where git
+# invoked the hook from.
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+echo "[pre-push] local enforcement gate (no CI; this hook is the gate)"
+
+echo "[pre-push] running: make lint"
+make lint
+
+if [ "${ECAA_SKIP_PREPUSH_TESTS:-0}" = "1" ]; then
+	echo "[pre-push] ECAA_SKIP_PREPUSH_TESTS=1 set — SKIPPING 'make test' and 'make conformance'"
+	echo "[pre-push] lint passed; push allowed (tests skipped by emergency opt-out)"
+	exit 0
+fi
+
+echo "[pre-push] running: make test"
+make test
+
+echo "[pre-push] running: make conformance"
+make conformance
+
+echo "[pre-push] all gates passed (lint + test + conformance); push allowed"
