@@ -15,8 +15,78 @@ import requests
 _LINE = re.compile(r"^[\s\-*]*([A-Za-z0-9_]+)\s*[:=]\s*([ABCabc])\b", re.MULTILINE)
 
 
+def _parse_judge_levels(judge_text: str) -> dict:
+    """Extract ``{criterion_id_lowercased: "A"|"B"|"C"}`` from a judge response.
+
+    Accepts BOTH the dataset reference scorer's JSON shape and the legacy
+    line-based shape, so existing fixtures/caches keep parsing:
+
+    * JSON (``<task>/tests/llm_judge.py`` protocol, mirrored by ``_prompt``):
+      ``{"criteria": {"criterion_1": {"level": "A", "reason": "..."}, ...}}``.
+      The reference scorer extracts the first brace-balanced object in the
+      response (tolerating prose/code-fences around it) and reads each
+      criterion's ``"level"`` letter — we reproduce that here.
+    * Line-based (legacy ``_prompt`` + the existing cached/fixture verdicts):
+      one ``id: A`` line per criterion.
+
+    JSON levels win when present; line matches fill any criterion the JSON
+    object omitted. Ids are case-folded so lookup against the rubric id is
+    case-insensitive."""
+    parsed: dict[str, str] = {}
+    # Line-based first (lowest precedence); JSON overlays it below.
+    for m in _LINE.finditer(judge_text):
+        parsed[m.group(1).lower()] = m.group(2).upper()
+    # JSON: extract the first brace-balanced object (same brace-counting walk as
+    # the dataset reference scorer) and read criteria[*]["level"].
+    obj = _extract_json_object(judge_text)
+    if isinstance(obj, dict):
+        criteria = obj.get("criteria")
+        if isinstance(criteria, dict):
+            for cid, c in criteria.items():
+                level = None
+                if isinstance(c, dict):
+                    level = c.get("level")
+                elif isinstance(c, str):
+                    level = c  # tolerate {"criterion_1": "A"} shorthand
+                if isinstance(level, str):
+                    lv = level.strip().upper()
+                    if lv in ("A", "B", "C"):
+                        parsed[str(cid).lower()] = lv
+    return parsed
+
+
+def _extract_json_object(text: str) -> object | None:
+    """Return the first brace-balanced JSON object in ``text``, or None.
+
+    Mirrors the dataset reference scorer's parser (``<task>/tests/llm_judge.py``):
+    find the first ``{``, walk to its matching ``}`` counting nesting, and
+    ``json.loads`` that slice — tolerating leading/trailing prose or ```` ```json ````
+    fences the judge model may wrap around the object."""
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        ch = text[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start:i + 1])
+                except (json.JSONDecodeError, ValueError):
+                    return None
+    return None
+
+
 def parse_verdict(rubric: dict, judge_text: str) -> dict:
     """Map per-criterion A/B/C levels to a 0-100 overall + per-dimension scores.
+
+    The judge response is parsed by :func:`_parse_judge_levels`, which accepts
+    BOTH the dataset reference scorer's JSON shape
+    (``{"criteria": {"criterion_1": {"level": "A"}, ...}}``) and the legacy
+    line-based ``id: A`` shape, so existing fixtures and caches keep parsing.
 
     Two scoring modes, selected by ``rubric.get("scoring")`` (default
     ``"fraction"`` so bare dict rubrics keep their historic behavior):
@@ -32,10 +102,9 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
 
     Criterion ids are matched case-insensitively: a judge line `Overall: A` or
     `CRITERION_1: A` still credits ids `overall` / `criterion_1`."""
-    # Parsed-line ids are case-folded so lookup against the rubric id is
+    # Parsed ids are case-folded so lookup against the rubric id is
     # case-insensitive; the returned `levels` map preserves the rubric's casing.
-    parsed = {m.group(1).lower(): m.group(2).upper()
-              for m in _LINE.finditer(judge_text)}
+    parsed = _parse_judge_levels(judge_text)
     absolute = rubric.get("scoring") == "absolute"
     total_pts = 0.0
     earned_pts = 0.0
@@ -85,14 +154,84 @@ def _cache_path(judge_id: str, rubric: dict, trace: str, answer: str) -> Path:
     return d / f"{judge_id}-{h}.txt"
 
 
-def _prompt(rubric: dict, trace: str, answer: str) -> str:
-    crit = "\n".join(f"{c['id']} ({c['dimension']}): {c.get('text','')}"
-                     for c in rubric["criteria"])
+def _criterion_block(c: dict) -> str:
+    """Render one rubric criterion the way the dataset reference scorer's
+    injected ``rubric.txt`` presents it: id, title/description text, and the
+    A/B/C levels with their point values.
+
+    The dataset scorer (``<task>/tests/llm_judge.py``) injects the verbatim
+    ``rubric.txt``, which spells out each level's prose ``[A]/[B]/[C]``
+    description AND its ``Levels: A=X B=Y C=0`` point line. ``normalize_rubric``
+    folds the title + Description into ``text`` and keeps the per-level POINTS in
+    ``levels`` but does NOT retain the individual ``[A]/[B]/[C]`` prose lines
+    (see the divergence note in :func:`_prompt`). We therefore reconstruct each
+    level line from the points we do have, preserving the dataset's A/B/C framing
+    and the relative incentive (A best, C worst, penalties negative)."""
+    lv = c.get("levels", {}) or {}
+
+    def _pts(letter: str) -> str:
+        v = lv.get(letter)
+        if v is None:
+            return ""
+        # {v:g} renders 30.0 as "30" and keeps fractional weights (0.5) readable.
+        return f" ({v:g} points)"
+
     return (
-        "You are grading a bioinformatics analysis trajectory against a rubric.\n"
-        "For each criterion choose A (fully correct), B (minor mistake/partial), "
-        "or C (skipped/wrong). Output ONLY one line per criterion as `id: A`.\n\n"
-        f"CRITERIA:\n{crit}\n\nTRACE:\n{trace}\n\nANSWER:\n{answer}\n"
+        f"{c['id']}: {c.get('text', '')}\n"
+        f"  [A]{_pts('A')}: fully correct / best-practice handling of this criterion.\n"
+        f"  [B]{_pts('B')}: partially correct — a minor mistake or incomplete handling.\n"
+        f"  [C]{_pts('C')}: skipped, wrong, or unsupported."
+    )
+
+
+def _prompt(rubric: dict, trace: str, answer: str) -> str:
+    """Build the judge prompt, mirroring the BiomniBench-DA reference scorer.
+
+    The dataset reference scorer (``<task>/tests/llm_judge.py``) frames the call
+    as an expert data-analysis evaluator, injects the rubric, wraps the agent's
+    trace in ``<trace>`` and answer in ``<answer>`` tags, instructs the judge to
+    pick ONE level (A/B/C) per criterion "based purely on which level description
+    best describes the agent's work", and requires a JSON response of exactly the
+    shape::
+
+        {"criteria": {"criterion_1": {"level": "A", "reason": "..."}, ...},
+         "overall_reasoning": "..."}
+
+    We reproduce that framing, the ``<trace>``/``<answer>`` tagging, and the exact
+    JSON output contract so our judge's A/B/C assignments are faithful to (and our
+    scores comparable with) the paper's methodology. :func:`parse_verdict` parses
+    this JSON; it also still accepts legacy ``id: A`` lines for back-compat.
+
+    DIVERGENCE (documented, not faked): the reference scorer injects the verbatim
+    ``rubric.txt``, which contains each criterion's full prose ``[A]/[B]/[C]``
+    level *descriptions*. ``normalize_rubric`` (which we are not modifying) does
+    not retain those per-level prose lines — it keeps only the title+Description
+    (``text``) and the per-level *points* (``levels``). We therefore present each
+    level with its point value and a generic A/B/C semantic; the criterion-level
+    description prose is preserved verbatim, but the per-level prose is not
+    available downstream of normalization. The output format, criterion ids, and
+    scoring math are fully faithful."""
+    crit = "\n\n".join(_criterion_block(c) for c in rubric["criteria"])
+    return (
+        "You are an expert evaluator for a bioinformatics data analysis task.\n\n"
+        "Evaluate the agent's work using the following rubric. For each criterion "
+        "choose ONE level — A, B, or C — based purely on which level description "
+        "best describes the agent's work. Do not output numerical points; the "
+        "score for each level is computed automatically from the rubric.\n\n"
+        f"RUBRIC:\n{crit}\n\n"
+        f"<trace>\n{trace}\n</trace>\n\n"
+        f"<answer>\n{answer}\n</answer>\n\n"
+        "You MUST respond with a JSON object in exactly this format:\n"
+        "{\n"
+        '  "criteria": {\n'
+        '    "criterion_1": {"level": "A", "reason": "<one-sentence explanation>"},\n'
+        '    "criterion_2": {"level": "B", "reason": "<one-sentence explanation>"}\n'
+        "  },\n"
+        '  "overall_reasoning": "<short summary>"\n'
+        "}\n\n"
+        "Use each criterion's exact id as the key. Each \"level\" value must be "
+        'exactly the single character "A", "B", or "C". Only output the JSON '
+        "object, nothing else."
     )
 
 
