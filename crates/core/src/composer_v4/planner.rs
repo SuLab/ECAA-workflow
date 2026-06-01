@@ -1950,6 +1950,24 @@ fn goal_relevance_penalty(
     ctx: &PlanningContext,
     archetype_reg: &ArchetypeRegistry,
 ) -> u32 {
+    off_modality_node_ids(dag, ctx, archetype_reg).len() as u32
+}
+
+/// The SORTED ids of the nodes deemed GOAL-IRRELEVANT (off-modality) —
+/// the single source of truth shared by `goal_relevance_penalty` (Pillar
+/// B, scoring field 5) and the coherence-gate modality-mismatch detector
+/// (Pillar D). A node is off-modality ONLY when its backing atom's
+/// archetype affiliation set is non-empty AND disjoint from the requested
+/// modality set `R`, and the node is neither branch-prefixed (`<m>_…`)
+/// nor a synthesis/companion/terminal node. When `R` is empty (vague
+/// goal, no modality) we cannot judge affiliation, so the result is empty
+/// (never penalize / never flag). Deterministic: iterates `dag.nodes` in
+/// order and returns a sorted, deduplicated `Vec`.
+pub(crate) fn off_modality_node_ids(
+    dag: &WorkflowDag,
+    ctx: &PlanningContext,
+    archetype_reg: &ArchetypeRegistry,
+) -> Vec<String> {
     // Requested modality set R = {intent.modality} ∪ additional_modalities.
     let mut requested: BTreeSet<String> = BTreeSet::new();
     if let Some(m) = &ctx.intent.modality {
@@ -1958,9 +1976,9 @@ fn goal_relevance_penalty(
     for m in &ctx.additional_modalities {
         requested.insert(m.clone());
     }
-    // R empty → can't judge affiliation; never penalize.
+    // R empty → can't judge affiliation; never flag.
     if requested.is_empty() {
-        return 0;
+        return Vec::new();
     }
     // Normalized prefixes (`<m>_`) the multi-branch assembler stamps.
     let requested_prefixes: BTreeSet<String> = requested
@@ -1968,7 +1986,7 @@ fn goal_relevance_penalty(
         .map(|m| format!("{}_", normalize_modality_stem(m)))
         .collect();
 
-    let mut penalty: u32 = 0;
+    let mut off_modality: Vec<String> = Vec::new();
     for node in &dag.nodes {
         // Branch namespace prefix → relevant.
         if requested_prefixes
@@ -1997,12 +2015,14 @@ fn goal_relevance_penalty(
             });
         let affil = atom_modality_affiliations(&atom_id, archetype_reg);
         // Generic/shared (no affiliation) → relevant. Affiliation that
-        // intersects R → relevant. Only non-empty AND disjoint → penalize.
+        // intersects R → relevant. Only non-empty AND disjoint → off-modality.
         if !affil.is_empty() && affil.is_disjoint(&requested) {
-            penalty += 1;
+            off_modality.push(node.id.clone());
         }
     }
-    penalty
+    off_modality.sort();
+    off_modality.dedup();
+    off_modality
 }
 
 /// Score a `WorkflowDag` per the design's 17-component tuple.
