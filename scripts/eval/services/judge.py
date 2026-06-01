@@ -16,15 +16,24 @@ _LINE = re.compile(r"^[\s\-*]*([A-Za-z0-9_]+)\s*[:=]\s*([ABCabc])\b", re.MULTILI
 
 
 def parse_verdict(rubric: dict, judge_text: str) -> dict:
-    """Map per-criterion A/B/C levels to 0-100 overall + per-dimension."""
-    levels = {m.group(1): m.group(2).upper() for m in _LINE.finditer(judge_text)}
+    """Map per-criterion A/B/C levels to 0-100 overall + per-dimension.
+
+    Criterion ids are matched case-insensitively: a judge line `Overall: A` or
+    `CRITERION_1: A` still credits ids `overall` / `criterion_1`."""
+    # Parsed-line ids are case-folded so lookup against the rubric id is
+    # case-insensitive; the returned `levels` map preserves the rubric's casing.
+    parsed = {m.group(1).lower(): m.group(2).upper()
+              for m in _LINE.finditer(judge_text)}
     total_pts = 0.0
     earned_pts = 0.0
     dim_total: dict[str, float] = {}
     dim_earned: dict[str, float] = {}
+    levels: dict[str, str] = {}
     for c in rubric["criteria"]:
         pts = float(c["points"])
-        frac = c["levels"].get(levels.get(c["id"], "C"), 0.0)
+        level = parsed.get(str(c["id"]).lower(), "C")
+        levels[c["id"]] = level
+        frac = c["levels"].get(level, 0.0)
         total_pts += pts
         earned_pts += pts * frac
         dim_total[c["dimension"]] = dim_total.get(c["dimension"], 0.0) + pts
