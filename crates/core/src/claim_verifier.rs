@@ -1541,7 +1541,7 @@ fn verify_one_structured(
 /// sentence into the `entity` slot.
 fn summarize_claim_subject(claim: &str) -> String {
     let head = claim
-        .split(|c| c == ';' || c == '.' || c == '(')
+        .split([';', '.', '('])
         .next()
         .unwrap_or(claim)
         .split_whitespace()

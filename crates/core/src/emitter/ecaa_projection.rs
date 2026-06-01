@@ -462,20 +462,14 @@ fn project_intent_subgraph(pkg: &LoadedPackage) -> Vec<SpecNode> {
             .and_then(Value::as_str)
             .map(str::to_string)
     });
-    let mut nodes = Vec::new();
-    nodes.push(
+    vec![
         SpecNode::new("question_001", SpecNodeType::Question)
             .with_prop("text", json!(question_text.unwrap_or_default())),
-    );
-    nodes.push(
         SpecNode::new("modality_001", SpecNodeType::Modality)
             .with_prop("value", json!(modality.unwrap_or_else(|| "unknown".into()))),
-    );
-    nodes.push(
         SpecNode::new("output_001", SpecNodeType::ExpectedOutput)
             .with_prop("schema", json!("analysis_results")),
-    );
-    nodes
+    ]
 }
 
 /// Project the C (Claim) sub-graph from `claim-verification.json`. Each
