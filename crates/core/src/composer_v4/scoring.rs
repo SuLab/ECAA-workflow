@@ -1,9 +1,10 @@
 //! Stable scoring tuple for the v4 planner.
 //!
-//! Mirrors the alignment plan's 16-component ordered scoring tuple. `Ord` is derived in declaration order so a tuple
+//! Mirrors the alignment plan's 17-component ordered scoring tuple. `Ord` is derived in declaration order so a tuple
 //! compares hard-rejects first, then user-constraint violations,
-//! then scientific appropriateness, etc., with the lexical tie-
-//! breaker (`stable_lexical_id`) at the end.
+//! then scientific appropriateness, then goal/modality relevance,
+//! etc., with the lexical tie-breaker (`stable_lexical_id`) at the
+//! end.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -37,7 +38,7 @@ pub enum ScoringValue {
     Reject,
 }
 
-/// 16-component scoring tuple. Lower is better; comparison is
+/// 17-component scoring tuple. Lower is better; comparison is
 /// lexicographic.
 ///
 /// Shape is stable; the planner computes each component at plan time.
@@ -66,31 +67,42 @@ pub struct ScoringTuple {
     /// 4. Scientific appropriateness penalty (claim_boundary /
     ///    method-fit signals).
     pub scientific_appropriateness_penalty: u32,
-    /// 5. Production-trust ratio (lower count of trusted nodes is
+    /// 5. Goal/modality-relevance penalty (Pillar B). Count of
+    ///    goal-IRRELEVANT nodes: nodes whose backing atom is
+    ///    affiliated (via the archetype catalog) with a modality
+    ///    that the request never asked for and that are not
+    ///    synthesis/companion/terminal nodes. Placed AFTER the
+    ///    hard-reject / user-constraint / scientific terms and
+    ///    BEFORE `untrusted_node_count` so a semantically-aligned
+    ///    DAG outranks a structurally-cheaper but off-modality one,
+    ///    without masking genuine hard defects. Designed to be `0`
+    ///    on every coherent DAG.
+    pub goal_relevance_penalty: u32,
+    /// 6. Production-trust ratio (lower count of trusted nodes is
     ///    worse). Stored as `u32::MAX - count` so lower is better
     ///    after sort.
     pub untrusted_node_count: u32,
-    /// 6. Unresolved blocking-assumption count.
+    /// 7. Unresolved blocking-assumption count.
     pub unresolved_assumptions: u32,
-    /// 7. Risky-adapter count.
+    /// 8. Risky-adapter count.
     pub risky_adapter_count: u32,
-    /// 8. Total adapter count (lossless + lossy + risky).
+    /// 9. Total adapter count (lossless + lossy + risky).
     pub total_adapter_count: u32,
-    /// 9. Validation coverage score (lower-is-better encoding).
+    /// 10. Validation coverage score (lower-is-better encoding).
     pub validation_coverage_penalty: u32,
-    /// 10. Evidence quality (lower-is-better encoding).
+    /// 11. Evidence quality (lower-is-better encoding).
     pub evidence_quality_penalty: u32,
-    /// 11. Reproducibility score penalty.
+    /// 12. Reproducibility score penalty.
     pub reproducibility_penalty: u32,
-    /// 12. Explainability score penalty (Opaque types penalize).
+    /// 13. Explainability score penalty (Opaque types penalize).
     pub explainability_penalty: u32,
-    /// 13. Backend availability penalty.
+    /// 14. Backend availability penalty.
     pub backend_availability_penalty: u32,
-    /// 14. Runtime cost estimate (compute hours).
+    /// 15. Runtime cost estimate (compute hours).
     pub runtime_cost_estimate: u32,
-    /// 15. Data movement cost.
+    /// 16. Data movement cost.
     pub data_movement_cost: u32,
-    /// 16. Stable lexical tie-breaker (sorted TaskNodeId chain).
+    /// 17. Stable lexical tie-breaker (sorted TaskNodeId chain).
     pub stable_lexical_id: String,
 }
 
