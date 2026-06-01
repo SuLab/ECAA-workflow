@@ -88,6 +88,19 @@ pub(super) const REQUIRED_INHERITED_KEYS: &[&str] = &[
     "ECAA_AGENT_CACHE_DIR",
     "ECAA_AGENT_CACHE_GLOBAL",
     "ECAA_AGENT_CACHE_DISABLE",
+    // Single-model override (operator/eval model pinning) — agent-claude.sh
+    // reads this to bypass per-task model tiering. Without it the eval's
+    // same-model fairness pin never reaches the agent (tiering picks Opus for
+    // discover_*), confounding the ecaa-vs-direct comparison.
+    "ECAA_AGENT_MODEL_OVERRIDE",
+    // Eval-only fault-injection shim contract. agent-claude.sh mounts the shim
+    // dir + prepends it to the container PATH (gated on ECAA_EVAL_SHIM_DIR) and
+    // forwards the EVAL_INJECT_* vars into the container. Unset in production →
+    // not forwarded, no effect.
+    "ECAA_EVAL_SHIM_DIR",
+    "EVAL_INJECT_PATTERN",
+    "EVAL_INJECT_TARGET",
+    "EVAL_INJECT_STATE",
 ];
 
 /// `ECAA_DISABLE_ENV_CLEAR=1` legacy bypass.
