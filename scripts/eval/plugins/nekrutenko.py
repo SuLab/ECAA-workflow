@@ -45,10 +45,12 @@ _FAULT_PATTERNS = [
 _SEEDS = (42, 43, 44)
 
 _WORKFLOW_PROMPT = (
-    "Call per-sample mitochondrial (chrM) variants for four paired-end "
-    "Illumina samples: align with bwa, sort/index with samtools, call "
-    "variants with lofreq, and write one VCF per sample, then build a "
-    "collapsed per-variant table across samples."
+    "Perform per-sample germline variant calling on four paired-end "
+    "Illumina mitochondrial (chrM) sequencing samples: align reads with "
+    "bwa, sort and index with samtools, then run variant calling with "
+    "lofreq to detect short variants (SNPs and indels), writing one VCF "
+    "per sample, and finally build a collapsed per-variant table across "
+    "samples."
 )
 
 
