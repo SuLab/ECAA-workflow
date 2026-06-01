@@ -5,6 +5,7 @@ by revision); git repos by clone+checkout. Fetched into ECAA_EVAL_CACHE_DIR
 (default ~/.ecaa-workflow/eval-cache), which is gitignored.
 """
 from __future__ import annotations
+import json
 import os
 import subprocess
 import tomllib
@@ -57,3 +58,24 @@ def ensure(entry: LockEntry) -> Path:
     else:
         raise ValueError(f"unknown kind: {entry.kind}")
     return dest
+
+
+def load_records(root) -> list[dict]:
+    """Load benchmark task records from a fetched dataset dir.
+
+    Supports parquet (preferred; via lazy pyarrow import), then jsonl, then
+    per-task json files named task*.json. Returns a list of row dicts.
+    """
+    from pathlib import Path as _P
+    root = _P(root)
+    pq = sorted(root.rglob("*.parquet"))
+    if pq:
+        import pyarrow.parquet as papq          # live-only path (needs pyarrow)
+        rows: list[dict] = []
+        for f in pq:
+            rows.extend(papq.read_table(f).to_pylist())
+        return rows
+    jl = next(iter(sorted(root.rglob("*.jsonl"))), None)
+    if jl:
+        return [json.loads(l) for l in jl.read_text().splitlines() if l.strip()]
+    return [json.loads(p.read_text()) for p in sorted(root.rglob("task*.json"))]

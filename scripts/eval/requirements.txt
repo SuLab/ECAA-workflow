@@ -1,3 +1,4 @@
 requests>=2.31
 huggingface_hub>=0.23
 pytest>=8.0
+pyarrow>=15
