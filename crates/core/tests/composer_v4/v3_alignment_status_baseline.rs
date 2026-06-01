@@ -15,7 +15,11 @@
 
 use std::path::Path;
 
-const ROWS: &[(&str, fn() -> bool)] = &[
+/// A traceability-matrix row: a human-readable label paired with the check
+/// function that asserts the row still holds against on-disk code state.
+type StatusRow = (&'static str, fn() -> bool);
+
+const ROWS: &[StatusRow] = &[
     // v3 §0.1 rows
     ("v3 F12 assumption-policy table loadable", check_v3_f12),
     ("v3 F11 promotion-refusal config-driven", check_v3_f11),

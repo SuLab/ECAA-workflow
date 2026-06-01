@@ -109,6 +109,9 @@ fn no_integrator_keyword_leaves_kind_unset() {
             g.modifiers.get("kind").map(String::as_str),
             Some("supervised_cross_omics")
         );
-        assert!(g.modifiers.get("integrator").is_none());
+        assert!(
+            !g.modifiers.contains_key("integrator"),
+            "bare bulk RNA-seq prose must not tag an integrator"
+        );
     }
 }

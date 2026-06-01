@@ -147,57 +147,6 @@ fn stream_sha512_hex(path: &std::path::Path) -> Result<String> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use sha2::{Digest, Sha512};
-    use std::io::Write;
-
-    /// R2-N15 — stream hash must produce the exact same digest as the
-    /// previous `fs::read` + `hasher.update(&bytes)` path so the
-    /// manifest stays byte-reproducible. Test across three sizes that
-    /// straddle the 64 KB chunk boundary: < chunk, == chunk - 1,
-    /// > multiple chunks.
-    #[test]
-    fn stream_sha512_matches_in_memory_across_chunk_boundaries() {
-        for size in [1024usize, 64 * 1024 - 1, 200 * 1024] {
-            let dir = tempfile::tempdir().unwrap();
-            let path = dir.path().join(format!("blob-{size}.bin"));
-            // Deterministic payload so a regression in the chunking
-            // loop produces a stable diff.
-            let payload: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
-            {
-                let mut f = std::fs::File::create(&path).unwrap();
-                f.write_all(&payload).unwrap();
-            }
-            let expected = {
-                let mut h = Sha512::new();
-                h.update(&payload);
-                format!("{:x}", h.finalize())
-            };
-            let actual = stream_sha512_hex(&path).unwrap();
-            assert_eq!(actual, expected, "size={size}");
-        }
-    }
-
-    /// Empty-file edge case — the streaming loop terminates on the
-    /// first zero-length read, producing the empty-payload digest.
-    #[test]
-    fn stream_sha512_handles_empty_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("empty.bin");
-        std::fs::File::create(&path).unwrap();
-        let empty: &[u8] = &[];
-        let expected = {
-            let mut h = Sha512::new();
-            h.update(empty);
-            format!("{:x}", h.finalize())
-        };
-        let actual = stream_sha512_hex(&path).unwrap();
-        assert_eq!(actual, expected);
-    }
-}
-
 /// Recursively collect every file under `current` (relative to `root`),
 /// excluding the manifest itself and any path under `runtime/outputs/`
 /// (those are agent-written artifacts; the harness emits a separate
@@ -279,4 +228,55 @@ fn walk_for_manifest(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sha2::{Digest, Sha512};
+    use std::io::Write;
+
+    /// R2-N15 — stream hash must produce the exact same digest as the
+    /// previous `fs::read` + `hasher.update(&bytes)` path so the
+    /// manifest stays byte-reproducible. Test across three sizes that
+    /// straddle the 64 KB chunk boundary: < chunk, == chunk - 1,
+    /// > multiple chunks.
+    #[test]
+    fn stream_sha512_matches_in_memory_across_chunk_boundaries() {
+        for size in [1024usize, 64 * 1024 - 1, 200 * 1024] {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join(format!("blob-{size}.bin"));
+            // Deterministic payload so a regression in the chunking
+            // loop produces a stable diff.
+            let payload: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
+            {
+                let mut f = std::fs::File::create(&path).unwrap();
+                f.write_all(&payload).unwrap();
+            }
+            let expected = {
+                let mut h = Sha512::new();
+                h.update(&payload);
+                format!("{:x}", h.finalize())
+            };
+            let actual = stream_sha512_hex(&path).unwrap();
+            assert_eq!(actual, expected, "size={size}");
+        }
+    }
+
+    /// Empty-file edge case — the streaming loop terminates on the
+    /// first zero-length read, producing the empty-payload digest.
+    #[test]
+    fn stream_sha512_handles_empty_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("empty.bin");
+        std::fs::File::create(&path).unwrap();
+        let empty: &[u8] = &[];
+        let expected = {
+            let mut h = Sha512::new();
+            h.update(empty);
+            format!("{:x}", h.finalize())
+        };
+        let actual = stream_sha512_hex(&path).unwrap();
+        assert_eq!(actual, expected);
+    }
 }

@@ -1039,7 +1039,7 @@ mod tests {
 
     #[test]
     fn workflow_json_emitter_implements_trait() {
-        let emitter = WorkflowJsonEmitter::default();
+        let emitter = WorkflowJsonEmitter;
         assert_eq!(emitter.name(), "workflow_json");
         let dag = simple_dag();
         let result = emitter.emit(&dag, &EmitContext::defaults()).unwrap();

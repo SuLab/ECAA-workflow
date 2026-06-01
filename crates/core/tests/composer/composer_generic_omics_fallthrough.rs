@@ -36,7 +36,7 @@ fn survival_genomics_emits_generic_summary() -> Result<()> {
     let cls = classifier.classify(prompt);
     let goal = classifier
         .extract_goal(prompt)
-        .unwrap_or_else(|| ecaa_workflow_core::goal_spec::GoalSpec::default());
+        .unwrap_or_else(ecaa_workflow_core::goal_spec::GoalSpec::default);
     let result = compose_with_version_and_modality(
         &goal,
         "bioinformatics",

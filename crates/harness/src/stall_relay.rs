@@ -212,18 +212,19 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
+    /// Shared store of `(path, body)` pairs appended by each accepted
+    /// connection in the mock server.
+    type CapturedRequests = Arc<Mutex<Vec<(String, String)>>>;
+
     /// Spawn a minimal one-shot TCP server that accepts one connection,
     /// reads the HTTP POST, records `(path, body)`, and replies 204.
     /// Returns `(port, captured)` where `captured` is a shared vec of
     /// `(path, body)` pairs appended by each accepted connection.
-    fn spawn_mock_server(
-        reply_status: u16,
-        max_requests: usize,
-    ) -> (u16, Arc<Mutex<Vec<(String, String)>>>) {
+    fn spawn_mock_server(reply_status: u16, max_requests: usize) -> (u16, CapturedRequests) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind port 0");
         let port = listener.local_addr().unwrap().port();
         listener.set_nonblocking(true).expect("set non-blocking");
-        let captured: Arc<Mutex<Vec<(String, String)>>> = Arc::new(Mutex::new(Vec::new()));
+        let captured: CapturedRequests = Arc::new(Mutex::new(Vec::new()));
         let captured_clone = captured.clone();
         thread::spawn(move || {
             let deadline = Instant::now() + Duration::from_secs(10);

@@ -34,35 +34,38 @@ use proptest::prelude::*;
 /// Build a producer port carrying an Opaque semantic type with the
 /// supplied description.
 fn opaque_producer(description: &str) -> PortContract {
-    let mut p = PortContract::default();
-    p.name = "out".into();
-    p.semantic_type = SemanticType::opaque(description);
-    p
+    PortContract {
+        name: "out".into(),
+        semantic_type: SemanticType::opaque(description),
+        ..Default::default()
+    }
 }
 
 /// Build a producer port carrying a LocalExtension with no parent
 /// terms (cannot prove subsumption against any OntologyTerm consumer).
 fn local_extension_producer_no_parents(namespace: &str, id: &str) -> PortContract {
-    let mut p = PortContract::default();
-    p.name = "out".into();
-    p.semantic_type = SemanticType::LocalExtension {
-        namespace: namespace.into(),
-        id: id.into(),
-        proposed_parent_terms: vec![],
-        definition: String::new(),
-        maturity: LocalExtensionMaturity::Minted,
-    };
-    p
+    PortContract {
+        name: "out".into(),
+        semantic_type: SemanticType::LocalExtension {
+            namespace: namespace.into(),
+            id: id.into(),
+            proposed_parent_terms: vec![],
+            definition: String::new(),
+            maturity: LocalExtensionMaturity::Minted,
+        },
+        ..Default::default()
+    }
 }
 
 /// Build a consumer port carrying an OntologyTerm with the supplied
 /// IRI. The IRI is chosen so the engine's curated subtype table cannot
 /// trivially bridge it (`data:xxxx` with no edges).
 fn ontology_consumer(iri: &str) -> PortContract {
-    let mut p = PortContract::default();
-    p.name = "in".into();
-    p.semantic_type = SemanticType::edam(iri, "F7 consumer");
-    p
+    PortContract {
+        name: "in".into(),
+        semantic_type: SemanticType::edam(iri, "F7 consumer"),
+        ..Default::default()
+    }
 }
 
 proptest! {

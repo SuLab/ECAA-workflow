@@ -93,11 +93,12 @@ fn is_forbidden(
         }
     };
 
-    // Cross-field implication rules.
+    // Cross-field implication rules: any of these field conditions, when the
+    // level is not Exec, is a violation.
     let cross_field_violation = (code == CodeExecution::GeneratedByAgent
-        && level != SafetyLevel::Exec)
-        || (sandbox != SandboxRequirement::None && level != SafetyLevel::Exec)
-        || (provisioning == ProvisioningPolicy::Allowlisted && level != SafetyLevel::Exec);
+        || sandbox != SandboxRequirement::None
+        || provisioning == ProvisioningPolicy::Allowlisted)
+        && level != SafetyLevel::Exec;
 
     per_level_violation || cross_field_violation
 }

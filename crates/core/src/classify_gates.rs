@@ -17,24 +17,18 @@ pub const CONFIDENCE_GATE_HIGH: f32 = 0.7;
 /// remediation proposer + Opus escalation (model_policy.rs).
 pub const CONFIDENCE_GATE_LOW: f32 = 0.3;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn gate_thresholds_are_ordered() {
-        assert!(CONFIDENCE_GATE_LOW < CONFIDENCE_GATE_MEDIUM);
-        assert!(CONFIDENCE_GATE_MEDIUM < CONFIDENCE_GATE_HIGH);
-    }
-
-    #[test]
-    fn gate_thresholds_are_in_probability_range() {
-        for g in [
-            CONFIDENCE_GATE_LOW,
-            CONFIDENCE_GATE_MEDIUM,
-            CONFIDENCE_GATE_HIGH,
-        ] {
-            assert!(g > 0.0 && g < 1.0, "gate {} out of [0, 1]", g);
-        }
-    }
-}
+// The confidence gates must form a strictly increasing ladder inside the
+// unit interval. These are compile-time invariants over `const` values, so
+// they are enforced as `const` assertions rather than runtime tests.
+const _: () = assert!(
+    CONFIDENCE_GATE_LOW < CONFIDENCE_GATE_MEDIUM,
+    "CONFIDENCE_GATE_LOW must be below CONFIDENCE_GATE_MEDIUM"
+);
+const _: () = assert!(
+    CONFIDENCE_GATE_MEDIUM < CONFIDENCE_GATE_HIGH,
+    "CONFIDENCE_GATE_MEDIUM must be below CONFIDENCE_GATE_HIGH"
+);
+const _: () = assert!(
+    CONFIDENCE_GATE_LOW > 0.0 && CONFIDENCE_GATE_HIGH < 1.0,
+    "confidence gates must lie within (0, 1)"
+);

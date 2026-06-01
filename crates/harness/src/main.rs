@@ -6045,7 +6045,10 @@ mod sse_ordering_tests {
         //   let spy = SpyProgressClient::new();
         //   run_harness_with_progress(&pkg, spy.clone());
         //   spy.assert_write_dag_before_every_set_task_state();
-        assert!(true, "see module-level doc for gap rationale");
+        //
+        // No runtime assertion: the body intentionally does nothing — the
+        // invariant is enforced by code structure, and this test anchors the
+        // coverage gap in the test-count baseline. See module-level doc above.
     }
 }
 
@@ -6264,7 +6267,7 @@ mod amend_cancel_tests {
     #[test]
     fn amend_cancels_running_task_leaves_others_alone() {
         let target_stage = "alignment";
-        let invalidated = vec!["t1".to_string(), "t2".to_string(), "t3".to_string()];
+        let invalidated = ["t1".to_string(), "t2".to_string(), "t3".to_string()];
 
         let dag = dag_with_tasks(vec![
             (

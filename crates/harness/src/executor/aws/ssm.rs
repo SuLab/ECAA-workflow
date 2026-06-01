@@ -879,7 +879,7 @@ mod secret_filter_tests {
         let (safe, dropped) = filter_secrets(&env);
 
         assert!(
-            dropped.iter().any(|k| *k == "GITHUB_TOKEN"),
+            dropped.contains(&"GITHUB_TOKEN"),
             "GITHUB_TOKEN must be in dropped list (curated)"
         );
         // GITHUB_TOKEN_BACKUP and MY_STRIPE_SECRET are pattern-matched;
@@ -894,7 +894,7 @@ mod secret_filter_tests {
             sentinel_count
         );
         assert!(
-            dropped.iter().any(|k| *k == "ANTHROPIC_API_KEY"),
+            dropped.contains(&"ANTHROPIC_API_KEY"),
             "ANTHROPIC_API_KEY must be in dropped list (curated)"
         );
 

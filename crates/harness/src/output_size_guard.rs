@@ -150,7 +150,7 @@ mod tests {
     fn over_cap_returns_err_with_observed_and_threshold() {
         // Use a very small cap (1 byte) via env-var override so the test
         // doesn't need to write gigabytes of data.
-        let (_tmp, root) = make_package("task_b", &[("a.csv", 100), ("b.csv", 100)]);
+        let (_tmp, _root) = make_package("task_b", &[("a.csv", 100), ("b.csv", 100)]);
         // Set the env var to 0 would disable; set to a small non-zero value.
         std::env::set_var(ENV_VAR, "0");
         // 0 disables — pass. Let's use 1 byte expressed as a fraction of MB.
@@ -170,7 +170,10 @@ mod tests {
             "observed={observed} should exceed threshold={threshold}"
         );
         assert_eq!(threshold, 1024 * 1024);
-        assert!(observed >= 1024 * 1024 + 1);
+        assert!(
+            observed > 1024 * 1024,
+            "observed={observed} must strictly exceed the 1 MiB cap"
+        );
     }
 
     #[test]

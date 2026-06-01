@@ -63,7 +63,11 @@ async fn create_session(router: &axum::Router) -> Uuid {
         .body(Body::from(r#"{"careful_mode": false}"#))
         .unwrap();
     let resp = router.clone().oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "session creation should return 200 OK"
+    );
     let body = body_json(resp.into_body()).await;
     Uuid::parse_str(body["session_id"].as_str().unwrap()).unwrap()
 }

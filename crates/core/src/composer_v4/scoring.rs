@@ -101,10 +101,14 @@ mod tests {
     #[test]
     fn passing_tuple_is_least() {
         let pass = ScoringTuple::default();
-        let mut warn = ScoringTuple::default();
-        warn.user_constraint_violation = ScoringValue::Warn;
-        let mut reject = ScoringTuple::default();
-        reject.hard_policy_violation = ScoringValue::Reject;
+        let warn = ScoringTuple {
+            user_constraint_violation: ScoringValue::Warn,
+            ..Default::default()
+        };
+        let reject = ScoringTuple {
+            hard_policy_violation: ScoringValue::Reject,
+            ..Default::default()
+        };
 
         assert!(pass < warn);
         assert!(warn < reject);
@@ -112,10 +116,14 @@ mod tests {
 
     #[test]
     fn lexical_tie_break_orders_alphabetically() {
-        let mut a = ScoringTuple::default();
-        a.stable_lexical_id = "a".into();
-        let mut b = ScoringTuple::default();
-        b.stable_lexical_id = "b".into();
+        let a = ScoringTuple {
+            stable_lexical_id: "a".into(),
+            ..Default::default()
+        };
+        let b = ScoringTuple {
+            stable_lexical_id: "b".into(),
+            ..Default::default()
+        };
         assert!(a < b);
     }
 

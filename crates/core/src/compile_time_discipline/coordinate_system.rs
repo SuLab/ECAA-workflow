@@ -73,13 +73,25 @@ impl<C: CoordinateSystem> Interval<C> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn coordinate_system_markers_disclose_axes() {
-        assert!(ZeroBasedHalfOpen::IS_ZERO_BASED);
-        assert!(ZeroBasedHalfOpen::IS_HALF_OPEN);
-        assert!(!OneBasedClosed::IS_ZERO_BASED);
-        assert!(!OneBasedClosed::IS_HALF_OPEN);
-    }
+    // The coordinate-system marker types must disclose their axis
+    // conventions through associated consts. These are compile-time
+    // invariants, enforced as `const` assertions rather than runtime tests.
+    const _: () = assert!(
+        ZeroBasedHalfOpen::IS_ZERO_BASED,
+        "ZeroBasedHalfOpen must be zero-based"
+    );
+    const _: () = assert!(
+        ZeroBasedHalfOpen::IS_HALF_OPEN,
+        "ZeroBasedHalfOpen must be half-open"
+    );
+    const _: () = assert!(
+        !OneBasedClosed::IS_ZERO_BASED,
+        "OneBasedClosed must not be zero-based"
+    );
+    const _: () = assert!(
+        !OneBasedClosed::IS_HALF_OPEN,
+        "OneBasedClosed must not be half-open"
+    );
 
     #[test]
     fn interval_carries_coordinate_system_name() {
