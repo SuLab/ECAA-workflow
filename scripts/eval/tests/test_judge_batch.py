@@ -56,6 +56,16 @@ def _seed_cache(tmp_path, monkeypatch, judge_id: str, verdict_text: str) -> str:
 # Tests
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def _force_batch(monkeypatch):
+    """These tests exercise the batch path; force batch for any miss count.
+
+    (judge_batch routes <ECAA_EVAL_JUDGE_BATCH_MIN misses to the sync API; the
+    routing itself is covered by the dedicated threshold tests below.)
+    """
+    monkeypatch.setenv("ECAA_EVAL_JUDGE_BATCH_MIN", "1")
+
+
 def test_cache_hit_returns_cost_zero(tmp_path, monkeypatch):
     """A pre-seeded cache entry is returned with cost_usd=0."""
     _seed_cache(tmp_path, monkeypatch, "gemini-3.1-pro", "c1: A\nc2: A")
@@ -202,3 +212,54 @@ def test_both_providers_batched_in_one_call(tmp_path, monkeypatch):
     assert len(gemini_called) == 2, "both gemini misses submitted together"
     assert len(anthropic_called) == 1, "single anthropic miss submitted"
     assert set(results.keys()) == {"g1", "a1", "g2"}
+
+
+def test_below_threshold_uses_sync_not_batch(tmp_path, monkeypatch):
+    """Fewer than ECAA_EVAL_JUDGE_BATCH_MIN misses -> synchronous API, never batch."""
+    monkeypatch.setenv("ECAA_EVAL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("ECAA_EVAL_JUDGE_BATCH_MIN", "16")
+
+    sync_calls = []
+
+    def fake_sync(prompt):
+        sync_calls.append(prompt)
+        return ("c1: A\nc2: A", 10, 5)
+
+    def boom_batch(items):
+        raise AssertionError("batch must not be used below threshold")
+
+    monkeypatch.setattr(judge_mod, "_gemini_call", fake_sync)
+    monkeypatch.setattr(judge_mod, "_gemini_batch", boom_batch)
+
+    results = judge_batch([_make_req("s1", "gemini-3.1-pro")])
+
+    assert len(sync_calls) == 1
+    assert results["s1"]["cost_usd"] == _judge_cost_usd("gemini-3.1-pro", 10, 5)
+
+
+def test_at_threshold_uses_batch_not_sync(tmp_path, monkeypatch):
+    """At/above ECAA_EVAL_JUDGE_BATCH_MIN misses -> batch API, never sync."""
+    monkeypatch.setenv("ECAA_EVAL_CACHE_DIR", str(tmp_path))
+    monkeypatch.setenv("ECAA_EVAL_JUDGE_BATCH_MIN", "2")
+
+    batch_items = []
+
+    def fake_batch(items):
+        batch_items.extend(items)
+        return {it["key"]: ("c1: A\nc2: A", 10, 5) for it in items}
+
+    def boom_sync(prompt):
+        raise AssertionError("sync must not be used at/above threshold")
+
+    monkeypatch.setattr(judge_mod, "_gemini_batch", fake_batch)
+    monkeypatch.setattr(judge_mod, "_gemini_call", boom_sync)
+
+    reqs = [
+        _make_req("b1", "gemini-3.1-pro"),
+        {"key": "b2", "judge_id": "gemini-3.1-pro", "rubric": RUBRIC,
+         "trace": "different trace forces a second miss", "answer": ANSWER},
+    ]
+    results = judge_batch(reqs)
+
+    assert len(batch_items) == 2
+    assert set(results.keys()) == {"b1", "b2"}

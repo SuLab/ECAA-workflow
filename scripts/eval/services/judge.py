@@ -271,6 +271,30 @@ def _anthropic_batch(items: list[dict]) -> dict[str, tuple[str, int, int]]:
     return results
 
 
+def _batch_min() -> int:
+    """Minimum cache-miss count (per provider) to use the batch API instead of
+    synchronous calls. Read at call time so it is env-tunable per run."""
+    try:
+        return max(1, int(os.environ.get("ECAA_EVAL_JUDGE_BATCH_MIN", "16")))
+    except ValueError:
+        return 16
+
+
+def _fetch_provider(misses: list[dict], batch_fn, sync_fn) -> dict[str, tuple[str, int, int]]:
+    """Fetch verdict text for one provider's cache-misses.
+
+    Below ECAA_EVAL_JUDGE_BATCH_MIN requests, call the synchronous API per
+    request — seconds of latency at full price, the right trade for dry-runs and
+    small runs. At/above the threshold submit one provider batch — ~50% cheaper
+    but minutes-to-hours of latency, the right trade for full runs. (Even a tiny
+    batch can take 30+ min, so a small run must never be forced through it.)
+    Returns {key: (text, in_tok, out_tok)}.
+    """
+    if len(misses) >= _batch_min():
+        return batch_fn(misses)
+    return {m["key"]: sync_fn(m["prompt"]) for m in misses}
+
+
 def judge_batch(requests_list: list[dict]) -> dict[str, dict]:
     """Score a list of judge requests in batch, grouped by provider.
 
@@ -312,9 +336,9 @@ def judge_batch(requests_list: list[dict]) -> dict[str, dict]:
             else:
                 misses_anthropic.append(entry)
 
-    # Fetch misses in batch per provider.
+    # Fetch misses per provider: sync below the threshold, batch at/above it.
     if misses_gemini:
-        fetched = _gemini_batch(misses_gemini)
+        fetched = _fetch_provider(misses_gemini, _gemini_batch, _gemini_call)
         for entry in misses_gemini:
             key = entry["key"]
             text, in_tok, out_tok = fetched[key]
@@ -325,7 +349,7 @@ def judge_batch(requests_list: list[dict]) -> dict[str, dict]:
             results[key] = verdict
 
     if misses_anthropic:
-        fetched = _anthropic_batch(misses_anthropic)
+        fetched = _fetch_provider(misses_anthropic, _anthropic_batch, _anthropic_call)
         for entry in misses_anthropic:
             key = entry["key"]
             text, in_tok, out_tok = fetched[key]
