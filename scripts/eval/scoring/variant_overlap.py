@@ -1,8 +1,10 @@
 """Per-sample variant-overlap Jaccard for the Nekrutenko mtDNA task.
 
 A variant key is (chrom, pos, ref, alt) of a PASS (or unfiltered) record.
-Two shared keys match only if their AF agrees within af_tol. Jaccard =
-|matched| / |union of keys|.
+Multiallelic records (ALT = comma-separated alleles) are decomposed into one
+key per ALT allele so each allele matches independently against a single-allele
+answer key. Two shared keys match only if their AF agrees within af_tol.
+Jaccard = |matched| / |union of keys|.
 """
 from __future__ import annotations
 import gzip
@@ -24,7 +26,34 @@ def _read_vcf_text(path: Path) -> str:
     return p.read_text()
 
 
+def _parse_af_field(info: str) -> list[float]:
+    """Extract the AF INFO subfield as a list of per-allele allele frequencies.
+
+    Returns one float per comma-separated AF value, or an empty list when no
+    AF is present. Unparseable values fall back to 0.0 so a malformed AF never
+    raises.
+    """
+    for kv in info.split(";"):
+        if kv.startswith("AF="):
+            vals: list[float] = []
+            for v in kv[3:].split(","):
+                try:
+                    vals.append(float(v))
+                except ValueError:
+                    vals.append(0.0)
+            return vals
+    return []
+
+
 def parse_vcf_variants(path: Path) -> dict[tuple[str, int, str, str], float]:
+    """Parse a VCF into a {(chrom, pos, ref, alt): af} map.
+
+    Multiallelic records (ALT = comma-separated alleles, e.g. ``T  C,G``) are
+    split into one key per ALT allele so each allele matches independently
+    against a single-allele answer key. Per-allele AF (``AF=0.9,0.1``) is paired
+    positionally with each ALT allele; a single AF value applies to every
+    allele; a missing AF yields 0.0.
+    """
     variants: dict[tuple[str, int, str, str], float] = {}
     for line in _read_vcf_text(path).splitlines():
         if not line or line.startswith("#"):
@@ -36,14 +65,16 @@ def parse_vcf_variants(path: Path) -> dict[tuple[str, int, str, str], float]:
         if flt not in ("PASS", ".", ""):
             continue
         chrom, pos, ref, alt, info = f[0], int(f[1]), f[3], f[4], f[7]
-        af = 0.0
-        for kv in info.split(";"):
-            if kv.startswith("AF="):
-                try:
-                    af = float(kv[3:].split(",")[0])
-                except ValueError:
-                    af = 0.0
-        variants[(chrom, pos, ref, alt)] = af
+        alts = alt.split(",")
+        afs = _parse_af_field(info)
+        for i, allele in enumerate(alts):
+            if len(afs) == len(alts):
+                af = afs[i]
+            elif len(afs) == 1:
+                af = afs[0]
+            else:
+                af = 0.0
+            variants[(chrom, pos, ref, allele)] = af
     return variants
 
 
