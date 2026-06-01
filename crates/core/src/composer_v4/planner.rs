@@ -216,6 +216,66 @@ pub fn plan(
     atom_reg: &AtomRegistry,
     archetype_reg: &ArchetypeRegistry,
 ) -> PlannerResult {
+    // First-class multi-branch mode (Pillar A). A >=2-modality request
+    // (or an n_way-intent override) with no registered cross-omics
+    // archetype composes one branch per modality — each planned through
+    // the full single-modality planner — instead of dropping the
+    // additional modalities. Guarded so per-branch sub-plans (which set
+    // `in_branch_subplan`) never re-enter. Cross-omics archetypes still
+    // win: the probe returning `Some` falls through to the normal path.
+    if !ctx.in_branch_subplan
+        && (!ctx.additional_modalities.is_empty() || goal.modifiers.contains_key("n_way_intent"))
+    {
+        let target_modality = ctx.intent.modality.as_deref();
+        let target_kind = goal.modifiers.get("kind").map(|s| s.as_str());
+        let cross_omics = try_cross_omics_archetype_seed(
+            goal,
+            project_class,
+            target_modality,
+            &ctx.additional_modalities,
+            target_kind,
+            atom_reg,
+            archetype_reg,
+        );
+        if cross_omics.is_none() {
+            let comp = super::multi_branch_synthesis::compose_branches(
+                ctx,
+                goal,
+                project_class,
+                atom_reg,
+                archetype_reg,
+            );
+            let score = score_dag(&comp.dag, ctx);
+            let summary = summarize_dag(&comp.dag, &score);
+            // Pillar D seam — runs beside policy evaluation; no-op in Phase 1.
+            let _ = super::coherence_gate::evaluate(&comp.dag);
+            let effective_sandbox = ctx
+                .sandbox_policy
+                .clone()
+                .unwrap_or_else(SandboxPolicy::default_strict);
+            let mut outcome =
+                classify_outcome_with_sandbox(&comp.dag, &score, &effective_sandbox, ctx);
+            // Graceful missing-modality (Pillar C minimal): surface gaps on
+            // a PartialDag instead of dropping the modalities.
+            if !comp.unresolved.is_empty() {
+                outcome = ComposeOutcome::PartialDag {
+                    dag: comp.dag.clone(),
+                    unresolved_gaps: comp.unresolved,
+                };
+            }
+            let alt = RankedAlternative {
+                dag: comp.dag,
+                score,
+                summary,
+                source: "multi_branch".into(),
+            };
+            return PlannerResult {
+                primary: outcome,
+                alternatives: vec![alt],
+            };
+        }
+    }
+
     let mut alternatives: Vec<RankedAlternative> = Vec::new();
 
     // Seed 1 — archetype match (treat as v4 candidate subgraph). Use
