@@ -13,7 +13,7 @@ from statistics import mean
 from scripts.eval.benchmark import Arm, Benchmark, Output, RunSpec, Score, Scorecard
 from scripts.eval.scoring.variant_overlap import mean_jaccard
 from scripts.eval.scoring.error_matrix import classify_cell
-from scripts.eval.services.datasets import stage_file
+from scripts.eval.services.datasets import scratch_root, stage_file
 
 # Relative paths from the pinned nekrut/LLM-eval-paper repo (1175f72a…):
 #   plan/PLAN.md          — default v2 implementation plan
@@ -137,79 +137,58 @@ class Nekrutenko(Benchmark):
             meta["error_matrix"] = error_matrix
         return Scorecard(benchmark=self.name, rows=scores, meta=meta)
 
-    def error_matrix(self, task, arm, workdir, run_fn):
-        """Run the 36-cell PATH-shim fault-injection sweep.
+    def error_matrix_specs(self):
+        """The 36 (pattern, tool, seed) cells of the PATH-shim fault matrix."""
+        return [(pattern, tool, seed)
+                for pattern, tool in _FAULT_PATTERNS
+                for seed in _SEEDS]
 
-        For each of the 12 pattern×tool combinations × 3 seeds (36 cells total),
-        prepare a per-cell ``_eval_bin/`` directory that symlinks the real shim
-        wrapper scripts (``bwa`` and ``lofreq``) from ``harness/error_shims/``
-        into a per-run bin dir, then prepend that dir onto PATH.  The shim
-        contract env vars mirror run_one.py's ``setup_inject()``:
+    def run_error_cell(self, task, cell_spec, run_fn):
+        """Run ONE PATH-shim fault cell and return its classification dict.
 
-          EVAL_INJECT_PATTERN  — which failure mode to inject
-          EVAL_INJECT_TARGET   — which tool the pattern applies to
-          EVAL_INJECT_STATE    — per-run state dir for cross-call counters
-          EVAL_REAL_BIN_DIR    — where the real (non-shimmed) binaries live
-
-        There is no EVAL_INJECT_SEED env var; seed isolation is achieved by
-        using a fresh EVAL_INJECT_STATE directory for each cell.
-
-        ``run_fn`` is injected so offline tests can pass a fake without spawning
-        a real agent.  The live driver passes a closure that re-runs the arm via
-        agent_runner.
-        """
+        Symlinks the real shim wrappers (bwa, lofreq) into a per-cell bin dir,
+        prepends it to PATH, sets the shim-contract env vars, runs the arm via
+        ``run_fn(cell_dir, env)``, then classifies handle/recover/diagnose from
+        the produced VCF count + failures.log. The per-cell tempdir lives on
+        scratch_root() (mounted disk), not /tmp, so parallel cells + per-cell
+        package copies cannot fill the root filesystem."""
+        pattern, tool, seed = cell_spec
         handle_dir = Path(task.meta.get("handle", ""))
         shims_root = handle_dir / _SHIMS if handle_dir.is_dir() else None
 
-        cells = []
-        for pattern, tool in _FAULT_PATTERNS:
-            for seed in _SEEDS:
-                with tempfile.TemporaryDirectory() as td:
-                    cell_dir = Path(td)
+        with tempfile.TemporaryDirectory(dir=scratch_root()) as td:
+            cell_dir = Path(td)
+            state_dir = cell_dir / "_eval_state"
+            state_dir.mkdir()
+            bin_dir = cell_dir / "_eval_bin"
+            bin_dir.mkdir()
+            if shims_root is not None:
+                for shimmed_tool in ("bwa", "lofreq"):
+                    (bin_dir / shimmed_tool).symlink_to(shims_root / shimmed_tool)
 
-                    # Per-cell state dir isolates cross-call counters between seeds.
-                    state_dir = cell_dir / "_eval_state"
-                    state_dir.mkdir()
+            env = os.environ.copy()
+            env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
+            env["EVAL_INJECT_PATTERN"] = pattern
+            env["EVAL_INJECT_TARGET"] = tool
+            env["EVAL_INJECT_STATE"] = str(state_dir)
 
-                    # Build a bin dir with symlinks to the real shim wrapper scripts
-                    # (bwa and lofreq).  In offline tests shims_root is None and we
-                    # create placeholder paths; the fake run_fn never invokes them.
-                    bin_dir = cell_dir / "_eval_bin"
-                    bin_dir.mkdir()
-                    if shims_root is not None:
-                        for shimmed_tool in ("bwa", "lofreq"):
-                            link = bin_dir / shimmed_tool
-                            link.symlink_to(shims_root / shimmed_tool)
+            result = run_fn(cell_dir, env)
 
-                    # Build an env with the fault shim dir prepended to PATH
-                    # and the shim contract vars set so shims know what to inject.
-                    env = os.environ.copy()
-                    env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
-                    env["EVAL_INJECT_PATTERN"] = pattern
-                    env["EVAL_INJECT_TARGET"] = tool
-                    env["EVAL_INJECT_STATE"] = str(state_dir)
+            produced_valid = len(list(cell_dir.rglob("*.vcf")))
+            failures_log = ""
+            log_path = cell_dir / "failures.log"
+            if log_path.exists():
+                failures_log = log_path.read_text()
+            classification = classify_cell(
+                exit_code=0 if result.exit_ok else 1,
+                failures_log=failures_log,
+                produced_valid=produced_valid,
+                expected_valid=4,
+            )
+            return {"pattern": pattern, "tool": tool, "seed": seed, **classification}
 
-                    result = run_fn(cell_dir, env)
-
-                    # Count produced VCFs in the cell workdir.
-                    produced_valid = len(list(cell_dir.rglob("*.vcf")))
-
-                    # Read failures.log if the agent wrote one.
-                    failures_log = ""
-                    log_path = cell_dir / "failures.log"
-                    if log_path.exists():
-                        failures_log = log_path.read_text()
-
-                    classification = classify_cell(
-                        exit_code=0 if result.exit_ok else 1,
-                        failures_log=failures_log,
-                        produced_valid=produced_valid,
-                        expected_valid=4,
-                    )
-                    cells.append({
-                        "pattern": pattern,
-                        "tool": tool,
-                        "seed": seed,
-                        **classification,
-                    })
-        return cells
+    def error_matrix(self, task, arm, workdir, run_fn):
+        """Serial 36-cell sweep (kept for back-compat / non-parallel callers).
+        The parallel driver schedules ``run_error_cell`` per spec instead."""
+        return [self.run_error_cell(task, spec, run_fn)
+                for spec in self.error_matrix_specs()]
