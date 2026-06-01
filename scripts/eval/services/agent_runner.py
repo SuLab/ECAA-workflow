@@ -32,7 +32,9 @@ def eval_model() -> str:
 
 def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
                      timeout: int | None = None,
-                     env: dict | None = None) -> RunResult:
+                     env: dict | None = None,
+                     session_id: str | None = None,
+                     server_url: str | None = None) -> RunResult:
     agent = str(REPO_ROOT / "scripts" / "agent-claude.sh")
     # Per-task wall deadline (default 600s, env-tunable): variant calling + an
     # in-container tool install exceed the harness's 300s default. The harness
@@ -41,11 +43,21 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
     cmd = ["ecaa-workflow-harness", "--package", str(package_dir),
            "--agent", agent, "--max-iterations", str(max_iterations),
            "--task-timeout", str(task_timeout), "--no-interactive"]
+    # Route harness lifecycle/progress back to the emitting chat session (and
+    # enable the per-session agent install cache). Only when BOTH are set: a
+    # session-id with no server-url has nowhere to post. Error-matrix cells run
+    # against unregistered package copies and pass neither (offline cells).
+    if session_id and server_url:
+        cmd += ["--session-id", session_id, "--server-url", server_url]
     # Pin the ECAA arm to the same model as the bare arm (fairness): the override
     # makes agent-claude.sh bypass per-task model tiering. setdefault so an
     # explicit caller/operator value wins.
     effective_env = (env.copy() if env is not None else os.environ.copy())
     effective_env.setdefault("ECAA_AGENT_MODEL_OVERRIDE", eval_model())
+    # Unattended eval: uniformly bypass every SME gate so the harness never
+    # parks on `waiting_for_sme`. Harmless when the harness build predates the
+    # env-read — the marker-file path (_write_auto_approve_all) still applies.
+    effective_env.setdefault("ECAA_SME_AUTO_APPROVE_ALL", "1")
     effective_env.setdefault("MAX_TURNS_PER_TASK", "60")  # was 40 — too tight w/ installs
     # Whole-harness subprocess ceiling: a multi-task DAG with per-task deadlines
     # needs more than 1h. Env-tunable; default 2h.

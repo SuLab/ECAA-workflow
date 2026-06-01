@@ -98,6 +98,17 @@ class Nekrutenko(Benchmark):
             stage_file(src, workdir / name)
         return RunSpec(arm, workdir, "bare", instr)
 
+    def locked_methods(self, task, arm):
+        """Recipe eval: pin the paper's canonical tools (bwa + lofreq) on the
+        ECAA arm so the compiled DAG matches the Nekrutenko reference recipe and
+        the error-matrix injects against the same binaries the agent runs.
+        `alignment` / `variant_calling` are the composer's bare discover axes
+        for the variant_calling_germline archetype (sme-named strips any
+        `discover_` prefix). The bare arm gets no chat-intake, so [] there."""
+        if arm == Arm.ECAA_WORKFLOW:
+            return [("alignment", "bwa"), ("variant_calling", "lofreq")]
+        return []
+
     def collect(self, spec, run_dir):
         # rglob pulls every VCF anywhere under the run dir, including cohort /
         # annotated / per-sample outputs in nested stage dirs. score() pools all
