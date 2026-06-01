@@ -1182,22 +1182,24 @@ fn ro_crate_contains_edam_annotations() {
         .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("WORKFLOW.json"))
         .expect("WORKFLOW.json entity");
 
-    // EDAM topic annotation
+    // EDAM topic annotation — the dereferenceable IRI uses an underscore
+    // in the local id (`topic_3308`), never the raw CURIE colon (which
+    // 404s on edamontology.org).
     let sub_cat = wf
         .get("applicationSubCategory")
         .expect("applicationSubCategory");
     let sub_cat_id = sub_cat.get("@id").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(
-        sub_cat_id.contains("topic:3308"),
-        "must have bulk_rnaseq EDAM topic"
+    assert_eq!(
+        sub_cat_id, "https://edamontology.org/topic_3308",
+        "must have bulk_rnaseq EDAM topic in underscore form"
     );
 
     // EDAM operation annotation
     let feature = wf.get("featureList").expect("featureList");
     let feat_id = feature.get("@id").and_then(|v| v.as_str()).unwrap_or("");
-    assert!(
-        feat_id.contains("operation:3223"),
-        "must have DE EDAM operation"
+    assert_eq!(
+        feat_id, "https://edamontology.org/operation_3223",
+        "must have DE EDAM operation in underscore form"
     );
 }
 
