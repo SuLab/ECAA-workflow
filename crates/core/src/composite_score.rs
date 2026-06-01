@@ -39,9 +39,11 @@
 //! the LLM agent enforces the same rules at runtime.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Per-axis scores in [0.0, 5.0].
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct AxisScores {
     pub default_suitability: f64,
     pub robustness: f64,
@@ -55,7 +57,8 @@ pub struct AxisScores {
 }
 
 /// Policy weight configuration parsed from `compositeScoreWeights`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct CompositeScoreWeights {
     pub default_suitability: f64,
@@ -215,7 +218,8 @@ pub fn apply_quality_gate_penalties(
 /// All fields have safe defaults so callers only need to populate the fields
 /// they have. An all-default candidate passes every criterion that isn't
 /// about blocking gates or contradictions (which default to zero).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct CandidateMetadata {
     /// Number of blocking quality-gate failures for this candidate.
     pub blocking_gate_failures: usize,
@@ -237,7 +241,8 @@ pub struct CandidateMetadata {
 }
 
 /// Confidence tier for a discovery candidate.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub enum Confidence {
     #[default]
     High,
@@ -246,7 +251,8 @@ pub enum Confidence {
 }
 
 /// Result of evaluating `defaultEligibilityCriteria` for one candidate.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
 pub struct EligibilityResult {
     /// `true` when the candidate passes ALL default-eligibility criteria.
     pub passes: bool,
