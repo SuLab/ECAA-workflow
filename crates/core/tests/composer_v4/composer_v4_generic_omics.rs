@@ -9,7 +9,7 @@
 
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
-use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::composer::compose_with_modalities_full;
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::path::Path;
 
@@ -42,12 +42,11 @@ fn generic_omics_off_topic_prose_emits_executable_dag() {
         confidence: 0.0,
     };
 
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "research",
         &atoms,
         &archetypes,
-        4,
         &["generic_omics"],
         None,
         None,

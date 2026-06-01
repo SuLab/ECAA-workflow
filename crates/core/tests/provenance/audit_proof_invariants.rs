@@ -499,7 +499,7 @@ fn emit_minimal_package(out: &std::path::Path) {
     use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
     use ecaa_workflow_core::atom_registry::AtomRegistry;
     use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
-    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::composer::compose_with_modalities_full;
     use ecaa_workflow_core::goal_spec::GoalSpec;
     use std::collections::BTreeMap;
 
@@ -513,12 +513,11 @@ fn emit_minimal_package(out: &std::path::Path) {
         source_prose: Some("audit-proof emit fixture".into()),
         confidence: 0.0,
     };
-    let out_compose = compose_with_version_and_modalities_full(
+    let out_compose = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &["bulk_rnaseq"],
         None,
         None,

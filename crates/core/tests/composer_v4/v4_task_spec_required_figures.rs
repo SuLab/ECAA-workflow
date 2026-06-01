@@ -12,7 +12,7 @@
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::builder::build_dag_from_workflow_dag;
-use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::composer::compose_with_modalities_full;
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -37,12 +37,11 @@ fn v4_bulk_rnaseq_de_threads_required_figures_into_task_spec() {
     };
     let modalities = vec!["bulk_rnaseq"];
 
-    let out = compose_with_version_and_modalities_full(
+    let out = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &modalities,
         None,
         None,

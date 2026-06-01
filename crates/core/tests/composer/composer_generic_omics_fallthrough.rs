@@ -10,7 +10,7 @@ use anyhow::Result;
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::classify::Classifier;
-use ecaa_workflow_core::composer::compose_with_version_and_modality;
+use ecaa_workflow_core::composer::compose_with_modality;
 use std::path::Path;
 
 fn registries_and_classifier() -> Result<(AtomRegistry, ArchetypeRegistry, Classifier)> {
@@ -37,12 +37,11 @@ fn survival_genomics_emits_generic_summary() -> Result<()> {
     let goal = classifier
         .extract_goal(prompt)
         .unwrap_or_else(ecaa_workflow_core::goal_spec::GoalSpec::default);
-    let result = compose_with_version_and_modality(
+    let result = compose_with_modality(
         &goal,
         "bioinformatics",
         &atom_reg,
         &archetype_reg,
-        4,
         Some(cls.modality.as_str()),
     )?;
     let atom_ids: std::collections::BTreeSet<&str> =
@@ -63,12 +62,11 @@ fn microbiome_strain_snp_emits_generic_summary() -> Result<()> {
                   strain abundance estimates, summary tables.";
     let cls = classifier.classify(prompt);
     let goal = classifier.extract_goal(prompt).unwrap_or_default();
-    let result = compose_with_version_and_modality(
+    let result = compose_with_modality(
         &goal,
         "bioinformatics",
         &atom_reg,
         &archetype_reg,
-        4,
         Some(cls.modality.as_str()),
     )?;
     let atom_ids: std::collections::BTreeSet<&str> =

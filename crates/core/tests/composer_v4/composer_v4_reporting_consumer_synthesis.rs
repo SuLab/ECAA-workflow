@@ -41,7 +41,7 @@ use std::path::Path;
 
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
-use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::composer::compose_with_modalities_full;
 use ecaa_workflow_core::goal_spec::GoalSpec;
 
 const ATOMS_DIR: &str = "../../config/stage-atoms";
@@ -60,12 +60,11 @@ fn emit_v4_workflow(
         .expect("AtomRegistry must load from config/stage-atoms");
     let archetype_reg = ArchetypeRegistry::load_from_dir(Path::new(ARCHETYPES_DIR))
         .expect("ArchetypeRegistry must load from config/archetypes");
-    let output = compose_with_version_and_modalities_full(
+    let output = compose_with_modalities_full(
         goal,
         project_class,
         &atom_reg,
         &archetype_reg,
-        4,
         modalities,
         None,
         None,

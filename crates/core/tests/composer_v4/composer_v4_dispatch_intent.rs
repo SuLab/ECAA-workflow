@@ -6,7 +6,7 @@
 //!
 //! Two regressions:
 //!
-//! 1. **Public dispatch** — `compose_with_version_and_modalities_full`
+//! 1. **Public dispatch** — `compose_with_modalities_full`
 //! at `composer_version=4` must propagate the caller's modality slice
 //! into the v4 PlanningContext. We assert this by inspecting the
 //! `compose_outcome` returned through `CompositionError::
@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
-use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::composer::compose_with_modalities_full;
 use ecaa_workflow_core::composer_v4::{plan as v4_plan, planning_context_for_goal_with_intake};
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use ecaa_workflow_core::workflow_contracts::data_product::DataProductContract;
@@ -173,7 +173,7 @@ fn planner_with_threaded_intent_produces_search_and_archetype_alternatives() {
 }
 
 /// The public dispatcher
-/// (`compose_with_version_and_modalities_full`) must thread the
+/// (`compose_with_modalities_full`) must thread the
 /// modality slice through to the v4 PlanningContext. This is the
 /// integration-level regression: pre-fix every production v4 dispatch
 /// returned `PartialDag, no producer`; post-fix the planner walks the
@@ -208,12 +208,11 @@ fn dispatch_v4_threads_modality_through_public_entry_point() {
     let goal = bulk_rnaseq_de_goal();
     let modalities: Vec<&str> = vec!["bulk_rnaseq"];
 
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atom_reg,
-        &archetype_reg,
-        4, // v4
+        &archetype_reg, // v4
         &modalities,
         None,
         None,

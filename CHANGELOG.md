@@ -43,6 +43,9 @@ New entries go at the top. One bullet per user-visible change.
 ### Deferred
 - **Annotated walkthrough screenshot** (`docs/images/sme-walkthrough-overview.png`) — requires running the UI in a browser and capturing a labelled reference frame. Defer until the next UI pass; not blocking since the split-pane layout is self-documenting and every labelled surface is also described in `sme-user-guide.md`.
 
+### Removed
+- **Composer v1/v2/v3 retired.** v4 (proof-carrying planner) is now the sole composer. Removed the `composer_version` session field/param, the `backward_chain_compose` engine, the legacy archetype/multi-branch dispatch paths, and the `ECAA_COMPOSER` env var (its values already resolved to v4). Old session files load unchanged (the field is ignored); already-emitted packages are unaffected.
+
 ## [0.1.0] — 2026-04 (pre-release baseline)
 
 The codebase prior to the docs remediation was never formally tagged. Everything up to commit `33369b6` is considered the 0.1.0 baseline for changelog purposes. Functional scope at that point:

@@ -13,7 +13,7 @@
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::composer::{
-    compose_with_intake, compose_with_version_and_modality, IntakeContext,
+    compose_with_intake, compose_with_modality, IntakeContext,
     LITERATURE_OPT_IN_ATOM_IDS,
 };
 use ecaa_workflow_core::goal_spec::GoalSpec;
@@ -61,12 +61,11 @@ fn v2_archetype_path_includes_optional_literature_atoms() {
     // Supply "bulk_rnaseq" modality hint so the v2 archetype-fast-path
     // picks bulk_rnaseq_de unambiguously (without the hint the DE goal
     // produces a TieRequiresSmeDecision across 8 archetypes).
-    let result = compose_with_version_and_modality(
+    let result = compose_with_modality(
         &bulk_de_goal(),
         "bioinformatics",
         &atoms,
         &archs,
-        2,
         Some("bulk_rnaseq"),
     )
     .expect("v2 compose with bulk_rnaseq hint should succeed for bulk DE goal");
@@ -166,12 +165,11 @@ fn v2_compose_with_intake_includes_literature_when_requested() {
     // optional atoms are present, then check the filter doesn't remove
     // them when literature_review_requested=true.
     // Supply modality hint to avoid TieRequiresSmeDecision.
-    let mut result: CompositionResult = compose_with_version_and_modality(
+    let mut result: CompositionResult = compose_with_modality(
         &bulk_de_goal(),
         "bioinformatics",
         &atoms,
         &archs,
-        2,
         Some("bulk_rnaseq"),
     )
     .expect("v2 compose with bulk_rnaseq hint should succeed");
@@ -229,12 +227,11 @@ fn v2_chip_seq_peaks_with_literature_includes_lit_atoms() {
         source_prose: None,
         confidence: 0.9,
     };
-    let result = compose_with_version_and_modality(
+    let result = compose_with_modality(
         &goal,
         "bioinformatics",
         &atoms,
         &archs,
-        2,
         Some("chip_seq"),
     )
     .expect("v2 compose with chip_seq hint should succeed for peak calling goal");
@@ -266,12 +263,11 @@ fn v2_variant_calling_with_literature_includes_lit_atoms() {
         source_prose: None,
         confidence: 0.9,
     };
-    let result = compose_with_version_and_modality(
+    let result = compose_with_modality(
         &goal,
         "bioinformatics",
         &atoms,
         &archs,
-        2,
         Some("variant_calling"),
     )
     .expect("v2 compose with variant_calling hint should succeed for variant goal");

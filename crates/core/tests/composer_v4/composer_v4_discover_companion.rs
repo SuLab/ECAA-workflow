@@ -17,7 +17,7 @@
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::backend_emitters::{lower_to_workflow_json, EmitContext};
-use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::composer::compose_with_modalities_full;
 use ecaa_workflow_core::dag::{DiscoveryKind, TaskKind};
 use ecaa_workflow_core::goal_spec::GoalSpec;
 
@@ -44,12 +44,11 @@ fn v4_dag_emits_discover_companion_for_method_choice_atoms() {
         confidence: 0.9,
     };
 
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "research",
         &atom_reg,
         &archetype_reg,
-        4,
         &["single_cell_rnaseq"],
         None,
         None,
@@ -123,12 +122,11 @@ fn synthesized_discover_companions_lower_to_best_practice_and_sme_review() {
         confidence: 0.9,
     };
 
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "research",
         &atom_reg,
         &archetype_reg,
-        4,
         &["single_cell_rnaseq"],
         None,
         None,

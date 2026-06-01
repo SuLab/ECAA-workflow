@@ -157,12 +157,6 @@ impl Session {
             // schema. Today's value is the current SemVer pin; the serde
             // adapter on the field accepts legacy `u64` reads.
             schema_version: ecaa_workflow_core::migration::current_session_version(),
-            // `composer_version` pins the composer this session
-            // committed to. `read_composer_version` consults ECAA_COMPOSER
-            // to pick between v1 (legacy taxonomy), v2 (archetype), v3
-            // (backward-chain), and v4 (semantic). Pinned at creation;
-            // amendments stay on the same composer.
-            composer_version: read_composer_version(),
             // Pilot recommendation defaults to None.
             // Set by the server's /progress handler when the harness
             // reports `sizing_pilot_complete`.
@@ -495,7 +489,7 @@ impl Session {
     /// conversation tail byte-for-byte.
     ///
     /// Canonical input fields: `intake_methods` (BTreeMap-sorted by
-    /// key), `classification.modality` (if set), `composer_version`.
+    /// key), `classification.modality` (if set).
     /// These are the load-bearing "shape" of the next emit; any of
     /// them changing means the next package is materially different
     /// from what the SME approved.
@@ -522,10 +516,9 @@ impl Session {
     fn canonical_summary_input(&self) -> serde_json::Value {
         // Pick stable fields that define the "shape" of the next
         // emit. `intake_methods` is the per-stage method registry;
-        // `modality` is the classifier output; `composer_version`
-        // pins the engine. Adding fields here forces a re-confirm
-        // on legacy sessions where the field would have been
-        // absent; we keep the set deliberately small.
+        // `modality` is the classifier output. Adding fields here
+        // forces a re-confirm on legacy sessions where the field
+        // would have been absent; we keep the set deliberately small.
         let intake = serde_json::to_value(&self.intake_methods).unwrap_or(serde_json::Value::Null);
         let modality = self
             .classification
@@ -535,7 +528,6 @@ impl Session {
         serde_json::json!({
             "intake_methods": intake,
             "modality": modality,
-            "composer_version": self.composer_version,
         })
     }
 }
@@ -586,32 +578,3 @@ fn read_default_budget_usd() -> Option<f64> {
         .filter(|v| v.is_finite() && *v > 0.0)
 }
 
-/// Default composer version for newly-created sessions. Set to v4
-/// (proof-carrying semantic). Existing sessions retain
-/// `Session::composer_version` from their creation-time pin; this
-/// default applies only to brand-new sessions where `ECAA_COMPOSER` is
-/// unset.
-///
-/// The v1 (`legacy`), v2 (`archetypes`), and v3 (`backward-chain`)
-/// entry points are retired. Their aliases stay accepted here so
-/// existing CI scripts and operator runbooks don't fail loudly;
-/// instead they emit a `tracing::warn!` and route the new session to v4.
-fn read_composer_version() -> u32 {
-    match std::env::var("ECAA_COMPOSER").ok().as_deref() {
-        Some("legacy" | "archetypes" | "backward-chain") => {
-            let value = std::env::var("ECAA_COMPOSER").unwrap_or_default();
-            tracing::warn!(
-                value = %value,
-                "ECAA_COMPOSER={value:?} is retired; new sessions will use v4 (semantic). \
-                 Existing sessions retain their pinned composer_version."
-            );
-            4
-        }
-        Some("semantic" | "proof-carrying") => 4,
-        Some(other) => {
-            tracing::warn!(other = %other, "ECAA_COMPOSER={other:?} unrecognized; defaulting to v4");
-            4
-        }
-        None => 4,
-    }
-}

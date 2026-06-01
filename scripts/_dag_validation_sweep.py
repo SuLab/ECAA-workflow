@@ -39,7 +39,6 @@ def emit(scenario, outdir):
     pkg = outdir / ("pkg_" + scenario["id"])
     env = dict(os.environ)
     env["ECAA_VALIDATE_ON_EMIT"] = "full"
-    env["ECAA_COMPOSER"] = "semantic"
     r = subprocess.run(
         [str(CLI), "intake", "--input", str(pf), "--output", str(pkg),
          "--config", str(CONFIG)],

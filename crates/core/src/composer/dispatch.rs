@@ -1,30 +1,27 @@
 //! Public-API dispatch entry points for the composer.
 //!
-//! Houses the five `compose_*` overloads that callers (CLI `intake`,
-//! the conversation crate's `try_build_via_composer`, eval-baselines,
-//! and the integration-test corpus) drive through, plus the three
-//! v4-specific internal helpers (`collect_policy_decisions`,
-//! `format_check_kind_str`, `seed_available_data_for_modalities`).
+//! Houses the `compose_*` entry points that callers (CLI `intake`,
+//! the conversation crate's `try_build_via_composer`, and the
+//! integration-test corpus) drive through. v4 (the proof-carrying
+//! planner) is the only composer; all entry points funnel into
+//! `compose_with_modalities_full` → `compose_v4_dispatch_full`.
 //!
-//! Routing precedence is preserved verbatim:
+//! Routing:
 //!
 //! - `compose` is the zero-config entry point — delegates to
-//!   `compose_with_version` with `composer_version = 4`.
-//! - `compose_with_version` lifts the optional modality slot to
-//!   `compose_with_version_and_modality`.
-//! - `compose_with_version_and_modality` routes v4 through
-//!   `compose_v4_dispatch_full` (single-modality slice) and v1/v2/v3
-//!   through the legacy archetype fast-path with backward-chain
-//!   fallback.
-//! - `compose_with_version_and_modalities` adds cross-omics archetype
-//!   matching for multi-modality requests, falling back to the
-//!   generic multi-branch synthesizer when no cross-omics archetype
-//!   set-equals the request.
-//! - `compose_with_version_and_modalities_full` is the proof-carrying
-//!   variant: returns the full `ComposerOutput` (composition +
-//!   WorkflowDag + ranked alternatives + ComposeOutcome +
-//!   per-node policy decisions) so the conversation crate can
-//!   persist v4 sidecars at emit time.
+//!   `compose_with_modality(None)`.
+//! - `compose_with_modality` lifts the optional modality slot to a
+//!   single-element slice and calls `compose_with_modalities_full`,
+//!   returning the lowered `CompositionResult`.
+//! - `compose_with_modalities` is the multi-modality sibling; v4
+//!   discovers cross-omics archetypes via the same
+//!   `ArchetypeRegistry::find_match_cross_omics`.
+//! - `compose_with_modalities_full` is the proof-carrying entry:
+//!   returns the full `ComposerOutput` (composition + WorkflowDag +
+//!   ranked alternatives + ComposeOutcome + per-node policy decisions)
+//!   so the conversation crate can persist v4 sidecars at emit time.
+//!   It also handles the atypical-shape / out-of-catalog fall-through
+//!   to `generic_omics`.
 //!
 //! Internal helpers (`pub(super)`):
 //!
@@ -45,21 +42,12 @@
 //!   until a dataset profiler can thread real intake-derived
 //!   contracts in.
 
-use super::backward_chain::backward_chain_compose;
-use super::inheritance::resolve_inheritance;
-use super::multi_modal::{synthesize_generic_multi_modal_composition, unique_modalities};
+use super::multi_modal::unique_modalities;
 use super::validation::validate_composition;
-use super::{
-    aggregate_resources, apply_atom_ref_overrides, merged_depends_on, resolve_task_container,
-    AtomSelectionRationale, ComposedAtom, ComposerOutput, CompositionError, CompositionResult,
-    PolicyDecisionRecord, SelectionReason,
-};
-use crate::archetype::ArchetypeDefinition;
+use super::{ComposerOutput, CompositionError, CompositionResult, PolicyDecisionRecord};
 use crate::archetype_registry::ArchetypeRegistry;
 use crate::atom_registry::AtomRegistry;
 use crate::goal_spec::GoalSpec;
-use crate::ids::StageId;
-use std::collections::BTreeMap;
 
 /// Returns true when the classifier's modality + goal pairing is
 /// atypical-enough that the modality archetype is likely missing
@@ -102,75 +90,6 @@ fn requires_generic_fallthrough(goal: &GoalSpec, target_modality: Option<&str>) 
     false
 }
 
-/// Build a `CompositionResult` from a single archetype-in-hand, mirroring
-/// the legacy archetype fast-path body of `compose_with_version_and_modality`.
-///
-/// Extracted so the generic-omics confidence fall-through can route through
-/// the same atom-resolution + rationale-synthesis logic as the normal path.
-/// Callers are responsible for invoking `validate_composition` on the
-/// returned result.
-fn resolve_archetype_to_composition(
-    archetype: &ArchetypeDefinition,
-    goal: &GoalSpec,
-    atom_reg: &AtomRegistry,
-    _archetype_reg: &ArchetypeRegistry,
-) -> Result<CompositionResult, CompositionError> {
-    let mut composed: Vec<ComposedAtom> = Vec::with_capacity(archetype.atoms.len());
-    for aref in &archetype.atoms {
-        let atom =
-            atom_reg
-                .get(aref.atom_id.as_str())
-                .ok_or_else(|| CompositionError::UnknownAtom {
-                    archetype_id: archetype.id.clone(),
-                    atom_id: aref.atom_id.clone(),
-                })?;
-        let container = resolve_task_container(atom, None, None);
-        composed.push(ComposedAtom {
-            stage_id: aref
-                .alias
-                .as_deref()
-                .map(StageId::from)
-                .unwrap_or_else(|| StageId::from(aref.atom_id.as_str())),
-            atom: apply_atom_ref_overrides(atom, aref),
-            depends_on: merged_depends_on(atom, aref),
-            required: aref.required,
-            bindings: Vec::new(),
-            container,
-        });
-    }
-    let resource_estimate = aggregate_resources(&composed);
-    // The fall-through path has no archetype-match score; emit zero so
-    // rationale records still serialize cleanly.
-    let synthesized_score: u32 = 0;
-    let atom_rationales: BTreeMap<String, AtomSelectionRationale> = composed
-        .iter()
-        .map(|c| {
-            (
-                c.stage_id.to_string(),
-                AtomSelectionRationale {
-                    stage_id: c.stage_id.clone(),
-                    atom_id: c.atom.id.clone().into(),
-                    reason: SelectionReason::ArchetypeRequired,
-                    score: synthesized_score,
-                    explanation: format!(
-                        "Archetype {} declares {} as required.",
-                        archetype.id, c.atom.id
-                    ),
-                },
-            )
-        })
-        .collect();
-    Ok(CompositionResult {
-        matched_archetype: Some(archetype.id.clone()),
-        match_score: synthesized_score,
-        atoms: composed,
-        goal: goal.clone(),
-        rationale: archetype.sme_summary.clone(),
-        atom_rationales,
-        resource_estimate,
-    })
-}
-
 /// Entry point. Today's v1 composition pipeline:
 ///
 /// 1. Score every archetype against the goal via
@@ -202,478 +121,39 @@ pub fn compose(
     // `composer_v4::planner::try_archetype_seed`, so callers that
     // had a unique archetype winner under v2 still land on the same
     // composition under v4.
-    compose_with_version(goal, project_class, atom_reg, archetype_reg, 4)
+    compose_with_modality(goal, project_class, atom_reg, archetype_reg, None)
 }
 
-/// Version-aware compose entry. `composer_version`
-/// determines routing:
-///
-/// - **1** (legacy): archetype-first with backward-chain fallback.
-///   Today's `compose()` default. Effectively identical to v2 for
-///   our v1 atom library; the version distinction is a migration
-///   rail (DEC Q3.5).
-/// - **2** (archetype-fast-path; default): archetype-first with
-///   backward-chain fallback. Same routing as `compose()`.
-/// - **3** (backward-chain forced): skip the archetype fast-path
-///   entirely and route through `backward_chain_compose`. Honored
-///   when ECAA_COMPOSER=backward-chain is set at session creation
-///   (read by `Session::new` at session-creation time and pinned
-///   on `Session.composer_version` so amendments stay on the same
-///   path through to re-emit).
-///
-/// Sessions persisted with `composer_version` other than 1/2/3
-/// fall back to the v2 default.
-pub fn compose_with_version(
+/// Single-modality compose entry. Delegates to [`compose_with_modalities_full`]
+/// and returns its lowered `CompositionResult` (v4 is the only composer).
+pub fn compose_with_modality(
     goal: &GoalSpec,
     project_class: &str,
     atom_reg: &AtomRegistry,
     archetype_reg: &ArchetypeRegistry,
-    composer_version: u32,
-) -> Result<CompositionResult, CompositionError> {
-    compose_with_version_and_modality(
-        goal,
-        project_class,
-        atom_reg,
-        archetype_reg,
-        composer_version,
-        None,
-    )
-}
-
-/// Tie-fix variant — same as `compose_with_version` but also
-/// accepts the classifier's modality so `find_match_with_modality`
-/// adds the +2 modality-hint disambiguator. Resolves DE-shaped 3-way
-/// ties (bulk_rnaseq_de + long_read_rnaseq + metagenomics_taxonomic
-/// all producing `data:0951 / format:3475` would tie at score 6
-/// without this).
-///
-/// Also reads `goal.modifiers.kind` and passes it as the goal-kind
-/// disambiguator (resolves proteomics DDA-vs-DIA tie at score 8).
-/// The kind lookup is automatic; no extra parameter required.
-///
-/// The dispatch table preserves `composer_version` 1 / 2 / 3 paths
-/// so persisted sessions whose `Session::composer_version` is pinned
-/// at 1, 2, or 3 keep producing the same DAG shape they did
-/// originally.
-pub fn compose_with_version_and_modality(
-    goal: &GoalSpec,
-    project_class: &str,
-    atom_reg: &AtomRegistry,
-    archetype_reg: &ArchetypeRegistry,
-    composer_version: u32,
     target_modality: Option<&str>,
 ) -> Result<CompositionResult, CompositionError> {
-    // Atypical-shape fall-through: prompts whose `kind` modifier names
-    // a flex-shape analysis (survival, strain-SNP, scATAC-only) bypass
-    // the modality archetype and route to `generic_omics` so the
-    // universal `raw_qc` + `generic_summary` terminals are always
-    // present. Without this, modality archetypes emit their own
-    // domain-specific terminals (`reporting`, `final_reporting`) that
-    // don't satisfy the blinded-corpus universal-terminal contract.
-    if requires_generic_fallthrough(goal, target_modality) {
-        if let Some(generic) = archetype_reg.get("generic_omics") {
-            // Override the goal's edam_data to the wildcard (empty
-            // string) — generic_omics is the "no specific committed
-            // shape" archetype, so the SME's goal_pattern-derived
-            // data class (e.g. survival's data:0951) doesn't apply.
-            // The validation.rs wildcard short-circuit (RCA cluster D
-            // defense-in-depth) accepts empty edam_data without the
-            // any_reaches goal-shape check.
-            let mut wildcarded = goal.clone();
-            wildcarded.edam_data = String::new();
-            wildcarded.edam_format = None;
-            let result =
-                resolve_archetype_to_composition(generic, &wildcarded, atom_reg, archetype_reg)?;
-            validate_composition(&result, atom_reg)?;
-            return Ok(result);
-        }
-    }
-
-    // The v3
-    // (`backward-chain`) entry point is retired. Sessions persisted
-    // with composer_version=3 fall through to v2 routing here
-    // (archetype fast-path with backward-chain fallback when no
-    // archetype matches) — same observable behavior the v3-forced
-    // path delivered when the catalog had no archetype winner. The
-    // backward-chain *algorithm* (`backward_chain_compose` below)
-    // stays alive as the v2 archetype-empty fallback.
-    // composer_version=4 routes through the proof-carrying v4
-    // planner. We dispatch through
-    // `compose_v4_dispatch_full` so the underlying call shares one
-    // implementation; this entry point's signature returns the
-    // legacy `CompositionResult` so v4 metadata (WorkflowDag,
-    // ranked alternatives, ComposeOutcome, policy decisions) is
-    // discarded here. Callers that need the full bundle must use
-    // `compose_with_version_and_modalities_full` instead. Returns
-    // `ComposerV4OutcomeNotExecutable` for non-Validated outcomes
-    // (DraftDag / PartialDag / NovelNodeSpec / Refusal). Callers
-    // that want the legacy DAG fallback should set composer_version<=3.
-    if composer_version == 4 {
-        // Single-modality entry point lifts the
-        // optional `target_modality` into a single-element slice
-        // (or empty when None) so the v4 dispatch sees the same
-        // modality information the multi-modality entry point
-        // does. Empty slice ⇒ the dispatcher's seeded available_data
-        // helper picks the modality-agnostic FASTQ fallback.
-        let modalities: Vec<&str> = target_modality.into_iter().collect();
-        return compose_v4_dispatch_full(
-            goal,
-            project_class,
-            atom_reg,
-            archetype_reg,
-            &modalities,
-            None,
-            // R1/R2 closure — this singular dispatch path discards v4
-            // sidecar metadata, so opaque-sink wiring is unused here.
-            None,
-            None,
-        )
-        .map(|out| out.composition);
-    }
-    // The v1
-    // *surface* (CLI `--taxonomy` flag, `ECAA_COMPOSER=legacy`
-    // alias) is retired, but the v1 *routing* (archetype fast-path
-    // with backward-chain fallback) stays alive here so persisted
-    // sessions with `composer_version` pinned at 1 keep building
-    // the same DAG shape. The legacy taxonomy YAMLs under
-    // `config/stage-taxonomies/` remain on disk for the v4 soak
-    // window; deletion is gated on v4 producing a DAG for prose
-    // without an explicit goal phrase.
-    let target_kind = goal.modifiers.get("kind").map(|s| s.as_str());
-    let matches = archetype_reg.find_match_with_modality_and_kind(
-        &goal.edam_data,
-        goal.edam_format.as_deref(),
-        project_class,
-        target_modality,
-        target_kind,
-    );
-
-    let result = if matches.is_empty() {
-        // No archetype; fall through to backward-chain.
-        backward_chain_compose(goal, atom_reg, project_class)?
-    } else {
-        let top_score = matches[0].1;
-        // 5% tie-surfacing.
-        let tie_threshold = (top_score as f32 * 0.95).floor() as u32;
-        let close: Vec<&ArchetypeDefinition> = matches
-            .iter()
-            .filter(|(_, s)| *s >= tie_threshold)
-            .map(|(a, _)| *a)
-            .collect();
-        if close.len() > 1 {
-            return Err(CompositionError::TieRequiresSmeDecision {
-                candidates: close.iter().map(|a| a.id.clone()).collect(),
-                score: top_score,
-            });
-        }
-        let archetype = matches[0].0;
-
-        // Resolve atoms + apply wiring.
-        let mut composed: Vec<ComposedAtom> = Vec::with_capacity(archetype.atoms.len());
-        for aref in &archetype.atoms {
-            let atom = atom_reg.get(aref.atom_id.as_str()).ok_or_else(|| {
-                CompositionError::UnknownAtom {
-                    archetype_id: archetype.id.clone(),
-                    atom_id: aref.atom_id.clone(),
-                }
-            })?;
-            // Resolve container at compose time using the
-            // atom > archetype > profile > host precedence.
-            // archetype-level + profile-level slots are None today;
-            // they'll get populated when S15.21 / S15.23 land.
-            let container = resolve_task_container(atom, None, None);
-            composed.push(ComposedAtom {
-                stage_id: aref
-                    .alias
-                    .as_deref()
-                    .map(StageId::from)
-                    .unwrap_or_else(|| StageId::from(aref.atom_id.as_str())),
-                atom: apply_atom_ref_overrides(atom, aref),
-                depends_on: merged_depends_on(atom, aref),
-                required: aref.required,
-                bindings: Vec::new(),
-                container,
-            });
-        }
-
-        let resource_estimate = aggregate_resources(&composed);
-        // Synthesize per-atom rationales for the
-        // archetype fast path. Every atom in an archetype scaffold
-        // is either required (the default) or an optional slot-fill
-        // win; today we don't carry slot-candidate ids through this
-        // path so optional atoms get the same `ArchetypeRequired`
-        // shape with the score that the archetype scored against
-        // the goal. The richer `OptionalSlotFilled` variant is
-        // reserved for the slot-fill resolver (S6.11) once it
-        // surfaces candidates here.
-        let atom_rationales: BTreeMap<String, AtomSelectionRationale> = composed
-            .iter()
-            .map(|c| {
-                (
-                    c.stage_id.to_string(),
-                    AtomSelectionRationale {
-                        stage_id: c.stage_id.clone(),
-                        atom_id: c.atom.id.clone().into(),
-                        reason: SelectionReason::ArchetypeRequired,
-                        score: top_score,
-                        explanation: format!(
-                            "Archetype {} declares {} as required.",
-                            archetype.id, c.atom.id
-                        ),
-                    },
-                )
-            })
-            .collect();
-        CompositionResult {
-            matched_archetype: Some(archetype.id.clone()),
-            match_score: top_score,
-            atoms: composed,
-            goal: goal.clone(),
-            rationale: archetype.sme_summary.clone(),
-            atom_rationales,
-            resource_estimate,
-        }
-    };
-
-    // Six-item formal validation. Both fast-path and
-    // backward-chain results funnel through here.
-    validate_composition(&result, atom_reg)?;
-    Ok(result)
+    let modalities: Vec<&str> = target_modality.into_iter().collect();
+    compose_with_modalities_full(
+        goal, project_class, atom_reg, archetype_reg, &modalities, None, None, None,
+    )
+    .map(|out| out.composition)
 }
 
-/// Multi-modality compose entry point.
-///
-/// `target_modalities` is the SME's full requested modality set,
-/// usually `&[primary, additional…]` derived from
-/// `ClassificationResult.{modality, additional_modalities}`. The
-/// dispatch contract:
-///
-/// - **0 or 1 modality** → delegate to the single-modality entry
-///   point `compose_with_version_and_modality`. The function works
-///   as a drop-in replacement for callers that don't yet thread the
-///   additional modalities through.
-/// - **≥2 modalities, composer_version != 3** → try
-///   `find_match_cross_omics` first. If a cross-omics archetype's
-///   `cross_omics_modalities` set-equals the request, use it (top-1
-///   among candidates; no tie surfacing today since at most one
-///   cross-omics archetype is registered per modality combo).
-///   Otherwise synthesize a generic multi-branch DAG by composing the
-///   best single-modality archetype for every requested modality,
-///   namespace-prefixing every branch, and joining them through a
-///   modality-agnostic reporting tail. This preserves every requested
-///   analysis branch without requiring a bespoke archetype file for
-///   each modality combination.
-/// - **≥2 modalities, any non-v4 version** → cross-omics archetype
-///   matching with a generic multi-branch synthesis fallback when
-///   no cross-omics archetype is registered. The v3 backward-chain
-///   entry point is retired; the dispatch table has no "force
-///   backward-chain across modalities" branch.
-pub fn compose_with_version_and_modalities(
+/// Multi-modality compose entry. Delegates to [`compose_with_modalities_full`]
+/// and returns its lowered `CompositionResult`. v4 discovers cross-omics
+/// archetypes via the same `ArchetypeRegistry::find_match_cross_omics`.
+pub fn compose_with_modalities(
     goal: &GoalSpec,
     project_class: &str,
     atom_reg: &AtomRegistry,
     archetype_reg: &ArchetypeRegistry,
-    composer_version: u32,
     target_modalities: &[&str],
 ) -> Result<CompositionResult, CompositionError> {
-    let modalities = unique_modalities(target_modalities);
-
-    // Single (or zero) modality — delegate to the legacy entry point.
-    if modalities.len() < 2 {
-        return compose_with_version_and_modality(
-            goal,
-            project_class,
-            atom_reg,
-            archetype_reg,
-            composer_version,
-            modalities.first().copied(),
-        );
-    }
-
-    let primary = modalities[0];
-
-    // The v3
-    // backward-chain entry point was retired; sessions persisted
-    // with composer_version=3 now route through the v2 cross-omics
-    // path below (archetype-first, with backward-chain fallback per
-    // single-modality). The v3-specific multi-modality warning is
-    // gone — there is no "force backward-chain" path to opt into
-    // anymore.
-
-    // Cross-omics archetype lookup — set-equality on
-    // `cross_omics_modalities`.
-    let target_kind = goal.modifiers.get("kind").map(|s| s.as_str());
-    // Legacy (v2) dispatch hasn't surfaced n-way intent through the
-    // GoalSpec; route conservatively (no superset fallback for
-    // 2-modality input). v4 dispatch threads the proper flag via
-    // try_cross_omics_archetype_seed.
-    let n_way = goal
-        .source_prose
-        .as_deref()
-        .map(crate::classify::is_n_way_intent)
-        .unwrap_or(false);
-    let mut cross_matches = archetype_reg.find_match_cross_omics(
-        &goal.edam_data,
-        goal.edam_format.as_deref(),
-        project_class,
-        &modalities,
-        target_kind,
-        n_way,
-        goal.source_prose.as_deref().unwrap_or(""),
-    );
-
-    if cross_matches.is_empty() {
-        eprintln!(
-            "[composer] no cross-omics archetype matches the SME's modality set \
-             (primary={}, additional={:?}); synthesizing a generic multi-branch DAG.",
-            primary,
-            &modalities[1..]
-        );
-        return synthesize_generic_multi_modal_composition(
-            goal,
-            project_class,
-            atom_reg,
-            archetype_reg,
-            &modalities,
-        );
-    }
-
-    // Integration-method discriminator hoist. Multiple cross-omics
-    // archetypes can share the same modality set (e.g. DIABLO / MOFA /
-    // SNF / generic for RNA + proteomics). EDAM-data scoring alone
-    // can't distinguish them — they all consume the same data types.
-    // When the SME's goal prose names a specific integrator, hoist the
-    // matching archetype to the top so the LLM doesn't silently route
-    // to whichever variant sorts first alphabetically.
-    //
-    // The discriminator scans goal.source_prose + every goal.modifiers
-    // value for known integration-method substrings, then promotes any
-    // candidate archetype whose id contains that method token.
-    // Deterministic: case-folded substring match; no scoring noise.
-    {
-        let mut prose_lower = goal
-            .source_prose
-            .as_deref()
-            .map(str::to_lowercase)
-            .unwrap_or_default();
-        for v in goal.modifiers.values() {
-            prose_lower.push(' ');
-            prose_lower.push_str(&v.to_lowercase());
-        }
-        const METHOD_TOKENS: &[&str] = &[
-            "diablo",
-            "spls-da",
-            "mixomics",
-            "mofa",
-            "factor decomposition",
-            "snf",
-            "similarity network fusion",
-            "wnn",
-            "weighted nearest neighbor",
-            "share seq",
-            "shareseq",
-            "multiome",
-        ];
-        // Negation-aware: "No DIABLO / MOFA / SNF requested" must not hoist
-        // an integrator variant. Mirrors the classify-side guard.
-        let normalized_prose = crate::classify::normalize_for_match(&prose_lower);
-        let method_vocab =
-            crate::archetype_slots::vocabulary_from_tokens(METHOD_TOKENS.iter().copied());
-        for token in METHOD_TOKENS {
-            let needle = crate::classify::normalize_for_match(token);
-            let pos = match normalized_prose.find(&needle) {
-                Some(p) => p,
-                None => continue,
-            };
-            if crate::archetype_slots::is_list_negated(&normalized_prose[..pos], &method_vocab) {
-                continue;
-            }
-            // Normalize token for archetype-id matching (strip spaces,
-            // hyphens; the archetype id uses snake_case).
-            let id_form = token.replace([' ', '-'], "_");
-            if let Some(hoist_idx) = cross_matches
-                .iter()
-                .position(|(a, _)| a.id.contains(&id_form))
-            {
-                if hoist_idx != 0 {
-                    let entry = cross_matches.remove(hoist_idx);
-                    cross_matches.insert(0, entry);
-                }
-                break;
-            }
-        }
-    }
-
-    // We have at least one cross-omics archetype. Top-1 wins after the
-    // integration-method hoist above; tie surfacing for cross-omics is
-    // reserved for a future iteration when the catalog has multiple
-    // cross-omics archetypes per modality combo that ALSO share the
-    // integration method (currently not a real case).
-    let archetype = cross_matches[0].0;
-    let top_score = cross_matches[0].1;
-
-    // Flatten the archetype's `compose:` inheritance
-    // before composition. Archetypes that don't use `compose:` get
-    // their atom list back unchanged (lineage is empty); archetypes
-    // that DO use `compose:` get the inherited atoms prepended /
-    // appended / substituted with the rewriting rules applied.
-    let flat = resolve_inheritance(archetype, archetype_reg)?;
-
-    let mut composed: Vec<ComposedAtom> = Vec::with_capacity(flat.atoms.len());
-    for aref in &flat.atoms {
-        let atom =
-            atom_reg
-                .get(aref.atom_id.as_str())
-                .ok_or_else(|| CompositionError::UnknownAtom {
-                    archetype_id: archetype.id.clone(),
-                    atom_id: aref.atom_id.clone(),
-                })?;
-        let container = resolve_task_container(atom, None, None);
-        composed.push(ComposedAtom {
-            stage_id: aref
-                .alias
-                .as_deref()
-                .map(StageId::from)
-                .unwrap_or_else(|| StageId::from(aref.atom_id.as_str())),
-            atom: apply_atom_ref_overrides(atom, aref),
-            depends_on: merged_depends_on(atom, aref),
-            required: aref.required,
-            bindings: Vec::new(),
-            container,
-        });
-    }
-
-    let resource_estimate = aggregate_resources(&composed);
-    let atom_rationales: BTreeMap<String, AtomSelectionRationale> = composed
-        .iter()
-        .map(|c| {
-            (
-                c.stage_id.to_string(),
-                AtomSelectionRationale {
-                    stage_id: c.stage_id.clone(),
-                    atom_id: c.atom.id.clone().into(),
-                    reason: SelectionReason::ArchetypeRequired,
-                    score: top_score,
-                    explanation: format!(
-                        "Cross-omics archetype {} declares {} as required (alias: {}).",
-                        archetype.id, c.atom.id, c.stage_id
-                    ),
-                },
-            )
-        })
-        .collect();
-    let result = CompositionResult {
-        matched_archetype: Some(archetype.id.clone()),
-        match_score: top_score,
-        atoms: composed,
-        goal: goal.clone(),
-        rationale: archetype.sme_summary.clone(),
-        atom_rationales,
-        resource_estimate,
-    };
-
-    validate_composition(&result, atom_reg)?;
-    Ok(result)
+    compose_with_modalities_full(
+        goal, project_class, atom_reg, archetype_reg, target_modalities, None, None, None,
+    )
+    .map(|out| out.composition)
 }
 
 /// V4 dispatch returning the full proof-carrying bundle.
@@ -1127,12 +607,11 @@ fn seed_available_data_for_modalities(
 /// through `build_dag_from_workflow_dag` and persist proof-carrying
 /// sidecars at emit time.
 #[allow(clippy::too_many_arguments)]
-pub fn compose_with_version_and_modalities_full(
+pub fn compose_with_modalities_full(
     goal: &GoalSpec,
     project_class: &str,
     atom_reg: &AtomRegistry,
     archetype_reg: &ArchetypeRegistry,
-    composer_version: u32,
     target_modalities: &[&str],
     policy_ctx: Option<&crate::policy_context::PolicyContext>,
     // R1/R2 closure (closure-residuals plan Task 1.4) — optional
@@ -1148,15 +627,12 @@ pub fn compose_with_version_and_modalities_full(
     >,
     opaque_session_id: Option<&str>,
 ) -> Result<ComposerOutput, CompositionError> {
-    // Atypical-shape fall-through (v4-aware). The legacy guard at the
-    // top of `compose_with_version_and_modality` short-circuits
-    // flex-shape / out-of-catalog prompts to `generic_omics`, but the
-    // v4 (`composer_version == 4`) dispatch below jumps straight to
-    // `compose_v4_dispatch_full` and never reaches it — so under the
-    // production `ECAA_COMPOSER=semantic` default an out-of-catalog
-    // prompt (CyTOF, Mendelian randomization, cryo-EM, …) would
-    // misroute to the nearest keyword-similar archetype and emit
-    // forbidden domain atoms.
+    // Atypical-shape fall-through. The v4 dispatch jumps straight to
+    // `compose_v4_dispatch_full` for the normal path, so flex-shape /
+    // out-of-catalog prompts (CyTOF, Mendelian randomization, cryo-EM,
+    // …) would misroute to the nearest keyword-similar archetype and
+    // emit forbidden domain atoms unless we force them to `generic_omics`
+    // here first.
     let is_out_of_catalog = goal
         .modifiers
         .get("kind")
@@ -1178,74 +654,44 @@ pub fn compose_with_version_and_modalities_full(
         && (unique_modalities(target_modalities).len() < 2 || is_out_of_catalog)
         && requires_generic_fallthrough(goal, target_modalities.first().copied());
 
-    if composer_version == 4 {
-        if generic_fallthrough {
-            // Route the fall-through THROUGH the v4 planner with the
-            // modality forced to `generic_omics` (rather than returning a
-            // legacy `CompositionResult`). The conversation session model
-            // is workflow_dag-centric — `Session::current_dag` reads
-            // `session.workflow_dag`, and promoted hypothesized-node
-            // proposals are injected onto that typed `WorkflowDag`. A
-            // legacy composition (workflow_dag = None) leaves the session
-            // with no DAG to emit or inject into ("no DAG built — nothing
-            // to emit"). Producing a v4 `WorkflowDag` here keeps both the
-            // CLI and the conversation/server emit paths working off the
-            // same authoritative structure. edam_data is wildcarded —
-            // generic_omics is the no-committed-shape archetype.
-            let mut wildcarded = goal.clone();
-            wildcarded.edam_data = String::new();
-            wildcarded.edam_format = None;
-            return compose_v4_dispatch_full(
-                &wildcarded,
-                project_class,
-                atom_reg,
-                archetype_reg,
-                &["generic_omics"],
-                policy_ctx,
-                opaque_sink,
-                opaque_session_id,
-            );
-        }
-        // v4 dispatch already takes the policy context; for
-        // multi-modality v4 (cross-omics) we route through the same
-        // entry — the v4 planner discovers cross-omics archetypes
-        // through the same archetype registry the legacy path uses.
-        // Thread the full modality slice so the
-        // PlanningContext.intent has primary modality + project class
-        // populated.
+    if generic_fallthrough {
+        // Route the fall-through THROUGH the v4 planner with the
+        // modality forced to `generic_omics`. The conversation session
+        // model is workflow_dag-centric — `Session::current_dag` reads
+        // `session.workflow_dag`, and promoted hypothesized-node
+        // proposals are injected onto that typed `WorkflowDag`. Producing
+        // a v4 `WorkflowDag` here keeps both the CLI and the
+        // conversation/server emit paths working off the same
+        // authoritative structure. edam_data is wildcarded —
+        // generic_omics is the no-committed-shape archetype.
+        let mut wildcarded = goal.clone();
+        wildcarded.edam_data = String::new();
+        wildcarded.edam_format = None;
         return compose_v4_dispatch_full(
-            goal,
+            &wildcarded,
             project_class,
             atom_reg,
             archetype_reg,
-            target_modalities,
+            &["generic_omics"],
             policy_ctx,
             opaque_sink,
             opaque_session_id,
         );
     }
-
-    // Legacy (non-v4) path: resolve the generic_omics archetype directly.
-    // Persisted composer_version=1/2/3 sessions and the CLI consume
-    // `CompositionResult` (workflow_dag = None) via build_dag_from_composition.
-    if generic_fallthrough {
-        if let Some(generic) = archetype_reg.get("generic_omics") {
-            let mut wildcarded = goal.clone();
-            wildcarded.edam_data = String::new();
-            wildcarded.edam_format = None;
-            let result =
-                resolve_archetype_to_composition(generic, &wildcarded, atom_reg, archetype_reg)?;
-            validate_composition(&result, atom_reg)?;
-            return Ok(ComposerOutput::legacy(result));
-        }
-    }
-    let composition = compose_with_version_and_modalities(
+    // v4 dispatch already takes the policy context; for multi-modality
+    // (cross-omics) we route through the same entry — the v4 planner
+    // discovers cross-omics archetypes through the same archetype
+    // registry. Thread the full modality slice so the
+    // PlanningContext.intent has primary modality + project class
+    // populated.
+    compose_v4_dispatch_full(
         goal,
         project_class,
         atom_reg,
         archetype_reg,
-        composer_version,
         target_modalities,
-    )?;
-    Ok(ComposerOutput::legacy(composition))
+        policy_ctx,
+        opaque_sink,
+        opaque_session_id,
+    )
 }

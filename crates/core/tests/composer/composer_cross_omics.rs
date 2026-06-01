@@ -1,6 +1,6 @@
 //! Composer multi-modality dispatch.
 //!
-//! Verifies the new `compose_with_version_and_modalities` entry point:
+//! Verifies the new `compose_with_modalities` entry point:
 //!
 //! 1. **Cross-omics dispatch.** When the SME requests modalities that
 //! a cross-omics archetype set-equals on `cross_omics_modalities`,
@@ -10,13 +10,13 @@
 //! instead of dropping modalities.
 //! 3. **Single-modality back-compat.** When `target_modalities` has 0
 //! or 1 entries, behavior is identical to the existing single-
-//! modality `compose_with_version_and_modality`.
+//! modality `compose_with_modality`.
 
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::builder::build_dag_from_composition;
 use ecaa_workflow_core::composer::{
-    compose_with_version_and_modalities, compose_with_version_and_modality,
+    compose_with_modalities, compose_with_modality,
 };
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::path::PathBuf;
@@ -52,12 +52,11 @@ fn de_goal() -> GoalSpec {
 fn dispatches_cross_omics_archetype_for_rnaseq_proteomics() {
     let (atoms, archetypes) = load_registries();
     let goal = de_goal();
-    let result = compose_with_version_and_modalities(
+    let result = compose_with_modalities(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        2,
         &["bulk_rnaseq", "proteomics"],
     )
     .expect("compose must succeed");
@@ -90,12 +89,11 @@ fn dispatch_is_order_insensitive_on_modality_set() {
     let goal = de_goal();
     // Reverse the modality order vs the prior test. Set-equality
     // means the cross-omics archetype must still match.
-    let result = compose_with_version_and_modalities(
+    let result = compose_with_modalities(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        2,
         &["proteomics", "bulk_rnaseq"],
     )
     .expect("compose must succeed for reversed modality order");
@@ -105,6 +103,12 @@ fn dispatch_is_order_insensitive_on_modality_set() {
     );
 }
 
+// Asserts the generic multi-branch fallback (deleted with v2's
+// synthesize_generic_multi_modal_composition). v4 reimplements this as
+// Pillar A (per-modality branch decomposition); un-ignore + adapt to the
+// v4 output when docs/superpowers/plans/2026-06-01-general-goal-dag-synthesis.md
+// Phase 1 lands.
+#[ignore = "v4 multi-branch synthesis (general goal->DAG, Pillar A) not yet implemented"]
 #[test]
 fn synthesizes_generic_multi_branch_when_no_cross_omics_match() {
     let (atoms, archetypes) = load_registries();
@@ -112,12 +116,11 @@ fn synthesizes_generic_multi_branch_when_no_cross_omics_match() {
     // No cross-omics archetype exists for this combo (rnaseq + atac).
     // The composer must preserve both branches instead of falling
     // through to a single-modality primary-only DAG.
-    let result = compose_with_version_and_modalities(
+    let result = compose_with_modalities(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        2,
         &["bulk_rnaseq", "atac_seq"],
     )
     .expect("compose must succeed via generic multi-branch fallback");
@@ -137,16 +140,16 @@ fn synthesizes_generic_multi_branch_when_no_cross_omics_match() {
     assert!(stage_ids.contains("multi_modal_final_reporting"));
 }
 
+#[ignore = "v4 multi-branch synthesis (general goal->DAG, Pillar A) not yet implemented"]
 #[test]
 fn generic_fallback_preserves_bulk_single_cell_and_proteomics() {
     let (atoms, archetypes) = load_registries();
     let goal = de_goal();
-    let result = compose_with_version_and_modalities(
+    let result = compose_with_modalities(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        2,
         &["proteomics", "bulk_rnaseq", "single_cell_rnaseq"],
     )
     .expect("compose must synthesize a 3-branch DAG");
@@ -165,16 +168,16 @@ fn generic_fallback_preserves_bulk_single_cell_and_proteomics() {
     assert!(stage_ids.contains("multi_modal_thematic_comparison"));
 }
 
+#[ignore = "v4 multi-branch synthesis (general goal->DAG, Pillar A) not yet implemented"]
 #[test]
 fn generic_fallback_builds_valid_dag_for_three_modalities() {
     let (atoms, archetypes) = load_registries();
     let goal = de_goal();
-    let result = compose_with_version_and_modalities(
+    let result = compose_with_modalities(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        2,
         &["proteomics", "bulk_rnaseq", "single_cell_rnaseq"],
     )
     .expect("compose must synthesize a 3-branch DAG");
@@ -202,22 +205,20 @@ fn single_modality_intent_unchanged() {
     let (atoms, archetypes) = load_registries();
     let goal = de_goal();
 
-    let multi = compose_with_version_and_modalities(
+    let multi = compose_with_modalities(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        2,
         &["bulk_rnaseq"],
     )
     .expect("single-modality multi-entry compose must succeed");
 
-    let single = compose_with_version_and_modality(
+    let single = compose_with_modality(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        2,
         Some("bulk_rnaseq"),
     )
     .expect("legacy single-modality compose must succeed");
@@ -241,9 +242,9 @@ fn empty_modality_list_delegates_to_legacy() {
     // including for failure modes (e.g. TieRequiresSmeDecision when
     // multiple single-modality archetypes share the goal).
     let multi =
-        compose_with_version_and_modalities(&goal, "bioinformatics", &atoms, &archetypes, 2, &[]);
+        compose_with_modalities(&goal, "bioinformatics", &atoms, &archetypes, &[]);
     let single =
-        compose_with_version_and_modality(&goal, "bioinformatics", &atoms, &archetypes, 2, None);
+        compose_with_modality(&goal, "bioinformatics", &atoms, &archetypes, None);
     match (&multi, &single) {
         (Ok(m), Ok(s)) => assert_eq!(m.matched_archetype, s.matched_archetype),
         (Err(m), Err(s)) => {
@@ -268,12 +269,11 @@ fn composer_v3_with_cross_omics_falls_back_to_primary() {
     // same cross-omics archetype lookup that v2 uses. The test confirms
     // that v3 still succeeds and that the result is consistent with v2
     // (both find the cross-omics archetype when one matches the modality set).
-    let result = compose_with_version_and_modalities(
+    let result = compose_with_modalities(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        3,
         &["bulk_rnaseq", "proteomics"],
     )
     .expect("v3 must succeed for a known cross-omics modality pair");

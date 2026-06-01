@@ -30,8 +30,8 @@ export function PlanTab({ dag, sessionId, parentSessionId }: Props): JSX.Element
   const [statusFilter, setStatusFilter] = useState<Set<string>>(() => loadFilter())
   // Edge proofs for the EdgeProofDrawer surfaced when the
   // SME clicks an edge in the canvas. Lazy-loaded on first edge
-  // click so v1/v2/v3 sessions (which don't emit proofs) don't pay
-  // the network cost.
+  // click so the network cost is only paid when the SME inspects
+  // an edge.
   const [proofs, setProofs] = useState<EdgeProof[] | null>(null)
   const [selectedProof, setSelectedProof] = useState<EdgeProof | null>(null)
   // v3 P3 / v4 P3 (F11/F19) — `PromotionRefused` refusal carries
@@ -170,10 +170,8 @@ export function PlanTab({ dag, sessionId, parentSessionId }: Props): JSX.Element
             if (match) {
               setSelectedProof(match)
             } else {
-              // Synthesize a stub so the drawer still opens with
-              // basic edge info — useful for v1/v2/v3 sessions
-              // where there's no proof on disk but the SME still
-              // wants to see what the edge represents.
+              // No proof recorded for this exact edge — synthesize a
+              // stub so the drawer still opens with basic edge info.
               setSelectedProof({
                 from_node: fromId,
                 from_port: 'output',
@@ -184,9 +182,7 @@ export function PlanTab({ dag, sessionId, parentSessionId }: Props): JSX.Element
                 ontology_subsumption_path: [],
                 facet_matches: [],
                 inserted_adapter_node_ids: [],
-                warnings: [
-                  'This session is on a legacy composer; per-edge proofs are unavailable. Re-create the session with ECAA_COMPOSER=semantic to capture edge-level compatibility proofs.',
-                ],
+                warnings: [],
                 rationale: undefined,
               })
             }

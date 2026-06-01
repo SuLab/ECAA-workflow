@@ -1836,7 +1836,6 @@ fn compose_dag_with_fallback(
     if let Some(dag) = try_build_via_composer(session, config_dir) {
         tracing::debug!(
             session_id = %session.id,
-            composer_version = session.composer_version,
             "rebuild_dag: composer fast-path — built DAG via build_dag_from_composition"
         );
         return Ok(dag);
@@ -2006,9 +2005,9 @@ pub(crate) fn rebuild_dag(
     // - Discovery-flow gaps are closed by `discover_*` companion
     // synthesis in `composer_v4::discover_companion_synthesis`.
     //
-    // Sessions persisted with `composer_version == 1` are now routed
-    // through v4 too: the persisted `taxonomy` metadata is preserved
-    // for round-trip, but the DAG comes from the composer.
+    // Legacy sessions are now routed through v4 too: the persisted
+    // `taxonomy` metadata is preserved for round-trip, but the DAG
+    // comes from the composer.
     let dag = compose_dag_with_fallback(session, config_dir, requires_cross_omics)?;
 
     // The state machine maps
@@ -2428,11 +2427,11 @@ pub(super) fn workflow_id(session_id: &uuid::Uuid) -> String {
 }
 
 /// Composer fast-path for sessions that
-/// pinned an `archetype_snapshot` and committed to
-/// `composer_version >= 2`. Loads `AtomRegistry` + `ArchetypeRegistry`
-/// from `config/{stage-atoms,archetypes}/`, calls `compose_with_version`
-/// with the session's `(goal, project_class, composer_version)`, and
-/// hands the resulting `CompositionResult` to `build_dag_from_composition`.
+/// pinned an `archetype_snapshot`. Loads `AtomRegistry` +
+/// `ArchetypeRegistry` from `config/{stage-atoms,archetypes}/`, calls
+/// `compose_with_modalities_full` with the session's
+/// `(goal, project_class)`, and hands the resulting
+/// `CompositionResult` to `build_dag_from_composition`.
 ///
 /// Returns `None` (with a `tracing::warn!`) on every soft-fail path:
 /// missing config dir, registry load error, composer error
@@ -2468,7 +2467,7 @@ fn try_build_via_composer(
     use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
     use ecaa_workflow_core::atom_registry::AtomRegistry;
     use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
-    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::composer::compose_with_modalities_full;
     use ecaa_workflow_core::goal_spec::GoalSpec;
     use ecaa_workflow_core::project_class::ProjectClass;
 
@@ -3050,12 +3049,11 @@ fn try_build_via_composer(
     );
     let session_id_str = session.id.to_string();
 
-    let output = match compose_with_version_and_modalities_full(
+    let output = match compose_with_modalities_full(
         &goal,
         project_class_str,
         &atoms,
         &archetypes,
-        session.composer_version,
         &modalities,
         policy_ctx_owned.as_ref(),
         Some(opaque_sink),
@@ -3066,7 +3064,7 @@ fn try_build_via_composer(
             tracing::warn!(
                 session_id = %session.id,
                 error = ?e,
-                "rebuild_dag: compose_with_version returned error; falling back to legacy taxonomy build"
+                "rebuild_dag: composer returned error; falling back to legacy taxonomy build"
             );
             return None;
         }
@@ -3112,7 +3110,6 @@ fn try_build_via_composer(
     let dag_result = if let Some(workflow_dag) = output.workflow_dag.as_ref() {
         tracing::debug!(
             session_id = %session.id,
-            composer_version = session.composer_version,
             "rebuild_dag: v4 path — lowering WorkflowDag through build_dag_from_workflow_dag"
         );
         build_dag_from_workflow_dag(workflow_dag, &workflow_id(&session.id))

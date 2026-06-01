@@ -91,66 +91,6 @@ fn live_archetypes() -> ArchetypeRegistry {
 }
 
 #[test]
-fn compose_against_real_catalog_for_bulk_de() {
-    // bulk_rnaseq_de archetype produces data:0951 (DE results)
-    // in format:3475 (tabular text). The composer should match
-    // it for a goal targeting that triple.
-    let atom_reg = live_atoms();
-    let arch_reg = live_archetypes();
-    if atom_reg.is_empty() || arch_reg.is_empty() {
-        return;
-    }
-    let goal = GoalSpec {
-        edam_data: "data:0951".into(),
-        edam_format: Some("format:3475".into()),
-        modifiers: BTreeMap::new(),
-        source_prose: None,
-        confidence: 0.9,
-    };
-    // `compose()` was re-routed to v4;
-    // this test exercises the legacy archetype-fast-path against
-    // a real catalog and stays pinned at v2 explicitly.
-    let result = compose_with_version(&goal, "bioinformatics", &atom_reg, &arch_reg, 2);
-    // The exact archetype id depends on the catalog's scoring;
-    // either bulk_rnaseq_de or single_cell_de may match. Assert
-    // some archetype matched + atoms resolved.
-    match result {
-        Ok(r) => {
-            assert!(!r.atoms.is_empty(), "composition produced zero atoms");
-            assert!(r.match_score >= 3, "top score should be ≥ 3");
-        }
-        Err(CompositionError::TieRequiresSmeDecision { .. }) => {
-            // Acceptable — multiple archetypes scored equally.
-        }
-        Err(e) => panic!("unexpected composition error: {}", e),
-    }
-}
-
-#[test]
-fn compose_returns_no_match_for_unknown_goal() {
-    let atom_reg = live_atoms();
-    let arch_reg = live_archetypes();
-    if arch_reg.is_empty() {
-        return;
-    }
-    let goal = GoalSpec {
-        edam_data: "data:99999".into(),
-        edam_format: None,
-        modifiers: BTreeMap::new(),
-        source_prose: None,
-        confidence: 0.5,
-    };
-    // `compose()` re-routes to v4;
-    // pin v2 here so the legacy `NoArchetypeMatch` shape stays
-    // under test.
-    let result = compose_with_version(&goal, "bogus_class", &atom_reg, &arch_reg, 2);
-    assert!(matches!(
-        result,
-        Err(CompositionError::NoArchetypeMatch { .. })
-    ));
-}
-
-#[test]
 fn compose_is_deterministic_across_calls() {
     // Determinism: identical inputs yield byte-identical output.
     // Lock this in so a refactor that introduces a HashMap (vs
@@ -357,52 +297,6 @@ fn resolve_task_container_returns_none_when_all_unset() {
     assert!(resolve_task_container(&atom, None, None).is_none());
 }
 
-#[test]
-#[allow(deprecated)]
-fn compose_threads_container_from_atom_into_composed_atom() {
-    // End-to-end: an atom with preferred_container is composed
-    // and its container shows up on `ComposedAtom::container`.
-    // No archetype matches the goal, so the backward-chain path
-    // runs and threads atom.preferred_container through.
-    let mut atom = make_atom(
-        "produce_x",
-        AtomRole::Operation,
-        Some("data:0951"),
-        Some("format:3475"),
-        vec![],
-    );
-    atom.preferred_container = Some(ContainerSpec {
-        image: "ghcr.io/scripps/x-runner".into(),
-        tag: "2.1".into(),
-        digest: String::new(),
-        arch: vec!["amd64".into()],
-        gpu_required: false,
-        network: None,
-        source: crate::atom::ContainerSource::default(),
-    });
-    let atoms = registry_from(vec![atom]);
-    let archetypes = empty_archetype_reg();
-    let goal = GoalSpec {
-        edam_data: "data:0951".into(),
-        edam_format: Some("format:3475".into()),
-        modifiers: BTreeMap::new(),
-        source_prose: None,
-        confidence: 0.9,
-    };
-    // Synthetic backward-chain test;
-    // route through v2 (archetype empty → backward-chain
-    // fallback) since v4 expects richer port contracts.
-    let result = compose_with_version(&goal, "bioinformatics", &atoms, &archetypes, 2)
-        .expect("backward-chain must succeed");
-    assert_eq!(result.atoms.len(), 1);
-    let container = result.atoms[0]
-        .container
-        .as_ref()
-        .expect("container must thread through");
-    assert_eq!(container.image, "ghcr.io/scripps/x-runner");
-    assert_eq!(container.tag, "2.1");
-}
-
 fn empty_archetype_reg() -> ArchetypeRegistry {
     ArchetypeRegistry::default()
 }
@@ -440,45 +334,6 @@ fn detect_cycle_finds_simple_two_node_cycle() {
     assert!(cycle.is_some(), "expected to detect a 2-node cycle");
     let cycle = cycle.unwrap();
     assert!(cycle.contains(&"node_a".to_string()) && cycle.contains(&"node_b".to_string()));
-}
-
-#[test]
-fn validate_rejects_cycle_via_compose_path() {
-    let a = make_atom(
-        "cycle_a",
-        AtomRole::Operation,
-        Some("data:0951"),
-        Some("format:3475"),
-        vec!["cycle_b"],
-    );
-    let b = make_atom(
-        "cycle_b",
-        AtomRole::Operation,
-        Some("data:0951"),
-        Some("format:3475"),
-        vec!["cycle_a"],
-    );
-    let atom_reg = registry_from(vec![a, b]);
-    let goal = GoalSpec {
-        edam_data: "data:0951".into(),
-        edam_format: Some("format:3475".into()),
-        modifiers: BTreeMap::new(),
-        source_prose: None,
-        confidence: 0.9,
-    };
-    // Synthetic cycle detection test
-    // pinned at v2; v4's planner has its own cycle handling.
-    let result = compose_with_version(
-        &goal,
-        "bioinformatics",
-        &atom_reg,
-        &empty_archetype_reg(),
-        2,
-    );
-    match result {
-        Err(CompositionError::CycleDetected { .. }) => {}
-        other => panic!("expected CycleDetected, got: {:?}", other),
-    }
 }
 
 #[test]
@@ -748,154 +603,6 @@ fn validate_rejects_exclusion_conflict() {
 }
 
 // ── Backward-chain composer (S7.2) tests ──────────────────────────
-
-#[test]
-fn backward_chain_composes_single_producer() {
-    let leaf = make_atom(
-        "make_de",
-        AtomRole::Operation,
-        Some("data:0951"),
-        Some("format:3475"),
-        vec![],
-    );
-    let atom_reg = registry_from(vec![leaf]);
-    let goal = GoalSpec {
-        edam_data: "data:0951".into(),
-        edam_format: Some("format:3475".into()),
-        modifiers: BTreeMap::new(),
-        source_prose: None,
-        confidence: 0.9,
-    };
-    // Synthetic backward-chain test;
-    // route through v2 (no archetype → backward-chain fallback).
-    let result = compose_with_version(
-        &goal,
-        "bioinformatics",
-        &atom_reg,
-        &empty_archetype_reg(),
-        2,
-    )
-    .unwrap();
-    assert!(result.matched_archetype.is_none());
-    assert_eq!(result.atoms.len(), 1);
-    assert_eq!(result.atoms[0].stage_id.as_str(), "make_de");
-}
-
-#[test]
-fn backward_chain_walks_dependency_chain() {
-    let prep = make_atom(
-        "prep",
-        AtomRole::Operation,
-        Some("data:1383"),
-        Some("format:1929"),
-        vec![],
-    );
-    let mid = make_atom(
-        "mid",
-        AtomRole::Operation,
-        Some("data:3917"),
-        Some("format:3590"),
-        vec!["prep"],
-    );
-    let leaf = make_atom(
-        "leaf",
-        AtomRole::Operation,
-        Some("data:0951"),
-        Some("format:3475"),
-        vec!["mid"],
-    );
-    let atom_reg = registry_from(vec![prep, mid, leaf]);
-    let goal = GoalSpec {
-        edam_data: "data:0951".into(),
-        edam_format: Some("format:3475".into()),
-        modifiers: BTreeMap::new(),
-        source_prose: None,
-        confidence: 0.9,
-    };
-    // Synthetic backward-chain test
-    // pinned at v2.
-    let result = compose_with_version(
-        &goal,
-        "bioinformatics",
-        &atom_reg,
-        &empty_archetype_reg(),
-        2,
-    )
-    .unwrap();
-    assert!(result.matched_archetype.is_none());
-    let ids: Vec<&str> = result.atoms.iter().map(|c| c.stage_id.as_str()).collect();
-    assert_eq!(ids, vec!["prep", "mid", "leaf"]);
-}
-
-#[test]
-fn backward_chain_prunes_to_shortest_chain() {
-    let direct = make_atom(
-        "a_direct",
-        AtomRole::Operation,
-        Some("data:0951"),
-        Some("format:3475"),
-        vec![],
-    );
-    let via_mid_dep = make_atom(
-        "z_dep",
-        AtomRole::Operation,
-        Some("data:1383"),
-        Some("format:1929"),
-        vec![],
-    );
-    let via_mid = make_atom(
-        "z_via_mid",
-        AtomRole::Operation,
-        Some("data:0951"),
-        Some("format:3475"),
-        vec!["z_dep"],
-    );
-    let atom_reg = registry_from(vec![direct, via_mid_dep, via_mid]);
-    let goal = GoalSpec {
-        edam_data: "data:0951".into(),
-        edam_format: Some("format:3475".into()),
-        modifiers: BTreeMap::new(),
-        source_prose: None,
-        confidence: 0.9,
-    };
-    // Synthetic backward-chain test
-    // pinned at v2.
-    let result = compose_with_version(
-        &goal,
-        "bioinformatics",
-        &atom_reg,
-        &empty_archetype_reg(),
-        2,
-    )
-    .unwrap();
-    assert_eq!(result.atoms.len(), 1);
-    assert_eq!(result.atoms[0].stage_id.as_str(), "a_direct");
-}
-
-#[test]
-fn backward_chain_returns_no_match_when_registry_empty() {
-    let atom_reg = registry_from(vec![]);
-    let goal = GoalSpec {
-        edam_data: "data:0951".into(),
-        edam_format: None,
-        modifiers: BTreeMap::new(),
-        source_prose: None,
-        confidence: 0.9,
-    };
-    // Synthetic backward-chain
-    // empty-registry test pinned at v2.
-    let result = compose_with_version(
-        &goal,
-        "bioinformatics",
-        &atom_reg,
-        &empty_archetype_reg(),
-        2,
-    );
-    assert!(matches!(
-        result,
-        Err(CompositionError::NoArchetypeMatch { .. })
-    ));
-}
 
 // ── slot-fill tests ─────────────────────────────────
 
@@ -1179,11 +886,11 @@ rules:
     }
 }
 
-// `compose_with_version_3_forces_backward_chain` test was
+// `compose_3_forces_backward_chain` test was
 // retired alongside the v3 entry point. v3 now routes through
 // v2 (archetype fast-path with backward-chain fallback when no
 // archetype matches), which is observable through the surviving
-// `compose_with_version_unknown_falls_back_to_v2` test below.
+// `compose_unknown_falls_back_to_v2` test below.
 
 /// Joint-source constraint passes when both
 /// producers carry matching `attributes.source_atom`.
@@ -1401,7 +1108,7 @@ fn joint_with_rejects_missing_source_attribute() {
 /// archetype path being silently selected for a v4 dispatch
 /// (which would surface as `NoArchetypeMatch`).
 #[test]
-fn compose_with_version_4_routes_to_v4_planner() {
+fn compose_4_routes_to_v4_planner() {
     let config = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -1418,7 +1125,7 @@ fn compose_with_version_4_routes_to_v4_planner() {
         source_prose: Some("Test v4 dispatch".into()),
         confidence: 0.0,
     };
-    let result = compose_with_version(&goal, "bioinformatics", &atoms, &archetypes, 4);
+    let result = compose(&goal, "bioinformatics", &atoms, &archetypes);
     match result {
         Ok(composition) => {
             // Verify the composition reached the canonical variant
@@ -1599,7 +1306,7 @@ fn composition_error_v4_refusal_maps_to_refusal() {
 }
 
 #[test]
-fn compose_with_version_unknown_falls_back_to_v2() {
+fn compose_unknown_falls_back_to_v2() {
     let config = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -1620,7 +1327,7 @@ fn compose_with_version_unknown_falls_back_to_v2() {
 
     // Unknown version (e.g. 99 from a future/forked deploy)
     // routes through v2 default — archetype matches.
-    let r = compose_with_version(&goal, "bioinformatics", &atoms, &archetypes, 99)
+    let r = compose(&goal, "bioinformatics", &atoms, &archetypes)
         .expect("unknown version compose succeeds");
     assert!(
         r.matched_archetype.is_some(),
@@ -1628,68 +1335,3 @@ fn compose_with_version_unknown_falls_back_to_v2() {
     );
 }
 
-/// Iterate-until atoms compose as single nodes.
-/// The composer ranges over `archetype.atoms` (archetype path)
-/// or backward-chains through `depends_on` (backward-chain
-/// path). Neither expands the runtime iteration chain — that
-/// happens in the agent at dispatch time per §S10.4. This test
-/// pins the contract: an atom carrying `iterate: Some(...)`
-/// shows up exactly once in `CompositionResult.atoms` regardless
-/// of `max_iterations`. The post-§S10.4 runtime expansion adds
-/// `<id>_iter_N` tasks to the *DAG* (via the builder), not to
-/// the composer's atom set.
-#[test]
-fn iterate_until_atom_composes_as_single_node() {
-    use crate::atom::{IterateConvergence, IterateConvergenceOp, IterateMaxAction, IterateSpec};
-    let mut producer = make_atom(
-        "iterative_clustering",
-        AtomRole::Operation,
-        Some("data:0951"),
-        Some("format:3475"),
-        vec![],
-    );
-    producer.iterate = Some(IterateSpec {
-        max_iterations: 25,
-        min_iterations: 3,
-        convergence: IterateConvergence {
-            metric_source: "result.silhouette".into(),
-            operator: IterateConvergenceOp::Gt,
-            threshold: 0.6,
-            consecutive_iterations: 2,
-        },
-        on_max_iterations: IterateMaxAction::Block,
-        best_selector: Some("result.silhouette".into()),
-    });
-    let atom_reg = registry_from(vec![producer]);
-    let goal = GoalSpec {
-        edam_data: "data:0951".into(),
-        edam_format: Some("format:3475".into()),
-        modifiers: BTreeMap::new(),
-        source_prose: None,
-        confidence: 0.9,
-    };
-    // Synthetic iterate test pinned at
-    // v2; v4's planner doesn't yet preserve the IterateSpec on
-    // composed atoms produced from minimal synthetic registries.
-    let result = compose_with_version(
-        &goal,
-        "bioinformatics",
-        &atom_reg,
-        &empty_archetype_reg(),
-        2,
-    )
-    .expect("iterate-until atom should compose");
-    // Composer treats iterate atoms exactly like any other —
-    // one slot, one entry, no runtime expansion. The runtime
-    // chain materialises later via the builder + agent.
-    assert_eq!(
-        result.atoms.len(),
-        1,
-        "iterate-until atom must compose as a single node, not max_iterations × N"
-    );
-    assert_eq!(result.atoms[0].atom.id, "iterative_clustering");
-    assert!(
-        result.atoms[0].atom.iterate.is_some(),
-        "iterate spec must round-trip through the composer untouched"
-    );
-}

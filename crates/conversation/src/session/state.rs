@@ -141,13 +141,6 @@ pub struct SmeMethodSignals {
     pub named: BTreeMap<String, bool>,
 }
 
-/// `#[serde(default = "default_composer_version")]` callback. Returns 1
-/// (legacy taxonomy build) for sessions persisted before this field
-/// existed; new sessions get the current composer default at construction.
-fn default_composer_version() -> u32 {
-    1
-}
-
 /// Custom deserializer that accepts both the legacy
 /// `user_confirmed: bool` shape and the new
 /// `confirmation_token: Option<ConfirmationToken>` shape on the same
@@ -236,16 +229,6 @@ pub struct Session {
     #[ts(type = "string")]
     #[schemars(with = "String")]
     pub schema_version: semver::Version,
-    /// Which composer this session committed to. Distinct from
-    /// `schema_version` because a session's data shape and its
-    /// composer choice can evolve independently. v1 = legacy
-    /// taxonomy-driven build (always the value today); v2 = archetype
-    /// fast-path; v3 = backward-chain composer. Pinned at session
-    /// creation; amendments stay on the same composer so re-emission
-    /// is byte-deterministic. `#[serde(default = "default_composer_version")]`
-    /// returns 1 for sessions persisted before this field existed.
-    #[serde(default = "default_composer_version")]
-    pub composer_version: u32,
     /// Pilot sizing actuation. Set by the server's
     /// `POST /api/chat/session/:id/progress` handler when the
     /// harness reports a `sizing_pilot_complete` event with a full
@@ -536,7 +519,7 @@ pub struct Session {
     /// Typed v4 planner output cache.
     ///
     /// Populated by `tools::rebuild_dag` on every successful v4
-    /// composition (composer_version == 4). The chat_routes/compose
+    /// composition. The chat_routes/compose
     /// endpoints serve `compose-outcome`, `compose-alternatives`,
     /// and `policy-decisions` directly from this cache so the UI
     /// can render the typed Composition tab without re-running the
@@ -606,9 +589,8 @@ pub struct Session {
     /// `v1.0.0`.
     ///
     /// `None` for sessions whose composer never matched an
-    /// archetype (composer_version = 1 legacy taxonomy build) OR
-    /// for sessions persisted before this field existed. The
-    /// composer reads it via `Session::archetype_snapshot` if Some,
+    /// archetype OR for sessions persisted before this field existed.
+    /// The composer reads it via `Session::archetype_snapshot` if Some,
     /// else falls through to live registry lookup.
     ///
     /// ts-rs `skip` because the snapshot is large (the entire
@@ -1270,5 +1252,32 @@ impl Turn {
             confirmation_card: None,
             timestamp: Utc::now(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Session;
+
+    #[test]
+    fn session_json_with_legacy_composer_version_field_still_deserializes() {
+        // Guards the v1/v2/v3 retirement: old session files carry a
+        // `composer_version` field. Session does not set deny_unknown_fields,
+        // so after the field is removed the value must be silently ignored.
+        let json = serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000000",
+            "composer_version": 1,
+            "state": { "kind": "greeting" },
+            "created_at": "2026-01-01T00:00:00Z",
+            "last_activity": "2026-01-01T00:00:00Z",
+            "conversation": [],
+            "intake_prose": ""
+        });
+        let parsed: Result<Session, _> = serde_json::from_value(json);
+        assert!(
+            parsed.is_ok(),
+            "Session JSON with a legacy composer_version field must still load: {:?}",
+            parsed.err()
+        );
     }
 }

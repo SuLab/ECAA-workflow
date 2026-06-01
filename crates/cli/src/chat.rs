@@ -6,7 +6,7 @@ use ecaa_workflow_core::builder::{
     build_dag_from_composition, build_dag_from_workflow_dag, IntakeMethods, IntakeResolution,
 };
 use ecaa_workflow_core::classify::Classifier;
-use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::composer::compose_with_modalities_full;
 use ecaa_workflow_core::dag::{dag_to_dot, Task, TaskKind, TaskState, DAG};
 use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
 use ecaa_workflow_core::goal_spec::GoalSpec;
@@ -364,12 +364,11 @@ fn process_classification(
                 .map(|m| m.modality.as_str()),
         )
         .collect();
-    let output = compose_with_version_and_modalities_full(
+    let output = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &modalities,
         None,
         // R1/R2 closure — deterministic CLI `chat` shell; no

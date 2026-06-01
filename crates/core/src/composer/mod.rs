@@ -49,7 +49,6 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 use std::collections::BTreeSet;
 
-mod backward_chain;
 mod dispatch;
 mod errors;
 mod inheritance;
@@ -57,8 +56,7 @@ mod multi_modal;
 mod slot_fill;
 mod validation;
 pub use dispatch::{
-    compose, compose_with_version, compose_with_version_and_modalities,
-    compose_with_version_and_modalities_full, compose_with_version_and_modality,
+    compose, compose_with_modalities, compose_with_modalities_full, compose_with_modality,
 };
 pub use errors::CompositionError;
 pub use inheritance::{

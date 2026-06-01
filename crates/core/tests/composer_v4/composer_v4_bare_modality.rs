@@ -14,7 +14,7 @@
 
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
-use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+use ecaa_workflow_core::composer::compose_with_modalities_full;
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::path::Path;
 
@@ -46,12 +46,11 @@ fn bare_goal() -> GoalSpec {
 fn bare_modality_bulk_rnaseq_emits_de_archetype() {
     let (atoms, archetypes) = workspace_config();
     let goal = bare_goal();
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &["bulk_rnaseq"],
         None,
         None,
@@ -85,12 +84,11 @@ fn bare_modality_bulk_rnaseq_emits_de_archetype() {
 fn bare_modality_scrnaseq_emits_clustering_archetype() {
     let (atoms, archetypes) = workspace_config();
     let goal = bare_goal();
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &["single_cell_rnaseq"],
         None,
         None,
@@ -114,12 +112,11 @@ fn bare_modality_scrnaseq_emits_clustering_archetype() {
 fn bare_modality_chip_seq_emits_peaks_archetype() {
     let (atoms, archetypes) = workspace_config();
     let goal = bare_goal();
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &["chip_seq"],
         None,
         None,
@@ -143,12 +140,11 @@ fn bare_modality_chip_seq_emits_peaks_archetype() {
 fn bare_modality_variant_calling_emits_germline_archetype() {
     let (atoms, archetypes) = workspace_config();
     let goal = bare_goal();
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &["variant_calling"],
         None,
         None,
@@ -177,12 +173,11 @@ fn bare_modality_generic_omics_clinical_trial_emits_executable_dag() {
     // contract is that some DAG emits.
     let (atoms, archetypes) = workspace_config();
     let goal = bare_goal();
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "clinical_trial",
         &atoms,
         &archetypes,
-        4,
         &["generic_omics"],
         None,
         None,
@@ -212,12 +207,11 @@ fn bare_modality_generic_omics_time_series_emits_executable_dag() {
         source_prose: Some("inferred from time_series_forecast archetype".into()),
         confidence: 0.5,
     };
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "time_series_forecast",
         &atoms,
         &archetypes,
-        4,
         &["generic_omics"],
         None,
         None,

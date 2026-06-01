@@ -11,7 +11,7 @@
 fn cross_omics_planner_picks_diablo_via_slot() {
     use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
     use ecaa_workflow_core::atom_registry::AtomRegistry;
-    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::composer::compose_with_modalities_full;
     use ecaa_workflow_core::goal_spec::GoalSpec;
 
     let archetypes = ArchetypeRegistry::load_from_dir(
@@ -45,12 +45,11 @@ fn cross_omics_planner_picks_diablo_via_slot() {
     };
     goal.modifiers.insert("integrator".into(), "diablo".into());
 
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        4,
         &["bulk_rnaseq", "proteomics"],
         None,
         None,

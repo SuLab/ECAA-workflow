@@ -70,7 +70,7 @@ safety:
       - bioconductor.org
       - github.com
       - raw.githubusercontent.com
-      - nf-core.re
+      - nf-co.re
 claim_boundary: |
   Every row in method_landscape.csv is a verbatim quote from one resolvable
   source (PMID/DOI/URL), with its locator, source_class, and evidence_role.

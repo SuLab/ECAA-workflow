@@ -210,13 +210,13 @@ fn classifier_chip_seq_peak_calling_prose_matches_atom_output() {
 
 /// Production-dispatch path must succeed for chip-seq end-to-end
 /// (classifier → composer → DAG with peak_calling). The
-/// `compose_with_version_and_modalities_full` call must return a
+/// `compose_with_modalities_full` call must return a
 /// `ValidatedExecutableDag` containing `peak_calling` (not
 /// `GoalUnreachable`).
 #[test]
 fn production_dispatch_reaches_peak_calling_for_chip_seq() {
     use ecaa_workflow_core::classify::Classifier;
-    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::composer::compose_with_modalities_full;
 
     let atom_reg = AtomRegistry::load_from_dir(Path::new(ATOMS_DIR))
         .expect("AtomRegistry must load from config/stage-atoms");
@@ -238,12 +238,11 @@ fn production_dispatch_reaches_peak_calling_for_chip_seq() {
         modalities.push(m.modality.as_str());
     }
 
-    let result = compose_with_version_and_modalities_full(
+    let result = compose_with_modalities_full(
         &goal,
         "bioinformatics",
         &atom_reg,
         &archetype_reg,
-        4,
         &modalities,
         None,
         None,

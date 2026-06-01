@@ -77,14 +77,6 @@ struct Fixture {
     #[serde(default)]
     #[allow(dead_code)]
     rubric_notes: Option<String>,
-    /// Pin the session's composer version. When set, the runner overwrites
-    /// `Session::composer_version` after `start_session` so the fixture's
-    /// expected behavior is independent of the `ECAA_COMPOSER` default.
-    /// Use this when a fixture's assertions depend on a specific composer
-    /// path (e.g. legacy taxonomy `discover_*` stages that the v4 archetype
-    /// path doesn't author yet).
-    #[serde(default)]
-    composer_version: Option<u32>,
     /// Install a one-shot failure injection on the
     /// `HeuristicMockBackend`. The next decision that would dispatch
     /// `tool_name` instead emits a synthetic payload the deterministic
@@ -421,25 +413,6 @@ async fn drive_fixture(fixture: &Fixture, _tempdir: &tempfile::TempDir) -> Sessi
         }
     };
     let (session_id, _greeting) = service.start_session(false).await.unwrap();
-
-    // Honor an explicit `composer_version:` pin in the fixture YAML so a
-    // fixture's expected behavior is independent of the `ECAA_COMPOSER`
-    // Default (which flipped from v1 → v4 on).
-    if let Some(pin) = fixture.composer_version {
-        service
-            .store_handle()
-            .update(session_id, |s| {
-                s.composer_version = pin;
-                Ok(())
-            })
-            .await
-            .unwrap_or_else(|e| {
-                panic!(
-                    "fixture {}: pinning composer_version={} failed: {}",
-                    fixture.id, pin, e
-                )
-            });
-    }
 
     for (i, step) in fixture.flow.iter().enumerate() {
         match step {

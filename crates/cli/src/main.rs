@@ -287,7 +287,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
     use ecaa_workflow_core::atom_registry::AtomRegistry;
     use ecaa_workflow_core::bco::emit_bco;
     use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
-    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::composer::compose_with_modalities_full;
     use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
     use ecaa_workflow_core::goal_spec::GoalSpec;
     use std::collections::BTreeMap;
@@ -378,12 +378,11 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
             .unwrap_or_else(|| archetype_obj.id.clone())]
     };
     let modalities: Vec<&str> = modality_owned.iter().map(|s| s.as_str()).collect();
-    let output_compose = compose_with_version_and_modalities_full(
+    let output_compose = compose_with_modalities_full(
         &goal,
         &archetype_obj.project_class,
         &atoms,
         &archetypes,
-        4,
         &modalities,
         None,
         // R1/R2 closure — bare CLI caller; no chat session to attribute
@@ -573,7 +572,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     use ecaa_workflow_core::bco::emit_bco;
     use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
     use ecaa_workflow_core::classify::Classifier;
-    use ecaa_workflow_core::composer::compose_with_version_and_modalities_full;
+    use ecaa_workflow_core::composer::compose_with_modalities_full;
     use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
     use ecaa_workflow_core::goal_spec::GoalSpec;
     use ecaa_workflow_core::project_class::ProjectClass;
@@ -662,12 +661,11 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         .collect();
 
     let workflow_id = workflow_id_from_intake(&intake_text);
-    let output_compose = compose_with_version_and_modalities_full(
+    let output_compose = compose_with_modalities_full(
         &goal,
         project_class_str,
         &atoms,
         &archetypes,
-        4,
         &modalities,
         None,
         // R1/R2 closure — `intake` is the deterministic CLI entry; no

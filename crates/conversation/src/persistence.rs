@@ -921,7 +921,7 @@ fn ttl_prune_interval_from_env() -> std::time::Duration {
 /// Upcast a v1 session JSON value to v2 in place.
 ///
 /// Today's v1→v2 differences are forward-compat-by-serde-default:
-/// `composer_version` and `pilot_recommendation` use serde defaults so
+/// `pilot_recommendation` uses a serde default so
 /// a v1 session deserializes cleanly without intervention. The
 /// upcasting branch's job is to bump `schema_version` to 2 so writes
 /// round-trip at the new version, leaving v2-specific structural

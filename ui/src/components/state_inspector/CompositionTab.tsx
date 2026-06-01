@@ -15,11 +15,6 @@
  *  - GET /api/chat/session/:id/assumptions
  *  - GET /api/chat/session/:id/policy-decisions
  *  - GET /api/chat/session/:id/validation-reports
- *
- * v1/v2/v3 sessions return 204 / empty arrays for compose-outcome
- * and compose-alternatives; the tab renders the empty-state legend
- * and prompts the SME toward `ECAA_COMPOSER=semantic` for
- * proof-carrying composition.
  */
 
 import { useMemo, useState } from 'react'
@@ -277,19 +272,8 @@ export function CompositionTab({
     return <EmptyState message={`Failed to load composition: ${state.error}`} />
   }
 
-  const v4Active = state.outcome !== null
-
   return (
     <div style={containerStyle}>
-      {!v4Active && (
-        <div style={legendStyle}>
-          This session predates the typed-composer view. To see
-          composition outcomes, ranked alternatives, and proof-carrying
-          edges, start a new session with{' '}
-          <code style={codeStyle}>ECAA_COMPOSER=semantic</code>.
-        </div>
-      )}
-
       {state.outcome?.variant === 'refusal' && state.outcome.refusal && (
         <RefusalReportCard
           report={asRefusalReport(state.outcome.refusal)}
@@ -672,15 +656,6 @@ const summaryStyle: React.CSSProperties = {
   background: 'var(--color-surface-1)',
   borderLeft: '3px solid var(--color-success-accent)',
   borderRadius: '0.3rem',
-}
-
-const legendStyle: React.CSSProperties = {
-  padding: '0.6rem 0.85rem',
-  fontSize: '0.78rem',
-  background: 'var(--color-surface-muted)',
-  border: '1px solid var(--color-border-subtle)',
-  borderRadius: '0.4rem',
-  color: 'var(--color-text-secondary)',
 }
 
 const codeStyle: React.CSSProperties = {

@@ -9,7 +9,7 @@
 
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
-use ecaa_workflow_core::composer::{compose_with_version_and_modalities, resolve_inheritance};
+use ecaa_workflow_core::composer::{compose_with_modalities, resolve_inheritance};
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::path::PathBuf;
 
@@ -117,12 +117,11 @@ fn flatten_ternary_archetype_includes_all_three_branches() {
 fn dispatches_ternary_archetype_for_rnaseq_atac_chip() {
     let (atoms, archetypes) = load_registries();
     let goal = de_goal();
-    let result = compose_with_version_and_modalities(
+    let result = compose_with_modalities(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        2,
         &["bulk_rnaseq", "atac_seq", "chip_seq"],
     )
     .expect("ternary dispatch must succeed");
@@ -156,38 +155,39 @@ fn dispatches_ternary_archetype_for_rnaseq_atac_chip() {
 fn ternary_dispatch_is_order_insensitive() {
     let (atoms, archetypes) = load_registries();
     let goal = de_goal();
-    let r1 = compose_with_version_and_modalities(
+    let r1 = compose_with_modalities(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        2,
         &["chip_seq", "bulk_rnaseq", "atac_seq"],
     )
     .unwrap();
-    let r2 = compose_with_version_and_modalities(
+    let r2 = compose_with_modalities(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        2,
         &["bulk_rnaseq", "atac_seq", "chip_seq"],
     )
     .unwrap();
     assert_eq!(r1.matched_archetype, r2.matched_archetype);
 }
 
+// Generic multi-branch fallback (deleted with v2); restored by v4 Pillar A.
+// Un-ignore + adapt when docs/superpowers/plans/2026-06-01-general-goal-dag-synthesis.md
+// Phase 1 lands.
+#[ignore = "v4 multi-branch synthesis (general goal->DAG, Pillar A) not yet implemented"]
 #[test]
 fn unregistered_triple_synthesizes_generic_multi_branch_dag() {
     let (atoms, archetypes) = load_registries();
     let goal = de_goal();
     // No cross-omics archetype covers (bulk_rnaseq, proteomics, metagenomics).
-    let result = compose_with_version_and_modalities(
+    let result = compose_with_modalities(
         &goal,
         "bioinformatics",
         &atoms,
         &archetypes,
-        2,
         &["bulk_rnaseq", "proteomics", "metagenomics"],
     )
     .expect("generic fallback must succeed");

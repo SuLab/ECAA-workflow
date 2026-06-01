@@ -34,18 +34,7 @@ export type Session = {
  * existed; new sessions get the current default via
  * `Session::new`.
  */
-schema_version: string, 
-/**
- * Which composer this session committed to. Distinct from
- * `schema_version` because a session's data shape and its
- * composer choice can evolve independently. v1 = legacy
- * taxonomy-driven build (always the value today); v2 = archetype
- * fast-path; v3 = backward-chain composer. Pinned at session
- * creation; amendments stay on the same composer so re-emission
- * is byte-deterministic. `#[serde(default = "default_composer_version")]`
- * returns 1 for sessions persisted before this field existed.
- */
-composer_version: number, 
+schema_version: string,
 /**
  * Pilot sizing actuation. Set by the server's
  * `POST /api/chat/session/:id/progress` handler when the

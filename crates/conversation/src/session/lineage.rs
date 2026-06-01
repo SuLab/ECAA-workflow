@@ -159,13 +159,6 @@ impl Session {
             // v3 P7 — `schema_version` is now `semver::Version` which
             // does not implement `Copy`; clone explicitly.
             schema_version: parent.schema_version.clone(),
-            // Per S6.13: branched sessions inherit the parent's
-            // committed composer_version so the branch stays on the
-            // same composer the parent used. Switching composer
-            // mid-session (parent on v1, child on v2) would mix
-            // emission shapes in the same session-tree and break
-            // cross-version-diff alignment.
-            composer_version: parent.composer_version,
             // Branched sessions DO NOT inherit the
             // parent's pilot_recommendation; the branch may swap
             // methods that change resource shape, so a fresh pilot
@@ -382,7 +375,6 @@ mod branch_from_exhaustiveness {
         // `missing field <field> in pattern` at compile time.
         let Session {
             schema_version: _,
-            composer_version: _,
             pilot_recommendation: _,
             id: _,
             created_at: _,
