@@ -24,6 +24,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = {"biomnibench": BiomniBench, "nekrutenko": Nekrutenko}
 
 
+def _isolated_pkg_copy(src_pkg: Path, dest: Path) -> Path:
+    """Copy an emitted package tree to a fresh dir so each error-matrix cell
+    runs on a clean, re-runnable package (avoids completed-task state bleed)."""
+    import shutil
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(src_pkg, dest)
+    return dest
+
+
 def _stage_inputs(pkg_dir: Path, inputs: dict[str, Path]) -> None:
     """Copy each task input file into pkg_dir/inputs/ so the agent has data.
 
@@ -56,6 +66,7 @@ def _run_one(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int,
         out = plugin.collect(spec, pkg)
     else:
         res = agent_runner.run_bare(workdir, spec.instruction)
+        (workdir / "agent-stdout.json").write_text(res.stdout or "")
         out = plugin.collect(spec, workdir)
     out.exit_ok, out.wall_secs = res.exit_ok, res.wall_secs
 
@@ -64,7 +75,9 @@ def _run_one(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int,
         # each PATH-shim without knowing which arm is active.
         def _live_run_fn(cell_workdir, env):
             if spec.kind == "ecaa_package":
-                r = agent_runner.run_ecaa_package(spec.package_dir,
+                pkg_copy = _isolated_pkg_copy(spec.package_dir,
+                                              cell_workdir / "pkg")
+                r = agent_runner.run_ecaa_package(pkg_copy,
                                                   max_iterations=max_iter,
                                                   env=env)
             else:
@@ -112,6 +125,13 @@ def main(argv: list[str]) -> int:
                     scores.append(_run_one(plugin, task, arm, trial, wd,
                                            args.max_iterations,
                                            error_matrix=args.error_matrix))
+
+    for arm in arms:
+        arm_rows = [s for s in scores if s.arm == arm.value]
+        if not arm_rows:
+            print(f"ERROR: arm '{arm.value}' produced zero score rows — "
+                  "check plugin or task list", file=sys.stderr)
+            return 1
 
     card = plugin.report(scores)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

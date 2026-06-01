@@ -59,3 +59,25 @@ def test_run_bare_uses_provided_env(tmp_path):
     # Also confirm /usr/bin and /bin were preserved (run_bare's PATH contract).
     # We check this indirectly: the stub used /usr/bin/env bash to launch, which
     # only works if /usr/bin is on PATH — and the test passed, so it is.
+
+
+def test_run_bare_captures_stdout(tmp_path):
+    """run_bare must capture stdout from the subprocess into RunResult.stdout."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = bindir / "claude"
+    stub.write_text('#!/usr/bin/env bash\necho \'{"result":"hi"}\'\n')
+    stub.chmod(0o755)
+
+    custom_env = os.environ.copy()
+    custom_env["PATH"] = str(bindir) + os.pathsep + custom_env.get("PATH", "")
+
+    wd = tmp_path / "wd"
+    wd.mkdir()
+
+    res = run_bare(wd, "do the thing", timeout=30, env=custom_env)
+
+    assert res.exit_ok is True, "stub claude should exit 0"
+    assert "hi" in res.stdout, (
+        f"res.stdout should contain 'hi'; got: {res.stdout!r}"
+    )

@@ -47,3 +47,24 @@ def test_stage_inputs_skips_missing_source(tmp_path):
     inputs_dir = pkg_dir / "inputs"
     assert not (inputs_dir / "nonexistent.fastq").exists(), "missing source should be skipped"
     assert (inputs_dir / "real.fastq").exists(), "existing source should be copied"
+
+
+def test_isolated_pkg_copy(tmp_path):
+    """_isolated_pkg_copy produces a distinct directory with the same content."""
+    # Build a fake source package tree.
+    src = tmp_path / "src_pkg"
+    src.mkdir()
+    (src / "WORKFLOW.json").write_text('{"tasks": []}')
+    runtime = src / "runtime"
+    runtime.mkdir()
+    (runtime / "state.json").write_text('{}')
+
+    dest = tmp_path / "cell0"
+    result = eval_runner._isolated_pkg_copy(src, dest)
+
+    assert result == dest, "return value should be the dest path"
+    assert dest.exists(), "dest directory should exist after copy"
+    assert dest != src, "dest must be a different path from src"
+    assert (dest / "WORKFLOW.json").exists(), "WORKFLOW.json should be copied"
+    assert (dest / "WORKFLOW.json").read_text() == '{"tasks": []}'
+    assert (dest / "runtime" / "state.json").exists(), "runtime/ subdir should be copied"
