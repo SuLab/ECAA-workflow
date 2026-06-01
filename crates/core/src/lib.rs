@@ -112,8 +112,8 @@ pub mod local_extension_graduation;
 // Closes design see `migration::SchemaVersionsManifest` for
 // the per-package manifest written at emit time and
 // `migration::replay_provenance` for the read-side replay surface.
-pub mod migration;
 pub mod method_landscape;
+pub mod migration;
 pub mod modality_bounds;
 pub mod modality_registry;
 pub mod ontology_scope;

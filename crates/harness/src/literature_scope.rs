@@ -89,8 +89,7 @@ impl LiteratureScopeConfig {
             .map(|v| v == "1")
             .unwrap_or(false);
         let raw_authority = env::var("ECAA_METHOD_SOURCE_AUTHORITY").ok();
-        let method_source_authority =
-            MethodSourceAuthority::from_env_str(raw_authority.as_deref());
+        let method_source_authority = MethodSourceAuthority::from_env_str(raw_authority.as_deref());
 
         if institutional_access && scope != LiteratureScope::AllSourcesLocalOnly {
             tracing::warn!(
@@ -261,12 +260,8 @@ mod tests {
     fn agent_env_vars_includes_method_source_authority() {
         with_env(&[("ECAA_METHOD_SOURCE_AUTHORITY", Some("frozen"))], || {
             let cfg = LiteratureScopeConfig::from_env();
-            let vars: std::collections::HashMap<_, _> =
-                cfg.agent_env_vars().into_iter().collect();
-            assert_eq!(
-                vars.get("ECAA_METHOD_SOURCE_AUTHORITY").unwrap(),
-                "frozen"
-            );
+            let vars: std::collections::HashMap<_, _> = cfg.agent_env_vars().into_iter().collect();
+            assert_eq!(vars.get("ECAA_METHOD_SOURCE_AUTHORITY").unwrap(), "frozen");
         });
     }
 
@@ -274,12 +269,8 @@ mod tests {
     fn agent_env_vars_default_authority_is_bounded() {
         with_env(&[("ECAA_METHOD_SOURCE_AUTHORITY", None)], || {
             let cfg = LiteratureScopeConfig::from_env();
-            let vars: std::collections::HashMap<_, _> =
-                cfg.agent_env_vars().into_iter().collect();
-            assert_eq!(
-                vars.get("ECAA_METHOD_SOURCE_AUTHORITY").unwrap(),
-                "bounded"
-            );
+            let vars: std::collections::HashMap<_, _> = cfg.agent_env_vars().into_iter().collect();
+            assert_eq!(vars.get("ECAA_METHOD_SOURCE_AUTHORITY").unwrap(), "bounded");
         });
     }
 

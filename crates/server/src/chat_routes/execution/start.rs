@@ -1007,14 +1007,14 @@ async fn spawn_harness_for_session_reserved(
         frozen_method_source,
     ))
     .stdout(std::process::Stdio::from(log_file))
-        .stderr(std::process::Stdio::from(log_file_stderr))
-        // Belt-and-suspenders: if the `Child` ever drops before
-        // `try_wait()`/`wait()`/`start_kill()` is called (e.g. an
-        // early-return path bypasses the `ExecutionHandle` reaper
-        // task), tokio will SIGKILL the child instead of orphaning
-        // it to init. Pairs with the `setsid()`-based pgroup kill
-        // path used by `/execution/kill`.
-        .kill_on_drop(true);
+    .stderr(std::process::Stdio::from(log_file_stderr))
+    // Belt-and-suspenders: if the `Child` ever drops before
+    // `try_wait()`/`wait()`/`start_kill()` is called (e.g. an
+    // early-return path bypasses the `ExecutionHandle` reaper
+    // task), tokio will SIGKILL the child instead of orphaning
+    // it to init. Pairs with the `setsid()`-based pgroup kill
+    // path used by `/execution/kill`.
+    .kill_on_drop(true);
 
     // Put the harness (and its agent + claude descendants) in their
     // own POSIX process group so `/execution/kill` can SIGTERM the
