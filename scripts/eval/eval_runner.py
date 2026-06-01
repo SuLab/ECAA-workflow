@@ -48,9 +48,15 @@ def _stage_inputs(pkg_dir: Path, inputs: dict[str, Path]) -> None:
     """
     dest = pkg_dir / "inputs"
     dest.mkdir(parents=True, exist_ok=True)
+    missing = []
     for _name, src in inputs.items():
         if src.exists():
             stage_file(src, dest / src.name)
+        else:
+            missing.append(str(src))
+    if missing:
+        print(f"WARNING: {len(missing)} task input(s) missing, staged without them: "
+              f"{missing}", file=sys.stderr)
 
 
 def _emit_ecaa_package(plugin, task, arm: Arm, workdir: Path):
@@ -203,6 +209,14 @@ def main(argv: list[str]) -> int:
     for _it, result in run_phase(pending_base, max_parallel=args.max_parallel,
                                  run_fn=_run_base_item):
         if isinstance(result, Exception):
+            # Surface (don't silently drop) a failed/timed-out base run. Journal it
+            # WITHOUT a "key" so it is NOT counted complete — --resume retries it.
+            task, arm, trial = _it
+            bk = _base_key(task.task_id, arm.value, trial)
+            journal.append({"kind": "base_failed", "fail_of": bk,
+                            "error": f"{type(result).__name__}: {result}"})
+            print(f"[run] base run {bk} FAILED ({type(result).__name__}: {result}) "
+                  f"— left unscored; --resume retries", file=sys.stderr)
             continue
         item, spec, out, rec = result
         k = rec["key"]
@@ -290,8 +304,14 @@ def main(argv: list[str]) -> int:
                 key = f"{i}:{req['role']}"
                 if key in verdicts:
                     vd[req["role"]] = verdicts[key]
-            scores.append(plugin.assemble_score(t, a, out, tr, vd) if vd
-                          else plugin.score(t, a, out, tr))
+            if vd:
+                scores.append(plugin.assemble_score(t, a, out, tr, vd))
+            else:
+                # Every judge failed for this row (e.g. all providers out of credits).
+                # Do NOT re-invoke judges live via score() — leave it unscored so
+                # --resume re-judges from the journaled output once credits return.
+                print(f"[judge] no verdict for {bk} — left unscored; --resume re-judges",
+                      file=sys.stderr)
 
     base_tmp.cleanup()
 
@@ -301,8 +321,28 @@ def main(argv: list[str]) -> int:
             return 1
 
     card = plugin.report(scores)
-    card.meta["cost"] = {"judge_usd": round(
-        sum(s.extra.get("judge_cost_usd", 0.0) for s in scores), 4)}
+    # Cost breakdown (per provider + totals), tolerant of partial/deterministic rows.
+    card.meta["cost"] = {
+        "judge_usd": round(sum(s.extra.get("judge_cost_usd", 0.0) for s in scores), 4),
+        "gemini_usd": round(sum(s.extra.get("gemini_cost_usd", 0.0) for s in scores), 4),
+        "anthropic_usd": round(sum(s.extra.get("anthropic_cost_usd", 0.0) for s in scores), 4),
+        "partial_judging_rows": sum(1 for s in scores if s.extra.get("partial_judging")),
+    }
+    # Surface stalled/incomplete runs so depressed scores aren't mistaken for poor work.
+    incomplete = {bk: o.artifacts.get("incomplete_reason")
+                  for bk, o in out_by_key.items() if o.artifacts.get("incomplete_reason")}
+    if incomplete:
+        card.meta["incomplete_runs"] = incomplete
+    # Row-count integrity: flag any (task,arm,trial) that produced no score row.
+    expected = len(ordered)
+    if len(scores) < expected:
+        scored = {(s.task_id, s.arm, s.trial) for s in scores}
+        missing = [_base_key(t.task_id, a.value, tr) for (t, a, tr) in ordered
+                   if (t.task_id, a.value, tr) not in scored]
+        card.meta["incomplete_scorecard"] = {"expected": expected,
+                                             "scored": len(scores), "missing": missing}
+        print(f"WARNING: scorecard has {len(scores)}/{expected} rows; missing: {missing}",
+              file=sys.stderr)
     write_scorecard(card, run_dir)
     print(f"wrote {run_dir}/scorecard.md")
     return 0

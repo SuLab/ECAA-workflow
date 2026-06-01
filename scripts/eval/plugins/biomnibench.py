@@ -134,8 +134,13 @@ class BiomniBench(Benchmark):
         cross = verdicts.get("cross")
         primary = headline or cross
         judge_id = "gemini-3.1-pro" if headline else "anthropic-opus"
-        extra = {"judge_cost_usd": (headline.get("cost_usd", 0.0) if headline else 0.0)
-                                   + (cross.get("cost_usd", 0.0) if cross else 0.0)}
+        gemini_cost = headline.get("cost_usd", 0.0) if headline else 0.0
+        anthropic_cost = cross.get("cost_usd", 0.0) if cross else 0.0
+        extra = {"judge_cost_usd": gemini_cost + anthropic_cost,
+                 "gemini_cost_usd": gemini_cost,
+                 "anthropic_cost_usd": anthropic_cost}
+        if output.artifacts.get("incomplete_reason"):
+            extra["incomplete_reason"] = output.artifacts["incomplete_reason"]
         if headline and cross:
             extra["cross_check"] = cross["overall"]
             extra["judge_exact"] = per_criterion_exact(
