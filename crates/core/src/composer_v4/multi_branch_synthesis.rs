@@ -14,6 +14,11 @@
 
 use std::collections::BTreeSet;
 
+use crate::atom_registry::AtomRegistry;
+use crate::composer::{ComposedAtom, CompositionResult};
+use crate::goal_spec::GoalSpec;
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::lifecycle::LifecycleState;
 use crate::workflow_contracts::task_node::WorkflowDag;
 
 /// Hard cap on branch count so a pathological modality list can't fan
@@ -103,11 +108,151 @@ fn branch_terminals(dag: &WorkflowDag) -> Vec<String> {
     terms
 }
 
+/// Ordering-edge proof (no port-typed data flow) — same convention as
+/// survey/discover synthesis and the cross-omics join.
+fn ordering_proof(from: &str, to: &str) -> CompatibilityProof {
+    CompatibilityProof {
+        producer_type: "ecaax:multi_branch_join_signal".into(),
+        consumer_type: "ecaax:multi_branch_join_signal".into(),
+        warnings: vec![
+            "workflow_ordering_edge: multi-branch join; no port-typed data flow".into(),
+        ],
+        rationale: Some(format!("multi_branch_synthesis: {from} -> {to}")),
+        ..Default::default()
+    }
+}
+
+/// Build the two-node join sub-DAG by lifting a `CompositionResult`
+/// holding the existing `reporting` atom (aliased
+/// `multi_modal_thematic_comparison`) + `final_reporting`. Reusing
+/// `lift_to_workflow_dag` gives correct ports + the
+/// `atom_id`/`stage_id` attributes (so lowering resolves the real
+/// atoms — container, safety, figures) + the comparison ->
+/// final_reporting edge, for free. Returns `None` if either atom is
+/// absent from the registry.
+fn build_join_subdag(
+    ctx: &crate::composer_v4::PlanningContext,
+    goal: &GoalSpec,
+    atom_reg: &AtomRegistry,
+) -> Option<WorkflowDag> {
+    let comparison_atom = atom_reg.get("reporting")?.clone();
+    let final_atom = atom_reg.get("final_reporting")?.clone();
+    let atoms = vec![
+        ComposedAtom {
+            stage_id: crate::ids::StageId::from("multi_modal_thematic_comparison"),
+            atom: comparison_atom.clone(),
+            depends_on: Vec::new(),
+            required: true,
+            bindings: Vec::new(),
+            container: crate::composer::resolve_task_container(&comparison_atom, None, None),
+        },
+        ComposedAtom {
+            stage_id: crate::ids::StageId::from("final_reporting"),
+            atom: final_atom.clone(),
+            depends_on: vec!["multi_modal_thematic_comparison".to_string()],
+            required: true,
+            bindings: Vec::new(),
+            container: crate::composer::resolve_task_container(&final_atom, None, None),
+        },
+    ];
+    let resource_estimate = crate::composer::aggregate_resources(&atoms);
+    let result = CompositionResult {
+        matched_archetype: None,
+        match_score: 0,
+        atoms,
+        goal: goal.clone(),
+        rationale: "multi-branch cross-modality join".to_string(),
+        atom_rationales: Default::default(),
+        resource_estimate,
+    };
+    let mut dag = crate::composer_v4::planner::lift_to_workflow_dag(&result, ctx, goal);
+    for n in &mut dag.nodes {
+        n.lifecycle_state = LifecycleState::Production;
+    }
+    Some(dag)
+}
+
+/// Merge prefixed branches + the join sub-DAG, wire each branch terminal
+/// into `multi_modal_thematic_comparison`, and re-sort for determinism.
+/// Idempotent: nodes deduped by id, edges fully deduped.
+fn assemble(
+    branch_dags: Vec<WorkflowDag>,
+    terminals_per_branch: Vec<Vec<String>>,
+    ctx: &crate::composer_v4::PlanningContext,
+    goal: &GoalSpec,
+    atom_reg: &AtomRegistry,
+) -> Option<WorkflowDag> {
+    let mut nodes: Vec<crate::workflow_contracts::task_node::TaskNode> = Vec::new();
+    let mut edges: Vec<EdgeContract> = Vec::new();
+    let mut all_terminals: Vec<String> = Vec::new();
+    for (dag, terms) in branch_dags.into_iter().zip(terminals_per_branch) {
+        all_terminals.extend(terms);
+        nodes.extend(dag.nodes);
+        edges.extend(dag.edges);
+    }
+
+    let join = build_join_subdag(ctx, goal, atom_reg)?;
+    nodes.extend(join.nodes);
+    edges.extend(join.edges);
+
+    all_terminals.sort();
+    all_terminals.dedup();
+    for term in &all_terminals {
+        edges.push(EdgeContract {
+            from_node: term.clone(),
+            from_port: String::new(),
+            to_node: "multi_modal_thematic_comparison".into(),
+            to_port: String::new(),
+            proof: ordering_proof(term, "multi_modal_thematic_comparison"),
+            chain_of_custody: None,
+        });
+    }
+
+    nodes.sort_by(|a, b| a.id.cmp(&b.id));
+    nodes.dedup_by(|a, b| a.id == b.id);
+    edges.sort_by(|a, b| {
+        a.from_node
+            .cmp(&b.from_node)
+            .then_with(|| a.from_port.cmp(&b.from_port))
+            .then_with(|| a.to_node.cmp(&b.to_node))
+            .then_with(|| a.to_port.cmp(&b.to_port))
+    });
+    edges.dedup();
+
+    Some(WorkflowDag {
+        id: format!("composed:{}", ctx.intent.id),
+        nodes,
+        edges,
+        assumptions: Default::default(),
+        source_template: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+    use crate::archetype_registry::ArchetypeRegistry;
+    use crate::composer_v4::planner::planning_context_for_goal_with_modalities;
     use crate::workflow_contracts::task_node::TaskNode;
+    use std::path::Path;
+
+    fn registries() -> (AtomRegistry, ArchetypeRegistry) {
+        let atoms = AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archs =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("archetypes");
+        (atoms, archs)
+    }
+    fn de_goal() -> GoalSpec {
+        // Differential-expression-style goal. If branch sub-plans don't
+        // resolve their archetypes with this edam_data, set it to the
+        // `goal_data` the bulk_rnaseq / proteomics PRIMARY archetypes
+        // declare (grep config/archetypes for their `goal_data:`).
+        GoalSpec {
+            edam_data: "data:0951".to_string(),
+            source_prose: Some("differential expression across groups".to_string()),
+            ..Default::default()
+        }
+    }
 
     fn node(id: &str, atom_id: &str) -> TaskNode {
         let mut n = TaskNode::skeleton(id, "test node");
@@ -187,5 +332,75 @@ mod tests {
             source_template: None,
         };
         assert_eq!(branch_terminals(&dag), vec!["b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn assemble_joins_two_prefixed_branches_at_real_reporting_atoms() {
+        let (atoms, _archs) = registries();
+        let goal = de_goal();
+        let ctx = planning_context_for_goal_with_modalities(
+            "test-assemble",
+            &goal,
+            Some("bulk_rnaseq"),
+            &["proteomics"],
+            Some("bioinformatics"),
+            &[],
+        );
+        // Two trivial prefixed branches (one terminal each).
+        let b1 = WorkflowDag {
+            id: "b1".into(),
+            nodes: vec![node(
+                "bulk_rnaseq_differential_expression",
+                "differential_expression",
+            )],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+        let b2 = WorkflowDag {
+            id: "b2".into(),
+            nodes: vec![node(
+                "proteomics_differential_abundance",
+                "differential_expression",
+            )],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+        let terms = vec![
+            vec!["bulk_rnaseq_differential_expression".to_string()],
+            vec!["proteomics_differential_abundance".to_string()],
+        ];
+        let dag = assemble(vec![b1, b2], terms, &ctx, &goal, &atoms)
+            .expect("reporting + final_reporting atoms must exist in the registry");
+
+        let ids: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert!(ids.contains("multi_modal_thematic_comparison"));
+        assert!(ids.contains("final_reporting"));
+        // The comparison node resolves to the real `reporting` atom.
+        let cmp = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "multi_modal_thematic_comparison")
+            .unwrap();
+        assert_eq!(
+            cmp.attributes.get("atom_id").and_then(|v| v.as_str()),
+            Some("reporting")
+        );
+        // Each branch terminal feeds the comparison; comparison feeds final.
+        assert!(dag.edges.iter().any(|e| e.from_node
+            == "bulk_rnaseq_differential_expression"
+            && e.to_node == "multi_modal_thematic_comparison"));
+        assert!(dag.edges.iter().any(|e| e.from_node
+            == "proteomics_differential_abundance"
+            && e.to_node == "multi_modal_thematic_comparison"));
+        assert!(dag.edges.iter().any(|e| e.from_node
+            == "multi_modal_thematic_comparison"
+            && e.to_node == "final_reporting"));
+        // Determinism: nodes sorted by id.
+        let actual: Vec<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        let mut sorted = actual.clone();
+        sorted.sort();
+        assert_eq!(actual, sorted);
     }
 }
