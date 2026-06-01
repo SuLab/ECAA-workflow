@@ -254,6 +254,13 @@ pub fn filter_picks_respecting_sme_gate(
     picks: Vec<TaskId>,
     confirmed_stages: &std::collections::BTreeSet<TaskId>,
 ) -> Vec<TaskId> {
+    // Unattended bypass: an operator/eval run with no SME present sets
+    // `ECAA_SME_AUTO_APPROVE_ALL=1` so the discover-review gate never holds
+    // dispatch. This is the only uniform switch the harness can observe —
+    // it reads gate state from package disk, never from session state.
+    if crate::sme_skip::sme_auto_approve_all_env() {
+        return picks;
+    }
     picks
         .into_iter()
         .filter(|id| !has_unconfirmed_review_ancestor(dag, id.as_str(), confirmed_stages))

@@ -67,7 +67,23 @@ impl SmeSkipIntent {
 ///   "rationale": "..."
 /// }
 /// ```
+/// `ECAA_SME_AUTO_APPROVE_ALL=1` — unattended bypass of every SME gate
+/// (the discover-review gate in `scheduler.rs` + the post-completion
+/// re-block guards here). Read fresh each call so a test can toggle it.
+pub fn sme_auto_approve_all_env() -> bool {
+    matches!(
+        std::env::var("ECAA_SME_AUTO_APPROVE_ALL").as_deref(),
+        Ok("1")
+    )
+}
+
 pub fn detect_intent(package_root: &Path, task_id: &str) -> SmeSkipIntent {
+    // Unattended bypass: treat every task as carrying a documented-skip
+    // decision so the silent-completion / missing-artifact / validation
+    // re-block guards never hold a no-SME run.
+    if sme_auto_approve_all_env() {
+        return SmeSkipIntent::EmitSentinel;
+    }
     let p = package_root
         .join("runtime/outputs")
         .join(task_id)
