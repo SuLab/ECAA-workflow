@@ -19,11 +19,11 @@ from scripts.eval.services.datasets import scratch_root, stage_file
 #   plan/PLAN.md          — default v2 implementation plan
 #   data/raw/             — 4 paired-end .fq.gz samples + chrM.fa.gz
 #   ground_truth/results/ — canonical .vcf.gz + collapsed.tsv answer key
-#   harness/error_shims/  — flat dir: bwa (script), lofreq (script), shim.py
+# The fault-injection shim is eval-owned (scripts/eval/_eval_shim) and mounted
+# into the agent container; it no longer ships from the dataset repo.
 _PLAN = "plan/PLAN.md"
 _SAMPLES = "data/raw"
 _ANSWER_KEY = "ground_truth/results"
-_SHIMS = "harness/error_shims"
 
 # 12 (pattern, tool) combinations from the Nekrutenko paper (Table 5).
 # 5 patterns target both bwa and lofreq (10 cells); 2 are lofreq-only (2 cells).
@@ -164,31 +164,40 @@ class Nekrutenko(Benchmark):
     def run_error_cell(self, task, cell_spec, run_fn):
         """Run ONE PATH-shim fault cell and return its classification dict.
 
-        Symlinks the real shim wrappers (bwa, lofreq) into a per-cell bin dir,
-        prepends it to PATH, sets the shim-contract env vars, runs the arm via
-        ``run_fn(cell_dir, env)``, then classifies handle/recover/diagnose from
-        the produced VCF count + failures.log. The per-cell tempdir lives on
-        scratch_root() (mounted disk), not /tmp, so parallel cells + per-cell
-        package copies cannot fill the root filesystem."""
+        Hands the arm a container-mountable fault-injection shim: sets the
+        shim-contract env (``EVAL_INJECT_PATTERN``/``TARGET``/``STATE``) plus
+        ``ECAA_EVAL_SHIM_DIR`` (the abs path to ``scripts/eval/_eval_shim``).
+        The agent wrappers (agent-claude.sh / _bare_agent.sh) read
+        ECAA_EVAL_SHIM_DIR to ro-mount the shim into the container, rw-mount the
+        state dir, and PREPEND the shim dir to the container PATH so the real
+        bwa/lofreq calls resolve to the shim FIRST — the fault crosses the
+        container boundary instead of living only on the host.
+
+        After ``run_fn(cell_dir, env)`` it classifies handle/recover/diagnose
+        from the produced VCF count + failures.log, then runs BYPASS DETECTION:
+        if the shim never wrote ``state_dir/invoked.<tool>`` the agent reached
+        the real tool around the shim (absolute path / conda-activated bin /
+        different tool), so the injected fault never landed — the cell is marked
+        ``inconclusive`` (report() excludes it from recover/diagnose rates).
+        ``shim_invoked`` is always recorded.
+
+        The per-cell tempdir lives on scratch_root() (mounted disk), not /tmp,
+        so parallel cells + per-cell package copies cannot fill the root
+        filesystem; the state dir lives under it so the rw container mount lands
+        on the same mounted disk."""
         pattern, tool, seed = cell_spec
-        handle_dir = Path(task.meta.get("handle", ""))
-        shims_root = handle_dir / _SHIMS if handle_dir.is_dir() else None
+        shim_dir = str(Path(__file__).resolve().parents[1] / "_eval_shim")
 
         with tempfile.TemporaryDirectory(dir=scratch_root()) as td:
             cell_dir = Path(td)
             state_dir = cell_dir / "_eval_state"
             state_dir.mkdir()
-            bin_dir = cell_dir / "_eval_bin"
-            bin_dir.mkdir()
-            if shims_root is not None:
-                for shimmed_tool in ("bwa", "lofreq"):
-                    (bin_dir / shimmed_tool).symlink_to(shims_root / shimmed_tool)
 
             env = os.environ.copy()
-            env["PATH"] = str(bin_dir) + os.pathsep + env.get("PATH", "")
             env["EVAL_INJECT_PATTERN"] = pattern
             env["EVAL_INJECT_TARGET"] = tool
             env["EVAL_INJECT_STATE"] = str(state_dir)
+            env["ECAA_EVAL_SHIM_DIR"] = shim_dir
 
             result = run_fn(cell_dir, env)
 
@@ -203,7 +212,16 @@ class Nekrutenko(Benchmark):
                 produced_valid=produced_valid,
                 expected_valid=4,
             )
-            return {"pattern": pattern, "tool": tool, "seed": seed, **classification}
+            cell = {"pattern": pattern, "tool": tool, "seed": seed, **classification}
+
+            # Bypass detection: the shim records every invocation to
+            # state_dir/invoked.<tool>. If it's absent the fault never reached
+            # the agent's tool call, so this cell can't be scored as recovery.
+            shim_invoked = (state_dir / f"invoked.{tool}").exists()
+            cell["shim_invoked"] = shim_invoked
+            if not shim_invoked:
+                cell["inconclusive"] = True
+            return cell
 
     def error_matrix(self, task, arm, workdir, run_fn):
         """Serial 36-cell sweep (kept for back-compat / non-parallel callers).

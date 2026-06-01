@@ -69,6 +69,25 @@ if [ ! -e "$CC_DIR/node_modules/.bin/claude" ]; then
     "@anthropic-ai/claude-code${ECAA_AGENT_CLAUDE_VERSION:+@$ECAA_AGENT_CLAUDE_VERSION}" >/dev/null 2>&1 || true
 fi
 
+# Eval fault-injection shim (STRICT no-op unless ECAA_EVAL_SHIM_DIR is set, so
+# production runs are byte-identical). When set, the eval harness wants the
+# fault to cross the container boundary: ro-mount the shim dir, rw-mount the
+# per-cell state dir (the shim writes its bypass-detection marker there), PREPEND
+# the shim dir to the container PATH so bwa/lofreq resolve to the shim FIRST, and
+# forward the EVAL_INJECT_* contract env into the container.
+CONTAINER_PATH="/opt/claude-code/node_modules/.bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+DOCKER_SHIM_ARGS=()
+if [ -n "${ECAA_EVAL_SHIM_DIR:-}" ]; then
+  DOCKER_SHIM_ARGS+=(
+    -v "$ECAA_EVAL_SHIM_DIR":"$ECAA_EVAL_SHIM_DIR":ro
+    -v "$EVAL_INJECT_STATE":"$EVAL_INJECT_STATE":rw
+    -e EVAL_INJECT_PATTERN
+    -e EVAL_INJECT_TARGET
+    -e EVAL_INJECT_STATE
+  )
+  CONTAINER_PATH="$ECAA_EVAL_SHIM_DIR:$CONTAINER_PATH"
+fi
+
 # Clean container run (mirrors the validated minimal invocation). The container
 # runs as the host uid so files written to the rw-mounted workdir are owned by
 # the operator. claude writes trace.md/answer.txt (or whatever the prompt asks)
@@ -78,7 +97,8 @@ exec "$RUNTIME" run --rm \
   -v "$WORKDIR":"$WORKDIR":rw \
   -v "$BARE_HOME":"$HOME":rw \
   -v "$CC_DIR/node_modules":/opt/claude-code/node_modules:ro \
-  -e PATH="/opt/claude-code/node_modules/.bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  "${DOCKER_SHIM_ARGS[@]}" \
+  -e PATH="$CONTAINER_PATH" \
   -w "$WORKDIR" \
   -e "HOME=$HOME" \
   "$IMAGE" \

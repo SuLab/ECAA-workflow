@@ -852,6 +852,13 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # renderer use it regardless of PATH resolution order in the image.
   [ -n "$CANON_PY_BIN" ] && DOCKER_ENV_ARGS+=(-e "ECAA_PY=$CANON_PY_BIN/python3")
   unset __agent_kv
+  # Forward the eval fault-injection contract env (STRICT no-op unless
+  # ECAA_EVAL_SHIM_DIR is set, so production is byte-identical). The shim reads
+  # EVAL_INJECT_PATTERN/TARGET/STATE inside the container; without forwarding
+  # them across the docker boundary the fault never lands.
+  if [ -n "${ECAA_EVAL_SHIM_DIR:-}" ]; then
+    DOCKER_ENV_ARGS+=(-e EVAL_INJECT_PATTERN -e EVAL_INJECT_TARGET -e EVAL_INJECT_STATE)
+  fi
   DOCKER_SECRET_ENV_ARGS=()
   if [ "${ECAA_AGENT_BILLING:-subscription}" = "api" ] \
      && [ -n "${ANTHROPIC_API_KEY:-}" ]; then
@@ -965,12 +972,37 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     done < <(jq -r '.[]? | select(.kind == "local_path") | .root_path // empty' "$PACKAGE/runtime/inputs.json" 2>/dev/null)
   fi
 
+  # Eval fault-injection shim mounts (STRICT no-op unless ECAA_EVAL_SHIM_DIR is
+  # set; empty array otherwise so the production `docker run` is byte-identical).
+  # ro-mount the shim dir (so the container resolves the same wrappers + shim.py
+  # the host harness prepared) and rw-mount the per-cell state dir (the shim
+  # writes its invoked.<tool> bypass-detection marker there, which the harness
+  # reads back on the host). The PATH-prepend + EVAL_INJECT_* forward are handled
+  # alongside the other DOCKER_*_ARGS above.
+  DOCKER_SHIM_ARGS=()
+  if [ -n "${ECAA_EVAL_SHIM_DIR:-}" ]; then
+    DOCKER_SHIM_ARGS+=(-v "$ECAA_EVAL_SHIM_DIR":"$ECAA_EVAL_SHIM_DIR":ro)
+    if [ -n "${EVAL_INJECT_STATE:-}" ]; then
+      DOCKER_SHIM_ARGS+=(-v "$EVAL_INJECT_STATE":"$EVAL_INJECT_STATE":rw)
+    fi
+  fi
+
   # Mount the per-session claude-code install (if successfully prepared
   # above) and prepend its bin dir to the container's PATH so `claude`
   # resolves to the upgraded copy instead of the image's bundled binary.
   # The.bin/claude symlink is relative, so the entire node_modules
   # tree must be mounted, not just the bin dir. Read-only is fine —
   # claude doesn't write into its own install tree at runtime.
+  # Eval fault-injection shim PATH prefix (STRICT no-op unless
+  # ECAA_EVAL_SHIM_DIR is set, so production PATH is byte-identical). When set,
+  # the shim dir is PREPENDED so the agent's bwa/lofreq calls resolve to the
+  # eval shim FIRST and the injected fault crosses the container boundary. The
+  # corresponding ro shim mount + rw state mount + EVAL_INJECT_* forward are
+  # added via DOCKER_SHIM_ARGS just before `docker run`.
+  __SHIM_PATH_PREFIX=""
+  if [ -n "${ECAA_EVAL_SHIM_DIR:-}" ]; then
+    __SHIM_PATH_PREFIX="$ECAA_EVAL_SHIM_DIR:"
+  fi
   if [ -n "$CLAUDE_CODE_INSTALL_DIR" ] && [ -n "$CLAUDE_CODE_INSTALLED_VERSION" ]; then
     DOCKER_CACHE_ARGS+=(
       -v "$CLAUDE_CODE_INSTALL_DIR/node_modules":/opt/claude-code/node_modules:ro
@@ -980,7 +1012,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
       # substrate the shipped renderers need. Without this the image's bare
       # `python3` ordering is ambiguous and the agent burns turns probing which
       # interpreter has matplotlib. Empty $CANON_PY_BIN => image default PATH.
-      -e "PATH=/opt/claude-code/node_modules/.bin:${CANON_PY_BIN:+$CANON_PY_BIN:}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      -e "PATH=${__SHIM_PATH_PREFIX}/opt/claude-code/node_modules/.bin:${CANON_PY_BIN:+$CANON_PY_BIN:}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     )
   fi
 
@@ -1144,6 +1176,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     "${DOCKER_CACHE_ARGS[@]}" \
     "${DOCKER_SCRATCH_ARGS[@]}" \
     "${DOCKER_INPUT_BIND_ARGS[@]}" \
+    "${DOCKER_SHIM_ARGS[@]}" \
     -w "$PACKAGE" \
     -e "HOME=$HOME" \
     "${DOCKER_ENV_ARGS[@]}" \

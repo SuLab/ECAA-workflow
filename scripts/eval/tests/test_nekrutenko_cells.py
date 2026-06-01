@@ -86,3 +86,76 @@ def test_error_matrix_still_returns_36_cells(tmp_path, monkeypatch):
     cells = Nekrutenko().error_matrix(_task(), Arm.ECAA_WORKFLOW, tmp_path,
                                       lambda cd, env: FakeResult())
     assert len(cells) == 36
+
+
+def test_run_error_cell_sets_shim_env_and_shim_dir(tmp_path, monkeypatch):
+    """The cell env carries the shim contract: pattern/target/state + the
+    abs ECAA_EVAL_SHIM_DIR pointing at scripts/eval/_eval_shim."""
+    monkeypatch.setenv("ECAA_EVAL_SCRATCH_DIR", str(tmp_path))
+
+    class FakeResult:
+        exit_ok = True
+
+    captured = {}
+
+    def run_fn(cell_dir, env):
+        captured.update(env)
+        # honest agent: mark the tool invoked + produce 4 valid VCFs
+        Path(env["EVAL_INJECT_STATE"]).mkdir(parents=True, exist_ok=True)
+        (Path(env["EVAL_INJECT_STATE"]) / "invoked.lofreq").write_text("1")
+        for s in ("a", "b", "c", "d"):
+            (Path(cell_dir) / f"{s}.vcf").write_text(
+                "##fileformat=VCFv4.2\nchrM\t152\t.\tT\tC\t.\tPASS\tAF=0.9\n")
+        return FakeResult()
+
+    Nekrutenko().run_error_cell(_task(), ("missing_lib_error", "lofreq", 42), run_fn)
+    assert captured["EVAL_INJECT_PATTERN"] == "missing_lib_error"
+    assert captured["EVAL_INJECT_TARGET"] == "lofreq"
+    assert "EVAL_INJECT_STATE" in captured
+    shim_dir = Path(captured["ECAA_EVAL_SHIM_DIR"])
+    assert shim_dir.is_absolute()
+    assert shim_dir.name == "_eval_shim"
+    assert (shim_dir / "shim.py").exists()
+
+
+def test_run_error_cell_bypass_marks_inconclusive(tmp_path, monkeypatch):
+    """A run_fn that NEVER writes the invoked.<tool> marker (the agent bypassed
+    the shim) => cell['inconclusive'] is True and shim_invoked is False."""
+    monkeypatch.setenv("ECAA_EVAL_SCRATCH_DIR", str(tmp_path))
+
+    class FakeResult:
+        exit_ok = True
+
+    def run_fn(cell_dir, env):
+        # produces VCFs but does NOT touch the state dir -> bypass
+        for s in ("a", "b", "c", "d"):
+            (Path(cell_dir) / f"{s}.vcf").write_text(
+                "##fileformat=VCFv4.2\nchrM\t152\t.\tT\tC\t.\tPASS\tAF=0.9\n")
+        return FakeResult()
+
+    cell = Nekrutenko().run_error_cell(_task(), ("flake_first_call", "bwa", 42), run_fn)
+    assert cell["inconclusive"] is True
+    assert cell["shim_invoked"] is False
+
+
+def test_run_error_cell_invoked_not_inconclusive_and_recovers(tmp_path, monkeypatch):
+    """A run_fn that writes state_dir/invoked.<tool> + 4 valid VCFs =>
+    NOT inconclusive, shim_invoked True, recover True."""
+    monkeypatch.setenv("ECAA_EVAL_SCRATCH_DIR", str(tmp_path))
+
+    class FakeResult:
+        exit_ok = True
+
+    def run_fn(cell_dir, env):
+        state = Path(env["EVAL_INJECT_STATE"])
+        state.mkdir(parents=True, exist_ok=True)
+        (state / "invoked.bwa").write_text("1")     # shim was exercised
+        for s in ("a", "b", "c", "d"):
+            (Path(cell_dir) / f"{s}.vcf").write_text(
+                "##fileformat=VCFv4.2\nchrM\t152\t.\tT\tC\t.\tPASS\tAF=0.9\n")
+        return FakeResult()
+
+    cell = Nekrutenko().run_error_cell(_task(), ("flake_first_call", "bwa", 42), run_fn)
+    assert cell.get("inconclusive") is not True
+    assert cell["shim_invoked"] is True
+    assert cell["recover"] is True

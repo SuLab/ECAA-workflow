@@ -20,7 +20,6 @@ from scripts.eval.plugins.nekrutenko import (
     _PLAN,
     _SAMPLES,
     _ANSWER_KEY,
-    _SHIMS,
 )
 
 # ---------------------------------------------------------------------------
@@ -68,11 +67,10 @@ def _build_fixture(root: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 def test_path_constants_match_real_layout():
-    """_PLAN / _SAMPLES / _ANSWER_KEY / _SHIMS must match the real repo layout."""
+    """_PLAN / _SAMPLES / _ANSWER_KEY must match the real repo layout."""
     assert _PLAN == "plan/PLAN.md", f"unexpected _PLAN: {_PLAN!r}"
     assert _SAMPLES == "data/raw", f"unexpected _SAMPLES: {_SAMPLES!r}"
     assert _ANSWER_KEY == "ground_truth/results", f"unexpected _ANSWER_KEY: {_ANSWER_KEY!r}"
-    assert _SHIMS == "harness/error_shims", f"unexpected _SHIMS: {_SHIMS!r}"
 
 
 def test_tasks_finds_all_fastq_pairs(tmp_path):
@@ -125,22 +123,6 @@ def test_plan_file_exists_in_fixture(tmp_path):
     handle = _build_fixture(tmp_path)
     plan_path = handle / _PLAN
     assert plan_path.exists(), f"plan file not found at {plan_path}"
-
-
-def test_shims_root_is_flat_dir(tmp_path):
-    """_SHIMS must be a flat directory containing bwa and lofreq wrapper scripts."""
-    handle = _build_fixture(tmp_path)
-    shims_root = handle / _SHIMS
-
-    assert shims_root.is_dir(), f"_SHIMS should be a directory: {shims_root}"
-    for name in ("bwa", "lofreq", "shim.py"):
-        assert (shims_root / name).exists(), f"shim entry missing: {name}"
-
-    # bwa and lofreq must be files (scripts), not subdirectories
-    for name in ("bwa", "lofreq"):
-        assert (shims_root / name).is_file(), (
-            f"{name} should be a script file, not a directory"
-        )
 
 
 def test_tasks_meta_carries_handle(tmp_path):
