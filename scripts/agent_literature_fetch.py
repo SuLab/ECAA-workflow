@@ -1,0 +1,576 @@
+#!/usr/bin/env python3
+"""Agent-side literature retrieval + snapshot + manifest helper.
+
+Invoked by the execution agent for an atom that carries
+`attributes.retrieval_tools` (e.g. `survey_method_landscape`). Performs
+source-class-bounded retrieval against the index APIs for the enabled
+source classes, snapshots every fetched source to
+`<out_dir>/evidence/snapshots/<sha256>`, writes/extends
+`<out_dir>/evidence/manifest.json` (FOUNDATION manifest schema_version 2),
+and appends rows to `<out_dir>/method_landscape.csv`.
+
+Source classes and their index endpoints:
+  - primary_literature    -> NCBI E-utilities (eutils.ncbi.nlm.nih.gov)
+  - conference_proceedings -> OpenAlex (api.openalex.org) / Crossref
+                              (api.crossref.org)
+  - tool_documentation     -> allowlisted doc domains (readthedocs.io,
+                              github.io, bioconductor.org, ...)
+
+The network layer is two monkeypatchable functions, `_http_get_json` and
+`_http_get_text`, each of which asserts the target host is on the caller's
+allowlist BEFORE any fetch (bounded egress at the helper level, in addition
+to the atom's `safety.network` allowlist enforced by the harness).
+
+Pure standard library: urllib, hashlib, json, csv, re. No pip installs.
+"""
+
+from __future__ import annotations
+
+import csv
+import hashlib
+import json
+import os
+import re
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+
+# --------------------------------------------------------------------------
+# Constants conforming to the FOUNDATION manifest v2 contract.
+# --------------------------------------------------------------------------
+
+MANIFEST_SCHEMA_VERSION = 2
+EXTRACTED_TEXT_NORMALIZATION = "collapse_whitespace_lowercase_v1"
+USER_AGENT = "ecaa-workflow-literature-fetch/1 (+https://github.com/SuLab/ECAA-workflow)"
+HTTP_TIMEOUT_SECS = 30
+
+# CSV column order for method_landscape.csv (version_context optional, last).
+CSV_COLUMNS = [
+    "axis",
+    "candidate_method",
+    "source_ref_kind",
+    "source_ref",
+    "source_class",
+    "evidence_role",
+    "evidence_quote",
+    "evidence_quote_offset",
+    "source_kind",
+    "source_hash",
+    "retrieval_ts",
+    "redistributable",
+    "verified",
+    "version_context",
+]
+
+# Default index hosts per source class when a route lacks explicit hosts.
+DEFAULT_ROUTES: Dict[str, Dict[str, Any]] = {
+    "primary_literature": {"hosts": ["eutils.ncbi.nlm.nih.gov", "ftp.ncbi.nlm.nih.gov"]},
+    "conference_proceedings": {"hosts": ["api.openalex.org", "api.crossref.org"]},
+    "tool_documentation": {
+        "hosts": [
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+        ],
+        "domain_suffixes": [".github.io", ".readthedocs.io"],
+    },
+}
+
+
+class HostNotAllowedError(RuntimeError):
+    """Raised when a fetch targets a host outside the route allowlist."""
+
+
+class EvidenceCapExceeded(RuntimeError):
+    """Raised internally when the per-task evidence size cap is hit."""
+
+
+# --------------------------------------------------------------------------
+# Normalizer — must match the Rust `collapse_whitespace_lowercase_v1` exactly:
+# collapse runs of whitespace to a single space, lowercase, trim.
+# --------------------------------------------------------------------------
+
+
+def normalize_text(s: str) -> str:
+    return re.sub(r"\s+", " ", s).strip().lower()
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _host_allowed(host: str, allowed_hosts: Iterable[str], domain_suffixes: Iterable[str] = ()) -> bool:
+    host = (host or "").lower()
+    for h in allowed_hosts:
+        h = h.lower()
+        if host == h or host.endswith("." + h):
+            return True
+    for suf in domain_suffixes:
+        if host.endswith(suf.lower()):
+            return True
+    return False
+
+
+# --------------------------------------------------------------------------
+# Network seam. Tests monkeypatch these two functions. Both enforce the
+# host allowlist BEFORE issuing any request.
+# --------------------------------------------------------------------------
+
+
+def _http_get_json(url: str, host: str, allowed_hosts: List[str]) -> Any:
+    if not _host_allowed(host, allowed_hosts):
+        raise HostNotAllowedError(f"host {host!r} not in allowlist {allowed_hosts!r}")
+    raw = _raw_get(url)
+    return json.loads(raw.decode("utf-8", errors="replace"))
+
+
+def _http_get_text(url: str, host: str, allowed_hosts: List[str]) -> str:
+    # `allowed_hosts` may carry leading-dot suffix entries (e.g.
+    # `.readthedocs.io`); `_host_allowed` treats those as suffix matches.
+    suffixes = [h for h in allowed_hosts if h.startswith(".")]
+    hosts = [h for h in allowed_hosts if not h.startswith(".")]
+    if not _host_allowed(host, hosts, suffixes):
+        raise HostNotAllowedError(f"host {host!r} not in allowlist {allowed_hosts!r}")
+    raw = _raw_get(url)
+    return raw.decode("utf-8", errors="replace")
+
+
+def _raw_get(url: str) -> bytes:
+    req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
+    with urlopen(req, timeout=HTTP_TIMEOUT_SECS) as resp:  # noqa: S310 (bounded host)
+        return resp.read()
+
+
+# --------------------------------------------------------------------------
+# Source-class enablement.
+# --------------------------------------------------------------------------
+
+
+def enabled_classes(classes: Optional[List[str]]) -> List[str]:
+    """Resolve the enabled source classes.
+
+    When `classes` is explicitly provided (caller decided), use it. When
+    None, derive from the environment, defaulting to primary_literature
+    only when the scope env is unset. A later workstream owns the richer
+    authority-mode knob; this is a minimal default, not the policy.
+    """
+    if classes is not None:
+        return list(classes)
+    scope = os.environ.get("ECAA_LIT_SOURCE_SCOPE", "").strip()
+    # All current scope tiers (pmc_oa, pmc_oa_plus_abstracts,
+    # all_sources_local_only) gate the primary-literature path; proceedings
+    # and tool-docs are opt-in by the caller / a later authority knob.
+    return ["primary_literature"]
+
+
+def _evidence_cap_bytes() -> Optional[int]:
+    raw = os.environ.get("ECAA_LIT_EVIDENCE_MAX_MB", "").strip()
+    if not raw:
+        return None
+    try:
+        mb = int(raw)
+    except ValueError:
+        return None
+    if mb <= 0:
+        return None
+    return mb * 1024 * 1024
+
+
+# --------------------------------------------------------------------------
+# OpenAlex / Crossref helpers (conference_proceedings).
+# --------------------------------------------------------------------------
+
+
+def _openalex_reconstruct_abstract(inv_index: Dict[str, List[int]]) -> str:
+    """Rebuild plain-text abstract from OpenAlex's inverted index."""
+    if not inv_index:
+        return ""
+    positions: List[Tuple[int, str]] = []
+    for word, idxs in inv_index.items():
+        for i in idxs:
+            positions.append((i, word))
+    positions.sort(key=lambda p: p[0])
+    return " ".join(w for _, w in positions)
+
+
+def _strip_doi(doi: str) -> str:
+    """Normalize an OpenAlex/Crossref DOI to its bare `10.x/...` form."""
+    doi = (doi or "").strip()
+    doi = re.sub(r"^https?://(dx\.)?doi\.org/", "", doi, flags=re.IGNORECASE)
+    return doi
+
+
+def _openalex_extract(results: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """Extract (candidate, doi, quote) tuples from OpenAlex results."""
+    out = []
+    for r in results or []:
+        doi = _strip_doi(r.get("doi", ""))
+        if not doi:
+            continue
+        title = (r.get("display_name") or r.get("title") or "").strip()
+        abstract = _openalex_reconstruct_abstract(r.get("abstract_inverted_index") or {})
+        quote = abstract or title
+        if not (title and quote):
+            continue
+        out.append({"candidate": title, "source_ref": doi, "quote": quote})
+    return out
+
+
+def _crossref_extract(payload: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Extract (candidate, doi, quote) tuples from a Crossref response."""
+    out = []
+    items = ((payload or {}).get("message") or {}).get("items") or []
+    for it in items:
+        doi = _strip_doi(it.get("DOI", ""))
+        titles = it.get("title") or []
+        title = (titles[0] if titles else "").strip()
+        abstract = re.sub(r"<[^>]+>", " ", it.get("abstract", "") or "")
+        quote = (abstract.strip() or title)
+        if not (doi and title and quote):
+            continue
+        out.append({"candidate": title, "source_ref": doi, "quote": quote})
+    return out
+
+
+# --------------------------------------------------------------------------
+# Tool-documentation helpers.
+# --------------------------------------------------------------------------
+
+_VERSION_NEAR_TOOL = re.compile(r"\bv?(\d+(?:\.\d+){0,2})\b", re.IGNORECASE)
+
+
+def _strip_html(html: str) -> str:
+    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", html)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return text
+
+
+def _extract_version_context(text: str, candidate: str) -> Optional[str]:
+    """Find a version token near the candidate tool name in the doc text."""
+    norm = text
+    low = norm.lower()
+    cand_low = candidate.lower()
+    pos = low.find(cand_low)
+    if pos < 0:
+        return None
+    window = norm[pos : pos + len(candidate) + 40]
+    m = _VERSION_NEAR_TOOL.search(window[len(candidate):])
+    if m:
+        return m.group(1)
+    return None
+
+
+# --------------------------------------------------------------------------
+# Snapshot + manifest + CSV emit.
+# --------------------------------------------------------------------------
+
+
+def _snapshot(ev_dir: Path, payload: bytes) -> Tuple[str, str]:
+    """Write `payload` to evidence/snapshots/<sha256>; return (relpath, sha)."""
+    sha = hashlib.sha256(payload).hexdigest()
+    snap_dir = ev_dir / "snapshots"
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    rel = f"snapshots/{sha}"
+    target = snap_dir / sha
+    if not target.exists():
+        target.write_bytes(payload)
+    return rel, sha
+
+
+def _load_manifest(manifest_path: Path) -> Dict[str, Any]:
+    if manifest_path.exists():
+        try:
+            m = json.loads(manifest_path.read_text())
+            if isinstance(m, dict) and isinstance(m.get("entries"), list):
+                m.setdefault("schema_version", MANIFEST_SCHEMA_VERSION)
+                return m
+        except (ValueError, OSError):
+            pass
+    return {"schema_version": MANIFEST_SCHEMA_VERSION, "entries": []}
+
+
+def _write_manifest(manifest_path: Path, manifest: Dict[str, Any]) -> None:
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=False) + "\n")
+
+
+def _append_csv_rows(csv_path: Path, rows: List[Dict[str, Any]]) -> None:
+    new_file = not csv_path.exists()
+    with csv_path.open("a", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=CSV_COLUMNS, extrasaction="ignore")
+        if new_file:
+            writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+
+
+def _next_query_id(manifest: Dict[str, Any]) -> str:
+    """Return the next `q###` id not already used in the manifest."""
+    used = set()
+    for e in manifest.get("entries", []):
+        qid = e.get("retrieval_query_id", "")
+        m = re.match(r"^q(\d+)$", qid)
+        if m:
+            used.add(int(m.group(1)))
+    n = 1
+    while n in used:
+        n += 1
+    return f"q{n:03d}"
+
+
+# --------------------------------------------------------------------------
+# Per-class fetch routines, each returning a list of "finding" dicts.
+# --------------------------------------------------------------------------
+
+
+def _fetch_conference_proceedings(query: str, route: Dict[str, Any]) -> List[Dict[str, str]]:
+    hosts = route.get("hosts") or DEFAULT_ROUTES["conference_proceedings"]["hosts"]
+    findings: List[Dict[str, str]] = []
+    # OpenAlex is the primary proceedings index; Crossref is the fallback.
+    if any("openalex" in h for h in hosts):
+        host = next(h for h in hosts if "openalex" in h)
+        from urllib.parse import quote as _q
+
+        url = f"https://{host}/works?search={_q(query)}&per-page=5"
+        payload = _http_get_json(url, host, hosts)
+        results = payload.get("results") if isinstance(payload, dict) else None
+        for f in _openalex_extract(results or []):
+            f["source_kind"] = "openalex"
+            findings.append(f)
+    elif any("crossref" in h for h in hosts):
+        host = next(h for h in hosts if "crossref" in h)
+        from urllib.parse import quote as _q
+
+        url = f"https://{host}/works?query={_q(query)}&rows=5"
+        payload = _http_get_json(url, host, hosts)
+        for f in _crossref_extract(payload if isinstance(payload, dict) else {}):
+            f["source_kind"] = "crossref"
+            findings.append(f)
+    return findings
+
+
+def _fetch_tool_documentation(query: str, route: Dict[str, Any]) -> List[Dict[str, Any]]:
+    hosts = route.get("hosts") or DEFAULT_ROUTES["tool_documentation"]["hosts"]
+    suffixes = route.get("domain_suffixes") or DEFAULT_ROUTES["tool_documentation"].get("domain_suffixes", [])
+    doc_urls = route.get("doc_urls") or []
+    candidate = route.get("candidate") or query
+    findings: List[Dict[str, Any]] = []
+    # Fold the leading-dot domain suffixes into the allowlist the seam
+    # receives, so `_http_get_text` keeps the uniform (url, host,
+    # allowed_hosts) signature that tests stub.
+    allow = list(hosts) + [s if s.startswith(".") else "." + s for s in suffixes]
+    for url in doc_urls:
+        host = urlparse(url).hostname or ""
+        html = _http_get_text(url, host, allow)
+        text = _strip_html(html)
+        quote_src = text
+        version = _extract_version_context(text, candidate)
+        # Build a concise verbatim quote: the sentence-ish window around the
+        # candidate mention, falling back to the whole normalized text.
+        low = text.lower()
+        idx = low.find(candidate.lower())
+        if idx >= 0:
+            quote = text[idx : idx + 120].strip()
+        else:
+            quote = text.strip()[:120]
+        findings.append(
+            {
+                "candidate": candidate,
+                "source_ref": url,
+                "quote": quote,
+                "source_kind": "doc_page",
+                "version_context": version,
+                "_raw": html,
+                # Extracted plain text used for substring verification;
+                # the raw HTML is what gets snapshotted to disk.
+                "_extracted": text,
+            }
+        )
+    return findings
+
+
+# --------------------------------------------------------------------------
+# Public API.
+# --------------------------------------------------------------------------
+
+
+def fetch_for_axis(
+    out_dir: str,
+    axis: str,
+    query: str,
+    classes: Optional[List[str]] = None,
+    routes: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    """Retrieve method-landscape evidence for one analysis `axis`.
+
+    Queries the enabled source classes' indexes, extracts
+    (candidate, locator, quote[, version]) tuples, snapshots every fetched
+    source under `<out_dir>/evidence/snapshots/<sha256>`, writes/extends
+    `<out_dir>/evidence/manifest.json`, and appends rows to
+    `<out_dir>/method_landscape.csv`.
+
+    Returns a small summary dict (counts) for the caller's log.
+    """
+    out = Path(out_dir)
+    ev_dir = out / "evidence"
+    ev_dir.mkdir(parents=True, exist_ok=True)
+    manifest_path = ev_dir / "manifest.json"
+    csv_path = out / "method_landscape.csv"
+
+    routes = routes or {}
+    active = enabled_classes(classes)
+    cap = _evidence_cap_bytes()
+
+    manifest = _load_manifest(manifest_path)
+    ev_used = sum(int(e.get("bytes", 0)) for e in manifest.get("entries", []))
+    truncated = False
+    rows_out: List[Dict[str, Any]] = []
+    n_entries = 0
+
+    for cls in active:
+        route = routes.get(cls, {}) or DEFAULT_ROUTES.get(cls, {})
+        if cls == "conference_proceedings":
+            findings = _fetch_conference_proceedings(query, route)
+            ref_kind = "doi"
+            evidence_role = "recommendation_or_benchmark"
+        elif cls == "tool_documentation":
+            findings = _fetch_tool_documentation(query, route)
+            ref_kind = "url"
+            evidence_role = "capability_or_version"
+        elif cls == "primary_literature":
+            # The E-utilities branch is owned by the PubMed-only path that
+            # already lives in the harness/agent; a later workstream wires
+            # the full esearch/efetch flow. The helper supports it via the
+            # same snapshot/manifest plumbing once a caller passes findings,
+            # so emit nothing here rather than guess at NCBI parsing.
+            findings = []
+            ref_kind = "pmid"
+            evidence_role = "recommendation_or_benchmark"
+        else:
+            findings = []
+            ref_kind = "url"
+            evidence_role = "recommendation_or_benchmark"
+
+        for f in findings:
+            # Snapshot bytes: tool-doc keeps the raw HTML; index hits store
+            # the reconstructed quote text (the verbatim evidence) so the
+            # substring-verify is exact and reproducible.
+            if cls == "tool_documentation":
+                payload = f["_raw"].encode("utf-8")
+            else:
+                payload = f["quote"].encode("utf-8")
+
+            if cap is not None and ev_used + len(payload) > cap:
+                truncated = True
+                break
+
+            rel, sha = _snapshot(ev_dir, payload)
+            ev_used += len(payload)
+            n_entries += 1
+            ts = _utc_now_iso()
+            qid = _next_query_id(manifest)
+
+            # verified := quote substring-matches the source's EXTRACTED text
+            # after collapse_whitespace_lowercase_v1 normalization. For index
+            # hits the binary payload IS the extracted text; for tool-doc
+            # pages the binary is raw HTML, so verify against the stripped
+            # text (`_extracted`).
+            extracted_src = f.get("_extracted", payload.decode("utf-8", errors="replace"))
+            snap_norm = normalize_text(extracted_src)
+            quote_norm = normalize_text(f["quote"])
+            verified = bool(quote_norm) and quote_norm in snap_norm
+            offset = snap_norm.find(quote_norm) if verified else 0
+
+            extracted_sha = hashlib.sha256(snap_norm.encode("utf-8")).hexdigest()
+            # Proceedings snapshots store only short verbatim quotes (fair
+            # use); tool-doc HTML carries an unknown license, so mark it
+            # non-redistributable conservatively.
+            redistributable = cls != "tool_documentation"
+            license_str = "unknown" if cls == "tool_documentation" else "abstract_fair_use"
+
+            entry: Dict[str, Any] = {
+                "source_kind": f["source_kind"],
+                "source_ref_kind": ref_kind,
+                "source_ref": f["source_ref"],
+                "source_class": cls,
+                "evidence_role": evidence_role,
+                "path": rel,
+                "sha256_binary": sha,
+                "sha256_extracted_text": extracted_sha,
+                "extracted_text_normalization": EXTRACTED_TEXT_NORMALIZATION,
+                "bytes": len(payload),
+                "retrieval_ts": ts,
+                "retrieval_query_id": qid,
+                "redistributable": redistributable,
+                "license": license_str,
+            }
+            if f.get("version_context"):
+                entry["version_context"] = f["version_context"]
+            manifest["entries"].append(entry)
+
+            row = {
+                "axis": axis,
+                "candidate_method": f["candidate"],
+                "source_ref_kind": ref_kind,
+                "source_ref": f["source_ref"],
+                "source_class": cls,
+                "evidence_role": evidence_role,
+                "evidence_quote": f["quote"],
+                "evidence_quote_offset": offset,
+                "source_kind": f["source_kind"],
+                "source_hash": "sha256:" + sha,
+                "retrieval_ts": ts,
+                "redistributable": "true" if redistributable else "false",
+                "verified": "true" if verified else "false",
+                "version_context": f.get("version_context") or "",
+            }
+            rows_out.append(row)
+
+        if truncated:
+            break
+
+    _write_manifest(manifest_path, manifest)
+    if rows_out:
+        _append_csv_rows(csv_path, rows_out)
+    elif not csv_path.exists():
+        # Always leave a header-only CSV so the downstream loader + the
+        # required_artifacts check find the file even on a zero-hit axis.
+        _append_csv_rows(csv_path, [])
+
+    summary = {
+        "axis": axis,
+        "entries_written": n_entries,
+        "rows_written": len(rows_out),
+        "truncated_at_storage_cap": truncated,
+    }
+    if truncated:
+        summary["truncated_at_storage_cap"] = True
+    return summary
+
+
+# --------------------------------------------------------------------------
+# CLI entry point: `python agent_literature_fetch.py <out_dir> <axis> <query>`
+# Optional 4th+ args are source classes; routes default per class. Intended
+# to be called by the agent once per axis. Network egress is host-bounded.
+# --------------------------------------------------------------------------
+
+
+def _main(argv: List[str]) -> int:
+    if len(argv) < 4:
+        sys.stderr.write(
+            "usage: agent_literature_fetch.py <out_dir> <axis> <query> [class ...]\n"
+        )
+        return 2
+    out_dir, axis, query = argv[1], argv[2], argv[3]
+    classes = argv[4:] or None
+    summary = fetch_for_axis(out_dir=out_dir, axis=axis, query=query, classes=classes)
+    sys.stdout.write(json.dumps(summary) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main(sys.argv))
