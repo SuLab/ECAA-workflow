@@ -29,10 +29,35 @@ MODEL="${ECAA_EVAL_BARE_MODEL:-claude-sonnet-4-6}"
 # from the host $HOME/.claude so the operator's own session isn't clobbered.
 BARE_HOME="${ECAA_EVAL_BARE_HOME:-$HOME/.ecaa-workflow/eval-bare-home}"
 mkdir -p "$BARE_HOME/.claude"
-if [ -f "$HOME/.claude/.credentials.json" ]; then
-  install -m 600 "$HOME/.claude/.credentials.json" "$BARE_HOME/.claude/.credentials.json"
-fi
-[ -f "$HOME/.claude.json" ] && cp -f "$HOME/.claude.json" "$BARE_HOME/.claude.json" 2>/dev/null || true
+
+# Seed credentials + main config under a flock, and ONLY when the bare-home
+# copy is absent or the host's is strictly newer (mtime-gated). Mirrors
+# agent-claude.sh's RC-23 credential handling and is the fix for the OAuth
+# rotation race: once claude rotates its refresh token inside BARE_HOME the
+# bare-home file's mtime advances past the host's, so unconditionally
+# re-seeding (the previous `install -m 600` every run) would clobber a
+# freshly-rotated valid token with the host's now-stale one and strand the arm
+# on a dead token — manifesting as a 40-60s auth-retry hang then empty output.
+# Gating on `-nt` lets the bare home keep its own self-rotating token lineage;
+# we re-sync only when the operator deliberately updates the host credentials.
+# The flock serializes concurrent bare runs that share one BARE_HOME (each run
+# should set ECAA_EVAL_BARE_HOME to its own dir for true parallelism).
+__seed_lock="$BARE_HOME/.cred-seed.lock"
+(
+  flock 9
+  if [ -f "$HOME/.claude/.credentials.json" ]; then
+    if [ ! -f "$BARE_HOME/.claude/.credentials.json" ] \
+       || [ "$HOME/.claude/.credentials.json" -nt "$BARE_HOME/.claude/.credentials.json" ]; then
+      install -m 600 "$HOME/.claude/.credentials.json" "$BARE_HOME/.claude/.credentials.json"
+    fi
+  fi
+  if [ -f "$HOME/.claude.json" ]; then
+    if [ ! -f "$BARE_HOME/.claude.json" ] \
+       || [ "$HOME/.claude.json" -nt "$BARE_HOME/.claude.json" ]; then
+      cp -f "$HOME/.claude.json" "$BARE_HOME/.claude.json" 2>/dev/null || true
+    fi
+  fi
+) 9>"$__seed_lock"
 
 # Claude Code install mounted into the container (the bio image does not bundle
 # it). Installed once into a cache dir; the node_modules tree is mounted ro.
