@@ -247,11 +247,12 @@ pub fn plan(
             );
             let score = score_dag(&comp.dag, ctx, archetype_reg);
             let summary = summarize_dag(&comp.dag, &score);
-            // Pillar D seam — runs beside policy evaluation. The Phase-1
-            // stub produces no findings; Phase 3 fills in the detectors.
-            // Reading `findings` here is the surface point and keeps the
-            // field live under `-D warnings`.
-            let coherence = super::coherence_gate::evaluate(&comp.dag);
+            // Pillar D seam — runs beside policy evaluation. Surfaces
+            // orphan-strand + modality-mismatch findings (warn-only). The
+            // modality detector reuses Pillar B's affiliation source of
+            // truth (`off_modality_node_ids`), so it cannot false-positive
+            // where `goal_relevance_penalty` is 0.
+            let coherence = super::coherence_gate::evaluate(&comp.dag, ctx, archetype_reg);
             if !coherence.findings.is_empty() {
                 tracing::warn!(
                     findings = ?coherence.findings,
