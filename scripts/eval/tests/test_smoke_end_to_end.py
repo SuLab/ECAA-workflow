@@ -9,10 +9,12 @@ from scripts.eval.services.scorecard import write_scorecard
 VCF = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n"
 
 def test_end_to_end_nekrutenko(tmp_path):
+    # Answer key uses .vcf.gz (real repo layout); agent output is plain .vcf.
+    # score() matches by stem: s1.vcf.gz pairs with agent's s1.vcf.
     key = tmp_path / "ground_truth"; key.mkdir()
-    (key / "s1.vcf").write_text(VCF)
+    (key / "s1.vcf.gz").write_text(VCF)   # plain text so parse_vcf_variants can read it
     run = tmp_path / "run"; run.mkdir()
-    (run / "s1.vcf").write_text(VCF)  # perfect match -> jaccard 1.0
+    (run / "s1.vcf").write_text(VCF)       # perfect match -> jaccard 1.0
     plug = Nekrutenko()
     task = Task("mtdna", "call variants", {}, None, key, {})
     spec = RunSpec(Arm.ECAA_WORKFLOW, run, "ecaa_package", "call variants")
