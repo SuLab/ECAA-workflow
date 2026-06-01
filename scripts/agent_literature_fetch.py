@@ -353,6 +353,15 @@ def _fetch_conference_proceedings(query: str, route: Dict[str, Any]) -> List[Dic
     return findings
 
 
+def _fetch_primary_literature_placeholder() -> List[Dict[str, Any]]:
+    """The E-utilities branch is owned by the PubMed-only path that already
+    lives in the harness/agent; a later workstream wires the full
+    esearch/efetch flow. The helper supports it via the same snapshot/manifest
+    plumbing once a caller passes findings, so emit nothing here rather than
+    guess at NCBI parsing."""
+    return []
+
+
 def _fetch_tool_documentation(query: str, route: Dict[str, Any]) -> List[Dict[str, Any]]:
     hosts = route.get("hosts") or DEFAULT_ROUTES["tool_documentation"]["hosts"]
     suffixes = route.get("domain_suffixes") or DEFAULT_ROUTES["tool_documentation"].get("domain_suffixes", [])
@@ -404,6 +413,7 @@ def fetch_for_axis(
     query: str,
     classes: Optional[List[str]] = None,
     routes: Optional[Dict[str, Dict[str, Any]]] = None,
+    curated: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Retrieve method-landscape evidence for one analysis `axis`.
 
@@ -412,6 +422,16 @@ def fetch_for_axis(
     source under `<out_dir>/evidence/snapshots/<sha256>`, writes/extends
     `<out_dir>/evidence/manifest.json`, and appends rows to
     `<out_dir>/method_landscape.csv`.
+
+    `curated` is the axis's curated candidate pool (the task spec's
+    `attributes.candidate_tools`). When retrieval yields zero usable rows for
+    the axis — offline, every route fails, or the literature is thin — the
+    helper falls back to emitting one `curated_baseline` row per curated
+    candidate (no locator, `verified=false`, empty quote). The fallback never
+    raises and never blocks the task.
+
+    Always (re)writes a `<out_dir>/method_landscape.json` rollup from the
+    full CSV so a sibling UI agent has the per-axis candidate view.
 
     Returns a small summary dict (counts) for the caller's log.
     """
@@ -422,6 +442,7 @@ def fetch_for_axis(
     csv_path = out / "method_landscape.csv"
 
     routes = routes or {}
+    curated = list(curated or [])
     active = enabled_classes(classes)
     cap = _evidence_cap_bytes()
 
@@ -433,27 +454,43 @@ def fetch_for_axis(
 
     for cls in active:
         route = routes.get(cls, {}) or DEFAULT_ROUTES.get(cls, {})
-        if cls == "conference_proceedings":
-            findings = _fetch_conference_proceedings(query, route)
-            ref_kind = "doi"
-            evidence_role = "recommendation_or_benchmark"
-        elif cls == "tool_documentation":
-            findings = _fetch_tool_documentation(query, route)
-            ref_kind = "url"
-            evidence_role = "capability_or_version"
-        elif cls == "primary_literature":
-            # The E-utilities branch is owned by the PubMed-only path that
-            # already lives in the harness/agent; a later workstream wires
-            # the full esearch/efetch flow. The helper supports it via the
-            # same snapshot/manifest plumbing once a caller passes findings,
-            # so emit nothing here rather than guess at NCBI parsing.
-            findings = []
-            ref_kind = "pmid"
-            evidence_role = "recommendation_or_benchmark"
-        else:
-            findings = []
-            ref_kind = "url"
-            evidence_role = "recommendation_or_benchmark"
+        # Retrieval is best-effort: a transport/availability failure (offline,
+        # DNS failure, timeout, malformed response) must degrade to the
+        # curated-baseline fallback below, never propagate and block the task.
+        # An egress-allowlist VIOLATION is a separate, loud failure (below).
+        try:
+            if cls == "conference_proceedings":
+                findings = _fetch_conference_proceedings(query, route)
+                ref_kind = "doi"
+                evidence_role = "recommendation_or_benchmark"
+            elif cls == "tool_documentation":
+                findings = _fetch_tool_documentation(query, route)
+                ref_kind = "url"
+                evidence_role = "capability_or_version"
+            elif cls == "primary_literature":
+                findings = _fetch_primary_literature_placeholder()
+                ref_kind = "pmid"
+                evidence_role = "recommendation_or_benchmark"
+            else:
+                findings = []
+                ref_kind = "url"
+                evidence_role = "recommendation_or_benchmark"
+        except HostNotAllowedError:
+            # An egress-allowlist violation is a route MISCONFIGURATION, not a
+            # transport/availability failure. Surface it loudly rather than
+            # silently degrading — the curated fallback is for offline / route
+            # failure / thin literature, not for a bad allowlist.
+            raise
+        except Exception as exc:  # noqa: BLE001 — transport failure → fallback
+            # Offline, DNS failure, timeout, connection reset, malformed
+            # response, etc.: degrade to the curated-baseline fallback below
+            # rather than block the task.
+            sys.stderr.write(
+                f"[literature-fetch] axis={axis!r} class={cls!r} retrieval "
+                f"failed ({type(exc).__name__}: {exc}); falling back to "
+                f"curated pool.\n"
+            )
+            continue
 
         for f in findings:
             # Snapshot bytes: tool-doc keeps the raw HTML; index hits store
@@ -534,17 +571,41 @@ def fetch_for_axis(
             break
 
     _write_manifest(manifest_path, manifest)
+
+    # Curated fallback: when retrieval produced zero usable rows for this axis
+    # (offline, all routes failed, or thin literature), seed the axis from the
+    # curated candidate pool so the downstream discover_* atom still has
+    # something to rank. Curated-baseline rows carry no locator and are never
+    # verified; the validators skip them (no source_resolves obligation, kept
+    # out of the corroboration tier) so nothing blocks.
+    fallback_used = False
     if rows_out:
         _append_csv_rows(csv_path, rows_out)
-    elif not csv_path.exists():
-        # Always leave a header-only CSV so the downstream loader + the
-        # required_artifacts check find the file even on a zero-hit axis.
-        _append_csv_rows(csv_path, [])
+    else:
+        fallback_rows = _curated_baseline_rows(axis, curated)
+        if fallback_rows:
+            fallback_used = True
+            _append_csv_rows(csv_path, fallback_rows)
+        elif not csv_path.exists():
+            # No curated pool either — still leave a header-only CSV so the
+            # downstream loader + the required_artifacts check find the file.
+            _append_csv_rows(csv_path, [])
+
+    # The method_landscape.json rollup is (re)written from the full CSV in
+    # BOTH the normal and the fallback path so a sibling UI agent always has a
+    # current per-axis candidate view. The CSV accumulates rows across the
+    # per-axis calls the agent makes, so the curated pools must accumulate too
+    # (otherwise a later axis's rebuild would forget an earlier axis's pool and
+    # mark its curated candidates tentative). Persist per-axis pools in a small
+    # sidecar and merge the current axis in before rebuilding.
+    curated_by_axis = _merge_curated_pool(ev_dir / "curated_pools.json", axis, curated)
+    _write_method_landscape_json(out / "method_landscape.json", csv_path, curated_by_axis=curated_by_axis)
 
     summary = {
         "axis": axis,
         "entries_written": n_entries,
         "rows_written": len(rows_out),
+        "fallback_used": fallback_used,
         "truncated_at_storage_cap": truncated,
     }
     if truncated:
@@ -552,22 +613,222 @@ def fetch_for_axis(
     return summary
 
 
+def _curated_baseline_rows(axis: str, curated: List[str]) -> List[Dict[str, Any]]:
+    """One `curated_baseline` row per curated candidate for `axis`.
+
+    These rows carry no locator (`source_ref_kind`/`source_ref` empty), an
+    empty `evidence_quote`, and `verified=false`. They exist only so a
+    discover_* atom can still offer the curated pool when literature retrieval
+    was unavailable; they are explicitly excluded from the locator-resolution
+    and corroboration validators.
+    """
+    ts = _utc_now_iso()
+    rows: List[Dict[str, Any]] = []
+    for cand in curated:
+        cand = (cand or "").strip()
+        if not cand:
+            continue
+        rows.append(
+            {
+                "axis": axis,
+                "candidate_method": cand,
+                "source_ref_kind": "",
+                "source_ref": "",
+                "source_class": "curated_baseline",
+                "evidence_role": "",
+                "evidence_quote": "",
+                "evidence_quote_offset": 0,
+                "source_kind": "",
+                "source_hash": "",
+                "retrieval_ts": ts,
+                "redistributable": "true",
+                "verified": "false",
+                "version_context": "",
+            }
+        )
+    return rows
+
+
+# --------------------------------------------------------------------------
+# method_landscape.json rollup. Conforms to the shape the sibling UI agent
+# consumes; derived from the full method_landscape.csv (all axes).
+# --------------------------------------------------------------------------
+
+# Paper-class source classes that make a candidate literature_eligible and
+# count toward its support_score (mirrors the Rust `PAPER_CLASSES`).
+PAPER_CLASSES = ("primary_literature", "conference_proceedings")
+
+METHOD_LANDSCAPE_JSON_SCHEMA_VERSION = 1
+
+
+def _read_csv_dicts(csv_path: Path) -> List[Dict[str, str]]:
+    if not csv_path.exists():
+        return []
+    with csv_path.open(newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def _ref_or_none(value: str) -> Optional[str]:
+    value = (value or "").strip()
+    return value or None
+
+
+def build_method_landscape_rollup(
+    csv_rows: List[Dict[str, str]],
+    curated_by_axis: Optional[Dict[str, List[str]]] = None,
+) -> Dict[str, Any]:
+    """Build the `method_landscape.json` document from method_landscape.csv rows.
+
+    Shape (consumed verbatim by the UI agent):
+        {"schema_version": 1,
+         "axes": {"<axis>": {"candidates": [
+            {"method", "literature_eligible", "tentative", "support_score",
+             "evidence": [{"source_class", "source_ref_kind", "source_ref",
+                           "evidence_quote", "version_context"}]}]}}}
+
+    - `literature_eligible`: candidate has ≥1 verified row whose source_class
+      is paper-class (primary_literature | conference_proceedings).
+    - `support_score`: count of verified paper-class evidence rows
+      (curated_baseline rows contribute 0).
+    - `tentative`: candidate NOT in the axis's curated pool.
+    - candidates sorted by support_score desc, then method name asc.
+    """
+    curated_by_axis = curated_by_axis or {}
+    # axis -> candidate -> accumulator
+    axes: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for r in csv_rows:
+        axis = (r.get("axis") or "").strip()
+        cand = (r.get("candidate_method") or "").strip()
+        if not axis or not cand:
+            continue
+        cls = (r.get("source_class") or "").strip()
+        verified = (r.get("verified") or "").strip().lower() == "true"
+        acc = axes.setdefault(axis, {}).setdefault(
+            cand, {"literature_eligible": False, "support_score": 0, "evidence": []}
+        )
+        if verified and cls in PAPER_CLASSES:
+            acc["literature_eligible"] = True
+            acc["support_score"] += 1
+        acc["evidence"].append(
+            {
+                "source_class": cls,
+                "source_ref_kind": _ref_or_none(r.get("source_ref_kind", "")),
+                "source_ref": _ref_or_none(r.get("source_ref", "")),
+                "evidence_quote": r.get("evidence_quote", "") or "",
+                "version_context": _ref_or_none(r.get("version_context", "")),
+            }
+        )
+
+    out_axes: Dict[str, Any] = {}
+    for axis, cands in axes.items():
+        curated_pool = set(curated_by_axis.get(axis, []) or [])
+        candidate_list: List[Dict[str, Any]] = []
+        for cand, acc in cands.items():
+            candidate_list.append(
+                {
+                    "method": cand,
+                    "literature_eligible": bool(acc["literature_eligible"]),
+                    "tentative": cand not in curated_pool,
+                    "support_score": int(acc["support_score"]),
+                    "evidence": acc["evidence"],
+                }
+            )
+        candidate_list.sort(key=lambda c: (-c["support_score"], c["method"]))
+        out_axes[axis] = {"candidates": candidate_list}
+
+    return {
+        "schema_version": METHOD_LANDSCAPE_JSON_SCHEMA_VERSION,
+        "axes": out_axes,
+    }
+
+
+def _write_method_landscape_json(
+    json_path: Path,
+    csv_path: Path,
+    curated_by_axis: Optional[Dict[str, List[str]]] = None,
+) -> None:
+    rollup = build_method_landscape_rollup(_read_csv_dicts(csv_path), curated_by_axis)
+    json_path.parent.mkdir(parents=True, exist_ok=True)
+    json_path.write_text(json.dumps(rollup, indent=2, sort_keys=False) + "\n")
+
+
+def _merge_curated_pool(
+    sidecar_path: Path, axis: str, curated: List[str]
+) -> Dict[str, List[str]]:
+    """Accumulate the per-axis curated pools across `fetch_for_axis` calls.
+
+    The agent calls the helper once per axis; each call appends rows to a
+    single `method_landscape.csv`. To rebuild the rollup correctly we need
+    every axis's curated pool, so persist them in `evidence/curated_pools.json`
+    and merge the current axis's pool in. Returns the full axis→pool map.
+    """
+    pools: Dict[str, List[str]] = {}
+    if sidecar_path.exists():
+        try:
+            loaded = json.loads(sidecar_path.read_text())
+            if isinstance(loaded, dict):
+                pools = {k: list(v) for k, v in loaded.items() if isinstance(v, list)}
+        except (ValueError, OSError):
+            pools = {}
+    if curated:
+        # Union with any previously-recorded pool for this axis (dedupe,
+        # preserve first-seen order).
+        existing = pools.get(axis, [])
+        merged: List[str] = list(existing)
+        for c in curated:
+            if c not in merged:
+                merged.append(c)
+        pools[axis] = merged
+    else:
+        pools.setdefault(axis, [])
+    sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+    sidecar_path.write_text(json.dumps(pools, indent=2, sort_keys=True) + "\n")
+    return pools
+
+
 # --------------------------------------------------------------------------
 # CLI entry point: `python agent_literature_fetch.py <out_dir> <axis> <query>`
-# Optional 4th+ args are source classes; routes default per class. Intended
-# to be called by the agent once per axis. Network egress is host-bounded.
+# Optional trailing args are source classes; routes default per class. Pass
+# the axis's curated candidate pool via `--curated a,b,c` so the helper can
+# fall back to it when retrieval yields nothing. Intended to be called by the
+# agent once per axis. Network egress is host-bounded.
 # --------------------------------------------------------------------------
 
 
 def _main(argv: List[str]) -> int:
-    if len(argv) < 4:
+    args = list(argv[1:])
+    curated: Optional[List[str]] = None
+    # Extract the optional `--curated a,b,c` flag wherever it appears so the
+    # positional `[class ...]` tail stays backward-compatible.
+    rest: List[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--curated" and i + 1 < len(args):
+            curated = [c.strip() for c in args[i + 1].split(",") if c.strip()]
+            i += 2
+            continue
+        if a.startswith("--curated="):
+            curated = [c.strip() for c in a.split("=", 1)[1].split(",") if c.strip()]
+            i += 1
+            continue
+        rest.append(a)
+        i += 1
+    if len(rest) < 3:
         sys.stderr.write(
-            "usage: agent_literature_fetch.py <out_dir> <axis> <query> [class ...]\n"
+            "usage: agent_literature_fetch.py <out_dir> <axis> <query> "
+            "[class ...] [--curated a,b,c]\n"
         )
         return 2
-    out_dir, axis, query = argv[1], argv[2], argv[3]
-    classes = argv[4:] or None
-    summary = fetch_for_axis(out_dir=out_dir, axis=axis, query=query, classes=classes)
+    out_dir, axis, query = rest[0], rest[1], rest[2]
+    classes = rest[3:] or None
+    summary = fetch_for_axis(
+        out_dir=out_dir,
+        axis=axis,
+        query=query,
+        classes=classes,
+        curated=curated,
+    )
     sys.stdout.write(json.dumps(summary) + "\n")
     return 0
 

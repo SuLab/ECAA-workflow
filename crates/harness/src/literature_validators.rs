@@ -219,7 +219,11 @@ pub fn run_pmid_resolves(
 // ============================================================================
 
 /// Build a `LiteratureClaim` failure cause for a row.
-fn lit_fail(row_index: u64, artifact: &str, kind: LiteratureClaimFailureKind) -> ValidationFailureCause {
+fn lit_fail(
+    row_index: u64,
+    artifact: &str,
+    kind: LiteratureClaimFailureKind,
+) -> ValidationFailureCause {
     ValidationFailureCause::LiteratureClaim {
         row_index,
         artifact: artifact.to_string(),
@@ -227,18 +231,39 @@ fn lit_fail(row_index: u64, artifact: &str, kind: LiteratureClaimFailureKind) ->
     }
 }
 
+/// Marker source_class for offline / route-failure / thin-literature
+/// fallback rows. These carry no locator and are skipped by the
+/// locator-resolution validator (and held out of the corroboration tier),
+/// so the survey task completes rather than blocking.
+const CURATED_BASELINE_CLASS: &str = "curated_baseline";
+
+/// A locator-resolution view of one row, parsed by header name so the
+/// validator works against BOTH the claims-matrix shape
+/// (`entity`/`entity_kind`/`pmid`) and the method_landscape shape
+/// (`axis`/`candidate_method`).
+struct SourceRow {
+    source_ref_kind: String,
+    source_ref: String,
+    source_class: String,
+    pmid: String,
+    prior_pmids: Vec<String>,
+}
+
 /// Collect the locator strings a row anchors against, dispatched on its
 /// resolved locator kind. Legacy PMID rows pull from `pmid`/`prior_pmids`;
 /// non-PMID rows pull from the typed `source_ref` column.
-fn row_source_refs(row: &ClaimsMatrixRow, kind: &str) -> Vec<String> {
+fn source_row_refs(row: &SourceRow, kind: &str) -> Vec<String> {
     if kind == "pmid" {
-        row.pmid
-            .iter()
-            .cloned()
-            .chain(row.prior_pmids.iter().flat_map(|v| v.iter().cloned()))
-            .collect()
+        let mut refs: Vec<String> = Vec::new();
+        if !row.pmid.is_empty() {
+            refs.push(row.pmid.clone());
+        }
+        refs.extend(row.prior_pmids.iter().cloned());
+        refs
+    } else if row.source_ref.is_empty() {
+        Vec::new()
     } else {
-        row.source_ref.iter().cloned().collect()
+        vec![row.source_ref.clone()]
     }
 }
 
@@ -250,6 +275,15 @@ fn row_source_refs(row: &ClaimsMatrixRow, kind: &str) -> Vec<String> {
 ///   - `doi` / `arxiv` / `url` → require a manifest entry whose `source_ref`
 ///     (falling back to `pmid` for older manifests) matches AND whose
 ///     snapshot file exists on disk. Any miss → `SourceUnresolvable`.
+///
+/// Rows whose `source_class` is `curated_baseline` carry no locator (offline /
+/// route-failure / thin-literature fallback) and are SKIPPED — neither
+/// resolved nor failed — so the survey task never blocks on them. This
+/// targets the fallback class explicitly and does not relax the locator
+/// checks for any real-locator row.
+///
+/// The CSV is read by header name so this works against both the
+/// claims-matrix shape and the method_landscape shape.
 pub fn run_source_resolves(
     csv_path: &Path,
     manifest_path: &Path,
@@ -258,16 +292,42 @@ pub fn run_source_resolves(
         .file_name()
         .map(|f| f.to_string_lossy().to_string())
         .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
-    let rows = load_rows(csv_path).map_err(|_| {
+    let mut rdr = csv::Reader::from_path(csv_path).map_err(|_| {
         (
             0,
-            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+            lit_fail(
+                0,
+                &artifact,
+                LiteratureClaimFailureKind::EvidenceArtifactMissing,
+            ),
         )
     })?;
+    let headers = rdr.headers().cloned().map_err(|_| {
+        (
+            0,
+            lit_fail(
+                0,
+                &artifact,
+                LiteratureClaimFailureKind::EvidenceArtifactMissing,
+            ),
+        )
+    })?;
+    let idx = header_index(&headers);
+    let col = |rec: &csv::StringRecord, name: &str| -> String {
+        idx.get(name)
+            .and_then(|i| rec.get(*i))
+            .unwrap_or("")
+            .to_string()
+    };
+
     let manifest = load_manifest(manifest_path).map_err(|_| {
         (
             0,
-            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+            lit_fail(
+                0,
+                &artifact,
+                LiteratureClaimFailureKind::EvidenceArtifactMissing,
+            ),
         )
     })?;
     let by_ref: BTreeMap<String, &EvidenceEntry> = manifest
@@ -285,14 +345,59 @@ pub fn run_source_resolves(
     let pmid_re = regex::Regex::new(r"^[1-9][0-9]{6,8}$").unwrap();
     let ev_dir = manifest_path.parent().unwrap();
 
-    for (i, row) in rows.iter().enumerate() {
-        let kind = row.source_ref_kind.as_deref().unwrap_or("pmid");
-        let refs = row_source_refs(row, kind);
+    for (i, rec) in rdr.records().enumerate() {
+        let rec = rec.map_err(|_| {
+            (
+                i as u64,
+                lit_fail(
+                    i as u64,
+                    &artifact,
+                    LiteratureClaimFailureKind::EvidenceArtifactMissing,
+                ),
+            )
+        })?;
+        let prior_pmids: Vec<String> = {
+            let raw = col(&rec, "prior_pmids");
+            if raw.trim().is_empty() {
+                Vec::new()
+            } else {
+                // Legacy column may be a JSON array or a delimited string.
+                serde_json::from_str::<Vec<String>>(&raw).unwrap_or_else(|_| {
+                    raw.split([',', ';', ' '])
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+            }
+        };
+        let row = SourceRow {
+            source_ref_kind: col(&rec, "source_ref_kind"),
+            source_ref: col(&rec, "source_ref"),
+            source_class: col(&rec, "source_class"),
+            pmid: col(&rec, "pmid"),
+            prior_pmids,
+        };
+
+        // Curated-baseline fallback rows carry no locator: skip them.
+        if row.source_class == CURATED_BASELINE_CLASS {
+            continue;
+        }
+
+        let kind = if row.source_ref_kind.is_empty() {
+            "pmid"
+        } else {
+            row.source_ref_kind.as_str()
+        };
+        let refs = source_row_refs(&row, kind);
         for r in refs {
             if kind == "pmid" && !pmid_re.is_match(&r) {
                 return Err((
                     i as u64,
-                    lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::PmidMalformed),
+                    lit_fail(
+                        i as u64,
+                        &artifact,
+                        LiteratureClaimFailureKind::PmidMalformed,
+                    ),
                 ));
             }
             let Some(entry) = by_ref.get(&r) else {
@@ -683,13 +788,21 @@ pub fn run_claim_support_satisfied(
     let mut rdr = csv::Reader::from_path(csv_path).map_err(|_| {
         (
             0,
-            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+            lit_fail(
+                0,
+                &artifact,
+                LiteratureClaimFailureKind::EvidenceArtifactMissing,
+            ),
         )
     })?;
     let headers = rdr.headers().cloned().map_err(|_| {
         (
             0,
-            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+            lit_fail(
+                0,
+                &artifact,
+                LiteratureClaimFailureKind::EvidenceArtifactMissing,
+            ),
         )
     })?;
     let idx = header_index(&headers);
@@ -717,7 +830,11 @@ pub fn run_claim_support_satisfied(
         let rec = rec.map_err(|_| {
             (
                 i as u64,
-                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+                lit_fail(
+                    i as u64,
+                    &artifact,
+                    LiteratureClaimFailureKind::EvidenceArtifactMissing,
+                ),
             )
         })?;
         let axis = col(&rec, "axis");
@@ -803,13 +920,21 @@ pub fn run_doc_page_matches_tool(
     let mut rdr = csv::Reader::from_path(csv_path).map_err(|_| {
         (
             0,
-            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+            lit_fail(
+                0,
+                &artifact,
+                LiteratureClaimFailureKind::EvidenceArtifactMissing,
+            ),
         )
     })?;
     let headers = rdr.headers().cloned().map_err(|_| {
         (
             0,
-            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+            lit_fail(
+                0,
+                &artifact,
+                LiteratureClaimFailureKind::EvidenceArtifactMissing,
+            ),
         )
     })?;
     let idx = header_index(&headers);
@@ -823,7 +948,11 @@ pub fn run_doc_page_matches_tool(
     let manifest = load_manifest(manifest_path).map_err(|_| {
         (
             0,
-            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+            lit_fail(
+                0,
+                &artifact,
+                LiteratureClaimFailureKind::EvidenceArtifactMissing,
+            ),
         )
     })?;
     // Index manifest entries by locator (source_ref, falling back to pmid).
@@ -845,7 +974,11 @@ pub fn run_doc_page_matches_tool(
         let rec = rec.map_err(|_| {
             (
                 i as u64,
-                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+                lit_fail(
+                    i as u64,
+                    &artifact,
+                    LiteratureClaimFailureKind::EvidenceArtifactMissing,
+                ),
             )
         })?;
         if col(&rec, "source_class") != "tool_documentation" {
@@ -859,7 +992,11 @@ pub fn run_doc_page_matches_tool(
         if version_context.trim().is_empty() {
             return Err((
                 i as u64,
-                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::VersionContextMissing),
+                lit_fail(
+                    i as u64,
+                    &artifact,
+                    LiteratureClaimFailureKind::VersionContextMissing,
+                ),
             ));
         }
 
@@ -867,13 +1004,21 @@ pub fn run_doc_page_matches_tool(
         let Some(entry) = by_ref.get(&source_ref) else {
             return Err((
                 i as u64,
-                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::SourceUnresolvable),
+                lit_fail(
+                    i as u64,
+                    &artifact,
+                    LiteratureClaimFailureKind::SourceUnresolvable,
+                ),
             ));
         };
         let raw = fs::read_to_string(ev_dir.join(&entry.path)).map_err(|_| {
             (
                 i as u64,
-                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+                lit_fail(
+                    i as u64,
+                    &artifact,
+                    LiteratureClaimFailureKind::EvidenceArtifactMissing,
+                ),
             )
         })?;
         let normalized = collapse_whitespace_lowercase_v1(&raw);
@@ -881,7 +1026,11 @@ pub fn run_doc_page_matches_tool(
         if token.is_empty() || !normalized.contains(&token) {
             return Err((
                 i as u64,
-                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::DocPageToolMismatch),
+                lit_fail(
+                    i as u64,
+                    &artifact,
+                    LiteratureClaimFailureKind::DocPageToolMismatch,
+                ),
             ));
         }
     }
@@ -1287,6 +1436,84 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn source_resolves_skips_curated_baseline_rows() {
+        // A curated_baseline row (offline/thin-literature fallback) carries no
+        // locator: source_ref_kind / source_ref empty, verified=false. It must
+        // be SKIPPED — not resolved, not failed — so the survey task completes
+        // rather than blocking when literature retrieval was unavailable.
+        let dir = TempDir::new().unwrap();
+        let evdir = dir.path().join("evidence");
+        std::fs::create_dir_all(&evdir).unwrap();
+        std::fs::write(
+            evdir.join("manifest.json"),
+            r#"{"schema_version":2,"entries":[]}"#,
+        )
+        .unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        // Real method_landscape.csv column shape (axis/candidate_method/...),
+        // a single curated_baseline row with no locator.
+        std::fs::write(
+            &csv,
+            "axis,candidate_method,source_ref_kind,source_ref,source_class,evidence_role,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified\n\
+             alignment,star,,,curated_baseline,,,0,,,2026-05-31T00:00:00Z,true,false\n",
+        )
+        .unwrap();
+        assert!(
+            run_source_resolves(&csv, &evdir.join("manifest.json")).is_ok(),
+            "curated_baseline rows must pass source_resolves (skipped, not failed)"
+        );
+
+        // A curated_baseline row mixed with a real locator row that resolves
+        // also passes; the real-locator check is not weakened.
+        std::fs::write(evdir.join("doi_ok.json"), b"hello").unwrap();
+        std::fs::write(
+            evdir.join("manifest.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": 2,
+                "entries": [
+                    {"source_ref_kind":"doi","source_ref":"10.1/ok","source_class":"conference_proceedings",
+                     "source_kind":"openalex","path":"doi_ok.json","sha256_binary":"a".repeat(64),
+                     "sha256_extracted_text":"b".repeat(64),"extracted_text_normalization":"collapse_whitespace_lowercase_v1",
+                     "bytes":5,"retrieval_ts":"2026-05-31T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"CC-BY-4.0"}
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let csv2 = dir.path().join("ml_mixed.csv");
+        std::fs::write(
+            &csv2,
+            "axis,candidate_method,source_ref_kind,source_ref,source_class,evidence_role,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified\n\
+             alignment,star,doi,10.1/ok,conference_proceedings,recommendation_or_benchmark,hello,0,openalex,sha256:abc,2026-05-31T00:00:00Z,true,true\n\
+             alignment,hisat2,,,curated_baseline,,,0,,,2026-05-31T00:00:00Z,true,false\n",
+        )
+        .unwrap();
+        assert!(
+            run_source_resolves(&csv2, &evdir.join("manifest.json")).is_ok(),
+            "mixed curated_baseline + resolvable-locator rows must pass"
+        );
+
+        // A curated_baseline row alongside an UNresolvable real-locator row
+        // still fails on the real row — the skip is scoped to curated_baseline.
+        let csv3 = dir.path().join("ml_bad.csv");
+        std::fs::write(
+            &csv3,
+            "axis,candidate_method,source_ref_kind,source_ref,source_class,evidence_role,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified\n\
+             alignment,hisat2,,,curated_baseline,,,0,,,2026-05-31T00:00:00Z,true,false\n\
+             alignment,salmon,url,https://x/missing,tool_documentation,capability_or_version,hello,0,doc_page,sha256:abc,2026-05-31T00:00:00Z,false,true\n",
+        )
+        .unwrap();
+        let err = run_source_resolves(&csv3, &evdir.join("manifest.json")).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::SourceUnresolvable,
+                ..
+            }
+        ));
+    }
+
     // ====================================================================
     // claim_support_satisfied
     // ====================================================================
@@ -1416,7 +1643,11 @@ mod tests {
             "sha256_extracted_text":"b".repeat(64),"extracted_text_normalization":"collapse_whitespace_lowercase_v1",
             "bytes":5,"retrieval_ts":"2026-05-31T00:00:00Z","retrieval_query_id":"q","redistributable":true,"license":"CC-BY-4.0"
         }]));
-        std::fs::write(evdir.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        std::fs::write(
+            evdir.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
         let csv = dir.path().join("method_landscape.csv");
         write(
             &csv,
@@ -1438,7 +1669,11 @@ mod tests {
             "sha256_extracted_text":"b".repeat(64),"extracted_text_normalization":"collapse_whitespace_lowercase_v1",
             "bytes":5,"retrieval_ts":"2026-05-31T00:00:00Z","retrieval_query_id":"q","redistributable":true,"license":"CC-BY-4.0"
         }]));
-        std::fs::write(evdir.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        std::fs::write(
+            evdir.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
         let csv = dir.path().join("method_landscape.csv");
         write(
             &csv,
@@ -1467,7 +1702,11 @@ mod tests {
             "sha256_extracted_text":"b".repeat(64),"extracted_text_normalization":"collapse_whitespace_lowercase_v1",
             "bytes":5,"retrieval_ts":"2026-05-31T00:00:00Z","retrieval_query_id":"q","redistributable":true,"license":"CC-BY-4.0"
         }]));
-        std::fs::write(evdir.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        std::fs::write(
+            evdir.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
         let csv = dir.path().join("method_landscape.csv");
         // version_context column present but empty → VersionContextMissing.
         write(
@@ -1492,7 +1731,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let evdir = dir.path().join("evidence");
         std::fs::create_dir_all(&evdir).unwrap();
-        std::fs::write(evdir.join("manifest.json"), r#"{"schema_version":2,"entries":[]}"#).unwrap();
+        std::fs::write(
+            evdir.join("manifest.json"),
+            r#"{"schema_version":2,"entries":[]}"#,
+        )
+        .unwrap();
         let csv = dir.path().join("method_landscape.csv");
         write(
             &csv,
