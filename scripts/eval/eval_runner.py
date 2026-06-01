@@ -8,6 +8,7 @@ Requires ECAA_EVAL_LIVE=1 plus GEMINI_API_KEY / ECAA_ANTHROPIC_API_KEY
 """
 from __future__ import annotations
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -59,6 +60,29 @@ def _stage_inputs(pkg_dir: Path, inputs: dict[str, Path]) -> None:
               f"{missing}", file=sys.stderr)
 
 
+def _write_auto_approve_discoveries(pkg: Path) -> None:
+    """Unattended eval: pre-approve every discover_* method selection so it
+    auto-advances to its best-practice top pick instead of blocking
+    AwaitingSmeApproval (a benchmark has no SME to confirm, which otherwise
+    severs the critical path and strands the workflow). Mirrors the server's
+    /auto-approve-discoveries marker. deny=[] so even high-stakes axes advance —
+    the benchmark measures execution + analysis quality, not the SME gate."""
+    wf = pkg / "WORKFLOW.json"
+    axes: set[str] = set()
+    try:
+        data = json.loads(wf.read_text())
+        for tid, t in data.get("tasks", {}).items():
+            if tid.startswith("discover_"):
+                spec = t.get("spec") or {}
+                axes.add(spec.get("stage_class") or tid[len("discover_"):])
+    except (OSError, ValueError):
+        pass
+    marker = pkg / "runtime" / ".sme-auto-approve-discoveries"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(json.dumps(
+        {"allow": sorted(axes) if axes else ["*"], "deny": []}, indent=2))
+
+
 def _emit_ecaa_package(plugin, task, arm: Arm, workdir: Path):
     """Build + emit the ECAA package via `intake` only (no agent run).
 
@@ -76,6 +100,7 @@ def _emit_ecaa_package(plugin, task, arm: Arm, workdir: Path):
                        cwd=str(REPO_ROOT), check=True)
         spec.package_dir = pkg
         _stage_inputs(pkg, task.inputs)
+        _write_auto_approve_discoveries(pkg)
     return spec
 
 
@@ -91,6 +116,7 @@ def run_base(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int):
                        cwd=str(REPO_ROOT), check=True)
         spec.package_dir = pkg
         _stage_inputs(pkg, task.inputs)
+        _write_auto_approve_discoveries(pkg)
         res = agent_runner.run_ecaa_package(pkg, max_iterations=max_iter)
         out = plugin.collect(spec, pkg)
     else:
