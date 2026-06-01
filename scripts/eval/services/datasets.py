@@ -54,6 +54,16 @@ def scratch_root() -> Path:
     return base
 
 
+def eval_runs_dir() -> Path:
+    """Base dir for scorecards + journals. Honors ECAA_EVAL_RUNS_DIR so a
+    multi-day run's durable output lands on the large mounted disk rather than
+    the repo's runtime/ on the (small) root filesystem."""
+    root = Path(os.environ.get("ECAA_EVAL_RUNS_DIR",
+                               Path(__file__).resolve().parents[3] / "runtime" / "eval-runs"))
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def stage_file(src: Path, dst: Path) -> None:
     """Stage a task input into an agent workdir.
 
@@ -90,6 +100,23 @@ def ensure(entry: LockEntry) -> Path:
                        check=True)
     else:
         raise ValueError(f"unknown kind: {entry.kind}")
+    return dest
+
+
+def fetch_complete(entry: LockEntry) -> Path:
+    """Like ensure() but ALWAYS runs snapshot_download, even when the dest dir
+    already exists — used to fill a partial dataset copy up to the full pinned
+    revision. huggingface_hub skips files already present (size/etag match) and
+    writes new files via temp+atomic-rename, so hardlinked inodes shared with
+    another copy are never truncated in place. Only valid for hf_dataset."""
+    if entry.kind != "hf_dataset":
+        raise ValueError(f"fetch_complete only supports hf_dataset, got {entry.kind}")
+    short = entry.revision[:12]
+    dest = cache_root() / f"{entry.name.replace('/', '__')}@{short}"
+    from huggingface_hub import snapshot_download
+    token = os.environ.get("HF_TOKEN")
+    snapshot_download(repo_id=entry.name, repo_type="dataset",
+                      revision=entry.revision, local_dir=str(dest), token=token)
     return dest
 
 
