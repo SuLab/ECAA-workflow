@@ -247,8 +247,17 @@ pub fn plan(
             );
             let score = score_dag(&comp.dag, ctx);
             let summary = summarize_dag(&comp.dag, &score);
-            // Pillar D seam — runs beside policy evaluation; no-op in Phase 1.
-            let _ = super::coherence_gate::evaluate(&comp.dag);
+            // Pillar D seam — runs beside policy evaluation. The Phase-1
+            // stub produces no findings; Phase 3 fills in the detectors.
+            // Reading `findings` here is the surface point and keeps the
+            // field live under `-D warnings`.
+            let coherence = super::coherence_gate::evaluate(&comp.dag);
+            if !coherence.findings.is_empty() {
+                tracing::warn!(
+                    findings = ?coherence.findings,
+                    "multi-branch coherence gate flagged potential incoherence"
+                );
+            }
             let effective_sandbox = ctx
                 .sandbox_policy
                 .clone()

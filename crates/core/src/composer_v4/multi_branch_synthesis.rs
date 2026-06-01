@@ -606,4 +606,65 @@ mod tests {
             .iter()
             .any(|g| g.id == "unsatisfiable_modality:totally_unknown_modality"));
     }
+
+    /// End-to-end through the FULL `plan()` path: `bulk_rnaseq +
+    /// single_cell_rnaseq` has no cross-omics archetype, so the dispatch
+    /// routes to multi-branch synthesis; both modalities archetype-seed
+    /// at the DE goal, so both branches are grounded with zero
+    /// off-modality leakage. Proves Pillar A end-to-end for fully-grounded
+    /// multi-modality requests. (The proteomics-wandering case — a
+    /// modality with no archetype seed — is Pillar B / Phase 3.)
+    #[test]
+    fn full_plan_multi_branch_two_grounded_rna_modalities() {
+        let (atoms, archs) = registries();
+        let goal = de_goal();
+        let ctx = planning_context_for_goal_with_modalities(
+            "test-mb-2rna",
+            &goal,
+            Some("bulk_rnaseq"),
+            &["single_cell_rnaseq"],
+            Some("bioinformatics"),
+            &[],
+        );
+        let result =
+            crate::composer_v4::planner::plan(&ctx, &goal, "bioinformatics", &atoms, &archs);
+        let dag = match &result.primary {
+            crate::workflow_contracts::outcome::ComposeOutcome::ValidatedExecutableDag {
+                dag,
+                ..
+            }
+            | crate::workflow_contracts::outcome::ComposeOutcome::DraftDag { dag, .. }
+            | crate::workflow_contracts::outcome::ComposeOutcome::PartialDag { dag, .. } => dag,
+            other => panic!("unexpected outcome: {other:?}"),
+        };
+        let ids: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        // Multi-branch fired (our synthesized join), NOT a cross-omics archetype.
+        assert!(
+            ids.contains("multi_modal_thematic_comparison"),
+            "multi-branch must fire (join node present): {ids:?}"
+        );
+        assert!(
+            !ids.contains("cross_omics_thematic_comparison"),
+            "must be multi-branch synthesis, not a cross-omics archetype"
+        );
+        // Both modality branches present + namespace-prefixed.
+        assert!(ids.iter().any(|i| i.starts_with("bulk_rnaseq_")));
+        assert!(ids.iter().any(|i| i.starts_with("single_cell_rnaseq_")));
+        // Structural invariant: every node is a bare join terminal or
+        // carries a requested-modality prefix — zero off-modality leakage.
+        for n in &dag.nodes {
+            let ok = n.id == "multi_modal_thematic_comparison"
+                || n.id == "final_reporting"
+                || n.id.starts_with("bulk_rnaseq_")
+                || n.id.starts_with("single_cell_rnaseq_");
+            assert!(ok, "off-modality node leaked into multi-branch DAG: {}", n.id);
+        }
+        // No wrong-modality / cross-modality-pollution atoms.
+        assert!(
+            !ids.iter().any(|i| i.contains("translation_efficiency")
+                || i.contains("vdj")
+                || i.starts_with("proteomics")),
+            "no off-modality atoms expected: {ids:?}"
+        );
+    }
 }
