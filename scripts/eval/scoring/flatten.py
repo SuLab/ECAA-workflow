@@ -63,17 +63,60 @@ def _narrative(task_dir: Path) -> str:
     return ""
 
 
+def _terminal_id(order: list[str], stage: dict[str, str]) -> str | None:
+    """Resolve the terminal task: the last task in topo order whose stage
+    contains 'report'/'review', else the last task in topo order."""
+    terminal = order[-1] if order else None
+    for tid in order:
+        if any(k in stage.get(tid, "") for k in ("report", "review")):
+            terminal = tid
+    return terminal
+
+
 def flatten_outputs(outputs_dir: Path, workflow_json: Path) -> tuple[str, str]:
     tasks = json.loads(Path(workflow_json).read_text())["tasks"]
     order = _topo(tasks)
     stage = {t["id"]: t.get("stage", "") for t in tasks}
-    sections, terminal_id = [], order[-1] if order else None
+    sections = []
+    terminal_id = _terminal_id(order, stage)
     for tid in order:
         narr = _narrative(outputs_dir / tid)
         if narr:
             sections.append(f"## Task: {tid} ({stage.get(tid,'')})\n\n{narr}")
-        if any(k in stage.get(tid, "") for k in ("report", "review")):
-            terminal_id = tid
     trace = "\n\n".join(sections)
     answer = _narrative(outputs_dir / terminal_id) if terminal_id else ""
     return trace, answer
+
+
+def completion_status(outputs_dir: Path, workflow_json: Path) -> dict:
+    """Report how much of the workflow actually produced output.
+
+    Returns ``{"total": N, "with_output": M, "terminal_has_output": bool}``:
+
+    * ``total``    — number of tasks declared in WORKFLOW.json.
+    * ``with_output`` — how many of those tasks have a non-empty narrative under
+      ``runtime/outputs/<id>/`` (per ``_narrative``).
+    * ``terminal_has_output`` — whether the resolved terminal/reporting task
+      produced a non-empty narrative.
+
+    Used to distinguish a workflow that stalled mid-run (and therefore has an
+    empty/partial answer) from one that completed but scored poorly. Never
+    raises; on a malformed/missing WORKFLOW.json returns an all-zero status.
+    """
+    try:
+        tasks = json.loads(Path(workflow_json).read_text())["tasks"]
+    except (json.JSONDecodeError, OSError, KeyError, TypeError):
+        return {"total": 0, "with_output": 0, "terminal_has_output": False}
+
+    order = _topo(tasks)
+    stage = {t["id"]: t.get("stage", "") for t in tasks}
+    with_output = sum(1 for tid in order if _narrative(outputs_dir / tid).strip())
+    terminal_id = _terminal_id(order, stage)
+    terminal_has_output = bool(
+        terminal_id and _narrative(outputs_dir / terminal_id).strip()
+    )
+    return {
+        "total": len(order),
+        "with_output": with_output,
+        "terminal_has_output": terminal_has_output,
+    }

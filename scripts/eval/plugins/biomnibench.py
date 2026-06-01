@@ -11,7 +11,7 @@ from statistics import mean
 from scripts.eval.benchmark import Arm, Benchmark, Output, RunSpec, Score, Scorecard, Task
 from scripts.eval.rubric_normalize import normalize_rubric
 from scripts.eval.scoring.agreement import per_criterion_exact, linear_weighted_kappa
-from scripts.eval.scoring.flatten import flatten_outputs
+from scripts.eval.scoring.flatten import completion_status, flatten_outputs
 from scripts.eval.services.datasets import load_records, stage_file
 from scripts.eval.services.judge import judge
 
@@ -64,9 +64,24 @@ class BiomniBench(Benchmark):
         return RunSpec(arm, workdir, "bare", task.prompt + _OUTPUT_CONTRACT)
 
     def collect(self, spec, run_dir):
+        artifacts: dict = {}
         if spec.kind == "ecaa_package":
-            trace, answer = flatten_outputs(run_dir / "runtime" / "outputs",
-                                            run_dir / "WORKFLOW.json")
+            outputs_dir = run_dir / "runtime" / "outputs"
+            workflow_json = run_dir / "WORKFLOW.json"
+            trace, answer = flatten_outputs(outputs_dir, workflow_json)
+            # Distinguish a stalled/incomplete workflow (empty answer because the
+            # terminal task never ran) from one that completed but scored poorly.
+            status = completion_status(outputs_dir, workflow_json)
+            if not status["terminal_has_output"] or status["with_output"] < status["total"]:
+                reason = (
+                    "terminal task produced no output"
+                    if not status["terminal_has_output"]
+                    else "workflow incomplete"
+                )
+                artifacts["incomplete_reason"] = (
+                    f"{reason} "
+                    f"({status['with_output']}/{status['total']} tasks completed)"
+                )
         else:
             trace_path = run_dir / "trace.md"
             answer_path = run_dir / "answer.txt"
@@ -86,7 +101,7 @@ class BiomniBench(Benchmark):
                 else:
                     trace = ""
                     answer = ""
-        return Output(trace_md=trace, answer_txt=answer, artifacts={},
+        return Output(trace_md=trace, answer_txt=answer, artifacts=artifacts,
                       exit_ok=True, wall_secs=0.0)
 
     def judge_requests(self, task, arm, output):

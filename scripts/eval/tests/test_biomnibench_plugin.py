@@ -96,6 +96,61 @@ def test_collect_bare_empty_when_nothing_present(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# ECAA-arm incomplete-run detection
+# ---------------------------------------------------------------------------
+
+def _ecaa_run(run_dir, populated_ids):
+    """Build an ecaa-package run dir: 3-task workflow with only some outputs."""
+    wf = {"tasks": [
+        {"id": "load", "stage": "data_acquisition", "depends_on": []},
+        {"id": "de", "stage": "differential_expression", "depends_on": ["load"]},
+        {"id": "report", "stage": "final_reporting", "depends_on": ["de"]},
+    ]}
+    run_dir.mkdir(parents=True, exist_ok=True)
+    (run_dir / "WORKFLOW.json").write_text(json.dumps(wf))
+    out = run_dir / "runtime" / "outputs"
+    out.mkdir(parents=True)
+    for tid in populated_ids:
+        d = out / tid
+        d.mkdir(parents=True)
+        (d / "report.md").write_text(f"# {tid}\noutput for {tid}\n")
+    return RunSpec(arm=Arm.ECAA_WORKFLOW, workdir=run_dir, kind="ecaa_package",
+                   instruction="some prompt")
+
+
+def test_collect_ecaa_complete_has_no_incomplete_flag(tmp_path):
+    """A fully-executed workflow carries no incomplete_reason."""
+    run_dir = tmp_path / "run"
+    spec = _ecaa_run(run_dir, populated_ids=["load", "de", "report"])
+    output = BiomniBench().collect(spec, run_dir)
+
+    assert "incomplete_reason" not in output.artifacts
+    assert "output for report" in output.answer_txt
+
+
+def test_collect_ecaa_terminal_missing_sets_incomplete_reason(tmp_path):
+    """A workflow stalled before its terminal task flags incompleteness."""
+    run_dir = tmp_path / "run"
+    spec = _ecaa_run(run_dir, populated_ids=["load"])
+    output = BiomniBench().collect(spec, run_dir)
+
+    assert output.artifacts.get("incomplete_reason")
+    reason = output.artifacts["incomplete_reason"]
+    assert "terminal task produced no output" in reason
+    assert "1/3 tasks completed" in reason
+
+
+def test_collect_ecaa_partial_with_terminal_sets_incomplete_reason(tmp_path):
+    """Terminal ran but an upstream task is missing -> still flagged."""
+    run_dir = tmp_path / "run"
+    spec = _ecaa_run(run_dir, populated_ids=["load", "report"])
+    output = BiomniBench().collect(spec, run_dir)
+
+    assert output.artifacts.get("incomplete_reason")
+    assert "2/3 tasks completed" in output.artifacts["incomplete_reason"]
+
+
+# ---------------------------------------------------------------------------
 # Batch scoring: judge_requests + assemble_score
 # ---------------------------------------------------------------------------
 

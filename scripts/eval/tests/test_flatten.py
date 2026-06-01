@@ -1,7 +1,7 @@
 # scripts/eval/tests/test_flatten.py
 import json
 from pathlib import Path
-from scripts.eval.scoring.flatten import flatten_outputs, _narrative
+from scripts.eval.scoring.flatten import flatten_outputs, completion_status, _narrative
 
 
 def _pkg(tmp_path):
@@ -25,6 +25,69 @@ def test_flatten_orders_and_picks_terminal(tmp_path):
     trace, answer = flatten_outputs(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")
     assert trace.index("load") < trace.index("de") < trace.index("report")
     assert "Treatment reduces recovery time." in answer
+
+
+# --- completion_status: incomplete-run detection ---
+
+def _partial_pkg(tmp_path, populated_ids):
+    """A 3-task workflow (load -> de -> report) whose runtime/outputs only
+    contains narratives for ``populated_ids``."""
+    wf = {"tasks": [
+        {"id": "load", "stage": "data_acquisition", "depends_on": []},
+        {"id": "de", "stage": "differential_expression", "depends_on": ["load"]},
+        {"id": "report", "stage": "final_reporting", "depends_on": ["de"]},
+    ]}
+    (tmp_path / "WORKFLOW.json").write_text(json.dumps(wf))
+    out = tmp_path / "runtime" / "outputs"
+    out.mkdir(parents=True)
+    for tid in populated_ids:
+        d = out / tid
+        d.mkdir(parents=True)
+        (d / "report.md").write_text(f"# {tid}\noutput for {tid}\n")
+    return tmp_path
+
+
+def test_completion_status_full(tmp_path):
+    """A fully-populated package reports total == with_output and a live terminal."""
+    pkg = _pkg(tmp_path)
+    status = completion_status(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")
+    assert status == {"total": 3, "with_output": 3, "terminal_has_output": True}
+
+
+def test_completion_status_terminal_missing(tmp_path):
+    """Only the first task ran: shortfall reported and terminal has no output."""
+    pkg = _partial_pkg(tmp_path, populated_ids=["load"])
+    status = completion_status(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")
+    assert status["total"] == 3
+    assert status["with_output"] == 1
+    assert status["terminal_has_output"] is False
+
+
+def test_completion_status_empty_outputs_dir(tmp_path):
+    """No task produced output at all (the stalled-at-2/27 shape)."""
+    pkg = _partial_pkg(tmp_path, populated_ids=[])
+    status = completion_status(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")
+    assert status["total"] == 3
+    assert status["with_output"] == 0
+    assert status["terminal_has_output"] is False
+
+
+def test_completion_status_empty_narrative_not_counted(tmp_path):
+    """A task dir that exists but holds only whitespace is not counted as output."""
+    pkg = _partial_pkg(tmp_path, populated_ids=["load", "de"])
+    blank = pkg / "runtime" / "outputs" / "report"
+    blank.mkdir(parents=True)
+    (blank / "report.md").write_text("   \n\t\n")
+    status = completion_status(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")
+    assert status["with_output"] == 2
+    assert status["terminal_has_output"] is False
+
+
+def test_completion_status_missing_workflow_json_does_not_raise(tmp_path):
+    """A missing/unreadable WORKFLOW.json yields an all-zero status, not an error."""
+    status = completion_status(tmp_path / "runtime" / "outputs",
+                               tmp_path / "WORKFLOW.json")
+    assert status == {"total": 0, "with_output": 0, "terminal_has_output": False}
 
 
 # --- _narrative unit tests ---
