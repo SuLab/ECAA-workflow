@@ -312,6 +312,59 @@ mod tests {
         );
     }
 
+    /// Load-bearing lower-through assertion: after survey synthesis the
+    /// lowering pass (`build_dag_from_workflow_dag` →
+    /// `lower_to_workflow_json`) must produce a `DAG` where the survey
+    /// task lowers AND every `discover_*` task's `depends_on` includes
+    /// `survey_method_landscape`. The lowering pass builds
+    /// `Task.depends_on` straight off `dag.edges`, so without the
+    /// `survey → discover_*` edges the discover companions would never
+    /// wait on the method-landscape table.
+    #[test]
+    fn lowered_discover_depends_on_survey() {
+        let reg = real_registry();
+        let mut dag = dag_with(vec![TaskNode::skeleton("alignment", "t")]);
+        crate::composer_v4::discover_companion_synthesis::synthesize_discover_companions(
+            &mut dag, &reg,
+        );
+        synthesize_survey_method_landscape(&mut dag, &reg);
+
+        let lowered =
+            crate::builder::build_dag_from_workflow_dag(&dag, "wf").expect("lower v4 dag");
+
+        // The survey task itself must lower into WORKFLOW.json.
+        assert!(
+            lowered.tasks.contains_key("survey_method_landscape"),
+            "survey_method_landscape must lower into the DAG; tasks={:?}",
+            lowered.tasks.keys().collect::<Vec<_>>()
+        );
+
+        // discover_alignment.depends_on must include survey_method_landscape.
+        let disc = lowered
+            .tasks
+            .get("discover_alignment")
+            .expect("discover_alignment task must lower");
+        assert!(
+            disc.depends_on
+                .iter()
+                .any(|d| d == "survey_method_landscape"),
+            "discover_alignment.depends_on must include survey_method_landscape, got {:?}",
+            disc.depends_on
+        );
+
+        // The survey carries the source-atom back-reference so the
+        // harness recovers its registry atom for per-task image + safety.
+        let survey = lowered
+            .tasks
+            .get("survey_method_landscape")
+            .expect("survey task");
+        assert_eq!(
+            survey.source_atom_id.as_deref(),
+            Some("survey_method_landscape"),
+            "survey task must carry source_atom_id for image + safety enforcement"
+        );
+    }
+
     #[test]
     fn survey_depends_on_present_data_characterization_producer() {
         let reg = real_registry();
