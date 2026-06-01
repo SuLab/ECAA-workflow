@@ -652,8 +652,8 @@ fn stamp_literature_scope(
 /// authority must be forced to `frozen` so no new live discovery occurs and
 /// the original method-landscape provenance is preserved.
 ///
-/// **No grounded per-dispatch rerun/amend signal exists at the env-stamp
-/// seam today**, so this returns `false` (no override) by default:
+/// **No grounded per-dispatch rerun/amend signal exists *inside the harness*
+/// at the env-stamp seam**:
 ///   * `rerun_task` delegates to `amend_stage_method` (server-side), which
 ///     transitions the session to `Amending`. That state is observable only
 ///     *during* the in-flight amend window (when the harness soft-cancels
@@ -666,16 +666,16 @@ fn stamp_literature_scope(
 ///   * The dispatch WAL records prior `harness_run_id`s but conflates
 ///     legitimate resume/continuation with a deliberate rerun.
 ///
-/// Inventing a detection mechanism here would not be grounded in the real
-/// dispatch flow. The honest seam: a future integration that surfaces an
-/// explicit rerun/amend signal (e.g. a `--rerun` / `--frozen-method-source`
-/// harness flag set by the server when relaunching for a rerun/amend, or a
-/// per-task marker written into WORKFLOW.json on rerun) plugs in here by
-/// returning `true` for the survey task. Until then the env knob
-/// (`ECAA_METHOD_SOURCE_AUTHORITY=frozen`) is the supported way to freeze a
-/// rerun.
-fn should_freeze_method_authority() -> bool {
-    false
+/// The grounded signal lives one layer up, at the *server relaunch* boundary:
+/// `maybe_auto_relaunch_harness` already receives a static `trigger`
+/// (`"rerun_task"` / `"amend_method"` / `"undo_amend"` vs. the fresh
+/// `/execution/start` path). The server passes `--frozen-method-source` on a
+/// rerun/amend relaunch, which sets [`Args::frozen_method_source`]; this
+/// helper simply reads that decision so the harness's dispatch sites need no
+/// lineage introspection. The env knob (`ECAA_METHOD_SOURCE_AUTHORITY=frozen`)
+/// remains the manual override for direct CLI invocations.
+fn should_freeze_method_authority(args: &Args) -> bool {
+    args.frozen_method_source
 }
 
 /// Render the per-task `provisioning.json` and
@@ -908,6 +908,16 @@ struct Args {
     /// one task is blocked by safety policy.
     #[arg(long, default_value_t = false)]
     plan_only: bool,
+
+    /// Force the method-source authority to `frozen` for every dispatch in
+    /// this run, overriding `ECAA_METHOD_SOURCE_AUTHORITY`. The server
+    /// appends this flag when relaunching the harness for a rerun/amend of
+    /// an already-emitted package so no fresh live method discovery occurs
+    /// and the original method-landscape provenance is preserved (plan
+    /// Task 5.2). Default false: a fresh run honours the configured
+    /// authority (`bounded` by default).
+    #[arg(long, default_value_t = false)]
+    frozen_method_source: bool,
 }
 
 /// `tracing_subscriber::fmt::MakeWriter` implementation that routes each
@@ -2707,7 +2717,7 @@ fn run_loop(
                         };
                         let mut env = render_envelope(path, id, dag_snapshot, &inputs);
                         stamp_dispatch_identity(&mut env, dispatch_by_task.get(id));
-                        stamp_literature_scope(&mut env, should_freeze_method_authority());
+                        stamp_literature_scope(&mut env, should_freeze_method_authority(args));
                         stamp_provisioning_policy(&mut env, path, dag_snapshot, id, &declared);
                         stamp_safety_network(&mut env, dag_snapshot, id);
                         (id.clone(), env)
@@ -2721,7 +2731,7 @@ fn run_loop(
                     .map(|id| {
                         let mut env = render_envelope(path, id, dag_snapshot, &inputs);
                         stamp_dispatch_identity(&mut env, dispatch_by_task.get(id));
-                        stamp_literature_scope(&mut env, should_freeze_method_authority());
+                        stamp_literature_scope(&mut env, should_freeze_method_authority(args));
                         stamp_provisioning_policy(&mut env, path, dag_snapshot, id, &declared);
                         stamp_safety_network(&mut env, dag_snapshot, id);
                         (id.clone(), env)
@@ -6429,10 +6439,67 @@ mod frozen_method_authority_tests {
     }
 
     #[test]
-    fn should_freeze_is_conservative_default_today() {
-        // No grounded per-dispatch rerun signal exists at the env-stamp seam;
-        // the decision helper returns false until an explicit rerun/amend
-        // signal is wired (see should_freeze_method_authority docs).
-        assert!(!should_freeze_method_authority());
+    fn should_freeze_defaults_false_without_flag() {
+        // The conservative default: a fresh run does not freeze, so the
+        // configured `ECAA_METHOD_SOURCE_AUTHORITY` (bounded by default)
+        // governs and live discovery is permitted.
+        let args = Args::try_parse_from(["harness", "--package", "/tmp/p", "--agent", "a"])
+            .expect("parse default args");
+        assert!(!should_freeze_method_authority(&args));
+    }
+
+    #[test]
+    fn should_freeze_true_when_flag_set() {
+        // `--frozen-method-source` is the grounded rerun/amend signal: the
+        // server appends it when relaunching against an already-emitted
+        // package, forcing `frozen` so no fresh live discovery occurs.
+        let args = Args::try_parse_from([
+            "harness",
+            "--package",
+            "/tmp/p",
+            "--agent",
+            "a",
+            "--frozen-method-source",
+        ])
+        .expect("parse args with frozen flag");
+        assert!(should_freeze_method_authority(&args));
+    }
+
+    #[test]
+    fn flag_forces_frozen_env_stamp_end_to_end() {
+        // With the flag set, the stamped agent env is `frozen` even when
+        // the configured authority opts into bounded discovery.
+        with_authority_env(Some("bounded"), || {
+            let args = Args::try_parse_from([
+                "harness",
+                "--package",
+                "/tmp/p",
+                "--agent",
+                "a",
+                "--frozen-method-source",
+            ])
+            .expect("parse args with frozen flag");
+            let mut env = std::collections::BTreeMap::new();
+            stamp_literature_scope(&mut env, should_freeze_method_authority(&args));
+            assert_eq!(
+                env.get("ECAA_METHOD_SOURCE_AUTHORITY").map(String::as_str),
+                Some("frozen")
+            );
+        });
+    }
+
+    #[test]
+    fn no_flag_honours_configured_env_authority_end_to_end() {
+        // Without the flag the configured authority governs the stamp.
+        with_authority_env(Some("bounded"), || {
+            let args = Args::try_parse_from(["harness", "--package", "/tmp/p", "--agent", "a"])
+                .expect("parse default args");
+            let mut env = std::collections::BTreeMap::new();
+            stamp_literature_scope(&mut env, should_freeze_method_authority(&args));
+            assert_eq!(
+                env.get("ECAA_METHOD_SOURCE_AUTHORITY").map(String::as_str),
+                Some("bounded")
+            );
+        });
     }
 }

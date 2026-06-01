@@ -219,8 +219,16 @@ impl ServiceEventSink for BroadcastEventSink {
             // stream. The level reflects severity — success is debug,
             // already-running / already-starting are info (operationally
             // expected), spawn errors are warn.
-            match execution::spawn_harness_for_session(&app, session_id, agent_path, max_iterations)
-                .await
+            // `start_execution` is a fresh first run — honour the configured
+            // method-source authority (no rerun/amend freeze; plan Task 5.2).
+            match execution::spawn_harness_for_session(
+                &app,
+                session_id,
+                agent_path,
+                max_iterations,
+                false,
+            )
+            .await
             {
                 Ok(handle) => {
                     tracing::debug!(
