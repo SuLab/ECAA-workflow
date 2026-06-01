@@ -2213,15 +2213,30 @@ async fn user_gene_expression_proteomics_text_builds_full_multiomics_dag() {
     );
 }
 
-// Ignored pending the v4 general goal->DAG synthesis work (Pillar A:
-// per-modality branch decomposition). This scenario (bulk_rnaseq +
-// single_cell_rnaseq + proteomics, no registered cross-omics archetype)
-// exposes a pre-existing v4 gap that the legacy composer_version=2 pin
-// previously masked: with v2 retired, v4 composes from the unconstrained
-// atom search and emits off-modality atoms instead of per-modality
-// branches. Un-ignore + re-point assertions to v4 branch ids when Phase 1
-// of docs/superpowers/plans/2026-06-01-general-goal-dag-synthesis.md lands.
-#[ignore = "v4 multi-branch synthesis (general goal->DAG, Pillar A) not yet implemented"]
+// Ignored: the v4 multi-branch synthesizer (Pillar A) IS implemented and
+// correct for this scenario — see the core acceptance test
+// `composer_v4::multi_branch_synthesis::tests::
+// full_plan_multi_branch_three_modalities_structured_grounded`, which feeds
+// the *structured* set {bulk_rnaseq, single_cell_rnaseq, proteomics} and
+// asserts all three prefixed branches, a grounded proteomics branch
+// (Pillar B), the `multi_modal_thematic_comparison` join, and zero
+// off-modality leakage. This chat-path test still fails for a DISTINCT,
+// out-of-scope reason: for this tri-omics prose the *classifier* surfaces
+// `modality=proteomics, additional=[]` (it under-counts — the three
+// modalities exist only in the prose, recovered via the `n_way_intent`
+// flag), so the structured modality set reaching the composer is
+// {proteomics}. The `n_way` prose-subset matcher in
+// `find_match_cross_omics` then matches the 2-way `cross_omics_rnaseq_
+// proteomics` archetype (best available, prose-supported), which correctly
+// pre-empts multi-branch — but drops `single_cell_rnaseq` because no 3-way
+// archetype covers this set and the prose-named modalities never reach the
+// structured set. Un-ignoring this requires a CLASSIFIER fix (surface all
+// three modalities as the structured set) — explicitly out of scope for the
+// composer work (design spec: "the classifier is producing correct
+// modalities here" / Out of scope). Tracked for a follow-up classifier pass.
+#[ignore = "blocked on classifier under-counting tri-omics prose (out of composer scope); \
+            multi-branch composer proven via core acceptance test \
+            full_plan_multi_branch_three_modalities_structured_grounded"]
 #[tokio::test]
 async fn latest_session_shape_composes_three_branches_then_allows_scope_reset() {
     let mut s = crate::session::Session::new(false);

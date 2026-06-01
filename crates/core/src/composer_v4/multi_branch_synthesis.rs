@@ -752,4 +752,81 @@ mod tests {
             "proteomics branch must not wander into RNA atoms: {proteomics_ids:?}"
         );
     }
+
+    /// End-to-end acceptance through the FULL `plan()` path for a
+    /// **structured** 3-modality request (bulk_rnaseq + single_cell_rnaseq
+    /// + proteomics) with NO registered cross-omics archetype covering the
+    /// exact set. This is the in-scope composer acceptance for the
+    /// motivating tri-omics scenario: no `n_way_intent` modifier is set, so
+    /// `find_match_cross_omics` set-equality finds nothing, `try_cross_omics`
+    /// returns `None`, and the multi-branch dispatch fires with all three
+    /// modalities. Asserts all three branches materialize, proteomics is
+    /// grounded (Pillar B — no RNA wandering), the join is present, and
+    /// there is zero off-modality / wrong-modality leakage. (The chat
+    /// canary `latest_session_shape_...` exercises the same scenario through
+    /// the classifier, which currently collapses the structured modality
+    /// set to {proteomics}; that is a classifier concern, tracked
+    /// separately — see that test's `#[ignore]` note.)
+    #[test]
+    fn full_plan_multi_branch_three_modalities_structured_grounded() {
+        let (atoms, archs) = registries();
+        let goal = de_goal();
+        let ctx = planning_context_for_goal_with_modalities(
+            "test-mb-3way",
+            &goal,
+            Some("bulk_rnaseq"),
+            &["single_cell_rnaseq", "proteomics"],
+            Some("bioinformatics"),
+            &[],
+        );
+        let result =
+            crate::composer_v4::planner::plan(&ctx, &goal, "bioinformatics", &atoms, &archs);
+        let dag = match &result.primary {
+            crate::workflow_contracts::outcome::ComposeOutcome::ValidatedExecutableDag {
+                dag,
+                ..
+            }
+            | crate::workflow_contracts::outcome::ComposeOutcome::DraftDag { dag, .. }
+            | crate::workflow_contracts::outcome::ComposeOutcome::PartialDag { dag, .. } => dag,
+            other => panic!("unexpected outcome: {other:?}"),
+        };
+        let ids: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        // Multi-branch synthesis fired (our join), not a cross-omics archetype.
+        assert!(
+            ids.contains("multi_modal_thematic_comparison"),
+            "multi-branch must fire (join present): {ids:?}"
+        );
+        assert!(
+            !ids.contains("cross_omics_thematic_comparison"),
+            "must be multi-branch synthesis, not a cross-omics archetype: {ids:?}"
+        );
+        // All three branches present + namespace-prefixed.
+        assert!(ids.iter().any(|i| i.starts_with("bulk_rnaseq_")), "bulk_rnaseq branch: {ids:?}");
+        assert!(
+            ids.iter().any(|i| i.starts_with("single_cell_rnaseq_")),
+            "single_cell_rnaseq branch: {ids:?}"
+        );
+        assert!(ids.iter().any(|i| i.starts_with("proteomics_")), "proteomics branch: {ids:?}");
+        // Proteomics grounded to proteomics atoms (Pillar B), not RNA garbage.
+        assert!(
+            ids.iter()
+                .any(|i| i.starts_with("proteomics_") && (i.contains("peptide_search") || i.contains("protein_quantification") || i.contains("differential_abundance"))),
+            "proteomics branch must contain proteomics atoms: {ids:?}"
+        );
+        // Zero wrong-modality leakage anywhere.
+        assert!(
+            !ids.iter().any(|i| i.contains("translation_efficiency") || i.contains("vdj")),
+            "no wrong-modality atoms expected: {ids:?}"
+        );
+        // Structural invariant: every node is a bare join terminal or
+        // carries one of the three requested-modality prefixes.
+        for n in &dag.nodes {
+            let ok = n.id == "multi_modal_thematic_comparison"
+                || n.id == "final_reporting"
+                || n.id.starts_with("bulk_rnaseq_")
+                || n.id.starts_with("single_cell_rnaseq_")
+                || n.id.starts_with("proteomics_");
+            assert!(ok, "off-modality node leaked into 3-way multi-branch DAG: {}", n.id);
+        }
+    }
 }
