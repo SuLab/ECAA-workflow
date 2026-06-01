@@ -54,7 +54,7 @@
 //! reusing it as the filter avoids a separate role table that would
 //! drift from the atom catalog.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::atom_registry::AtomRegistry;
 use crate::compatibility::engine::{
@@ -230,6 +230,52 @@ fn would_create_cycle(producer_id: &str, consumer_id: &str, ranks: &BTreeMap<Str
     producer_rank >= consumer_rank
 }
 
+/// `0` when `atom_id` is affiliated (via the archetype catalog) with a
+/// requested modality, else `1`. Lower sorts first — affiliated wins.
+fn affiliation_key(atom_id: &str, affiliated_atom_ids: &BTreeSet<String>) -> u8 {
+    if affiliated_atom_ids.contains(atom_id) {
+        0
+    } else {
+        1
+    }
+}
+
+/// Producer-selection comparison key (Task 3.2). A candidate is
+/// "better" (replaces the current best) when its ordering tuple is
+/// strictly smaller. The tuple is, in priority order:
+///   `(compat_rank, affiliation_key, depth, atom_id, port_index)`
+/// — compatibility class first (lossless beats adapter-mediated), THEN
+/// the Pillar B modality-affiliation preference (an on-modality
+/// producer beats an off-modality type-match on a `rank` tie), THEN the
+/// original deterministic lexical tie-break. The comparison is a TOTAL
+/// order (every component is `Ord`; `affiliated_atom_ids` is a
+/// `BTreeSet`), so producer selection stays byte-deterministic. When
+/// `affiliated_atom_ids` is empty every `affiliation_key` is `1`, so
+/// the term is inert and selection is identical to the pre-3.2 behavior.
+fn candidate_is_better(
+    cand_rank: u8,
+    cand: &ForwardFrontierEntry,
+    cur_rank: u8,
+    cur: &ForwardFrontierEntry,
+    affiliated_atom_ids: &BTreeSet<String>,
+) -> bool {
+    let cand_key = (
+        cand_rank,
+        affiliation_key(cand.atom_id.as_str(), affiliated_atom_ids),
+        cand.depth,
+        cand.atom_id.as_str(),
+        cand.port_index,
+    );
+    let cur_key = (
+        cur_rank,
+        affiliation_key(cur.atom_id.as_str(), affiliated_atom_ids),
+        cur.depth,
+        cur.atom_id.as_str(),
+        cur.port_index,
+    );
+    cand_key < cur_key
+}
+
 /// Connect a forward frontier to a backward requirement set via the
 /// compatibility engine. See the module-level docs for the algorithm.
 pub fn meet_in_the_middle(
@@ -237,7 +283,8 @@ pub fn meet_in_the_middle(
     backward: &[BackwardRequirement],
     atom_reg: &AtomRegistry,
 ) -> MeetResult {
-    meet_in_the_middle_with_opaque_observation(forward, backward, atom_reg, None, None)
+    let empty: BTreeSet<String> = BTreeSet::new();
+    meet_in_the_middle_with_opaque_observation(forward, backward, atom_reg, None, None, &empty)
 }
 
 /// R1/R2 closure (closure-residuals plan Task 1.4) — sibling of
@@ -254,6 +301,16 @@ pub fn meet_in_the_middle_with_opaque_observation(
         std::sync::Arc<dyn crate::compatibility::engine::OpaqueObservationSink + Send + Sync>,
     >,
     opaque_session_id: Option<&str>,
+    // Pillar B (Task 3.2) — atom ids affiliated (via the archetype
+    // catalog) with a REQUESTED modality. When two producers tie on
+    // compatibility-class `rank`, the affiliated one is preferred
+    // BEFORE the lexical `(depth, atom_id, port_index)` tie-break, so
+    // backward search stops pulling an off-modality producer that
+    // merely happens to be type-compatible. A `BTreeSet` (total order
+    // already enforced by the trailing lexical key) keeps the
+    // selection deterministic. Empty at bare/test call sites → the
+    // tie-break is a no-op (every producer scores 1, lexical decides).
+    affiliated_atom_ids: &BTreeSet<String>,
 ) -> MeetResult {
     let engine = DeterministicCompatibilityEngine::new();
     let mut cctx = CompatibilityContext {
@@ -363,14 +420,7 @@ pub fn meet_in_the_middle_with_opaque_observation(
                 let take = match &best {
                     None => true,
                     Some((cur_entry, _, cur_rank)) => {
-                        rank < *cur_rank
-                            || (rank == *cur_rank
-                                && (entry.depth, entry.atom_id.as_str(), entry.port_index)
-                                    < (
-                                        cur_entry.depth,
-                                        cur_entry.atom_id.as_str(),
-                                        cur_entry.port_index,
-                                    ))
+                        candidate_is_better(rank, entry, *cur_rank, cur_entry, affiliated_atom_ids)
                     }
                 };
                 if take {
@@ -641,6 +691,57 @@ mod tests {
         assert!(would_create_cycle("a", "a", &ranks));
         // unknown producer (rank = u32::MAX): reject any edge from it
         assert!(would_create_cycle("unknown", "a", &ranks));
+    }
+
+    fn fwd(atom_id: &str, depth: u32, port_index: u32) -> ForwardFrontierEntry {
+        ForwardFrontierEntry {
+            depth,
+            atom_id: atom_id.into(),
+            port_index,
+            produced:
+                crate::workflow_contracts::data_product::DataProductContract::sample_de_table(),
+        }
+    }
+
+    /// Task 3.2 — with an empty affiliation set the producer tie-break
+    /// is identical to the pre-3.2 `(rank, depth, atom_id, port_index)`
+    /// lexical order: lossless `rank` wins first, then the lexically
+    /// smaller atom_id.
+    #[test]
+    fn candidate_is_better_falls_back_to_lexical_when_no_affiliation() {
+        let empty: BTreeSet<String> = BTreeSet::new();
+        let a = fwd("aligner_a", 0, 0);
+        let b = fwd("aligner_b", 0, 0);
+        // Same rank, empty affiliation → lexically-smaller atom_id wins.
+        assert!(candidate_is_better(0, &a, 0, &b, &empty));
+        assert!(!candidate_is_better(0, &b, 0, &a, &empty));
+        // Lossless rank beats adapter-mediated regardless of lexical id.
+        assert!(candidate_is_better(0, &b, 1, &a, &empty));
+        assert!(!candidate_is_better(1, &a, 0, &b, &empty));
+    }
+
+    /// Task 3.2 — on a `rank` tie, the affiliated producer wins even
+    /// when it is lexically LARGER (proving the affiliation key is
+    /// applied BEFORE the lexical tuple), and the relation is a strict
+    /// total order (irreflexive, antisymmetric) so selection stays
+    /// deterministic.
+    #[test]
+    fn candidate_is_better_prefers_affiliated_producer_on_rank_tie() {
+        let mut affiliated: BTreeSet<String> = BTreeSet::new();
+        // The affiliated atom is lexically LARGER than the off-modality
+        // one; without the affiliation key, lexical order would pick
+        // `off_modality_atom`.
+        affiliated.insert("zzz_on_modality_atom".to_string());
+        let on = fwd("zzz_on_modality_atom", 0, 0);
+        let off = fwd("aaa_off_modality_atom", 0, 0);
+        // Affiliated `on` beats `off` despite the larger atom_id.
+        assert!(candidate_is_better(0, &on, 0, &off, &affiliated));
+        assert!(!candidate_is_better(0, &off, 0, &on, &affiliated));
+        // Antisymmetry / irreflexivity (total-order sanity).
+        assert!(!candidate_is_better(0, &on, 0, &on, &affiliated));
+        // Compatibility rank still dominates affiliation: an off-modality
+        // lossless producer beats an affiliated adapter-mediated one.
+        assert!(candidate_is_better(0, &off, 1, &on, &affiliated));
     }
 
     /// The full chain test lives in

@@ -245,7 +245,7 @@ pub fn plan(
                 atom_reg,
                 archetype_reg,
             );
-            let score = score_dag(&comp.dag, ctx);
+            let score = score_dag(&comp.dag, ctx, archetype_reg);
             let summary = summarize_dag(&comp.dag, &score);
             // Pillar D seam — runs beside policy evaluation. The Phase-1
             // stub produces no findings; Phase 3 fills in the detectors.
@@ -368,7 +368,7 @@ pub fn plan(
         // visible as terminal nodes and don't count as a reporting
         // path on their own.
         super::reporting_consumer_synthesis::wire_dangling_analytical_atoms_to_reporting(&mut dag);
-        let score = score_dag(&dag, ctx);
+        let score = score_dag(&dag, ctx, archetype_reg);
         let summary = summarize_dag(&dag, &score);
         alternatives.push(RankedAlternative {
             dag,
@@ -404,12 +404,30 @@ pub fn plan(
         ctx.opaque_observation_sink.clone(),
         ctx.opaque_session_id.as_deref(),
     );
+    // Pillar B (Task 3.2) — build the requested-modality set and the
+    // archetype-affiliated atom-id set once, threaded into the meet
+    // producer tie-break so an on-modality producer wins a `rank` tie
+    // over an off-modality type-match. Empty (no preference) when the
+    // request carries no modality.
+    let requested_modalities: BTreeSet<String> = {
+        let mut r: BTreeSet<String> = BTreeSet::new();
+        if let Some(m) = &ctx.intent.modality {
+            r.insert(m.clone());
+        }
+        for m in &ctx.additional_modalities {
+            r.insert(m.clone());
+        }
+        r
+    };
+    let affiliated_atom_ids =
+        affiliated_atom_ids_for_modalities(&requested_modalities, archetype_reg);
     let meet = super::meet_in_middle::meet_in_the_middle_with_opaque_observation(
         &forward,
         &backward,
         atom_reg,
         ctx.opaque_observation_sink.clone(),
         ctx.opaque_session_id.as_deref(),
+        &affiliated_atom_ids,
     );
     // v4 P5 — snapshot the structured `repair_gaps` BEFORE matching so
     // the repair-strategy registry sees them once we drop into Phase
@@ -465,7 +483,7 @@ pub fn plan(
             super::reporting_consumer_synthesis::wire_dangling_analytical_atoms_to_reporting(
                 &mut dag,
             );
-            let mut score = score_dag(&dag, ctx);
+            let mut score = score_dag(&dag, ctx, archetype_reg);
             // When an archetype seed presents a
             // definitive canonical match (modality_hint + goal_data +
             // goal_format all matched), prefer that seed as primary.
@@ -1801,8 +1819,198 @@ fn pick_best_port_pair(
     (producer_port, consumer_port, proof)
 }
 
-/// Score a `WorkflowDag` per the design's 16-component tuple.
-fn score_dag(dag: &WorkflowDag, ctx: &PlanningContext) -> ScoringTuple {
+/// Normalize a modality string into the canonical stage-id prefix
+/// stem (no trailing `_`). Mirrors
+/// `multi_branch_synthesis::modality_prefix`'s normalization exactly
+/// (lowercase, non-alphanumerics → `_`, collapse repeats, trim `_`)
+/// so the goal-relevance prefix test (`<m>_`) matches the prefixes the
+/// multi-branch assembler actually stamps onto branch node ids.
+fn normalize_modality_stem(modality: &str) -> String {
+    let mut base: String = modality
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    while base.contains("__") {
+        base = base.replace("__", "_");
+    }
+    base.trim_matches('_').to_string()
+}
+
+/// The set of modalities a given `atom_id` is affiliated with via the
+/// archetype catalog: for every archetype whose `.atoms` references the
+/// atom, collect its `modality_hint` (when set) and every entry of its
+/// `cross_omics_modalities`. An EMPTY result means the atom is generic /
+/// shared (no archetype affiliation, or only affiliations through
+/// archetypes that declare no modality) — such atoms are never
+/// goal-penalized. This is the reliable modality signal per the design
+/// (only 14/93 atoms declare a per-atom modality facet; the archetype
+/// catalog is where the per-modality pipeline membership lives).
+fn atom_modality_affiliations(atom_id: &str, archetype_reg: &ArchetypeRegistry) -> BTreeSet<String> {
+    let mut affil: BTreeSet<String> = BTreeSet::new();
+    for (_, arch) in archetype_reg.iter() {
+        let references = arch.atoms.iter().any(|a| a.atom_id.as_str() == atom_id);
+        if !references {
+            continue;
+        }
+        if let Some(hint) = &arch.modality_hint {
+            affil.insert(hint.clone());
+        }
+        for m in &arch.cross_omics_modalities {
+            affil.insert(m.clone());
+        }
+    }
+    affil
+}
+
+/// Pillar B (Task 3.2) — the set of atom ids affiliated, via the
+/// archetype catalog, with ANY requested modality. For every archetype
+/// whose `modality_hint` or `cross_omics_modalities` intersects the
+/// requested set `R`, every atom that archetype references is
+/// affiliated. Built once in `plan()` and threaded into
+/// `meet_in_the_middle` so its producer tie-break prefers an
+/// on-modality producer over an off-modality type-match on `rank` ties.
+/// Returns an empty set when `R` is empty (no preference to express).
+/// Deterministic: `BTreeSet`-keyed, archetype iteration is
+/// sorted-by-id.
+fn affiliated_atom_ids_for_modalities(
+    requested: &BTreeSet<String>,
+    archetype_reg: &ArchetypeRegistry,
+) -> BTreeSet<String> {
+    let mut affiliated: BTreeSet<String> = BTreeSet::new();
+    if requested.is_empty() {
+        return affiliated;
+    }
+    for (_, arch) in archetype_reg.iter() {
+        let intersects = arch
+            .modality_hint
+            .as_ref()
+            .map(|h| requested.contains(h))
+            .unwrap_or(false)
+            || arch
+                .cross_omics_modalities
+                .iter()
+                .any(|m| requested.contains(m));
+        if !intersects {
+            continue;
+        }
+        for a in &arch.atoms {
+            affiliated.insert(a.atom_id.as_str().to_string());
+        }
+    }
+    affiliated
+}
+
+/// Is this node a synthesis / companion / terminal node that should
+/// never be goal-penalized regardless of its atom's modality
+/// affiliation? These are the cross-modality join terminals, the
+/// reporting family, and the discover/validate/survey companions —
+/// all of which are legitimately shared across every modality.
+fn is_synthesis_or_terminal_node(node_id: &str) -> bool {
+    node_id == "reporting"
+        || node_id == "final_reporting"
+        || node_id == "multi_modal_thematic_comparison"
+        || node_id.ends_with("_final_reporting")
+        || node_id.ends_with("_thematic_comparison")
+        || node_id.starts_with("discover_")
+        || node_id.contains("discover_")
+        || node_id.starts_with("validate_")
+        || node_id.contains("validate_")
+        || node_id == "survey_method_landscape"
+        || node_id.contains("survey_method_landscape")
+}
+
+/// Goal/modality-relevance penalty (Pillar B, scoring field 5). Counts
+/// nodes that are GOAL-IRRELEVANT: their backing atom is affiliated
+/// (via the archetype catalog) ONLY with modalities the request never
+/// asked for, AND they are not synthesis/companion/terminal/prefixed
+/// nodes.
+///
+/// Conservative by construction — designed to be `0` on every coherent
+/// DAG (single-modality, cross-omics, and multi-branch):
+/// - When the requested modality set `R` is empty (vague goal, no
+///   modality), returns `0`: we can't judge affiliation, so we never
+///   penalize.
+/// - A node is GOAL-RELEVANT (contributes 0) if ANY of:
+///   - its `id` starts with `<m>_` for some `m` in `R` (the
+///     multi-branch namespace prefix), OR
+///   - it is a synthesis/companion/terminal node, OR
+///   - its atom's archetype affiliation set is EMPTY (generic/shared),
+///     OR intersects `R`.
+/// - A node is GOAL-IRRELEVANT (contributes 1) ONLY when its atom's
+///   affiliation set is non-empty AND disjoint from `R` AND it is not a
+///   synthesis/prefixed node.
+fn goal_relevance_penalty(
+    dag: &WorkflowDag,
+    ctx: &PlanningContext,
+    archetype_reg: &ArchetypeRegistry,
+) -> u32 {
+    // Requested modality set R = {intent.modality} ∪ additional_modalities.
+    let mut requested: BTreeSet<String> = BTreeSet::new();
+    if let Some(m) = &ctx.intent.modality {
+        requested.insert(m.clone());
+    }
+    for m in &ctx.additional_modalities {
+        requested.insert(m.clone());
+    }
+    // R empty → can't judge affiliation; never penalize.
+    if requested.is_empty() {
+        return 0;
+    }
+    // Normalized prefixes (`<m>_`) the multi-branch assembler stamps.
+    let requested_prefixes: BTreeSet<String> = requested
+        .iter()
+        .map(|m| format!("{}_", normalize_modality_stem(m)))
+        .collect();
+
+    let mut penalty: u32 = 0;
+    for node in &dag.nodes {
+        // Branch namespace prefix → relevant.
+        if requested_prefixes
+            .iter()
+            .any(|p| node.id.starts_with(p.as_str()))
+        {
+            continue;
+        }
+        // Synthesis / companion / terminal → relevant.
+        if is_synthesis_or_terminal_node(&node.id) {
+            continue;
+        }
+        // Resolve the backing atom id: prefer the lift-stamped
+        // `attributes["atom_id"]`, then `machine_name`, then `id`.
+        let atom_id: String = node
+            .attributes
+            .get("atom_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                if !node.machine_name.is_empty() {
+                    node.machine_name.clone()
+                } else {
+                    node.id.clone()
+                }
+            });
+        let affil = atom_modality_affiliations(&atom_id, archetype_reg);
+        // Generic/shared (no affiliation) → relevant. Affiliation that
+        // intersects R → relevant. Only non-empty AND disjoint → penalize.
+        if !affil.is_empty() && affil.is_disjoint(&requested) {
+            penalty += 1;
+        }
+    }
+    penalty
+}
+
+/// Score a `WorkflowDag` per the design's 17-component tuple.
+fn score_dag(
+    dag: &WorkflowDag,
+    ctx: &PlanningContext,
+    archetype_reg: &ArchetypeRegistry,
+) -> ScoringTuple {
     let mut s = ScoringTuple::default();
     // 1. Hard policy violation — slot is wired via PolicyContext.
     // Default is Pass.
@@ -1819,7 +2027,14 @@ fn score_dag(dag: &WorkflowDag, ctx: &PlanningContext) -> ScoringTuple {
     // is Pass.
     // 4. Scientific appropriateness penalty.
     s.scientific_appropriateness_penalty = 0;
-    // 5. Untrusted node count (lower-is-better).
+    // 5. Goal/modality-relevance penalty (Pillar B). Count of nodes
+    // whose backing atom is affiliated — via the archetype catalog —
+    // ONLY with a modality the request never asked for. Synthesis,
+    // companion, terminal, and generic/shared atoms are never
+    // penalized. Designed to be 0 on every coherent DAG; calibrated
+    // against the live fixture corpus.
+    s.goal_relevance_penalty = goal_relevance_penalty(dag, ctx, archetype_reg);
+    // 6. Untrusted node count (lower-is-better).
     let production_count: u32 = dag
         .nodes
         .iter()
@@ -2793,9 +3008,15 @@ fn placeholder_atom(node: &TaskNode) -> AtomDefinition {
 }
 
 /// Inverse of `score_dag` for ranking purposes. Public so external
-/// rankers can recompute when DAG mutates.
-pub fn rescore_dag(dag: &WorkflowDag, ctx: &PlanningContext) -> ScoringTuple {
-    score_dag(dag, ctx)
+/// rankers can recompute when DAG mutates. Takes the archetype registry
+/// so the goal/modality-relevance term (scoring field 5) can resolve
+/// per-atom archetype affiliation.
+pub fn rescore_dag(
+    dag: &WorkflowDag,
+    ctx: &PlanningContext,
+    archetype_reg: &ArchetypeRegistry,
+) -> ScoringTuple {
+    score_dag(dag, ctx, archetype_reg)
 }
 
 #[cfg(test)]
@@ -2840,9 +3061,120 @@ mod tests {
     fn rescore_dag_is_pure() {
         let ctx = planning_context_for_goal("test", &simple_goal());
         let dag = WorkflowDag::default();
-        let s1 = rescore_dag(&dag, &ctx);
-        let s2 = rescore_dag(&dag, &ctx);
+        let archetype_reg = empty_archetype_registry();
+        let s1 = rescore_dag(&dag, &ctx, &archetype_reg);
+        let s2 = rescore_dag(&dag, &ctx, &archetype_reg);
         assert_eq!(s1, s2);
+    }
+
+    /// Build a `TaskNode` that resolves to `atom_id` via the
+    /// lift-stamped `attributes["atom_id"]` key (mirrors the real
+    /// lowering path's resolution order in `goal_relevance_penalty`).
+    fn atom_node(id: &str, atom_id: &str) -> TaskNode {
+        let mut n = TaskNode::skeleton(id, "test node");
+        n.machine_name = atom_id.to_string();
+        n.attributes
+            .insert("atom_id".into(), serde_json::Value::String(atom_id.into()));
+        n
+    }
+
+    /// Pillar B (Task 3.3) — a node whose backing atom is affiliated
+    /// (via the archetype catalog) ONLY with a modality NOT in the
+    /// requested set is goal-IRRELEVANT and lifts
+    /// `goal_relevance_penalty` to >= 1, ranking the polluted DAG
+    /// strictly worse than the coherent one. `vdj_reconstruction` is
+    /// referenced only by the `single_cell_vdj` archetype
+    /// (modality_hint: single_cell_vdj), so a bulk_rnaseq+proteomics
+    /// request flags it — exactly the design's off-modality canary —
+    /// while `differential_expression` (affiliated with bulk_rnaseq,
+    /// proteomics, and others) stays relevant (penalty 0).
+    #[test]
+    fn goal_relevance_penalty_flags_off_modality_atom_and_reranks() {
+        use std::path::Path;
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes"))
+                .expect("archetypes");
+
+        let goal = GoalSpec {
+            edam_data: "data:0951".into(),
+            source_prose: Some("differential expression across groups".into()),
+            ..Default::default()
+        };
+        // Requested set R = {bulk_rnaseq, proteomics}.
+        let ctx = planning_context_for_goal_with_modalities(
+            "test-goal-relevance",
+            &goal,
+            Some("bulk_rnaseq"),
+            &["proteomics"],
+            Some("bioinformatics"),
+            &[],
+        );
+
+        // Coherent DAG: only on-modality + synthesis/terminal nodes.
+        let coherent = WorkflowDag {
+            id: "coherent".into(),
+            nodes: vec![
+                atom_node("bulk_rnaseq_differential_expression", "differential_expression"),
+                atom_node("proteomics_differential_abundance", "differential_expression"),
+                atom_node("multi_modal_thematic_comparison", "reporting"),
+                atom_node("final_reporting", "final_reporting"),
+            ],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+        // Polluted DAG: the coherent set + an off-modality
+        // `vdj_reconstruction` node (affiliated only with single_cell_vdj).
+        let mut polluted = coherent.clone();
+        polluted.id = "polluted".into();
+        polluted
+            .nodes
+            .push(atom_node("vdj_reconstruction", "vdj_reconstruction"));
+
+        let coherent_penalty = goal_relevance_penalty(&coherent, &ctx, &archetype_reg);
+        let polluted_penalty = goal_relevance_penalty(&polluted, &ctx, &archetype_reg);
+        assert_eq!(
+            coherent_penalty, 0,
+            "coherent DAG must score 0 goal-relevance penalty"
+        );
+        assert!(
+            polluted_penalty >= 1,
+            "off-modality vdj_reconstruction node must lift the penalty (got {polluted_penalty})"
+        );
+
+        // The penalty term sits before untrusted_node_count, so the
+        // coherent ScoringTuple must rank strictly better even though
+        // the polluted DAG only differs by one extra node.
+        let coherent_score = score_dag(&coherent, &ctx, &archetype_reg);
+        let polluted_score = score_dag(&polluted, &ctx, &archetype_reg);
+        assert_eq!(coherent_score.goal_relevance_penalty, 0);
+        assert!(polluted_score.goal_relevance_penalty >= 1);
+        assert!(
+            coherent_score < polluted_score,
+            "coherent composition must outrank the off-modality-polluted one"
+        );
+    }
+
+    /// An empty requested-modality set must never penalize (we can't
+    /// judge affiliation), so a vague-goal DAG scores 0 regardless of
+    /// what atoms it contains.
+    #[test]
+    fn goal_relevance_penalty_is_zero_when_no_modality_requested() {
+        use std::path::Path;
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes"))
+                .expect("archetypes");
+        let goal = simple_goal();
+        // No modality, no additional_modalities → R is empty.
+        let ctx = planning_context_for_goal("test-no-modality", &goal);
+        let dag = WorkflowDag {
+            id: "vague".into(),
+            nodes: vec![atom_node("vdj_reconstruction", "vdj_reconstruction")],
+            edges: vec![],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+        assert_eq!(goal_relevance_penalty(&dag, &ctx, &archetype_reg), 0);
     }
 
     /// Planner must refuse a DAG that contains a `GeneratedCode`
