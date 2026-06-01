@@ -603,6 +603,292 @@ pub fn run_concordance_flag_in_closed_set(
 }
 
 // ============================================================================
+// Runner 6: claim_support_satisfied
+// ============================================================================
+
+/// Column-name → index map for a CSV, so validators that key off the
+/// `method_landscape.csv` shape (axis/candidate_method/source_class/...) work
+/// without forcing the full `ClaimsMatrixRow` serde struct, which requires
+/// the prior-claims columns the method-landscape table does not carry.
+fn header_index(headers: &csv::StringRecord) -> BTreeMap<String, usize> {
+    headers
+        .iter()
+        .enumerate()
+        .map(|(i, h)| (h.to_string(), i))
+        .collect()
+}
+
+const PAPER_CLASSES: [&str; 2] = ["primary_literature", "conference_proceedings"];
+
+/// Read `claimSupportRules.minimumIndependentSources` from a package's
+/// `source-discovery-policy.json`. The CSV lives at
+/// `<package>/runtime/outputs/<task_id>/method_landscape.csv`; the policy at
+/// `<package>/policies/source-discovery-policy.json`. We walk up from the CSV
+/// dir to find a `policies/source-discovery-policy.json`. Absent/unreadable →
+/// default of 2. The JSON is read directly (no schema validation) so the
+/// harness validator stays self-contained.
+fn minimum_independent_sources(csv_path: &Path) -> u64 {
+    const DEFAULT_MIN: u64 = 2;
+    let mut cur = csv_path.parent();
+    while let Some(dir) = cur {
+        let candidate = dir.join("policies/source-discovery-policy.json");
+        if candidate.exists() {
+            if let Ok(bytes) = fs::read(&candidate) {
+                if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+                    if let Some(n) = v
+                        .get("claimSupportRules")
+                        .and_then(|r| r.get("minimumIndependentSources"))
+                        .and_then(|n| n.as_u64())
+                    {
+                        return n;
+                    }
+                }
+            }
+            return DEFAULT_MIN;
+        }
+        cur = dir.parent();
+    }
+    DEFAULT_MIN
+}
+
+/// Validates `source-discovery-policy.json::claimSupportRules` against
+/// `method_landscape.csv`: a candidate that qualifies as a
+/// default/recommended choice for an axis must have ≥1 verified paper-class
+/// source (source_class ∈ {primary_literature, conference_proceedings}) AND
+/// ≥`minimumIndependentSources` distinct verified sources.
+///
+/// "Default/recommended" is determined by the optional `tier` column when the
+/// table carries it (value `defaultRecommended`); otherwise — the
+/// method_landscape schema does NOT define a `tier` column today
+/// (`additionalProperties: false`), so this validator keys off the
+/// `literature_eligible` rule: a candidate with ≥1 verified paper-class row is
+/// treated as a default candidate. Tool-doc-only candidates are never
+/// literature_eligible, so they cannot qualify as defaults — and a tool-doc-
+/// only candidate explicitly carrying a `defaultRecommended` tier therefore
+/// fails the paper-class requirement.
+///
+/// `manifest_path` is unused (the corroboration policy is read from the
+/// package, not the evidence manifest); the two-arg signature matches the
+/// other runners so the shared `runner_dispatch` can call it.
+pub fn run_claim_support_satisfied(
+    csv_path: &Path,
+    _manifest_path: &Path,
+) -> Result<(), (u64, ValidationFailureCause)> {
+    let artifact = csv_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
+    let min_sources = minimum_independent_sources(csv_path);
+
+    let mut rdr = csv::Reader::from_path(csv_path).map_err(|_| {
+        (
+            0,
+            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+        )
+    })?;
+    let headers = rdr.headers().cloned().map_err(|_| {
+        (
+            0,
+            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+        )
+    })?;
+    let idx = header_index(&headers);
+    let col = |rec: &csv::StringRecord, name: &str| -> String {
+        idx.get(name)
+            .and_then(|i| rec.get(*i))
+            .unwrap_or("")
+            .to_string()
+    };
+
+    // Per (axis, candidate): track first row index, whether tier marks it a
+    // default, paper-class verified count, and the set of distinct verified
+    // source identities.
+    #[derive(Default)]
+    struct Acc {
+        first_row: u64,
+        tier_default: bool,
+        paper_class_verified: u64,
+        verified_sources: std::collections::BTreeSet<String>,
+        seen: bool,
+    }
+    let mut acc: BTreeMap<(String, String), Acc> = BTreeMap::new();
+
+    for (i, rec) in rdr.records().enumerate() {
+        let rec = rec.map_err(|_| {
+            (
+                i as u64,
+                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+            )
+        })?;
+        let axis = col(&rec, "axis");
+        let cand = col(&rec, "candidate_method");
+        if axis.is_empty() || cand.is_empty() {
+            continue;
+        }
+        let class = col(&rec, "source_class");
+        let verified = col(&rec, "verified") == "true";
+        let tier = col(&rec, "tier");
+        // Distinct-source identity: prefer the locator, fall back to the hash.
+        let source_id = {
+            let r = col(&rec, "source_ref");
+            if !r.is_empty() {
+                r
+            } else {
+                col(&rec, "source_hash")
+            }
+        };
+
+        let e = acc.entry((axis, cand)).or_default();
+        if !e.seen {
+            e.first_row = i as u64;
+            e.seen = true;
+        }
+        if tier == "defaultRecommended" {
+            e.tier_default = true;
+        }
+        if verified {
+            if PAPER_CLASSES.contains(&class.as_str()) {
+                e.paper_class_verified += 1;
+            }
+            if !source_id.is_empty() {
+                e.verified_sources.insert(source_id);
+            }
+        }
+    }
+
+    for ((_axis, _cand), a) in &acc {
+        // A candidate is a "default" if explicitly tiered as such, OR
+        // (tier column absent) if it is literature_eligible (≥1 paper-class
+        // verified row). Tool-doc-only candidates are never eligible.
+        let literature_eligible = a.paper_class_verified >= 1;
+        let is_default = a.tier_default || literature_eligible;
+        if !is_default {
+            continue;
+        }
+        // Defaults must carry ≥1 paper-class source AND ≥min distinct sources.
+        let distinct = a.verified_sources.len() as u64;
+        if a.paper_class_verified < 1 || distinct < min_sources {
+            return Err((
+                a.first_row,
+                lit_fail(
+                    a.first_row,
+                    &artifact,
+                    LiteratureClaimFailureKind::InsufficientCorroboration,
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
+// ============================================================================
+// Runner 7: doc_page_matches_tool (+ version_context guard)
+// ============================================================================
+
+/// Validates each `source_class == tool_documentation` row in
+/// `method_landscape.csv`: (1) the snapshot named by the row's matching
+/// evidence-manifest entry, after `collapse_whitespace_lowercase_v1`
+/// normalization, must reference the `candidate_method` token — else
+/// `DocPageToolMismatch`; (2) the row's `version_context` must be present and
+/// non-empty — else `VersionContextMissing`. Non-tool-doc rows are skipped.
+pub fn run_doc_page_matches_tool(
+    csv_path: &Path,
+    manifest_path: &Path,
+) -> Result<(), (u64, ValidationFailureCause)> {
+    let artifact = csv_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_else(|| csv_path.to_string_lossy().to_string());
+
+    let mut rdr = csv::Reader::from_path(csv_path).map_err(|_| {
+        (
+            0,
+            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+        )
+    })?;
+    let headers = rdr.headers().cloned().map_err(|_| {
+        (
+            0,
+            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+        )
+    })?;
+    let idx = header_index(&headers);
+    let col = |rec: &csv::StringRecord, name: &str| -> String {
+        idx.get(name)
+            .and_then(|i| rec.get(*i))
+            .unwrap_or("")
+            .to_string()
+    };
+
+    let manifest = load_manifest(manifest_path).map_err(|_| {
+        (
+            0,
+            lit_fail(0, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+        )
+    })?;
+    // Index manifest entries by locator (source_ref, falling back to pmid).
+    let by_ref: BTreeMap<String, &EvidenceEntry> = manifest
+        .entries
+        .iter()
+        .map(|e| {
+            let key = e
+                .source_ref
+                .clone()
+                .or_else(|| e.pmid.clone())
+                .unwrap_or_default();
+            (key, e)
+        })
+        .collect();
+    let ev_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+
+    for (i, rec) in rdr.records().enumerate() {
+        let rec = rec.map_err(|_| {
+            (
+                i as u64,
+                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+            )
+        })?;
+        if col(&rec, "source_class") != "tool_documentation" {
+            continue;
+        }
+        let candidate = col(&rec, "candidate_method");
+        let version_context = col(&rec, "version_context");
+        let source_ref = col(&rec, "source_ref");
+
+        // Version-context guard: tool-doc method claims must carry one.
+        if version_context.trim().is_empty() {
+            return Err((
+                i as u64,
+                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::VersionContextMissing),
+            ));
+        }
+
+        // Snapshot relevance: the doc page must name the candidate tool.
+        let Some(entry) = by_ref.get(&source_ref) else {
+            return Err((
+                i as u64,
+                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::SourceUnresolvable),
+            ));
+        };
+        let raw = fs::read_to_string(ev_dir.join(&entry.path)).map_err(|_| {
+            (
+                i as u64,
+                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::EvidenceArtifactMissing),
+            )
+        })?;
+        let normalized = collapse_whitespace_lowercase_v1(&raw);
+        let token = collapse_whitespace_lowercase_v1(&candidate);
+        if token.is_empty() || !normalized.contains(&token) {
+            return Err((
+                i as u64,
+                lit_fail(i as u64, &artifact, LiteratureClaimFailureKind::DocPageToolMismatch),
+            ));
+        }
+    }
+    Ok(())
+}
+
+// ============================================================================
 // ValidatorRunner trait wrappers (Phase D — wire into post-task dispatch)
 // ============================================================================
 //
@@ -629,6 +915,13 @@ fn find_literature_csv(artifact_path: &Path) -> Option<std::path::PathBuf> {
     let claims = artifact_path.join("claims_evidence_matrix.csv");
     if claims.exists() {
         return Some(claims);
+    }
+    // The survey_method_landscape atom emits method_landscape.csv; the
+    // method-landscape validators (claim_support_satisfied, doc_page_matches_tool)
+    // resolve their input here.
+    let landscape = artifact_path.join("method_landscape.csv");
+    if landscape.exists() {
+        return Some(landscape);
     }
     None
 }
@@ -772,6 +1065,32 @@ impl ValidatorRunner for ClaimRowHasFindingIdRunner {
     }
 }
 
+/// `ValidatorRunner` wrapping `run_claim_support_satisfied` for the
+/// `claim_support_satisfied` obligation. Reads the corroboration policy from
+/// the package (not the evidence manifest), so the manifest is not required.
+pub struct ClaimSupportSatisfiedRunner;
+impl ValidatorRunner for ClaimSupportSatisfiedRunner {
+    fn obligation_id(&self) -> &'static str {
+        "claim_support_satisfied"
+    }
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        runner_dispatch(artifact_path, false, run_claim_support_satisfied)
+    }
+}
+
+/// `ValidatorRunner` wrapping `run_doc_page_matches_tool` for the
+/// `doc_page_matches_tool` obligation. Requires the evidence manifest to
+/// resolve each tool-doc snapshot.
+pub struct DocPageMatchesToolRunner;
+impl ValidatorRunner for DocPageMatchesToolRunner {
+    fn obligation_id(&self) -> &'static str {
+        "doc_page_matches_tool"
+    }
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        runner_dispatch(artifact_path, true, run_doc_page_matches_tool)
+    }
+}
+
 /// `ValidatorRunner` wrapping `run_concordance_flag_in_closed_set` for the `concordance_flag_in_closed_set` obligation.
 pub struct ConcordanceFlagInClosedSetRunner;
 impl ValidatorRunner for ConcordanceFlagInClosedSetRunner {
@@ -794,6 +1113,8 @@ pub fn literature_runners() -> Vec<Box<dyn ValidatorRunner>> {
         Box::new(RedistributableOrMarkedRunner),
         Box::new(ClaimRowHasFindingIdRunner),
         Box::new(ConcordanceFlagInClosedSetRunner),
+        Box::new(ClaimSupportSatisfiedRunner),
+        Box::new(DocPageMatchesToolRunner),
     ]
 }
 
@@ -964,6 +1285,221 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    // ====================================================================
+    // claim_support_satisfied
+    // ====================================================================
+
+    #[test]
+    fn claim_support_rejects_default_without_paper_class() {
+        // hisat2 has only tool-doc evidence → not literature_eligible, so it
+        // can NOT qualify as a default/recommended candidate. With no
+        // qualifying default present, a tool-doc-only candidate carrying the
+        // default marker must fail with InsufficientCorroboration.
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,tier,source_class,source_ref,verified\n\
+             alignment,hisat2,defaultRecommended,tool_documentation,https://rtd/x,true\n",
+        );
+        let err = run_claim_support_satisfied(&csv, &dir.path().join("ignored")).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::InsufficientCorroboration,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn claim_support_accepts_default_with_two_paper_sources() {
+        // star has two distinct paper-class verified sources → qualifies as a
+        // default candidate with ≥1 paper-class row AND ≥2 distinct sources.
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("ml.csv");
+        write(
+            &csv,
+            "axis,candidate_method,tier,source_class,source_ref,verified\n\
+             alignment,star,defaultRecommended,primary_literature,30000000,true\n\
+             alignment,star,defaultRecommended,conference_proceedings,10.1/x,true\n",
+        );
+        assert!(run_claim_support_satisfied(&csv, &dir.path().join("ignored")).is_ok());
+    }
+
+    #[test]
+    fn claim_support_rejects_eligible_default_with_one_source() {
+        // star is literature_eligible (one paper-class verified row) and thus
+        // a default candidate, but it has only ONE distinct verified source —
+        // below minimumIndependentSources (2) → InsufficientCorroboration.
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,source_ref,verified\n\
+             alignment,star,primary_literature,30000000,true\n",
+        );
+        let err = run_claim_support_satisfied(&csv, &dir.path().join("ignored")).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::InsufficientCorroboration,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn claim_support_ignores_non_default_tool_doc_candidates() {
+        // A candidate with only tool-doc evidence is not literature_eligible
+        // and is not marked default → it is not constrained and must pass.
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,source_ref,verified\n\
+             alignment,hisat2,tool_documentation,https://rtd/x,true\n",
+        );
+        assert!(run_claim_support_satisfied(&csv, &dir.path().join("ignored")).is_ok());
+    }
+
+    #[test]
+    fn claim_support_reads_minimum_from_policy() {
+        // A package-relative source-discovery-policy.json raising the minimum
+        // to 3 makes a two-source default fail.
+        let dir = TempDir::new().unwrap();
+        // artifact dir layout: <root>/runtime/outputs/<task>/method_landscape.csv
+        let artifact = dir.path().join("runtime/outputs/survey_method_landscape");
+        std::fs::create_dir_all(&artifact).unwrap();
+        let policies = dir.path().join("policies");
+        std::fs::create_dir_all(&policies).unwrap();
+        write(
+            &policies.join("source-discovery-policy.json"),
+            r#"{"claimSupportRules":{"minimumIndependentSources":3}}"#,
+        );
+        let csv = artifact.join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,source_ref,verified\n\
+             alignment,star,primary_literature,30000000,true\n\
+             alignment,star,conference_proceedings,10.1/x,true\n",
+        );
+        let err = run_claim_support_satisfied(&csv, &dir.path().join("ignored")).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::InsufficientCorroboration,
+                ..
+            }
+        ));
+    }
+
+    // ====================================================================
+    // doc_page_matches_tool
+    // ====================================================================
+
+    fn doc_manifest(entries: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({ "schema_version": 2, "entries": entries })
+    }
+
+    #[test]
+    fn doc_page_matches_when_snapshot_mentions_tool() {
+        let dir = TempDir::new().unwrap();
+        let evdir = dir.path().join("evidence");
+        std::fs::create_dir_all(&evdir).unwrap();
+        std::fs::write(evdir.join("flair_doc.html"), "FLAIR v2 supports isoforms").unwrap();
+        let manifest = doc_manifest(serde_json::json!([{
+            "source_ref_kind":"url","source_ref":"https://rtd/flair","source_class":"tool_documentation",
+            "source_kind":"doc_page","path":"flair_doc.html","sha256_binary":"a".repeat(64),
+            "sha256_extracted_text":"b".repeat(64),"extracted_text_normalization":"collapse_whitespace_lowercase_v1",
+            "bytes":5,"retrieval_ts":"2026-05-31T00:00:00Z","retrieval_query_id":"q","redistributable":true,"license":"CC-BY-4.0"
+        }]));
+        std::fs::write(evdir.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,source_ref,version_context,verified\n\
+             alignment,flair,tool_documentation,https://rtd/flair,2,true\n",
+        );
+        assert!(run_doc_page_matches_tool(&csv, &evdir.join("manifest.json")).is_ok());
+    }
+
+    #[test]
+    fn doc_page_rejects_snapshot_missing_tool_name() {
+        let dir = TempDir::new().unwrap();
+        let evdir = dir.path().join("evidence");
+        std::fs::create_dir_all(&evdir).unwrap();
+        std::fs::write(evdir.join("doc.html"), "this page is about something else").unwrap();
+        let manifest = doc_manifest(serde_json::json!([{
+            "source_ref_kind":"url","source_ref":"https://rtd/x","source_class":"tool_documentation",
+            "source_kind":"doc_page","path":"doc.html","sha256_binary":"a".repeat(64),
+            "sha256_extracted_text":"b".repeat(64),"extracted_text_normalization":"collapse_whitespace_lowercase_v1",
+            "bytes":5,"retrieval_ts":"2026-05-31T00:00:00Z","retrieval_query_id":"q","redistributable":true,"license":"CC-BY-4.0"
+        }]));
+        std::fs::write(evdir.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,source_ref,version_context,verified\n\
+             alignment,flair,tool_documentation,https://rtd/x,2,true\n",
+        );
+        let err = run_doc_page_matches_tool(&csv, &evdir.join("manifest.json")).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::DocPageToolMismatch,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn doc_page_rejects_missing_version_context() {
+        let dir = TempDir::new().unwrap();
+        let evdir = dir.path().join("evidence");
+        std::fs::create_dir_all(&evdir).unwrap();
+        std::fs::write(evdir.join("flair.html"), "flair supports isoforms").unwrap();
+        let manifest = doc_manifest(serde_json::json!([{
+            "source_ref_kind":"url","source_ref":"https://rtd/flair","source_class":"tool_documentation",
+            "source_kind":"doc_page","path":"flair.html","sha256_binary":"a".repeat(64),
+            "sha256_extracted_text":"b".repeat(64),"extracted_text_normalization":"collapse_whitespace_lowercase_v1",
+            "bytes":5,"retrieval_ts":"2026-05-31T00:00:00Z","retrieval_query_id":"q","redistributable":true,"license":"CC-BY-4.0"
+        }]));
+        std::fs::write(evdir.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        // version_context column present but empty → VersionContextMissing.
+        write(
+            &csv,
+            "axis,candidate_method,source_class,source_ref,version_context,verified\n\
+             alignment,flair,tool_documentation,https://rtd/flair,,true\n",
+        );
+        let err = run_doc_page_matches_tool(&csv, &evdir.join("manifest.json")).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::VersionContextMissing,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn doc_page_ignores_non_tool_doc_rows() {
+        // A primary_literature row is not subject to the tool-doc relevance /
+        // version-context guards.
+        let dir = TempDir::new().unwrap();
+        let evdir = dir.path().join("evidence");
+        std::fs::create_dir_all(&evdir).unwrap();
+        std::fs::write(evdir.join("manifest.json"), r#"{"schema_version":2,"entries":[]}"#).unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,source_ref,version_context,verified\n\
+             alignment,star,primary_literature,30000000,,true\n",
+        );
+        assert!(run_doc_page_matches_tool(&csv, &evdir.join("manifest.json")).is_ok());
     }
 
     #[test]
