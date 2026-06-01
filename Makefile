@@ -9,6 +9,7 @@
         test-fast test-core test-conversation test-harness test-server test-cli \
         test-ui conformance lint-ui clippy fmt check types e2e e2e-playwright bench \
         bio-min dev-server dev-ui clean doctor lint deny install-hooks \
+        eval eval-dryrun eval-e2e \
         eval-biomnibench eval-biomnibench-smoke eval-nekrutenko eval-nekrutenko-smoke eval-tests \
         eval-biomnibench-dryrun eval-nekrutenko-dryrun
 
@@ -120,26 +121,47 @@ dev-ui: ## Run the Vite dev server on :5173 (proxies /api/* to :3000)
 bench: ## Criterion benches under crates/core
 	cargo bench -p ecaa-workflow-core
 
-eval-biomnibench: ## Operator-run BiomniBench-DA (needs ECAA_EVAL_LIVE=1 + GEMINI_API_KEY + ECAA_ANTHROPIC_API_KEY)
-	@python -m scripts.eval.eval_runner biomnibench $(EVAL_ARGS)
+# ── Eval suite (operator-run; never CI) ───────────────────────────────────────
+# Every eval target is gated on ECAA_EVAL_LIVE=1 (the runner prints SKIP and exits
+# 0 otherwise) and, for the LLM-judged BiomniBench arm, GEMINI_API_KEY +
+# ECAA_ANTHROPIC_API_KEY. Pass extra runner flags via EVAL_ARGS, e.g.
+#   make eval-biomnibench EVAL_ARGS="--trials 5 --max-iterations 30"
+# The `eval` dispatcher runs one tier; TIER selects which (default: dryrun).
+
+PYTHON ?= python3
+TIER ?= dryrun
+
+eval: ## Run an eval tier: make eval TIER={dryrun|e2e|biomnibench|nekrutenko} (default dryrun)
+	@$(MAKE) --no-print-directory eval-$(TIER)
+
+eval-dryrun: ## Tier 1 — dry run: 1-task smoke of BOTH benchmarks x both arms (cheap plumbing check)
+	@$(PYTHON) -m scripts.eval.eval_runner biomnibench --smoke --arms ecaa,claude-direct $(EVAL_ARGS)
+	@$(PYTHON) -m scripts.eval.eval_runner nekrutenko --smoke --arms ecaa,claude-direct $(EVAL_ARGS)
+
+eval-e2e: ## Tier 2 — full e2e: BiomniBench (full trials) + Nekrutenko (full + 36-cell fault matrix); costly
+	@$(PYTHON) -m scripts.eval.eval_runner biomnibench $(EVAL_ARGS)
+	@$(PYTHON) -m scripts.eval.eval_runner nekrutenko --error-matrix $(EVAL_ARGS)
+
+eval-biomnibench: ## Tier 3 — only BiomniBench-DA (needs ECAA_EVAL_LIVE=1 + GEMINI_API_KEY + ECAA_ANTHROPIC_API_KEY)
+	@$(PYTHON) -m scripts.eval.eval_runner biomnibench $(EVAL_ARGS)
 
 eval-biomnibench-smoke: ## BiomniBench smoke (2 tasks, 1 trial)
-	@python -m scripts.eval.eval_runner biomnibench --smoke $(EVAL_ARGS)
+	@$(PYTHON) -m scripts.eval.eval_runner biomnibench --smoke $(EVAL_ARGS)
 
-eval-nekrutenko: ## Operator-run Nekrutenko mtDNA eval (needs ECAA_EVAL_LIVE=1)
-	@python -m scripts.eval.eval_runner nekrutenko $(EVAL_ARGS)
+eval-nekrutenko: ## Tier 4 — only Nekrutenko mtDNA eval (needs ECAA_EVAL_LIVE=1; add --error-matrix via EVAL_ARGS)
+	@$(PYTHON) -m scripts.eval.eval_runner nekrutenko $(EVAL_ARGS)
 
 eval-nekrutenko-smoke: ## Nekrutenko smoke (1 trial)
-	@python -m scripts.eval.eval_runner nekrutenko --smoke $(EVAL_ARGS)
+	@$(PYTHON) -m scripts.eval.eval_runner nekrutenko --smoke $(EVAL_ARGS)
 
 eval-tests: ## Offline unit tests for the eval harness (no live API)
-	@python -m pytest scripts/eval/tests -q
+	@$(PYTHON) -m pytest scripts/eval/tests -q
 
 eval-biomnibench-dryrun: ## BiomniBench dry-run smoke (--smoke flag; no live API needed beyond ECAA_EVAL_LIVE=1)
-	@python -m scripts.eval.eval_runner biomnibench --smoke --arms ecaa,claude-direct $(EVAL_ARGS)
+	@$(PYTHON) -m scripts.eval.eval_runner biomnibench --smoke --arms ecaa,claude-direct $(EVAL_ARGS)
 
 eval-nekrutenko-dryrun: ## Nekrutenko dry-run smoke (--smoke flag; no live API needed beyond ECAA_EVAL_LIVE=1)
-	@python -m scripts.eval.eval_runner nekrutenko --smoke --arms ecaa,claude-direct $(EVAL_ARGS)
+	@$(PYTHON) -m scripts.eval.eval_runner nekrutenko --smoke --arms ecaa,claude-direct $(EVAL_ARGS)
 
 clean: ## Remove build artifacts
 	cargo clean
