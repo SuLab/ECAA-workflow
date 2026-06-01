@@ -14,6 +14,8 @@
 
 use std::collections::BTreeSet;
 
+use crate::workflow_contracts::task_node::WorkflowDag;
+
 /// Hard cap on branch count so a pathological modality list can't fan
 /// the planner out unboundedly. Truncation is logged, never silent.
 const MAX_MODALITY_BRANCHES: usize = 8;
@@ -50,9 +52,80 @@ fn modality_prefix(modality: &str, used: &mut BTreeSet<String>) -> String {
     candidate
 }
 
+/// Namespace-prefix a branch DAG. Renames `id` and `human_name` (for
+/// display) and rewrites every intra-branch edge endpoint; **leaves
+/// `machine_name` bare** because `discover_companion_synthesis.rs:118`
+/// uses `machine_name` as the atom-registry lookup key — and the
+/// branch's companions were already synthesized inside the sub-plan, so
+/// the whole branch (companions included) is prefixed as a unit.
+fn prefix_branch(dag: &mut WorkflowDag, prefix: &str) {
+    for n in &mut dag.nodes {
+        n.id = format!("{prefix}{}", n.id);
+        n.human_name = format!("{prefix}{}", n.human_name);
+        // machine_name intentionally NOT prefixed.
+    }
+    for e in &mut dag.edges {
+        e.from_node = format!("{prefix}{}", e.from_node);
+        e.to_node = format!("{prefix}{}", e.to_node);
+    }
+}
+
+/// Drop the branch's project-level final-report node(s) — identified by
+/// the bare atom id `final_reporting` in the lift-stamped `atom_id`
+/// attribute — and any edge touching them, so branch *analysis*
+/// terminals feed the single cross-modality `final_reporting`. Idempotent.
+fn strip_branch_final_report(dag: &mut WorkflowDag) {
+    let drop: BTreeSet<String> = dag
+        .nodes
+        .iter()
+        .filter(|n| {
+            n.attributes.get("atom_id").and_then(|v| v.as_str()) == Some("final_reporting")
+        })
+        .map(|n| n.id.clone())
+        .collect();
+    dag.nodes.retain(|n| !drop.contains(&n.id));
+    dag.edges
+        .retain(|e| !drop.contains(&e.from_node) && !drop.contains(&e.to_node));
+}
+
+/// Branch terminals = nodes with no outgoing edge, sorted for
+/// determinism. Computed AFTER `strip_branch_final_report` so the
+/// pre-final analysis nodes become the feeders into the join.
+fn branch_terminals(dag: &WorkflowDag) -> Vec<String> {
+    let has_outgoing: BTreeSet<&str> = dag.edges.iter().map(|e| e.from_node.as_str()).collect();
+    let mut terms: Vec<String> = dag
+        .nodes
+        .iter()
+        .map(|n| n.id.clone())
+        .filter(|id| !has_outgoing.contains(id.as_str()))
+        .collect();
+    terms.sort();
+    terms
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+    use crate::workflow_contracts::task_node::TaskNode;
+
+    fn node(id: &str, atom_id: &str) -> TaskNode {
+        let mut n = TaskNode::skeleton(id, "test node");
+        n.machine_name = atom_id.to_string();
+        n.attributes
+            .insert("atom_id".into(), serde_json::Value::String(atom_id.into()));
+        n
+    }
+    fn edge(from: &str, to: &str) -> EdgeContract {
+        EdgeContract {
+            from_node: from.into(),
+            from_port: String::new(),
+            to_node: to.into(),
+            to_port: String::new(),
+            proof: CompatibilityProof::default(),
+            chain_of_custody: None,
+        }
+    }
 
     #[test]
     fn modality_prefix_is_deterministic_and_dedupes() {
@@ -62,5 +135,57 @@ mod tests {
         assert_eq!(modality_prefix("bulk_rnaseq", &mut used), "bulk_rnaseq2_");
         let mut u2 = BTreeSet::new();
         assert_eq!(modality_prefix("...", &mut u2), "modality_");
+    }
+
+    #[test]
+    fn prefix_branch_renames_ids_and_edges_but_not_machine_name() {
+        let mut dag = WorkflowDag {
+            id: "b".into(),
+            nodes: vec![
+                node("alignment", "alignment"),
+                node("differential_expression", "differential_expression"),
+            ],
+            edges: vec![edge("alignment", "differential_expression")],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+        prefix_branch(&mut dag, "bulk_rnaseq_");
+        assert!(dag.nodes.iter().all(|n| n.id.starts_with("bulk_rnaseq_")));
+        // machine_name stays the bare atom id (discover-companion lookup key).
+        assert_eq!(dag.nodes[0].machine_name, "alignment");
+        assert_eq!(dag.edges[0].from_node, "bulk_rnaseq_alignment");
+        assert_eq!(dag.edges[0].to_node, "bulk_rnaseq_differential_expression");
+    }
+
+    #[test]
+    fn strip_branch_final_report_removes_final_reporting_and_its_edges() {
+        let mut dag = WorkflowDag {
+            id: "b".into(),
+            nodes: vec![
+                node("reporting", "reporting"),
+                node("final_reporting", "final_reporting"),
+            ],
+            edges: vec![edge("reporting", "final_reporting")],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+        strip_branch_final_report(&mut dag);
+        assert!(dag
+            .nodes
+            .iter()
+            .all(|n| n.attributes.get("atom_id").and_then(|v| v.as_str()) != Some("final_reporting")));
+        assert!(dag.edges.is_empty(), "edges touching final_reporting are dropped");
+    }
+
+    #[test]
+    fn branch_terminals_are_nodes_with_no_outgoing_edge() {
+        let dag = WorkflowDag {
+            id: "b".into(),
+            nodes: vec![node("a", "a"), node("b", "b"), node("c", "c")],
+            edges: vec![edge("a", "b"), edge("a", "c")],
+            assumptions: Default::default(),
+            source_template: None,
+        };
+        assert_eq!(branch_terminals(&dag), vec!["b".to_string(), "c".to_string()]);
     }
 }
