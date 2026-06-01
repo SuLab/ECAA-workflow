@@ -4,11 +4,13 @@
 
 pub mod atom_eligibility;
 pub mod backward_search;
+mod coherence_gate;
 pub mod companion_synthesis;
 pub mod dag_mutation;
 pub mod discover_companion_synthesis;
 pub mod forward_search;
 pub mod meet_in_middle;
+mod multi_branch_synthesis;
 pub mod planner;
 pub mod policy_gate;
 pub mod reporting_consumer_synthesis;
@@ -73,6 +75,12 @@ pub struct PlanningContext {
     /// `cross_omics_rnaseq_proteomics`) require the namespaced
     /// parallel-pipeline scaffold the cross-omics archetypes encode.
     pub additional_modalities: Vec<String>,
+    /// True while planning a single modality as one branch of a
+    /// multi-branch composition. Set by `compose_branches` on each
+    /// per-modality sub-context so the top-of-`plan()` multi-branch
+    /// dispatch refuses to re-enter (single-modality sub-plans only).
+    /// Defaults to `false` via the struct's `Default` derive.
+    pub in_branch_subplan: bool,
     /// V3 assumption-policy table consulted by
     /// `classify_outcome_with_policy` to drive blocking decisions on
     /// unresolved assumptions. `None` falls back to the legacy
