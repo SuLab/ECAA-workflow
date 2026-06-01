@@ -40,10 +40,13 @@ def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,
              env: dict | None = None) -> RunResult:
     """Run the bare benchmark arm inside the bio-min:local container.
 
-    The bare arm calls ``agent-claude.sh <workdir>`` without ``ECAA_TASK_ID``
-    set, which triggers the standalone path: the script reads ``workdir/PROMPT.md``
-    and runs Claude Code via ``docker run`` against the image named by
-    ``ECAA_DEFAULT_CONTAINER_IMAGE`` (defaulting to ``bio-min:local``).
+    The bare arm calls ``scripts/eval/_bare_agent.sh <workdir>`` — a clean
+    container runner that reads ``workdir/PROMPT.md`` and runs Claude Code via
+    ``docker run`` against ``ECAA_DEFAULT_CONTAINER_IMAGE`` (default
+    ``bio-min:local``) with NO ecaa task scaffolding (no DAG, no appended task
+    contract, no state.patch.json/retry machinery — agent-claude.sh's retry is
+    coupled to that contract and is wrong for a bare prompt). claude's JSON
+    result envelope is printed to stdout and captured here.
 
     This ensures the bare arm has the same toolchain, credential mounts, and
     container environment as the ECAA arm — the comparison isolates the
@@ -59,18 +62,16 @@ def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,
     (workdir / "PROMPT.md").write_text(instruction)
 
     agent_script = os.environ.get("ECAA_EVAL_BARE_AGENT_SCRIPT") or str(
-        REPO_ROOT / "scripts" / "agent-claude.sh"
+        REPO_ROOT / "scripts" / "eval" / "_bare_agent.sh"
     )
 
-    # Build the subprocess environment: start from the caller's env (or the
-    # current process env) so credentials, ECAA_* tunables, and PATH additions
-    # flow through.  Then guarantee the container image default and that
-    # standard system dirs are on PATH so shebang interpreters resolve.
-    # ECAA_TASK_ID must NOT be set — its absence is what selects the standalone
-    # path inside agent-claude.sh (reads PROMPT.md, no per-task output dir).
+    # Build the subprocess environment from the caller's env (or the current
+    # process env) so credentials, ECAA_* tunables, and PATH additions flow
+    # through; guarantee the container image default and that standard system
+    # dirs are on PATH so shebang interpreters resolve. No ECAA_TASK_ID — the
+    # bare runner carries no ecaa task scaffolding.
     effective_env = env.copy() if env is not None else os.environ.copy()
     effective_env.setdefault("ECAA_DEFAULT_CONTAINER_IMAGE", "bio-min:local")
-    effective_env.pop("ECAA_TASK_ID", None)
     for sysdir in ("/usr/bin", "/bin"):
         if sysdir not in effective_env.get("PATH", "").split(os.pathsep):
             effective_env["PATH"] = effective_env.get("PATH", "") + os.pathsep + sysdir
@@ -84,9 +85,11 @@ def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,
         capture_output=True,
         text=True,
     )
+    # _bare_agent.sh prints claude's --output-format=json result to stdout.
+    captured = proc.stdout or ""
     return RunResult(
         exit_ok=(proc.returncode == 0),
         wall_secs=time.time() - t0,
         run_dir=workdir,
-        stdout=proc.stdout or "",
+        stdout=captured,
     )
