@@ -1156,10 +1156,7 @@ pub fn compose_with_version_and_modalities_full(
     // production `ECAA_COMPOSER=semantic` default an out-of-catalog
     // prompt (CyTOF, Mendelian randomization, cryo-EM, …) would
     // misroute to the nearest keyword-similar archetype and emit
-    // forbidden domain atoms. Mirror the guard here so both composer
-    // generations behave identically. Gated to single-modality: a
-    // genuine cross-omics request (≥2 modalities) keeps its archetype
-    // routing.
+    // forbidden domain atoms.
     let is_out_of_catalog = goal
         .modifiers
         .get("kind")
@@ -1177,22 +1174,38 @@ pub fn compose_with_version_and_modalities_full(
     // the keyword scorer surfaced: a scATAC-only prompt is mis-detected
     // as RNA+ATAC cross-omics, and that spurious companion is exactly the
     // misroute being suppressed. Other flex kinds stay single-modality.
-    if !covered_project_class
+    let generic_fallthrough = !covered_project_class
         && (unique_modalities(target_modalities).len() < 2 || is_out_of_catalog)
-        && requires_generic_fallthrough(goal, target_modalities.first().copied())
-    {
-        if let Some(generic) = archetype_reg.get("generic_omics") {
+        && requires_generic_fallthrough(goal, target_modalities.first().copied());
+
+    if composer_version == 4 {
+        if generic_fallthrough {
+            // Route the fall-through THROUGH the v4 planner with the
+            // modality forced to `generic_omics` (rather than returning a
+            // legacy `CompositionResult`). The conversation session model
+            // is workflow_dag-centric — `Session::current_dag` reads
+            // `session.workflow_dag`, and promoted hypothesized-node
+            // proposals are injected onto that typed `WorkflowDag`. A
+            // legacy composition (workflow_dag = None) leaves the session
+            // with no DAG to emit or inject into ("no DAG built — nothing
+            // to emit"). Producing a v4 `WorkflowDag` here keeps both the
+            // CLI and the conversation/server emit paths working off the
+            // same authoritative structure. edam_data is wildcarded —
+            // generic_omics is the no-committed-shape archetype.
             let mut wildcarded = goal.clone();
             wildcarded.edam_data = String::new();
             wildcarded.edam_format = None;
-            let result =
-                resolve_archetype_to_composition(generic, &wildcarded, atom_reg, archetype_reg)?;
-            validate_composition(&result, atom_reg)?;
-            return Ok(ComposerOutput::legacy(result));
+            return compose_v4_dispatch_full(
+                &wildcarded,
+                project_class,
+                atom_reg,
+                archetype_reg,
+                &["generic_omics"],
+                policy_ctx,
+                opaque_sink,
+                opaque_session_id,
+            );
         }
-    }
-
-    if composer_version == 4 {
         // v4 dispatch already takes the policy context; for
         // multi-modality v4 (cross-omics) we route through the same
         // entry — the v4 planner discovers cross-omics archetypes
@@ -1210,6 +1223,21 @@ pub fn compose_with_version_and_modalities_full(
             opaque_sink,
             opaque_session_id,
         );
+    }
+
+    // Legacy (non-v4) path: resolve the generic_omics archetype directly.
+    // Persisted composer_version=1/2/3 sessions and the CLI consume
+    // `CompositionResult` (workflow_dag = None) via build_dag_from_composition.
+    if generic_fallthrough {
+        if let Some(generic) = archetype_reg.get("generic_omics") {
+            let mut wildcarded = goal.clone();
+            wildcarded.edam_data = String::new();
+            wildcarded.edam_format = None;
+            let result =
+                resolve_archetype_to_composition(generic, &wildcarded, atom_reg, archetype_reg)?;
+            validate_composition(&result, atom_reg)?;
+            return Ok(ComposerOutput::legacy(result));
+        }
     }
     let composition = compose_with_version_and_modalities(
         goal,
