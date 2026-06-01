@@ -28,16 +28,53 @@ def test_run_error_cell_classifies_via_run_fn(tmp_path, monkeypatch):
         assert env["EVAL_INJECT_PATTERN"] == "flake_first_call"
         assert env["EVAL_INJECT_TARGET"] == "bwa"
         assert "EVAL_INJECT_STATE" in env
-        # produce the 4 expected vcfs so it classifies as a clean recover
+        # produce the 4 expected vcfs WITH a variant record -> clean recover
         for s in ("a", "b", "c", "d"):
-            (Path(cell_dir) / f"{s}.vcf").write_text("##fileformat=VCFv4.2\n")
+            (Path(cell_dir) / f"{s}.vcf").write_text(
+                "##fileformat=VCFv4.2\nchrM\t152\t.\tT\tC\t.\tPASS\tAF=0.9\n")
         return FakeResult()
 
     cell = Nekrutenko().run_error_cell(_task(), ("flake_first_call", "bwa", 42), run_fn)
     assert cell["pattern"] == "flake_first_call"
     assert cell["tool"] == "bwa"
     assert cell["seed"] == 42
-    assert "recover" in cell and "diagnose" in cell
+    assert cell["recover"] is True
+
+
+def test_header_only_and_empty_vcfs_not_counted_as_recovered(tmp_path, monkeypatch):
+    monkeypatch.setenv("ECAA_EVAL_SCRATCH_DIR", str(tmp_path))
+
+    class FakeResult:
+        exit_ok = True
+
+    def run_fn(cell_dir, env):
+        # header-only (wrong_format_output) + empty (silent_truncation) -> 0 valid
+        (Path(cell_dir) / "a.vcf").write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\n")
+        (Path(cell_dir) / "b.vcf").write_text("")
+        return FakeResult()
+
+    cell = Nekrutenko().run_error_cell(_task(), ("wrong_format_output", "lofreq", 42), run_fn)
+    assert cell["recover"] is False  # no valid VCF content -> not a recovery
+
+
+def test_report_aggregates_cells_across_trials_and_excludes_inconclusive():
+    from scripts.eval.benchmark import Score
+
+    def cell(rec, diag, inconclusive=False):
+        c = {"pattern": "flake_first_call", "tool": "bwa", "seed": 42,
+             "handle": "recover", "recover": rec, "diagnose": diag}
+        if inconclusive:
+            c["inconclusive"] = True
+        return c
+
+    r0 = Score("mtdna", "ecaa", 0, 100.0, {}, 1.0,
+               [cell(True, True), cell(False, True)], "deterministic")
+    r1 = Score("mtdna", "ecaa", 1, 100.0, {}, 1.0,
+               [cell(True, False), cell(True, True, inconclusive=True)], "deterministic")
+    em = Nekrutenko().report([r0, r1]).meta["error_matrix"]["ecaa"]
+    assert em["n_cells"] == 3            # 4 cells over 2 trials, 1 inconclusive excluded
+    assert em["n_inconclusive"] == 1
+    assert abs(em["recover_rate"] - 2 / 3) < 1e-9   # True,False,True over scored cells
 
 
 def test_error_matrix_still_returns_36_cells(tmp_path, monkeypatch):

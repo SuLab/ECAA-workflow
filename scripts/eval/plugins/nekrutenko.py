@@ -54,6 +54,23 @@ _WORKFLOW_PROMPT = (
 )
 
 
+def _valid_vcf_count(root: Path) -> int:
+    """Count VCFs under ``root`` with >=1 actual variant record (a non-blank,
+    non-'#' line). 0-byte (silent_truncation) and header-only (wrong_format_output)
+    outputs are NOT counted, so they can't be miscredited as a recovered sample."""
+    import gzip
+    n = 0
+    for p in list(root.rglob("*.vcf")) + list(root.rglob("*.vcf.gz")):
+        try:
+            opener = gzip.open if p.suffix == ".gz" else open
+            with opener(p, "rt") as fh:
+                if any(ln.strip() and not ln.startswith("#") for ln in fh):
+                    n += 1
+        except OSError:
+            pass
+    return n
+
+
 class Nekrutenko(Benchmark):
     @property
     def name(self) -> str:
@@ -104,33 +121,34 @@ class Nekrutenko(Benchmark):
                      judge_id="deterministic")
 
     def report(self, scores):
-        error_matrix: dict = {}
+        # Aggregate error-matrix cells across ALL rows (every trial) per arm, so
+        # multi-trial runs combine instead of the last trial overwriting. Cells
+        # flagged ``inconclusive`` (the injected fault never reached the agent —
+        # shim bypassed) are excluded from recover/diagnose rates and counted
+        # separately, so a bypassed cell is never scored as a recovery.
+        cells_by_arm: dict[str, list[dict]] = {}
         for row in scores:
-            cells = row.error_cells
-            if not cells:
-                continue
-            arm = row.arm
-            arm_entry = error_matrix.setdefault(arm, {
-                "recover_rate": 0.0,
-                "diagnose_rate": 0.0,
-                "n_cells": 0,
-                "by_pattern": {},
-            })
-            arm_entry["recover_rate"] = mean(c["recover"] for c in cells)
-            arm_entry["diagnose_rate"] = mean(c["diagnose"] for c in cells)
-            arm_entry["n_cells"] = len(cells)
+            if row.error_cells:
+                cells_by_arm.setdefault(row.arm, []).extend(row.error_cells)
+        error_matrix: dict = {}
+        for arm, cells in cells_by_arm.items():
+            scored = [c for c in cells if not c.get("inconclusive")]
             by_pattern: dict = {}
-            for cell in cells:
+            for cell in scored:
                 pat = cell["pattern"]
                 by_pattern.setdefault(pat, {"recover": [], "diagnose": []})
                 by_pattern[pat]["recover"].append(cell["recover"])
                 by_pattern[pat]["diagnose"].append(cell["diagnose"])
-            arm_entry["by_pattern"] = {
-                pat: {
-                    "recover_rate": mean(v["recover"]),
-                    "diagnose_rate": mean(v["diagnose"]),
-                }
-                for pat, v in by_pattern.items()
+            error_matrix[arm] = {
+                "recover_rate": mean(c["recover"] for c in scored) if scored else 0.0,
+                "diagnose_rate": mean(c["diagnose"] for c in scored) if scored else 0.0,
+                "n_cells": len(scored),
+                "n_inconclusive": len(cells) - len(scored),
+                "by_pattern": {
+                    pat: {"recover_rate": mean(v["recover"]),
+                          "diagnose_rate": mean(v["diagnose"])}
+                    for pat, v in by_pattern.items()
+                },
             }
         meta: dict = {"scorer": "variant_overlap_jaccard+error_matrix"}
         if error_matrix:
@@ -174,7 +192,7 @@ class Nekrutenko(Benchmark):
 
             result = run_fn(cell_dir, env)
 
-            produced_valid = len(list(cell_dir.rglob("*.vcf")))
+            produced_valid = _valid_vcf_count(cell_dir)
             failures_log = ""
             log_path = cell_dir / "failures.log"
             if log_path.exists():
