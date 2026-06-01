@@ -1,83 +1,91 @@
 import os
-import shutil, subprocess
+import stat
 from pathlib import Path
 import pytest
 from scripts.eval.services.agent_runner import run_bare
 
-def test_run_bare_executes_command(tmp_path, monkeypatch):
-    # Point the runner at a stub "claude" on PATH that just writes files.
-    bindir = tmp_path / "bin"; bindir.mkdir()
-    stub = bindir / "claude"
-    stub.write_text('#!/usr/bin/env bash\necho "ran in $(pwd)" > trace.md\n')
-    stub.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{bindir}:{tmp_path}")
-    wd = tmp_path / "wd"; wd.mkdir()
-    res = run_bare(wd, "do the thing", timeout=30)
-    assert res.exit_ok is True
-    assert (wd / "trace.md").exists()
+
+def _make_stub(directory: Path, body: str) -> Path:
+    """Write an executable stub shell script and return its path."""
+    stub = directory / "stub-agent.sh"
+    stub.write_text("#!/usr/bin/env bash\n" + body)
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return stub
 
 
-def test_run_bare_uses_provided_env(tmp_path):
-    """run_bare must thread the caller-provided env into the subprocess.
-
-    We set a marker var in the env dict and write a stub 'claude' that echoes
-    the marker value to a file.  If env threading works, the file will contain
-    the expected value.  /usr/bin and /bin must still be present (PATH
-    preservation) so the shebang interpreter resolves correctly.
-    """
+def test_run_bare_writes_prompt_and_invokes_agent_script(tmp_path, monkeypatch):
+    """run_bare writes PROMPT.md and delegates to the agent script stub."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    stub = bindir / "claude"
-    # Write the value of EVAL_MARKER to marker.txt in the working directory.
-    stub.write_text(
-        '#!/usr/bin/env bash\n'
-        'echo "$EVAL_MARKER" > marker.txt\n'
+    # Stub: emit some stdout, write trace.md + answer.txt into $1 (workdir).
+    stub = _make_stub(
+        bindir,
+        'echo \'{"result":"ok"}\'\n'
+        'printf "narr" > "$1/trace.md"\n'
+        'printf "ans"  > "$1/answer.txt"\n',
     )
-    stub.chmod(0o755)
 
     wd = tmp_path / "wd"
-    wd.mkdir()
+    monkeypatch.setenv("ECAA_EVAL_BARE_AGENT_SCRIPT", str(stub))
 
-    # Build a custom env: start from os.environ, add the stub bin dir to PATH,
-    # and inject our marker.  We deliberately do NOT include /usr/bin:/bin here
-    # to verify that run_bare adds them automatically.
+    res = run_bare(wd, "do the analysis")
+
+    # PROMPT.md must contain the instruction.
+    assert (wd / "PROMPT.md").read_text() == "do the analysis"
+    # Stub must have created trace.md and answer.txt inside workdir.
+    assert (wd / "trace.md").exists(), "stub should create trace.md"
+    assert (wd / "answer.txt").exists(), "stub should create answer.txt"
+    # RunResult fields.
+    assert res.exit_ok is True
+    assert res.run_dir == wd
+    assert "ok" in res.stdout
+
+
+def test_run_bare_forwards_env(tmp_path, monkeypatch):
+    """run_bare threads the caller-provided env into the agent subprocess."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    stub = _make_stub(
+        bindir,
+        'echo "$EVAL_MARKER" > "$1/marker.txt"\n',
+    )
+
+    wd = tmp_path / "wd"
+    monkeypatch.setenv("ECAA_EVAL_BARE_AGENT_SCRIPT", str(stub))
+
     custom_env = os.environ.copy()
-    custom_env["PATH"] = str(bindir) + os.pathsep + custom_env.get("PATH", "")
     custom_env["EVAL_MARKER"] = "hello_from_env_injection"
 
-    res = run_bare(wd, "do the thing", timeout=30, env=custom_env)
+    res = run_bare(wd, "do the analysis", env=custom_env)
 
-    assert res.exit_ok is True, "stub claude should exit 0"
-
+    assert res.exit_ok is True, "stub agent should exit 0"
     marker_file = wd / "marker.txt"
-    assert marker_file.exists(), "stub claude should have written marker.txt"
-    contents = marker_file.read_text().strip()
-    assert contents == "hello_from_env_injection", (
-        f"subprocess did not see the injected env var; got: {contents!r}"
+    assert marker_file.exists(), "stub should write marker.txt"
+    assert marker_file.read_text().strip() == "hello_from_env_injection", (
+        f"subprocess did not see injected env var; got: {marker_file.read_text()!r}"
     )
 
-    # Also confirm /usr/bin and /bin were preserved (run_bare's PATH contract).
-    # We check this indirectly: the stub used /usr/bin/env bash to launch, which
-    # only works if /usr/bin is on PATH — and the test passed, so it is.
 
-
-def test_run_bare_captures_stdout(tmp_path):
-    """run_bare must capture stdout from the subprocess into RunResult.stdout."""
+def test_run_bare_sets_default_container_image(tmp_path, monkeypatch):
+    """run_bare supplies ECAA_DEFAULT_CONTAINER_IMAGE=bio-min:local when not set."""
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    stub = bindir / "claude"
-    stub.write_text('#!/usr/bin/env bash\necho \'{"result":"hi"}\'\n')
-    stub.chmod(0o755)
-
-    custom_env = os.environ.copy()
-    custom_env["PATH"] = str(bindir) + os.pathsep + custom_env.get("PATH", "")
+    stub = _make_stub(
+        bindir,
+        'echo "$ECAA_DEFAULT_CONTAINER_IMAGE" > "$1/image.txt"\n',
+    )
 
     wd = tmp_path / "wd"
-    wd.mkdir()
+    monkeypatch.setenv("ECAA_EVAL_BARE_AGENT_SCRIPT", str(stub))
+    # Ensure the var is absent from the environment the stub inherits.
+    monkeypatch.delenv("ECAA_DEFAULT_CONTAINER_IMAGE", raising=False)
 
-    res = run_bare(wd, "do the thing", timeout=30, env=custom_env)
+    # Pass env=None so run_bare copies os.environ (which now lacks the var).
+    res = run_bare(wd, "do the analysis", env=None)
 
-    assert res.exit_ok is True, "stub claude should exit 0"
-    assert "hi" in res.stdout, (
-        f"res.stdout should contain 'hi'; got: {res.stdout!r}"
+    assert res.exit_ok is True
+    image_file = wd / "image.txt"
+    assert image_file.exists(), "stub should write image.txt"
+    assert image_file.read_text().strip() == "bio-min:local", (
+        f"expected bio-min:local default; got: {image_file.read_text()!r}"
     )
