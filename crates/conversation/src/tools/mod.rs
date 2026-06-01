@@ -2844,7 +2844,21 @@ fn try_build_via_composer(
     // ["n_way_intent"] — the planner's prose reconstruction then
     // sees a strong-marker value and `find_match_cross_omics(n_way:
     // true)` unlocks subset matching for 3-way archetypes.
-    if ecaa_workflow_core::classify::is_n_way_intent(&classification.intake_text) {
+    //
+    // Gate on `modalities.len() >= 2`: the n_way signal only relaxes
+    // the planner's cross-omics-seed size guard
+    // (`try_cross_omics_archetype_seed`) so a multi-modality request can
+    // subset-match a smaller archetype. When the structured modality set
+    // collapsed to a single modality — e.g. a scope-reset correction
+    // ("Bulk RNA-seq analysis only (no proteomics, no single-cell ...)")
+    // whose NEGATED comma-list still trips `is_n_way_intent` — setting
+    // the flag would let the planner prose-subset match a 2-way
+    // cross-omics archetype off the stray modality nouns in the prose,
+    // overriding the SME's explicit single-modality scope. Only a genuine
+    // ≥2-modality structured set should unlock cross-omics matching.
+    if modalities.len() >= 2
+        && ecaa_workflow_core::classify::is_n_way_intent(&classification.intake_text)
+    {
         goal.modifiers
             .entry("n_way_intent".to_string())
             .or_insert_with(|| "three way analysis".to_string());
