@@ -30,7 +30,7 @@ def eval_model() -> str:
     return os.environ.get("ECAA_EVAL_MODEL", "claude-sonnet-4-6")
 
 
-def run_ecaa_package(package_dir: Path, *, max_iterations: int = 20,
+def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
                      timeout: int = 3600,
                      env: dict | None = None) -> RunResult:
     agent = str(REPO_ROOT / "scripts" / "agent-claude.sh")

@@ -136,7 +136,10 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--arms", default="ecaa,claude-direct")
     ap.add_argument("--trials", type=int, default=3)
-    ap.add_argument("--max-iterations", type=int, default=20)
+    # Default well above a compiled workflow's task count: the ECAA arm's DAG
+    # (e.g. nekrutenko variant_calling = 27 tasks) plus retries needs more than
+    # the old 20, which stranded the harness mid-run (2/27 completed).
+    ap.add_argument("--max-iterations", type=int, default=60)
     ap.add_argument("--error-matrix", action="store_true",
                     help="Run the 36-cell PATH-shim matrix (Nekrutenko only).")
     ap.add_argument("--max-parallel", type=int, default=1,
