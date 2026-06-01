@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   getLlmAvailability,
+  getMethodLandscape,
   getProposals,
   getTaskResult,
   listDispositions,
@@ -10,6 +11,7 @@ import {
   startSessionFromIntent,
   type DispositionListEntryWire,
   type LlmAvailability,
+  type MethodLandscape,
   type TaskResultPayload,
   type WorkflowIntent,
 } from '../api/chatClient'
@@ -24,7 +26,12 @@ import DispositionReviewCard from './DispositionReviewCard'
 import CompositionOutcomeBanner from './CompositionOutcomeBanner'
 import HypothesizedProposalCard from './HypothesizedProposalCard'
 import InfraErrorBanner from './InfraErrorBanner'
-import { MethodOptionsCard, type MethodOption } from './MethodOptionsCard'
+import {
+  MethodOptionsCard,
+  axisFromStageId,
+  mapLandscapeToOptions,
+  type MethodOption,
+} from './MethodOptionsCard'
 import PackageSafetyBanner from './PackageSafetyBanner'
 import PendingInputHintsCard from './PendingInputHintsCard'
 import ResultReviewTurnCard, {
@@ -388,12 +395,47 @@ export default function ConversationPane() {
   const isDiscoverBlocker =
     sensitivityBlocker?.stage_id?.startsWith('discover_') ?? false
 
-  // Map the blocker's candidate method names into the MethodOptionsCard
-  // shape. The richer per-candidate evidence/score lands once the survey
-  // task's method_landscape.json is wired through; until then each
-  // candidate renders as a bare ranked option so the SME can still pick.
+  // The `survey_method_landscape` agent task emits a per-axis
+  // method-landscape artifact (candidate methods + literature-anchored
+  // evidence + deterministic support scores). Fetch it when a
+  // `discover_*` selection blocker is active so the card can show real
+  // evidence/scores. Null until it arrives (or if the survey hasn't
+  // produced it) — the placeholder mapping below covers that case.
+  const [methodLandscape, setMethodLandscape] =
+    useState<MethodLandscape | null>(null)
+  useCancelableEffect(
+    async ({ signal, cancelled }) => {
+      if (!ENABLE_METHOD_OPTIONS_CARD) return
+      if (!conv.sessionId || !isDiscoverBlocker) {
+        setMethodLandscape(null)
+        return
+      }
+      try {
+        const landscape = await getMethodLandscape(conv.sessionId, { signal })
+        if (cancelled()) return
+        setMethodLandscape(landscape)
+      } catch {
+        // Non-fatal — fall back to bare candidate names. A later blocker
+        // refresh retriggers this fetch.
+        if (!cancelled()) setMethodLandscape(null)
+      }
+    },
+    [conv.sessionId, isDiscoverBlocker],
+  )
+
+  // Map the blocker's candidates into the MethodOptionsCard shape.
+  // Preferred: the survey artifact, keyed by the `discover_`-stripped
+  // axis, carrying real evidence + deterministic support scores.
+  // Fallback (artifact missing/unfetchable or axis absent): the bare
+  // candidate names the blocker carries, rank-ordered with a descending
+  // placeholder score so rank-1 still reads highest. Never crashes.
   const methodOptions = useMemo<MethodOption[]>(() => {
     if (!sensitivityBlocker) return []
+    if (isDiscoverBlocker) {
+      const axis = axisFromStageId(sensitivityBlocker.stage_id)
+      const fromLandscape = mapLandscapeToOptions(methodLandscape, axis)
+      if (fromLandscape && fromLandscape.length > 0) return fromLandscape
+    }
     return sensitivityBlocker.candidates.map((method, i) => ({
       method,
       // Server hands candidates back rank-ordered; surface a descending
@@ -402,7 +444,7 @@ export default function ConversationPane() {
       literatureEligible: false,
       evidence: [],
     }))
-  }, [sensitivityBlocker])
+  }, [sensitivityBlocker, isDiscoverBlocker, methodLandscape])
 
   const onSelectDiscoverMethod = useCallback(
     async (method: string, rationale?: string) => {

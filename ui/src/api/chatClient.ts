@@ -816,6 +816,59 @@ export async function getTaskDecision(
   )
 }
 
+/// Method-landscape artifact produced once per analysis by the
+/// `survey_method_landscape` agent task. Shape conforms to
+/// config/stage-atoms/schemas/method_landscape_matrix.schema.json (the
+/// `.json` companion the agent emits alongside `method_landscape.csv`).
+/// Each runtime method-choice axis maps to a list of candidate methods,
+/// each carrying its deterministic support score, literature
+/// eligibility, and locator-anchored evidence quotes. The card consumes
+/// this read-only: ranking + eligibility are decided by the agent's
+/// deterministic rubric, not the UI.
+
+/// The fixed task id of the survey atom; the artifact always lands under
+/// runtime/outputs/<this>/method_landscape.json.
+export const SURVEY_METHOD_LANDSCAPE_TASK_ID = 'survey_method_landscape'
+
+export interface MethodLandscapeEvidence {
+  source_class: string
+  source_ref_kind: string | null
+  source_ref: string | null
+  evidence_quote: string
+  version_context: string | null
+}
+
+export interface MethodLandscapeCandidate {
+  method: string
+  literature_eligible: boolean
+  tentative: boolean
+  support_score: number
+  evidence: MethodLandscapeEvidence[]
+}
+
+export interface MethodLandscapeAxis {
+  candidates: MethodLandscapeCandidate[]
+}
+
+export interface MethodLandscape {
+  schema_version: number
+  axes: Record<string, MethodLandscapeAxis>
+}
+
+/// Read the `survey_method_landscape` task's `method_landscape.json`
+/// artifact. Returns null on 404 (survey task hasn't produced it yet)
+/// so the MethodOptionsCard wiring can fall back to bare candidate
+/// names. Mirrors `getTaskDecision`'s artifact-path convention.
+export async function getMethodLandscape(
+  sessionId: string,
+  opts?: RequestInit,
+): Promise<MethodLandscape | null> {
+  return jsonFetchOrNull(
+    `${sessionUrl(sessionId, 'artifacts/runtime/outputs')}/${encodeURIComponent(SURVEY_METHOD_LANDSCAPE_TASK_ID)}/method_landscape.json`,
+    opts,
+  )
+}
+
 /// Structured blocker surface. Reads
 /// runtime/outputs/<task>/blocker.json via the dedicated endpoint
 /// (not the generic artifact path) so the server can normalise the
