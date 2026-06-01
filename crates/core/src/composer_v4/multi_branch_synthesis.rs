@@ -686,4 +686,70 @@ mod tests {
             "no off-modality atoms expected: {ids:?}"
         );
     }
+
+    /// Pillar B regression: a 3-way request whose third modality
+    /// (`proteomics`) has NO archetype seed (its DDA/DIA archetypes tie
+    /// on `modality_hint` with no `kind` disambiguator) must NOT let the
+    /// proteomics branch wander into RNA atoms. Before the fix the branch
+    /// inherited the shared RNA goal (`data:0951`) + the hardcoded FASTQ
+    /// fallback frontier (`data:2044`) and chained RNA atoms, emitting
+    /// `proteomics_translation_efficiency_de` + `proteomics_vdj_*`. After
+    /// Levers 1+2 the branch's sub-goal becomes proteomics' archetype
+    /// `goal_data` (`data:2976`) and its fallback frontier becomes
+    /// proteomics' canonical input (`data:2531`), so the backward search
+    /// grounds to proteomics atoms (`peptide_search` ->
+    /// `protein_quantification`).
+    #[test]
+    fn full_plan_proteomics_branch_grounds_to_proteomics_atoms() {
+        let (atoms, archs) = registries();
+        // Realistic shared goal: RNA differential expression. bulk_rnaseq
+        // and single_cell_rnaseq archetype-seed at this goal; proteomics
+        // does not (its branch must self-ground to its own archetype goal).
+        let goal = de_goal();
+        let ctx = planning_context_for_goal_with_modalities(
+            "test-mb-proteomics",
+            &goal,
+            Some("bulk_rnaseq"),
+            &["single_cell_rnaseq", "proteomics"],
+            Some("bioinformatics"),
+            &[],
+        );
+        let result =
+            crate::composer_v4::planner::plan(&ctx, &goal, "bioinformatics", &atoms, &archs);
+        let dag = match &result.primary {
+            crate::workflow_contracts::outcome::ComposeOutcome::ValidatedExecutableDag {
+                dag,
+                ..
+            }
+            | crate::workflow_contracts::outcome::ComposeOutcome::DraftDag { dag, .. }
+            | crate::workflow_contracts::outcome::ComposeOutcome::PartialDag { dag, .. } => dag,
+            other => panic!("unexpected outcome: {other:?}"),
+        };
+        let proteomics_ids: Vec<&str> = dag
+            .nodes
+            .iter()
+            .map(|n| n.id.as_str())
+            .filter(|i| i.starts_with("proteomics_"))
+            .collect();
+        assert!(
+            !proteomics_ids.is_empty(),
+            "proteomics branch must exist: {:?}",
+            dag.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>()
+        );
+        // The proteomics branch must contain proteomics atoms.
+        assert!(
+            proteomics_ids.iter().any(|i| i.contains("peptide_search")
+                || i.contains("protein_quantification")
+                || i.contains("differential_abundance")),
+            "proteomics branch must ground to proteomics atoms: {proteomics_ids:?}"
+        );
+        // The proteomics branch must NOT contain RNA-modality garbage
+        // (the regression: translation_efficiency / vdj wandering).
+        assert!(
+            !proteomics_ids
+                .iter()
+                .any(|i| i.contains("translation_efficiency") || i.contains("vdj")),
+            "proteomics branch must not wander into RNA atoms: {proteomics_ids:?}"
+        );
+    }
 }
