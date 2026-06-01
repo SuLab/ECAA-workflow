@@ -2,7 +2,13 @@
 import json
 from pathlib import Path
 from scripts.eval.benchmark import Score, Scorecard
-from scripts.eval.services.scorecard import write_scorecard
+from scripts.eval.services.scorecard import (
+    write_scorecard,
+    collect_guard_outcomes,
+    paired_delta_summary,
+    _aggregate_guard_outcomes,
+    _bootstrap_ci,
+)
 
 def test_write_emits_json_and_md(tmp_path):
     rows = [
@@ -126,3 +132,203 @@ def test_error_matrix_and_cost_partial_meta_renders(tmp_path):
     md = (out / "scorecard.md").read_text()
     assert md.strip()
     assert "Error matrix" in md
+
+
+# ── eval-02: guard-outcome collector + per-arm dimension ─────────────────────
+
+def _blocked_state(reason: str) -> dict:
+    """The serialized shape of TaskState::Blocked
+    (crates/core/src/dag.rs: tag="status", snake_case)."""
+    return {"status": "blocked", "record": {"reason": reason, "attempts": []}}
+
+
+def _completed_state() -> dict:
+    return {"status": "completed", "result": {}}
+
+
+def _write_pkg_with_guards(tmp_path) -> Path:
+    pkg = tmp_path / "pkg"
+    runtime = pkg / "runtime"
+    runtime.mkdir(parents=True)
+    # WORKFLOW.json: one missing-artifact re-block, one validation re-block,
+    # one empty-result sentinel re-block, one clean completion.
+    wf = {"tasks": {
+        "data_acquisition": {"state": _blocked_state(
+            "[missing_artifact] task=data_acquisition paths=de.csv — missing")},
+        "reporting": {"state": _blocked_state(
+            "[validation_failed] task=reporting p_value_in_unit_interval — failed")},
+        "review_prior_work": {"state": _blocked_state(
+            "Harness guard: agent marked review_prior_work completed with empty "
+            "output (overall_*_not_run: true). Re-blocked.")},
+        "final_reporting": {"state": _completed_state()},
+    }}
+    (pkg / "WORKFLOW.json").write_text(json.dumps(wf))
+    # validation-reports.jsonl: 2 failed/errored rows + 1 passed (not counted).
+    (runtime / "validation-reports.jsonl").write_text(
+        json.dumps({"task_id": "reporting", "obligation_id": "p_value_in_unit_interval",
+                    "outcome": "failed:p=1.4 out of [0,1]"}) + "\n"
+        + json.dumps({"task_id": "de", "obligation_id": "gene_id_in_annotation",
+                      "outcome": "errored:annotation file missing"}) + "\n"
+        + json.dumps({"task_id": "qc", "obligation_id": "row_count_positive",
+                      "outcome": "passed"}) + "\n"
+    )
+    # claim-verification.json: 2 mismatches at top level, 1 per-task.
+    (runtime / "claim-verification.json").write_text(json.dumps(
+        {"n_checked": 5, "n_verified": 2, "n_mismatch": 2, "n_unverifiable": 1,
+         "verdicts": []}))
+    per_task = runtime / "outputs" / "final_reporting"
+    per_task.mkdir(parents=True)
+    (per_task / "claim-verification.json").write_text(json.dumps(
+        {"n_checked": 2, "n_verified": 1, "n_mismatch": 1, "n_unverifiable": 0,
+         "verdicts": []}))
+    return pkg
+
+
+def test_collect_guard_outcomes_counts_all_three_guard_classes(tmp_path):
+    pkg = _write_pkg_with_guards(tmp_path)
+    go = collect_guard_outcomes(pkg)
+    assert go["blocked_by_guard"] == 3
+    assert set(go["blocked_tasks"]) == {
+        "data_acquisition", "reporting", "review_prior_work"}
+    assert go["blocked_by_kind"]["missing_artifact"] == 1
+    assert go["blocked_by_kind"]["validation_failed"] == 1
+    assert go["blocked_by_kind"]["empty_result_sentinel"] == 1
+    assert go["validation_failures"] == 2          # failed: + errored:, not passed
+    assert go["claim_mismatches"] == 3             # 2 top-level + 1 per-task
+    assert go["corrections"] == 3 + 2
+
+
+def test_collect_guard_outcomes_clean_package_is_all_zero(tmp_path):
+    pkg = tmp_path / "pkg"
+    (pkg / "runtime").mkdir(parents=True)
+    (pkg / "WORKFLOW.json").write_text(json.dumps({"tasks": {
+        "data_acquisition": {"state": _completed_state()},
+        "final_reporting": {"state": _completed_state()},
+    }}))
+    go = collect_guard_outcomes(pkg)
+    assert go == {
+        "blocked_by_guard": 0, "blocked_by_kind": {}, "blocked_tasks": [],
+        "validation_failures": 0, "claim_mismatches": 0, "corrections": 0,
+    }
+
+
+def test_collect_guard_outcomes_missing_package_does_not_raise(tmp_path):
+    go = collect_guard_outcomes(tmp_path / "does-not-exist")
+    assert go["blocked_by_guard"] == 0
+    assert go["corrections"] == 0
+
+
+def test_collect_guard_outcomes_non_guard_block_not_counted(tmp_path):
+    """A task blocked for a non-guard reason (e.g. an unresolved input blocker)
+    must NOT be counted as a guard catch."""
+    pkg = tmp_path / "pkg"
+    (pkg / "runtime").mkdir(parents=True)
+    (pkg / "WORKFLOW.json").write_text(json.dumps({"tasks": {
+        "data_acquisition": {"state": _blocked_state(
+            "waiting on the SME to supply a reference genome path")},
+    }}))
+    go = collect_guard_outcomes(pkg)
+    assert go["blocked_by_guard"] == 0
+
+
+def test_guard_outcomes_render_in_scorecard(tmp_path):
+    rows = [
+        Score("t1", "ecaa", 0, 80.0, {}, None, None, "gemini-3.1-pro",
+              extra={"guard_outcomes": {"blocked_by_guard": 2,
+                                        "validation_failures": 1,
+                                        "claim_mismatches": 3, "corrections": 3}}),
+        Score("t1", "claude-direct", 0, 70.0, {}, None, None, "gemini-3.1-pro"),
+    ]
+    card = Scorecard("biomnibench", rows)
+    out = write_scorecard(card, tmp_path)
+    md = (out / "scorecard.md").read_text()
+    assert "Guard outcomes" in md
+    assert "blocked-by-guard" in md
+    data = json.loads((out / "scorecard.json").read_text())
+    go = data["meta"]["guard_outcomes"]["ecaa"]
+    assert go["blocked_by_guard"] == 2
+    assert go["claim_mismatches"] == 3
+
+
+def test_aggregate_guard_outcomes_empty_when_no_rows_carry_evidence():
+    card = Scorecard("biomnibench", [
+        Score("t1", "ecaa", 0, 80.0, {}, None, None, "j"),
+        Score("t1", "claude-direct", 0, 70.0, {}, None, None, "j"),
+    ])
+    assert _aggregate_guard_outcomes(card) == {}
+
+
+# ── eval-04: paired delta + bootstrap CI ─────────────────────────────────────
+
+def test_paired_delta_pairs_on_task_and_trial():
+    rows = [
+        Score("t1", "ecaa", 0, 80.0, {}, None, None, "j"),
+        Score("t1", "claude-direct", 0, 70.0, {}, None, None, "j"),
+        Score("t2", "ecaa", 0, 60.0, {}, None, None, "j"),
+        Score("t2", "claude-direct", 0, 55.0, {}, None, None, "j"),
+        # unpaired: ecaa-only trial 1 must NOT enter the paired set
+        Score("t1", "ecaa", 1, 90.0, {}, None, None, "j"),
+    ]
+    summary = paired_delta_summary(Scorecard("b", rows))
+    assert summary["n_pairs"] == 2
+    assert abs(summary["mean_paired_delta"] - 7.5) < 1e-9  # (10 + 5) / 2
+
+
+def test_paired_delta_none_when_single_arm():
+    rows = [Score("t1", "ecaa", 0, 80.0, {}, None, None, "j")]
+    assert paired_delta_summary(Scorecard("b", rows)) is None
+
+
+def test_paired_delta_clear_separation_is_significant():
+    # ecaa consistently +20 over direct across many trials -> CI excludes 0.
+    rows = []
+    for tr in range(8):
+        rows.append(Score("t1", "ecaa", tr, 80.0, {}, None, None, "j"))
+        rows.append(Score("t1", "claude-direct", tr, 60.0, {}, None, None, "j"))
+    summary = paired_delta_summary(Scorecard("b", rows))
+    assert summary["significant"] is True
+    assert summary["ci_lower"] > 0.0
+    assert abs(summary["mean_paired_delta"] - 20.0) < 1e-9
+
+
+def test_paired_delta_overlapping_arms_not_significant():
+    # Deltas straddle zero -> CI crosses 0 -> not significant.
+    deltas = [5.0, -4.0, 3.0, -6.0, 2.0, -1.0]
+    rows = []
+    for tr, d in enumerate(deltas):
+        rows.append(Score("t1", "ecaa", tr, 50.0 + d, {}, None, None, "j"))
+        rows.append(Score("t1", "claude-direct", tr, 50.0, {}, None, None, "j"))
+    summary = paired_delta_summary(Scorecard("b", rows))
+    assert summary["significant"] is False
+    assert summary["ci_lower"] < 0.0 < summary["ci_upper"]
+
+
+def test_paired_delta_renders_n_and_ci_and_significance_note(tmp_path):
+    deltas = [5.0, -4.0, 3.0, -6.0]
+    rows = []
+    for tr, d in enumerate(deltas):
+        rows.append(Score("t1", "ecaa", tr, 50.0 + d, {}, None, None, "j"))
+        rows.append(Score("t1", "claude-direct", tr, 50.0, {}, None, None, "j"))
+    card = Scorecard("biomnibench", rows)
+    out = write_scorecard(card, tmp_path)
+    md = (out / "scorecard.md").read_text()
+    assert "Paired delta" in md
+    assert "n (paired task/trial):** 4" in md
+    assert "bootstrap CI" in md
+    assert "NOT significant at n=4 (CI crosses 0)" in md
+    data = json.loads((out / "scorecard.json").read_text())
+    pd = data["meta"]["paired_delta"]
+    assert pd["n_pairs"] == 4
+    assert "ci_lower" in pd and "ci_upper" in pd
+
+
+def test_bootstrap_ci_is_deterministic():
+    deltas = [10.0, 12.0, 8.0, 9.0, 11.0, 7.0]
+    a = _bootstrap_ci(deltas)
+    b = _bootstrap_ci(deltas)
+    assert a == b  # fixed seed -> reproducible
+
+
+def test_bootstrap_ci_degenerate_inputs():
+    assert _bootstrap_ci([]) == (0.0, 0.0)
+    assert _bootstrap_ci([4.2]) == (4.2, 4.2)
