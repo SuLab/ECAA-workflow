@@ -1,12 +1,10 @@
 # Pinned eval datasets. Update revisions deliberately; reruns must pin.
-# PLACEHOLDER revision — resolve the real sha before any live run (see plan Task 13 Step 1)
 [[entries]]
 name = "phylobio/BiomniBench-DA"
 kind = "hf_dataset"
-revision = "0000000000000000000000000000000000000000"
+revision = "810b6c54a81e98019bb6c36bdbdc1d4e93dd46d1"
 
-# PLACEHOLDER revision — resolve the real sha before any live run (see plan Task 13 Step 1)
 [[entries]]
 name = "nekrut/LLM-eval-paper"
 kind = "git_repo"
-revision = "0000000000000000000000000000000000000000"
+revision = "1175f72a998aa609958504571830294e1401a16e"

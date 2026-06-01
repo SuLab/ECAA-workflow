@@ -5,6 +5,7 @@ by revision); git repos by clone+checkout. Fetched into ECAA_EVAL_CACHE_DIR
 (default ~/.ecaa-workflow/eval-cache), which is gitignored.
 """
 from __future__ import annotations
+import json
 import os
 import subprocess
 import tomllib
@@ -57,3 +58,58 @@ def ensure(entry: LockEntry) -> Path:
     else:
         raise ValueError(f"unknown kind: {entry.kind}")
     return dest
+
+
+def load_records(root) -> list[dict]:
+    """Load benchmark task records from a fetched dataset dir.
+
+    Supports four layouts (tried in order):
+    1. parquet files (preferred; via lazy pyarrow import)
+    2. jsonl file (one record per line)
+    3. per-task json files named task*.json
+    4. BiomniBench-DA per-task directory layout: da-{paper}-{task}/
+       Each task dir contains instruction.md (question), tests/rubric.txt,
+       and environment/data/ listing (data file refs). Returns dicts with
+       keys question/rubric/data_files/task_id.
+    """
+    from pathlib import Path as _P
+    import re as _re
+    root = _P(root)
+    pq = sorted(root.rglob("*.parquet"))
+    if pq:
+        import pyarrow.parquet as papq          # live-only path (needs pyarrow)
+        rows: list[dict] = []
+        for f in pq:
+            rows.extend(papq.read_table(f).to_pylist())
+        return rows
+    jl = next(iter(sorted(root.rglob("*.jsonl"))), None)
+    if jl:
+        return [json.loads(l) for l in jl.read_text().splitlines() if l.strip()]
+    task_json = sorted(root.rglob("task*.json"))
+    if task_json:
+        return [json.loads(p.read_text()) for p in task_json]
+    # BiomniBench-DA per-task directory layout: da-{paper}-{task}/
+    task_dirs = sorted(
+        [d for d in root.iterdir() if d.is_dir() and _re.match(r"da-\d+-\d+$", d.name)],
+        key=lambda d: d.name,
+    )
+    if task_dirs:
+        rows = []
+        for td in task_dirs:
+            instruction = td / "instruction.md"
+            rubric = td / "tests" / "rubric.txt"
+            data_dir = td / "environment" / "data"
+            question = instruction.read_text() if instruction.exists() else ""
+            rubric_text = rubric.read_text() if rubric.exists() else ""
+            data_files = (
+                [str(f.relative_to(root)) for f in sorted(data_dir.rglob("*")) if f.is_file()]
+                if data_dir.exists() else []
+            )
+            rows.append({
+                "task_id": td.name,
+                "question": question,
+                "rubric": rubric_text,
+                "data_files": data_files,
+            })
+        return rows
+    return []

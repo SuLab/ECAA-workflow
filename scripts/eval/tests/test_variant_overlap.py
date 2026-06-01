@@ -32,3 +32,15 @@ def test_jaccard_af_outside_tolerance_not_matched(tmp_path):
     # 150 key present in both but AF diff 0.49 > tol -> not a match; 410 matches
     # union {150,410}=2; intersect {410}=1 -> 0.5
     assert abs(jaccard(a, b, af_tol=0.02) - 0.5) < 1e-9
+
+
+def test_parse_gzipped_vcf(tmp_path):
+    """Real answer-key VCFs are bgzip/gzip-compressed; parse must decompress."""
+    import gzip
+    from scripts.eval.scoring.variant_overlap import parse_vcf_variants
+    vcf = ("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+           "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    p = tmp_path / "k.vcf.gz"
+    p.write_bytes(gzip.compress(vcf.encode()))
+    v = parse_vcf_variants(p)
+    assert ("chrM", 150, "T", "C") in v and abs(v[("chrM", 150, "T", "C")] - 0.99) < 1e-9

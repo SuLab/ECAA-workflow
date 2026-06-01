@@ -9,7 +9,8 @@
         test-fast test-core test-conversation test-harness test-server test-cli \
         test-ui conformance lint-ui clippy fmt check types e2e e2e-playwright bench \
         bio-min dev-server dev-ui clean doctor lint deny install-hooks \
-        eval-biomnibench eval-biomnibench-smoke eval-nekrutenko eval-nekrutenko-smoke eval-tests
+        eval-biomnibench eval-biomnibench-smoke eval-nekrutenko eval-nekrutenko-smoke eval-tests \
+        eval-biomnibench-dryrun eval-nekrutenko-dryrun
 
 help: ## Print this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -133,6 +134,12 @@ eval-nekrutenko-smoke: ## Nekrutenko smoke (1 trial)
 
 eval-tests: ## Offline unit tests for the eval harness (no live API)
 	@python -m pytest scripts/eval/tests -q
+
+eval-biomnibench-dryrun: ## BiomniBench dry-run smoke (--smoke flag; no live API needed beyond ECAA_EVAL_LIVE=1)
+	@python -m scripts.eval.eval_runner biomnibench --smoke --arms ecaa,claude-direct $(EVAL_ARGS)
+
+eval-nekrutenko-dryrun: ## Nekrutenko dry-run smoke (--smoke flag; no live API needed beyond ECAA_EVAL_LIVE=1)
+	@python -m scripts.eval.eval_runner nekrutenko --smoke --arms ecaa,claude-direct $(EVAL_ARGS)
 
 clean: ## Remove build artifacts
 	cargo clean

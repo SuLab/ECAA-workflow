@@ -18,3 +18,35 @@ def test_write_emits_json_and_md(tmp_path):
     assert "ecaa" in md and "claude-direct" in md
     # delta line present: ecaa - direct = +10.0
     assert "+10.0" in md or "10.0" in md
+
+
+def test_dimensions_and_judge_agreement_rendered(tmp_path):
+    """meta with dimensions + published_best + judge_agreement renders all three sections."""
+    rows = [
+        Score("t1", "ecaa", 0, 80.0, {"method_selection": 60.0}, None, None, "gemini-3.1-pro"),
+        Score("t1", "claude-direct", 0, 70.0, {"method_selection": 50.0}, None, None, "gemini-3.1-pro"),
+    ]
+    card = Scorecard(
+        "biomnibench",
+        rows,
+        meta={
+            "dimensions": {
+                "ecaa": {"method_selection": 60.0},
+                "claude-direct": {"method_selection": 50.0},
+            },
+            "published_best": "X=73.34",
+            "judge_agreement": {"exact": 0.9, "kappa": 0.8},
+        },
+    )
+    out = write_scorecard(card, tmp_path)
+    md = (out / "scorecard.md").read_text()
+
+    # Per-dimension section present with expected content.
+    assert "Per-dimension" in md
+    assert "method_selection" in md
+    # delta = 60.0 - 50.0 = +10.0
+    assert "+10.0" in md
+    # Published best line.
+    assert "73.34" in md
+    # Judge agreement line.
+    assert "0.8" in md

@@ -5,12 +5,28 @@ Two shared keys match only if their AF agrees within af_tol. Jaccard =
 |matched| / |union of keys|.
 """
 from __future__ import annotations
+import gzip
 from pathlib import Path
+
+
+def _read_vcf_text(path: Path) -> str:
+    """Read a VCF as text, transparently decompressing bgzip/gzip (.vcf.gz).
+
+    Real Nekrutenko answer-key VCFs are bgzip-compressed; agent outputs may be
+    plain .vcf. Sniff the gzip magic bytes rather than trusting the extension.
+    """
+    p = Path(path)
+    with open(p, "rb") as fh:
+        magic = fh.read(2)
+    if magic == b"\x1f\x8b":
+        with gzip.open(p, "rt") as fh:
+            return fh.read()
+    return p.read_text()
 
 
 def parse_vcf_variants(path: Path) -> dict[tuple[str, int, str, str], float]:
     variants: dict[tuple[str, int, str, str], float] = {}
-    for line in Path(path).read_text().splitlines():
+    for line in _read_vcf_text(path).splitlines():
         if not line or line.startswith("#"):
             continue
         f = line.split("\t")

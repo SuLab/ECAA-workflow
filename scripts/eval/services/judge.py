@@ -55,35 +55,69 @@ def _prompt(rubric: dict, trace: str, answer: str) -> str:
     )
 
 
-def _gemini_text(prompt: str) -> str:
+_JUDGE_PRICES: dict[str, tuple[float, float]] = {
+    # (in_price_per_MTok, out_price_per_MTok)
+    "gemini-3.1-pro": (1.25, 5.00),      # maps to gemini-3.1-pro-preview on the API
+    "anthropic-opus": (15.0, 75.0),
+}
+
+
+def _judge_cost_usd(judge_id: str, in_tok: int, out_tok: int) -> float:
+    """Return estimated USD cost for one judge call given token counts."""
+    prices = _JUDGE_PRICES.get(judge_id)
+    if prices is None:
+        return 0.0
+    in_price, out_price = prices
+    return in_tok / 1e6 * in_price + out_tok / 1e6 * out_price
+
+
+def _gemini_call(prompt: str) -> tuple[str, int, int]:
+    """Return (text, in_tok, out_tok) from a live Gemini call."""
     key = os.environ["GEMINI_API_KEY"]
     url = ("https://generativelanguage.googleapis.com/v1beta/models/"
-           f"gemini-3.1-pro:generateContent?key={key}")
+           f"gemini-3.1-pro-preview:generateContent?key={key}")
     r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}],
                                  "generationConfig": {"temperature": 0.0}}, timeout=120)
     r.raise_for_status()
-    return r.json()["candidates"][0]["content"]["parts"][0]["text"]
+    body = r.json()
+    text = body["candidates"][0]["content"]["parts"][0]["text"]
+    usage = body.get("usageMetadata", {})
+    in_tok = usage.get("promptTokenCount", 0)
+    out_tok = usage.get("candidatesTokenCount", 0)
+    return text, in_tok, out_tok
 
 
-def _anthropic_text(prompt: str) -> str:
+def _anthropic_call(prompt: str) -> tuple[str, int, int]:
+    """Return (text, in_tok, out_tok) from a live Anthropic call."""
     key = os.environ["ECAA_ANTHROPIC_API_KEY"]
     r = requests.post("https://api.anthropic.com/v1/messages",
                       headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
                       json={"model": "claude-opus-4-8", "max_tokens": 1024,
-                            "temperature": 0.0,
                             "messages": [{"role": "user", "content": prompt}]},
                       timeout=120)
     r.raise_for_status()
-    return r.json()["content"][0]["text"]
+    body = r.json()
+    text = body["content"][0]["text"]
+    usage = body.get("usage", {})
+    in_tok = usage.get("input_tokens", 0)
+    out_tok = usage.get("output_tokens", 0)
+    return text, in_tok, out_tok
 
 
 def judge(judge_id: str, rubric: dict, trace: str, answer: str) -> dict:
-    """judge_id in {"gemini-3.1-pro","anthropic-opus"}. Returns parse_verdict dict."""
+    """judge_id in {"gemini-3.1-pro","anthropic-opus"}. Returns parse_verdict dict + cost_usd."""
     cache = _cache_path(judge_id, rubric, trace, answer)
     if cache.exists():
         text = cache.read_text()
+        cost_usd = 0.0
     else:
         prompt = _prompt(rubric, trace, answer)
-        text = _gemini_text(prompt) if judge_id == "gemini-3.1-pro" else _anthropic_text(prompt)
+        if judge_id == "gemini-3.1-pro":
+            text, in_tok, out_tok = _gemini_call(prompt)
+        else:
+            text, in_tok, out_tok = _anthropic_call(prompt)
         cache.write_text(text)
-    return parse_verdict(rubric, text)
+        cost_usd = _judge_cost_usd(judge_id, in_tok, out_tok)
+    result = parse_verdict(rubric, text)
+    result["cost_usd"] = cost_usd
+    return result

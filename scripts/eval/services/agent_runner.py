@@ -22,6 +22,7 @@ class RunResult:
     exit_ok: bool
     wall_secs: float
     run_dir: Path
+    stdout: str = ""
 
 
 def run_ecaa_package(package_dir: Path, *, max_iterations: int = 20,
@@ -53,5 +54,7 @@ def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,
         if sysdir not in effective_env.get("PATH", "").split(os.pathsep):
             effective_env["PATH"] = effective_env.get("PATH", "") + os.pathsep + sysdir
     t0 = time.time()
-    proc = subprocess.run(cmd, cwd=str(workdir), timeout=timeout, env=effective_env)
-    return RunResult(proc.returncode == 0, time.time() - t0, workdir)
+    proc = subprocess.run(cmd, cwd=str(workdir), timeout=timeout, env=effective_env,
+                          capture_output=True, text=True)
+    return RunResult(proc.returncode == 0, time.time() - t0, workdir,
+                     stdout=proc.stdout or "")
