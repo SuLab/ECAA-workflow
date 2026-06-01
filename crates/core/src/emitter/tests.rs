@@ -1711,6 +1711,11 @@ fn emit_writes_container_spec_with_declared_image() {
 // container onto a DAG task and asserting `emit_package` errors
 // out before any file is written.
 
+// `ContainerSpec.network` is `#[deprecated]` in favor of
+// `safety.network`, but the struct has no `Default` impl, so the literal
+// must still name every field. Matches the back-compat construction
+// pattern used elsewhere in `atom.rs`.
+#[allow(deprecated)]
 fn unpinned_container_spec(image: &str, tag: &str) -> crate::atom::ContainerSpec {
     crate::atom::ContainerSpec {
         image: image.into(),
@@ -1723,6 +1728,7 @@ fn unpinned_container_spec(image: &str, tag: &str) -> crate::atom::ContainerSpec
     }
 }
 
+#[allow(deprecated)]
 fn pinned_container_spec(image: &str, tag: &str, digest: &str) -> crate::atom::ContainerSpec {
     crate::atom::ContainerSpec {
         image: image.into(),

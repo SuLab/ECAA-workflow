@@ -21,7 +21,6 @@
 //! refusal sound.
 
 use ecaa_workflow_conversation::tools::Tool;
-use strum::EnumCount;
 
 /// The six alone-in-turn / high-impact tools per CLAUDE.md
 /// ("Conversation crate" → tools section). Wired as raw `name()`
