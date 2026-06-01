@@ -134,6 +134,7 @@ def main(argv: list[str]) -> int:
             return 1
 
     card = plugin.report(scores)
+    card.meta["cost"] = {"judge_usd": round(sum(s.extra.get("judge_cost_usd", 0.0) for s in scores), 4)}
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir = REPO_ROOT / "runtime" / "eval-runs" / f"{args.benchmark}-{stamp}"
     write_scorecard(card, out_dir)

@@ -105,7 +105,7 @@ def _render_judge_agreement(ja: dict) -> list[str]:
 def _markdown(card: Scorecard) -> str:
     lines = [f"# {card.benchmark} scorecard", ""]
     # Render scalar meta keys (skip the rich-object keys handled below).
-    _RICH_KEYS = {"error_matrix", "dimensions", "judge_agreement", "published_best"}
+    _RICH_KEYS = {"error_matrix", "dimensions", "judge_agreement", "published_best", "cost"}
     if card.meta:
         for k, v in card.meta.items():
             if k not in _RICH_KEYS:
@@ -130,6 +130,9 @@ def _markdown(card: Scorecard) -> str:
         if "judge_agreement" in card.meta:
             lines.append("")
             lines += _render_judge_agreement(card.meta["judge_agreement"])
+        if "cost" in card.meta:
+            lines.append("")
+            lines.append(f"Judge cost (USD): {card.meta['cost']['judge_usd']}")
 
     return "\n".join(lines) + "\n"
 

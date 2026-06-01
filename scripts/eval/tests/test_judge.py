@@ -1,4 +1,4 @@
-from scripts.eval.services.judge import parse_verdict
+from scripts.eval.services.judge import parse_verdict, _judge_cost_usd
 
 RUBRIC = {"criteria": [
     {"id": "c1", "dimension": "method_selection", "points": 4, "levels": {"A":1.0,"B":0.5,"C":0.0}},
@@ -31,3 +31,12 @@ def test_lowercase_levels_scored_identically_to_uppercase():
     assert upper["overall"] == lower["overall"]
     assert upper["dimensions"] == lower["dimensions"]
     assert upper["levels"] == lower["levels"]
+
+
+def test_judge_cost_math():
+    # gemini-3.1-pro: $1.25/MTok in + $5.00/MTok out = $6.25 per 1M+1M tokens
+    assert _judge_cost_usd("gemini-3.1-pro", 1_000_000, 1_000_000) == 6.25
+    # anthropic-opus: $15/MTok in + $75/MTok out = $90.00 per 1M+1M tokens
+    assert _judge_cost_usd("anthropic-opus", 1_000_000, 1_000_000) == 90.0
+    # unknown judge id returns 0.0
+    assert _judge_cost_usd("unknown", 5, 5) == 0.0

@@ -97,7 +97,8 @@ class BiomniBench(Benchmark):
                      jaccard=None, error_cells=None, judge_id="gemini-3.1-pro",
                      extra={"cross_check": cross["overall"],
                             "judge_exact": exact,
-                            "judge_kappa": kappa})
+                            "judge_kappa": kappa,
+                            "judge_cost_usd": headline.get("cost_usd", 0.0) + cross.get("cost_usd", 0.0)})
 
     def report(self, scores):
         dims: dict[str, dict[str, list[float]]] = {}
