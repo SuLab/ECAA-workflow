@@ -3,6 +3,17 @@
 trace.md  = per-task narratives concatenated in topological DAG order.
 answer.txt = the narrative of the terminal reporting task (stage contains
 'report'/'review', else the last task in topo order).
+
+WORKFLOW.json shape contract
+-----------------------------
+The Rust emitter serialises ``tasks`` as a JSON OBJECT keyed by task id
+(Rust ``BTreeMap<TaskId, Task>``), and the per-task objects carry NO ``id``
+or ``stage`` field — only ``kind``/``state``/``depends_on``/``assignee``/
+``description`` (and occasionally ``spec``/``source_atom_id``/
+``required_artifacts``/``container``). The task id (the map key) IS the stage
+name (``alignment``, ``discover_alignment``, ``final_reporting``, …), so we
+use the key as both the task id and the stage signal. ``eval_runner.py``
+reads ``tasks`` the same way (``data.get("tasks", {}).items()``).
 """
 from __future__ import annotations
 import json
@@ -12,20 +23,57 @@ _NARRATIVE_NAMES = ("report.md", "interpretation.md", "summary.md", "result.md")
 _RESULT_JSON_KEYS = ("narrative", "interpretation", "summary", "report", "answer", "text")
 
 
-def _topo(tasks: list[dict]) -> list[str]:
-    by_id = {t["id"]: t for t in tasks}
+def _normalize_tasks(tasks) -> dict[str, dict]:
+    """Coerce the WORKFLOW.json ``tasks`` payload into an ``{id: task}`` dict.
+
+    The emitter writes an object keyed by task id (the canonical shape). A
+    legacy/list shape (``[{"id": ..., "depends_on": ...}, ...]``) is tolerated
+    so older fixtures and any hand-written WORKFLOW.json keep flattening — each
+    entry's ``id`` becomes the key. Anything else yields an empty mapping.
+    """
+    if isinstance(tasks, dict):
+        return {str(tid): (obj if isinstance(obj, dict) else {})
+                for tid, obj in tasks.items()}
+    if isinstance(tasks, list):
+        out: dict[str, dict] = {}
+        for entry in tasks:
+            if isinstance(entry, dict) and "id" in entry:
+                out[str(entry["id"])] = entry
+        return out
+    return {}
+
+
+def _stage_of(task_id: str, task: dict) -> str:
+    """Best-effort stage label for a task.
+
+    The object-keyed shape has no ``stage`` field, so the task id is the
+    stage (``alignment``, ``final_reporting``, …). A legacy ``stage`` field
+    or a ``spec.stage_class`` is honoured when present.
+    """
+    stage = task.get("stage")
+    if isinstance(stage, str) and stage:
+        return stage
+    spec = task.get("spec")
+    if isinstance(spec, dict):
+        sc = spec.get("stage_class")
+        if isinstance(sc, str) and sc:
+            return sc
+    return task_id
+
+
+def _topo(tasks: dict[str, dict]) -> list[str]:
     seen, order = set(), []
 
     def visit(tid):
         if tid in seen:
             return
-        for dep in by_id.get(tid, {}).get("depends_on", []):
-            visit(dep)
         seen.add(tid)
+        for dep in tasks.get(tid, {}).get("depends_on", []) or []:
+            visit(str(dep))
         order.append(tid)
 
-    for t in tasks:
-        visit(t["id"])
+    for tid in tasks:
+        visit(tid)
     return order
 
 
@@ -64,19 +112,60 @@ def _narrative(task_dir: Path) -> str:
 
 
 def _terminal_id(order: list[str], stage: dict[str, str]) -> str | None:
-    """Resolve the terminal task: the last task in topo order whose stage
-    contains 'report'/'review', else the last task in topo order."""
-    terminal = order[-1] if order else None
-    for tid in order:
-        if any(k in stage.get(tid, "") for k in ("report", "review")):
-            terminal = tid
-    return terminal
+    """Resolve the terminal task whose narrative is the workflow's answer.
+
+    On the real emitted DAG the topo order interleaves leaf ``validate_*``
+    tasks *after* the substantive reporting tasks they check (each validator
+    depends on its target), so a naive "last task containing report/review"
+    lands on ``validate_review_prior_work`` rather than ``final_reporting``.
+    Resolution, in priority order:
+
+    1. The last topo-ordered *reporting* task that is itself neither a
+       ``validate_*`` validator nor a ``discover_*`` method-selection stub
+       (``final_reporting`` / ``reporting``). This is the real answer-bearing
+       task.
+    2. Failing that, the last topo-ordered non-validator/non-discover task
+       whose stage mentions ``review`` (e.g. a workflow whose only terminal is
+       ``review_prior_work``).
+    3. Failing that, the last non-validator/non-discover task in topo order.
+    4. Failing that (degenerate DAG), the last task in topo order.
+    """
+    if not order:
+        return None
+
+    def _substantive(tid: str) -> bool:
+        return not (tid.startswith("validate_") or tid.startswith("discover_"))
+
+    def _last(pred) -> str | None:
+        chosen = None
+        for tid in order:
+            if pred(tid):
+                chosen = tid
+        return chosen
+
+    report = _last(
+        lambda tid: _substantive(tid) and "report" in stage.get(tid, "")
+    )
+    if report is not None:
+        return report
+
+    review = _last(
+        lambda tid: _substantive(tid) and "review" in stage.get(tid, "")
+    )
+    if review is not None:
+        return review
+
+    substantive_tail = _last(_substantive)
+    if substantive_tail is not None:
+        return substantive_tail
+
+    return order[-1]
 
 
 def flatten_outputs(outputs_dir: Path, workflow_json: Path) -> tuple[str, str]:
-    tasks = json.loads(Path(workflow_json).read_text())["tasks"]
+    tasks = _normalize_tasks(json.loads(Path(workflow_json).read_text())["tasks"])
     order = _topo(tasks)
-    stage = {t["id"]: t.get("stage", "") for t in tasks}
+    stage = {tid: _stage_of(tid, task) for tid, task in tasks.items()}
     sections = []
     terminal_id = _terminal_id(order, stage)
     for tid in order:
@@ -104,12 +193,12 @@ def completion_status(outputs_dir: Path, workflow_json: Path) -> dict:
     raises; on a malformed/missing WORKFLOW.json returns an all-zero status.
     """
     try:
-        tasks = json.loads(Path(workflow_json).read_text())["tasks"]
+        tasks = _normalize_tasks(json.loads(Path(workflow_json).read_text())["tasks"])
     except (json.JSONDecodeError, OSError, KeyError, TypeError):
         return {"total": 0, "with_output": 0, "terminal_has_output": False}
 
     order = _topo(tasks)
-    stage = {t["id"]: t.get("stage", "") for t in tasks}
+    stage = {tid: _stage_of(tid, task) for tid, task in tasks.items()}
     with_output = sum(1 for tid in order if _narrative(outputs_dir / tid).strip())
     terminal_id = _terminal_id(order, stage)
     terminal_has_output = bool(
