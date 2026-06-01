@@ -305,12 +305,21 @@ pub fn plan(
     // pure backward type-directed A* search over the atom catalog. A
     // synthesized chain becomes an ad-hoc "archetype" tagged
     // `adhoc_<goal_iri>` so the rest of the planner lifts it like any
-    // other seed. Default available inputs: FASTQ (`data:2044`). Future
-    // work threads `IntakeFacts.input_kinds` in here so non-FASTQ
-    // intake (CDISC tabular, MTBLS metabolomics, etc.) gets the right
-    // starting frontier.
+    // other seed. Pillar B (Lever 2): the starting frontier is the
+    // requested modality's canonical input (FASTQ `data:2044` for RNA,
+    // mass-spec `data:2531` for proteomics) so a modality with no
+    // archetype seed grounds to ITS OWN atoms rather than chaining from
+    // FASTQ into wrong-modality atoms. Future work threads
+    // `IntakeFacts.input_kinds` in here for non-FASTQ intake (CDISC
+    // tabular, MTBLS metabolomics, etc.).
     if archetype_seed.is_none() {
-        archetype_seed = try_backward_search_fallback(goal, atom_reg);
+        archetype_seed = try_backward_search_fallback(
+            goal,
+            atom_reg,
+            archetype_reg,
+            ctx.intent.modality.as_deref(),
+            project_class,
+        );
     }
     let archetype_definitive = archetype_seed
         .as_ref()
@@ -1000,12 +1009,37 @@ fn try_archetype_seed(
 /// Returns `None` when the search produces no chain — the caller falls
 /// through to the search seed and (if that also fails) the
 /// `PartialDag` no-producer-for-goal path.
-fn try_backward_search_fallback(goal: &GoalSpec, atom_reg: &AtomRegistry) -> Option<ArchetypeSeed> {
+///
+/// Pillar B (Lever 2): the starting frontier is the modality's canonical
+/// input EDAM, derived via [`modality_canonical_input`] from the
+/// modality's primary archetype. RNA modalities resolve to FASTQ
+/// (`data:2044`, the historical default); proteomics resolves to
+/// mass-spec data (`data:2531`). Without this, a modality whose
+/// archetypes tie on `modality_hint` (no archetype seed) would search
+/// from FASTQ with the shared cross-branch goal and chain wrong-modality
+/// atoms. When `modality` is `None` (bare callers, non-multi-branch
+/// single-modality paths that already archetype-seed) the frontier
+/// defaults to FASTQ, preserving the pre-Pillar-B behavior exactly.
+fn try_backward_search_fallback(
+    goal: &GoalSpec,
+    atom_reg: &AtomRegistry,
+    archetype_reg: &ArchetypeRegistry,
+    modality: Option<&str>,
+    project_class: &str,
+) -> Option<ArchetypeSeed> {
     use crate::composer_v4::backward_search::{search_backward, BackwardSearchInput};
 
-    // Default seed: FASTQ. Future work threads `IntakeFacts.input_kinds`
-    // in here for non-FASTQ intake (CDISC tabular, MTBLS, mass spec).
-    let available_inputs = vec!["data:2044".to_string()];
+    // Modality-aware starting frontier. FASTQ (`data:2044`) when no
+    // modality is supplied; otherwise the modality's canonical input.
+    let available_inputs = match modality {
+        Some(m) => vec![modality_canonical_input(
+            archetype_reg,
+            atom_reg,
+            m,
+            project_class,
+        )],
+        None => vec!["data:2044".to_string()],
+    };
     let chain = search_backward(BackwardSearchInput {
         goal_data: goal.edam_data.clone(),
         goal_format: goal.edam_format.clone(),
@@ -1128,6 +1162,75 @@ fn arch_inputs_compatible_with_modality(
         .map(|p| p.semantic_type.stable_id())
         .collect();
     canonical_outputs.is_subset(&candidate_outputs)
+}
+
+/// Pillar B helper — resolve the primary (canonical) archetype for a
+/// modality, preferring the project-class-scoped match and falling back
+/// to the project-class-agnostic `modality_hint` match. Returns `None`
+/// when no archetype claims the modality (a true catalog gap). Shared by
+/// multi-branch synthesis (Lever 1: sub-goal `goal_data`) and the
+/// backward-search fallback (Lever 2: canonical-input frontier) so both
+/// levers agree on which archetype defines a modality's canonical shape.
+pub(crate) fn primary_archetype_for_modality<'a>(
+    archetype_reg: &'a ArchetypeRegistry,
+    modality: &str,
+    project_class: &str,
+) -> Option<&'a crate::archetype::ArchetypeDefinition> {
+    archetype_reg
+        .find_primary_for_modality(modality, project_class)
+        .or_else(|| archetype_reg.find_primary_for_modality_hint_any_project(modality))
+}
+
+/// Pillar B (Lever 2) — derive a modality's canonical *input* EDAM IRI
+/// (the starting frontier the backward-search fallback treats as
+/// "already on hand") from its primary archetype's pipeline shape.
+///
+/// Derivation (general, not a per-modality special-case): take the
+/// primary archetype's FIRST ANALYTICAL atom — the first atom whose
+/// `depends_on` is non-empty (i.e. it consumes the source/acquisition
+/// atom's output) — and read its first input port's semantic IRI. This
+/// is the modality's distinctive starting artifact: `data:2044` (FASTQ)
+/// for RNA modalities whose first analytical atom (`raw_qc`/`alignment`)
+/// consumes sequence reads, and `data:2531` (mass-spec data) for
+/// proteomics whose first analytical atom (`peptide_search`) consumes
+/// spectra. Using the SOURCE atom's input instead would collapse both to
+/// the shared `data_acquisition` accession descriptor (`data:2531`),
+/// losing the RNA/proteomics distinction — hence the first-analytical
+/// rule. Falls back to the source atom's first input, then to the
+/// historical FASTQ default (`data:2044`) so callers always get a
+/// well-formed frontier.
+fn modality_canonical_input(
+    archetype_reg: &ArchetypeRegistry,
+    atom_reg: &AtomRegistry,
+    modality: &str,
+    project_class: &str,
+) -> String {
+    use crate::workflow_contracts::semantic_type::SemanticType;
+    const DEFAULT_FRONTIER: &str = "data:2044";
+    let Some(primary) = primary_archetype_for_modality(archetype_reg, modality, project_class)
+    else {
+        return DEFAULT_FRONTIER.to_string();
+    };
+    // First analytical atom = first archetype atom that depends on an
+    // upstream atom; fall back to the very first atom (the source) when
+    // no atom carries a dependency (single-atom archetypes).
+    let pick = primary
+        .atoms
+        .iter()
+        .find(|a| !a.depends_on.is_empty())
+        .or_else(|| primary.atoms.first());
+    let canonical_input = pick
+        .and_then(|aref| atom_reg.get(aref.atom_id.as_str()))
+        .and_then(|atom| atom.inputs.first())
+        .and_then(|port| match &port.semantic_type {
+            SemanticType::OntologyTerm { iri, .. } => Some(iri.clone()),
+            SemanticType::LocalExtension {
+                proposed_parent_terms,
+                ..
+            } => proposed_parent_terms.first().cloned(),
+            _ => None,
+        });
+    canonical_input.unwrap_or_else(|| DEFAULT_FRONTIER.to_string())
 }
 
 /// Cross-omics archetype seed. Mirrors the v3

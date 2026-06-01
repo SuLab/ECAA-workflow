@@ -305,6 +305,25 @@ pub(crate) fn compose_branches(
         // to re-enter.
         let mut sub_goal = goal.clone();
         sub_goal.modifiers.remove("n_way_intent");
+        // Pillar B (Lever 1) — modality-bound sub-goal. Rebind the
+        // branch's `edam_data` to THIS modality's primary archetype's
+        // `goal_data` so a modality whose archetypes tie on `modality_hint`
+        // (no `kind` disambiguator → no archetype seed, e.g. proteomics
+        // DDA/DIA both at `data:2976`) self-grounds via the backward-search
+        // fallback against ITS OWN goal type instead of inheriting the
+        // shared cross-branch goal (typically the RNA DE goal `data:0951`)
+        // and wandering into RNA atoms. RNA modalities are unaffected:
+        // `bulk_rnaseq_de`/`single_cell_de` declare `goal_data: data:0951`,
+        // identical to the shared DE goal. A modality with no primary
+        // archetype keeps the shared goal so the existing
+        // missing-modality gap path still surfaces true unknowns.
+        if let Some(primary) = crate::composer_v4::planner::primary_archetype_for_modality(
+            archetype_reg,
+            modality,
+            project_class,
+        ) {
+            sub_goal.edam_data = primary.goal_data.clone();
+        }
         let mut sub = ctx.clone();
         sub.intent.modality = Some(modality.clone());
         sub.additional_modalities = Vec::new();
