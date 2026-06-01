@@ -74,6 +74,10 @@ method_keywords:
     stage: variant_calling
     method: Mutect2
     match: word
+  - keyword: lofreq
+    stage: variant_calling
+    method: lofreq
+    match: word
   - keyword: macs2
     stage: peak_calling
     method: MACS2

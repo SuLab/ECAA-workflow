@@ -135,7 +135,14 @@ pub fn compose_with_modality(
 ) -> Result<CompositionResult, CompositionError> {
     let modalities: Vec<&str> = target_modality.into_iter().collect();
     compose_with_modalities_full(
-        goal, project_class, atom_reg, archetype_reg, &modalities, None, None, None,
+        goal,
+        project_class,
+        atom_reg,
+        archetype_reg,
+        &modalities,
+        None,
+        None,
+        None,
     )
     .map(|out| out.composition)
 }
@@ -151,7 +158,14 @@ pub fn compose_with_modalities(
     target_modalities: &[&str],
 ) -> Result<CompositionResult, CompositionError> {
     compose_with_modalities_full(
-        goal, project_class, atom_reg, archetype_reg, target_modalities, None, None, None,
+        goal,
+        project_class,
+        atom_reg,
+        archetype_reg,
+        target_modalities,
+        None,
+        None,
+        None,
     )
     .map(|out| out.composition)
 }
@@ -194,6 +208,11 @@ pub(crate) fn compose_v4_dispatch_full(
         std::sync::Arc<dyn crate::compatibility::engine::OpaqueObservationSink + Send + Sync>,
     >,
     opaque_session_id: Option<&str>,
+    // SME/intake-requested methods keyed by bare discover axis. Empty for
+    // bare/eval/test callers (byte-identical emit); populated from the CLI
+    // classifier (`methods_specified`) or chat `set_intake_method` so the
+    // discover-companion synthesis can stamp `spec_preferred_methods`.
+    preferred_methods: &crate::preferred_methods::PreferredMethods,
 ) -> Result<ComposerOutput, CompositionError> {
     use crate::composer_v4;
 
@@ -384,6 +403,7 @@ pub(crate) fn compose_v4_dispatch_full(
     // can lower them onto every engine `prove()` call site.
     ctx.opaque_observation_sink = opaque_sink;
     ctx.opaque_session_id = opaque_session_id.map(String::from);
+    ctx.preferred_methods = preferred_methods.clone();
     let result = composer_v4::plan(
         &ctx,
         &effective_goal,
@@ -614,6 +634,41 @@ pub fn compose_with_modalities_full(
     archetype_reg: &ArchetypeRegistry,
     target_modalities: &[&str],
     policy_ctx: Option<&crate::policy_context::PolicyContext>,
+    opaque_sink: Option<
+        std::sync::Arc<dyn crate::compatibility::engine::OpaqueObservationSink + Send + Sync>,
+    >,
+    opaque_session_id: Option<&str>,
+) -> Result<ComposerOutput, CompositionError> {
+    // Thin delegator: bare callers (CLI build/preview, conformance + composer
+    // tests) carry no requested methods → empty preferred set → byte-identical
+    // emit. The preferred-aware capture sites (CLI intake, chat rebuild_dag)
+    // call `compose_with_modalities_full_pref` directly with the captured set.
+    compose_with_modalities_full_pref(
+        goal,
+        project_class,
+        atom_reg,
+        archetype_reg,
+        target_modalities,
+        policy_ctx,
+        opaque_sink,
+        opaque_session_id,
+        &crate::preferred_methods::PreferredMethods::new(),
+    )
+}
+
+/// As [`compose_with_modalities_full`], plus the SME/intake-requested
+/// methods (keyed by bare discover axis) that the discover-companion
+/// synthesis stamps onto discover task specs. The two capture sources —
+/// the CLI classifier and chat `set_intake_method` — fold into one
+/// [`crate::preferred_methods::PreferredMethods`] before calling here.
+#[allow(clippy::too_many_arguments)]
+pub fn compose_with_modalities_full_pref(
+    goal: &GoalSpec,
+    project_class: &str,
+    atom_reg: &AtomRegistry,
+    archetype_reg: &ArchetypeRegistry,
+    target_modalities: &[&str],
+    policy_ctx: Option<&crate::policy_context::PolicyContext>,
     // R1/R2 closure (closure-residuals plan Task 1.4) — optional
     // cross-session opaque-type observation sink + session id. When set,
     // the v4 planner threads them into the engine `PlanningContext` so
@@ -626,6 +681,7 @@ pub fn compose_with_modalities_full(
         std::sync::Arc<dyn crate::compatibility::engine::OpaqueObservationSink + Send + Sync>,
     >,
     opaque_session_id: Option<&str>,
+    preferred_methods: &crate::preferred_methods::PreferredMethods,
 ) -> Result<ComposerOutput, CompositionError> {
     // Atypical-shape fall-through. The v4 dispatch jumps straight to
     // `compose_v4_dispatch_full` for the normal path, so flex-shape /
@@ -676,6 +732,7 @@ pub fn compose_with_modalities_full(
             policy_ctx,
             opaque_sink,
             opaque_session_id,
+            preferred_methods,
         );
     }
     // v4 dispatch already takes the policy context; for multi-modality
@@ -693,5 +750,6 @@ pub fn compose_with_modalities_full(
         policy_ctx,
         opaque_sink,
         opaque_session_id,
+        preferred_methods,
     )
 }

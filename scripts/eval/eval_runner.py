@@ -17,12 +17,14 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from scripts.eval.benchmark import Arm, Output, Score
+from scripts.eval.benchmark import Arm, Output, RunSpec, Score
 from scripts.eval.plugins.biomnibench import BiomniBench
 from scripts.eval.plugins.nekrutenko import Nekrutenko
 from scripts.eval.scheduler import run_phase
 from scripts.eval.services import agent_runner
 from scripts.eval.services import judge as judge_mod
+from scripts.eval.services.chat_client import drive_chat_intake
+from scripts.eval.services.chat_server import ChatServer
 from scripts.eval.services.datasets import (cache_root, eval_runs_dir,
                                             scratch_root, stage_file)
 from scripts.eval.services.journal import Journal
@@ -167,42 +169,80 @@ def _write_auto_approve_all(pkg: Path) -> None:
         }, indent=2))
 
 
-def _emit_ecaa_package(plugin, task, arm: Arm, workdir: Path):
-    """Build + emit the ECAA package via `intake` only (no agent run).
+def _intake_mode() -> str:
+    """`chat` (default) drives the full server chat-intake path; `cli` keeps the
+    legacy no-LLM `ecaa-workflow intake` compile path (offline/CI smoke)."""
+    return os.environ.get("ECAA_EVAL_INTAKE", "chat")
 
-    Used by the error-matrix resume path: when a base run is journaled-complete
-    but its live spec was lost on restart, cells still need an emitted package
-    to copy. Re-emitting is cheap (deterministic compile); re-running the base
-    agent would not be. For the bare arm, build_run already carries everything."""
-    spec = plugin.build_run(task, arm, workdir)
-    if spec.kind == "ecaa_package":
-        intake = workdir / "intake.txt"
-        intake.write_text(spec.instruction)
-        pkg = workdir / "pkg"
-        subprocess.run(["ecaa-workflow", "intake", "-i", str(intake),
-                        "-o", str(pkg), "--config", "config"],
-                       cwd=str(REPO_ROOT), check=True)
-        spec.package_dir = pkg
-        _stage_inputs(pkg, task.inputs)
-        _write_auto_approve_all(pkg)
+
+def _cli_intake(spec: RunSpec, task, workdir: Path) -> RunSpec:
+    """Legacy no-LLM compile path: `ecaa-workflow intake` into workdir/pkg.
+    Sets spec.package_dir; leaves spec.session_id None."""
+    intake = workdir / "intake.txt"
+    intake.write_text(spec.instruction)
+    pkg = workdir / "pkg"
+    subprocess.run(["ecaa-workflow", "intake", "-i", str(intake),
+                    "-o", str(pkg), "--config", "config"],
+                   cwd=str(REPO_ROOT), check=True)
+    spec.package_dir = pkg
     return spec
 
 
-def run_base(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int):
-    """Run one (task, arm, trial) base run; return (output, spec)."""
+def _chat_intake_or_cli(plugin, task, arm: Arm, workdir: Path,
+                        server: ChatServer | None) -> RunSpec:
+    """Emit the ECAA package for one (task, arm). Default: drive the server
+    chat-intake path (sets spec.session_id + spec.package_dir to the
+    server-emitted dir). `ECAA_EVAL_INTAKE=cli` falls back to the no-LLM CLI
+    compile. Bare-arm specs pass through unchanged. Always stages inputs +
+    writes the SME auto-approve markers into the emitted dir."""
     spec = plugin.build_run(task, arm, workdir)
-    if spec.kind == "ecaa_package":
-        intake = workdir / "intake.txt"
-        intake.write_text(spec.instruction)
-        pkg = workdir / "pkg"
-        subprocess.run(["ecaa-workflow", "intake", "-i", str(intake),
-                        "-o", str(pkg), "--config", "config"],
-                       cwd=str(REPO_ROOT), check=True)
+    if spec.kind != "ecaa_package":
+        return spec
+    if _intake_mode() == "chat":
+        if server is None:
+            raise RuntimeError("chat intake requested but no ChatServer started")
+        sid, pkg = drive_chat_intake(
+            server.base_url, spec.instruction,
+            locked_methods=plugin.locked_methods(task, arm))
+        spec.session_id = sid
         spec.package_dir = pkg
-        _stage_inputs(pkg, task.inputs)
-        _write_auto_approve_all(pkg)
-        res = agent_runner.run_ecaa_package(pkg, max_iterations=max_iter)
-        out = plugin.collect(spec, pkg)
+    else:
+        _cli_intake(spec, task, workdir)
+    _stage_inputs(spec.package_dir, task.inputs)
+    _write_auto_approve_all(spec.package_dir)
+    return spec
+
+
+def _ensure_package_for_cells(plugin, task, arm: Arm, base_rec: dict | None,
+                              workdir: Path, server: ChatServer | None) -> RunSpec:
+    """Return a spec with a usable package_dir for error-matrix cells.
+
+    Resume fast-path: if the journaled `package_dir` still exists on disk, reuse
+    it (no re-emit, no LLM tokens). Only when the dir is gone do we re-drive
+    intake. Cells copy this tree per-cell and run offline (no session)."""
+    spec = plugin.build_run(task, arm, workdir)
+    if spec.kind != "ecaa_package":
+        return spec
+    if base_rec:
+        recorded = base_rec.get("package_dir")
+        if recorded and Path(recorded).exists():
+            spec.package_dir = Path(recorded)
+            spec.session_id = base_rec.get("session_id")
+            return spec
+    # Package gone (or never journaled) — re-emit.
+    return _chat_intake_or_cli(plugin, task, arm, workdir, server)
+
+
+def run_base(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int,
+             server: ChatServer | None):
+    """Run one (task, arm, trial) base run; return (output, spec)."""
+    spec = _chat_intake_or_cli(plugin, task, arm, workdir, server)
+    if spec.kind == "ecaa_package":
+        res = agent_runner.run_ecaa_package(
+            spec.package_dir, max_iterations=max_iter,
+            session_id=spec.session_id,
+            server_url=(server.base_url if server is not None else None))
+        out = plugin.collect(spec, spec.package_dir)
     else:
         res = agent_runner.run_bare(workdir, spec.instruction)
         (workdir / "agent-stdout.json").write_text(res.stdout or "")
@@ -212,11 +252,18 @@ def run_base(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int):
 
 
 def _cell_run_fn(spec, max_iter):
-    """Closure that re-runs the arm under a PATH-shim env for one cell."""
+    """Closure that re-runs the arm under a PATH-shim env for one cell.
+
+    Cells copy the emitted package to a fresh, unregistered dir and run the
+    harness OFFLINE (session_id/server_url=None): cells measure fault-injection
+    robustness, not session round-trip, and a copied package has no live session
+    binding. Keeping them sessionless keeps cells fully parallel + decoupled."""
     def _fn(cell_workdir, env):
         if spec.kind == "ecaa_package":
             pkg_copy = _isolated_pkg_copy(spec.package_dir, cell_workdir / "pkg")
-            return agent_runner.run_ecaa_package(pkg_copy, max_iterations=max_iter, env=env)
+            return agent_runner.run_ecaa_package(
+                pkg_copy, max_iterations=max_iter, env=env,
+                session_id=None, server_url=None)
         return agent_runner.run_bare(cell_workdir, spec.instruction, env=env)
     return _fn
 
@@ -304,14 +351,31 @@ def main(argv: list[str]) -> int:
     _keep_scratch = os.environ.get("ECAA_EVAL_KEEP_SCRATCH") == "1"
     base_dir = Path(tempfile.mkdtemp(dir=scratch_root()))
 
+    # The chat-intake path emits packages under ECAA_PACKAGE_ROOT (NOT base_dir),
+    # so they survive base_dir cleanup; track them to remove at run end.
+    emitted_pkg_dirs: list[Path] = []
+
+    # ---- Chat server: ONE shared instance for the whole run, started only when
+    # an ECAA arm is present and chat-intake is enabled (default). The CLI
+    # fallback (ECAA_EVAL_INTAKE=cli) and bare-only runs need no server.
+    server: ChatServer | None = None
+    if (any(a == Arm.ECAA_WORKFLOW for a in arms)
+            and _intake_mode() == "chat"):
+        server = ChatServer(run_dir).start()
+
     # ---- PHASE 1a: base runs (parallel) ----
     def _run_base_item(item):
         task, arm, trial = item
         wd = base_dir / f"{task.task_id}-{arm.value}-{trial}"
-        out, spec = run_base(plugin, task, arm, trial, wd, args.max_iterations)
+        out, spec = run_base(plugin, task, arm, trial, wd, args.max_iterations, server)
+        if getattr(spec, "package_dir", None) and spec.kind == "ecaa_package":
+            emitted_pkg_dirs.append(Path(spec.package_dir))
         rec = {"kind": "base", "key": _base_key(task.task_id, arm.value, trial),
                "task_id": task.task_id, "arm": arm.value, "trial": trial,
-               "exit_ok": out.exit_ok, "wall_secs": out.wall_secs}
+               "exit_ok": out.exit_ok, "wall_secs": out.wall_secs,
+               "session_id": getattr(spec, "session_id", None),
+               "package_dir": (str(spec.package_dir)
+                               if getattr(spec, "package_dir", None) else None)}
         if is_deterministic:
             # Score NOW while the run dir is alive (VCFs etc. still exist).
             rec["score"] = _score_to_dict(plugin.score(task, arm, out, trial))
@@ -320,151 +384,174 @@ def main(argv: list[str]) -> int:
             rec["answer_txt"] = out.answer_txt
         return item, spec, out, rec
 
-    pending_base = [it for it in base_items
-                    if _base_key(it[0].task_id, it[1].value, it[2]) not in done]
-    for _it, result in run_phase(pending_base, max_parallel=args.max_parallel,
-                                 run_fn=_run_base_item):
-        if isinstance(result, Exception):
-            # Surface (don't silently drop) a failed/timed-out base run. Journal it
-            # WITHOUT a "key" so it is NOT counted complete — --resume retries it.
-            task, arm, trial = _it
-            bk = _base_key(task.task_id, arm.value, trial)
-            journal.append({"kind": "base_failed", "fail_of": bk,
-                            "error": f"{type(result).__name__}: {result}"})
-            print(f"[run] base run {bk} FAILED ({type(result).__name__}: {result}) "
-                  f"— left unscored; --resume retries", file=sys.stderr)
-            continue
-        item, spec, out, rec = result
-        k = rec["key"]
-        spec_by_key[k] = spec
-        out_by_key[k] = out
-        if "score" in rec:
-            score_by_key[k] = _score_from_dict(rec["score"])
-        journal.append(rec)
-
-    # Reconstruct already-journaled base runs (resume) from the journal.
-    for it in base_items:
-        k = _base_key(it[0].task_id, it[1].value, it[2])
-        if k in spec_by_key or k not in base_recs:
-            continue
-        r = base_recs[k]
-        if "score" in r:
-            score_by_key[k] = _score_from_dict(r["score"])
-        else:
-            out_by_key[k] = Output(r.get("trace_md", ""), r.get("answer_txt", ""),
-                                   {}, r["exit_ok"], r["wall_secs"])
-
-    # ---- PHASE 1b: Nekrutenko error-matrix cells (parallel, flat) ----
-    if args.error_matrix and hasattr(plugin, "error_matrix_specs"):
-        cell_items = []
-        for it in base_items:
-            task, arm, trial = it
-            bk = _base_key(task.task_id, arm.value, trial)
-            spec = spec_by_key.get(bk)
-            if spec is None:
-                # Resumed base run with no live spec — re-emit the package only.
-                wd = base_dir / f"{task.task_id}-{arm.value}-{trial}-reemit"
-                spec = _emit_ecaa_package(plugin, task, arm, wd)
-                spec_by_key[bk] = spec
-            for cs in plugin.error_matrix_specs():
-                ck = _cell_key(task.task_id, arm.value, trial, *cs)
-                if ck not in done:
-                    cell_items.append((task, arm, trial, cs, spec))
-
-        def _run_cell_item(item):
-            task, arm, trial, cs, spec = item
-            cell = plugin.run_error_cell(task, cs, _cell_run_fn(spec, args.max_iterations))
-            bk = _base_key(task.task_id, arm.value, trial)
-            return {"kind": "cell",
-                    "key": _cell_key(task.task_id, arm.value, trial, *cs),
-                    "parent_key": bk, "cell": cell}
-
-        for _it, rec in run_phase(cell_items, max_parallel=args.max_parallel,
-                                  run_fn=_run_cell_item):
-            if isinstance(rec, Exception):
+    def _phases() -> int:
+        pending_base = [it for it in base_items
+                        if _base_key(it[0].task_id, it[1].value, it[2]) not in done]
+        for _it, result in run_phase(pending_base, max_parallel=args.max_parallel,
+                                     run_fn=_run_base_item):
+            if isinstance(result, Exception):
+                # Surface (don't silently drop) a failed/timed-out base run. Journal it
+                # WITHOUT a "key" so it is NOT counted complete — --resume retries it.
+                task, arm, trial = _it
+                bk = _base_key(task.task_id, arm.value, trial)
+                journal.append({"kind": "base_failed", "fail_of": bk,
+                                "error": f"{type(result).__name__}: {result}"})
+                print(f"[run] base run {bk} FAILED ({type(result).__name__}: {result}) "
+                      f"— left unscored; --resume retries", file=sys.stderr)
                 continue
-            cell_recs.setdefault(rec["parent_key"], []).append(rec["cell"])
+            item, spec, out, rec = result
+            k = rec["key"]
+            spec_by_key[k] = spec
+            out_by_key[k] = out
+            if "score" in rec:
+                score_by_key[k] = _score_from_dict(rec["score"])
             journal.append(rec)
 
-        for bk, cells in cell_recs.items():
-            if bk in score_by_key:
-                score_by_key[bk].error_cells = cells
-
-    # ---- PHASE 2: scores ----
-    ordered = [(t, a, tr) for t in tasks for a in arms for tr in range(trials)]
-    scores: list[Score] = []
-    if is_deterministic:
-        scores = [score_by_key[_base_key(t.task_id, a.value, tr)]
-                  for (t, a, tr) in ordered
-                  if _base_key(t.task_id, a.value, tr) in score_by_key]
-    else:
-        all_requests = []
-        idx_by_key: dict[str, int] = {}
-        for i, (t, a, tr) in enumerate(ordered):
-            bk = _base_key(t.task_id, a.value, tr)
-            idx_by_key[bk] = i
-            out = out_by_key.get(bk)
-            if out is None:
+        # Reconstruct already-journaled base runs (resume) from the journal.
+        for it in base_items:
+            k = _base_key(it[0].task_id, it[1].value, it[2])
+            if k in spec_by_key or k not in base_recs:
                 continue
-            for req in plugin.judge_requests(t, a, out):
-                all_requests.append({**req, "key": f"{i}:{req['role']}"})
-        verdicts = judge_mod.judge_batch(all_requests) if all_requests else {}
-        for (t, a, tr) in ordered:
-            bk = _base_key(t.task_id, a.value, tr)
-            out = out_by_key.get(bk)
-            if out is None:
-                continue
-            i = idx_by_key[bk]
-            vd = {}
-            for req in plugin.judge_requests(t, a, out):
-                key = f"{i}:{req['role']}"
-                if key in verdicts:
-                    vd[req["role"]] = verdicts[key]
-            if vd:
-                scores.append(plugin.assemble_score(t, a, out, tr, vd))
+            r = base_recs[k]
+            if "score" in r:
+                score_by_key[k] = _score_from_dict(r["score"])
             else:
-                # Every judge failed for this row (e.g. all providers out of credits).
-                # Do NOT re-invoke judges live via score() — leave it unscored so
-                # --resume re-judges from the journaled output once credits return.
-                print(f"[judge] no verdict for {bk} — left unscored; --resume re-judges",
-                      file=sys.stderr)
+                out_by_key[k] = Output(r.get("trace_md", ""), r.get("answer_txt", ""),
+                                       {}, r["exit_ok"], r["wall_secs"])
 
-    if _keep_scratch:
-        print(f"[eval] kept scratch for inspection: {base_dir}", file=sys.stderr)
-    else:
-        shutil.rmtree(base_dir, ignore_errors=True)
+        # ---- PHASE 1b: Nekrutenko error-matrix cells (parallel, flat) ----
+        if args.error_matrix and hasattr(plugin, "error_matrix_specs"):
+            cell_items = []
+            for it in base_items:
+                task, arm, trial = it
+                bk = _base_key(task.task_id, arm.value, trial)
+                spec = spec_by_key.get(bk)
+                if spec is None:
+                    # Resumed base run with no live spec — reuse the journaled
+                    # package dir if it survives on disk (no re-emit, no LLM
+                    # tokens); only re-drive intake when the dir is gone.
+                    base_rec = base_recs.get(bk)
+                    recorded = (base_rec or {}).get("package_dir")
+                    wd = base_dir / f"{task.task_id}-{arm.value}-{trial}-reemit"
+                    spec = _ensure_package_for_cells(
+                        plugin, task, arm, base_rec, wd, server)
+                    spec_by_key[bk] = spec
+                    # Only schedule cleanup for a FRESHLY re-emitted package; a
+                    # journal-reused dir was emitted by a prior run and must
+                    # survive for a later resume.
+                    pkg_dir = getattr(spec, "package_dir", None)
+                    if (pkg_dir and spec.kind == "ecaa_package"
+                            and str(pkg_dir) != recorded
+                            and Path(pkg_dir) not in emitted_pkg_dirs):
+                        emitted_pkg_dirs.append(Path(pkg_dir))
+                for cs in plugin.error_matrix_specs():
+                    ck = _cell_key(task.task_id, arm.value, trial, *cs)
+                    if ck not in done:
+                        cell_items.append((task, arm, trial, cs, spec))
 
-    for arm in arms:
-        if not [s for s in scores if s.arm == arm.value]:
-            print(f"ERROR: arm '{arm.value}' produced zero score rows", file=sys.stderr)
-            return 1
+            def _run_cell_item(item):
+                task, arm, trial, cs, spec = item
+                cell = plugin.run_error_cell(task, cs, _cell_run_fn(spec, args.max_iterations))
+                bk = _base_key(task.task_id, arm.value, trial)
+                return {"kind": "cell",
+                        "key": _cell_key(task.task_id, arm.value, trial, *cs),
+                        "parent_key": bk, "cell": cell}
 
-    card = plugin.report(scores)
-    # Cost breakdown (per provider + totals), tolerant of partial/deterministic rows.
-    card.meta["cost"] = {
-        "judge_usd": round(sum(s.extra.get("judge_cost_usd", 0.0) for s in scores), 4),
-        "gemini_usd": round(sum(s.extra.get("gemini_cost_usd", 0.0) for s in scores), 4),
-        "anthropic_usd": round(sum(s.extra.get("anthropic_cost_usd", 0.0) for s in scores), 4),
-        "partial_judging_rows": sum(1 for s in scores if s.extra.get("partial_judging")),
-    }
-    # Surface stalled/incomplete runs so depressed scores aren't mistaken for poor work.
-    incomplete = {bk: o.artifacts.get("incomplete_reason")
-                  for bk, o in out_by_key.items() if o.artifacts.get("incomplete_reason")}
-    if incomplete:
-        card.meta["incomplete_runs"] = incomplete
-    # Row-count integrity: flag any (task,arm,trial) that produced no score row.
-    expected = len(ordered)
-    if len(scores) < expected:
-        scored = {(s.task_id, s.arm, s.trial) for s in scores}
-        missing = [_base_key(t.task_id, a.value, tr) for (t, a, tr) in ordered
-                   if (t.task_id, a.value, tr) not in scored]
-        card.meta["incomplete_scorecard"] = {"expected": expected,
-                                             "scored": len(scores), "missing": missing}
-        print(f"WARNING: scorecard has {len(scores)}/{expected} rows; missing: {missing}",
-              file=sys.stderr)
-    write_scorecard(card, run_dir)
-    print(f"wrote {run_dir}/scorecard.md")
-    return 0
+            for _it, rec in run_phase(cell_items, max_parallel=args.max_parallel,
+                                      run_fn=_run_cell_item):
+                if isinstance(rec, Exception):
+                    continue
+                cell_recs.setdefault(rec["parent_key"], []).append(rec["cell"])
+                journal.append(rec)
+
+            for bk, cells in cell_recs.items():
+                if bk in score_by_key:
+                    score_by_key[bk].error_cells = cells
+
+        # ---- PHASE 2: scores ----
+        ordered = [(t, a, tr) for t in tasks for a in arms for tr in range(trials)]
+        scores: list[Score] = []
+        if is_deterministic:
+            scores = [score_by_key[_base_key(t.task_id, a.value, tr)]
+                      for (t, a, tr) in ordered
+                      if _base_key(t.task_id, a.value, tr) in score_by_key]
+        else:
+            all_requests = []
+            idx_by_key: dict[str, int] = {}
+            for i, (t, a, tr) in enumerate(ordered):
+                bk = _base_key(t.task_id, a.value, tr)
+                idx_by_key[bk] = i
+                out = out_by_key.get(bk)
+                if out is None:
+                    continue
+                for req in plugin.judge_requests(t, a, out):
+                    all_requests.append({**req, "key": f"{i}:{req['role']}"})
+            verdicts = judge_mod.judge_batch(all_requests) if all_requests else {}
+            for (t, a, tr) in ordered:
+                bk = _base_key(t.task_id, a.value, tr)
+                out = out_by_key.get(bk)
+                if out is None:
+                    continue
+                i = idx_by_key[bk]
+                vd = {}
+                for req in plugin.judge_requests(t, a, out):
+                    key = f"{i}:{req['role']}"
+                    if key in verdicts:
+                        vd[req["role"]] = verdicts[key]
+                if vd:
+                    scores.append(plugin.assemble_score(t, a, out, tr, vd))
+                else:
+                    # Every judge failed for this row (e.g. all providers out of credits).
+                    # Do NOT re-invoke judges live via score() — leave it unscored so
+                    # --resume re-judges from the journaled output once credits return.
+                    print(f"[judge] no verdict for {bk} — left unscored; --resume re-judges",
+                          file=sys.stderr)
+
+        if _keep_scratch:
+            print(f"[eval] kept scratch for inspection: {base_dir}", file=sys.stderr)
+        else:
+            shutil.rmtree(base_dir, ignore_errors=True)
+
+        for arm in arms:
+            if not [s for s in scores if s.arm == arm.value]:
+                print(f"ERROR: arm '{arm.value}' produced zero score rows", file=sys.stderr)
+                return 1
+
+        card = plugin.report(scores)
+        # Cost breakdown (per provider + totals), tolerant of partial/deterministic rows.
+        card.meta["cost"] = {
+            "judge_usd": round(sum(s.extra.get("judge_cost_usd", 0.0) for s in scores), 4),
+            "gemini_usd": round(sum(s.extra.get("gemini_cost_usd", 0.0) for s in scores), 4),
+            "anthropic_usd": round(sum(s.extra.get("anthropic_cost_usd", 0.0) for s in scores), 4),
+            "partial_judging_rows": sum(1 for s in scores if s.extra.get("partial_judging")),
+        }
+        # Surface stalled/incomplete runs so depressed scores aren't mistaken for poor work.
+        incomplete = {bk: o.artifacts.get("incomplete_reason")
+                      for bk, o in out_by_key.items() if o.artifacts.get("incomplete_reason")}
+        if incomplete:
+            card.meta["incomplete_runs"] = incomplete
+        # Row-count integrity: flag any (task,arm,trial) that produced no score row.
+        expected = len(ordered)
+        if len(scores) < expected:
+            scored = {(s.task_id, s.arm, s.trial) for s in scores}
+            missing = [_base_key(t.task_id, a.value, tr) for (t, a, tr) in ordered
+                       if (t.task_id, a.value, tr) not in scored]
+            card.meta["incomplete_scorecard"] = {"expected": expected,
+                                                 "scored": len(scores), "missing": missing}
+            print(f"WARNING: scorecard has {len(scores)}/{expected} rows; missing: {missing}",
+                  file=sys.stderr)
+        write_scorecard(card, run_dir)
+        print(f"wrote {run_dir}/scorecard.md")
+        return 0
+
+    try:
+        return _phases()
+    finally:
+        if server is not None:
+            server.stop()
+        if not _keep_scratch:
+            for pkg in emitted_pkg_dirs:
+                shutil.rmtree(pkg, ignore_errors=True)
 
 
 if __name__ == "__main__":

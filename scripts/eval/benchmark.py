@@ -33,6 +33,7 @@ class RunSpec:
     kind: Literal["ecaa_package", "bare"]
     instruction: str                  # bare-arm prompt; ecaa-arm intake text
     package_dir: Optional[Path] = None  # set for ecaa_package after intake
+    session_id: Optional[str] = None    # chat session that emitted package_dir
 
 
 @dataclass
@@ -94,6 +95,18 @@ class Benchmark(ABC):
         Each dict: {"role", "judge_id", "rubric", "trace", "answer"}.
         Default implementation returns an empty list; override in plugins that
         use the batch scoring path.
+        """
+        return []
+
+    def locked_methods(self, task: "Task", arm: "Arm") -> list[tuple[str, str]]:
+        """Return (stage_id, method) pairs to lock during chat-intake.
+
+        For each pair the eval pre-sets the SME-named-method flag and names the
+        method to the LLM so it is permitted to call `set_intake_method` —
+        otherwise method-neutrality keeps the choice with the runtime agent.
+        Default: lock nothing ("free" benchmarks). Recipe benchmarks override to
+        pin the canonical tools for the ECAA arm only. Always [] for non-ECAA
+        arms (the bare arm has no chat-intake to lock against).
         """
         return []
 

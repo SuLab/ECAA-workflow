@@ -168,6 +168,11 @@ pub struct PlanningContext {
     /// `opaque_observation_sink` so the sink can attribute cross-session
     /// aggregation correctly. Same `None`-default semantics as the sink.
     pub opaque_session_id: Option<String>,
+    /// SME/intake-requested methods keyed by bare discover axis. Empty
+    /// (default) for legacy/eval/test callers → byte-identical emit.
+    /// Consumed by `discover_companion_synthesis::synthesize_discover_companions`
+    /// to stamp `spec_preferred_methods` + augment the candidate pool.
+    pub preferred_methods: crate::preferred_methods::PreferredMethods,
 }
 
 impl PlanningContext {

@@ -121,6 +121,7 @@ pub mod plot_affordance;
 pub mod policy_context;
 pub mod policy_schema;
 pub mod population_coverage;
+pub mod preferred_methods;
 pub mod project_class;
 pub mod project_class_registry;
 // V4 alignment validation × lifecycle promotion

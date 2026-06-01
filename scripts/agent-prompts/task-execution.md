@@ -111,6 +111,20 @@ and any `sme-review-confirmed-*.json`) — block by default with
 method. When pre-approval is present, record the auto-advance in
 `decision.json` and complete.
 
+When `task-spec.json` carries a non-empty `spec_preferred_methods` map, every
+`method_id` in it is an SME/intake-requested method and is a hard preference,
+not a hint: include each one in `candidate_pool_full` even if it is absent from
+the stage's curated `candidate_tools` (a `candidate_pool_augmented: true` flag
+means the pool was extended for exactly this reason — do not drop the extras),
+apply the spec_match boost, and rank the highest-scoring spec-preferred
+env-available method at #1. When exactly one spec-preferred method is
+env-available, record it as the pick with `spec_preference_applied: true` and
+`auto_advanced: true` in `decision.json` and complete the task WITHOUT
+blocking — naming the method IS the SME's selection (equivalent to an entry in
+`runtime/.sme-auto-approve-discoveries`). Block with `AwaitingSmeApproval` only
+when `spec_preferred_methods` is empty or two-or-more spec-preferred methods are
+env-available.
+
 ### Iterate-until stages
 
 A `Cardinality::IterateUntil` stage is emitted as a 4-template scaffold

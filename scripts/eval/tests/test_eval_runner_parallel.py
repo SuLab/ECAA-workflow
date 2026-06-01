@@ -31,6 +31,10 @@ def _patch_runs(monkeypatch, tmp_path):
     monkeypatch.setenv("ECAA_EVAL_LIVE", "1")
     monkeypatch.setenv("ECAA_EVAL_RUNS_DIR", str(tmp_path / "runs"))
     monkeypatch.setenv("ECAA_EVAL_SCRATCH_DIR", str(tmp_path / "scratch"))
+    # Stub builds bare specs; force the CLI intake mode so main() never tries to
+    # start a real ChatServer for the (nominal) ECAA arm in this orchestration
+    # test (which exercises parallel/journal/resume, not chat-intake).
+    monkeypatch.setenv("ECAA_EVAL_INTAKE", "cli")
     monkeypatch.setattr(eval_runner, "PLUGINS", {"stub": _StubBench})
     monkeypatch.setattr(eval_runner.agent_runner, "run_bare",
                         lambda wd, instr, **kw: eval_runner.agent_runner.RunResult(True, 0.1, wd))
@@ -74,10 +78,10 @@ def test_failed_base_run_journaled_surfaced_and_retried_on_resume(monkeypatch, t
     orig = eval_runner.run_base
     state = {"fail_t1": True}
 
-    def maybe_fail(plugin, task, arm, trial, wd, mi):
+    def maybe_fail(plugin, task, arm, trial, wd, mi, server=None):
         if task.task_id == "t1" and state["fail_t1"]:
             raise RuntimeError("boom t1")
-        return orig(plugin, task, arm, trial, wd, mi)
+        return orig(plugin, task, arm, trial, wd, mi, server)
 
     monkeypatch.setattr(eval_runner, "run_base", maybe_fail)
     rc = eval_runner.main(["stub", "--arms", "ecaa", "--trials", "1", "--max-parallel", "2"])
@@ -130,6 +134,7 @@ def test_judged_row_with_no_verdict_left_unscored_not_re_judged(monkeypatch, tmp
     monkeypatch.setenv("ECAA_EVAL_LIVE", "1")
     monkeypatch.setenv("ECAA_EVAL_RUNS_DIR", str(tmp_path / "runs"))
     monkeypatch.setenv("ECAA_EVAL_SCRATCH_DIR", str(tmp_path / "scratch"))
+    monkeypatch.setenv("ECAA_EVAL_INTAKE", "cli")  # bare stub; no real server
     monkeypatch.setattr(eval_runner, "PLUGINS", {"jstub": _JudgedStub})
     monkeypatch.setattr(eval_runner.agent_runner, "run_bare",
                         lambda wd, instr, **kw: eval_runner.agent_runner.RunResult(True, 0.1, wd))
