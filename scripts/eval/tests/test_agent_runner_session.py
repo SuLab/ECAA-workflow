@@ -45,15 +45,20 @@ def test_session_id_without_server_url_is_not_wired(monkeypatch, tmp_path):
     assert "--session-id" not in cap["cmd"]
 
 
-def test_sme_auto_approve_all_env_set(monkeypatch, tmp_path):
+def test_sme_auto_approve_all_env_not_injected(monkeypatch, tmp_path):
+    """eval-02: the runner must NOT set ECAA_SME_AUTO_APPROVE_ALL. That flag is
+    an all-or-nothing bypass that disables the silent-completion / missing-
+    artifact / validation / claim guards we keep ACTIVE; the discovery review
+    gate is cleared narrowly via per-package marker files instead."""
     cap = _capture(monkeypatch)
     agent_runner.run_ecaa_package(tmp_path, env={"PATH": "/usr/bin"})
-    assert cap["env"]["ECAA_SME_AUTO_APPROVE_ALL"] == "1"
+    assert "ECAA_SME_AUTO_APPROVE_ALL" not in cap["env"]
 
 
-def test_sme_auto_approve_all_env_respects_explicit_override(monkeypatch, tmp_path):
+def test_sme_auto_approve_all_env_caller_value_preserved(monkeypatch, tmp_path):
+    """A debugging operator may still force the flag via the caller env; the
+    runner does not clobber it (and the value flows through unchanged)."""
     cap = _capture(monkeypatch)
     agent_runner.run_ecaa_package(
-        tmp_path, env={"PATH": "/usr/bin", "ECAA_SME_AUTO_APPROVE_ALL": "0"})
-    # setdefault: an explicit operator value wins.
-    assert cap["env"]["ECAA_SME_AUTO_APPROVE_ALL"] == "0"
+        tmp_path, env={"PATH": "/usr/bin", "ECAA_SME_AUTO_APPROVE_ALL": "1"})
+    assert cap["env"]["ECAA_SME_AUTO_APPROVE_ALL"] == "1"

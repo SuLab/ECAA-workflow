@@ -5,10 +5,27 @@ meta/extra so reruns diff cleanly on substantive fields.
 """
 from __future__ import annotations
 import json
+import math
+import random
 from dataclasses import asdict
 from pathlib import Path
 from statistics import mean, pstdev
 from scripts.eval.benchmark import Scorecard
+
+# Deterministic bootstrap so a re-rendered scorecard's CI is reproducible.
+_BOOTSTRAP_SEED = 1729
+_BOOTSTRAP_RESAMPLES = 2000
+
+# Reason-string markers the harness writes when a guard re-blocks a task
+# (crates/harness/src/main.rs). Each maps a Blocked task's reason to the guard
+# that caught it. Order matters only for labelling; counts are independent.
+_GUARD_REASON_MARKERS: tuple[tuple[str, str], ...] = (
+    ("[missing_artifact]", "missing_artifact"),
+    ("[validation_failed]", "validation_failed"),
+    ("overall_", "empty_result_sentinel"),       # overall_*_not_run sentinel
+    ("empty-result sentinel", "empty_result_sentinel"),
+    ("no-progress guard", "no_progress"),
+)
 
 
 def _by_arm(card: Scorecard) -> dict[str, list[float]]:
@@ -105,24 +122,295 @@ def _render_judge_agreement(ja: dict) -> list[str]:
     return [f"Inter-judge agreement: exact {exact}, linear-weighted kappa {kappa}"]
 
 
+# ── eval-02: guard-outcome dimension (ECAA error-catching, measured) ─────────
+#
+# The eval keeps ECAA's silent-completion / missing-artifact / validation /
+# claim-verification guards ACTIVE (only the discovery review gate is
+# auto-advanced). Those guards leave on-disk evidence in the executed package:
+#
+#   * WORKFLOW.json — a task flipped completed -> Blocked whose reason carries a
+#     guard marker ([missing_artifact] / [validation_failed] / sentinel /
+#     no-progress) is a blocked-by-guard event.
+#   * runtime/validation-reports.jsonl — rows whose outcome is "failed:..." /
+#     "errored:..." are validation failures the harness caught.
+#   * runtime/claim-verification.json (top-level rollup) and any per-task
+#     runtime/outputs/<tid>/claim-verification.json — n_mismatch is the count of
+#     narrative claims that contradicted the result tables.
+#
+# Counting these turns ECAA's error-catching into measured evidence rather than
+# something hidden by a blanket SME-bypass.
+
+def collect_guard_outcomes(package_dir: Path) -> dict:
+    """Scan one executed ECAA package for guard-catch evidence.
+
+    Returns a dict with integer counts and the list of affected task ids:
+
+        {
+          "blocked_by_guard": int,        # tasks re-blocked by a guard
+          "blocked_by_kind": {kind: int}, # breakdown by guard kind
+          "blocked_tasks": [task_id, ...],
+          "validation_failures": int,     # failed/errored validator rows
+          "claim_mismatches": int,        # n_mismatch across claim reports
+          "corrections": int,             # blocked_by_guard + validation_failures
+        }
+
+    Never raises: a missing/corrupt package yields all-zero counts.
+    """
+    pkg = Path(package_dir)
+    out = {
+        "blocked_by_guard": 0,
+        "blocked_by_kind": {},
+        "blocked_tasks": [],
+        "validation_failures": 0,
+        "claim_mismatches": 0,
+        "corrections": 0,
+    }
+
+    # (a) guard re-blocks in WORKFLOW.json
+    wf = pkg / "WORKFLOW.json"
+    try:
+        tasks = json.loads(wf.read_text()).get("tasks", {})
+    except (OSError, ValueError, AttributeError):
+        tasks = {}
+    if isinstance(tasks, list):  # tolerate legacy list shape
+        tasks = {t["id"]: t for t in tasks if isinstance(t, dict) and "id" in t}
+    if isinstance(tasks, dict):
+        for tid, task in tasks.items():
+            if not isinstance(task, dict):
+                continue
+            state = task.get("state") or {}
+            reason = ""
+            if isinstance(state, dict):
+                status = state.get("status")
+                # Two serialized shapes: {"status":"blocked","record":{"reason"}}
+                # and the flattened {"blocked":{"reason":...}} — handle both.
+                if status == "blocked":
+                    rec = state.get("record") or {}
+                    reason = rec.get("reason", "") if isinstance(rec, dict) else ""
+                elif "blocked" in state and isinstance(state["blocked"], dict):
+                    reason = state["blocked"].get("reason", "")
+            if not reason:
+                continue
+            kind = _guard_kind_for_reason(reason)
+            if kind is None:
+                continue
+            out["blocked_by_guard"] += 1
+            out["blocked_tasks"].append(str(tid))
+            out["blocked_by_kind"][kind] = out["blocked_by_kind"].get(kind, 0) + 1
+
+    # (b) validation-report failures/errors
+    vr = pkg / "runtime" / "validation-reports.jsonl"
+    if vr.exists():
+        for line in vr.read_text().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            outcome = str(row.get("outcome", ""))
+            if outcome.startswith("failed:") or outcome.startswith("errored:"):
+                out["validation_failures"] += 1
+
+    # (c) claim-verification mismatches (top-level rollup + per-task reports)
+    claim_paths = [pkg / "runtime" / "claim-verification.json"]
+    outputs = pkg / "runtime" / "outputs"
+    if outputs.is_dir():
+        claim_paths += sorted(outputs.glob("*/claim-verification.json"))
+    for cp in claim_paths:
+        if not cp.exists():
+            continue
+        try:
+            rep = json.loads(cp.read_text())
+        except (OSError, ValueError):
+            continue
+        if isinstance(rep, dict):
+            out["claim_mismatches"] += int(rep.get("n_mismatch", 0) or 0)
+
+    out["blocked_tasks"] = sorted(set(out["blocked_tasks"]))
+    out["corrections"] = out["blocked_by_guard"] + out["validation_failures"]
+    return out
+
+
+def _guard_kind_for_reason(reason: str) -> str | None:
+    for marker, kind in _GUARD_REASON_MARKERS:
+        if marker in reason:
+            return kind
+    # A blocked task whose reason mentions the harness guard but matches no
+    # specific marker is still a guard catch (label it generically).
+    if "harness guard" in reason.lower() or "harness-guard" in reason.lower():
+        return "other_guard"
+    return None
+
+
+def _aggregate_guard_outcomes(card: Scorecard) -> dict:
+    """Roll per-row guard outcomes (stashed in Score.extra["guard_outcomes"])
+    up to per-arm totals. Returns {} when no row carries guard evidence."""
+    per_arm: dict[str, dict] = {}
+    for r in card.rows:
+        go = (r.extra or {}).get("guard_outcomes")
+        if not isinstance(go, dict):
+            continue
+        agg = per_arm.setdefault(r.arm, {
+            "blocked_by_guard": 0,
+            "validation_failures": 0,
+            "claim_mismatches": 0,
+            "corrections": 0,
+            "n_rows": 0,
+        })
+        agg["blocked_by_guard"] += int(go.get("blocked_by_guard", 0) or 0)
+        agg["validation_failures"] += int(go.get("validation_failures", 0) or 0)
+        agg["claim_mismatches"] += int(go.get("claim_mismatches", 0) or 0)
+        agg["corrections"] += int(go.get("corrections", 0) or 0)
+        agg["n_rows"] += 1
+    return per_arm
+
+
+def _render_guard_outcomes(per_arm: dict) -> list[str]:
+    lines = ["", "## Guard outcomes (ECAA error-catching, measured)", ""]
+    lines.append(
+        "The discovery review gate is auto-advanced; the silent-completion, "
+        "missing-artifact, validation-contract, and claim-verification guards "
+        "stay ACTIVE. Counts below are how often each arm's run was caught by a "
+        "guard — higher means ECAA stopped a bad completion the bare arm would "
+        "have shipped silently."
+    )
+    lines.append("")
+    lines.append(
+        "| arm | runs | blocked-by-guard | validation failures | "
+        "claim mismatches | corrections |"
+    )
+    lines.append("| --- | --- | --- | --- | --- | --- |")
+    for arm in sorted(per_arm):
+        a = per_arm[arm]
+        lines.append(
+            f"| {arm} | {a['n_rows']} | {a['blocked_by_guard']} | "
+            f"{a['validation_failures']} | {a['claim_mismatches']} | "
+            f"{a['corrections']} |"
+        )
+    return lines
+
+
+# ── eval-04: per-(task,trial) paired delta + bootstrap CI ────────────────────
+
+def _paired_deltas(card: Scorecard) -> tuple[list[float], list[str]]:
+    """Pair ecaa vs claude-direct on (task_id, trial) and return the list of
+    per-pair deltas (ecaa - claude-direct) plus the pair keys. Only pairs where
+    BOTH arms produced a score are included."""
+    ecaa: dict[tuple[str, int], float] = {}
+    direct: dict[tuple[str, int], float] = {}
+    for r in card.rows:
+        key = (r.task_id, r.trial)
+        if r.arm == "ecaa":
+            ecaa[key] = r.overall
+        elif r.arm == "claude-direct":
+            direct[key] = r.overall
+    keys = sorted(set(ecaa) & set(direct))
+    deltas = [ecaa[k] - direct[k] for k in keys]
+    pair_ids = [f"{t}:{tr}" for (t, tr) in keys]
+    return deltas, pair_ids
+
+
+def _bootstrap_ci(deltas: list[float], *, resamples: int = _BOOTSTRAP_RESAMPLES,
+                  alpha: float = 0.05, seed: int = _BOOTSTRAP_SEED
+                  ) -> tuple[float, float]:
+    """Percentile bootstrap CI for the MEAN paired delta. Stdlib-only +
+    deterministic (fixed seed). Returns (lo, hi); degenerate inputs collapse to
+    the point estimate."""
+    n = len(deltas)
+    if n == 0:
+        return (0.0, 0.0)
+    if n == 1:
+        return (deltas[0], deltas[0])
+    rng = random.Random(seed)
+    means: list[float] = []
+    for _ in range(resamples):
+        sample = [deltas[rng.randrange(n)] for _ in range(n)]
+        means.append(sum(sample) / n)
+    means.sort()
+    lo_idx = max(0, int(math.floor((alpha / 2) * resamples)))
+    hi_idx = min(resamples - 1, int(math.ceil((1 - alpha / 2) * resamples)) - 1)
+    return (means[lo_idx], means[hi_idx])
+
+
+def paired_delta_summary(card: Scorecard, *, alpha: float = 0.05) -> dict | None:
+    """Compute the paired ecaa-vs-direct delta with a bootstrap CI.
+
+    Returns None when the card has no overlapping (task,trial) pairs (e.g. a
+    single-arm card). Otherwise a dict carrying n_pairs, mean_delta, the CI
+    bounds, and `significant` (CI excludes 0)."""
+    deltas, pair_ids = _paired_deltas(card)
+    if not deltas:
+        return None
+    n = len(deltas)
+    mean_delta = sum(deltas) / n
+    lo, hi = _bootstrap_ci(deltas, alpha=alpha)
+    significant = (lo > 0.0) or (hi < 0.0)
+    return {
+        "n_pairs": n,
+        "pair_ids": pair_ids,
+        "mean_paired_delta": mean_delta,
+        "ci_lower": lo,
+        "ci_upper": hi,
+        "ci_level": 1 - alpha,
+        "significant": significant,
+    }
+
+
+def _render_paired_delta(summary: dict) -> list[str]:
+    n = summary["n_pairs"]
+    md = summary["mean_paired_delta"]
+    lo, hi = summary["ci_lower"], summary["ci_upper"]
+    level = int(round(summary["ci_level"] * 100))
+    lines = ["", "## Paired delta (ecaa - claude-direct)", ""]
+    lines.append(f"- **n (paired task/trial):** {n}")
+    lines.append(
+        f"- **mean paired delta:** {md:+.2f} "
+        f"({level}% bootstrap CI [{lo:+.2f}, {hi:+.2f}])"
+    )
+    if summary["significant"]:
+        lines.append(
+            f"- Significant at n={n}: the {level}% CI excludes 0."
+        )
+    else:
+        lines.append(
+            f"- NOT significant at n={n} (CI crosses 0). A larger trial count "
+            f"is needed to distinguish the arms."
+        )
+    return lines
+
+
 def _markdown(card: Scorecard) -> str:
     lines = [f"# {card.benchmark} scorecard", ""]
     # Render scalar meta keys (skip the rich-object keys handled below).
-    _RICH_KEYS = {"error_matrix", "dimensions", "judge_agreement", "published_best", "cost"}
+    _RICH_KEYS = {"error_matrix", "dimensions", "judge_agreement", "published_best",
+                  "cost", "paired_delta", "guard_outcomes"}
     if card.meta:
         for k, v in card.meta.items():
             if k not in _RICH_KEYS:
                 lines.append(f"- **{k}:** {v}")
         lines.append("")
     arms = _by_arm(card)
-    lines += ["| arm | n | mean | sd |", "|---|---|---|---|"]
+    lines += ["| arm | n (trials) | mean | sd |", "|---|---|---|---|"]
     for arm, vals in sorted(arms.items()):
         sd = pstdev(vals) if len(vals) > 1 else 0.0
         lines.append(f"| {arm} | {len(vals)} | {mean(vals):.1f} | {sd:.1f} |")
     lines.append("")
     if "ecaa" in arms and "claude-direct" in arms:
         delta = mean(arms["ecaa"]) - mean(arms["claude-direct"])
-        lines.append(f"**ecaa - claude-direct delta:** {delta:+.1f}")
+        lines.append(f"**ecaa - claude-direct raw-mean delta:** {delta:+.1f}")
+
+    # eval-04: per-(task,trial) paired delta + bootstrap CI (the honest
+    # headline). Falls back to nothing when there are no overlapping pairs.
+    paired = paired_delta_summary(card)
+    if paired is not None:
+        lines += _render_paired_delta(paired)
+
+    # eval-02: guard-outcome dimension (ECAA error-catching, measured).
+    guard = _aggregate_guard_outcomes(card)
+    if guard:
+        lines += _render_guard_outcomes(guard)
 
     # Optional rich sections.
     if card.meta:
@@ -143,7 +431,17 @@ def _markdown(card: Scorecard) -> str:
 
 def write_scorecard(card: Scorecard, out_dir: Path) -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    payload = {"benchmark": card.benchmark, "meta": card.meta,
+    # Surface the derived eval-04 paired stats and eval-02 guard-outcome
+    # aggregates in the machine scorecard's meta (without mutating the caller's
+    # card). A pre-set meta value (e.g. from a plugin) wins.
+    meta = dict(card.meta or {})
+    paired = paired_delta_summary(card)
+    if paired is not None and "paired_delta" not in meta:
+        meta["paired_delta"] = paired
+    guard = _aggregate_guard_outcomes(card)
+    if guard and "guard_outcomes" not in meta:
+        meta["guard_outcomes"] = guard
+    payload = {"benchmark": card.benchmark, "meta": meta,
                "rows": [asdict(r) for r in card.rows]}
     (out_dir / "scorecard.json").write_text(json.dumps(payload, indent=2, default=str))
     (out_dir / "scorecard.md").write_text(_markdown(card))
