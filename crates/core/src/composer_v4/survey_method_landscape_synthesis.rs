@@ -379,8 +379,9 @@ mod tests {
         );
         synthesize_survey_method_landscape(&mut dag, &reg);
         assert!(
-            dag.edges.iter().any(|e| e.from_node == "data_acquisition"
-                && e.to_node == "survey_method_landscape"),
+            dag.edges.iter().any(
+                |e| e.from_node == "data_acquisition" && e.to_node == "survey_method_landscape"
+            ),
             "expected data_acquisition -> survey edge; got {:?}",
             dag.edges
         );
