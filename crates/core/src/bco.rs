@@ -19,9 +19,13 @@
 //!   reference implementation calls out).
 //! - `provenance_domain` — composition.matched_archetype +
 //!   composition.rationale, plus IEEE 2791-mandated `created`/`modified`
-//!   timestamps (R4-Sci-4: now populated via `time_helpers::now_rfc3339`
-//!   when no explicit time is supplied; tests pass a fixed value
-//!   through `build_bco_at` to keep determinism).
+//!   timestamps. These are DETERMINISTIC: `build_bco` derives a frozen
+//!   emit-time from the SHA-256 of the BCO's stable content (the same
+//!   `clock::deterministic_emit_time` plumbing the RO-Crate emit path
+//!   uses via `frozen_clock_from_intake`), so two emits of identical
+//!   inputs produce byte-identical timestamps and `etag`. Callers that
+//!   want to thread the emitter's `FrozenClock` use `build_bco_with_clock`;
+//!   tests pin an explicit string via `build_bco_at`.
 //! - `usability_domain` — one-line goal description.
 //! - `description_domain` — atoms list, mirroring the
 //!   `pipeline_steps` shape from the IEEE 2791 spec.
@@ -56,10 +60,12 @@ use std::path::Path;
 ///
 /// Determinism: the generated JSON is sorted-by-key (BTreeMap-style
 /// via `serde_json::Value` object insertion) so identical inputs hash
-/// to identical etags. The `created`/`modified` timestamps are
-/// intentionally derived from the composition's content (sha-prefix)
-/// rather than wall-clock — the package's RO-Crate is the source of
-/// truth for actual emit time.
+/// to identical etags. The `created`/`modified` timestamps are derived
+/// deterministically from the BCO's stable content (via
+/// [`clock::deterministic_emit_time`](crate::clock::deterministic_emit_time))
+/// rather than wall-clock — so the whole document, including the `etag`
+/// that hashes over it, is byte-reproducible across re-emits of the same
+/// inputs.
 pub fn emit_bco(
     composition: &CompositionResult,
     intake: &IntakeFacts,
@@ -77,12 +83,56 @@ pub fn emit_bco(
 /// from `emit_bco` so the round-trip test can assert structure
 /// without touching disk.
 ///
-/// Thin wrapper over [`build_bco_at`] that uses
-/// `time_helpers::now_rfc3339` for the `created`/`modified` timestamps.
-/// Tests use `build_bco_at` directly with a fixed time so the
-/// determinism contract on the BCO surface stays observable.
+/// Determinism: the `created`/`modified` timestamps are derived from a
+/// SHA-256 over the BCO's stable content (archetype id, modality, goal,
+/// rationale) routed through [`crate::clock::deterministic_emit_time`] —
+/// the same fold the RO-Crate emit path uses in `frozen_clock_from_intake`.
+/// Two builds with identical inputs therefore produce byte-identical JSON,
+/// including the content-addressed `etag`. Callers that want to reuse the
+/// emitter's `FrozenClock` instead use [`build_bco_with_clock`]; tests pin
+/// an explicit string via [`build_bco_at`].
 pub fn build_bco(composition: &CompositionResult, intake: &IntakeFacts) -> Value {
-    build_bco_at(composition, intake, &crate::time_helpers::now_rfc3339())
+    let clock = deterministic_clock_for(composition, intake);
+    build_bco_with_clock(composition, intake, &clock)
+}
+
+/// Build a BCO using an explicit [`Clock`](crate::clock::Clock). The
+/// emit pipeline derives a `FrozenClock` from the intake hash
+/// (`frozen_clock_from_intake`); passing that same clock here keeps the
+/// BCO's `created`/`modified` aligned with the package's RO-Crate
+/// `dateCreated` for a given intake.
+pub fn build_bco_with_clock(
+    composition: &CompositionResult,
+    intake: &IntakeFacts,
+    clock: &dyn crate::clock::Clock,
+) -> Value {
+    build_bco_at(composition, intake, &clock.now_rfc3339())
+}
+
+/// Derive a deterministic `FrozenClock` from the BCO's stable content so
+/// `build_bco` is byte-reproducible without any wall-clock read. Mirrors
+/// `emitter::frozen_clock_from_intake`: SHA-256 of the content → folded
+/// through `deterministic_emit_time` into a 2026..2076 RFC-3339 value
+/// that's schema-indistinguishable from a real emit timestamp.
+fn deterministic_clock_for(
+    composition: &CompositionResult,
+    intake: &IntakeFacts,
+) -> crate::clock::FrozenClock {
+    use sha2::{Digest, Sha256};
+    let archetype_id = composition
+        .matched_archetype
+        .as_deref()
+        .unwrap_or("backward-chain");
+    let seed = format!(
+        "{}|{}|{}|{}",
+        archetype_id, intake.modality, composition.goal.edam_data, composition.rationale
+    );
+    let digest = Sha256::digest(seed.as_bytes());
+    let mut hash = [0u8; 32];
+    hash.copy_from_slice(&digest);
+    crate::clock::FrozenClock {
+        at: crate::clock::deterministic_emit_time(&hash),
+    }
 }
 
 /// Build a BCO with an explicit RFC-3339 `created_at` string for the
@@ -90,9 +140,10 @@ pub fn build_bco(composition: &CompositionResult, intake: &IntakeFacts) -> Value
 /// `created_at` value is used for both because a fresh emit is, by
 /// definition, also the last modification.
 ///
-/// R4-Sci-4 — accepts the timestamp as a parameter so the
-/// byte-deterministic emit-test fixture can pass a stable value while
-/// the production path uses wall-clock `now_rfc3339()`.
+/// Lowest-level builder: accepts the timestamp as a parameter. The
+/// production path ([`build_bco`]) supplies a deterministic value derived
+/// from content via [`deterministic_clock_for`]; tests pin a constant
+/// here directly.
 pub fn build_bco_at(
     composition: &CompositionResult,
     intake: &IntakeFacts,
@@ -471,14 +522,15 @@ mod tests {
         let bco_path = tmp.path().join("bco.json");
         assert!(bco_path.exists(), "bco.json must be written");
 
-        // Round-trip: parse what we wrote and confirm the structural
-        // shape is what `build_bco_at` would produce. R4-Sci-4 — we
-        // can't compare against `build_bco` because the two calls
-        // read the wall clock at different instants; instead pin the
-        // expected shape by re-parsing the on-disk file and asserting
-        // the load-bearing fields.
-        let raw = std::fs::read_to_string(&bco_path).unwrap();
-        let parsed: Value = serde_json::from_str(&raw).unwrap();
+        // Round-trip: the on-disk bytes must equal what `build_bco`
+        // produces for the same inputs — `build_bco` is now fully
+        // deterministic (no wall-clock read), so emit and rebuild
+        // agree byte-for-byte.
+        let raw = std::fs::read(&bco_path).unwrap();
+        let rebuilt =
+            serde_json::to_vec_pretty(&build_bco(&composition, &intake)).unwrap();
+        assert_eq!(raw, rebuilt, "emitted bco.json must equal a fresh build_bco");
+        let parsed: Value = serde_json::from_slice(&raw).unwrap();
         assert_eq!(
             parsed["spec_version"],
             json!("https://w3id.org/ieee/ieee-2791-schema/2791object.json")
@@ -490,11 +542,9 @@ mod tests {
 
     #[test]
     fn build_bco_at_is_byte_deterministic_with_fixed_time() {
-        // R4-Sci-4 — the byte-deterministic contract holds when the
-        // `created_at` is fixed (production code passes
-        // `now_rfc3339()`; the fixture-stable path
-        // is `build_bco_at` with a constant). Two builds with the
-        // same inputs must produce byte-identical JSON.
+        // The byte-deterministic contract holds when `created_at` is
+        // pinned. Two builds with the same inputs must produce
+        // byte-identical JSON.
         let composition = sample_composition();
         let intake = sample_intake();
         let fixed = "2026-05-15T00:00:00+00:00";
@@ -504,10 +554,66 @@ mod tests {
     }
 
     #[test]
+    fn build_bco_is_byte_deterministic_across_calls() {
+        // det-02 — the PRODUCTION entry point `build_bco` must be
+        // byte-reproducible: no wall-clock read leaks into
+        // `created`/`modified`, and the content-addressed `etag` is
+        // therefore stable too. Two calls with identical inputs must
+        // hash identically and serialize identically.
+        let composition = sample_composition();
+        let intake = sample_intake();
+        let a = build_bco(&composition, &intake);
+        let b = build_bco(&composition, &intake);
+        assert_eq!(
+            a["etag"], b["etag"],
+            "build_bco etag must be deterministic across calls"
+        );
+        assert_eq!(
+            a["provenance_domain"]["created"], b["provenance_domain"]["created"],
+            "created timestamp must be deterministic"
+        );
+        let a_bytes = serde_json::to_vec_pretty(&a).unwrap();
+        let b_bytes = serde_json::to_vec_pretty(&b).unwrap();
+        assert_eq!(a_bytes, b_bytes, "two build_bco outputs diverged byte-wise");
+        // The created/modified timestamp must be a valid RFC-3339 value
+        // in the deterministic 2026..2076 range (never a wall-clock
+        // value from the host).
+        let created = a["provenance_domain"]["created"].as_str().unwrap();
+        let parsed = chrono::DateTime::parse_from_rfc3339(created).unwrap();
+        let lower: chrono::DateTime<chrono::Utc> = "2026-01-01T00:00:00Z".parse().unwrap();
+        let upper: chrono::DateTime<chrono::Utc> = "2076-01-01T00:00:00Z".parse().unwrap();
+        assert!(
+            parsed.with_timezone(&chrono::Utc) >= lower
+                && parsed.with_timezone(&chrono::Utc) < upper,
+            "deterministic emit-time {created} out of documented range"
+        );
+    }
+
+    #[test]
+    fn build_bco_with_clock_threads_frozen_clock() {
+        // det-02 — `build_bco_with_clock` lets the emit pipeline reuse
+        // its `FrozenClock` so the BCO timestamp aligns with the
+        // RO-Crate's. Two builds with the same FrozenClock are
+        // byte-identical and reflect the clock's instant.
+        use crate::clock::FrozenClock;
+        let composition = sample_composition();
+        let intake = sample_intake();
+        let pinned: chrono::DateTime<chrono::Utc> = "2026-03-04T05:06:07Z".parse().unwrap();
+        let clock = FrozenClock { at: pinned };
+        let a = build_bco_with_clock(&composition, &intake, &clock);
+        let b = build_bco_with_clock(&composition, &intake, &clock);
+        assert_eq!(serde_json::to_vec(&a).unwrap(), serde_json::to_vec(&b).unwrap());
+        assert_eq!(
+            a["provenance_domain"]["created"].as_str().unwrap(),
+            pinned.to_rfc3339()
+        );
+    }
+
+    #[test]
     fn emit_bco_writes_valid_rfc3339_timestamps() {
-        // R4-Sci-4 — the live emit path must populate `created` and
-        // `modified` with parseable RFC-3339 strings. Production calls
-        // `build_bco` which routes through `time_helpers::now_rfc3339`.
+        // The live emit path must populate `created` and `modified` with
+        // parseable RFC-3339 strings. Production calls `build_bco`, which
+        // derives a deterministic RFC-3339 emit-time from content.
         let tmp = tempfile::tempdir().unwrap();
         let composition = sample_composition();
         let intake = sample_intake();
