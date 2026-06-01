@@ -1,10 +1,14 @@
 """Normalize a BiomniBench task rubric into the judge's internal schema.
 
-Real per-task rubrics list criteria tagged to one of 6 evaluation dimensions
-with curator-set points and ordinal A/B/C levels. This maps that shape into
-{"criteria":[{"id","dimension","points","levels":{"A","B","C"},"text"}]}.
-Field reads use tolerant .get() with fallbacks; adjust the key names here once
-the real dataset schema is probed live.
+Real per-task rubrics are either:
+  (a) a dict with a "criteria" (or "rubric") key listing criterion objects, or
+  (b) a plain text string (BiomniBench-DA uses rubric.txt — free-form text for
+      the LLM judge). In the text case the whole rubric is presented to the judge
+      as a single criterion tagged to "scientific_reasoning" so the judge still
+      produces a parseable id:A line; per-criterion breakdown is not available
+      until the structured rubric format is released.
+
+Maps input to {"criteria":[{"id","dimension","points","levels":{"A","B","C"}}]}.
 """
 from __future__ import annotations
 
@@ -25,7 +29,17 @@ def _canon_dim(raw: str) -> str:
     return _DIM_CANON.get(key, key.replace(" ", "_"))
 
 
-def normalize_rubric(raw: dict) -> dict:
+def normalize_rubric(raw) -> dict:
+    """Normalize a rubric (dict or plain text) into the judge's internal schema."""
+    # Plain-text rubric (BiomniBench-DA rubric.txt): wrap as one holistic criterion.
+    if isinstance(raw, str):
+        return {"criteria": [{
+            "id": "overall",
+            "dimension": "scientific_reasoning",
+            "points": 10.0,
+            "levels": {"A": 1.0, "B": 0.5, "C": 0.0},
+            "text": raw.strip(),
+        }]}
     criteria_in = raw.get("criteria") or raw.get("rubric") or []
     out = []
     for i, c in enumerate(criteria_in):

@@ -1,0 +1,12 @@
+{
+  "task_id": "da-1-3",
+  "question": "You are given single-cell RNA-seq data from colorectal cancer patients treated with immune checkpoint blockade (ICB). The data includes count matrices, barcode lists, feature lists, and clinical metadata.\n\nYour task:\n1. Load and preprocess the scRNA-seq count matrix (GSE236581_counts.mtx, barcodes, features).\n2. Perform quality control (filter low-quality cells by mitochondrial fraction and minimum gene count).\n3. Normalize, log-transform, and identify highly variable genes.\n4. Run dimensionality reduction (PCA, then UMAP) and cluster the cells.\n5. Annotate major cell types based on canonical markers.\n6. Identify differentially expressed genes between responders and non-responders to ICB.\n7. Report the top 10 DE genes and their adjusted p-values.\n\nWrite your analytical narrative (decisions, intermediate findings, interpretation) to trace.md and a short structured answer to answer.txt.",
+  "rubric": "Evaluate the agent's response on the following criteria:\n\n1. Data loading and QC: Did the agent correctly load the count matrix, filter low-quality cells (mito fraction <20%, min genes >200), and report QC statistics? Award full credit if both filters are applied correctly.\n\n2. Normalization and feature selection: Did the agent normalize to 10,000 counts per cell, log-transform, and select highly variable genes (>=2000)?\n\n3. Dimensionality reduction and clustering: Did the agent run PCA (>=20 PCs), UMAP, and Leiden/Louvain clustering with an appropriate resolution?\n\n4. Cell type annotation: Did the agent annotate at least 5 major cell types (e.g., T cells, B cells, NK cells, myeloid cells, epithelial cells) using canonical markers?\n\n5. Differential expression: Did the agent perform DE analysis comparing responders vs non-responders using an appropriate test (Wilcoxon rank-sum or DESeq2 pseudobulk) and report adjusted p-values?\n\n6. Interpretation: Did the agent correctly identify immune cell subsets enriched in responders and provide a biologically coherent interpretation?",
+  "data_files": [
+    "da-1-3/environment/data/GSE236581_CRC-ICB_metadata.txt",
+    "da-1-3/environment/data/GSE236581_barcodes.tsv",
+    "da-1-3/environment/data/GSE236581_counts.mtx",
+    "da-1-3/environment/data/GSE236581_features.tsv",
+    "da-1-3/environment/data/clinical.xlsx"
+  ]
+}

@@ -57,7 +57,7 @@ def _prompt(rubric: dict, trace: str, answer: str) -> str:
 
 _JUDGE_PRICES: dict[str, tuple[float, float]] = {
     # (in_price_per_MTok, out_price_per_MTok)
-    "gemini-3.1-pro": (1.25, 5.00),
+    "gemini-3.1-pro": (1.25, 5.00),      # maps to gemini-3.1-pro-preview on the API
     "anthropic-opus": (15.0, 75.0),
 }
 
@@ -75,7 +75,7 @@ def _gemini_call(prompt: str) -> tuple[str, int, int]:
     """Return (text, in_tok, out_tok) from a live Gemini call."""
     key = os.environ["GEMINI_API_KEY"]
     url = ("https://generativelanguage.googleapis.com/v1beta/models/"
-           f"gemini-3.1-pro:generateContent?key={key}")
+           f"gemini-3.1-pro-preview:generateContent?key={key}")
     r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}],
                                  "generationConfig": {"temperature": 0.0}}, timeout=120)
     r.raise_for_status()
@@ -93,7 +93,6 @@ def _anthropic_call(prompt: str) -> tuple[str, int, int]:
     r = requests.post("https://api.anthropic.com/v1/messages",
                       headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
                       json={"model": "claude-opus-4-8", "max_tokens": 1024,
-                            "temperature": 0.0,
                             "messages": [{"role": "user", "content": prompt}]},
                       timeout=120)
     r.raise_for_status()

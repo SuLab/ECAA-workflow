@@ -16,7 +16,10 @@ from scripts.eval.scoring.flatten import flatten_outputs
 from scripts.eval.services.datasets import load_records
 from scripts.eval.services.judge import judge
 
-# HF field names confirmed in Step 1 (edit to match the probe):
+# BiomniBench-DA per-task directory layout (da-{paper}-{task}/):
+#   instruction.md  -> question text   (loaded into "question" by load_records)
+#   tests/rubric.txt -> rubric text     (loaded into "rubric" by load_records)
+#   environment/data/ -> data file refs (loaded into "data_files" by load_records)
 _F_QUESTION = "question"
 _F_RUBRIC = "rubric"
 _F_DATA = "data_files"
