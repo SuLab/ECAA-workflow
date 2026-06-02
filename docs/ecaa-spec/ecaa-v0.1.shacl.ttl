@@ -58,3 +58,39 @@ ecaa:SubstrateValidityShape a sh:NodeShape ;
         sh:minCount 6 ;
         sh:message "Invariant 6 (substrate-validity): package must declare ≥6 conformsTo profile IRIs (RO-Crate 1.1 + WRROC Tier-3 Process/Workflow/Provenance + ECAA v0.1)"
     ] .
+
+# Invariant 3: evidence-coverage (runnable SHACL — the second-impl encoding
+# that agrees with the Rust `check_evidence_coverage`; the equivalent OWL-DL
+# restriction is retained in ecaa-v0.1.ttl for the OWL-consistency path).
+# Every V OutputFile must be referenced by a Claim `supported_by` edge OR
+# acknowledged by an `OutputUnused` Blocker carve-out.
+
+ecaa:EvidenceCoverageShape a sh:NodeShape ;
+    sh:targetClass ecaa:OutputFile ;
+    sh:sparql [
+        sh:select """
+            PREFIX ecaa: <https://w3id.org/ecaa/ns/0.1#>
+            SELECT $this WHERE {
+                FILTER NOT EXISTS { ?claim ecaa:supported_by $this . }
+                FILTER NOT EXISTS {
+                    ?blk a ecaa:Blocker ;
+                         ecaa:kind "OutputUnused" ;
+                         ecaa:refs $this .
+                }
+            }
+        """ ;
+        sh:message "Invariant 3 (evidence-coverage): every OutputFile must be supported_by a Claim or acknowledged OutputUnused"
+    ] .
+
+# Invariant 1: claim-completeness (referential form; runnable SHACL — the
+# second-impl encoding that agrees with the Rust `check_claim_completeness`;
+# the equivalent OWL-DL restriction is retained in ecaa-v0.1.ttl).
+# Every Claim is either pending OR has ≥1 supported_by edge.
+
+ecaa:ClaimCompletenessShape a sh:NodeShape ;
+    sh:targetClass ecaa:Claim ;
+    sh:or (
+        [ sh:path ecaa:status ; sh:hasValue "pending" ]
+        [ sh:path ecaa:supported_by ; sh:minCount 1 ]
+    ) ;
+    sh:message "Invariant 1 (claim-completeness): Claim must be pending OR have ≥1 supported_by edge" .

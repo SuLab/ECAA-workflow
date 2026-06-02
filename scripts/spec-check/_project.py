@@ -102,6 +102,75 @@ def project_decision_record(entry, fallback_id):
     return node
 
 
+def _strip_fragment(s):
+    """Drop any `#fragment` so an evidence reference resolves against the bare
+    output path — mirrors the Rust `evidence_coverage::strip_fragment`."""
+    return s.split("#", 1)[0]
+
+
+def project_claim_verdicts(claim_doc):
+    """Synthesize typed `ecaa:Claim` nodes from a `claim-verification.json`
+    document so Invariants 1 (claim-completeness) and 5 (cross-graph) have
+    focus nodes.
+
+    The raw C document nests its verdicts under a `verdicts` array with no
+    `@id`/`@type`, so projecting it whole yields zero triples (no shape binds).
+    This helper emits, per verdict, a `{id, type:"Claim", status, supported_by}`
+    JSON-LD node. Each `supported_by` reference is fragment-stripped so its
+    object IRI equals the V `OutputFile` node IRI synthesized by
+    `project_evidence_outputs` — that shared IRI is what lets Inv-3
+    (evidence-coverage) and Inv-5 (cross-graph) bind. Returns a list of
+    JSON-LD nodes (without `@context`; the caller stamps it).
+    """
+    verdicts = claim_doc.get("verdicts")
+    if not isinstance(verdicts, list):
+        return []
+    nodes = []
+    for idx, v in enumerate(verdicts):
+        if not isinstance(v, dict):
+            continue
+        cid = v.get("claim_id") or f"claim_{idx:03d}"
+        node = {
+            "id": f"ecaa:claim:{cid}",
+            "type": "Claim",
+            "status": v.get("status", "pending"),
+        }
+        refs = v.get("supported_by")
+        if isinstance(refs, list):
+            stripped = [_strip_fragment(r) for r in refs if isinstance(r, str)]
+            if stripped:
+                node["supported_by"] = stripped
+        nodes.append(node)
+    return nodes
+
+
+def project_evidence_outputs(proofs_rows):
+    """Synthesize one typed `ecaa:OutputFile` node per distinct V output path
+    (`proofs[].computed_from`/`produces`, fragment-stripped).
+
+    These are the focus nodes for Invariant 3 (evidence-coverage): every
+    `OutputFile` must be referenced by a Claim `supported_by` (or an
+    `OutputUnused` Blocker carve-out) or it is a dangling, uncovered output.
+    The node IRI is the bare output path so it coincides with the
+    fragment-stripped `supported_by` IRI from `project_claim_verdicts`.
+    Returns a list of JSON-LD nodes (without `@context`).
+    """
+    seen = set()
+    nodes = []
+    for row in proofs_rows:
+        if not isinstance(row, dict):
+            continue
+        output = row.get("computed_from") or row.get("produces")
+        if not isinstance(output, str):
+            continue
+        output = _strip_fragment(output)
+        if output in seen:
+            continue
+        seen.add(output)
+        nodes.append({"id": output, "type": "OutputFile"})
+    return nodes
+
+
 def conforms_to_iris(metadata):
     """Extract the package-level `conformsTo` profile IRIs from an
     ro-crate-metadata.json document.
@@ -162,6 +231,9 @@ def project(pkg_dir, log=print):
     ctx = load_context()
     projected = Graph()
     records_seen = 0
+    # V (proofs.jsonl) rows are retained so the evidence-coverage focus nodes
+    # (`ecaa:OutputFile`, Invariant 3) can be synthesized once after the loop.
+    proofs_rows = []
 
     for letter, rel in SIDECAR_MAP.items():
         p = pkg_dir / rel
@@ -178,16 +250,30 @@ def project(pkg_dir, log=print):
                 records_seen += 1
                 if letter == "D":
                     entry = project_decision_record(entry, records_seen)
+                if letter == "V":
+                    proofs_rows.append(entry)
                 entry["@context"] = ctx["@context"]
                 _to_rdf(projected, entry, context_label=rel)
 
-    # C is a single document.
+    # V evidence-coverage focus nodes: one typed `ecaa:OutputFile` per distinct
+    # output path (Invariant 3 / Invariant 5 binding). Synthesized from the
+    # retained proofs rows; projection-layer only (off the BagIt path).
+    for of_node in project_evidence_outputs(proofs_rows):
+        node = dict(of_node)
+        node["@context"] = ctx["@context"]
+        _to_rdf(projected, node, context_label="runtime/proofs.jsonl#OutputFile")
+
+    # C is a single document. Project typed `ecaa:Claim` nodes (status +
+    # fragment-stripped `supported_by`) so Invariants 1 and 5 bind; projecting
+    # the raw doc yields zero triples (the nested verdicts carry no @id/@type).
     c_path = pkg_dir / "runtime/claim-verification.json"
     if c_path.exists():
         c_doc = json.load(open(c_path))
         records_seen += 1
-        c_doc["@context"] = ctx["@context"]
-        _to_rdf(projected, c_doc, context_label="runtime/claim-verification.json")
+        for claim_node in project_claim_verdicts(c_doc):
+            node = dict(claim_node)
+            node["@context"] = ctx["@context"]
+            _to_rdf(projected, node, context_label="runtime/claim-verification.json")
 
     # A (audit-proof) is a single document — the report plus its embedded
     # InvariantVerdict array. One JSON-LD document, not a JSONL stream.
