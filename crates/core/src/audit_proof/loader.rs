@@ -28,19 +28,38 @@ pub struct LoadedPackage {
     pub security_policy: Option<Value>, // security-policy.json
     /// Plot affordances.
     pub plot_affordances: Option<Vec<Value>>, // plot_affordances.jsonl (optional)
+    /// True iff a signed verdict sink was present but failed HMAC
+    /// verification (tampered or written by an unauthorized writer).
+    /// Inv 1 maps this to `Fail`.
+    pub claims_tampered: bool,
 }
 
 impl LoadedPackage {
-    /// From root.
+    /// From root, with no signed-sink verifier (the signed sink, if any,
+    /// is ignored and the top-level stub is used). Back-compat entry point.
     pub fn from_root(root: &Path) -> Result<Self> {
+        Self::from_root_with_verifier(root, None)
+    }
+
+    /// From root. When `verifier` is `Some`, the signed verdict sink at
+    /// `runtime/verification-reports/claim-verification.signed.json` takes
+    /// priority over the agent-writable stub: a valid signature binds
+    /// `claims` to the verified payload; a signature failure sets
+    /// `claims_tampered`; absence falls back to the stub.
+    pub fn from_root_with_verifier(
+        root: &Path,
+        verifier: Option<&crate::audit_writer::AuditWriter>,
+    ) -> Result<Self> {
         let rt = root.join("runtime");
+        let (claims, claims_tampered) = load_claims(&rt, verifier)?;
         Ok(Self {
             intake: load_jsonl_opt(&rt.join("intake-conversation.jsonl"))?.unwrap_or_default(),
             decisions: load_jsonl_opt(&rt.join("decisions.jsonl"))?.unwrap_or_default(),
             validation_reports: load_jsonl_opt(&rt.join("validation-reports.jsonl"))?
                 .unwrap_or_default(),
             proofs: load_jsonl_opt(&rt.join("proofs.jsonl"))?.unwrap_or_default(),
-            claims: load_json_opt(&rt.join("claim-verification.json"))?,
+            claims,
+            claims_tampered,
             verifier_decisions: load_jsonl_opt(&rt.join("verifier-decisions.jsonl"))?
                 .unwrap_or_default(),
             assumptions: load_jsonl_opt(&rt.join("assumptions.jsonl"))?.unwrap_or_default(),
@@ -49,6 +68,29 @@ impl LoadedPackage {
             plot_affordances: load_jsonl_opt(&rt.join("plot_affordances.jsonl"))?,
         })
     }
+}
+
+/// Returns `(claims, claims_tampered)`. Signed sink wins when present and a
+/// verifier is supplied; otherwise the top-level stub.
+fn load_claims(
+    rt: &Path,
+    verifier: Option<&crate::audit_writer::AuditWriter>,
+) -> Result<(Option<Value>, bool)> {
+    let signed = rt.join("verification-reports/claim-verification.signed.json");
+    if let Some(v) = verifier {
+        if signed.exists() {
+            let raw = fs::read_to_string(&signed)
+                .with_context(|| format!("read {}", signed.display()))?;
+            let line = raw.trim_end();
+            let parsed: Value = serde_json::from_str(line)
+                .with_context(|| format!("parse {}", signed.display()))?;
+            return match v.verify_row(&parsed) {
+                Ok(inner) => Ok((Some(inner), false)),
+                Err(_) => Ok((None, true)), // tampered → Inv 1 Fail
+            };
+        }
+    }
+    Ok((load_json_opt(&rt.join("claim-verification.json"))?, false))
 }
 
 fn load_json_opt(path: &Path) -> Result<Option<Value>> {

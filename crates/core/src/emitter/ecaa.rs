@@ -533,6 +533,7 @@ fn empty_loaded_package() -> crate::audit_proof::loader::LoadedPackage {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     }
 }
 

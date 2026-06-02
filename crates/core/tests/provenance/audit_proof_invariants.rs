@@ -16,6 +16,7 @@ fn fixture_loaded(claims: serde_json::Value) -> LoadedPackage {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     }
 }
 
@@ -74,6 +75,7 @@ fn claim_completeness_unverified_when_no_claim_file() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     };
     let v = check_claim_completeness(&pkg);
     assert_eq!(v.status, InvariantStatus::Unverified);
@@ -93,6 +95,7 @@ fn fixture_with_decisions(decisions: Vec<serde_json::Value>) -> LoadedPackage {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     }
 }
 
@@ -192,6 +195,7 @@ fn pkg_with(
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     }
 }
 
@@ -289,6 +293,7 @@ fn pkg_with_q(
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     }
 }
 
@@ -411,6 +416,7 @@ fn cross_graph_passes_when_all_refs_resolve() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert_eq!(v.status, InvariantStatus::Pass);
@@ -430,6 +436,7 @@ fn cross_graph_resolves_supported_by_against_proofs_outputs() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert!(v.n_inspected >= 1);
@@ -450,6 +457,7 @@ fn cross_graph_fails_when_supported_by_dangling() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert_eq!(v.status, InvariantStatus::Fail);
@@ -469,6 +477,7 @@ fn cross_graph_fails_when_assumption_dangling() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert_eq!(v.status, InvariantStatus::Fail);
@@ -490,6 +499,7 @@ fn cross_graph_resolves_prefixed_supported_by_into_v() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert!(v.n_inspected >= 1);
@@ -514,6 +524,7 @@ fn cross_graph_general_resolves_prefixed_ref_against_named_subgraph() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert!(v.n_inspected >= 1);
@@ -534,6 +545,7 @@ fn cross_graph_general_fails_on_dangling_prefixed_ref() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert_eq!(v.status, InvariantStatus::Fail);

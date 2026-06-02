@@ -722,6 +722,7 @@ fn empty_loaded_package() -> ecaa_workflow_core::audit_proof::loader::LoadedPack
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        claims_tampered: false,
     }
 }
 
