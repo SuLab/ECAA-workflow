@@ -1,0 +1,3 @@
+{"id":"method_001","type":"MethodChoice","value":"fastqc","rationale":"FastQC is the standard sequencing QC tool with 10+ years of bioinformatics-community validation."}
+{"source":"method_001","target":"fastqc","predicate":"chooses"}
+{"schema_version":"0.1.0","timestamp":"2026-05-18T00:00:01Z","session_id":"complete-session-001","decision":{"kind":"set_intake_method","stage":"qc","method_prose":"fastqc"},"rationale":"FastQC is the standard sequencing QC tool with 10+ years of bioinformatics-community validation.","actor":"sme"}

@@ -1,0 +1,4 @@
+{"id":"task_qc_001","type":"WorkflowStep","atom":"qc_fastq","status":"completed"}
+{"id":"env_local","type":"RuntimeEnvironment","platform":"local","container":"biocontainers/fastqc@sha256:abc"}
+{"source":"task_qc_001","target":"env_local","predicate":"runs-in"}
+{"source":"task_qc_001","target":"fig_qc","predicate":"produces"}

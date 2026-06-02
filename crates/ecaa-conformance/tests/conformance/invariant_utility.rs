@@ -39,7 +39,33 @@ fn fixture_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
-        .join("minimal-package")
+        .join("complete-package")
+}
+
+/// The all-`Pass` baseline package transcribed from `docs/ecaa-spec/v0.1.md`
+/// Appendix C ("a minimal valid ECAA package"). Under `NoopWrrocValidator`
+/// the five hermetic invariants genuinely `Pass`; substrate is `Unverified`
+/// under Noop by design (exercised in Task 5).
+///
+/// SPEC/IMPL SHAPE GAP (reference-impl limitation, not a spec defect): the
+/// spec models each sub-graph as typed nodes + `{source,target,predicate}`
+/// edge triples, but the reference invariants under
+/// `crates/core/src/audit_proof/invariants/` read flat per-row fields instead
+/// — `proofs[].computed_from`/`produces` (output path string),
+/// `claim-verification.json::verdicts[].supported_by` (output-path array), and
+/// `decisions[].decision.kind == "set_intake_method"` + record `rationale`.
+/// So each fixture sidecar carries BOTH shapes: the Appendix C nodes/edges (for
+/// spec fidelity) AND the impl-read flat fields (so the invariants reach
+/// `Pass`), kept value-consistent (the single output `data/figures/fig_qc.png`
+/// is the `computed_from` target AND the claim's `supported_by` reference).
+/// The fixture is NOT scoped down — all five hermetic invariants `Pass`
+/// cleanly. (`docs/known-limitations.md` is git-ignored in this slim surface,
+/// so the gap is recorded here in trackable code rather than that file.)
+fn complete_fixture_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("complete-package")
 }
 
 /// Recursively copy `src` → `dst`.
@@ -110,6 +136,41 @@ fn verdict<'a>(report: &'a AuditProofReport, id: InvariantId) -> &'a InvariantVe
 
 fn run(root: &Path) -> AuditProofReport {
     run_audit_proof(root, &NoopWrrocValidator, &WallClock).expect("run_audit_proof")
+}
+
+/// The non-degenerate baseline: a complete package (spec Appendix C) where
+/// the five hermetic invariants genuinely `Pass` under Noop. This is what
+/// makes every injected violation a real `Pass → Warn/Fail` flip (rather
+/// than `Unverified → Warn`) and lets the false-positive claim ("a valid
+/// package passes") exist at all.
+#[test]
+fn complete_fixture_is_all_pass_for_hermetic_invariants() {
+    let (_g, root) = {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("pkg");
+        copy_tree(&complete_fixture_root(), &root);
+        (tmp, root)
+    };
+    let report = run(&root); // Noop validator
+    for id in [
+        InvariantId::ClaimCompleteness,
+        InvariantId::DecisionJustification,
+        InvariantId::EvidenceCoverage,
+        InvariantId::EquivalenceFailure,
+        InvariantId::CrossGraphIntegrity,
+    ] {
+        assert_eq!(
+            verdict(&report, id).status,
+            InvariantStatus::Pass,
+            "complete fixture must Pass {id:?} (detail: {:?})",
+            verdict(&report, id).detail
+        );
+    }
+    // substrate is Unverified under Noop by design (exercised in Task 5).
+    assert_eq!(
+        verdict(&report, InvariantId::SubstrateValidity).status,
+        InvariantStatus::Unverified
+    );
 }
 
 /// Assert every invariant EXCEPT `target` has the same status as in `baseline`.
@@ -299,6 +360,25 @@ fn invariant_utility_specificity_matrix() {
         );
     };
     row("(clean baseline)", &baseline);
+
+    // The complete fixture (spec Appendix C) is the non-degenerate baseline:
+    // the five hermetic invariants genuinely `Pass`, so every injection below
+    // is a real `Pass → Warn/Fail` flip rather than `Unverified → Warn`.
+    // Substrate is `Unverified` under Noop (gated; see SUBSTRATE CAVEAT).
+    for id in [
+        InvariantId::ClaimCompleteness,
+        InvariantId::DecisionJustification,
+        InvariantId::EvidenceCoverage,
+        InvariantId::EquivalenceFailure,
+        InvariantId::CrossGraphIntegrity,
+    ] {
+        assert_eq!(
+            verdict(&baseline, id).status,
+            InvariantStatus::Pass,
+            "baseline must Pass {id:?} for flips to be genuine (detail: {:?})",
+            verdict(&baseline, id).detail
+        );
+    }
 
     // Each row: (label, target invariant, mutator, expected non-Pass status).
     struct Case {
