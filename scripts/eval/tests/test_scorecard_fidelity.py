@@ -94,20 +94,74 @@ def test_handle_histogram_renders(tmp_path):
 
 # ── F12 benchmarkable invariant set (readiness gate) ─────────────────────────
 
-def test_benchmarkable_set_meta_default_excludes_vacuous():
-    from scripts.eval.services.scorecard import benchmarkable_set_meta
-    # Pre-Phase-1/3 live state: only the referential Inv 2/6 are benchmarkable;
-    # Inv 1/5 (signed sink), Inv 4 (refs), Inv 3 (evidence) are excluded.
-    m = benchmarkable_set_meta()
-    assert m["ready"] == ["decision_justification", "substrate_validity"]
+def _pkg_with_proofs(root, lines=('{"claim":"x","output":"y"}',)):
+    """Materialize a minimal executed-ECAA package whose runtime/proofs.jsonl
+    carries the given (non-blank) rows — the 04-C2 de-vacuifier the probe reads."""
+    rt = root / "runtime"
+    rt.mkdir(parents=True, exist_ok=True)
+    (rt / "proofs.jsonl").write_text("\n".join(lines) + "\n")
+    return root
+
+
+def test_probe_devacuifiers_reads_proofs(tmp_path):
+    from scripts.eval.services.scorecard import probe_devacuifiers
+    # A non-empty proofs.jsonl flips evidence_from_proofs True (mirrors the Rust
+    # `evidence_from_proofs` disk probe in benchmark_readiness.rs).
+    p = probe_devacuifiers(_pkg_with_proofs(tmp_path))
+    assert p["evidence_from_proofs"] is True
+    assert p["signed_sink"] is False
+    assert p["refs_projected"] is False
+
+
+def test_probe_devacuifiers_blank_or_missing_proofs(tmp_path):
+    from scripts.eval.services.scorecard import probe_devacuifiers
+    # No package on disk at all -> all False.
+    assert probe_devacuifiers(tmp_path / "nope")["evidence_from_proofs"] is False
+    # A proofs.jsonl that is only blank lines/whitespace does NOT de-vacuify
+    # (mirrors the Rust `!l.trim().is_empty()` row check).
+    blank = _pkg_with_proofs(tmp_path / "blank", lines=("", "   ", "\t"))
+    assert probe_devacuifiers(blank)["evidence_from_proofs"] is False
+    # And a present signed sink flips signed_sink True.
+    vr = tmp_path / "blank" / "runtime" / "verification-reports"
+    vr.mkdir(parents=True, exist_ok=True)
+    (vr / "claim-verification.signed.json").write_text("{}")
+    assert probe_devacuifiers(blank)["signed_sink"] is True
+
+
+def test_benchmarkable_set_with_proofs_includes_evidence_coverage(tmp_path):
+    from scripts.eval.services.scorecard import (
+        benchmarkable_set_meta, probe_devacuifiers,
+    )
+    # Probing a package with a non-empty proofs.jsonl makes the published set
+    # 3-element — evidence_coverage joins the referential Inv 2/6 — matching the
+    # Rust readiness gate's {decision_justification, substrate_validity,
+    # evidence_coverage} on the corpus.
+    m = benchmarkable_set_meta(**probe_devacuifiers(_pkg_with_proofs(tmp_path)))
+    assert m["ready"] == [
+        "decision_justification", "evidence_coverage", "substrate_validity",
+    ]
+    # Inv 1/5 (signed sink) and Inv 4 (refs) stay excluded with their reasons.
     assert set(m["excluded"]) == {
-        "claim_completeness", "cross_graph_integrity",
-        "equivalence_failure", "evidence_coverage",
+        "claim_completeness", "cross_graph_integrity", "equivalence_failure",
     }
-    # Each exclusion carries a phase-anchored reason.
     assert "Phase 1" in m["excluded"]["claim_completeness"]
     assert "04-C5" in m["excluded"]["equivalence_failure"]
+
+
+def test_benchmarkable_set_without_proofs_stays_two_element(tmp_path):
+    from scripts.eval.services.scorecard import (
+        benchmarkable_set_meta, probe_devacuifiers,
+    )
+    # No proofs.jsonl -> evidence_coverage is still vacuous; the honest pre-Phase
+    # fallback is the 2-element referential set.
+    m = benchmarkable_set_meta(**probe_devacuifiers(tmp_path / "empty-pkg"))
+    assert m["ready"] == ["decision_justification", "substrate_validity"]
     assert "04-C2" in m["excluded"]["evidence_coverage"]
+    # The no-args default (no package context at all) keeps the same honest
+    # all-false fallback.
+    assert benchmarkable_set_meta()["ready"] == [
+        "decision_justification", "substrate_validity",
+    ]
 
 
 def test_benchmarkable_set_meta_all_phases_done():
@@ -118,7 +172,28 @@ def test_benchmarkable_set_meta_all_phases_done():
     assert m["excluded"] == {}
 
 
-def test_scorecard_injects_benchmarkable_set(tmp_path):
+def test_scorecard_injects_benchmarkable_set_with_proofs(tmp_path):
+    # With a real package carrying proofs.jsonl, the injected set is 3-element
+    # (includes evidence_coverage) — the published scorecard now agrees with the
+    # Rust conformance suite instead of under-reporting.
+    pkg = _pkg_with_proofs(tmp_path / "pkg")
+    rows = [_row("ecaa", 0, 80.0), _row("claude-direct", 0, 70.0)]
+    out = write_scorecard(Scorecard("biomnibench", rows), tmp_path / "out",
+                          package_dir=pkg)
+    data = json.loads((out / "scorecard.json").read_text())
+    bs = data["meta"]["benchmarkable_set"]
+    assert bs["ready"] == [
+        "decision_justification", "evidence_coverage", "substrate_validity",
+    ]
+    md = (out / "scorecard.md").read_text()
+    assert "Benchmarkable invariant set" in md
+    assert "evidence_coverage" in md
+    # An excluded invariant's reason is still rendered.
+    assert "claim_completeness" in md
+
+
+def test_scorecard_injects_benchmarkable_set_no_package(tmp_path):
+    # No package context -> honest 2-element fallback (legacy call shape).
     rows = [_row("ecaa", 0, 80.0), _row("claude-direct", 0, 70.0)]
     out = write_scorecard(Scorecard("biomnibench", rows), tmp_path)
     data = json.loads((out / "scorecard.json").read_text())
@@ -127,5 +202,3 @@ def test_scorecard_injects_benchmarkable_set(tmp_path):
     md = (out / "scorecard.md").read_text()
     assert "Benchmarkable invariant set" in md
     assert "decision_justification" in md
-    # An excluded invariant's reason is rendered.
-    assert "claim_completeness" in md
