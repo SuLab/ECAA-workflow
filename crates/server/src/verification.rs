@@ -287,6 +287,28 @@ pub async fn reverify_and_block_on_mismatch(
                 )
                 .await;
             block_on_mismatch(app, session_id, task_id, &v.report).await;
+
+            // Persist the recomputed verdicts as an HMAC-signed,
+            // agent-unforgeable sink so the audit-proof loader can read them
+            // (de-vacuifies Inv 1/5). The agent's container has already
+            // exited; this host-side write is outside any agent-writable
+            // window and outside the emit byte-diff baseline
+            // (runtime/verification-reports/ is BagIt-excluded). Holds the
+            // per-session secret, which the agent never sees, so the sink
+            // cannot be forged from the executor side.
+            let writer = ecaa_workflow_core::audit_writer::AuditWriter::with_secret(
+                session.audit_writer_secret,
+            );
+            if let Err(e) = ecaa_workflow_core::claim_sink::persist_signed_verdicts(
+                &root, task_id, &v.report, &writer,
+            ) {
+                tracing::warn!(
+                    target: "ecaa::verify",
+                    error = %e,
+                    task_id,
+                    "signed verdict sink write failed"
+                );
+            }
         }
         VerifyOutcome::Disabled => {}
         VerifyOutcome::Unavailable { reason } => {
@@ -877,5 +899,53 @@ mod tests {
             default_policy_is_loadable(&real),
             "shipped default policy must be loadable + enabled"
         );
+    }
+}
+
+#[cfg(test)]
+mod signed_sink_wiring_tests {
+    use ecaa_workflow_core::audit_writer::AuditWriter;
+    use ecaa_workflow_core::claim_contract::ClaimContract;
+    use ecaa_workflow_core::claim_extractor::Claim;
+    use ecaa_workflow_core::claim_sink::{persist_signed_verdicts, SIGNED_SINK_REL};
+    use ecaa_workflow_core::claim_verifier::{
+        ClaimStatus, ClaimStrength, ClaimVerdict, ClaimVerificationReport,
+    };
+
+    #[test]
+    fn persisted_sink_is_verifiable_with_session_secret() {
+        let dir = tempfile::tempdir().unwrap();
+        // Simulate the per-session secret the server holds.
+        let secret = [7u8; 32];
+        let writer = AuditWriter::with_secret(secret);
+        let c = Claim {
+            entity: "TP53".into(),
+            direction: None,
+            effect_size: None,
+            pvalue: None,
+            source_table: Some("results/tables/de.csv".into()),
+            excerpt: String::new(),
+            contract: ClaimContract::NumericTableLookup,
+        };
+        let rep = ClaimVerificationReport {
+            n_checked: 1,
+            n_verified: 1,
+            n_mismatch: 0,
+            n_unverifiable: 0,
+            verdicts: vec![ClaimVerdict {
+                claim: c,
+                status: ClaimStatus::Verified,
+                strength: ClaimStrength::default(),
+            }],
+            runtime_decision_log_path: None,
+        };
+
+        persist_signed_verdicts(dir.path(), "diff_expr", &rep, &writer).unwrap();
+
+        // A reader reconstructing the writer from the same secret verifies it.
+        let reader = AuditWriter::with_secret(secret);
+        let line = std::fs::read_to_string(dir.path().join(SIGNED_SINK_REL)).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert!(reader.verify_row(&parsed).is_ok());
     }
 }
