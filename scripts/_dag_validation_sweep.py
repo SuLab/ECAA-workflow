@@ -27,8 +27,12 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 MANIFEST = REPO / "testdata" / "dag-correctness-corpus" / "MANIFEST.yaml"
-CLI = REPO / "target" / "release" / "ecaa-workflow"
-HARNESS = REPO / "target" / "release" / "ecaa-workflow-harness"
+# Honor CARGO_TARGET_DIR — builds are commonly redirected off the repo
+# tree (e.g. onto a larger/faster volume), in which case REPO/target is
+# empty and the binaries live under $CARGO_TARGET_DIR/release.
+_TARGET = Path(os.environ["CARGO_TARGET_DIR"]) if os.environ.get("CARGO_TARGET_DIR") else REPO / "target"
+CLI = _TARGET / "release" / "ecaa-workflow"
+HARNESS = _TARGET / "release" / "ecaa-workflow-harness"
 AUDIT = REPO / "scripts" / "audit_dag.py"
 CONFIG = REPO / "config"
 
