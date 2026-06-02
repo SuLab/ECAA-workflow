@@ -213,7 +213,12 @@ def project_evidence_outputs(proofs_rows):
     `OutputUnused` Blocker carve-out) or it is a dangling, uncovered output.
     The node IRI is the bare output path so it coincides with the
     fragment-stripped `supported_by` IRI from `project_claim_verdicts`.
-    Returns a list of JSON-LD nodes (without `@context`).
+
+    A `workflow:<id>`-prefixed value is a STEP-lineage reference (a dependency
+    edge endpoint, as `render_dependency_proofs_jsonl` emits), NOT a produced
+    file — those are the execution-consistency domain (Invariant 6 sub-check),
+    not evidence-coverage, so they are skipped here. Returns a list of JSON-LD
+    nodes (without `@context`).
     """
     seen = set()
     nodes = []
@@ -223,12 +228,82 @@ def project_evidence_outputs(proofs_rows):
         output = row.get("computed_from") or row.get("produces")
         if not isinstance(output, str):
             continue
+        if output.startswith("workflow:"):
+            continue
         output = _strip_fragment(output)
         if output in seen:
             continue
         seen.add(output)
         nodes.append({"id": output, "type": "OutputFile"})
     return nodes
+
+
+def _bare_step(token):
+    """Reduce an execution-step id to its bare token — mirrors the Rust
+    `execution_consistency::bare` (`#step-de` ↔ `workflow:de` ↔ `de`)."""
+    for prefix in ("#step-", "#step/", "workflow:"):
+        if token.startswith(prefix):
+            return token[len(prefix):]
+    return token
+
+
+def project_execution_steps(graph_nodes, proofs_rows):
+    """Single-source E (F11): derive one `ecaa:WorkflowStep` node per distinct
+    execution step and tag it with the materialization(s) it appears in.
+
+    The authoritative source is the WRROC `@graph` HowToStep set; the E sidecar
+    (`proofs.jsonl`) is the second materialization. Each step node carries
+    `appears_in ecaa:graph` and/or `appears_in ecaa:evidence` so the
+    `ExecutionConsistencyShape` (folded under Invariant 6) flags any step in one
+    materialization but not the other. `ecaa:graph`/`ecaa:evidence` are
+    projection-side sentinel individuals, not ECAA closed predicates. Returns a
+    list of JSON-LD nodes (without `@context`).
+    """
+    def _is_howtostep(n):
+        t = n.get("@type") if isinstance(n, dict) else None
+        return t == "HowToStep" or (isinstance(t, list) and "HowToStep" in t)
+
+    howtosteps = [n for n in graph_nodes if _is_howtostep(n)]
+    # Execution-consistency only applies to packages whose WRROC @graph
+    # actually materializes execution lineage (HowToSteps). A package with no
+    # HowToStep set (e.g. a fixture isolating another invariant) has nothing to
+    # reconcile, so emit no WorkflowStep focus nodes and let the
+    # ExecutionConsistencyShape stay inert there.
+    if not howtosteps:
+        return []
+
+    steps = {}
+
+    def _mark(token, sentinel):
+        bare = _bare_step(token)
+        if not bare:
+            return
+        node = steps.setdefault(
+            bare, {"id": f"ecaa:step:{bare}", "type": "WorkflowStep", "appears_in": []}
+        )
+        ref = {"@id": f"ecaa:{sentinel}"}
+        if ref not in node["appears_in"]:
+            node["appears_in"].append(ref)
+
+    for n in howtosteps:
+        sid = n.get("@id")
+        if isinstance(sid, str):
+            _mark(sid, "graph")
+
+    for row in proofs_rows:
+        if not isinstance(row, dict):
+            continue
+        # Both endpoints (`id` = producing step, `computed_from` = its source)
+        # are E execution steps; a root step appears only as a `computed_from`.
+        # Only `workflow:`-prefixed values are step refs — a `computed_from`
+        # that is a file path (the evidence-coverage form) is an output, not a
+        # step, and is excluded so it does not register as spurious drift.
+        for key in ("id", "computed_from"):
+            v = row.get(key)
+            if isinstance(v, str) and v.startswith("workflow:"):
+                _mark(v, "evidence")
+
+    return list(steps.values())
 
 
 def conforms_to_iris(metadata):
@@ -308,10 +383,18 @@ def project(pkg_dir, log=print):
                     continue
                 entry = json.loads(line)
                 records_seen += 1
+                if letter == "V":
+                    # V rows are NOT projected raw: their `computed_from`
+                    # step-lineage edge would RDFS-infer the step ref as an
+                    # `ecaa:OutputFile` (range axiom) and their bare
+                    # `type:WorkflowStep` would lack the `appears_in` sentinels
+                    # the ExecutionConsistencyShape needs. The V sub-graph is
+                    # instead owned by the dedicated synthesizers
+                    # (`project_evidence_outputs`, `project_execution_steps`).
+                    proofs_rows.append(entry)
+                    continue
                 if letter == "D":
                     entry = project_decision_record(entry, records_seen)
-                elif letter == "V":
-                    proofs_rows.append(entry)
                 elif letter == "Q":
                     entry = project_rerun_outcome_row(entry, records_seen)
                 elif letter == "F":
@@ -367,6 +450,18 @@ def project(pkg_dir, log=print):
         }
         if _to_rdf(projected, package_node, context_label="ro-crate-metadata.json") and log is not None:
             log(f"  package node: ecaa:Package with {len(iris)} conformsTo IRIs")
+
+        # Single-source E (F11): derive `ecaa:WorkflowStep` focus nodes from the
+        # authoritative WRROC @graph + the E sidecar so the
+        # ExecutionConsistencyShape (Invariant 6 sub-check) can flag drift.
+        graph_nodes = metadata.get("@graph", [])
+        step_nodes = project_execution_steps(graph_nodes, proofs_rows)
+        for step in step_nodes:
+            node = dict(step)
+            node["@context"] = ctx["@context"]
+            _to_rdf(projected, node, context_label="ro-crate-metadata.json#WorkflowStep")
+        if step_nodes and log is not None:
+            log(f"  execution steps: {len(step_nodes)} WorkflowStep nodes (@graph + E)")
     elif log is not None:
         log("  skip (absent): ro-crate-metadata.json (no ecaa:Package focus node)")
 

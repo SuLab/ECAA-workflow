@@ -7,6 +7,7 @@ mod conformance_external_validators;
 mod cross_graph_shacl;
 mod equivalence_failure_shacl;
 mod evidence_coverage_shacl;
+mod execution_consistency_shacl;
 mod false_positive_corpus;
 mod invariant_utility;
 mod shacl_non_vacuous;

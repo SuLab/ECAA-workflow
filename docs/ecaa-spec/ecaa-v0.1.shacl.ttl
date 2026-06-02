@@ -111,3 +111,28 @@ ecaa:CrossGraphIntegrityShape a sh:NodeShape ;
         [ sh:class ecaa:Figure ] [ sh:class ecaa:Statistic ] [ sh:class ecaa:File ]
     ) ;
     sh:message "Invariant 5 (cross-graph-integrity): supported_by must resolve to a V (Evidence) node" .
+
+# Invariant 6 sub-check: execution-consistency (single-source E, F11).
+# Execution is materialized twice — the authoritative WRROC @graph HowToStep
+# lineage and the E sidecar (proofs.jsonl) WorkflowStep set. This shape folds
+# UNDER Invariant 6 (substrate-validity); it adds NO 7th invariant. `_project.py`
+# tags each derived WorkflowStep with `appears_in ecaa:graph` (the single
+# source) and/or `appears_in ecaa:evidence`; a step in one materialization but
+# not the other is drift. (`ecaa:graph`/`ecaa:evidence` are projection-side
+# sentinel individuals, not ECAA closed predicates.)
+
+ecaa:ExecutionConsistencyShape a sh:NodeShape ;
+    sh:targetClass ecaa:WorkflowStep ;
+    sh:sparql [
+        sh:select """
+            PREFIX ecaa: <https://w3id.org/ecaa/ns/0.1#>
+            SELECT $this WHERE {
+                { $this ecaa:appears_in ecaa:graph .
+                  FILTER NOT EXISTS { $this ecaa:appears_in ecaa:evidence . } }
+                UNION
+                { $this ecaa:appears_in ecaa:evidence .
+                  FILTER NOT EXISTS { $this ecaa:appears_in ecaa:graph . } }
+            }
+        """ ;
+        sh:message "Invariant 6 (execution-consistency): every execution step must appear in both the WRROC @graph and the E sidecar (no materialization drift)"
+    ] .
