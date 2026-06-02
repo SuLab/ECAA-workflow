@@ -52,7 +52,17 @@ You run inside a standardized container. Do not spend turns discovering it:
 4. Write `runtime/outputs/$TASK_ID/result.json` with:
    - `task_id`
    - `status`: `completed` | `blocked` | `failed`
-   - `claims`: list of factual claims you made, each with evidence path
+   - `claims`: list of `{ "claim": "<assertion>", "evidence": "<table path>" }`
+     objects — every factual numeric assertion you make, each pointing at the
+     result table that backs it. For **confirmatory stages** (differential
+     expression, abundance, enrichment, variant/peak calling, endpoint
+     analysis) this list is MANDATORY and is the sole input to the package's
+     recall floor: the package carries an expected-claim manifest
+     (`policies/interpretation-policy.json` → `verifiableEntities.expected`),
+     and any `required` expectation you do not address with a structured,
+     evidence-backed claim is recorded as a coverage gap that fails the
+     `claim_completeness` invariant and re-blocks the task. Cite the exact
+     output table path so the verifier resolves it without ambiguity.
    - `figures`: list of figure file paths you produced
    - `narrative`: optional human-readable summary
 5. Stop. Do not iterate.

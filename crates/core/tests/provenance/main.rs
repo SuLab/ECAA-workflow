@@ -1,6 +1,7 @@
 // Consolidated integration-test binary: groups several former top-level
 // tests/*.rs files into one target to cut link time. Each module is a
 // verbatim relocation; #[test] behavior is unchanged.
+mod agent_brief_claims_contract;
 mod audit_proof_invariants;
 mod audit_proof_loader;
 mod audit_proof_orchestrator;
