@@ -5,6 +5,7 @@ mod audit_proof_invariants;
 mod claim_completeness_shacl;
 mod conformance_external_validators;
 mod cross_graph_shacl;
+mod equivalence_failure_shacl;
 mod evidence_coverage_shacl;
 mod false_positive_corpus;
 mod invariant_utility;

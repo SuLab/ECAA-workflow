@@ -108,6 +108,66 @@ def _strip_fragment(s):
     return s.split("#", 1)[0]
 
 
+# Map a Q `RerunOutcome.class` value (as written by the harness classifier,
+# `equivalence_failure::DIVERGED_CLASSES` + the non-divergent classes) onto the
+# spec §5.6 `ecaa:` individual the Invariant-4 SHACL FILTER tests against
+# (`?class IN (ecaa:failed, ecaa:nonDeterministic)`).
+_CLASS_IRI = {
+    "failed": "failed",
+    "acknowledged_non_determinism": "nonDeterministic",
+    "non_deterministic": "nonDeterministic",
+    "nonDeterministic": "nonDeterministic",
+}
+
+
+def _class_iri(cls):
+    """Map a raw class string to its `ecaa:` local name (passthrough on miss)."""
+    return _CLASS_IRI.get(cls, cls)
+
+
+def project_rerun_outcome_row(entry, fallback_id):
+    """Stamp `ecaa:RerunOutcome` on a Q (`verifier-decisions.jsonl`) row and
+    lift its `class` to the `ecaa:` individual the Invariant-4 SHACL expects.
+
+    A row already carrying a top-level `type` (hand-authored fixtures) passes
+    through untouched. The node id is `ecaa:rerun:<id>` so a Blocker's `refs`
+    edge (see `project_blocker_row`) resolves to it. Returns the rewritten
+    node; the caller stamps `@context`.
+    """
+    if "type" in entry:
+        return entry
+    node = dict(entry)
+    node["type"] = "RerunOutcome"
+    cls = entry.get("class") or entry.get("bucket")
+    if cls:
+        node["class"] = {"@id": f"ecaa:{_class_iri(cls)}"}
+    raw_id = entry.get("id") or entry.get("edge_id") or fallback_id
+    node["id"] = f"ecaa:rerun:{raw_id}"
+    return node
+
+
+def project_blocker_row(entry, fallback_id):
+    """Stamp `ecaa:Blocker` on an F (`assumptions.jsonl`) row and project its
+    `refs` field as an `@id` edge to the referenced Q `RerunOutcome` node.
+
+    The `refs` object IRI is `ecaa:rerun:<refs>` so it equals the
+    `RerunOutcome` node id minted by `project_rerun_outcome_row`, letting the
+    Invariant-4 `EquivalenceFailureShape` SPARQL bind. `kind` is left as
+    written (the spec-canonical CamelCase the SHACL FILTER lists). A row
+    already carrying a top-level `type` passes through untouched.
+    """
+    if "type" in entry:
+        return entry
+    node = dict(entry)
+    node["type"] = "Blocker"
+    refs = entry.get("refs")
+    if isinstance(refs, str):
+        node["refs"] = {"@id": f"ecaa:rerun:{refs}"}
+    raw_id = entry.get("id") or entry.get("assumption_id") or fallback_id
+    node["id"] = f"ecaa:blocker:{raw_id}"
+    return node
+
+
 def project_claim_verdicts(claim_doc):
     """Synthesize typed `ecaa:Claim` nodes from a `claim-verification.json`
     document so Invariants 1 (claim-completeness) and 5 (cross-graph) have
@@ -250,8 +310,12 @@ def project(pkg_dir, log=print):
                 records_seen += 1
                 if letter == "D":
                     entry = project_decision_record(entry, records_seen)
-                if letter == "V":
+                elif letter == "V":
                     proofs_rows.append(entry)
+                elif letter == "Q":
+                    entry = project_rerun_outcome_row(entry, records_seen)
+                elif letter == "F":
+                    entry = project_blocker_row(entry, records_seen)
                 entry["@context"] = ctx["@context"]
                 _to_rdf(projected, entry, context_label=rel)
 
