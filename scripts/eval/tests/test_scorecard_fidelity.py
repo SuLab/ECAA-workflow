@@ -90,3 +90,42 @@ def test_handle_histogram_renders(tmp_path):
     assert "recover" in md and "crash" in md
     # The four-tuple signature is rendered for the arm.
     assert "2/1/0/1" in md or ("recover 2" in md and "crash 1" in md)
+
+
+# ── F12 benchmarkable invariant set (readiness gate) ─────────────────────────
+
+def test_benchmarkable_set_meta_default_excludes_vacuous():
+    from scripts.eval.services.scorecard import benchmarkable_set_meta
+    # Pre-Phase-1/3 live state: only the referential Inv 2/6 are benchmarkable;
+    # Inv 1/5 (signed sink), Inv 4 (refs), Inv 3 (evidence) are excluded.
+    m = benchmarkable_set_meta()
+    assert m["ready"] == ["decision_justification", "substrate_validity"]
+    assert set(m["excluded"]) == {
+        "claim_completeness", "cross_graph_integrity",
+        "equivalence_failure", "evidence_coverage",
+    }
+    # Each exclusion carries a phase-anchored reason.
+    assert "Phase 1" in m["excluded"]["claim_completeness"]
+    assert "04-C5" in m["excluded"]["equivalence_failure"]
+    assert "04-C2" in m["excluded"]["evidence_coverage"]
+
+
+def test_benchmarkable_set_meta_all_phases_done():
+    from scripts.eval.services.scorecard import benchmarkable_set_meta
+    m = benchmarkable_set_meta(signed_sink=True, refs_projected=True,
+                               evidence_from_proofs=True)
+    assert len(m["ready"]) == 6
+    assert m["excluded"] == {}
+
+
+def test_scorecard_injects_benchmarkable_set(tmp_path):
+    rows = [_row("ecaa", 0, 80.0), _row("claude-direct", 0, 70.0)]
+    out = write_scorecard(Scorecard("biomnibench", rows), tmp_path)
+    data = json.loads((out / "scorecard.json").read_text())
+    bs = data["meta"]["benchmarkable_set"]
+    assert bs["ready"] == ["decision_justification", "substrate_validity"]
+    md = (out / "scorecard.md").read_text()
+    assert "Benchmarkable invariant set" in md
+    assert "decision_justification" in md
+    # An excluded invariant's reason is rendered.
+    assert "claim_completeness" in md

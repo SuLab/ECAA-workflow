@@ -574,6 +574,73 @@ def _render_paired_delta(summary: dict) -> list[str]:
     return lines
 
 
+# ---------------------------------------------------------------------------
+# F12 readiness gate: which invariants the A-vs-B' contrast actually measures.
+#
+# Mirrors the Rust readiness table in
+# `crates/core/src/audit_proof/bench_readiness.rs::readiness_for`. An invariant
+# is benchmarkable only once the phase that makes it non-vacuous has landed:
+#   - claim_completeness / cross_graph_integrity  ⇐ Phase 1 (signed verdict sink)
+#   - equivalence_failure                         ⇐ Phase 3 (ecaa:refs / 04-C5)
+#   - evidence_coverage                           ⇐ Phase 3 (04-C2)
+#   - decision_justification / substrate_validity ⇐ referential (Phase 0)
+#
+# Threading this into the scorecard meta makes the contrast self-describing: a
+# reader sees exactly which invariants were measured and why the rest were
+# excluded, so a still-vacuous invariant can never silently confound the
+# headline. The probe booleans default to the live pre-Phase-1/3 state; flip
+# them as each phase lands (and re-run the null-treatment control first).
+# ---------------------------------------------------------------------------
+
+_READINESS_RULES = {
+    "claim_completeness": ("signed_sink", "requires Phase 1 signed verdict sink (F1)"),
+    "cross_graph_integrity": ("signed_sink", "requires Phase 1 signed verdict sink (F1)"),
+    "equivalence_failure": ("refs_projected", "requires Phase 3 ecaa:refs context + refs projection (04-C5)"),
+    "evidence_coverage": ("evidence_from_proofs", "requires Phase 3 evidence_coverage-from-proofs (04-C2/F6)"),
+    "decision_justification": (None, None),  # referential — always ready
+    "substrate_validity": (None, None),  # referential — always ready
+}
+
+
+def benchmarkable_set_meta(
+    *,
+    signed_sink: bool = False,
+    refs_projected: bool = False,
+    evidence_from_proofs: bool = False,
+) -> dict:
+    """Compute the benchmarkable invariant set + per-invariant exclusion reasons
+    from the live de-vacuifying state. Mirrors the Rust readiness table."""
+    probes = {
+        "signed_sink": signed_sink,
+        "refs_projected": refs_projected,
+        "evidence_from_proofs": evidence_from_proofs,
+    }
+    ready: list[str] = []
+    excluded: dict[str, str] = {}
+    for inv, (gate, reason) in _READINESS_RULES.items():
+        if gate is None or probes.get(gate, False):
+            ready.append(inv)
+        else:
+            excluded[inv] = reason
+    return {
+        "ready": sorted(ready),
+        "excluded": dict(sorted(excluded.items())),
+        "probes": probes,
+    }
+
+
+def _render_benchmarkable_set(meta: dict) -> list[str]:
+    lines = ["", "## Benchmarkable invariant set (F12 readiness gate)", ""]
+    ready = meta.get("ready", [])
+    excluded = meta.get("excluded", {})
+    lines.append(f"- **Measured by the A-vs-B' contrast:** {', '.join(ready) or '(none)'}")
+    if excluded:
+        lines.append("- **Excluded (still vacuous):**")
+        for inv, reason in excluded.items():
+            lines.append(f"  - `{inv}` — {reason}")
+    return lines
+
+
 def _markdown(card: Scorecard) -> str:
     lines = [f"# {card.benchmark} scorecard", ""]
     # Render scalar meta keys (skip the rich-object keys handled below).
@@ -583,7 +650,9 @@ def _markdown(card: Scorecard) -> str:
                   # Per-dimension section, not as a stray scalar bullet up top.
                   "dimension_source", "dimension_note",
                   # surfaced via the partial-judging caveat block, not a bullet.
-                  "partial_judging_excluded", "dimension_caveat"}
+                  "partial_judging_excluded", "dimension_caveat",
+                  # F12: rendered as its own readiness-gate section, not bullets.
+                  "benchmarkable_set"}
     if card.meta:
         for k, v in card.meta.items():
             if k not in _RICH_KEYS:
@@ -622,6 +691,11 @@ def _markdown(card: Scorecard) -> str:
 
     # Optional rich sections.
     if card.meta:
+        # F12: the readiness gate — which invariants the contrast measured and
+        # why the rest were excluded (vacuous). Surfaced before the arm-fairness
+        # sections so a reader scopes the headline correctly.
+        if card.meta.get("benchmarkable_set"):
+            lines += _render_benchmarkable_set(card.meta["benchmarkable_set"])
         # eval-03: method-lock asymmetry (recipe arms pin canonical tools).
         if card.meta.get("locked_methods"):
             lines += _render_locked_methods(card.meta["locked_methods"])
@@ -678,6 +752,13 @@ def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None) -> Path:
     n_partial = _partial_judging_count(card)
     if n_partial and "partial_judging_excluded" not in meta:
         meta["partial_judging_excluded"] = n_partial
+    # F12: record the benchmarkable invariant set + per-invariant exclusion
+    # reasons so the A-vs-B' contrast is self-describing. Defaults to the live
+    # pre-Phase-1/3 readiness state (only the referential Inv 2/6 are
+    # benchmarkable); a caller/plugin that has probed the real de-vacuifying
+    # state can pre-set meta["benchmarkable_set"] and that wins.
+    if "benchmarkable_set" not in meta:
+        meta["benchmarkable_set"] = benchmarkable_set_meta()
     # Render markdown from a card carrying the derived/injected meta so the
     # human scorecard shows the same locked-methods + caveat sections.
     render_card = Scorecard(benchmark=card.benchmark, rows=card.rows, meta=meta)
