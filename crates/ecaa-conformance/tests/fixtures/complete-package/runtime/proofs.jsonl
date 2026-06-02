@@ -1,0 +1,2 @@
+{"id":"fig_qc","type":"Figure","path":"data/figures/fig_qc.png","format":"png"}
+{"source":"fig_qc","target":"task_qc_001","predicate":"computed-from","edge_id":"edge_fig_qc_001","computed_from":"data/figures/fig_qc.png"}

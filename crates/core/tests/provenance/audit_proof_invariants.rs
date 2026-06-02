@@ -293,13 +293,15 @@ fn pkg_with_q(
 }
 
 #[test]
-fn equivalence_failure_passes_when_no_failures() {
+fn equivalence_failure_unverified_when_no_reexecution() {
+    // Only compile-time prove rows, no RerunOutcomes (re-execution not performed):
+    // spec §4 verdict table → Unverified, never a coerced Pass.
     let pkg = pkg_with_q(
         vec![json!({"event":"prove","outcome":"succeeded","edge_id":"e-1"})],
         vec![],
     );
     let v = check_equivalence_failure(&pkg);
-    assert_eq!(v.status, InvariantStatus::Pass);
+    assert_eq!(v.status, InvariantStatus::Unverified);
 }
 
 #[test]
@@ -313,24 +315,79 @@ fn equivalence_failure_fails_when_failure_unacknowledged() {
 }
 
 #[test]
-fn equivalence_failure_passes_when_acknowledged_by_edge_id() {
+fn equivalence_failure_acked_prove_failure_no_reexecution_is_unverified() {
+    // An acknowledged compile-time prove-failure is NOT a Fail, but with no
+    // re-execution the equivalence verdict is Unverified (spec §4).
     let pkg = pkg_with_q(
         vec![json!({"event":"prove","outcome":"failed","edge_id":"e-2"})],
         vec![json!({"kind":"unprovable_edge","edge_id":"e-2"})],
+    );
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Unverified);
+}
+
+#[test]
+fn equivalence_failure_ack_via_detail_containment_no_reexecution_is_unverified() {
+    // Real v0.1 assumptions carry `detail`, not `edge_id`. An ack whose
+    // free-text detail mentions the failed edge prevents Fail; with no
+    // re-execution the verdict is Unverified (spec §4).
+    let pkg = pkg_with_q(
+        vec![json!({"event":"prove","outcome":"failed","edge_id":"e-2"})],
+        vec![json!({"assumption_id":"a-1","kind":"policy_exception",
+                    "detail":"edge e-2 left unproved per reviewer-approved policy exception",
+                    "stage_id":"de"})],
+    );
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Unverified);
+}
+
+// --- spec §4 predicate over Q.RerunOutcomes (class field), not just prove/failed ---
+
+#[test]
+fn equivalence_failure_fails_on_unacked_acknowledged_non_determinism() {
+    // Spec §4: ∀ r ∈ Q.RerunOutcomes : r.class ∉ {"failed",
+    // "acknowledged_non_determinism"} ∨ ∃ F.Blocker acknowledging r.id.
+    // A re-execution that diverged as acknowledged-non-deterministic with NO
+    // Blocker is the silent-corruption case the invariant must catch.
+    let pkg = pkg_with_q(
+        vec![json!({"class":"acknowledged_non_determinism","id":"rerun-1"})],
+        vec![],
+    );
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Fail);
+}
+
+#[test]
+fn equivalence_failure_fails_on_unacked_failed_rerun_class() {
+    let pkg = pkg_with_q(
+        vec![json!({"class":"failed","id":"rerun-2"})],
+        vec![],
+    );
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Fail);
+}
+
+#[test]
+fn equivalence_failure_passes_when_rerun_divergence_acknowledged() {
+    let pkg = pkg_with_q(
+        vec![json!({"class":"acknowledged_non_determinism","id":"rerun-3"})],
+        vec![json!({"kind":"policy_exception","edge_id":"rerun-3"})],
     );
     let v = check_equivalence_failure(&pkg);
     assert_eq!(v.status, InvariantStatus::Pass);
 }
 
 #[test]
-fn equivalence_failure_passes_when_acknowledged_via_detail_containment() {
-    // Real v0.1 assumptions carry `detail`, not `edge_id`. An ack whose
-    // free-text detail mentions the failed edge satisfies the predicate.
+fn equivalence_failure_ignores_non_divergent_rerun_classes() {
+    // byte_identical / semantic_equivalent / unavailable are not in the
+    // diverged set and need no acknowledgement.
     let pkg = pkg_with_q(
-        vec![json!({"event":"prove","outcome":"failed","edge_id":"e-2"})],
-        vec![json!({"assumption_id":"a-1","kind":"policy_exception",
-                    "detail":"edge e-2 left unproved per reviewer-approved policy exception",
-                    "stage_id":"de"})],
+        vec![
+            json!({"class":"byte_identical","id":"r-a"}),
+            json!({"class":"semantic_equivalent","id":"r-b"}),
+            json!({"class":"unavailable","id":"r-c"}),
+        ],
+        vec![],
     );
     let v = check_equivalence_failure(&pkg);
     assert_eq!(v.status, InvariantStatus::Pass);

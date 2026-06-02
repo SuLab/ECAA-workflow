@@ -1,0 +1,8 @@
+{
+  "ClaimCompleteness": "pass",
+  "CrossGraphIntegrity": "pass",
+  "DecisionJustification": "unverified",
+  "EquivalenceFailure": "unverified",
+  "EvidenceCoverage": "warn",
+  "SubstrateValidity": "unverified"
+}

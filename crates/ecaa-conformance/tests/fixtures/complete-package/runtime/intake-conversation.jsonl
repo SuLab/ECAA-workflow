@@ -1,0 +1,4 @@
+{"id":"q_001","type":"Question","text":"What is the per-base quality profile of input.fastq.gz?"}
+{"id":"m_001","type":"Modality","value":"bulk_rnaseq"}
+{"id":"out_001","type":"ExpectedOutput","schema":"qc_metrics"}
+{"source":"q_001","target":"out_001","predicate":"expects"}
