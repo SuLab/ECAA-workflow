@@ -309,6 +309,25 @@ pub async fn reverify_and_block_on_mismatch(
                     "signed verdict sink write failed"
                 );
             }
+
+            // Regenerate the at-rest audit-proof report so claim_completeness
+            // / cross_graph_integrity reflect the just-persisted verdicts. The
+            // report is BagIt-excluded (carries the spec-excluded
+            // `evaluated_at`), so rewriting it post-exec does not affect emit
+            // byte-reproducibility.
+            let validator = ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
+            let clock = ecaa_workflow_core::clock::WallClock;
+            if let Ok(report_doc) = ecaa_workflow_core::audit_proof::run_audit_proof_with_verifier(
+                &root,
+                &validator,
+                &clock,
+                Some(&writer),
+            ) {
+                let p = root.join("runtime/audit-proof-report.json");
+                if let Ok(bytes) = serde_json::to_vec_pretty(&report_doc) {
+                    let _ = std::fs::write(&p, bytes);
+                }
+            }
         }
         VerifyOutcome::Disabled => {}
         VerifyOutcome::Unavailable { reason } => {

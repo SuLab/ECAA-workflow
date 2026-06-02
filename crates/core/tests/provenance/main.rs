@@ -5,6 +5,7 @@ mod audit_proof_invariants;
 mod audit_proof_loader;
 mod audit_proof_orchestrator;
 mod audit_proof_report_types;
+mod audit_proof_with_verifier;
 mod audit_writer_tamper;
 mod auditability_corpus_smoke;
 mod claim_extractor_excludes;

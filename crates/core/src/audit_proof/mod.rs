@@ -35,16 +35,40 @@ pub fn run_audit_proof(
     validator: &dyn WrrocValidator,
     clock: &dyn crate::clock::Clock,
 ) -> Result<AuditProofReport> {
-    let pkg = LoadedPackage::from_root(root)?;
+    run_audit_proof_with_verifier(root, validator, clock, None)
+}
+
+/// As [`run_audit_proof`], but a `Some(verifier)` lets the loader read and
+/// HMAC-verify the signed verdict sink (de-vacuifying Inv 1/5). `None`
+/// preserves the legacy stub-only behavior.
+pub fn run_audit_proof_with_verifier(
+    root: &Path,
+    validator: &dyn WrrocValidator,
+    clock: &dyn crate::clock::Clock,
+    verifier: Option<&crate::audit_writer::AuditWriter>,
+) -> Result<AuditProofReport> {
+    let pkg = LoadedPackage::from_root_with_verifier(root, verifier)?;
+    Ok(assemble_report(&pkg, root, validator, clock))
+}
+
+/// Run the six invariant checks over an already-loaded package and assemble
+/// the report. Separated from the loader step so a verifier-aware load can
+/// populate the signed C-graph sink before grading.
+fn assemble_report(
+    pkg: &LoadedPackage,
+    root: &Path,
+    validator: &dyn WrrocValidator,
+    clock: &dyn crate::clock::Clock,
+) -> AuditProofReport {
     let verdicts = vec![
-        check_claim_completeness(&pkg),
-        check_decision_justification(&pkg),
-        check_evidence_coverage(&pkg),
-        check_equivalence_failure(&pkg),
-        check_cross_graph_integrity(&pkg),
+        check_claim_completeness(pkg),
+        check_decision_justification(pkg),
+        check_evidence_coverage(pkg),
+        check_equivalence_failure(pkg),
+        check_cross_graph_integrity(pkg),
         check_substrate_validity(root, validator),
     ];
-    Ok(AuditProofReport {
+    AuditProofReport {
         schema_version: "0.1".to_string(),
         ecaa_version: ecaa_workflow_types::consts::ECAA_VERSION.to_string(),
         min_reader_version: ecaa_workflow_types::consts::MIN_READER_VERSION.to_string(),
@@ -56,5 +80,5 @@ pub fn run_audit_proof(
         evaluated_at: Some(clock.now_rfc3339()),
         evaluator: ecaa_workflow_types::EvaluatorInfo::reference(),
         verdicts,
-    })
+    }
 }
