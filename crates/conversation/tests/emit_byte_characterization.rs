@@ -73,6 +73,80 @@ async fn emit_and_read_metadata(dir: &Path) -> String {
     normalize(&raw, dir)
 }
 
+/// Relative paths whose content is intentionally NOT byte-reproducible across
+/// emits. These carry per-emit wall-clock timestamps (`audit-proof-report.json`
+/// — a spec-documented exclusion, see `docs/ecaa-spec/operations.md`),
+/// host-varying env capture (`determinism-shim.json`), session-replay logs
+/// (`intake-conversation.jsonl`, `decisions.jsonl`), or content keyed off the
+/// per-session `OsRng` HMAC secret (`decisions.jsonl.mac` — the MAC of the
+/// already-excluded `decisions.jsonl`). They are excluded from the cross-emit
+/// determinism diff. Mirrors the documented non-deterministic surface and the
+/// BagIt manifest exclusion set in `crates/core/src/emitter/bagit.rs`.
+const NON_DETERMINISTIC_ALLOWLIST: &[&str] = &[
+    "runtime/audit-proof-report.json",
+    "runtime/intake-conversation.jsonl",
+    "runtime/decisions.jsonl",
+    "runtime/verifier-decisions.jsonl",
+    "runtime/determinism-shim.json",
+    "bco.json",
+    // Derivative of an allowlisted file: an HMAC-SHA256 over `decisions.jsonl`
+    // keyed by the session's per-emit `OsRng` secret, so it is non-deterministic
+    // across two freshly-booted sessions even though the signed content is.
+    "runtime/decisions.jsonl.mac",
+];
+
+/// True when `rel` is on the documented non-deterministic allowlist and must
+/// be skipped by the cross-emit determinism diff.
+fn is_non_deterministic(rel: &str) -> bool {
+    NON_DETERMINISTIC_ALLOWLIST.contains(&rel)
+}
+
+/// Emit the fixture session into `dir` and return a stable, normalized map of
+/// every emitted *deterministic* artifact: relative-path → normalized content.
+/// The non-deterministic allowlist is filtered out. Paths are
+/// forward-slash-normalized and the map is a `BTreeMap` so iteration order is
+/// stable regardless of host filesystem walk order.
+async fn emit_and_collect_files(dir: &Path) -> std::collections::BTreeMap<String, String> {
+    use std::collections::BTreeMap;
+
+    let mut session = boot_session().await;
+    emit_with_conversation_log(&mut session, dir, &config_dir())
+        .await
+        .expect("emit succeeded");
+
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    let mut stack: Vec<PathBuf> = vec![dir.to_path_buf()];
+    while let Some(cur) = stack.pop() {
+        let entries = std::fs::read_dir(&cur)
+            .unwrap_or_else(|e| panic!("read_dir {}: {e}", cur.display()));
+        for entry in entries {
+            let entry = entry.expect("dir entry");
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            let rel = path
+                .strip_prefix(dir)
+                .expect("emitted path under package root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            if is_non_deterministic(&rel) {
+                continue;
+            }
+            // Read as bytes first; only text artifacts get normalized. Any
+            // non-UTF8 artifact (e.g. copied binary libs) is compared via a
+            // lossy string — still byte-stable across emits of the same inputs.
+            let raw = match std::fs::read(&path) {
+                Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+                Err(e) => panic!("read {}: {e}", path.display()),
+            };
+            out.insert(rel, normalize(&raw, dir));
+        }
+    }
+    out
+}
+
 /// Guard 1: two emits of the same session yield byte-identical
 /// `ro-crate-metadata.json` (after timestamp/path normalization).
 #[tokio::test]
@@ -85,6 +159,63 @@ async fn ro_crate_metadata_is_deterministic_across_emits() {
         first, second,
         "ro-crate-metadata.json must be byte-reproducible across emits"
     );
+}
+
+/// Guard 1b: two emits of the same session yield byte-identical content for
+/// EVERY deterministic emitted artifact — not just `ro-crate-metadata.json`.
+/// This widens the determinism net to `WORKFLOW.json`, the per-task
+/// `runtime/outputs/<task_id>/task-spec.json` sidecars, and
+/// `runtime/security-policy.json`, plus everything else that isn't on the
+/// documented non-deterministic allowlist. A determinism regression in any of
+/// these (stray `SystemTime::now()`, `HashMap` ordering, host-path leak) now
+/// fails here instead of slipping through because only the RO-Crate metadata
+/// was pinned.
+#[tokio::test]
+async fn all_deterministic_emitted_files_are_byte_identical_across_emits() {
+    let a = tempdir().unwrap();
+    let b = tempdir().unwrap();
+    let first = emit_and_collect_files(a.path()).await;
+    let second = emit_and_collect_files(b.path()).await;
+
+    // The two emits must cover the exact same set of relative paths. A diff in
+    // the *file set* (a sidecar that appears in one emit but not the other) is
+    // itself a determinism bug, so assert the key sets match before comparing
+    // contents.
+    let first_keys: Vec<&String> = first.keys().collect();
+    let second_keys: Vec<&String> = second.keys().collect();
+    assert_eq!(
+        first_keys, second_keys,
+        "the set of emitted deterministic files must be identical across emits"
+    );
+
+    // Sanity-check that the widened coverage actually includes the artifacts
+    // this guard exists to protect, so a future emit-layout change that drops
+    // them can't silently make the test vacuous.
+    assert!(
+        first.contains_key("WORKFLOW.json"),
+        "WORKFLOW.json must be emitted and covered by the determinism diff"
+    );
+    assert!(
+        first.contains_key("runtime/security-policy.json"),
+        "runtime/security-policy.json must be covered by the determinism diff"
+    );
+    assert!(
+        first
+            .keys()
+            .any(|k| k.starts_with("runtime/outputs/") && k.ends_with("/task-spec.json")),
+        "at least one per-task runtime/outputs/<id>/task-spec.json must be covered"
+    );
+
+    // Per-file byte-identity (after timestamp/path/uuid normalization).
+    for (rel, content_a) in &first {
+        let content_b = second
+            .get(rel)
+            .unwrap_or_else(|| panic!("{rel} present in first emit but missing in second"));
+        assert_eq!(
+            content_a, content_b,
+            "{rel} must be byte-reproducible across emits (normalized)"
+        );
+    }
 }
 
 /// Guard 2: golden snapshot of the normalized graph. Pins the exact content +

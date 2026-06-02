@@ -197,6 +197,30 @@ fn walk_for_manifest(
         // returns. Keeping all of them out of the payload manifest
         // prevents stale checksums on live emits while preserving the
         // byte-reproducibility baseline.
+        //
+        // Note that this list deliberately spans two distinct categories,
+        // so the manifest's PARTIAL file coverage is intentional, not an
+        // oversight:
+        //   1. Genuinely non-deterministic / post-manifest-mutated sidecars
+        //      (intake-conversation.jsonl, decisions.jsonl, audit-proof-
+        //      report.json with its spec-excluded `evaluated_at`,
+        //      determinism-shim.json with host-varying env capture, etc.) —
+        //      hashing them would bake per-emit or per-host noise into the
+        //      manifest.
+        //   2. SUBSTANTIVE, deterministic artifacts (security-policy.json,
+        //      validation-summary.json) and the per-task task-spec.json under
+        //      runtime/outputs/ (skipped above via the `runtime/outputs`
+        //      prefix guard). These ARE byte-reproducible, but they live
+        //      OUTSIDE the BagIt manifest integrity surface on purpose: they
+        //      are emitted/overwritten by core AND the conversation emit
+        //      pipeline after the manifest is sealed, so manifesting them
+        //      would make every live conversation emit produce a stale
+        //      payload checksum. Their determinism is instead guarded by the
+        //      emit byte-characterization harness
+        //      (`crates/conversation/tests/emit_byte_characterization.rs`),
+        //      not by the BagIt manifest. Do NOT add them to the manifest to
+        //      "complete" coverage — that would re-introduce the stale-
+        //      checksum failure this exclusion exists to prevent.
         if rel == std::path::Path::new("runtime/intake-conversation.jsonl")
             || rel == std::path::Path::new("runtime/decisions.jsonl")
             || rel == std::path::Path::new("runtime/proofs.jsonl")
