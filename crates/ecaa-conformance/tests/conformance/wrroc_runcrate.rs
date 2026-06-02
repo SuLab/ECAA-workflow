@@ -5,9 +5,17 @@
 //!
 //! Both tests are CAPABILITY-PROBED: if `runcrate --version` fails (the
 //! toolchain from `requirements-validator.txt` is not installed) the
-//! test prints a skip notice and returns. This keeps the gate runnable
+//! test prints a LOUD skip notice and returns. This keeps the gate runnable
 //! in `make wrroc-validate` (where the deps ARE present) without
-//! `#[ignore]` hiding it from the default suite on dev machines.
+//! `#[ignore]` hiding it from the default suite on dev machines — and the
+//! shouted skip makes a deps-absent vacuous pass impossible to mistake for a
+//! real runcrate-validation pass. Install the toolchain with:
+//!
+//! ```text
+//! pip install --user --break-system-packages pyshacl pyld owlready2 rdflib runcrate
+//! ```
+//!
+//! (or the pinned set in `requirements-validator.txt`).
 //!
 //! Positive case: a real emitted descriptor validates with 0 failures
 //! and declares all 6 required profile IRIs.
@@ -20,6 +28,12 @@ use ecaa_workflow_conformance::WrrocValidator;
 use ecaa_workflow_harness::wrroc_validator_impl::PythonRuncrateWrrocValidator;
 use serde_json::json;
 use std::path::{Path, PathBuf};
+
+/// Operator-facing install hint surfaced in the probe-skip notice so a
+/// runcrate-absent vacuous pass is loudly distinguishable from a real WRROC
+/// validation pass. Mirrors the pinned set in `requirements-validator.txt`.
+const VALIDATOR_INSTALL_HINT: &str =
+    "pip install --user --break-system-packages pyshacl pyld owlready2 rdflib runcrate";
 
 fn config_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -122,10 +136,11 @@ fn emit_real_descriptor(out_dir: &Path) {
 fn runcrate_validates_emitted_descriptor_with_all_six_iris() {
     if !runcrate_available() {
         eprintln!(
-            "SKIP runcrate_validates_emitted_descriptor_with_all_six_iris: \
-             `runcrate --version` failed (install runcrate>=0.5.0 from \
-             requirements-validator.txt). The gate runs for real under \
-             `make wrroc-validate`."
+            "\n>>> SKIP: `runcrate --version` failed (toolchain not installed) <<<\n\
+             >>> runcrate_validates_emitted_descriptor_with_all_six_iris did NOT run \
+             — this is NOT a runcrate-validation pass. <<<\n\
+             >>> Install the validator toolchain to run this gate for real:\n\
+             >>>   {VALIDATOR_INSTALL_HINT}\n"
         );
         return;
     }
@@ -179,9 +194,11 @@ fn runcrate_validates_emitted_descriptor_with_all_six_iris() {
 fn runcrate_rejects_deficient_four_iri_descriptor() {
     if !runcrate_available() {
         eprintln!(
-            "SKIP runcrate_rejects_deficient_four_iri_descriptor: \
-             `runcrate --version` failed (install runcrate>=0.5.0). The \
-             gate runs for real under `make wrroc-validate`."
+            "\n>>> SKIP: `runcrate --version` failed (toolchain not installed) <<<\n\
+             >>> runcrate_rejects_deficient_four_iri_descriptor did NOT run \
+             — this is NOT a runcrate-validation pass. <<<\n\
+             >>> Install the validator toolchain to run this gate for real:\n\
+             >>>   {VALIDATOR_INSTALL_HINT}\n"
         );
         return;
     }

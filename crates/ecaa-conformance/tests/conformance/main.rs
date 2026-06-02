@@ -1,3 +1,4 @@
+mod a3_fixture_conformance;
 mod ablation_contract;
 mod audit_proof_invariants;
 mod conformance_external_validators;

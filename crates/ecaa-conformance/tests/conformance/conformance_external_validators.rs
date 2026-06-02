@@ -4,10 +4,18 @@
 //! package ABox to `package.ttl`, and blocks on failure.
 //!
 //! The test is CAPABILITY-PROBED: when `python3` + `pyld` + `rdflib` +
-//! `pyshacl` + `owlready2` are not all importable it prints a skip notice and
-//! returns (it does NOT fail), so the suite is dispatch-safe on a machine
-//! without the validator toolchain. The gate runs for real where the deps are
-//! installed (e.g. `make wrroc-validate` / the D9 conformance run).
+//! `pyshacl` + `owlready2` are not all importable it prints a LOUD skip notice
+//! and returns (it does NOT fail), so the suite is dispatch-safe on a machine
+//! without the validator toolchain. The skip is shouted so a deps-absent
+//! vacuous pass can never be mistaken for a real external-validation pass. The
+//! gate runs for real where the deps are installed (e.g. `make wrroc-validate`
+//! / the D9 conformance run). Install the toolchain with:
+//!
+//! ```text
+//! pip install --user --break-system-packages pyshacl pyld owlready2 rdflib runcrate
+//! ```
+//!
+//! (or the pinned set in `requirements-validator.txt`).
 //!
 //! Asserts, over a real composer → `emit_package` package:
 //!   * `external_validation.shacl_projection.status == "pass"`
@@ -22,6 +30,12 @@ use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// Operator-facing install hint surfaced in the probe-skip notice so a
+/// deps-absent vacuous pass is loudly distinguishable from a real external
+/// SHACL/OWL pass. Mirrors the pinned set in `requirements-validator.txt`.
+const VALIDATOR_INSTALL_HINT: &str =
+    "pip install --user --break-system-packages pyshacl pyld owlready2 rdflib runcrate";
 
 fn config_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -169,9 +183,11 @@ fn check_status(external: &serde_json::Value, name: &str) -> Option<String> {
 fn conformance_mode_runs_real_external_validators_and_writes_package_ttl() {
     if !validators_available() {
         eprintln!(
-            "SKIP conformance_mode_runs_real_external_validators_and_writes_package_ttl: \
-             python3 + pyld/rdflib/pyshacl/owlready2 not all importable. The gate runs \
-             for real where the validator toolchain is installed."
+            "\n>>> SKIP: python3 + pyld/rdflib/pyshacl/owlready2 not all importable <<<\n\
+             >>> conformance_mode_runs_real_external_validators_and_writes_package_ttl did NOT run \
+             — this is NOT an external SHACL/OWL pass. <<<\n\
+             >>> Install the validator toolchain to run this gate for real:\n\
+             >>>   {VALIDATOR_INSTALL_HINT}\n"
         );
         return;
     }

@@ -22,10 +22,24 @@
 //!
 //! The tests probe-skip (early `return`, not a failure) when Python or the
 //! `pyld` / `rdflib` / `pyshacl` deps are absent, so the suite is dispatch-safe
-//! on a machine without the validator toolchain.
+//! on a machine without the validator toolchain. The skip is printed LOUDLY so
+//! a vacuous (deps-absent) pass can never be mistaken for a real SHACL pass —
+//! install the toolchain with:
+//!
+//! ```text
+//! pip install --user --break-system-packages pyshacl pyld owlready2 rdflib runcrate
+//! ```
+//!
+//! (or the pinned set in `requirements-validator.txt`).
 
 use std::path::PathBuf;
 use std::process::Command;
+
+/// Operator-facing install hint reused by every probe-skip notice so a
+/// deps-absent vacuous pass is loudly distinguishable from a real validation
+/// pass. Mirrors the pinned set in `requirements-validator.txt`.
+const VALIDATOR_INSTALL_HINT: &str =
+    "pip install --user --break-system-packages pyshacl pyld owlready2 rdflib runcrate";
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -80,7 +94,10 @@ fn run_projection(fixture: &str) -> (Option<i32>, String, String) {
 fn shacl_fails_on_unjustified_method_choice() {
     if !python_validators_available() {
         eprintln!(
-            "shacl_fails_on_unjustified_method_choice skipped: python3 + pyld/rdflib/pyshacl not available"
+            "\n>>> SKIP: pyld/rdflib/pyshacl not importable under python3 <<<\n\
+             >>> shacl_fails_on_unjustified_method_choice did NOT run — this is NOT a SHACL pass. <<<\n\
+             >>> Install the validator toolchain to run this gate for real:\n\
+             >>>   {VALIDATOR_INSTALL_HINT}\n"
         );
         return;
     }
@@ -105,7 +122,10 @@ fn shacl_fails_on_unjustified_method_choice() {
 fn shacl_passes_on_justified_method_choice_with_focus_nodes() {
     if !python_validators_available() {
         eprintln!(
-            "shacl_passes_on_justified_method_choice_with_focus_nodes skipped: python3 + pyld/rdflib/pyshacl not available"
+            "\n>>> SKIP: pyld/rdflib/pyshacl not importable under python3 <<<\n\
+             >>> shacl_passes_on_justified_method_choice_with_focus_nodes did NOT run — this is NOT a SHACL pass. <<<\n\
+             >>> Install the validator toolchain to run this gate for real:\n\
+             >>>   {VALIDATOR_INSTALL_HINT}\n"
         );
         return;
     }

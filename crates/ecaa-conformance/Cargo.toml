@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
-description = "ECAA v0.1 conformance suite — second-impl validation harness"
+description = "ECAA v0.1 conformance suite — re-exports ecaa-workflow-core's public conformance API; the harness a second implementer runs against their own packages"
 
 [dependencies]
 anyhow = { workspace = true }
