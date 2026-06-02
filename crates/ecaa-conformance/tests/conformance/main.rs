@@ -2,6 +2,7 @@ mod a3_fixture_conformance;
 mod ablation_contract;
 mod audit_proof_invariants;
 mod conformance_external_validators;
+mod false_positive_corpus;
 mod invariant_utility;
 mod shacl_non_vacuous;
 mod spec_consistency;
