@@ -8,6 +8,7 @@
 //! Canonical types live in `ecaa-workflow-types::invariants`.
 //! Re-exported below for backward compatibility with existing call sites.
 
+pub mod bench_readiness;
 pub mod invariants;
 pub mod loader;
 
