@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { artifactUrl } from '../../api/chatClient'
 import { jsonFetch } from '../../api/_fetch'
 import { FIGURES_POLL_MS } from '../../lib/polling'
@@ -162,6 +162,21 @@ export function FiguresPane({ sessionId, dag }: Props) {
 
   const [byTask, setByTask] = useState<Record<string, FiguresManifestShape | null>>({})
 
+  // Tasks we've stopped polling: either the manifest fetch succeeded
+  // (figures present — terminal tasks never gain more) or it 404'd
+  // MAX_EMPTY_POLLS times (the task wrote no figures by design, e.g.
+  // time_series_model_fit emits only a fitted-model artifact). Without
+  // this, every figure-less completed compute task 404s on every poll
+  // cycle FOREVER — a perpetual console-error + network storm that
+  // continues even after execution exits. Refs (not state) so updating
+  // them never re-arms the effect.
+  const resolvedRef = useRef<Set<string>>(new Set())
+  const attemptsRef = useRef<Record<string, number>>({})
+  // A completed task's manifest is normally on disk by the time the DAG
+  // poll surfaces `completed`, but allow a few retries to cover the
+  // race where state flips a beat before the render step flushes.
+  const MAX_EMPTY_POLLS = 3
+
   // Derive a stable string key from the task ids so the poll doesn't
   // re-arm on every render (the useMemo result is a fresh array
   // reference even when its contents are unchanged).
@@ -172,9 +187,19 @@ export function FiguresPane({ sessionId, dag }: Props) {
     const controller = new AbortController()
 
     const fetchAll = async () => {
-      const next: Record<string, FiguresManifestShape | null> = {}
+      // Only probe tasks we haven't resolved yet. Terminal tasks don't
+      // change, so once a manifest is fetched (or confirmed absent) there
+      // is no reason to re-request it — that is what produced the endless
+      // 404 loop for figure-less tasks.
+      const pending = probedTaskIds.filter((tid) => !resolvedRef.current.has(tid))
+      if (pending.length === 0) return
+      const updates: Record<string, FiguresManifestShape | null> = {}
+      const markEmpty = (tid: string) => {
+        attemptsRef.current[tid] = (attemptsRef.current[tid] ?? 0) + 1
+        if (attemptsRef.current[tid] >= MAX_EMPTY_POLLS) resolvedRef.current.add(tid)
+      }
       await Promise.all(
-        probedTaskIds.map(async (tid) => {
+        pending.map(async (tid) => {
           try {
             const url = artifactUrl(
               sessionId,
@@ -188,13 +213,23 @@ export function FiguresPane({ sessionId, dag }: Props) {
             const raw = await jsonFetch<unknown>(url, {
               signal: controller.signal,
             })
-            next[tid] = normalizeManifest(raw)
+            const manifest = normalizeManifest(raw)
+            updates[tid] = manifest
+            // A non-empty manifest is final — stop polling this task.
+            // A null result (manifest present but no figures) counts as
+            // an empty attempt toward the retry cap.
+            if (manifest) resolvedRef.current.add(tid)
+            else markEmpty(tid)
           } catch {
-            next[tid] = null
+            // 404 / network error — task wrote no figures (yet). Count
+            // toward the cap so figure-less tasks stop after a few tries.
+            if (controller.signal.aborted) return
+            updates[tid] = null
+            markEmpty(tid)
           }
         }),
       )
-      if (!controller.signal.aborted) setByTask(next)
+      if (!controller.signal.aborted) setByTask((prev) => ({ ...prev, ...updates }))
     }
     void fetchAll()
     // Gate polling on tab visibility so we don't burn quota on a
