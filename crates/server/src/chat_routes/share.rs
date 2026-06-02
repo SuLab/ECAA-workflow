@@ -44,6 +44,14 @@ pub fn hash_share_token(plaintext: &str) -> String {
 /// for a matching `sha256(plaintext)` token-hash with an unexpired
 /// `expires_at`. Returns `None` if no match or if expired.
 ///
+/// Gated on `ECAA_SHARED_URLS_ENABLED` — when the feature flag is off
+/// (or unset) a presented share token NEVER grants access (fail
+/// closed). This mirrors `read_only::read_only_guard`, which is a no-op
+/// when the flag is disabled and never honors a token. The two sites
+/// MUST agree: if `extract_principal` minted a `ShareViewer` principal
+/// while the flag was off, a viewer could authenticate to a session the
+/// feature is supposed to have disabled entirely.
+///
 /// `expires_at: None` is treated as ALREADY EXPIRED to match the
 /// `read_only_guard` posture (closes the legacy never-expires-token
 /// loophole).
@@ -56,6 +64,13 @@ pub async fn resolve_share_token_principal(
     token: &str,
 ) -> Option<crate::auth::principal::RequestPrincipal> {
     use subtle::ConstantTimeEq;
+
+    // Fail closed when the shared-URL feature is disabled, matching the
+    // `read_only_guard` no-op-when-off posture so a token can never be a
+    // back door past the feature flag.
+    if !feature_enabled() {
+        return None;
+    }
 
     let presented_hash = hash_share_token(token);
     let presented_bytes = presented_hash.as_bytes();
