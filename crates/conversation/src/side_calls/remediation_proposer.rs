@@ -8,7 +8,7 @@
 //! state, so the proposer's reasoning quality matches what the SME
 //! sees in chat). One-shot, structured-JSON output; we parse the
 //! assistant_content as `Vec<RemediationSuggestion>` directly. No
-//! tool-use scheme — that would require adding to the closed 16-tool
+//! tool-use scheme — that would require adding to the closed 22-tool
 //! vocabulary, which is reserved for state-mutating actions.
 //!
 //! Cost is billed via `record_side_call_usage` so the Performance tab

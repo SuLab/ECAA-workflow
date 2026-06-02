@@ -816,7 +816,7 @@ pub fn build_messages_payload(req: &TurnRequest) -> serde_json::Value {
     // schema compliance on tool_use inputs so a missing/malformed
     // parameter returns a parse error rather than a silently truncated
     // call we'd then try to dispatch. Cuts a class of "model invented
-    // a field that isn't in the schema" failures the closed 16-tool
+    // a field that isn't in the schema" failures the closed 22-tool
     // vocabulary already implicitly relies on.
     let mut tools: Vec<serde_json::Value> = req
         .tool_schemas

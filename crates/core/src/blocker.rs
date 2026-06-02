@@ -775,7 +775,7 @@ mod tests {
              (was 46 pre-TurnBudgetExceeded addition; TurnBudgetExceeded \
              was added for MAX_TURNS_PER_TASK enforcement — \
              matches `BlockerKind::COUNT` compile-time gate in \
-             `crates/core/tests/blocker_variant_count.rs` and the doc \
+             `crates/core/tests/policy/blocker_variant_count.rs` and the doc \
              comment on `BlockerKind` in this file)"
         );
 

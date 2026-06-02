@@ -111,8 +111,8 @@ impl std::error::Error for TransitionError {}
 /// an explicit arm so the wildcard cannot silently swallow a new
 /// variant that needs a tailored hint.
 ///
-/// CLAUDE.md asserts 42 variants; the `BlockerKind::COUNT` test gate
-/// at `crates/core/tests/blocker_variant_count.rs` keeps that doc in
+/// CLAUDE.md asserts 47 variants; the `BlockerKind::COUNT` test gate
+/// at `crates/core/tests/policy/blocker_variant_count.rs` keeps that doc in
 /// lock-step with the enum.
 fn recovery_hint_for_blocker(kind: &BlockerKind) -> String {
     // Generic hint used by variants whose remediation is purely
