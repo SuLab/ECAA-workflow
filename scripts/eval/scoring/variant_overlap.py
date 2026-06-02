@@ -71,7 +71,10 @@ def parse_vcf_variants(path: Path) -> dict[tuple[str, int, str, str], float]:
         if len(f) < 8:
             continue
         flt = f[6]
-        if flt not in ("PASS", ".", ""):
+        # Accept only PASS or "." (unfiltered), matching the reference
+        # score_run.py exactly; an empty FILTER token is unreachable on
+        # bcftools/lofreq output, so excluding it has no effect on real data.
+        if flt not in ("PASS", "."):
             continue
         chrom, pos, ref, alt, info = f[0], int(f[1]), f[3], f[4], f[7]
         alts = alt.split(",")
@@ -168,3 +171,34 @@ def mean_jaccard(sample_pairs: list[tuple[Path, Path]], af_tol: float = 0.02) ->
     if not sample_pairs:
         return 0.0
     return sum(jaccard(o, k, af_tol) for o, k in sample_pairs) / len(sample_pairs)
+
+
+def macro_jaccard_by_sample(
+    obs_paths: list[Path], ref_dir, samples, af_tol: float = 0.02
+) -> tuple[float, dict[str, float]]:
+    """Per-sample macro-mean Jaccard — the Nekrutenko paper's PRIMARY M3 metric
+    (``score_run.py::m3_jaccard``): for each sample, match the observed VCF by
+    stem substring (gVCF intermediates excluded) and compare it to
+    ``{sample}.vcf.gz`` in ``ref_dir``; a sample with no observed VCF contributes
+    0.0. Returns ``(macro_mean, {sample: jaccard})``.
+
+    This is the paper-comparable companion to ``flat_jaccard`` (which pools all
+    call sets and is naming/organisation-agnostic). Both are reported so the
+    headline stays recipe-agnostic while the per-sample number lines up with the
+    paper's M3."""
+    obs_by_sample: dict[str, Path] = {}
+    for p in obs_paths:
+        if _is_gvcf_path(p):
+            continue
+        for s in samples:
+            if s in Path(p).name and s not in obs_by_sample:
+                obs_by_sample[s] = Path(p)
+    per: dict[str, float] = {}
+    for s in samples:
+        key = Path(ref_dir) / f"{s}.vcf.gz"
+        if s in obs_by_sample and key.exists():
+            per[s] = jaccard(obs_by_sample[s], key, af_tol)
+        else:
+            per[s] = 0.0
+    macro = sum(per.values()) / len(samples) if samples else 0.0
+    return macro, per

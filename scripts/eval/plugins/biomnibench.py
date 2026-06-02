@@ -28,11 +28,24 @@ _OUTPUT_CONTRACT = (
     "interpretation) to trace.md and a short structured answer to answer.txt."
 )
 
+_CONTAMINATION_DIRECTIVE = (
+    "## Evaluation integrity\n"
+    "This is a benchmark task. Base every result solely on the data files "
+    "provided in this package. Do NOT search for, fetch, or rely on the original "
+    "source publication for this dataset, its figures or tables, or any external "
+    "answer key; derive all findings from your own analysis of the provided data. "
+    "You may consult tool/library documentation, but not look up this task's "
+    "answers."
+)
+
 
 class BiomniBench(Benchmark):
     @property
     def name(self) -> str:
         return "biomnibench"
+
+    def contamination_directive(self) -> str:
+        return _CONTAMINATION_DIRECTIVE
 
     def fetch(self, cache_dir: Path) -> Path:
         from scripts.eval.services.datasets import load_lock, ensure
@@ -61,7 +74,8 @@ class BiomniBench(Benchmark):
         for name, src in task.inputs.items():
             if src.exists():
                 stage_file(src, workdir / name)
-        return RunSpec(arm, workdir, "bare", task.prompt + _OUTPUT_CONTRACT)
+        return RunSpec(arm, workdir, "bare",
+                       task.prompt + _OUTPUT_CONTRACT + "\n\n" + _CONTAMINATION_DIRECTIVE)
 
     def collect(self, spec, run_dir):
         artifacts: dict = {}
@@ -171,6 +185,11 @@ class BiomniBench(Benchmark):
         exact_vals: list[float] = []
         kappa_vals: list[float] = []
         for s in scores:
+            # Exclude Opus-only fallback rows from the Gemini-headline dimension
+            # means (consistent with the scorecard's _by_arm / paired-delta
+            # exclusion); they're surfaced via meta.partial_judging_excluded.
+            if s.extra.get("partial_judging"):
+                continue
             for d, v in s.dimensions.items():
                 dims.setdefault(s.arm, {}).setdefault(d, []).append(v)
             if "judge_exact" in s.extra:
@@ -192,5 +211,32 @@ class BiomniBench(Benchmark):
                                    "bucketed by title-keyword match. BiomniBench-DA "
                                    "defines no dimensions; only the overall 0-100 score "
                                    "is benchmark-faithful."),
-                               "published_best": "Claude Code+Opus 4.7 = 73.34",
+                               "published_best": (
+                                   "Claude Code+Opus 4.7 = 73.34 (paper figure: "
+                                   "100-task mean with an Opus-4.7 agent; this run "
+                                   "uses the 50 PUBLIC tasks with the Sonnet-4.6 "
+                                   "default agent — a loose reference, not a "
+                                   "head-to-head target)."),
+                               "judge_note": (
+                                   "Inter-judge agreement (kappa) below is Gemini-headline "
+                                   "vs an Anthropic cross-check the paper found less "
+                                   "calibrated (Opus-class linear kappa ~0.47); it is a "
+                                   "confidence signal, NOT the paper's judge-vs-human "
+                                   "kappa=0.70 (no human gold set exists here)."),
+                               "contamination_control": (
+                                   "Both arms receive an explicit 'work only from "
+                                   "provided data; do not consult the source "
+                                   "publication or answer key' directive (bare arm "
+                                   "in-prompt; ECAA arm via PROMPT.md). LIMITATION: "
+                                   "instruction-only — internet remains on for both "
+                                   "arms, so this is symmetric defense-in-depth, not "
+                                   "an egress guarantee."),
+                               "penalty_divergence": (
+                                   "The source-reliability penalty (A=0/B=-5/C=-10) "
+                                   "is applied per the PAPER, but the dataset's "
+                                   "shipped reference scorer's `Levels:` regex cannot "
+                                   "read negative level values and silently drops "
+                                   "them, so ECAA scores up to ~10 points BELOW the "
+                                   "published 73.34 on any imperfect-sourcing run — a "
+                                   "deliberate, paper-faithful divergence."),
                                "judge_agreement": judge_agreement})

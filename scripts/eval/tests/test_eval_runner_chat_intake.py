@@ -87,6 +87,81 @@ def test_ensure_package_for_cells_reuses_existing_dir(monkeypatch, tmp_path):
     assert spec.session_id == "sid-old"
 
 
+_SENTINEL = "DO-NOT-FETCH-THE-PUBLISHED-ANSWER-FROM-THE-INTERNET"
+
+
+class _ContaminationPlugin(_EcaaPlugin):
+    """ECAA plugin that opts into a package-wide anti-contamination directive."""
+    def contamination_directive(self):
+        return _SENTINEL
+
+
+class _NoDirectivePlugin(_EcaaPlugin):
+    """ECAA plugin that opts OUT (the Benchmark default): directive is None."""
+    def contamination_directive(self):
+        return None
+
+
+def _drive_emitting_prompt(emitted: Path, base_text: str):
+    """Build a fake drive_chat_intake that emits a dir with a seeded PROMPT.md."""
+    def _fake_drive(base_url, instruction, *, locked_methods=None, **kw):
+        emitted.mkdir(parents=True, exist_ok=True)
+        (emitted / "PROMPT.md").write_text(base_text)
+        return "sid-directive", emitted
+    return _fake_drive
+
+
+def test_contamination_directive_reaches_emitted_prompt_md(monkeypatch, tmp_path):
+    """The ECAA arm's contamination_directive() must be appended to the emitted
+    PROMPT.md (agent-claude.sh re-reads PROMPT.md per task), so every task's
+    agent invocation sees the integrity control."""
+    monkeypatch.setenv("ECAA_EVAL_INTAKE", "chat")
+    emitted = tmp_path / "emitted-pkg"
+    base_text = "# Task contract\nrun the analysis\n"
+    monkeypatch.setattr(eval_runner, "drive_chat_intake",
+                        _drive_emitting_prompt(emitted, base_text))
+    monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
+    monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate",
+                        lambda *a, **k: None)
+
+    class _Server:
+        base_url = "http://127.0.0.1:9999"
+
+    spec = eval_runner._chat_intake_or_cli(
+        _ContaminationPlugin(), _task(), Arm.ECAA_WORKFLOW, tmp_path / "wd",
+        _Server())
+
+    prompt_text = (spec.package_dir / "PROMPT.md").read_text()
+    # Base text preserved AND the sentinel directive appended.
+    assert base_text.strip() in prompt_text
+    assert _SENTINEL in prompt_text, (
+        "contamination_directive() must reach the emitted PROMPT.md")
+
+
+def test_no_contamination_directive_leaves_prompt_md_unchanged(monkeypatch, tmp_path):
+    """CONTRAST: a plugin whose contamination_directive() returns None must NOT
+    mutate PROMPT.md — proves the directive is genuinely wired, not assumed."""
+    monkeypatch.setenv("ECAA_EVAL_INTAKE", "chat")
+    emitted = tmp_path / "emitted-pkg"
+    base_text = "# Task contract\nrun the analysis\n"
+    monkeypatch.setattr(eval_runner, "drive_chat_intake",
+                        _drive_emitting_prompt(emitted, base_text))
+    monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
+    monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate",
+                        lambda *a, **k: None)
+
+    class _Server:
+        base_url = "http://127.0.0.1:9999"
+
+    spec = eval_runner._chat_intake_or_cli(
+        _NoDirectivePlugin(), _task(), Arm.ECAA_WORKFLOW, tmp_path / "wd",
+        _Server())
+
+    prompt_text = (spec.package_dir / "PROMPT.md").read_text()
+    assert prompt_text == base_text, "None directive must leave PROMPT.md untouched"
+    assert _SENTINEL not in prompt_text
+
+
 def test_ensure_package_for_cells_reemits_when_dir_gone(monkeypatch, tmp_path):
     base_rec = {"package_dir": str(tmp_path / "vanished"), "session_id": "sid-x"}
     fresh = tmp_path / "fresh-pkg"

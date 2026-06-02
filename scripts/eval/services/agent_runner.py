@@ -34,7 +34,8 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
                      timeout: int | None = None,
                      env: dict | None = None,
                      session_id: str | None = None,
-                     server_url: str | None = None) -> RunResult:
+                     server_url: str | None = None,
+                     capture: bool = False) -> RunResult:
     agent = str(REPO_ROOT / "scripts" / "agent-claude.sh")
     # Per-task wall deadline (default 600s, env-tunable): variant calling + an
     # in-container tool install exceed the harness's 300s default. The harness
@@ -65,14 +66,26 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
     # blanket flag. If a caller pre-set it (e.g. a debugging operator run), we
     # leave their value untouched and surface it in the guard-outcome dimension.
     effective_env.setdefault("MAX_TURNS_PER_TASK", "60")  # was 40 — too tight w/ installs
+    # Execution-environment fairness: BOTH arms run UNCAPPED in the same bio-min
+    # container (the canonical eval), so the ecaa-vs-bare delta isolates the
+    # scaffolding, not a resource asymmetry. (A Harbor-comparable per-step cap was
+    # intentionally dropped: it cannot equalize a decomposed DAG against Harbor's
+    # single-task budget, and clamping ECAA suppresses the orchestration/sizing
+    # capability the eval exists to measure.)
     # Whole-harness subprocess ceiling: a multi-task DAG with per-task deadlines
     # needs more than 1h. Env-tunable; default 2h.
     harness_timeout = timeout if timeout is not None else int(
         os.environ.get("ECAA_EVAL_HARNESS_TIMEOUT", "7200"))
     t0 = time.time()
+    # Error-matrix cells run with capture=True so the harness's stdout/stderr is
+    # available as the reference's exec.log for diagnose scoring (offline cells
+    # don't stream to a session anyway). Base runs leave capture=False to keep
+    # live console/session streaming intact.
     proc = subprocess.run(cmd, cwd=str(REPO_ROOT), timeout=harness_timeout,
-                          env=effective_env)
-    return RunResult(proc.returncode == 0, time.time() - t0, package_dir)
+                          env=effective_env,
+                          capture_output=capture, text=True if capture else None)
+    captured = ((proc.stdout or "") + (proc.stderr or "")) if capture else ""
+    return RunResult(proc.returncode == 0, time.time() - t0, package_dir, captured)
 
 
 def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,

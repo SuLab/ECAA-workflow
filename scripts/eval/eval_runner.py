@@ -159,6 +159,25 @@ def _write_auto_approve_discovery_gate(pkg: Path) -> None:
 _write_auto_approve_all = _write_auto_approve_discovery_gate
 
 
+def _append_agent_directive(pkg_dir, directive: str | None) -> None:
+    """Append a package-wide agent directive to the emitted PROMPT.md so EVERY
+    task's agent invocation sees it — agent-claude.sh re-reads PROMPT.md per task
+    (`cat $PACKAGE/PROMPT.md`, agent-claude.sh:158). This is a POST-EMIT
+    augmentation (like the SME auto-approve markers) and does NOT affect emit-time
+    byte-reproducibility (verify-reproducibility.sh compares fresh emits). No-op on
+    a None directive; idempotent (won't double-append on a resumed/copied package)."""
+    if not directive:
+        return
+    prompt_md = Path(pkg_dir) / "PROMPT.md"
+    try:
+        existing = prompt_md.read_text() if prompt_md.exists() else ""
+        if directive.strip() in existing:
+            return
+        prompt_md.write_text(existing.rstrip() + "\n\n" + directive.strip() + "\n")
+    except OSError:
+        pass
+
+
 def _intake_mode() -> str:
     """`chat` (default) drives the full server chat-intake path; `cli` keeps the
     legacy no-LLM `ecaa-workflow intake` compile path (offline/CI smoke)."""
@@ -200,6 +219,10 @@ def _chat_intake_or_cli(plugin, task, arm: Arm, workdir: Path,
         _cli_intake(spec, task, workdir)
     _stage_inputs(spec.package_dir, task.inputs)
     _write_auto_approve_discovery_gate(spec.package_dir)
+    # contamination_directive is an OPT-IN Benchmark hook (default None); resolve
+    # it defensively so duck-typed/minimal plugins without the method are fine.
+    _directive_fn = getattr(plugin, "contamination_directive", lambda: None)
+    _append_agent_directive(spec.package_dir, _directive_fn())
     return spec
 
 
@@ -251,9 +274,11 @@ def _cell_run_fn(spec, max_iter):
     def _fn(cell_workdir, env):
         if spec.kind == "ecaa_package":
             pkg_copy = _isolated_pkg_copy(spec.package_dir, cell_workdir / "pkg")
+            # capture=True: the harness stdout/stderr is the reference exec.log,
+            # scanned for diagnose signals (offline cells don't stream anyway).
             return agent_runner.run_ecaa_package(
                 pkg_copy, max_iterations=max_iter, env=env,
-                session_id=None, server_url=None)
+                session_id=None, server_url=None, capture=True)
         return agent_runner.run_bare(cell_workdir, spec.instruction, env=env)
     return _fn
 

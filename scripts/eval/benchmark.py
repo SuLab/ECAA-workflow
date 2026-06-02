@@ -110,6 +110,14 @@ class Benchmark(ABC):
         """
         return []
 
+    def contamination_directive(self) -> "Optional[str]":
+        """Optional package-wide anti-contamination instruction injected into BOTH
+        arms (bare-arm prompt + ECAA `PROMPT.md`). Default None (opt-in): override
+        in a plugin whose tasks are contamination-resistant (e.g. BiomniBench's
+        held-out-style public set). Keeps the integrity control symmetric across
+        arms; method choices are NOT named (tool neutrality)."""
+        return None
+
     def assemble_score(self, task: "Task", arm: "Arm", output: "Output",
                        trial: int, verdicts: dict) -> "Score":
         """Build a Score from pre-fetched judge verdicts keyed by role.

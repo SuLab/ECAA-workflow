@@ -56,6 +56,23 @@ def test_report_judge_agreement_zero_rows():
     assert ja == {"exact": 0.0, "kappa": 0.0}
 
 
+def test_report_excludes_partial_judging_rows_from_dimension_means():
+    """Opus-only fallback (partial_judging) rows are dropped from the
+    Gemini-headline dimension means. A complete row (60.0) and a partial row
+    (0.0) for the same arm/dimension must yield the mean 60.0 (partial excluded),
+    NOT 30.0 (the regression where both are averaged)."""
+    rows = [
+        Score("t1", "ecaa", 0, 80.0, {"method_selection": 60.0},
+              None, None, "gemini-3.1-pro",
+              extra={"judge_exact": 0.9, "judge_kappa": 0.8}),
+        Score("t2", "ecaa", 0, 0.0, {"method_selection": 0.0},
+              None, None, "anthropic-opus",
+              extra={"partial_judging": True}),
+    ]
+    card = BiomniBench().report(rows)
+    assert card.meta["dimensions"]["ecaa"]["method_selection"] == 60.0
+
+
 def test_collect_bare_reads_agent_stdout_json(tmp_path):
     run_dir = tmp_path / "run"
     run_dir.mkdir()

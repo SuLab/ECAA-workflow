@@ -117,6 +117,20 @@ def test_structured_text_rubric_levels_are_absolute_points():
     assert by_id["criterion_4"]["levels"] == {"A": 0.0, "B": -5.0, "C": -10.0}
 
 
+def test_structured_text_rubric_captures_per_level_prose():
+    """The discriminating [A]/[B]/[C] level descriptions (which the dataset
+    reference scorer injects verbatim) must be retained in `level_text` so the
+    judge grades against them, not a generic level line."""
+    norm = normalize_rubric(_STRUCTURED_TEXT_RUBRIC)
+    by_id = {c["id"]: c for c in norm["criteria"]}
+    lt = by_id["criterion_1"]["level_text"]
+    assert lt["A"].strip() == "Loads correctly and filters well."
+    assert lt["B"].strip() == "Loads but QC is partial."
+    assert lt["C"].strip() == "Fails to load."
+    # Penalty criterion's prose is captured too.
+    assert by_id["criterion_4"]["level_text"]["C"].strip() == "Unsourced claims."
+
+
 def test_structured_text_rubric_dimensions_assigned():
     """Each criterion is mapped to one of the 6 dimensions by title keyword."""
     norm = normalize_rubric(_STRUCTURED_TEXT_RUBRIC)

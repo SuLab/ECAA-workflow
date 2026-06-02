@@ -16,6 +16,18 @@ from scripts.eval.benchmark import Scorecard
 _BOOTSTRAP_SEED = 1729
 _BOOTSTRAP_RESAMPLES = 2000
 
+# Below this many paired (task,trial) observations the bootstrap CI is too
+# under-powered to trust; the scorecard flags it loudly rather than letting a
+# default `--trials 3` run (or a single-task Nekrutenko run) read as conclusive.
+_MIN_POWER_PAIRS = 10
+
+
+def _is_partial_judging(row) -> bool:
+    """True for a BiomniBench row scored by the Opus cross-check because the
+    Gemini headline judge was absent. Such rows must not enter the Gemini
+    headline aggregates (they mix two judges that disagree ~0.23 linear kappa)."""
+    return bool((row.extra or {}).get("partial_judging"))
+
 # Reason-string markers the harness writes when a guard re-blocks a task
 # (crates/harness/src/main.rs). Each maps a Blocked task's reason to the guard
 # that caught it. Order matters only for labelling; counts are independent.
@@ -29,10 +41,18 @@ _GUARD_REASON_MARKERS: tuple[tuple[str, str], ...] = (
 
 
 def _by_arm(card: Scorecard) -> dict[str, list[float]]:
+    """Per-arm overall scores for the HEADLINE. Excludes partial-judging rows so
+    the Gemini-headline mean isn't blended with Opus-only fallback scores."""
     out: dict[str, list[float]] = {}
     for r in card.rows:
+        if _is_partial_judging(r):
+            continue
         out.setdefault(r.arm, []).append(r.overall)
     return out
+
+
+def _partial_judging_count(card: Scorecard) -> int:
+    return sum(1 for r in card.rows if _is_partial_judging(r))
 
 
 def _render_error_matrix(em: dict) -> list[str]:
@@ -41,11 +61,19 @@ def _render_error_matrix(em: dict) -> list[str]:
     arms = sorted(em.keys())
     for arm in arms:
         entry = em[arm]
-        lines.append(
+        line = (
             f"- {arm}: recover {entry.get('recover_rate', 0.0):.3f},"
             f" diagnose {entry.get('diagnose_rate', 0.0):.3f}"
             f" (n={entry.get('n_cells', 0)})"
         )
+        # The paper's Table-7 handle-category signature (recover/partial/
+        # propagate/crash), when the rollup carried it.
+        hc = entry.get("handle_counts")
+        if hc:
+            line += (f" | handle recover/partial/propagate/crash = "
+                     f"{hc.get('recover', 0)}/{hc.get('partial', 0)}/"
+                     f"{hc.get('propagate', 0)}/{hc.get('crash', 0)}")
+        lines.append(line)
     lines.append("")
     # Collect union of patterns across all arms.
     all_patterns: list[str] = []
@@ -450,6 +478,8 @@ def _paired_deltas(card: Scorecard) -> tuple[list[float], list[str]]:
     ecaa: dict[tuple[str, int], float] = {}
     direct: dict[tuple[str, int], float] = {}
     for r in card.rows:
+        if _is_partial_judging(r):
+            continue  # keep the paired headline on the Gemini judge only
         key = (r.task_id, r.trial)
         if r.arm == "ecaa":
             ecaa[key] = r.overall
@@ -495,7 +525,11 @@ def paired_delta_summary(card: Scorecard, *, alpha: float = 0.05) -> dict | None
     n = len(deltas)
     mean_delta = sum(deltas) / n
     lo, hi = _bootstrap_ci(deltas, alpha=alpha)
-    significant = (lo > 0.0) or (hi < 0.0)
+    # A degenerate n==1 CI collapses to the point estimate and cannot establish
+    # significance — never flag it significant (reachable via a single-task
+    # Nekrutenko run or a --smoke pass). Below _MIN_POWER_PAIRS the estimate is
+    # under-powered; surface that rather than letting it read as conclusive.
+    significant = n >= 2 and ((lo > 0.0) or (hi < 0.0))
     return {
         "n_pairs": n,
         "pair_ids": pair_ids,
@@ -504,6 +538,8 @@ def paired_delta_summary(card: Scorecard, *, alpha: float = 0.05) -> dict | None
         "ci_upper": hi,
         "ci_level": 1 - alpha,
         "significant": significant,
+        "underpowered": n < _MIN_POWER_PAIRS,
+        "min_power_pairs": _MIN_POWER_PAIRS,
     }
 
 
@@ -513,6 +549,14 @@ def _render_paired_delta(summary: dict) -> list[str]:
     lo, hi = summary["ci_lower"], summary["ci_upper"]
     level = int(round(summary["ci_level"] * 100))
     lines = ["", "## Paired delta (ecaa - claude-direct)", ""]
+    if summary.get("underpowered"):
+        mn = summary.get("min_power_pairs", _MIN_POWER_PAIRS)
+        lines.append(
+            f"> **UNDERPOWERED — n={n} < {mn} paired observations.** Read the delta "
+            f"and CI as indicative only; raise `--trials` (and, for Nekrutenko, note "
+            f"the single task caps n at the trial count) before drawing conclusions."
+        )
+        lines.append("")
     lines.append(f"- **n (paired task/trial):** {n}")
     lines.append(
         f"- **mean paired delta:** {md:+.2f} "
@@ -537,7 +581,9 @@ def _markdown(card: Scorecard) -> str:
                   "cost", "paired_delta", "guard_outcomes", "locked_methods",
                   # eval-05: the dimension caveat is surfaced loudly inside the
                   # Per-dimension section, not as a stray scalar bullet up top.
-                  "dimension_source", "dimension_note"}
+                  "dimension_source", "dimension_note",
+                  # surfaced via the partial-judging caveat block, not a bullet.
+                  "partial_judging_excluded", "dimension_caveat"}
     if card.meta:
         for k, v in card.meta.items():
             if k not in _RICH_KEYS:
@@ -549,6 +595,16 @@ def _markdown(card: Scorecard) -> str:
         sd = pstdev(vals) if len(vals) > 1 else 0.0
         lines.append(f"| {arm} | {len(vals)} | {mean(vals):.1f} | {sd:.1f} |")
     lines.append("")
+    n_partial = _partial_judging_count(card)
+    if n_partial:
+        lines.append(
+            f"> **Partial-judging rows excluded:** {n_partial} row(s) lost the "
+            f"Gemini headline judge and were scored by the Opus cross-check only. "
+            f"They are EXCLUDED from the means, paired delta, and per-dimension "
+            f"figures above so two judge models aren't blended; re-run with "
+            f"`--resume` once Gemini credit returns to fold them in."
+        )
+        lines.append("")
     if "ecaa" in arms and "claude-direct" in arms:
         delta = mean(arms["ecaa"]) - mean(arms["claude-direct"])
         lines.append(f"**ecaa - claude-direct raw-mean delta:** {delta:+.1f}")
@@ -617,6 +673,11 @@ def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None) -> Path:
     caveat = _dimension_caveat_text(meta)
     if caveat and "dimension_caveat" not in meta:
         meta["dimension_caveat"] = caveat
+    # Count of Opus-only fallback rows excluded from the Gemini headline (a
+    # first-class caveat, not buried in the cost block).
+    n_partial = _partial_judging_count(card)
+    if n_partial and "partial_judging_excluded" not in meta:
+        meta["partial_judging_excluded"] = n_partial
     # Render markdown from a card carrying the derived/injected meta so the
     # human scorecard shows the same locked-methods + caveat sections.
     render_card = Scorecard(benchmark=card.benchmark, rows=card.rows, meta=meta)

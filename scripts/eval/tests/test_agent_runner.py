@@ -2,7 +2,8 @@ import os
 import stat
 from pathlib import Path
 import pytest
-from scripts.eval.services.agent_runner import run_bare
+from scripts.eval.services import agent_runner
+from scripts.eval.services.agent_runner import run_bare, run_ecaa_package
 
 
 def _make_stub(directory: Path, body: str) -> Path:
@@ -64,6 +65,48 @@ def test_run_bare_forwards_env(tmp_path, monkeypatch):
     assert marker_file.read_text().strip() == "hello_from_env_injection", (
         f"subprocess did not see injected env var; got: {marker_file.read_text()!r}"
     )
+
+
+class _FakeProc:
+    """Minimal subprocess.CompletedProcess stand-in: exit 0, no captured output."""
+    returncode = 0
+    stdout = None
+    stderr = None
+
+
+def test_run_ecaa_package_capture_default_is_off(tmp_path, monkeypatch):
+    """Base runs must leave capture OFF so live console/session streaming stays
+    intact: capture_output is falsy and RunResult.stdout is empty."""
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["capture_output"] = kw.get("capture_output")
+        return _FakeProc()
+
+    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+
+    res = run_ecaa_package(tmp_path)
+
+    assert not seen["capture_output"], "default run must not capture (live stream)"
+    assert res.exit_ok is True
+    assert res.stdout == "", "no captured output when capture is off"
+
+
+def test_run_ecaa_package_capture_true_enables_capture(tmp_path, monkeypatch):
+    """CONTRAST: error-matrix cells pass capture=True so the harness stdout/stderr
+    is available as the reference exec.log — capture_output must flip True."""
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen["capture_output"] = kw.get("capture_output")
+        return _FakeProc()
+
+    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+
+    res = run_ecaa_package(tmp_path, capture=True)
+
+    assert seen["capture_output"] is True, "capture=True must set capture_output"
+    assert res.exit_ok is True
 
 
 def test_run_bare_sets_default_container_image(tmp_path, monkeypatch):

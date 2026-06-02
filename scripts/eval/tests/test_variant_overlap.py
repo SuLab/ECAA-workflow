@@ -40,6 +40,23 @@ def test_jaccard_af_outside_tolerance_not_matched(tmp_path):
     assert abs(jaccard(a, b, af_tol=0.02) - 0.5) < 1e-9
 
 
+def test_empty_filter_token_excluded(tmp_path):
+    """A record with an EMPTY FILTER field is excluded (reference parity: only
+    PASS or '.' are accepted). PASS and '.' records are still included. This is
+    discriminating: under the old ('PASS', '.', '') accept set the empty-FILTER
+    key would have been present; now its key must be ABSENT."""
+    vcf = (_HDR
+           + "chrM\t150\t.\tT\tC\t.\tPASS\tAF=0.99\n"   # PASS -> included
+           + "chrM\t410\t.\tA\tG\t.\t.\tAF=0.20\n"       # "." (unfiltered) -> included
+           + "chrM\t999\t.\tG\tT\t.\t\tAF=0.50\n")       # empty FILTER -> EXCLUDED
+    p = tmp_path / "f.vcf"; p.write_text(vcf)
+    v = parse_vcf_variants(p)
+    assert ("chrM", 999, "G", "T") not in v   # empty-FILTER variant must be dropped
+    assert ("chrM", 150, "T", "C") in v        # PASS still included
+    assert ("chrM", 410, "A", "G") in v        # "." still included
+    assert set(v) == {("chrM", 150, "T", "C"), ("chrM", 410, "A", "G")}
+
+
 def test_parse_gzipped_vcf(tmp_path):
     """Real answer-key VCFs are bgzip/gzip-compressed; parse must decompress."""
     import gzip
@@ -215,3 +232,32 @@ def test_flat_empty_union_is_one(tmp_path):
     obs = tmp_path / "obs.vcf"; obs.write_text(_HDR)
     ref = tmp_path / "ref.vcf"; ref.write_text(_HDR)
     assert flat_jaccard([obs], [ref]) == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Per-sample macro-mean Jaccard — the paper's PRIMARY M3 (score_run.py
+# m3_jaccard): pair each observed VCF to {sample}.vcf.gz by stem, average across
+# samples, missing observed sample -> 0.0.
+# ---------------------------------------------------------------------------
+
+def test_macro_jaccard_by_sample_missing_obs_scores_zero(tmp_path):
+    from scripts.eval.scoring.variant_overlap import macro_jaccard_by_sample
+    ref_dir = tmp_path / "ref"; ref_dir.mkdir()
+    (ref_dir / "M117-bl.vcf.gz").write_bytes(gzip.compress(_KEY_BL.encode()))
+    (ref_dir / "M117-ch.vcf.gz").write_bytes(gzip.compress(_KEY_CH.encode()))
+    obs_bl = tmp_path / "M117-bl.vcf"; obs_bl.write_text(_KEY_BL)  # exact match
+    macro, per = macro_jaccard_by_sample([obs_bl], ref_dir, ("M117-bl", "M117-ch"))
+    assert per["M117-bl"] == 1.0
+    assert per["M117-ch"] == 0.0          # missing observed sample -> 0
+    assert abs(macro - 0.5) < 1e-9        # macro-mean over the 2 samples
+
+
+def test_macro_jaccard_excludes_gvcf_and_matches_by_stem(tmp_path):
+    from scripts.eval.scoring.variant_overlap import macro_jaccard_by_sample
+    ref_dir = tmp_path / "ref"; ref_dir.mkdir()
+    (ref_dir / "M117-bl.vcf.gz").write_bytes(gzip.compress(_KEY_BL.encode()))
+    gvcf = tmp_path / "M117-bl.g.vcf"; gvcf.write_text(_KEY_BL)        # gVCF: ignored
+    real = tmp_path / "M117-bl.sorted.vcf"; real.write_text(_KEY_BL)  # stem match
+    macro, per = macro_jaccard_by_sample([gvcf, real], ref_dir, ("M117-bl",))
+    assert per["M117-bl"] == 1.0
+    assert abs(macro - 1.0) < 1e-9

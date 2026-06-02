@@ -2,8 +2,22 @@
 
 ECAA arm: workflow description -> ecaa-workflow intake -> package -> harness.
 Direct arm: problem statement + tool inventory only (Track-B equivalent).
-Scored by per-sample VCF Jaccard + the 36-cell PATH-shim error matrix
-(12 pattern×tool combinations × 3 seeds = 36 cells).
+Scored by the recipe-agnostic flat-pool VCF Jaccard (headline) PLUS the paper's
+per-sample macro-mean M3 (companion), and the 36-cell PATH-shim error matrix
+(12 pattern×tool combinations × 3 seeds = 36 cells), classified with the paper's
+pattern-specific target_n recover metric + handle histogram + 3-signal diagnose.
+
+SCOPE — what this harness reproduces vs the paper, stated explicitly so the
+numbers are not over-read:
+  * REPRODUCED: the error-injection matrix methodology (7 patterns, PATH-shim,
+    seeds), the tolerant per-key Jaccard, and the recover/handle/diagnose scoring.
+  * INTENTIONALLY OUT OF SCOPE (reproduces_plan_gradient = False): the paper's
+    plan-granularity gradient (Track B / v0.5 / v1 / v1.25 / v1.5 / v2 /
+    v2_defensive) and its recipe-implementer sweep (opus author + open-weight
+    implementers such as qwen3.6:27b, plus the commodity-hardware / cost claims).
+    This harness instead reuses Nekrutenko's methodology to measure the ECAA
+    compiler-wrapper value-add (ECAA vs bare) on ONE model — a different
+    experiment, not a reproduction of the paper's headline claims.
 """
 from __future__ import annotations
 import os
@@ -11,12 +25,18 @@ import tempfile
 from pathlib import Path
 from statistics import mean
 from scripts.eval.benchmark import Arm, Benchmark, Output, RunSpec, Score, Scorecard
-from scripts.eval.scoring.variant_overlap import flat_jaccard, _is_gvcf_path
+from scripts.eval.scoring.variant_overlap import (flat_jaccard, _is_gvcf_path,
+                                                  macro_jaccard_by_sample)
 from scripts.eval.scoring.error_matrix import classify_cell
 from scripts.eval.services.datasets import scratch_root, stage_file
 
 # Relative paths from the pinned nekrut/LLM-eval-paper repo (1175f72a…):
-#   plan/PLAN.md          — default v2 implementation plan
+#   plan/PLAN.md          — the repo's v2 plan. RESERVED / NOT injected: this
+#                           harness deliberately does NOT run the plan-granularity
+#                           gradient (see the SCOPE note in the module docstring),
+#                           so no plan text is fed to either arm. Kept only as a
+#                           layout anchor (its existence is asserted by the path
+#                           test) for a future gradient implementation.
 #   data/raw/             — 4 paired-end .fq.gz samples + chrM.fa.gz
 #   ground_truth/results/ — canonical .vcf.gz + collapsed.tsv answer key
 # The fault-injection shim is eval-owned (scripts/eval/_eval_shim) and mounted
@@ -44,6 +64,28 @@ _FAULT_PATTERNS = [
 ]
 _SEEDS = (42, 43, 44)
 
+# Canonical sample names (the 4 paired-end chrM samples), matching the Nekrutenko
+# reference scorer's SAMPLES (score/score_run.py). Recover scoring is per-sample
+# against these stems, so a stray extra VCF cannot inflate the count.
+_SAMPLE_NAMES = ("M117-bl", "M117-ch", "M117C1-bl", "M117C1-ch")
+
+
+def _target_n(pattern: str, n_samples: int = len(_SAMPLE_NAMES)) -> int:
+    """Best-achievable valid-sample count for a fault pattern — a faithful port
+    of the reference error_handling() (score/score_run.py):
+    one_sample_fails -> n-1 (the injected sample can't pass);
+    missing_lib_error / silent_truncation / wrong_format_output -> 0 (nothing
+    should work; the best a run can do is detect-and-skip every sample);
+    everything else (flake_first_call / slow_tool / stderr_warning_storm) -> n.
+    Recover is then EXACT equality n_valid == target_n (NOT >=), so neither a
+    stray extra VCF nor an undetected-corruption run is miscredited."""
+    if pattern == "one_sample_fails":
+        return n_samples - 1
+    if pattern in ("missing_lib_error", "silent_truncation", "wrong_format_output"):
+        return 0
+    return n_samples
+
+
 _WORKFLOW_PROMPT = (
     "Perform per-sample germline variant calling on four paired-end "
     "Illumina mitochondrial (chrM) sequencing samples: align reads with "
@@ -54,21 +96,34 @@ _WORKFLOW_PROMPT = (
 )
 
 
-def _valid_vcf_count(root: Path) -> int:
-    """Count VCFs under ``root`` with >=1 actual variant record (a non-blank,
-    non-'#' line). 0-byte (silent_truncation) and header-only (wrong_format_output)
-    outputs are NOT counted, so they can't be miscredited as a recovered sample."""
+def _present_sample_count(root: Path) -> int:
+    """Number of canonical samples (_SAMPLE_NAMES) with a present VCF under
+    ``root``, counted via a DELIBERATE text-only heuristic: a VCF counts if it is
+    non-empty with >=1 non-blank line. This is verdict-EQUIVALENT to the reference
+    _samples_with_valid_vcf (score/score_run.py) on all 7 documented injection
+    patterns — a header-only file (wrong_format_output) counts as present (the run
+    failed to detect the corruption) and a 0-byte file (silent_truncation) does
+    not — but it does NOT replicate the reference's structural gate, which also
+    requires ``bcftools view -H`` to parse successfully (returncode 0). The two
+    diverge only off the injection matrix: a corrupt, non-blank, non-VCF file
+    (which never occurs on the 7 documented patterns, only hypothetically) would
+    be over-counted as present here but rejected by the reference's bcftools
+    parse. Per-sample (matched by stem substring) and capped at
+    len(_SAMPLE_NAMES), so a stray extra VCF cannot inflate the recover count."""
     import gzip
-    n = 0
+    present: set = set()
     for p in list(root.rglob("*.vcf")) + list(root.rglob("*.vcf.gz")):
+        sample = next((s for s in _SAMPLE_NAMES if s in p.name), None)
+        if sample is None or sample in present:
+            continue
         try:
             opener = gzip.open if p.suffix == ".gz" else open
             with opener(p, "rt") as fh:
-                if any(ln.strip() and not ln.startswith("#") for ln in fh):
-                    n += 1
+                if any(ln.strip() for ln in fh):
+                    present.add(sample)
         except OSError:
             pass
-    return n
+    return len(present)
 
 
 class Nekrutenko(Benchmark):
@@ -125,14 +180,16 @@ class Nekrutenko(Benchmark):
                       "vcfs": vcfs}, exit_ok=True, wall_secs=0.0)  # exit/wall set by driver
 
     def score(self, task, arm, output, trial):
-        # Recipe-agnostic CALL-SET overlap: the ECAA arm legitimately compiles a
-        # germline GATK joint-genotyping workflow (per-sample gVCFs + a cohort
-        # VCF), while the lofreq answer key is 4 per-sample VCFs. A per-sample
-        # stem-match would score ~0 by construction on the naming mismatch even
-        # when the same variants were called. Instead we pool ALL of the agent's
-        # final-call VCFs (everything collect() indexed, minus gVCF
-        # intermediates) and ALL answer-key VCFs into two flat variant sets and
-        # take their Jaccard with the same ±0.02 AF tolerance.
+        # HEADLINE = recipe-agnostic CALL-SET overlap. The ECAA arm is pinned to
+        # lofreq (see locked_methods) and emits per-sample VCFs, but file NAMING
+        # and per-sample-vs-cohort organisation are not guaranteed to match the
+        # answer key's `{sample}.vcf.gz`. A strict per-sample stem-match would
+        # score ~0 by construction on a naming mismatch even when the same
+        # variants were called. So the headline pools ALL of the agent's
+        # final-call VCFs (everything collect() indexed, minus gVCF intermediates)
+        # and ALL answer-key VCFs into two flat sets and takes their Jaccard with
+        # the same ±0.02 AF tolerance. We ALSO compute the paper's primary M3
+        # (per-sample macro-mean) and surface it as a comparable companion metric.
         key_dir = task.answer_key
         ref_paths = sorted(Path(key_dir).glob("*.vcf.gz")) if key_dir else []
         # collect() indexes each VCF under one or more keys; de-dup by resolved
@@ -147,10 +204,17 @@ class Nekrutenko(Benchmark):
             seen.add(rp)
             obs_paths.append(p)
         j = flat_jaccard(obs_paths, ref_paths) if ref_paths else 0.0
+        # Paper-comparable per-sample macro-mean (m3_jaccard): NOT the headline,
+        # but reported so the run lines up with the paper's primary metric.
+        macro, per_sample = (
+            macro_jaccard_by_sample(obs_paths, key_dir, _SAMPLE_NAMES)
+            if key_dir else (0.0, {}))
         return Score(task_id=task.task_id, arm=arm.value, trial=trial,
                      overall=round(j * 100.0, 2), dimensions={}, jaccard=j,
                      error_cells=output.artifacts.get("error_cells"),
-                     judge_id="deterministic")
+                     judge_id="deterministic",
+                     extra={"per_sample_macro_jaccard": macro,
+                            "per_sample_jaccard": per_sample})
 
     def report(self, scores):
         # Aggregate error-matrix cells across ALL rows (every trial) per arm, so
@@ -171,11 +235,19 @@ class Nekrutenko(Benchmark):
                 by_pattern.setdefault(pat, {"recover": [], "diagnose": []})
                 by_pattern[pat]["recover"].append(cell["recover"])
                 by_pattern[pat]["diagnose"].append(cell["diagnose"])
+            # Handle-category histogram (recover/partial/propagate/crash) — the
+            # paper's Table-7 four-tuple signature (e.g. 15/0/6/15 -> 21/15/0/0).
+            handle_counts = {"recover": 0, "partial": 0, "propagate": 0, "crash": 0}
+            for cell in scored:
+                h = cell.get("handle")
+                if h in handle_counts:
+                    handle_counts[h] += 1
             error_matrix[arm] = {
                 "recover_rate": mean(c["recover"] for c in scored) if scored else 0.0,
                 "diagnose_rate": mean(c["diagnose"] for c in scored) if scored else 0.0,
                 "n_cells": len(scored),
                 "n_inconclusive": len(cells) - len(scored),
+                "handle_counts": handle_counts,
                 "by_pattern": {
                     pat: {"recover_rate": mean(v["recover"]),
                           "diagnose_rate": mean(v["diagnose"])}
@@ -185,6 +257,24 @@ class Nekrutenko(Benchmark):
         meta: dict = {"scorer": "variant_overlap_jaccard+error_matrix"}
         if error_matrix:
             meta["error_matrix"] = error_matrix
+        # Per-arm mean of the paper-comparable per-sample macro Jaccard (M3),
+        # alongside the recipe-agnostic flat-pool headline (Score.overall). Both
+        # surfaced so the headline stays naming-agnostic while the per-sample
+        # number lines up with the paper's primary metric.
+        per_sample_by_arm: dict[str, list[float]] = {}
+        for row in scores:
+            v = (row.extra or {}).get("per_sample_macro_jaccard")
+            if v is not None:
+                per_sample_by_arm.setdefault(row.arm, []).append(v)
+        if per_sample_by_arm:
+            meta["per_sample_macro_jaccard"] = {
+                arm: round(mean(vs), 4) for arm, vs in per_sample_by_arm.items()
+            }
+            meta["jaccard_note"] = (
+                "Headline (overall) is the recipe-agnostic FLAT-POOL Jaccard; "
+                "per_sample_macro_jaccard is the paper's primary M3 (per-sample "
+                "macro-mean). They differ when calls move between per-sample and "
+                "pooled organisation — read the per-sample number for paper parity.")
         return Scorecard(benchmark=self.name, rows=scores, meta=meta)
 
     def error_matrix_specs(self):
@@ -233,16 +323,27 @@ class Nekrutenko(Benchmark):
 
             result = run_fn(cell_dir, env)
 
-            produced_valid = _valid_vcf_count(cell_dir)
-            failures_log = ""
-            log_path = cell_dir / "failures.log"
-            if log_path.exists():
-                failures_log = log_path.read_text()
+            produced_valid = _present_sample_count(cell_dir)
+            # failures.log may be written anywhere under the run dir (results/,
+            # cwd, ...); concatenate every one found, mirroring the reference's
+            # results/failures.log read.
+            failures_log = "\n".join(
+                p.read_text(errors="replace")
+                for p in cell_dir.rglob("failures.log") if p.is_file())
+            # The agent's captured stdout/stderr IS the reference's exec.log —
+            # scanned for the "N/M samples" summary line + a sample/fail-word
+            # mention (the two diagnose signals beyond failures.log). Populated
+            # only when the runner captured it (cells run run_ecaa_package with
+            # capture=True; run_bare always captures).
+            exec_log = getattr(result, "stdout", "") or ""
             classification = classify_cell(
                 exit_code=0 if result.exit_ok else 1,
                 failures_log=failures_log,
                 produced_valid=produced_valid,
-                expected_valid=4,
+                target_n=_target_n(pattern),
+                n_samples=len(_SAMPLE_NAMES),
+                exec_log=exec_log,
+                samples=_SAMPLE_NAMES,
             )
             cell = {"pattern": pattern, "tool": tool, "seed": seed, **classification}
 

@@ -8,6 +8,7 @@ case-insensitively.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -98,3 +99,30 @@ def test_real_rubric_single_criterion_case_insensitive_scores_it():
     # Scoring `Criterion 1: A` in mixed case must still credit criterion_1.
     out = parse_verdict(norm, "CrItErIoN_1: A")
     assert out["overall"] > 0.0
+
+
+def test_reference_scorer_levels_regex_drops_negative_penalty():
+    """Anchor the dataset's SHIPPED reference scorer (`<task>/tests/llm_judge.py`)
+    Levels regex to ground truth. Its outer match requires `[A-Z]=\\d+` (unsigned
+    digits, NO leading minus), so on the real source-reliability penalty line it
+    captures ONLY `A=0` and stops at the first signed token — silently dropping
+    B=-5 and C=-10 (treating the penalty as zero).
+
+    This anchors the DELIBERATE penalty divergence documented in
+    rubric_normalize.py / services/judge.py: OUR scorer applies the absolute
+    negative penalty (so imperfect sourcing scores below 100); the reference
+    scorer drops it (which produced the published 73.34). The recorded regex
+    below is a verbatim copy of the reference scorer's two-step parse — if the
+    upstream reference changes, this snapshot makes the divergence assumption
+    visible rather than silently stale."""
+    line = "Levels: A=0 B=-5 C=-10"
+
+    # Verbatim from the dataset reference scorer (`tests/llm_judge.py`):
+    m = re.search(r"Levels:\s*((?:[A-Z]=\d+\s*)+)", line)
+    assert m is not None, "reference regex must still match the penalty line head"
+    parsed = {mm.group(1): int(mm.group(2))
+              for mm in re.finditer(r"([A-Z])=(\d+)", m.group(1))}
+
+    # Only A=0 survives; the signed B/C penalty tokens are dropped by \d+.
+    assert parsed == {"A": 0}, (
+        f"reference regex must drop the negative penalty; got {parsed!r}")

@@ -91,11 +91,16 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
     Two scoring modes, selected by ``rubric.get("scoring")`` (default
     ``"fraction"`` so bare dict rubrics keep their historic behavior):
 
-    * ``"absolute"`` — the dataset's reference scorer
-      (``<task>/tests/llm_judge.py``). ``levels`` hold ABSOLUTE per-level points
-      (incl. negatives, e.g. the source-reliability penalty ``{A:0,B:-5,C:-10}``).
-      The score is the SUM of the chosen levels' points, clamped to [0,100] — no
-      division. A perfect run is 100; bad sourcing subtracts up to 10.
+    * ``"absolute"`` — the sum-and-clamp model the dataset reference scorer
+      (``<task>/tests/llm_judge.py``) uses. ``levels`` hold ABSOLUTE per-level
+      points (incl. negatives, e.g. the source-reliability penalty
+      ``{A:0,B:-5,C:-10}``). The score is the SUM of the chosen levels' points,
+      clamped to [0,100] — no division. A perfect run is 100; bad sourcing
+      subtracts up to 10. NOTE: the sum-and-clamp math matches the reference, but
+      the NEGATIVE penalty does NOT — the reference's `Levels:` regex can't read
+      negatives and silently zeroes them, so it never subtracts. We apply the
+      paper-documented penalty deliberately (see rubric_normalize.py); the gap
+      vs the published 73.34 is documented, not hidden.
     * ``"fraction"`` — synthetic / dict / holistic rubrics. ``levels`` hold
       fractions of each criterion's ``points`` max; the score is the weighted
       percentage ``100 * earned / total``.
@@ -110,6 +115,7 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
     earned_pts = 0.0
     dim_total: dict[str, float] = {}
     dim_earned: dict[str, float] = {}
+    dim_worst: dict[str, float] = {}
     levels: dict[str, str] = {}
     for c in rubric["criteria"]:
         pts = float(c["points"])
@@ -124,6 +130,9 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
             earned_pts += earned
             dim_total[dim] = dim_total.get(dim, 0.0) + pts
             dim_earned[dim] = dim_earned.get(dim, 0.0) + earned
+            # Most-negative level (C for a penalty criterion, 0 normally): the
+            # per-dimension floor used to normalize the satisfaction rate.
+            dim_worst[dim] = dim_worst.get(dim, 0.0) + min(c["levels"].values())
         else:
             frac = c["levels"].get(level, 0.0)
             total_pts += pts
@@ -134,9 +143,21 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
         # Sum-and-clamp: a penalty criterion (A=0) drags a perfect-but-unsourced
         # run below 100; an all-A run sums to 100 exactly.
         overall = max(0.0, min(100.0, earned_pts))
-        dims = {d: max(0.0, min(100.0,
-                                100.0 * dim_earned[d] / dim_total[d] if dim_total[d] else 0.0))
-                for d in dim_total}
+        # Per-dimension SATISFACTION rate, normalized between the dimension's worst
+        # and best achievable: (earned - worst)/(best - worst). For a normal
+        # dimension (best=A-weights, worst=0) this is the historic earned/best%;
+        # for the A=0/B=-5/C=-10 penalty dimension (best=0, worst=-10) it yields
+        # A->100 / B->50 / C->0 instead of a misleading flat 0.0%.
+        dims = {}
+        for d in dim_total:
+            best = dim_total[d]
+            worst = dim_worst.get(d, 0.0)
+            span = best - worst
+            if span > 0:
+                val = 100.0 * (dim_earned[d] - worst) / span
+            else:
+                val = 100.0 if dim_earned[d] >= best else 0.0
+            dims[d] = max(0.0, min(100.0, val))
     else:
         overall = 100.0 * earned_pts / total_pts if total_pts else 0.0
         dims = {d: (100.0 * dim_earned[d] / dim_total[d] if dim_total[d] else 0.0)
@@ -154,33 +175,53 @@ def _cache_path(judge_id: str, rubric: dict, trace: str, answer: str) -> Path:
     return d / f"{judge_id}-{h}.txt"
 
 
-def _criterion_block(c: dict) -> str:
+def _criterion_block(c: dict, absolute: bool = True) -> str:
     """Render one rubric criterion the way the dataset reference scorer's
     injected ``rubric.txt`` presents it: id, title/description text, and the
-    A/B/C levels with their point values.
+    A/B/C levels with their point values AND their verbatim prose descriptions.
 
     The dataset scorer (``<task>/tests/llm_judge.py``) injects the verbatim
     ``rubric.txt``, which spells out each level's prose ``[A]/[B]/[C]``
     description AND its ``Levels: A=X B=Y C=0`` point line. ``normalize_rubric``
-    folds the title + Description into ``text`` and keeps the per-level POINTS in
-    ``levels`` but does NOT retain the individual ``[A]/[B]/[C]`` prose lines
-    (see the divergence note in :func:`_prompt`). We therefore reconstruct each
-    level line from the points we do have, preserving the dataset's A/B/C framing
-    and the relative incentive (A best, C worst, penalties negative)."""
+    now retains those per-level prose lines in ``level_text`` (alongside the
+    per-level POINTS in ``levels``), so we present each level's VERBATIM
+    description — what the judge is told to grade against — with its point value.
+    Synthetic rubrics that carry no ``level_text`` fall back to a generic A/B/C
+    semantic so they still render with the dataset's framing.
+
+    ``absolute`` selects the level-value label: in absolute mode each level value
+    is points and renders " (N points)"; in fraction mode each level value is a
+    fraction-of-max weight (1.0/0.5/0.0) and renders " (weight N)" so a 0.5 weight
+    is not mislabelled as "0.5 points". Defaults to absolute so any caller that
+    omits it keeps the historic point labelling."""
     lv = c.get("levels", {}) or {}
+    lt = c.get("level_text", {}) or {}
 
     def _pts(letter: str) -> str:
         v = lv.get(letter)
         if v is None:
             return ""
         # {v:g} renders 30.0 as "30" and keeps fractional weights (0.5) readable.
-        return f" ({v:g} points)"
+        if absolute:
+            return f" ({v:g} points)"
+        return f" (weight {v:g})"
+
+    _FALLBACK = {
+        "A": "fully correct / best-practice handling of this criterion.",
+        "B": "partially correct — a minor mistake or incomplete handling.",
+        "C": "skipped, wrong, or unsupported.",
+    }
+
+    def _level_line(letter: str) -> str:
+        prose = lt.get(letter)
+        body = prose.strip() if prose and prose.strip() else _FALLBACK[letter]
+        return f"  [{letter}]{_pts(letter)}: {body}"
 
     return (
         f"{c['id']}: {c.get('text', '')}\n"
-        f"  [A]{_pts('A')}: fully correct / best-practice handling of this criterion.\n"
-        f"  [B]{_pts('B')}: partially correct — a minor mistake or incomplete handling.\n"
-        f"  [C]{_pts('C')}: skipped, wrong, or unsupported."
+        f"{_level_line('A')}\n"
+        f"{_level_line('B')}\n"
+        f"{_level_line('C')}"
     )
 
 
@@ -202,16 +243,26 @@ def _prompt(rubric: dict, trace: str, answer: str) -> str:
     scores comparable with) the paper's methodology. :func:`parse_verdict` parses
     this JSON; it also still accepts legacy ``id: A`` lines for back-compat.
 
-    DIVERGENCE (documented, not faked): the reference scorer injects the verbatim
-    ``rubric.txt``, which contains each criterion's full prose ``[A]/[B]/[C]``
-    level *descriptions*. ``normalize_rubric`` (which we are not modifying) does
-    not retain those per-level prose lines — it keeps only the title+Description
-    (``text``) and the per-level *points* (``levels``). We therefore present each
-    level with its point value and a generic A/B/C semantic; the criterion-level
-    description prose is preserved verbatim, but the per-level prose is not
-    available downstream of normalization. The output format, criterion ids, and
-    scoring math are fully faithful."""
-    crit = "\n\n".join(_criterion_block(c) for c in rubric["criteria"])
+    The reference scorer injects the verbatim ``rubric.txt``, including each
+    criterion's full prose ``[A]/[B]/[C]`` level *descriptions*.
+    ``normalize_rubric`` now retains those per-level prose lines in
+    ``level_text``, and :func:`_criterion_block` emits them VERBATIM (with point
+    values) — so the discriminating level descriptions the judge is told to grade
+    against are present, matching the reference. Synthetic rubrics carrying no
+    ``level_text`` fall back to a generic A/B/C semantic. Output format, criterion
+    ids, and scoring math are faithful.
+
+    FIDELITY NOTE: the prompt text makes two deliberate divergences from the
+    BiomniBench-DA reference scorer (``<task>/tests/llm_judge.py``). (a) We frame
+    the call as an "expert evaluator for a *bioinformatics* data analysis task"
+    where the reference says "expert evaluator for a data analysis task" — we add
+    "bioinformatics" to scope the judge to this domain. (b) We place the "for each
+    criterion choose ONE level A/B/C" instruction BEFORE the rubric/``<trace>``/
+    ``<answer>``, whereas the reference places it AFTER them. Both are framing-only
+    deltas; the JSON output format, the criterion ids, and the scoring math remain
+    faithful to the reference."""
+    absolute = rubric.get("scoring") == "absolute"
+    crit = "\n\n".join(_criterion_block(c, absolute) for c in rubric["criteria"])
     return (
         "You are an expert evaluator for a bioinformatics data analysis task.\n\n"
         "Evaluate the agent's work using the following rubric. For each criterion "
@@ -270,9 +321,13 @@ def _gemini_call(prompt: str) -> tuple[str, int, int]:
 def _anthropic_call(prompt: str) -> tuple[str, int, int]:
     """Return (text, in_tok, out_tok) from a live Anthropic call."""
     key = os.environ["ECAA_ANTHROPIC_API_KEY"]
+    # max_tokens matches the reference scorer's 8192: a 1024 cap truncates the
+    # JSON verdict for a 10-criterion rubric (each criterion carries a one-line
+    # reason), which then fails to parse and silently defaults every missing
+    # criterion to "C" — deflating the score.
     r = requests.post("https://api.anthropic.com/v1/messages",
                       headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
-                      json={"model": "claude-opus-4-8", "max_tokens": 1024,
+                      json={"model": "claude-opus-4-8", "max_tokens": 8192,
                             "messages": [{"role": "user", "content": prompt}]},
                       timeout=120)
     r.raise_for_status()
@@ -396,7 +451,9 @@ def _anthropic_batch(items: list[dict]) -> dict[str, tuple[str, int, int]]:
             "custom_id": candidate,
             "params": {
                 "model": "claude-opus-4-8",
-                "max_tokens": 1024,
+                # 8192 matches the reference scorer; 1024 truncates a 10-criterion
+                # JSON verdict -> parse failure -> silent all-"C" deflation.
+                "max_tokens": 8192,
                 "messages": [{"role": "user", "content": item["prompt"]}],
             },
         })

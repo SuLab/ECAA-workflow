@@ -80,6 +80,25 @@ def test_prompt_presents_each_criterion_with_abc_levels():
     assert "(-10 points)" in p  # penalty criterion C=-10
 
 
+def test_prompt_emits_verbatim_level_prose_when_present():
+    """When a criterion carries `level_text` (the dataset's per-level [A]/[B]/[C]
+    prose), `_prompt` must surface it verbatim — not a generic level line — so the
+    judge grades against the author's discriminating descriptions."""
+    rubric = {"scoring": "absolute", "criteria": [
+        {"id": "criterion_1", "dimension": "data_handling", "points": 100,
+         "text": "Data Loading and QC",
+         "levels": {"A": 100, "B": 50, "C": 0},
+         "level_text": {"A": "Loads correctly and filters well.",
+                        "B": "Loads but QC is partial.",
+                        "C": "Fails to load."}}]}
+    p = _prompt(rubric, "t", "a")
+    assert "Loads correctly and filters well." in p
+    assert "Loads but QC is partial." in p
+    assert "Fails to load." in p
+    # Still carries the point values alongside the prose.
+    assert "(100 points)" in p
+
+
 def test_prompt_matches_reference_scorer_framing():
     """Framing + output contract mirror the dataset reference scorer."""
     p = _prompt(ABS_RUBRIC, "TRACE TEXT", "ANSWER TEXT")
@@ -166,3 +185,72 @@ def test_prompt_criterion_ids_round_trip_through_parse_verdict():
     out = parse_verdict(ABS_RUBRIC, verdict)
     assert out["overall"] == 100.0
     assert all(v == "A" for v in out["levels"].values())
+
+
+def test_absolute_penalty_dimension_reports_satisfaction_not_zero():
+    """The A=0/B=-5/C=-10 source-reliability penalty dimension must report a
+    satisfaction rate (A->100, B->50, C->0), not a misleading flat 0.0%."""
+    from scripts.eval.services.judge import parse_verdict
+    # criterion_3 in ABS_RUBRIC is source_reliability (points=0, A=0/B=-5/C=-10).
+    a = parse_verdict(ABS_RUBRIC, "criterion_1: A\ncriterion_2: A\ncriterion_3: A")
+    assert a["dimensions"]["source_reliability"] == 100.0
+    b = parse_verdict(ABS_RUBRIC, "criterion_1: A\ncriterion_2: A\ncriterion_3: B")
+    assert b["dimensions"]["source_reliability"] == 50.0
+    c = parse_verdict(ABS_RUBRIC, "criterion_1: A\ncriterion_2: A\ncriterion_3: C")
+    assert c["dimensions"]["source_reliability"] == 0.0
+
+
+def test_absolute_normal_dimension_value_unchanged():
+    """The generalized formula must reproduce the prior value for normal dims."""
+    from scripts.eval.services.judge import parse_verdict
+    out = parse_verdict(ABS_RUBRIC, "criterion_1: B\ncriterion_2: A\ncriterion_3: A")
+    # data_handling: B=15 of A=30 best, worst 0 -> 50.0
+    assert out["dimensions"]["data_handling"] == 50.0
+    # statistical_rigor: A=70 of 70 -> 100.0
+    assert out["dimensions"]["statistical_rigor"] == 100.0
+
+
+def test_prompt_level_suffix_tracks_scoring_mode():
+    """The per-level suffix must say "points" in absolute mode and "weight" in
+    fraction mode — a fraction level value (0.5) is a weight, not a point count.
+
+    These assertions are discriminating: if `_criterion_block` ignored the mode
+    and always rendered " (N points)", the fraction-mode prompt would contain
+    "(0.5 points)" and the `"weight" in fp` / `"(0.5 points)" not in fp` checks
+    would both fail.
+    """
+    from scripts.eval.rubric_normalize import normalize_rubric
+
+    # (a) Absolute mode: the point labelling is byte-stable.
+    ap = _prompt(ABS_RUBRIC, "t", "a")
+    assert "(30 points)" in ap   # criterion_1 A=30
+    assert "(70 points)" in ap   # criterion_2 A=70
+    assert "weight" not in ap    # absolute mode never emits the weight label
+
+    # (b) Fraction mode: build a structured rubric whose A-weights do NOT sum to
+    # ~100, so normalize_rubric flags scoring=="fraction" and the levels become
+    # fractions of each criterion's max.
+    raw = (
+        "CRITERIA (2):\n"
+        "Criterion 1: Data Loading and QC\n"
+        "Levels: A=10 B=5 C=0\n"
+        "Criterion 2: Statistical Testing\n"
+        "Levels: A=10 B=5 C=0\n"
+    )
+    frac = normalize_rubric(raw)
+    assert frac["scoring"] == "fraction", "A-weights summing to 20 must be fraction-mode"
+    # Levels are fractions (1.0/0.5/0.0), not absolute points.
+    assert frac["criteria"][0]["levels"]["A"] == 1.0
+    assert frac["criteria"][0]["levels"]["B"] == 0.5
+
+    fp = _prompt(frac, "t", "a")
+    assert "weight" in fp, "fraction-mode prompt must label levels as weights"
+    assert "(weight 1)" in fp     # A weight 1.0 -> "(weight 1)"
+    assert "(weight 0.5)" in fp   # B weight 0.5 -> "(weight 0.5)"
+    # A 0.5 fraction must NOT be mislabelled as half a point, and NO level suffix
+    # may render the " (N points)" form in fraction mode. (The static prompt body
+    # still says "Do not output numerical points", so we target the level suffix
+    # pattern, not the bare word "points".)
+    assert "(0.5 points)" not in fp
+    assert "(1 points)" not in fp
+    assert " points)" not in fp   # the level-suffix points form is absent entirely

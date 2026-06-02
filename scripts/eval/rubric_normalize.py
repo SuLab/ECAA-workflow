@@ -6,13 +6,21 @@ Real per-task rubrics are either:
       a `CRITERIA (N):` header followed by repeated `Criterion K: <title>`
       blocks, each with a `Levels: A=<wA> B=<wB> C=<wC>` line whose A-weights
       sum to 100 across the scored criteria (the trailing "Source Reliability"
-      criterion is a penalty with `A=0 B=-5 C=-10`). We mirror the dataset's own
-      reference scorer (`<task>/tests/llm_judge.py`): each level maps to its
-      ABSOLUTE points (including the negative penalty points), the scorer sums
-      all criteria, and clamps the total to [0, 100]. A perfect run scores 100;
-      bad sourcing subtracts up to 10. We store the absolute per-level points in
-      `levels` and flag the rubric `scoring="absolute"` so `parse_verdict`
-      reproduces sum-and-clamp (NO division). For the legacy dict-rubric path,
+      criterion is a penalty with `A=0 B=-5 C=-10`). Each level maps to its
+      ABSOLUTE points (including the negative penalty points); the scorer sums
+      all criteria and clamps the total to [0, 100]. A perfect run scores 100;
+      bad sourcing subtracts up to 10.
+
+      FIDELITY NOTE: this is faithful to the PAPER's documented penalty, but it
+      DIVERGES from the dataset's shipped reference scorer
+      (`<task>/tests/llm_judge.py`) — whose `Levels:` regex `[A-Z]=\\d+` cannot
+      capture negative level values, so it silently drops the B=-5/C=-10 penalty
+      (treating them as 0). That reference scorer produced the published 73.34, so
+      ECAA scores up to 10 pts BELOW the published number on any imperfect-sourcing
+      run. We keep the paper-faithful penalty deliberately; the gap is documented
+      here and in the scorecard meta, NOT silently absorbed. We store the absolute
+      per-level points in `levels` and flag the rubric `scoring="absolute"` so
+      `parse_verdict` reproduces sum-and-clamp (NO division). For the legacy dict-rubric path,
       the holistic fallback, and any structured rubric whose A-weights do NOT sum
       to ~100, we flag `scoring="fraction"` and keep the percentage formula so
       synthetic rubrics still land on 0–100.
@@ -76,6 +84,29 @@ _CRITERION_SPLIT = re.compile(r"^Criterion\s+(\d+)\s*:", re.MULTILINE)
 _LEVELS = re.compile(r"Levels:\s*((?:[A-Za-z]\s*=\s*-?\d+\s*)+)")
 _LEVEL_PAIR = re.compile(r"([A-Za-z])\s*=\s*(-?\d+)")
 _DESCRIPTION = re.compile(r"Description:\s*(.+?)(?:\n\s*Levels:|\Z)", re.DOTALL)
+# The discriminating per-level prose the dataset rubric.txt spells out after the
+# `Levels:` line, e.g. `[A]: Correctly loads ...` / `[A] (8 points): ...`. Each
+# block runs until the next `[A|B|C]:` line or end of the criterion body.
+_LEVEL_PROSE = re.compile(
+    r"\[([ABCabc])\]\s*(?:\([^)]*\))?\s*:?\s*(.*?)(?=\n\s*\[[ABCabc]\]\s*(?:\([^)]*\))?\s*:|\Z)",
+    re.DOTALL,
+)
+
+
+def _parse_level_prose(body: str) -> dict[str, str]:
+    """Extract the verbatim [A]/[B]/[C] level descriptions from a criterion body.
+
+    The dataset reference scorer injects these prose lines verbatim and the judge
+    is told to pick the level "based purely on which level description best
+    describes the agent's work" — so retaining them (vs a generic level line) is
+    what makes the judge's A/B/C assignment faithful. Returns {} when absent."""
+    prose: dict[str, str] = {}
+    for m in _LEVEL_PROSE.finditer(body):
+        letter = m.group(1).upper()
+        text = m.group(2).strip()
+        if text and letter not in prose:
+            prose[letter] = text
+    return prose
 
 
 def _canon_dim(raw: str) -> str:
@@ -149,6 +180,9 @@ def _parse_structured_text(raw: str) -> list[dict] | None:
             "points": points,
             "levels": levels,
             "text": text or title,
+            # Verbatim [A]/[B]/[C] prose so the judge grades against the author's
+            # discriminating level descriptions, not a generic level line.
+            "level_text": _parse_level_prose(body),
         })
     return out or None
 

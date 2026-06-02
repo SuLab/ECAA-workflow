@@ -9,9 +9,37 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
+
+# BiomniBench-DA's full snapshot is ~78 GB; warn (once per dir) when the resolved
+# eval dir's filesystem is below this, so a fresh operator who hasn't pointed
+# ECAA_EVAL_*_DIR at a large mount gets an ENOSPC heads-up instead of a mid-fetch
+# disk-full crash.
+_LOW_SPACE_THRESHOLD_GB = 90
+_LOW_SPACE_WARNED: set[str] = set()
+
+
+def _warn_if_low_space(path: Path) -> None:
+    key = str(path)
+    if key in _LOW_SPACE_WARNED:
+        return
+    _LOW_SPACE_WARNED.add(key)
+    try:
+        free_gb = shutil.disk_usage(path).free / 1e9
+    except OSError:
+        return
+    if free_gb < _LOW_SPACE_THRESHOLD_GB:
+        print(
+            f"WARNING: eval dir {path} has only {free_gb:.0f} GB free "
+            f"(< {_LOW_SPACE_THRESHOLD_GB} GB). BiomniBench-DA's full snapshot is "
+            f"~78 GB; point ECAA_EVAL_CACHE_DIR / ECAA_EVAL_SCRATCH_DIR / "
+            f"ECAA_EVAL_RUNS_DIR at a large mount (and reuse an existing snapshot "
+            f"if present) to avoid a mid-fetch ENOSPC.",
+            file=sys.stderr,
+        )
 
 
 @dataclass
@@ -37,6 +65,7 @@ def cache_root() -> Path:
     root = Path(os.environ.get("ECAA_EVAL_CACHE_DIR",
                                Path.home() / ".ecaa-workflow" / "eval-cache"))
     root.mkdir(parents=True, exist_ok=True)
+    _warn_if_low_space(root)
     return root
 
 
@@ -51,6 +80,7 @@ def scratch_root() -> Path:
     base = Path(os.environ.get("ECAA_EVAL_SCRATCH_DIR",
                                cache_root().parent / "eval-scratch"))
     base.mkdir(parents=True, exist_ok=True)
+    _warn_if_low_space(base)
     return base
 
 

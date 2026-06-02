@@ -10,7 +10,7 @@
         test-ui conformance test-substrate-utility lint-ui clippy fmt check types e2e e2e-playwright bench \
         verify-reproducibility \
         bio-min dev-server dev-ui clean doctor lint deny install-hooks \
-        eval eval-dryrun eval-e2e \
+        eval eval-dryrun eval-e2e eval-full \
         eval-biomnibench eval-biomnibench-smoke eval-nekrutenko eval-nekrutenko-smoke eval-tests \
         eval-biomnibench-dryrun eval-nekrutenko-dryrun
 
@@ -139,6 +139,11 @@ verify-reproducibility: ## Assert emitted packages are byte-reproducible across 
 
 PYTHON ?= python3
 TIER ?= dryrun
+# Parallelism for `eval-full`. Safe-on-this-host defaults tuned together with the
+# per-benchmark memory caps below; invariant N×mem_cap_GB ≤ ~115 and N×nproc ≤ 48
+# (48-core / ~125 GB host). Raise only if RAM + API rate limits allow.
+NEK_PARALLEL ?= 8
+BBENCH_PARALLEL ?= 4
 
 eval: ## Run an eval tier: make eval TIER={dryrun|e2e|biomnibench|nekrutenko} (default dryrun)
 	@$(MAKE) --no-print-directory eval-$(TIER)
@@ -150,6 +155,22 @@ eval-dryrun: ## Tier 1 — dry run: 1-task smoke of BOTH benchmarks x both arms 
 eval-e2e: ## Tier 2 — full e2e: BiomniBench (full trials) + Nekrutenko (full + 36-cell fault matrix); costly
 	@$(PYTHON) -m scripts.eval.eval_runner biomnibench $(EVAL_ARGS)
 	@$(PYTHON) -m scripts.eval.eval_runner nekrutenko --error-matrix $(EVAL_ARGS)
+
+eval-full: ## Both benchmarks IN FULL, fast-and-safe + PARALLEL (operator-run; needs ECAA_EVAL_LIVE=1 + GEMINI_API_KEY + ECAA_ANTHROPIC_API_KEY). Resumable: EVAL_ARGS="--resume <run_dir>".
+	@# Run the two benchmarks SEQUENTIALLY (not concurrently) so their CPU/RAM
+	@# budgets don't stack. Each sets a per-agent memory cap matched to its
+	@# parallelism: Nekrutenko cells are light (~chrM), BiomniBench loads 16-40 GB
+	@# matrices. Disk/cache (ECAA_EVAL_CACHE_DIR/RUNS_DIR) come from your .env —
+	@# point them at the large mount holding the dataset snapshot. NOTE: if your
+	@# .env force-sets ECAA_AGENT_MEMORY_CAP_GB higher, it may override these caps.
+	@echo "[eval-full] Nekrutenko — full + 36-cell error matrix, --max-parallel $(NEK_PARALLEL)"
+	@ECAA_HW_DYNAMIC_ALLOCATION=0 ECAA_AGENT_MEMORY_CAP_GB=8 ECAA_HW_NPROC_HINT=4 \
+		$(PYTHON) -m scripts.eval.eval_runner nekrutenko --error-matrix --trials 3 \
+		--max-parallel $(NEK_PARALLEL) $(EVAL_ARGS)
+	@echo "[eval-full] BiomniBench — full 50 public tasks, --max-parallel $(BBENCH_PARALLEL)"
+	@ECAA_HW_DYNAMIC_ALLOCATION=0 ECAA_AGENT_MEMORY_CAP_GB=28 ECAA_HW_NPROC_HINT=10 \
+		$(PYTHON) -m scripts.eval.eval_runner biomnibench --trials 3 \
+		--max-parallel $(BBENCH_PARALLEL) $(EVAL_ARGS)
 
 eval-biomnibench: ## Tier 3 — only BiomniBench-DA (needs ECAA_EVAL_LIVE=1 + GEMINI_API_KEY + ECAA_ANTHROPIC_API_KEY)
 	@$(PYTHON) -m scripts.eval.eval_runner biomnibench $(EVAL_ARGS)

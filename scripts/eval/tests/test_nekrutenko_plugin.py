@@ -1,7 +1,7 @@
 from pathlib import Path
 from scripts.eval.benchmark import Arm, Score, Task
-from scripts.eval.plugins.nekrutenko import Nekrutenko, _FAULT_PATTERNS, _SEEDS
-from scripts.eval.scoring.error_matrix import classify_cell
+from scripts.eval.plugins.nekrutenko import (Nekrutenko, _FAULT_PATTERNS, _SEEDS,
+                                             _SAMPLE_NAMES, _target_n)
 
 def test_report_aggregates_jaccard_by_arm():
     rows = [
@@ -22,19 +22,24 @@ def test_nekrutenko_error_matrix_uses_classify_cell(tmp_path):
     task = Task(task_id="mtdna", prompt="call variants", inputs={},
                 rubric=None, answer_key=None, meta={})
 
-    # Fake run_fn: writes N VCF files into cell_workdir and returns exit_ok.
-    # We choose exit_ok=True and 4 produced VCFs -> every cell should classify
-    # as "recover" (produced_valid >= expected_valid=4, no failures_log).
+    # Fake run_fn: writes one VCF per CANONICAL sample into cell_workdir and
+    # returns exit_ok. With all 4 samples present, every cell's m_handle is
+    # "recover" (n_valid == n_samples); m_recover (binary) is pattern-specific
+    # via target_n and is asserted per-pattern below.
     def fake_run_fn(cell_workdir, env):
-        for i in range(4):
-            (cell_workdir / f"sample{i}.vcf").write_text(
+        state = Path(env["EVAL_INJECT_STATE"])
+        state.mkdir(parents=True, exist_ok=True)
+        (state / f"invoked.{env['EVAL_INJECT_TARGET']}").write_text("1")
+        for s in _SAMPLE_NAMES:
+            (cell_workdir / f"{s}.vcf").write_text(
                 "##fileformat=VCFv4.2\n"
                 "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
-                f"chrM\t{150 + i}\t.\tT\tC\t.\tPASS\tAF=0.99\n"
+                "chrM\t152\t.\tT\tC\t.\tPASS\tAF=0.99\n"
             )
 
         class _R:
             exit_ok = True
+            stdout = ""
         return _R()
 
     plug = Nekrutenko()
@@ -77,17 +82,19 @@ def test_nekrutenko_error_matrix_uses_classify_cell(tmp_path):
         f"expected seeds {set(_SEEDS)}, got {seed_set}"
     )
 
-    # With fake_run_fn producing 4 VCFs + exit_ok + no failures.log,
-    # classify_cell should yield handle="recover" for each cell.
-    expected = classify_cell(exit_code=0, failures_log="",
-                             produced_valid=4, expected_valid=4)
+    # All 4 samples present + exit_ok + no failures.log: every cell's m_handle is
+    # "recover" (n_valid == n_samples), but m_recover (binary) is pattern-specific
+    # — True only when n_valid == target_n (so the target_n=0/3 patterns are
+    # NOT binary-recovered by a run that emitted all 4).
     for cell in cells:
-        assert cell["handle"] == expected["handle"], (
+        assert cell["handle"] == "recover", (
             f"cell {cell['pattern']}/{cell['tool']}@seed{cell['seed']}: "
-            f"expected handle={expected['handle']!r}, got {cell['handle']!r}"
+            f"expected handle='recover', got {cell['handle']!r}"
         )
-        assert cell["recover"] == expected["recover"]
-        assert cell["diagnose"] == expected["diagnose"]
+        assert cell["recover"] is (4 == _target_n(cell["pattern"])), (
+            f"cell {cell['pattern']}: recover should be {4 == _target_n(cell['pattern'])}"
+        )
+        assert cell["diagnose"] is False
 
     # Verify the full (pattern,tool)×seed coverage matches _FAULT_PATTERNS × _SEEDS.
     seen_combos_seeds = {(c["pattern"], c["tool"], c["seed"]) for c in cells}
