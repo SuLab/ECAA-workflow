@@ -4,8 +4,10 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 
 #######################################################################
-# SHACL shapes for ECAA v0.1 audit-proof invariants 2, 4, 6.
-# Invariants 1, 3, 5 are encoded in ecaa-v0.1.ttl as OWL DL restrictions.
+# SHACL shapes for the ECAA v0.1 audit-proof invariants.
+# All six invariants are runnable SHACL here; ecaa-v0.1.ttl retains the
+# equivalent OWL-DL restrictions for Invariants 1, 3, 5 for the
+# OWL-consistency path (the two are dual encodings, not alternatives).
 #######################################################################
 
 # Invariant 2: decision-justification
@@ -94,3 +96,18 @@ ecaa:ClaimCompletenessShape a sh:NodeShape ;
         [ sh:path ecaa:supported_by ; sh:minCount 1 ]
     ) ;
     sh:message "Invariant 1 (claim-completeness): Claim must be pending OR have ≥1 supported_by edge" .
+
+# Invariant 5: cross-graph-integrity (C→V referential resolution; runnable
+# SHACL — the second-impl encoding that agrees with the Rust
+# `check_cross_graph_integrity` for the concrete C→V form; the equivalent
+# OWL-DL `supported_by` rdfs:range union is retained in ecaa-v0.1.ttl).
+# Every `supported_by` object must resolve to a node typed in the V (Evidence)
+# graph (OutputFile / Table / Figure / Statistic / File).
+
+ecaa:CrossGraphIntegrityShape a sh:NodeShape ;
+    sh:targetObjectsOf ecaa:supported_by ;
+    sh:or (
+        [ sh:class ecaa:OutputFile ] [ sh:class ecaa:Table ]
+        [ sh:class ecaa:Figure ] [ sh:class ecaa:Statistic ] [ sh:class ecaa:File ]
+    ) ;
+    sh:message "Invariant 5 (cross-graph-integrity): supported_by must resolve to a V (Evidence) node" .
