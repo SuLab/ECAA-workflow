@@ -15,6 +15,9 @@
           "@id": "https://w3id.org/ro/crate/1.1"
         },
         {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
           "@id": "https://w3id.org/ro/wfrun/process/0.5"
         },
         {
@@ -22,6 +25,9 @@
         },
         {
           "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.1"
         }
       ]
     },
@@ -41,14 +47,98 @@
           "@id": "CONTEXT.md"
         },
         {
+          "@id": "AGENT-EXECUTOR.md"
+        },
+        {
           "@id": "policies/"
+        },
+        {
+          "@id": "runtime/LOG.jsonl"
+        },
+        {
+          "@id": "runtime/intake-conversation.jsonl"
+        },
+        {
+          "@id": "runtime/decisions.jsonl"
+        },
+        {
+          "@id": "runtime/proofs.jsonl"
+        },
+        {
+          "@id": "runtime/claim-verification.json"
+        },
+        {
+          "@id": "runtime/verifier-decisions.jsonl"
+        },
+        {
+          "@id": "runtime/assumptions.jsonl"
+        },
+        {
+          "@id": "runtime/validation-reports.jsonl"
+        },
+        {
+          "@id": "runtime/determinism-shim.json"
+        },
+        {
+          "@id": "runtime/security-policy.json"
+        },
+        {
+          "@id": "runtime/audit-proof-report.json"
+        },
+        {
+          "@id": "runtime/validation-summary.json"
+        },
+        {
+          "@id": "runtime/outputs/data_acquisition/figures/samples_per_study.png"
+        },
+        {
+          "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png"
+        },
+        {
+          "@id": "runtime/outputs/motif_enrichment/figures/motif_enrichment_table.png"
+        },
+        {
+          "@id": "runtime/outputs/motif_enrichment/figures/motif_logo_grid.png"
+        },
+        {
+          "@id": "runtime/outputs/peak_annotation/figures/peak_feature_distribution.png"
+        },
+        {
+          "@id": "runtime/outputs/peak_annotation/figures/tss_distance_distribution.png"
+        },
+        {
+          "@id": "runtime/outputs/peak_calling/figures/profile_pileup.png"
+        },
+        {
+          "@id": "runtime/outputs/peak_calling/figures/coverage_track.png"
+        },
+        {
+          "@id": "runtime/outputs/peak_calling/figures/peak_saturation.png"
+        },
+        {
+          "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_violin.png"
+        },
+        {
+          "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/raw_qc/figures/qc_summary_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/reporting/figures/pathway_overlap_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/sequence_trimming/figures/retention_bar.png"
         }
       ],
       "license": "https://www.apache.org/licenses/LICENSE-2.0",
       "mainEntity": {
         "@id": "WORKFLOW.json"
       },
-      "name": "computational biology — ChIP-seq peak calling + peak-vs-input enrichment. Standard pipeline:\nraw QC, trim, align, call peaks against the matched input control, then\nreport. Mirrors today's `config/stage-taxonomies/chip-seq.yaml`.\n"
+      "name": "computational biology — ChIP-seq peak calling + peak-vs-input enrichment. Standard pipeline:\nraw QC, trim, align, call peaks against the matched input control, then\nreport.\n"
     },
     {
       "@id": "WORKFLOW.json",
@@ -57,14 +147,14 @@
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
-        "@id": "https://edamontology.org/topic:3169"
+        "@id": "https://edamontology.org/topic_3169"
       },
       "conformsTo": {
         "@id": "https://bioschemas.org/profiles/ComputationalWorkflow/1.0-RELEASE"
       },
       "encodingFormat": "application/json",
       "featureList": {
-        "@id": "https://edamontology.org/operation:3222"
+        "@id": "https://edamontology.org/operation_3222"
       },
       "name": "workflow-ade4a2b687ca DAG",
       "programmingLanguage": {
@@ -81,15 +171,6 @@
           "@id": "#step-validate_review_prior_work"
         },
         {
-          "@id": "#step-discover_sequence_trimming"
-        },
-        {
-          "@id": "#step-discover_peak_calling"
-        },
-        {
-          "@id": "#step-discover_alignment"
-        },
-        {
           "@id": "#step-data_acquisition"
         },
         {
@@ -100,6 +181,24 @@
         },
         {
           "@id": "#step-validate_raw_qc"
+        },
+        {
+          "@id": "#step-survey_method_landscape"
+        },
+        {
+          "@id": "#step-discover_sequence_trimming"
+        },
+        {
+          "@id": "#step-discover_peak_calling"
+        },
+        {
+          "@id": "#step-discover_peak_annotation"
+        },
+        {
+          "@id": "#step-discover_motif_enrichment"
+        },
+        {
+          "@id": "#step-discover_alignment"
         },
         {
           "@id": "#step-sequence_trimming"
@@ -118,6 +217,18 @@
         },
         {
           "@id": "#step-validate_peak_calling"
+        },
+        {
+          "@id": "#step-peak_annotation"
+        },
+        {
+          "@id": "#step-validate_peak_annotation"
+        },
+        {
+          "@id": "#step-motif_enrichment"
+        },
+        {
+          "@id": "#step-validate_motif_enrichment"
         },
         {
           "@id": "#step-contextualize_findings_with_literature"
@@ -169,6 +280,13 @@
       "name": "Workflow Context"
     },
     {
+      "@id": "AGENT-EXECUTOR.md",
+      "@type": "CreativeWork",
+      "description": "Per-package brief consumed by the execution agent; replaces ambient host CLAUDE.md for executor context.",
+      "encodingFormat": "text/markdown",
+      "name": "Executor agent task brief"
+    },
+    {
       "@id": "policies/",
       "@type": "Dataset",
       "name": "Discovery and scoring policies"
@@ -178,6 +296,83 @@
       "@type": "File",
       "encodingFormat": "application/jsonl",
       "name": "Execution provenance log"
+    },
+    {
+      "@id": "runtime/intake-conversation.jsonl",
+      "@type": "CreativeWork",
+      "description": "Compile-time intake conversation turns captured for ECAA replay.",
+      "encodingFormat": "application/jsonl",
+      "name": "SME intake conversation log"
+    },
+    {
+      "@id": "runtime/decisions.jsonl",
+      "@type": "CreativeWork",
+      "description": "Compile-time decision records captured for ECAA replay.",
+      "encodingFormat": "application/jsonl",
+      "name": "SME decision log"
+    },
+    {
+      "@id": "runtime/proofs.jsonl",
+      "@type": "CreativeWork",
+      "description": "Per-edge ECAA evidence records mirroring WORKFLOW.json dependencies.",
+      "encodingFormat": "application/jsonl",
+      "name": "Compatibility proofs"
+    },
+    {
+      "@id": "runtime/claim-verification.json",
+      "@type": "CreativeWork",
+      "description": "Emit-time claim verification rollup.",
+      "encodingFormat": "application/json",
+      "name": "Deterministic claim verification report"
+    },
+    {
+      "@id": "runtime/verifier-decisions.jsonl",
+      "@type": "CreativeWork",
+      "description": "Typed verifier-decision event log.",
+      "encodingFormat": "application/jsonl",
+      "name": "Verifier decision substrate"
+    },
+    {
+      "@id": "runtime/assumptions.jsonl",
+      "@type": "CreativeWork",
+      "description": "ECAA failure/assumption ledger.",
+      "encodingFormat": "application/jsonl",
+      "name": "Assumption ledger"
+    },
+    {
+      "@id": "runtime/validation-reports.jsonl",
+      "@type": "CreativeWork",
+      "description": "Harness validation report stream.",
+      "encodingFormat": "application/jsonl",
+      "name": "Validation reports"
+    },
+    {
+      "@id": "runtime/determinism-shim.json",
+      "@type": "CreativeWork",
+      "description": "Active deterministic environment, seed, temp-path, locale, and timezone disclosure.",
+      "encodingFormat": "application/json",
+      "name": "Determinism shim"
+    },
+    {
+      "@id": "runtime/security-policy.json",
+      "@type": "CreativeWork",
+      "description": "Package-level SafetyPolicy aggregate and container digest disclosure.",
+      "encodingFormat": "application/json",
+      "name": "Package security policy"
+    },
+    {
+      "@id": "runtime/audit-proof-report.json",
+      "@type": "CreativeWork",
+      "description": "ECAA audit-proof invariant verdicts.",
+      "encodingFormat": "application/json",
+      "name": "Audit-proof invariant report"
+    },
+    {
+      "@id": "runtime/validation-summary.json",
+      "@type": "CreativeWork",
+      "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
+      "encodingFormat": "application/json",
+      "name": "ECAA emit-time validation summary"
     },
     {
       "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",
@@ -200,137 +395,381 @@
       "position": 2
     },
     {
-      "@id": "#step-discover_sequence_trimming",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
-      "position": 3
-    },
-    {
-      "@id": "#step-discover_peak_calling",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for peak_calling (options: macs2, macs3, seacr, genrich). Surface set_intake_method.",
-      "position": 4
-    },
-    {
-      "@id": "#step-discover_alignment",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
-      "position": 5
-    },
-    {
       "@id": "#step-data_acquisition",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 6
+      "position": 3
     },
     {
       "@id": "#step-validate_data_acquisition",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 7
+      "position": 4
     },
     {
       "@id": "#step-raw_qc",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 8
+      "position": 5
     },
     {
       "@id": "#step-validate_raw_qc",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "position": 6
+    },
+    {
+      "@id": "#step-survey_method_landscape",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "position": 7
+    },
+    {
+      "@id": "#step-discover_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "position": 8
+    },
+    {
+      "@id": "#step-discover_peak_calling",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for peak_calling (options: macs2, macs3, seacr, genrich). Surface set_intake_method.",
       "position": 9
+    },
+    {
+      "@id": "#step-discover_peak_annotation",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for peak_annotation (options: chipseeker, homer_annotatepeaks, great). Surface set_intake_method.",
+      "position": 10
+    },
+    {
+      "@id": "#step-discover_motif_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for motif_enrichment (options: homer_findmotifsgenome, meme_chip, monalisa). Surface set_intake_method.",
+      "position": 11
+    },
+    {
+      "@id": "#step-discover_alignment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "position": 12
     },
     {
       "@id": "#step-sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 10
+      "position": 13
     },
     {
       "@id": "#step-validate_sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 11
+      "position": 14
     },
     {
       "@id": "#step-alignment",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 12
+      "position": 15
     },
     {
       "@id": "#step-validate_alignment",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 13
+      "position": 16
     },
     {
       "@id": "#step-peak_calling",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
-      "position": 14
+      "position": 17
     },
     {
       "@id": "#step-validate_peak_calling",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
-      "position": 15
+      "position": 18
+    },
+    {
+      "@id": "#step-peak_annotation",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
+      "position": 19
+    },
+    {
+      "@id": "#step-validate_peak_annotation",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
+      "position": 20
+    },
+    {
+      "@id": "#step-motif_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
+      "position": 21
+    },
+    {
+      "@id": "#step-validate_motif_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
+      "position": 22
     },
     {
       "@id": "#step-contextualize_findings_with_literature",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
-      "position": 16
+      "position": 23
     },
     {
       "@id": "#step-validate_contextualize_findings_with_literature",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
-      "position": 17
+      "position": 24
     },
     {
       "@id": "#step-reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 18
+      "position": 25
     },
     {
       "@id": "#step-validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 19
+      "position": 26
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 20
+      "position": 27
     },
     {
       "@id": "#step-validate_final_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 21
+      "position": 28
+    },
+    {
+      "@id": "runtime/outputs/data_acquisition/figures/samples_per_study.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'samples_per_study' produced by stage 'data_acquisition' via runtime/plotting/stages/data_acquisition.py.",
+      "encodingFormat": "image/png",
+      "name": "data_acquisition — samples_per_study",
+      "schema:about": {
+        "@id": "#step-data_acquisition"
+      }
+    },
+    {
+      "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'summary_dashboard' produced by stage 'final_reporting' via runtime/plotting/stages/final_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "final_reporting — summary_dashboard",
+      "schema:about": {
+        "@id": "#step-final_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/motif_enrichment/figures/motif_enrichment_table.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'motif_enrichment_table' produced by stage 'motif_enrichment' via runtime/plotting/stages/motif_enrichment.py.",
+      "encodingFormat": "image/png",
+      "name": "motif_enrichment — motif_enrichment_table",
+      "schema:about": {
+        "@id": "#step-motif_enrichment"
+      }
+    },
+    {
+      "@id": "runtime/outputs/motif_enrichment/figures/motif_logo_grid.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'motif_logo_grid' produced by stage 'motif_enrichment' via runtime/plotting/stages/motif_enrichment.py.",
+      "encodingFormat": "image/png",
+      "name": "motif_enrichment — motif_logo_grid",
+      "schema:about": {
+        "@id": "#step-motif_enrichment"
+      }
+    },
+    {
+      "@id": "runtime/outputs/peak_annotation/figures/peak_feature_distribution.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'peak_feature_distribution' produced by stage 'peak_annotation' via runtime/plotting/stages/peak_annotation.py.",
+      "encodingFormat": "image/png",
+      "name": "peak_annotation — peak_feature_distribution",
+      "schema:about": {
+        "@id": "#step-peak_annotation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/peak_annotation/figures/tss_distance_distribution.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'tss_distance_distribution' produced by stage 'peak_annotation' via runtime/plotting/stages/peak_annotation.py.",
+      "encodingFormat": "image/png",
+      "name": "peak_annotation — tss_distance_distribution",
+      "schema:about": {
+        "@id": "#step-peak_annotation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/peak_calling/figures/profile_pileup.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'profile_pileup' produced by stage 'peak_calling' via runtime/plotting/stages/peak_calling.py.",
+      "encodingFormat": "image/png",
+      "name": "peak_calling — profile_pileup",
+      "schema:about": {
+        "@id": "#step-peak_calling"
+      }
+    },
+    {
+      "@id": "runtime/outputs/peak_calling/figures/coverage_track.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'coverage_track' produced by stage 'peak_calling' via runtime/plotting/stages/peak_calling.py.",
+      "encodingFormat": "image/png",
+      "name": "peak_calling — coverage_track",
+      "schema:about": {
+        "@id": "#step-peak_calling"
+      }
+    },
+    {
+      "@id": "runtime/outputs/peak_calling/figures/peak_saturation.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'peak_saturation' produced by stage 'peak_calling' via runtime/plotting/stages/peak_calling.py.",
+      "encodingFormat": "image/png",
+      "name": "peak_calling — peak_saturation",
+      "schema:about": {
+        "@id": "#step-peak_calling"
+      }
+    },
+    {
+      "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_violin.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'raw_qc' via runtime/plotting/stages/raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "raw_qc — per_sample_metric_violin",
+      "schema:about": {
+        "@id": "#step-raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'raw_qc' via runtime/plotting/stages/raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "raw_qc — per_sample_metric_bar",
+      "schema:about": {
+        "@id": "#step-raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/raw_qc/figures/qc_summary_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'raw_qc' via runtime/plotting/stages/raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "raw_qc — qc_summary_bar",
+      "schema:about": {
+        "@id": "#step-raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "reporting — concordance_heatmap",
+      "schema:about": {
+        "@id": "#step-reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/reporting/figures/pathway_overlap_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "reporting — pathway_overlap_bar",
+      "schema:about": {
+        "@id": "#step-reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/sequence_trimming/figures/retention_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'retention_bar' produced by stage 'sequence_trimming' via runtime/plotting/stages/sequence_trimming.py.",
+      "encodingFormat": "image/png",
+      "name": "sequence_trimming — retention_bar",
+      "schema:about": {
+        "@id": "#step-sequence_trimming"
+      }
     },
     {
       "@id": "#p-plan/workflow-ade4a2b687ca",
@@ -382,6 +821,56 @@
       }
     },
     {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_motif_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_peak_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_peak_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_peak_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_sequence_trimming#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/reporting__to__final_reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -389,6 +878,46 @@
       },
       "targetParameter": {
         "@id": "#step-final_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_motif_enrichment__to__motif_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_motif_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/peak_calling__to__motif_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/discover_peak_annotation__to__peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-discover_peak_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-peak_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/peak_calling__to__peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-peak_annotation#input"
       }
     },
     {
@@ -432,6 +961,26 @@
       }
     },
     {
+      "@id": "#parameter-connection/motif_enrichment__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-motif_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/peak_annotation__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-peak_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/peak_calling__to__reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -459,6 +1008,26 @@
       },
       "targetParameter": {
         "@id": "#step-sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/data_acquisition__to__survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-survey_method_landscape#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/raw_qc__to__survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-survey_method_landscape#input"
       }
     },
     {
@@ -499,6 +1068,26 @@
       },
       "targetParameter": {
         "@id": "#step-validate_final_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/motif_enrichment__to__validate_motif_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-motif_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/peak_annotation__to__validate_peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-peak_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_peak_annotation#input"
       }
     },
     {

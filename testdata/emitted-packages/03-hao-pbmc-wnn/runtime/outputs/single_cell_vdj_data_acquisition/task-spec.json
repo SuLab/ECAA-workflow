@@ -1,0 +1,35 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [],
+  "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "data_acquisition",
+  "spec": {
+    "expected_artifacts": [
+      "cohort_manifest.tsv",
+      "per_accession_summary.json",
+      "matrices_index.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "required_figures": [
+      "samples_per_study"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "single_cell_vdj_data_acquisition"
+}

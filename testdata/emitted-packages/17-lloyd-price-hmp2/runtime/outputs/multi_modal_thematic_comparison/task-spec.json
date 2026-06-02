@@ -1,0 +1,54 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "ehr_clinical_prediction_validate_data_import",
+    "ehr_clinical_prediction_validate_final_reporting",
+    "ehr_clinical_prediction_validate_reporting",
+    "ehr_clinical_prediction_validate_time_series_decompose",
+    "ehr_clinical_prediction_validate_time_series_forecast_evaluate",
+    "ehr_clinical_prediction_validate_time_series_model_fit",
+    "metagenomics_validate_data_acquisition",
+    "metagenomics_validate_diversity_analysis",
+    "metagenomics_validate_final_reporting",
+    "metagenomics_validate_raw_qc",
+    "metagenomics_validate_reporting",
+    "metagenomics_validate_sequence_trimming",
+    "metagenomics_validate_taxonomic_classification",
+    "time_series_forecast_validate_data_import",
+    "time_series_forecast_validate_final_reporting",
+    "time_series_forecast_validate_reporting",
+    "time_series_forecast_validate_time_series_decompose",
+    "time_series_forecast_validate_time_series_forecast_evaluate",
+    "time_series_forecast_validate_time_series_model_fit"
+  ],
+  "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "reporting",
+  "spec": {
+    "expected_artifacts": [
+      "report.md",
+      "manifest.json",
+      "result.json"
+    ],
+    "required_figures": [
+      "concordance_heatmap",
+      "pathway_overlap_bar"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "multi_modal_thematic_comparison"
+}

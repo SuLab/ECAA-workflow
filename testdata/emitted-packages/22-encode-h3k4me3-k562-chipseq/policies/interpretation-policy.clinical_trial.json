@@ -25,6 +25,7 @@
       "(?i)\\b(primary|secondary|exploratory)\\s+endpoint\\b",
       "(?i)\\bsubgroup\\s+\\w+\\b"
     ],
+    "entityNameExcludePatterns": [],
     "directionVocab": {
       "up": [
         "improved",

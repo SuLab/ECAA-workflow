@@ -1,0 +1,39 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "variant_calling_data_acquisition"
+  ],
+  "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "raw_qc",
+  "spec": {
+    "expected_artifacts": [
+      "qc_metrics.tsv",
+      "qc_summary.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "variant_calling_quality_control",
+    "required_figures": [
+      "per_sample_metric_violin",
+      "per_sample_metric_bar",
+      "qc_summary_bar"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "variant_calling_raw_qc"
+}

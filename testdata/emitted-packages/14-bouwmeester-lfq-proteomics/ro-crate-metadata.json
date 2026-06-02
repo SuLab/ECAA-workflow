@@ -15,6 +15,9 @@
           "@id": "https://w3id.org/ro/crate/1.1"
         },
         {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
           "@id": "https://w3id.org/ro/wfrun/process/0.5"
         },
         {
@@ -22,6 +25,9 @@
         },
         {
           "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.1"
         }
       ]
     },
@@ -41,14 +47,80 @@
           "@id": "CONTEXT.md"
         },
         {
+          "@id": "AGENT-EXECUTOR.md"
+        },
+        {
           "@id": "policies/"
+        },
+        {
+          "@id": "runtime/LOG.jsonl"
+        },
+        {
+          "@id": "runtime/intake-conversation.jsonl"
+        },
+        {
+          "@id": "runtime/decisions.jsonl"
+        },
+        {
+          "@id": "runtime/proofs.jsonl"
+        },
+        {
+          "@id": "runtime/claim-verification.json"
+        },
+        {
+          "@id": "runtime/verifier-decisions.jsonl"
+        },
+        {
+          "@id": "runtime/assumptions.jsonl"
+        },
+        {
+          "@id": "runtime/validation-reports.jsonl"
+        },
+        {
+          "@id": "runtime/determinism-shim.json"
+        },
+        {
+          "@id": "runtime/security-policy.json"
+        },
+        {
+          "@id": "runtime/audit-proof-report.json"
+        },
+        {
+          "@id": "runtime/validation-summary.json"
+        },
+        {
+          "@id": "runtime/outputs/data_acquisition/figures/samples_per_study.png"
+        },
+        {
+          "@id": "runtime/outputs/differential_expression/figures/volcano.png"
+        },
+        {
+          "@id": "runtime/outputs/differential_expression/figures/top_features_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png"
+        },
+        {
+          "@id": "runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png"
+        },
+        {
+          "@id": "runtime/outputs/protein_quantification/figures/peptide_coverage.png"
+        },
+        {
+          "@id": "runtime/outputs/protein_quantification/figures/ridgeline.png"
+        },
+        {
+          "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/reporting/figures/pathway_overlap_bar.png"
         }
       ],
       "license": "https://www.apache.org/licenses/LICENSE-2.0",
       "mainEntity": {
         "@id": "WORKFLOW.json"
       },
-      "name": "computational biology — Data-dependent acquisition (DDA) LC-MS/MS proteomics — TMT, SILAC, or\nlabel-free MaxLFQ. Standard pipeline: acquire raw spectra, search\npeptides (MaxQuant / FragPipe), quantify proteins, test for differential\nabundance, then enrichment. Mirrors the DDA branch of today's\n`config/stage-taxonomies/proteomics.yaml`.\n"
+      "name": "computational biology — Data-dependent acquisition (DDA) LC-MS/MS proteomics — TMT, SILAC, or\nlabel-free MaxLFQ. Standard pipeline: acquire raw spectra, search\npeptides (MaxQuant / FragPipe), quantify proteins, test for differential\nabundance, then enrichment.\n"
     },
     {
       "@id": "WORKFLOW.json",
@@ -57,14 +129,14 @@
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
-        "@id": "https://edamontology.org/topic:0121"
+        "@id": "https://edamontology.org/topic_0121"
       },
       "conformsTo": {
         "@id": "https://bioschemas.org/profiles/ComputationalWorkflow/1.0-RELEASE"
       },
       "encodingFormat": "application/json",
       "featureList": {
-        "@id": "https://edamontology.org/operation:3767"
+        "@id": "https://edamontology.org/operation_3767"
       },
       "name": "workflow-60af1323f173 DAG",
       "programmingLanguage": {
@@ -74,6 +146,15 @@
         "@id": "#ecaa-workflow"
       },
       "step": [
+        {
+          "@id": "#step-data_acquisition"
+        },
+        {
+          "@id": "#step-validate_data_acquisition"
+        },
+        {
+          "@id": "#step-survey_method_landscape"
+        },
         {
           "@id": "#step-discover_protein_quantification"
         },
@@ -85,12 +166,6 @@
         },
         {
           "@id": "#step-discover_differential_expression"
-        },
-        {
-          "@id": "#step-data_acquisition"
-        },
-        {
-          "@id": "#step-validate_data_acquisition"
         },
         {
           "@id": "#step-peptide_search"
@@ -160,6 +235,13 @@
       "name": "Workflow Context"
     },
     {
+      "@id": "AGENT-EXECUTOR.md",
+      "@type": "CreativeWork",
+      "description": "Per-package brief consumed by the execution agent; replaces ambient host CLAUDE.md for executor context.",
+      "encodingFormat": "text/markdown",
+      "name": "Executor agent task brief"
+    },
+    {
       "@id": "policies/",
       "@type": "Dataset",
       "name": "Discovery and scoring policies"
@@ -169,6 +251,83 @@
       "@type": "File",
       "encodingFormat": "application/jsonl",
       "name": "Execution provenance log"
+    },
+    {
+      "@id": "runtime/intake-conversation.jsonl",
+      "@type": "CreativeWork",
+      "description": "Compile-time intake conversation turns captured for ECAA replay.",
+      "encodingFormat": "application/jsonl",
+      "name": "SME intake conversation log"
+    },
+    {
+      "@id": "runtime/decisions.jsonl",
+      "@type": "CreativeWork",
+      "description": "Compile-time decision records captured for ECAA replay.",
+      "encodingFormat": "application/jsonl",
+      "name": "SME decision log"
+    },
+    {
+      "@id": "runtime/proofs.jsonl",
+      "@type": "CreativeWork",
+      "description": "Per-edge ECAA evidence records mirroring WORKFLOW.json dependencies.",
+      "encodingFormat": "application/jsonl",
+      "name": "Compatibility proofs"
+    },
+    {
+      "@id": "runtime/claim-verification.json",
+      "@type": "CreativeWork",
+      "description": "Emit-time claim verification rollup.",
+      "encodingFormat": "application/json",
+      "name": "Deterministic claim verification report"
+    },
+    {
+      "@id": "runtime/verifier-decisions.jsonl",
+      "@type": "CreativeWork",
+      "description": "Typed verifier-decision event log.",
+      "encodingFormat": "application/jsonl",
+      "name": "Verifier decision substrate"
+    },
+    {
+      "@id": "runtime/assumptions.jsonl",
+      "@type": "CreativeWork",
+      "description": "ECAA failure/assumption ledger.",
+      "encodingFormat": "application/jsonl",
+      "name": "Assumption ledger"
+    },
+    {
+      "@id": "runtime/validation-reports.jsonl",
+      "@type": "CreativeWork",
+      "description": "Harness validation report stream.",
+      "encodingFormat": "application/jsonl",
+      "name": "Validation reports"
+    },
+    {
+      "@id": "runtime/determinism-shim.json",
+      "@type": "CreativeWork",
+      "description": "Active deterministic environment, seed, temp-path, locale, and timezone disclosure.",
+      "encodingFormat": "application/json",
+      "name": "Determinism shim"
+    },
+    {
+      "@id": "runtime/security-policy.json",
+      "@type": "CreativeWork",
+      "description": "Package-level SafetyPolicy aggregate and container digest disclosure.",
+      "encodingFormat": "application/json",
+      "name": "Package security policy"
+    },
+    {
+      "@id": "runtime/audit-proof-report.json",
+      "@type": "CreativeWork",
+      "description": "ECAA audit-proof invariant verdicts.",
+      "encodingFormat": "application/json",
+      "name": "Audit-proof invariant report"
+    },
+    {
+      "@id": "runtime/validation-summary.json",
+      "@type": "CreativeWork",
+      "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
+      "encodingFormat": "application/json",
+      "name": "ECAA emit-time validation summary"
     },
     {
       "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",
@@ -189,130 +348,254 @@
       "name": "Saccharomyces cerevisiae"
     },
     {
-      "@id": "#step-discover_protein_quantification",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for protein_quantification (options: maxlfq, irs_normalization, spectronaut_directlfq). Surface set_intake_method.",
-      "position": 1
-    },
-    {
-      "@id": "#step-discover_peptide_search",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for peptide_search (options: maxquant, fragpipe, spectronaut, dia_nn, msfragger). Surface set_intake_method.",
-      "position": 2
-    },
-    {
-      "@id": "#step-discover_pathway_enrichment",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
-      "position": 3
-    },
-    {
-      "@id": "#step-discover_differential_expression",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
-      "position": 4
-    },
-    {
       "@id": "#step-data_acquisition",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 5
+      "position": 1
     },
     {
       "@id": "#step-validate_data_acquisition",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "position": 2
+    },
+    {
+      "@id": "#step-survey_method_landscape",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "position": 3
+    },
+    {
+      "@id": "#step-discover_protein_quantification",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for protein_quantification (options: maxlfq, irs_normalization, spectronaut_directlfq). Surface set_intake_method.",
+      "position": 4
+    },
+    {
+      "@id": "#step-discover_peptide_search",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for peptide_search (options: maxquant, fragpipe, spectronaut, dia_nn, msfragger). Surface set_intake_method.",
+      "position": 5
+    },
+    {
+      "@id": "#step-discover_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
       "position": 6
+    },
+    {
+      "@id": "#step-discover_differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+      "position": 7
     },
     {
       "@id": "#step-peptide_search",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Match MS/MS spectra against a protein database to identify peptides.\nMaxQuant / FragPipe / Spectronaut / DIA-NN selected at runtime by\nacquisition mode (DDA / DIA).\n",
-      "position": 7
+      "position": 8
     },
     {
       "@id": "#step-validate_peptide_search",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Match MS/MS spectra against a protein database to identify peptides.\nMaxQuant / FragPipe / Spectronaut / DIA-NN selected at runtime by\nacquisition mode (DDA / DIA).\n",
-      "position": 8
+      "position": 9
     },
     {
       "@id": "#step-protein_quantification",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Quantify protein abundance from peptide-spectrum matches. LFQ / TMT / SILAC /\niBAQ strategies; MaxLFQ / IRS-corrected TMT / Spectronaut directLFQ\nselected at runtime by labeling chemistry.\n",
-      "position": 9
+      "position": 10
     },
     {
       "@id": "#step-validate_protein_quantification",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Quantify protein abundance from peptide-spectrum matches. LFQ / TMT / SILAC /\niBAQ strategies; MaxLFQ / IRS-corrected TMT / Spectronaut directLFQ\nselected at runtime by labeling chemistry.\n",
-      "position": 10
+      "position": 11
     },
     {
       "@id": "#step-differential_expression",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
-      "position": 11
+      "position": 12
     },
     {
       "@id": "#step-validate_differential_expression",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
-      "position": 12
+      "position": 13
     },
     {
       "@id": "#step-pathway_enrichment",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
-      "position": 13
+      "position": 14
     },
     {
       "@id": "#step-validate_pathway_enrichment",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
-      "position": 14
+      "position": 15
     },
     {
       "@id": "#step-reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 15
+      "position": 16
     },
     {
       "@id": "#step-validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 16
+      "position": 17
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 17
+      "position": 18
     },
     {
       "@id": "#step-validate_final_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 18
+      "position": 19
+    },
+    {
+      "@id": "runtime/outputs/data_acquisition/figures/samples_per_study.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'samples_per_study' produced by stage 'data_acquisition' via runtime/plotting/stages/data_acquisition.py.",
+      "encodingFormat": "image/png",
+      "name": "data_acquisition — samples_per_study",
+      "schema:about": {
+        "@id": "#step-data_acquisition"
+      }
+    },
+    {
+      "@id": "runtime/outputs/differential_expression/figures/volcano.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'volcano' produced by stage 'differential_expression' via runtime/plotting/stages/differential_expression.py.",
+      "encodingFormat": "image/png",
+      "name": "differential_expression — volcano",
+      "schema:about": {
+        "@id": "#step-differential_expression"
+      }
+    },
+    {
+      "@id": "runtime/outputs/differential_expression/figures/top_features_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'top_features_heatmap' produced by stage 'differential_expression' via runtime/plotting/stages/differential_expression.py.",
+      "encodingFormat": "image/png",
+      "name": "differential_expression — top_features_heatmap",
+      "schema:about": {
+        "@id": "#step-differential_expression"
+      }
+    },
+    {
+      "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'summary_dashboard' produced by stage 'final_reporting' via runtime/plotting/stages/final_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "final_reporting — summary_dashboard",
+      "schema:about": {
+        "@id": "#step-final_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'top_enriched_terms' produced by stage 'pathway_enrichment' via runtime/plotting/stages/pathway_enrichment.py.",
+      "encodingFormat": "image/png",
+      "name": "pathway_enrichment — top_enriched_terms",
+      "schema:about": {
+        "@id": "#step-pathway_enrichment"
+      }
+    },
+    {
+      "@id": "runtime/outputs/protein_quantification/figures/peptide_coverage.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'peptide_coverage' produced by stage 'protein_quantification' via runtime/plotting/stages/protein_quantification.py.",
+      "encodingFormat": "image/png",
+      "name": "protein_quantification — peptide_coverage",
+      "schema:about": {
+        "@id": "#step-protein_quantification"
+      }
+    },
+    {
+      "@id": "runtime/outputs/protein_quantification/figures/ridgeline.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'ridgeline' produced by stage 'protein_quantification' via runtime/plotting/stages/protein_quantification.py.",
+      "encodingFormat": "image/png",
+      "name": "protein_quantification — ridgeline",
+      "schema:about": {
+        "@id": "#step-protein_quantification"
+      }
+    },
+    {
+      "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "reporting — concordance_heatmap",
+      "schema:about": {
+        "@id": "#step-reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/reporting/figures/pathway_overlap_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "reporting — pathway_overlap_bar",
+      "schema:about": {
+        "@id": "#step-reporting"
+      }
     },
     {
       "@id": "#p-plan/workflow-60af1323f173",
@@ -341,6 +624,46 @@
       },
       "targetParameter": {
         "@id": "#step-differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_peptide_search",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_peptide_search#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_protein_quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_protein_quantification#input"
       }
     },
     {
@@ -431,6 +754,16 @@
       },
       "targetParameter": {
         "@id": "#step-reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/data_acquisition__to__survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-survey_method_landscape#input"
       }
     },
     {

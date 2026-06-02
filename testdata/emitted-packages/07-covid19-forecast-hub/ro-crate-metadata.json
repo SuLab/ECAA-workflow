@@ -15,6 +15,9 @@
           "@id": "https://w3id.org/ro/crate/1.1"
         },
         {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
           "@id": "https://w3id.org/ro/wfrun/process/0.5"
         },
         {
@@ -22,6 +25,9 @@
         },
         {
           "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.1"
         }
       ]
     },
@@ -41,14 +47,68 @@
           "@id": "CONTEXT.md"
         },
         {
+          "@id": "AGENT-EXECUTOR.md"
+        },
+        {
           "@id": "policies/"
+        },
+        {
+          "@id": "runtime/LOG.jsonl"
+        },
+        {
+          "@id": "runtime/intake-conversation.jsonl"
+        },
+        {
+          "@id": "runtime/decisions.jsonl"
+        },
+        {
+          "@id": "runtime/proofs.jsonl"
+        },
+        {
+          "@id": "runtime/claim-verification.json"
+        },
+        {
+          "@id": "runtime/verifier-decisions.jsonl"
+        },
+        {
+          "@id": "runtime/assumptions.jsonl"
+        },
+        {
+          "@id": "runtime/validation-reports.jsonl"
+        },
+        {
+          "@id": "runtime/determinism-shim.json"
+        },
+        {
+          "@id": "runtime/security-policy.json"
+        },
+        {
+          "@id": "runtime/audit-proof-report.json"
+        },
+        {
+          "@id": "runtime/validation-summary.json"
+        },
+        {
+          "@id": "runtime/outputs/data_import/figures/samples_per_study.png"
+        },
+        {
+          "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png"
+        },
+        {
+          "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/reporting/figures/pathway_overlap_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/time_series_forecast_evaluate/figures/forecast_ribbon.png"
         }
       ],
       "license": "https://www.apache.org/licenses/LICENSE-2.0",
       "mainEntity": {
         "@id": "WORKFLOW.json"
       },
-      "name": "computational biology — EHR clinical-prediction analysis: derive labels from raw EHR tables\n(e.g., Sepsis-3 onset via the mimic-code derived table), extract\nwindowed vital-sign / lab features with a mandatory leakage audit,\nfit one or more model families (gradient-boosted trees plus a\nsequence model), then audit calibration, fairness, and external\ngeneralization on a separate holdout cohort. The archetype models\nthe canonical YAIB-style EHR-prediction pipeline (van de Water 2024\nICLR); concrete model and label choices stay method-neutral.\n"
+      "name": "computational biology — Time-series analysis and forecasting. Standard pipeline: import the\ntime-series panel, exploratory decomposition + stationarity diagnostics,\nfit the SME-named model family (ARIMA / state-space / neural), produce\npoint forecasts + prediction intervals, and evaluate against a held-out\nwindow.\n"
     },
     {
       "@id": "WORKFLOW.json",
@@ -57,14 +117,14 @@
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
-        "@id": "https://edamontology.org/topic:3325"
+        "@id": "https://edamontology.org/topic_3392"
       },
       "conformsTo": {
         "@id": "https://bioschemas.org/profiles/ComputationalWorkflow/1.0-RELEASE"
       },
       "encodingFormat": "application/json",
       "featureList": {
-        "@id": "https://edamontology.org/operation:2945"
+        "@id": "https://edamontology.org/operation_2945"
       },
       "name": "workflow-ca268c8fba9b DAG",
       "programmingLanguage": {
@@ -75,55 +135,28 @@
       },
       "step": [
         {
-          "@id": "#step-discover_predictive_model_fit"
-        },
-        {
-          "@id": "#step-discover_fairness_audit"
-        },
-        {
-          "@id": "#step-discover_external_validation"
-        },
-        {
-          "@id": "#step-discover_clinical_label_derivation"
-        },
-        {
-          "@id": "#step-discover_clinical_feature_extraction"
-        },
-        {
-          "@id": "#step-discover_calibration_audit"
-        },
-        {
           "@id": "#step-data_import"
         },
         {
           "@id": "#step-validate_data_import"
         },
         {
-          "@id": "#step-clinical_label_derivation"
+          "@id": "#step-time_series_decompose"
         },
         {
-          "@id": "#step-validate_clinical_label_derivation"
+          "@id": "#step-validate_time_series_decompose"
         },
         {
-          "@id": "#step-clinical_feature_extraction"
+          "@id": "#step-time_series_model_fit"
         },
         {
-          "@id": "#step-validate_clinical_feature_extraction"
+          "@id": "#step-validate_time_series_model_fit"
         },
         {
-          "@id": "#step-predictive_model_fit"
+          "@id": "#step-time_series_forecast_evaluate"
         },
         {
-          "@id": "#step-validate_predictive_model_fit"
-        },
-        {
-          "@id": "#step-fairness_audit"
-        },
-        {
-          "@id": "#step-external_validation"
-        },
-        {
-          "@id": "#step-calibration_audit"
+          "@id": "#step-validate_time_series_forecast_evaluate"
         },
         {
           "@id": "#step-reporting"
@@ -169,6 +202,13 @@
       "name": "Workflow Context"
     },
     {
+      "@id": "AGENT-EXECUTOR.md",
+      "@type": "CreativeWork",
+      "description": "Per-package brief consumed by the execution agent; replaces ambient host CLAUDE.md for executor context.",
+      "encodingFormat": "text/markdown",
+      "name": "Executor agent task brief"
+    },
+    {
       "@id": "policies/",
       "@type": "Dataset",
       "name": "Discovery and scoring policies"
@@ -180,151 +220,230 @@
       "name": "Execution provenance log"
     },
     {
-      "@id": "#step-discover_predictive_model_fit",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for predictive_model_fit (options: xgboost, lightgbm, lstm, tcn, transformer). Surface set_intake_method.",
-      "position": 1
+      "@id": "runtime/intake-conversation.jsonl",
+      "@type": "CreativeWork",
+      "description": "Compile-time intake conversation turns captured for ECAA replay.",
+      "encodingFormat": "application/jsonl",
+      "name": "SME intake conversation log"
     },
     {
-      "@id": "#step-discover_fairness_audit",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for fairness_audit (options: fairlearn, aequitas, custom_subgroup_bootstrap). Surface set_intake_method.",
-      "position": 2
+      "@id": "runtime/decisions.jsonl",
+      "@type": "CreativeWork",
+      "description": "Compile-time decision records captured for ECAA replay.",
+      "encodingFormat": "application/jsonl",
+      "name": "SME decision log"
     },
     {
-      "@id": "#step-discover_external_validation",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for external_validation (options: sklearn_metrics, custom_external_scorer). Surface set_intake_method.",
-      "position": 3
+      "@id": "runtime/proofs.jsonl",
+      "@type": "CreativeWork",
+      "description": "Per-edge ECAA evidence records mirroring WORKFLOW.json dependencies.",
+      "encodingFormat": "application/jsonl",
+      "name": "Compatibility proofs"
     },
     {
-      "@id": "#step-discover_clinical_label_derivation",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for clinical_label_derivation (options: mimic_code_sepsis3, eicu_helpers, custom_sql_concepts). Surface set_intake_method.",
-      "position": 4
+      "@id": "runtime/claim-verification.json",
+      "@type": "CreativeWork",
+      "description": "Emit-time claim verification rollup.",
+      "encodingFormat": "application/json",
+      "name": "Deterministic claim verification report"
     },
     {
-      "@id": "#step-discover_clinical_feature_extraction",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for clinical_feature_extraction (options: mimic_extract, concepts_library, fiddle, custom_window_aggregator). Surface set_intake_method.",
-      "position": 5
+      "@id": "runtime/verifier-decisions.jsonl",
+      "@type": "CreativeWork",
+      "description": "Typed verifier-decision event log.",
+      "encodingFormat": "application/jsonl",
+      "name": "Verifier decision substrate"
     },
     {
-      "@id": "#step-discover_calibration_audit",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for calibration_audit (options: sklearn_calibration_curve, netcal, custom_platt, custom_isotonic). Surface set_intake_method.",
-      "position": 6
+      "@id": "runtime/assumptions.jsonl",
+      "@type": "CreativeWork",
+      "description": "ECAA failure/assumption ledger.",
+      "encodingFormat": "application/jsonl",
+      "name": "Assumption ledger"
+    },
+    {
+      "@id": "runtime/validation-reports.jsonl",
+      "@type": "CreativeWork",
+      "description": "Harness validation report stream.",
+      "encodingFormat": "application/jsonl",
+      "name": "Validation reports"
+    },
+    {
+      "@id": "runtime/determinism-shim.json",
+      "@type": "CreativeWork",
+      "description": "Active deterministic environment, seed, temp-path, locale, and timezone disclosure.",
+      "encodingFormat": "application/json",
+      "name": "Determinism shim"
+    },
+    {
+      "@id": "runtime/security-policy.json",
+      "@type": "CreativeWork",
+      "description": "Package-level SafetyPolicy aggregate and container digest disclosure.",
+      "encodingFormat": "application/json",
+      "name": "Package security policy"
+    },
+    {
+      "@id": "runtime/audit-proof-report.json",
+      "@type": "CreativeWork",
+      "description": "ECAA audit-proof invariant verdicts.",
+      "encodingFormat": "application/json",
+      "name": "Audit-proof invariant report"
+    },
+    {
+      "@id": "runtime/validation-summary.json",
+      "@type": "CreativeWork",
+      "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
+      "encodingFormat": "application/json",
+      "name": "ECAA emit-time validation summary"
     },
     {
       "@id": "#step-data_import",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
-      "position": 7
+      "position": 1
     },
     {
       "@id": "#step-validate_data_import",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
+      "position": 2
+    },
+    {
+      "@id": "#step-time_series_decompose",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
+      "position": 3
+    },
+    {
+      "@id": "#step-validate_time_series_decompose",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
+      "position": 4
+    },
+    {
+      "@id": "#step-time_series_model_fit",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
+      "position": 5
+    },
+    {
+      "@id": "#step-validate_time_series_model_fit",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
+      "position": 6
+    },
+    {
+      "@id": "#step-time_series_forecast_evaluate",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
+      "position": 7
+    },
+    {
+      "@id": "#step-validate_time_series_forecast_evaluate",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
       "position": 8
-    },
-    {
-      "@id": "#step-clinical_label_derivation",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Derive ground-truth labels (e.g., Sepsis-3 onset, hospital mortality,\nAKI stage) from raw EHR tables. Canonical derivations come from\ncommunity-maintained code (e.g., mimic-code `sepsis3` table, eICU\nhelpers); ICD-only labels are a known failure mode and must be\nrejected by the agent's runtime check. Emits a labeled cohort\ntable with one row per (patient, encounter, prediction window)\nand the derived outcome columns + onset timestamps.\n",
-      "position": 9
-    },
-    {
-      "@id": "#step-validate_clinical_label_derivation",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Derive ground-truth labels (e.g., Sepsis-3 onset, hospital mortality,\nAKI stage) from raw EHR tables. Canonical derivations come from\ncommunity-maintained code (e.g., mimic-code `sepsis3` table, eICU\nhelpers); ICD-only labels are a known failure mode and must be\nrejected by the agent's runtime check. Emits a labeled cohort\ntable with one row per (patient, encounter, prediction window)\nand the derived outcome columns + onset timestamps.\n",
-      "position": 10
-    },
-    {
-      "@id": "#step-clinical_feature_extraction",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Windowed vital-sign / lab / treatment feature extraction for clinical\nprediction. Builds a per-(patient, prediction-window) feature matrix\nfrom labeled-cohort timestamps, optionally aggregated through standard\nEHR feature frameworks (MIMIC-Extract, concepts library, FIDDLE).\nRuns a mandatory leakage audit that asserts no feature window overlaps\nthe label-derivation window (e.g., the Sepsis-3 SOFA + suspected\ninfection window); the audit emits a per-feature `crosses_label_window`\nflag and refuses to emit features that cross the boundary.\n",
-      "position": 11
-    },
-    {
-      "@id": "#step-validate_clinical_feature_extraction",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Windowed vital-sign / lab / treatment feature extraction for clinical\nprediction. Builds a per-(patient, prediction-window) feature matrix\nfrom labeled-cohort timestamps, optionally aggregated through standard\nEHR feature frameworks (MIMIC-Extract, concepts library, FIDDLE).\nRuns a mandatory leakage audit that asserts no feature window overlaps\nthe label-derivation window (e.g., the Sepsis-3 SOFA + suspected\ninfection window); the audit emits a per-feature `crosses_label_window`\nflag and refuses to emit features that cross the boundary.\n",
-      "position": 12
-    },
-    {
-      "@id": "#step-predictive_model_fit",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Fit one or more clinical-prediction model families against the\nwindowed feature matrix. Method-neutral: the agent picks the model\nfamily from the SME-named candidate list (typically gradient-boosted\ntrees — XGBoost / LightGBM — plus a sequence model — LSTM / TCN /\nTransformer) at runtime. Emits trained-model artifacts and per-row\npredicted probabilities on an internal validation split; cross-\nvalidation and hyperparameter-search logs are committed to the\nfitting report.\n",
-      "position": 13
-    },
-    {
-      "@id": "#step-validate_predictive_model_fit",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Fit one or more clinical-prediction model families against the\nwindowed feature matrix. Method-neutral: the agent picks the model\nfamily from the SME-named candidate list (typically gradient-boosted\ntrees — XGBoost / LightGBM — plus a sequence model — LSTM / TCN /\nTransformer) at runtime. Emits trained-model artifacts and per-row\npredicted probabilities on an internal validation split; cross-\nvalidation and hyperparameter-search logs are committed to the\nfitting report.\n",
-      "position": 14
-    },
-    {
-      "@id": "#step-fairness_audit",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Audit subgroup performance differentials for a fitted clinical\nprediction model. Computes AUROC, AUPRC, sensitivity, specificity,\nand calibration metrics per stratification axis (typically age,\nsex, race/ethnicity, hospital-of-origin) plus pairwise subgroup\ndifferentials with bootstrap confidence intervals. Emits a\nfairness report and a SME-facing pass/fail per configured\ndifferential thresholds. Subgroup membership comes from the\nlabeled-cohort sensitive-attribute columns; absent stratifiers\nsurface as a configurable blocker rather than silently dropping\nthe axis.\n",
-      "position": 15
-    },
-    {
-      "@id": "#step-external_validation",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Re-evaluate a trained predictive model on a holdout external cohort\n(e.g., eICU-CRD when the model was trained on MIMIC-IV). Repeats\nlabel derivation, feature extraction, and prediction generation\nusing the SAME pipeline contracts as the internal pass, then scores\nthe model's predictions against the external cohort's labels.\nEmits AUROC, AUPRC, calibration, fairness metrics plus a transport\ndiagnostic (feature-distribution shift, label-prevalence shift)\nso SMEs see whether degradation is statistical drop or distribution\nshift. External AUROC is expected to drop 0.05-0.15 relative to\ninternal validation; this is not interpreted as model failure\nabsent other signals.\n",
-      "position": 16
-    },
-    {
-      "@id": "#step-calibration_audit",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Audit the calibration of a fitted predictive model on the internal\nvalidation predictions. Emits the Brier score, the reliability curve\n(binned predicted vs observed), expected and maximum calibration\nerror (ECE / MCE), and a SME-facing pass/fail per a configured\nBrier threshold (e.g., Brier ≤ 0.10 for binary clinical prediction).\nRecommends a calibration method (Platt / isotonic / temperature\nscaling) only when the audit fails the threshold; recommendation\nis advisory — calibration retraining is gated by SME approval.\n",
-      "position": 17
     },
     {
       "@id": "#step-reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 18
+      "position": 9
     },
     {
       "@id": "#step-validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 19
+      "position": 10
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 20
+      "position": 11
     },
     {
       "@id": "#step-validate_final_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 21
+      "position": 12
+    },
+    {
+      "@id": "runtime/outputs/data_import/figures/samples_per_study.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'samples_per_study' produced by stage 'data_import' via runtime/plotting/stages/data_import.py.",
+      "encodingFormat": "image/png",
+      "name": "data_import — samples_per_study",
+      "schema:about": {
+        "@id": "#step-data_import"
+      }
+    },
+    {
+      "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'summary_dashboard' produced by stage 'final_reporting' via runtime/plotting/stages/final_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "final_reporting — summary_dashboard",
+      "schema:about": {
+        "@id": "#step-final_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "reporting — concordance_heatmap",
+      "schema:about": {
+        "@id": "#step-reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/reporting/figures/pathway_overlap_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "reporting — pathway_overlap_bar",
+      "schema:about": {
+        "@id": "#step-reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/time_series_forecast_evaluate/figures/forecast_ribbon.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'forecast_ribbon' produced by stage 'time_series_forecast_evaluate' via runtime/plotting/stages/time_series_forecast_evaluate.py.",
+      "encodingFormat": "image/png",
+      "name": "time_series_forecast_evaluate — forecast_ribbon",
+      "schema:about": {
+        "@id": "#step-time_series_forecast_evaluate"
+      }
     },
     {
       "@id": "#p-plan/workflow-ca268c8fba9b",
@@ -332,108 +451,8 @@
         "Plan",
         "p-plan:Plan"
       ],
-      "matchedArchetype": "ehr_clinical_prediction",
-      "rationale": "Composed for modality `ehr_clinical_prediction` (domain `computational biology`)."
-    },
-    {
-      "@id": "#parameter-connection/discover_calibration_audit__to__calibration_audit",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-discover_calibration_audit#output"
-      },
-      "targetParameter": {
-        "@id": "#step-calibration_audit#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/predictive_model_fit__to__calibration_audit",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-predictive_model_fit#output"
-      },
-      "targetParameter": {
-        "@id": "#step-calibration_audit#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/clinical_label_derivation__to__clinical_feature_extraction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-clinical_label_derivation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-clinical_feature_extraction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/discover_clinical_feature_extraction__to__clinical_feature_extraction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-discover_clinical_feature_extraction#output"
-      },
-      "targetParameter": {
-        "@id": "#step-clinical_feature_extraction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/data_import__to__clinical_label_derivation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-data_import#output"
-      },
-      "targetParameter": {
-        "@id": "#step-clinical_label_derivation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/discover_clinical_label_derivation__to__clinical_label_derivation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-discover_clinical_label_derivation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-clinical_label_derivation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/discover_external_validation__to__external_validation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-discover_external_validation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-external_validation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/predictive_model_fit__to__external_validation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-predictive_model_fit#output"
-      },
-      "targetParameter": {
-        "@id": "#step-external_validation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/discover_fairness_audit__to__fairness_audit",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-discover_fairness_audit#output"
-      },
-      "targetParameter": {
-        "@id": "#step-fairness_audit#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/predictive_model_fit__to__fairness_audit",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-predictive_model_fit#output"
-      },
-      "targetParameter": {
-        "@id": "#step-fairness_audit#input"
-      }
+      "matchedArchetype": "time_series_forecast",
+      "rationale": "Composed for modality `time_series_forecast` (domain `computational biology`)."
     },
     {
       "@id": "#parameter-connection/reporting__to__final_reporting",
@@ -446,73 +465,43 @@
       }
     },
     {
-      "@id": "#parameter-connection/clinical_feature_extraction__to__predictive_model_fit",
+      "@id": "#parameter-connection/time_series_forecast_evaluate__to__reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-clinical_feature_extraction#output"
-      },
-      "targetParameter": {
-        "@id": "#step-predictive_model_fit#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/discover_predictive_model_fit__to__predictive_model_fit",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-discover_predictive_model_fit#output"
-      },
-      "targetParameter": {
-        "@id": "#step-predictive_model_fit#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/calibration_audit__to__reporting",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-calibration_audit#output"
+        "@id": "#step-time_series_forecast_evaluate#output"
       },
       "targetParameter": {
         "@id": "#step-reporting#input"
       }
     },
     {
-      "@id": "#parameter-connection/external_validation__to__reporting",
+      "@id": "#parameter-connection/data_import__to__time_series_decompose",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-external_validation#output"
+        "@id": "#step-data_import#output"
       },
       "targetParameter": {
-        "@id": "#step-reporting#input"
+        "@id": "#step-time_series_decompose#input"
       }
     },
     {
-      "@id": "#parameter-connection/fairness_audit__to__reporting",
+      "@id": "#parameter-connection/time_series_model_fit__to__time_series_forecast_evaluate",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-fairness_audit#output"
+        "@id": "#step-time_series_model_fit#output"
       },
       "targetParameter": {
-        "@id": "#step-reporting#input"
+        "@id": "#step-time_series_forecast_evaluate#input"
       }
     },
     {
-      "@id": "#parameter-connection/clinical_feature_extraction__to__validate_clinical_feature_extraction",
+      "@id": "#parameter-connection/time_series_decompose__to__time_series_model_fit",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-clinical_feature_extraction#output"
+        "@id": "#step-time_series_decompose#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_clinical_feature_extraction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/clinical_label_derivation__to__validate_clinical_label_derivation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-clinical_label_derivation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-validate_clinical_label_derivation#input"
+        "@id": "#step-time_series_model_fit#input"
       }
     },
     {
@@ -536,16 +525,6 @@
       }
     },
     {
-      "@id": "#parameter-connection/predictive_model_fit__to__validate_predictive_model_fit",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-predictive_model_fit#output"
-      },
-      "targetParameter": {
-        "@id": "#step-validate_predictive_model_fit#input"
-      }
-    },
-    {
       "@id": "#parameter-connection/reporting__to__validate_reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -553,6 +532,36 @@
       },
       "targetParameter": {
         "@id": "#step-validate_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/time_series_decompose__to__validate_time_series_decompose",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-time_series_decompose#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_time_series_decompose#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/time_series_forecast_evaluate__to__validate_time_series_forecast_evaluate",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-time_series_forecast_evaluate#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_time_series_forecast_evaluate#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/time_series_model_fit__to__validate_time_series_model_fit",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-time_series_model_fit#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_time_series_model_fit#input"
       }
     }
   ]

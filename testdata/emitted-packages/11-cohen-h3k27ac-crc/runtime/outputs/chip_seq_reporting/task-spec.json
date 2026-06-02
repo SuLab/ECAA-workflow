@@ -1,0 +1,39 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "chip_seq_contextualize_findings_with_literature",
+    "chip_seq_motif_enrichment",
+    "chip_seq_peak_annotation",
+    "chip_seq_peak_calling"
+  ],
+  "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "reporting",
+  "spec": {
+    "expected_artifacts": [
+      "report.md",
+      "manifest.json",
+      "result.json"
+    ],
+    "required_figures": [
+      "concordance_heatmap",
+      "pathway_overlap_bar"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "chip_seq_reporting"
+}

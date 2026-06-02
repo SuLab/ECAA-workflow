@@ -1,5 +1,5 @@
 {
-  "modality": "ehr_clinical_prediction",
+  "modality": "time_series_forecast",
   "project_class": "bioinformatics",
   "methods": [],
   "literature_review_requested": false

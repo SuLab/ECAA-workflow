@@ -32,6 +32,14 @@
       "R-HSA-\\d+",
       "K\\d{5}"
     ],
+    "entityNameExcludePatterns": [
+      "^USA$", "^WHO$", "^CDC$", "^BBC$", "^EU$", "^US$", "^UK$",
+      "^PCR$", "^QPCR$", "^DNA$", "^RNA$", "^ATP$", "^ADP$", "^AMP$",
+      "^NGS$", "^ELISA$", "^SDS$", "^PAGE$", "^BSA$", "^HRP$",
+      "^FDA$", "^EMA$", "^ISO$", "^GMP$",
+      "^MS$", "^MS2$", "^MS3$",
+      "^IVD$", "^IVT$"
+    ],
     "directionVocab": {
       "up": [
         "upregulated",
@@ -43,7 +51,9 @@
         "higher",
         "hyperphosphorylated",
         "hyperacetylated",
-        "stabilized"
+        "stabilized",
+        "ubiquitinated",
+        "activated"
       ],
       "down": [
         "downregulated",
@@ -55,7 +65,10 @@
         "lower",
         "hypophosphorylated",
         "hypoacetylated",
-        "destabilized"
+        "destabilized",
+        "deubiquitinated",
+        "repressed",
+        "inhibited"
       ]
     },
     "effectSizeColumns": [

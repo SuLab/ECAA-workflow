@@ -1,0 +1,30 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "single_cell_rnaseq_survey_method_landscape"
+  ],
+  "description": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+  "kind": {
+    "discovery": "best_practice"
+  },
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "discover_differential_expression",
+  "spec": {
+    "stage_class": "differential_expression"
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "single_cell_rnaseq_discover_differential_expression"
+}

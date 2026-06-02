@@ -1,0 +1,26 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "single_cell_vdj_vdj_reconstruction"
+  ],
+  "description": "Validate outputs of: Reconstruct productive T-cell-receptor (TRA/TRB) or B-cell-receptor\n(IGH/IGK/IGL) contig pairs per cell from single-cell V(D)J library\nreads. Cell Ranger V(D)J / BD Rhapsody V(D)J / MiXCR-single-cell /\nImmcantation at runtime. Output is a per-cell receptor-chain\nassignment table (productive only by default).\n",
+  "kind": "validation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "validate_vdj_reconstruction",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "single_cell_vdj_validate_vdj_reconstruction"
+}

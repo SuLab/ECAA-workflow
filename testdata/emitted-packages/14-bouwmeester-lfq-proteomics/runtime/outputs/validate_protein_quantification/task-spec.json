@@ -1,0 +1,26 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "protein_quantification"
+  ],
+  "description": "Validate outputs of: Quantify protein abundance from peptide-spectrum matches. LFQ / TMT / SILAC /\niBAQ strategies; MaxLFQ / IRS-corrected TMT / Spectronaut directLFQ\nselected at runtime by labeling chemistry.\n",
+  "kind": "validation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "validate_protein_quantification",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "validate_protein_quantification"
+}

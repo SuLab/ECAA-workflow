@@ -1,0 +1,39 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "discover_protein_quantification",
+    "peptide_search"
+  ],
+  "description": "Quantify protein abundance from peptide-spectrum matches. LFQ / TMT / SILAC /\niBAQ strategies; MaxLFQ / IRS-corrected TMT / Spectronaut directLFQ\nselected at runtime by labeling chemistry.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "protein_quantification",
+  "spec": {
+    "expected_artifacts": [
+      "protein_abundance.tsv",
+      "peptide_coverage.tsv",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "quantification",
+    "required_figures": [
+      "peptide_coverage",
+      "ridgeline"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "protein_quantification"
+}

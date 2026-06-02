@@ -1,0 +1,38 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "bulk_rnaseq_differential_expression",
+    "bulk_rnaseq_discover_pathway_enrichment"
+  ],
+  "description": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "pathway_enrichment",
+  "spec": {
+    "expected_artifacts": [
+      "pathway_results.tsv",
+      "pathway_summary.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "bulk_rnaseq_biological_interpretation",
+    "required_figures": [
+      "top_enriched_terms"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "bulk_rnaseq_pathway_enrichment"
+}

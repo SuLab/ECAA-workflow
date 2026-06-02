@@ -1,0 +1,36 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "spatial_domain_segmentation"
+  ],
+  "description": "Identify genes whose expression varies systematically across spatial\ncoordinates beyond what cell-type abundance alone explains. Methods:\nMoran's I, SpatialDE, SOMDE, Spark-X. Emits a ranked table of genes\nwith spatial-variability statistic + adjusted p-value. ecaax:spatially_\nvariable_genes — extends EDAM operation:3223 (DE) into the spatial\naxis the upstream ontology doesn't model.\n",
+  "kind": "computation",
+  "resource_class": "memory_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "spatially_variable_genes",
+  "spec": {
+    "expected_artifacts": [
+      "spatially_variable_genes.tsv",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "spatial_clustering",
+    "required_figures": [
+      "morans_i_scatter"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "spatially_variable_genes"
+}

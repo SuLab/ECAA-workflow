@@ -1,0 +1,39 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "bulk_rnaseq_quantification"
+  ],
+  "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "qc_preprocessing",
+  "spec": {
+    "expected_artifacts": [
+      "qc_summary.json",
+      "filtered_cells_index.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "bulk_rnaseq_quality_control",
+    "required_figures": [
+      "per_sample_metric_violin",
+      "per_sample_metric_bar",
+      "qc_summary_bar"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "bulk_rnaseq_qc_preprocessing"
+}

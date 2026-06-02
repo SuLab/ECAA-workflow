@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1",
+  "ecaa_version": "0.1",
+  "min_reader_version": "0.1",
+  "package_iri": "ro-crate-metadata.json",
+  "evaluated_at": "2026-06-02T00:44:22.804564238+00:00",
+  "evaluator": {
+    "impl": "ecaa-workflow-audit-proof",
+    "version": "0.1.0",
+    "policy": "warn-only"
+  },
+  "verdicts": [
+    {
+      "id": "claim_completeness",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "decision_justification",
+      "status": "unverified",
+      "detail": "no method-choice decisions present",
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "evidence_coverage",
+      "status": "warn",
+      "detail": "32 output(s) not referenced and not marked unused: workflow:discover_cell_type_annotation, workflow:spatial_domain_segmentation, workflow:cell_type_annotation, workflow:discover_differential_expression, workflow:spatially_variable_genes, workflow:discover_dimensionality_reduction, workflow:normalisation, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:reporting, workflow:discover_normalisation, workflow:qc_preprocessing, workflow:data_acquisition, workflow:differential_expression, workflow:dimensionality_reduction, workflow:discover_spatial_clustering_method, workflow:spatial_domain_segmentation, workflow:data_acquisition, workflow:qc_preprocessing, workflow:cell_type_annotation, workflow:data_acquisition, workflow:differential_expression, workflow:dimensionality_reduction, workflow:final_reporting, workflow:normalisation, workflow:qc_preprocessing, workflow:reporting, workflow:spatial_domain_segmentation, workflow:spatially_variable_genes",
+      "n_inspected": 32,
+      "n_violations": 32
+    },
+    {
+      "id": "equivalence_failure",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "cross_graph_integrity",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "substrate_validity",
+      "status": "unverified",
+      "detail": "runcrate not run",
+      "n_inspected": 1,
+      "n_violations": 0
+    }
+  ]
+}

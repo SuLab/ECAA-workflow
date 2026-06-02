@@ -4,11 +4,11 @@
 **Domain:** computational biology
 **Description:** ChIP-seq peak calling + peak-vs-input enrichment. Standard pipeline:
 raw QC, trim, align, call peaks against the matched input control, then
-report. Mirrors today's `config/modalities/chip-seq.yaml` + `config/archetypes/`.
+report.
 
 **EDAM topic:** topic:3169
 **EDAM operation:** operation:3222
-**Confidence:** high (100%)
+**Confidence:** medium (67%)
 
 ## Organisms
 - Homo sapiens (taxon:9606)

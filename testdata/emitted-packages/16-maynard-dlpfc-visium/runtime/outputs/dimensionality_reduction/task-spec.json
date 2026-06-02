@@ -1,0 +1,38 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "discover_dimensionality_reduction",
+    "normalisation"
+  ],
+  "description": "Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "dimensionality_reduction",
+  "spec": {
+    "expected_artifacts": [
+      "pca_loadings.tsv",
+      "umap_coords.tsv",
+      "manifest.json",
+      "result.json"
+    ],
+    "required_figures": [
+      "variance_explained_elbow",
+      "embedding_scatter"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "dimensionality_reduction"
+}

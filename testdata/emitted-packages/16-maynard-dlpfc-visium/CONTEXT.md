@@ -2,12 +2,20 @@
 
 **Modality:** spatial_transcriptomics
 **Domain:** computational biology
-**Description:** Time-series analysis and forecasting. Standard pipeline: import the
-time-series panel, exploratory decomposition + stationarity diagnostics,
-fit the SME-named model family (ARIMA / state-space / neural), produce
-point forecasts + prediction intervals, and evaluate against a held-out
-window. Mirrors today's
-`config/modalities/time-series-forecast.yaml` + `config/archetypes/`.
+**Description:** Spatially-resolved transcriptomics — Visium, Slide-seq, MERFISH, Xenium,
+Stereo-seq. Standard pipeline: acquire platform-tagged data, preprocess,
+cell-level QC, normalise, dimensionality-reduce, segment the section into
+spatial domains (graph-aware clustering — BANKSY / BayesSpace / GraphST),
+discover spatially variable genes per domain (Moran's I / SpatialDE),
+annotate domain cell-type composition, then test for per-domain
+differential expression. Cell-type deconvolution is bundled into the
+`cell_type_annotation` atom.
+
+Spatial-domain segmentation and spatially-variable-gene (SVG) discovery
+are first-class atoms (`spatial_domain_segmentation`,
+`spatially_variable_genes`); the spatial-clustering method is chosen at
+runtime via the auto-synthesized `discover_spatial_clustering_method`
+companion.
 
 **EDAM topic:** topic:3308
 **EDAM operation:** operation:3432

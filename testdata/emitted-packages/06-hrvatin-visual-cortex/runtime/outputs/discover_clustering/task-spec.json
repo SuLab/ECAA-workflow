@@ -1,0 +1,30 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "survey_method_landscape"
+  ],
+  "description": "Discover method for clustering (options: leiden, louvain, kmeans, hierarchical). Surface set_intake_method.",
+  "kind": {
+    "discovery": "best_practice"
+  },
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "discover_clustering",
+  "spec": {
+    "stage_class": "clustering"
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "discover_clustering"
+}

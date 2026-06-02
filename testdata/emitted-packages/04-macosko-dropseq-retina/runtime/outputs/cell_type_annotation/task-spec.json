@@ -1,0 +1,38 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "clustering",
+    "discover_cell_type_annotation"
+  ],
+  "description": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "cell_type_annotation",
+  "spec": {
+    "expected_artifacts": [
+      "celltype_assignments.tsv",
+      "marker_panel_audit.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "required_figures": [
+      "umap_by_celltype",
+      "celltype_size_bar"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "cell_type_annotation"
+}

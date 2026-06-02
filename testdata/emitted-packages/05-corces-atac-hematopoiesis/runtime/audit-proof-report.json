@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1",
+  "ecaa_version": "0.1",
+  "min_reader_version": "0.1",
+  "package_iri": "ro-crate-metadata.json",
+  "evaluated_at": "2026-06-02T00:44:05.788529442+00:00",
+  "evaluator": {
+    "impl": "ecaa-workflow-audit-proof",
+    "version": "0.1.0",
+    "policy": "warn-only"
+  },
+  "verdicts": [
+    {
+      "id": "claim_completeness",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "decision_justification",
+      "status": "unverified",
+      "detail": "no method-choice decisions present",
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "evidence_coverage",
+      "status": "warn",
+      "detail": "9 output(s) not referenced and not marked unused: workflow:reporting, workflow:raw_qc, workflow:data_acquisition, workflow:generic_summary, workflow:data_acquisition, workflow:final_reporting, workflow:generic_summary, workflow:raw_qc, workflow:reporting",
+      "n_inspected": 9,
+      "n_violations": 9
+    },
+    {
+      "id": "equivalence_failure",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "cross_graph_integrity",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "substrate_validity",
+      "status": "unverified",
+      "detail": "runcrate not run",
+      "n_inspected": 1,
+      "n_violations": 0
+    }
+  ]
+}

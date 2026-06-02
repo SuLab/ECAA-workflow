@@ -2,11 +2,13 @@
 
 **Modality:** atac_seq
 **Domain:** computational biology
-**Description:** ATAC-seq accessible-region calling. Standard pipeline: raw QC with
-insert-size distribution check, optional Tn5-aware trimming, alignment
-with soft-clipping, MACS3 BAMPE peak calling (--shift -75 --extsize 150),
-TSS-enrichment validation, and HOMER/MEME motif enrichment on
-accessible-region centers. Mirrors `config/modalities/atac-seq.yaml` + `config/archetypes/`.
+**Description:** Catch-all archetype for off-topic prose that mentions omics data but
+carries no specific modality or goal phrase. Emits the universal
+`raw_qc → generic_summary` pipeline so the SME sees something
+runnable; further analysis steps surface as SME-driven amendments
+rather than auto-emitted. Closes Phase 6.1 task B.2 of the v3+v4
+100-percent-closure plan, retiring the last legacy taxonomy
+fallback for bare-modality prose.
 
 **EDAM topic:** topic:3179
 **EDAM operation:** operation:3222

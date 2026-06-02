@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1",
+  "ecaa_version": "0.1",
+  "min_reader_version": "0.1",
+  "package_iri": "ro-crate-metadata.json",
+  "evaluated_at": "2026-06-02T00:44:33.254977963+00:00",
+  "evaluator": {
+    "impl": "ecaa-workflow-audit-proof",
+    "version": "0.1.0",
+    "policy": "warn-only"
+  },
+  "verdicts": [
+    {
+      "id": "claim_completeness",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "decision_justification",
+      "status": "unverified",
+      "detail": "no method-choice decisions present",
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "evidence_coverage",
+      "status": "warn",
+      "detail": "36 output(s) not referenced and not marked unused: workflow:discover_alignment, workflow:sequence_trimming, workflow:peak_calling, workflow:review_prior_work, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:reporting, workflow:discover_motif_enrichment, workflow:peak_calling, workflow:discover_peak_annotation, workflow:peak_calling, workflow:alignment, workflow:discover_peak_calling, workflow:data_acquisition, workflow:contextualize_findings_with_literature, workflow:motif_enrichment, workflow:peak_annotation, workflow:peak_calling, workflow:discover_sequence_trimming, workflow:raw_qc, workflow:data_acquisition, workflow:raw_qc, workflow:alignment, workflow:contextualize_findings_with_literature, workflow:data_acquisition, workflow:final_reporting, workflow:motif_enrichment, workflow:peak_annotation, workflow:peak_calling, workflow:raw_qc, workflow:reporting, workflow:review_prior_work, workflow:sequence_trimming",
+      "n_inspected": 36,
+      "n_violations": 36
+    },
+    {
+      "id": "equivalence_failure",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "cross_graph_integrity",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "substrate_validity",
+      "status": "unverified",
+      "detail": "runcrate not run",
+      "n_inspected": 1,
+      "n_violations": 0
+    }
+  ]
+}

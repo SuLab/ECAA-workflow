@@ -2,12 +2,7 @@
 
 **Modality:** single_cell_rnaseq
 **Domain:** computational biology
-**Description:** scRNA-seq clustering + differential expression. Standard pipeline:
-preprocess, cell-level QC, normalise, optional batch correction +
-integration sweep, dimensionality reduction, cluster, annotate cell
-types, test cluster-vs-rest or cross-condition DE, then pathway
-enrichment. Mirrors today's `config/modalities/single-cell.yaml` + `config/archetypes/`.
-
+**Description:** 
 **EDAM topic:** topic:3308
 **EDAM operation:** operation:3432
 **Confidence:** high (100%)

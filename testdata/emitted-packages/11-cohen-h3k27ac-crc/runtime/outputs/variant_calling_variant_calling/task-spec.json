@@ -1,0 +1,27 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "variant_calling_alignment",
+    "variant_calling_discover_variant_calling"
+  ],
+  "description": "Call germline or somatic SNVs / indels from aligned reads. HaplotypeCaller /\nDeepVariant / Mutect2 / Strelka2 selected at runtime by experimental design\n(germline cohort vs tumor-normal pair vs tumor-only).\n",
+  "kind": "computation",
+  "resource_class": "memory_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "variant_calling",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "variant_calling_variant_calling"
+}

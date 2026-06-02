@@ -1,0 +1,27 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "data_acquisition",
+    "discover_peptide_search"
+  ],
+  "description": "Match MS/MS spectra against a protein database to identify peptides.\nMaxQuant / FragPipe / Spectronaut / DIA-NN selected at runtime by\nacquisition mode (DDA / DIA).\n",
+  "kind": "computation",
+  "resource_class": "memory_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "peptide_search",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "peptide_search"
+}

@@ -1,0 +1,30 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "atac_seq_survey_method_landscape"
+  ],
+  "description": "Discover method for peak_annotation (options: chipseeker, homer_annotatepeaks, great). Surface set_intake_method.",
+  "kind": {
+    "discovery": "best_practice"
+  },
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "discover_peak_annotation",
+  "spec": {
+    "stage_class": "peak_annotation"
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "atac_seq_discover_peak_annotation"
+}

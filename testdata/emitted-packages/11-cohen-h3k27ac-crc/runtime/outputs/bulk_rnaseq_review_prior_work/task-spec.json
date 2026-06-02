@@ -1,0 +1,32 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [],
+  "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "review_prior_work",
+  "spec": {
+    "expected_artifacts": [
+      "prior_claims_matrix.csv",
+      "literature_search_protocol.md",
+      "citation_verification_report.md",
+      "evidence/manifest.json",
+      "result.json"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "bulk_rnaseq_review_prior_work"
+}

@@ -1,0 +1,36 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "multi_modal_thematic_comparison"
+  ],
+  "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "final_reporting",
+  "spec": {
+    "expected_artifacts": [
+      "final_report.md",
+      "dashboard_index.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "required_figures": [
+      "summary_dashboard"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "final_reporting"
+}

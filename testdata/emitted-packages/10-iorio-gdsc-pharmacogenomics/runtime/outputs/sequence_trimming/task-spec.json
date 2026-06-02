@@ -1,0 +1,37 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "discover_sequence_trimming",
+    "raw_qc"
+  ],
+  "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "sequence_trimming",
+  "spec": {
+    "expected_artifacts": [
+      "retention_summary.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "preprocessing",
+    "required_figures": [
+      "retention_bar"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "sequence_trimming"
+}

@@ -1,0 +1,30 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "survey_method_landscape"
+  ],
+  "description": "Discover method for variant_calling (options: haplotypecaller, deepvariant, mutect2, strelka2, dragen, lofreq). Surface set_intake_method.",
+  "kind": {
+    "discovery": "best_practice"
+  },
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "discover_variant_calling",
+  "spec": {
+    "stage_class": "variant_calling"
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "discover_variant_calling"
+}

@@ -1,0 +1,40 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "discover_motif_enrichment",
+    "peak_calling"
+  ],
+  "description": "Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "motif_enrichment",
+  "spec": {
+    "expected_artifacts": [
+      "enriched_motifs.tsv",
+      "motif_occurrences.tsv",
+      "motif_summary.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "motif_enrichment",
+    "required_figures": [
+      "motif_enrichment_table",
+      "motif_logo_grid"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "motif_enrichment"
+}

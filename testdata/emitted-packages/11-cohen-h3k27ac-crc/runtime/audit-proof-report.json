@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.1",
+  "ecaa_version": "0.1",
+  "min_reader_version": "0.1",
+  "package_iri": "ro-crate-metadata.json",
+  "evaluated_at": "2026-06-02T00:44:16.735544026+00:00",
+  "evaluator": {
+    "impl": "ecaa-workflow-audit-proof",
+    "version": "0.1.0",
+    "policy": "warn-only"
+  },
+  "verdicts": [
+    {
+      "id": "claim_completeness",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "decision_justification",
+      "status": "unverified",
+      "detail": "no method-choice decisions present",
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "evidence_coverage",
+      "status": "warn",
+      "detail": "185 output(s) not referenced and not marked unused: workflow:atac_seq_discover_alignment, workflow:atac_seq_sequence_trimming, workflow:atac_seq_discover_differential_accessibility, workflow:atac_seq_peak_calling, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_discover_motif_enrichment, workflow:atac_seq_peak_calling, workflow:atac_seq_discover_peak_annotation, workflow:atac_seq_peak_calling, workflow:atac_seq_alignment, workflow:atac_seq_discover_peak_calling, workflow:atac_seq_data_acquisition, workflow:atac_seq_differential_accessibility, workflow:atac_seq_motif_enrichment, workflow:atac_seq_peak_annotation, workflow:atac_seq_peak_calling, workflow:atac_seq_discover_sequence_trimming, workflow:atac_seq_raw_qc, workflow:atac_seq_data_acquisition, workflow:atac_seq_raw_qc, workflow:atac_seq_alignment, workflow:atac_seq_data_acquisition, workflow:atac_seq_differential_accessibility, workflow:atac_seq_motif_enrichment, workflow:atac_seq_peak_annotation, workflow:atac_seq_peak_calling, workflow:atac_seq_raw_qc, workflow:atac_seq_reporting, workflow:atac_seq_sequence_trimming, workflow:bulk_rnaseq_discover_alignment, workflow:bulk_rnaseq_sequence_trimming, workflow:bulk_rnaseq_differential_expression, workflow:bulk_rnaseq_review_prior_work, workflow:bulk_rnaseq_discover_differential_expression, workflow:bulk_rnaseq_normalisation, workflow:bulk_rnaseq_survey_method_landscape, workflow:bulk_rnaseq_survey_method_landscape, workflow:bulk_rnaseq_survey_method_landscape, workflow:bulk_rnaseq_survey_method_landscape, workflow:bulk_rnaseq_survey_method_landscape, workflow:bulk_rnaseq_survey_method_landscape, workflow:bulk_rnaseq_discover_normalisation, workflow:bulk_rnaseq_qc_preprocessing, workflow:bulk_rnaseq_differential_expression, workflow:bulk_rnaseq_discover_pathway_enrichment, workflow:bulk_rnaseq_quantification, workflow:bulk_rnaseq_alignment, workflow:bulk_rnaseq_discover_quantification, workflow:bulk_rnaseq_data_acquisition, workflow:bulk_rnaseq_contextualize_findings_with_literature, workflow:bulk_rnaseq_differential_expression, workflow:bulk_rnaseq_pathway_enrichment, workflow:bulk_rnaseq_discover_sequence_trimming, workflow:bulk_rnaseq_raw_qc, workflow:bulk_rnaseq_data_acquisition, workflow:bulk_rnaseq_raw_qc, workflow:bulk_rnaseq_alignment, workflow:bulk_rnaseq_contextualize_findings_with_literature, workflow:bulk_rnaseq_data_acquisition, workflow:bulk_rnaseq_differential_expression, workflow:bulk_rnaseq_normalisation, workflow:bulk_rnaseq_pathway_enrichment, workflow:bulk_rnaseq_qc_preprocessing, workflow:bulk_rnaseq_quantification, workflow:bulk_rnaseq_raw_qc, workflow:bulk_rnaseq_reporting, workflow:bulk_rnaseq_review_prior_work, workflow:bulk_rnaseq_sequence_trimming, workflow:chip_seq_discover_alignment, workflow:chip_seq_sequence_trimming, workflow:chip_seq_peak_calling, workflow:chip_seq_review_prior_work, workflow:chip_seq_survey_method_landscape, workflow:chip_seq_survey_method_landscape, workflow:chip_seq_survey_method_landscape, workflow:chip_seq_survey_method_landscape, workflow:chip_seq_survey_method_landscape, workflow:chip_seq_discover_motif_enrichment, workflow:chip_seq_peak_calling, workflow:chip_seq_discover_peak_annotation, workflow:chip_seq_peak_calling, workflow:chip_seq_alignment, workflow:chip_seq_discover_peak_calling, workflow:chip_seq_data_acquisition, workflow:chip_seq_contextualize_findings_with_literature, workflow:chip_seq_motif_enrichment, workflow:chip_seq_peak_annotation, workflow:chip_seq_peak_calling, workflow:chip_seq_discover_sequence_trimming, workflow:chip_seq_raw_qc, workflow:chip_seq_data_acquisition, workflow:chip_seq_raw_qc, workflow:chip_seq_alignment, workflow:chip_seq_contextualize_findings_with_literature, workflow:chip_seq_data_acquisition, workflow:chip_seq_motif_enrichment, workflow:chip_seq_peak_annotation, workflow:chip_seq_peak_calling, workflow:chip_seq_raw_qc, workflow:chip_seq_reporting, workflow:chip_seq_review_prior_work, workflow:chip_seq_sequence_trimming, workflow:multi_modal_thematic_comparison, workflow:atac_seq_validate_alignment, workflow:atac_seq_validate_data_acquisition, workflow:atac_seq_validate_differential_accessibility, workflow:atac_seq_validate_final_reporting, workflow:atac_seq_validate_motif_enrichment, workflow:atac_seq_validate_peak_annotation, workflow:atac_seq_validate_peak_calling, workflow:atac_seq_validate_raw_qc, workflow:atac_seq_validate_reporting, workflow:atac_seq_validate_sequence_trimming, workflow:bulk_rnaseq_validate_alignment, workflow:bulk_rnaseq_validate_contextualize_findings_with_literature, workflow:bulk_rnaseq_validate_data_acquisition, workflow:bulk_rnaseq_validate_differential_expression, workflow:bulk_rnaseq_validate_final_reporting, workflow:bulk_rnaseq_validate_normalisation, workflow:bulk_rnaseq_validate_pathway_enrichment, workflow:bulk_rnaseq_validate_qc_preprocessing, workflow:bulk_rnaseq_validate_quantification, workflow:bulk_rnaseq_validate_raw_qc, workflow:bulk_rnaseq_validate_reporting, workflow:bulk_rnaseq_validate_review_prior_work, workflow:bulk_rnaseq_validate_sequence_trimming, workflow:chip_seq_validate_alignment, workflow:chip_seq_validate_contextualize_findings_with_literature, workflow:chip_seq_validate_data_acquisition, workflow:chip_seq_validate_final_reporting, workflow:chip_seq_validate_motif_enrichment, workflow:chip_seq_validate_peak_annotation, workflow:chip_seq_validate_peak_calling, workflow:chip_seq_validate_raw_qc, workflow:chip_seq_validate_reporting, workflow:chip_seq_validate_review_prior_work, workflow:chip_seq_validate_sequence_trimming, workflow:variant_calling_validate_alignment, workflow:variant_calling_validate_contextualize_findings_with_literature, workflow:variant_calling_validate_data_acquisition, workflow:variant_calling_validate_final_reporting, workflow:variant_calling_validate_raw_qc, workflow:variant_calling_validate_reporting, workflow:variant_calling_validate_review_prior_work, workflow:variant_calling_validate_sequence_trimming, workflow:variant_calling_validate_variant_annotation, workflow:variant_calling_validate_variant_calling, workflow:variant_calling_validate_variant_filtering, workflow:variant_calling_discover_alignment, workflow:variant_calling_sequence_trimming, workflow:variant_calling_review_prior_work, workflow:variant_calling_variant_annotation, workflow:variant_calling_survey_method_landscape, workflow:variant_calling_survey_method_landscape, workflow:variant_calling_survey_method_landscape, workflow:variant_calling_survey_method_landscape, workflow:variant_calling_survey_method_landscape, workflow:variant_calling_data_acquisition, workflow:variant_calling_contextualize_findings_with_literature, workflow:variant_calling_variant_annotation, workflow:variant_calling_discover_sequence_trimming, workflow:variant_calling_raw_qc, workflow:variant_calling_data_acquisition, workflow:variant_calling_raw_qc, workflow:variant_calling_alignment, workflow:variant_calling_contextualize_findings_with_literature, workflow:variant_calling_data_acquisition, workflow:variant_calling_raw_qc, workflow:variant_calling_reporting, workflow:variant_calling_review_prior_work, workflow:variant_calling_sequence_trimming, workflow:variant_calling_variant_annotation, workflow:variant_calling_variant_calling, workflow:variant_calling_variant_filtering, workflow:variant_calling_discover_variant_annotation, workflow:variant_calling_variant_filtering, workflow:variant_calling_alignment, workflow:variant_calling_discover_variant_calling, workflow:variant_calling_discover_variant_filtering, workflow:variant_calling_variant_calling",
+      "n_inspected": 185,
+      "n_violations": 185
+    },
+    {
+      "id": "equivalence_failure",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "cross_graph_integrity",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 0,
+      "n_violations": 0
+    },
+    {
+      "id": "substrate_validity",
+      "status": "unverified",
+      "detail": "runcrate not run",
+      "n_inspected": 1,
+      "n_violations": 0
+    }
+  ]
+}

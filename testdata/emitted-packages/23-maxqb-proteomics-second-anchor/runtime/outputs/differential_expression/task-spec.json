@@ -1,0 +1,38 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "discover_differential_expression",
+    "protein_quantification"
+  ],
+  "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "differential_expression",
+  "spec": {
+    "expected_artifacts": [
+      "de_results.tsv",
+      "de_summary.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "required_figures": [
+      "volcano",
+      "top_features_heatmap"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "differential_expression"
+}

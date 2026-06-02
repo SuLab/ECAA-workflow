@@ -186,9 +186,9 @@
     },
     {
       "stageClass": "StageMSRawConversion",
-      "requireCandidateDefinition": false,
+      "requireCandidateDefinition": true,
       "requireEmpiricalScreening": false,
-      "requireRobustness": false,
+      "requireRobustness": true,
       "requireTestability": true,
       "requireBranchLock": false
     },
@@ -243,21 +243,10 @@
   ],
   "tierUniquenessRule": "exactly_one_default_or_tentative_per_stage",
   "strongClaimRequirements": {
-    "minUniqueEvidenceRecords": 2,
+    "minUniqueEvidenceRecords": {"$shared": "strongClaimMinEvidence"},
     "citationMinimumMustBeMet": true,
-    "freshnessAcceptableStatuses": [
-      "current",
-      "fresh",
-      "pinned",
-      "up to date",
-      "uptodate"
-    ],
-    "contradictionBlockingStatuses": [
-      "contradicted",
-      "mixed",
-      "unresolved",
-      "retracted"
-    ]
+    "freshnessAcceptableStatuses": {"$shared": "freshnessAcceptableStatuses"},
+    "contradictionBlockingStatuses": {"$shared": "contradictionBlockingStatuses"}
   },
   "requireDivergenceRecord": true,
   "requireMetricBundlesForEmpiricalStages": true,

@@ -1,0 +1,26 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "generic_summary"
+  ],
+  "description": "Validate outputs of: Universal catch-all summary atom paired with `raw_qc` for the\n`generic_omics` archetype. Consumes the QC metrics table and emits a\nper-sample summary table plus a high-level QC-flag JSON. Used as the\nfallback pipeline when intake prose mentions omics data but carries\nno specific modality or goal phrase; subsequent analysis steps\nsurface as SME-driven amendments rather than auto-emitted (Phase 6.1\nB2 of the v3+v4 100-percent-closure plan).\n",
+  "kind": "validation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "validate_generic_summary",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "validate_generic_summary"
+}

@@ -5,12 +5,11 @@
 **Description:** Germline short-variant (SNV / indel) calling from WGS or WES. Standard
 pipeline: raw QC, trim, align, call variants, filter, annotate. Somatic
 / tumor-normal variants are out of scope; a separate archetype will
-cover that workload. Mirrors today's
-`config/modalities/variant-calling.yaml` + `config/archetypes/`.
+cover that workload.
 
 **EDAM topic:** topic:3673
 **EDAM operation:** operation:3227
-**Confidence:** medium (67%)
+**Confidence:** medium (33%)
 
 ## Data sources
 - PRJNA694014 (NCBI BioProject)

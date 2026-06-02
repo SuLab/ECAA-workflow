@@ -1,0 +1,30 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "variant_calling_survey_method_landscape"
+  ],
+  "description": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+  "kind": {
+    "discovery": "best_practice"
+  },
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "discover_sequence_trimming",
+  "spec": {
+    "stage_class": "sequence_trimming"
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "variant_calling_discover_sequence_trimming"
+}

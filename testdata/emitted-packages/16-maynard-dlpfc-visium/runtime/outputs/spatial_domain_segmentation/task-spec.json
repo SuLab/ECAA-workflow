@@ -1,0 +1,39 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "dimensionality_reduction",
+    "discover_spatial_clustering_method"
+  ],
+  "description": "Segment a spatial-transcriptomics tissue section into regions of similar\nexpression profile. Method choice deferred to discover_* (BANKSY, BayesSpace,\nSquidpy spatial neighbors, GraphST). Emits per-spot region label + adjacency\ngraph that downstream neighborhood-enrichment stages consume.\necaax:spatial_clustering — EDAM clusters at operation:3432 but spatial\nmodality has additional graph-aware constraints.\n",
+  "kind": "computation",
+  "resource_class": "memory_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "spatial_domain_segmentation",
+  "spec": {
+    "expected_artifacts": [
+      "spatial_domains.tsv",
+      "adjacency_graph.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "spatial_clustering",
+    "required_figures": [
+      "tissue_overlay",
+      "neighborhood_enrichment"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "spatial_domain_segmentation"
+}

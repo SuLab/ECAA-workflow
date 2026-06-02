@@ -1,0 +1,34 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "survey_method_landscape"
+  ],
+  "description": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+  "kind": {
+    "discovery": "best_practice"
+  },
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "discover_alignment",
+  "spec": {
+    "candidate_pool_augmented": false,
+    "spec_preferred_methods": {
+      "bwa_mem": "named in intake prose (classifier method keyword)"
+    },
+    "stage_class": "alignment"
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "discover_alignment"
+}

@@ -1,0 +1,44 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "variant_calling_data_acquisition",
+    "variant_calling_raw_qc"
+  ],
+  "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "network",
+    "network": {
+      "allowlist": [
+        "eutils.ncbi.nlm.nih.gov",
+        "ftp.ncbi.nlm.nih.gov",
+        "api.openalex.org",
+        "api.crossref.org",
+        "readthedocs.io",
+        "bioconductor.org",
+        "github.com",
+        "raw.githubusercontent.com",
+        "nf-co.re"
+      ],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "survey_method_landscape",
+  "spec": {
+    "expected_artifacts": [
+      "method_landscape.csv",
+      "method_landscape.json",
+      "evidence/manifest.json",
+      "result.json"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "variant_calling_survey_method_landscape"
+}

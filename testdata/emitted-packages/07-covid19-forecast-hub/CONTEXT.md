@@ -1,19 +1,16 @@
 # Workflow Context
 
-**Modality:** ehr_clinical_prediction
+**Modality:** time_series_forecast
 **Domain:** computational biology
-**Description:** EHR clinical-prediction analysis: derive labels from raw EHR tables
-(e.g., Sepsis-3 onset via the mimic-code derived table), extract
-windowed vital-sign / lab features with a mandatory leakage audit,
-fit one or more model families (gradient-boosted trees plus a
-sequence model), then audit calibration, fairness, and external
-generalization on a separate holdout cohort. The archetype models
-the canonical YAIB-style EHR-prediction pipeline (van de Water 2024
-ICLR); concrete model and label choices stay method-neutral.
+**Description:** Time-series analysis and forecasting. Standard pipeline: import the
+time-series panel, exploratory decomposition + stationarity diagnostics,
+fit the SME-named model family (ARIMA / state-space / neural), produce
+point forecasts + prediction intervals, and evaluate against a held-out
+window.
 
-**EDAM topic:** topic:3325
+**EDAM topic:** topic:3392
 **EDAM operation:** operation:2945
-**Confidence:** medium (33%)
+**Confidence:** medium (67%)
 
 ## SME intake text
 

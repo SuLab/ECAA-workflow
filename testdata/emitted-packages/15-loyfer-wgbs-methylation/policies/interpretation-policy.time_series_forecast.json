@@ -26,6 +26,7 @@
       "(?i)\\b(holdout|backtest|forecast[_ ]?horizon)\\b",
       "(?i)\\b[A-Za-z][A-Za-z0-9_]*_(coef|beta|effect)\\b"
     ],
+    "entityNameExcludePatterns": [],
     "directionVocab": {
       "up": [
         "increasing",

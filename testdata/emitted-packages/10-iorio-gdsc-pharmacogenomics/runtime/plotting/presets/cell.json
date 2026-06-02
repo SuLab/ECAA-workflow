@@ -1,0 +1,29 @@
+{
+  "_preset_name": "cell",
+  "_description": "Cell Press style. Single-column 85mm, double-column 174mm. Arial primary, 6pt minimum text, vector preferred.",
+  "_reference": "https://www.cell.com/figureguidelines",
+  "fonts": {
+    "family": "sans-serif",
+    "stack": ["Arial", "Helvetica", "DejaVu Sans"],
+    "body_pt": 7,
+    "title_pt": 8,
+    "tick_pt": 6,
+    "legend_pt": 6,
+    "footer_pt": 5
+  },
+  "axes": {
+    "linewidth": 0.5,
+    "spines_top": false,
+    "spines_right": false,
+    "constrained_layout": true
+  },
+  "output": {
+    "png_dpi": 300,
+    "formats": ["png", "pdf"],
+    "pdf_fonttype": 42,
+    "svg_fonttype": "none",
+    "rasterize_threshold_n": 50000,
+    "single_column_mm": 85,
+    "double_column_mm": 174
+  }
+}

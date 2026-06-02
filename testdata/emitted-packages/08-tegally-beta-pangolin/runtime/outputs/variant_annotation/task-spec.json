@@ -1,0 +1,27 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "discover_variant_annotation",
+    "variant_filtering"
+  ],
+  "description": "Annotate filtered variants with gene impact, consequence, population\nfrequency, and clinical significance. VEP / ANNOVAR / SnpEff against\nEnsembl / RefSeq / gnomAD / ClinVar selected at runtime.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "variant_annotation",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "variant_annotation"
+}

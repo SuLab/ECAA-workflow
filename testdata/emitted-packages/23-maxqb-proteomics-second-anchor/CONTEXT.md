@@ -5,8 +5,7 @@
 **Description:** Data-dependent acquisition (DDA) LC-MS/MS proteomics — TMT, SILAC, or
 label-free MaxLFQ. Standard pipeline: acquire raw spectra, search
 peptides (MaxQuant / FragPipe), quantify proteins, test for differential
-abundance, then enrichment. Mirrors the DDA branch of today's
-`config/modalities/proteomics.yaml` + `config/archetypes/`.
+abundance, then enrichment.
 
 **EDAM topic:** topic:0121
 **EDAM operation:** operation:3767

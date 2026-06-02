@@ -1,11 +1,210 @@
 {
   "current_task": null,
   "meta": {
+    "modality_id": "spatial_transcriptomics",
     "modality_stratum": "spatial",
     "run_id": "c60d4048-ccb1-c22f-c5e9-777583ff5b47"
   },
   "run_id": "c60d4048-ccb1-c22f-c5e9-777583ff5b47",
+  "schema_version": "0.1.0",
   "tasks": {
+    "cell_type_annotation": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_cell_type_annotation",
+        "spatial_domain_segmentation"
+      ],
+      "description": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "cell_type_annotation",
+      "spec": {
+        "expected_artifacts": [
+          "celltype_assignments.tsv",
+          "marker_panel_audit.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "umap_by_celltype",
+          "celltype_size_bar"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "data_acquisition",
+      "spec": {
+        "expected_artifacts": [
+          "cohort_manifest.tsv",
+          "per_accession_summary.json",
+          "matrices_index.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "samples_per_study"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "differential_expression": {
+      "assignee": "agent",
+      "depends_on": [
+        "cell_type_annotation",
+        "discover_differential_expression",
+        "spatially_variable_genes"
+      ],
+      "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "differential_expression",
+      "spec": {
+        "expected_artifacts": [
+          "de_results.tsv",
+          "de_summary.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "volcano",
+          "top_features_heatmap"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "dimensionality_reduction": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_dimensionality_reduction",
+        "normalisation"
+      ],
+      "description": "Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "dimensionality_reduction",
+      "spec": {
+        "expected_artifacts": [
+          "pca_loadings.tsv",
+          "umap_coords.tsv",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "variance_explained_elbow",
+          "embedding_scatter"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_cell_type_annotation": {
+      "assignee": "agent",
+      "depends_on": [
+        "survey_method_landscape"
+      ],
+      "description": "Discover method for cell_type_annotation (options: celltypist, singler, azimuth, sctype, marker_panel). Surface set_intake_method.",
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "requires_sme_review": true,
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "discover_cell_type_annotation",
+      "spec": {
+        "stage_class": "cell_type_annotation"
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_differential_expression": {
+      "assignee": "agent",
+      "depends_on": [
+        "survey_method_landscape"
+      ],
+      "description": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "requires_sme_review": true,
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "discover_differential_expression",
+      "spec": {
+        "stage_class": "differential_expression"
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_dimensionality_reduction": {
+      "assignee": "agent",
+      "depends_on": [
+        "survey_method_landscape"
+      ],
+      "description": "Discover method for dimensionality_reduction (options: pca, umap, tsne, phate). Surface set_intake_method.",
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "requires_sme_review": true,
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "discover_dimensionality_reduction",
+      "spec": {
+        "stage_class": "dimensionality_reduction"
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_normalisation": {
+      "assignee": "agent",
+      "depends_on": [
+        "survey_method_landscape"
+      ],
+      "description": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "requires_sme_review": true,
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "discover_normalisation",
+      "spec": {
+        "stage_class": "normalisation"
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_spatial_clustering_method": {
+      "assignee": "agent",
+      "depends_on": [
+        "survey_method_landscape"
+      ],
+      "description": "Discover method for spatial_clustering_method (options: banksy, bayesspace, squidpy_neighbors, graphst). Surface set_intake_method.",
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "requires_sme_review": true,
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "discover_spatial_clustering_method",
+      "spec": {
+        "stage_class": "spatial_clustering_method"
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
     "final_reporting": {
       "assignee": "agent",
       "depends_on": [
@@ -14,6 +213,72 @@
       "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
       "kind": "computation",
       "resource_class": "cpu_heavy",
+      "source_atom_id": "final_reporting",
+      "spec": {
+        "expected_artifacts": [
+          "final_report.md",
+          "dashboard_index.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "summary_dashboard"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "normalisation": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_normalisation",
+        "qc_preprocessing"
+      ],
+      "description": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "normalisation",
+      "spec": {
+        "expected_artifacts": [
+          "normalized_counts_index.json",
+          "hvg_list.tsv",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "normalization",
+        "required_figures": [
+          "mean_variance",
+          "hvg_count_bar"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "qc_preprocessing": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "qc_preprocessing",
+      "spec": {
+        "expected_artifacts": [
+          "qc_summary.json",
+          "filtered_cells_index.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "quality_control",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ]
+      },
       "state": {
         "status": "pending"
       }
@@ -21,60 +286,192 @@
     "reporting": {
       "assignee": "agent",
       "depends_on": [
-        "time_series_forecast_evaluate"
+        "differential_expression"
       ],
       "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
       "kind": "computation",
       "resource_class": "cpu_heavy",
+      "source_atom_id": "reporting",
+      "spec": {
+        "expected_artifacts": [
+          "report.md",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "concordance_heatmap",
+          "pathway_overlap_bar"
+        ]
+      },
       "state": {
         "status": "pending"
       }
     },
-    "time_series_decompose": {
+    "spatial_domain_segmentation": {
       "assignee": "agent",
-      "container": {
-        "digest": "sha256:78cb94ce2db23aaaf7b546450fcf70b5a3f2ace5a9b5fa1f87217da329211312",
-        "image": "rocker/r-ver",
-        "tag": "4.4.1"
-      },
-      "depends_on": [],
-      "description": "Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_evaluate": {
-      "assignee": "agent",
-      "container": {
-        "digest": "sha256:78cb94ce2db23aaaf7b546450fcf70b5a3f2ace5a9b5fa1f87217da329211312",
-        "image": "rocker/r-ver",
-        "tag": "4.4.1"
-      },
       "depends_on": [
-        "time_series_model_fit"
+        "dimensionality_reduction",
+        "discover_spatial_clustering_method"
       ],
-      "description": "Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
+      "description": "Segment a spatial-transcriptomics tissue section into regions of similar\nexpression profile. Method choice deferred to discover_* (BANKSY, BayesSpace,\nSquidpy spatial neighbors, GraphST). Emits per-spot region label + adjacency\ngraph that downstream neighborhood-enrichment stages consume.\necaax:spatial_clustering — EDAM clusters at operation:3432 but spatial\nmodality has additional graph-aware constraints.\n",
       "kind": "computation",
-      "resource_class": "cpu_heavy",
+      "resource_class": "memory_heavy",
+      "source_atom_id": "spatial_domain_segmentation",
+      "spec": {
+        "expected_artifacts": [
+          "spatial_domains.tsv",
+          "adjacency_graph.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "spatial_clustering",
+        "required_figures": [
+          "tissue_overlay",
+          "neighborhood_enrichment"
+        ]
+      },
       "state": {
         "status": "pending"
       }
     },
-    "time_series_model_fit": {
+    "spatially_variable_genes": {
       "assignee": "agent",
-      "container": {
-        "digest": "sha256:78cb94ce2db23aaaf7b546450fcf70b5a3f2ace5a9b5fa1f87217da329211312",
-        "image": "rocker/r-ver",
-        "tag": "4.4.1"
-      },
       "depends_on": [
-        "time_series_decompose"
+        "spatial_domain_segmentation"
       ],
-      "description": "Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
+      "description": "Identify genes whose expression varies systematically across spatial\ncoordinates beyond what cell-type abundance alone explains. Methods:\nMoran's I, SpatialDE, SOMDE, Spark-X. Emits a ranked table of genes\nwith spatial-variability statistic + adjusted p-value. ecaax:spatially_\nvariable_genes — extends EDAM operation:3223 (DE) into the spatial\naxis the upstream ontology doesn't model.\n",
       "kind": "computation",
+      "resource_class": "memory_heavy",
+      "source_atom_id": "spatially_variable_genes",
+      "spec": {
+        "expected_artifacts": [
+          "spatially_variable_genes.tsv",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "spatial_clustering",
+        "required_figures": [
+          "morans_i_scatter"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "survey_method_landscape": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition",
+        "qc_preprocessing"
+      ],
+      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "kind": "computation",
+      "required_artifacts": [
+        {
+          "path": "method_landscape.csv",
+          "schema_ref": "schemas/method_landscape_matrix.schema.json",
+          "validation_obligations": [
+            "source_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked",
+            "claim_support_satisfied",
+            "doc_page_matches_tool"
+          ]
+        },
+        {
+          "path": "evidence/manifest.json",
+          "schema_ref": "schemas/literature_evidence_manifest.schema.json",
+          "validation_obligations": [
+            "source_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked",
+            "claim_support_satisfied",
+            "doc_page_matches_tool"
+          ]
+        }
+      ],
       "resource_class": "cpu_heavy",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
+      "source_atom_id": "survey_method_landscape",
+      "spec": {
+        "expected_artifacts": [
+          "method_landscape.csv",
+          "method_landscape.json",
+          "evidence/manifest.json",
+          "result.json"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_cell_type_annotation": {
+      "assignee": "agent",
+      "depends_on": [
+        "cell_type_annotation"
+      ],
+      "description": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_cell_type_annotation",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
+      ],
+      "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_data_acquisition",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_differential_expression": {
+      "assignee": "agent",
+      "depends_on": [
+        "differential_expression"
+      ],
+      "description": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_differential_expression",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_dimensionality_reduction": {
+      "assignee": "agent",
+      "depends_on": [
+        "dimensionality_reduction"
+      ],
+      "description": "Validate outputs of: Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_dimensionality_reduction",
       "state": {
         "status": "pending"
       }
@@ -87,6 +484,33 @@
       "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_final_reporting",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_normalisation": {
+      "assignee": "agent",
+      "depends_on": [
+        "normalisation"
+      ],
+      "description": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_normalisation",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_qc_preprocessing": {
+      "assignee": "agent",
+      "depends_on": [
+        "qc_preprocessing"
+      ],
+      "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_qc_preprocessing",
       "state": {
         "status": "pending"
       }
@@ -99,42 +523,33 @@
       "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_reporting",
       "state": {
         "status": "pending"
       }
     },
-    "validate_time_series_decompose": {
+    "validate_spatial_domain_segmentation": {
       "assignee": "agent",
       "depends_on": [
-        "time_series_decompose"
+        "spatial_domain_segmentation"
       ],
-      "description": "Validate outputs of: Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
+      "description": "Validate outputs of: Segment a spatial-transcriptomics tissue section into regions of similar\nexpression profile. Method choice deferred to discover_* (BANKSY, BayesSpace,\nSquidpy spatial neighbors, GraphST). Emits per-spot region label + adjacency\ngraph that downstream neighborhood-enrichment stages consume.\necaax:spatial_clustering — EDAM clusters at operation:3432 but spatial\nmodality has additional graph-aware constraints.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_spatial_domain_segmentation",
       "state": {
         "status": "pending"
       }
     },
-    "validate_time_series_forecast_evaluate": {
+    "validate_spatially_variable_genes": {
       "assignee": "agent",
       "depends_on": [
-        "time_series_forecast_evaluate"
+        "spatially_variable_genes"
       ],
-      "description": "Validate outputs of: Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
+      "description": "Validate outputs of: Identify genes whose expression varies systematically across spatial\ncoordinates beyond what cell-type abundance alone explains. Methods:\nMoran's I, SpatialDE, SOMDE, Spark-X. Emits a ranked table of genes\nwith spatial-variability statistic + adjusted p-value. ecaax:spatially_\nvariable_genes — extends EDAM operation:3223 (DE) into the spatial\naxis the upstream ontology doesn't model.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "validate_time_series_model_fit": {
-      "assignee": "agent",
-      "depends_on": [
-        "time_series_model_fit"
-      ],
-      "description": "Validate outputs of: Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_spatially_variable_genes",
       "state": {
         "status": "pending"
       }

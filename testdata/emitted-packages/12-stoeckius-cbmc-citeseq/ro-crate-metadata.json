@@ -15,6 +15,9 @@
           "@id": "https://w3id.org/ro/crate/1.1"
         },
         {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
           "@id": "https://w3id.org/ro/wfrun/process/0.5"
         },
         {
@@ -22,6 +25,9 @@
         },
         {
           "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.1"
         }
       ]
     },
@@ -41,14 +47,125 @@
           "@id": "CONTEXT.md"
         },
         {
+          "@id": "AGENT-EXECUTOR.md"
+        },
+        {
           "@id": "policies/"
+        },
+        {
+          "@id": "runtime/LOG.jsonl"
+        },
+        {
+          "@id": "runtime/intake-conversation.jsonl"
+        },
+        {
+          "@id": "runtime/decisions.jsonl"
+        },
+        {
+          "@id": "runtime/proofs.jsonl"
+        },
+        {
+          "@id": "runtime/claim-verification.json"
+        },
+        {
+          "@id": "runtime/verifier-decisions.jsonl"
+        },
+        {
+          "@id": "runtime/assumptions.jsonl"
+        },
+        {
+          "@id": "runtime/validation-reports.jsonl"
+        },
+        {
+          "@id": "runtime/determinism-shim.json"
+        },
+        {
+          "@id": "runtime/security-policy.json"
+        },
+        {
+          "@id": "runtime/audit-proof-report.json"
+        },
+        {
+          "@id": "runtime/validation-summary.json"
+        },
+        {
+          "@id": "runtime/outputs/batch_correction/figures/mixing_score_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/batch_correction/figures/umap_pre_post.png"
+        },
+        {
+          "@id": "runtime/outputs/cell_type_annotation/figures/umap_by_celltype.png"
+        },
+        {
+          "@id": "runtime/outputs/cell_type_annotation/figures/celltype_size_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/clustering/figures/umap_clusters.png"
+        },
+        {
+          "@id": "runtime/outputs/clustering/figures/cluster_size_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/data_acquisition/figures/samples_per_study.png"
+        },
+        {
+          "@id": "runtime/outputs/differential_expression/figures/volcano.png"
+        },
+        {
+          "@id": "runtime/outputs/differential_expression/figures/top_features_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/dimensionality_reduction/figures/variance_explained_elbow.png"
+        },
+        {
+          "@id": "runtime/outputs/dimensionality_reduction/figures/embedding_scatter.png"
+        },
+        {
+          "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png"
+        },
+        {
+          "@id": "runtime/outputs/normalisation/figures/mean_variance.png"
+        },
+        {
+          "@id": "runtime/outputs/normalisation/figures/hvg_count_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png"
+        },
+        {
+          "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png"
+        },
+        {
+          "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/qc_preprocessing/figures/qc_summary_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_violin.png"
+        },
+        {
+          "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/raw_qc/figures/qc_summary_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/reporting/figures/pathway_overlap_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/sequence_trimming/figures/retention_bar.png"
         }
       ],
       "license": "https://www.apache.org/licenses/LICENSE-2.0",
       "mainEntity": {
         "@id": "WORKFLOW.json"
       },
-      "name": "computational biology — scRNA-seq clustering + differential expression. Standard pipeline:\npreprocess, cell-level QC, normalise, optional batch correction +\nintegration sweep, dimensionality reduction, cluster, annotate cell\ntypes, test cluster-vs-rest or cross-condition DE, then pathway\nenrichment. Mirrors today's `config/stage-taxonomies/single-cell.yaml`.\n"
+      "name": "computational biology — scRNA-seq clustering + differential expression. Standard pipeline:\npreprocess, cell-level QC, normalise, optional batch correction +\nintegration sweep, dimensionality reduction, cluster, annotate cell\ntypes, test cluster-vs-rest or cross-condition DE, then pathway\nenrichment.\n"
     },
     {
       "@id": "WORKFLOW.json",
@@ -57,14 +174,14 @@
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
-        "@id": "https://edamontology.org/topic:3308"
+        "@id": "https://edamontology.org/topic_3308"
       },
       "conformsTo": {
         "@id": "https://bioschemas.org/profiles/ComputationalWorkflow/1.0-RELEASE"
       },
       "encodingFormat": "application/json",
       "featureList": {
-        "@id": "https://edamontology.org/operation:3432"
+        "@id": "https://edamontology.org/operation_3432"
       },
       "name": "workflow-de62a6560b39 DAG",
       "programmingLanguage": {
@@ -74,6 +191,21 @@
         "@id": "#ecaa-workflow"
       },
       "step": [
+        {
+          "@id": "#step-data_acquisition"
+        },
+        {
+          "@id": "#step-validate_data_acquisition"
+        },
+        {
+          "@id": "#step-raw_qc"
+        },
+        {
+          "@id": "#step-validate_raw_qc"
+        },
+        {
+          "@id": "#step-survey_method_landscape"
+        },
         {
           "@id": "#step-discover_sequence_trimming"
         },
@@ -103,18 +235,6 @@
         },
         {
           "@id": "#step-discover_alignment"
-        },
-        {
-          "@id": "#step-data_acquisition"
-        },
-        {
-          "@id": "#step-validate_data_acquisition"
-        },
-        {
-          "@id": "#step-raw_qc"
-        },
-        {
-          "@id": "#step-validate_raw_qc"
         },
         {
           "@id": "#step-sequence_trimming"
@@ -232,6 +352,13 @@
       "name": "Workflow Context"
     },
     {
+      "@id": "AGENT-EXECUTOR.md",
+      "@type": "CreativeWork",
+      "description": "Per-package brief consumed by the execution agent; replaces ambient host CLAUDE.md for executor context.",
+      "encodingFormat": "text/markdown",
+      "name": "Executor agent task brief"
+    },
+    {
       "@id": "policies/",
       "@type": "Dataset",
       "name": "Discovery and scoring policies"
@@ -241,6 +368,83 @@
       "@type": "File",
       "encodingFormat": "application/jsonl",
       "name": "Execution provenance log"
+    },
+    {
+      "@id": "runtime/intake-conversation.jsonl",
+      "@type": "CreativeWork",
+      "description": "Compile-time intake conversation turns captured for ECAA replay.",
+      "encodingFormat": "application/jsonl",
+      "name": "SME intake conversation log"
+    },
+    {
+      "@id": "runtime/decisions.jsonl",
+      "@type": "CreativeWork",
+      "description": "Compile-time decision records captured for ECAA replay.",
+      "encodingFormat": "application/jsonl",
+      "name": "SME decision log"
+    },
+    {
+      "@id": "runtime/proofs.jsonl",
+      "@type": "CreativeWork",
+      "description": "Per-edge ECAA evidence records mirroring WORKFLOW.json dependencies.",
+      "encodingFormat": "application/jsonl",
+      "name": "Compatibility proofs"
+    },
+    {
+      "@id": "runtime/claim-verification.json",
+      "@type": "CreativeWork",
+      "description": "Emit-time claim verification rollup.",
+      "encodingFormat": "application/json",
+      "name": "Deterministic claim verification report"
+    },
+    {
+      "@id": "runtime/verifier-decisions.jsonl",
+      "@type": "CreativeWork",
+      "description": "Typed verifier-decision event log.",
+      "encodingFormat": "application/jsonl",
+      "name": "Verifier decision substrate"
+    },
+    {
+      "@id": "runtime/assumptions.jsonl",
+      "@type": "CreativeWork",
+      "description": "ECAA failure/assumption ledger.",
+      "encodingFormat": "application/jsonl",
+      "name": "Assumption ledger"
+    },
+    {
+      "@id": "runtime/validation-reports.jsonl",
+      "@type": "CreativeWork",
+      "description": "Harness validation report stream.",
+      "encodingFormat": "application/jsonl",
+      "name": "Validation reports"
+    },
+    {
+      "@id": "runtime/determinism-shim.json",
+      "@type": "CreativeWork",
+      "description": "Active deterministic environment, seed, temp-path, locale, and timezone disclosure.",
+      "encodingFormat": "application/json",
+      "name": "Determinism shim"
+    },
+    {
+      "@id": "runtime/security-policy.json",
+      "@type": "CreativeWork",
+      "description": "Package-level SafetyPolicy aggregate and container digest disclosure.",
+      "encodingFormat": "application/json",
+      "name": "Package security policy"
+    },
+    {
+      "@id": "runtime/audit-proof-report.json",
+      "@type": "CreativeWork",
+      "description": "ECAA audit-proof invariant verdicts.",
+      "encodingFormat": "application/json",
+      "name": "Audit-proof invariant report"
+    },
+    {
+      "@id": "runtime/validation-summary.json",
+      "@type": "CreativeWork",
+      "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
+      "encodingFormat": "application/json",
+      "name": "ECAA emit-time validation summary"
     },
     {
       "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",
@@ -255,298 +459,617 @@
       "name": "Mus musculus"
     },
     {
-      "@id": "#step-discover_sequence_trimming",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
-      "position": 1
-    },
-    {
-      "@id": "#step-discover_quantification",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for quantification (options: salmon, kallisto, featurecounts, htseq, rsem). Surface set_intake_method.",
-      "position": 2
-    },
-    {
-      "@id": "#step-discover_pathway_enrichment",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
-      "position": 3
-    },
-    {
-      "@id": "#step-discover_normalisation",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
-      "position": 4
-    },
-    {
-      "@id": "#step-discover_dimensionality_reduction",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for dimensionality_reduction (options: pca, umap, tsne, phate). Surface set_intake_method.",
-      "position": 5
-    },
-    {
-      "@id": "#step-discover_differential_expression",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
-      "position": 6
-    },
-    {
-      "@id": "#step-discover_clustering",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for clustering (options: leiden, louvain, kmeans, hierarchical). Surface set_intake_method.",
-      "position": 7
-    },
-    {
-      "@id": "#step-discover_cell_type_annotation",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for cell_type_annotation (options: celltypist, singler, azimuth, sctype, marker_panel). Surface set_intake_method.",
-      "position": 8
-    },
-    {
-      "@id": "#step-discover_batch_correction",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for batch_correction (options: harmony, scvi, bbknn, mnn_correct, combat, seurat_cca). Surface set_intake_method.",
-      "position": 9
-    },
-    {
-      "@id": "#step-discover_alignment",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
-      "position": 10
-    },
-    {
       "@id": "#step-data_acquisition",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 11
+      "position": 1
     },
     {
       "@id": "#step-validate_data_acquisition",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 12
+      "position": 2
     },
     {
       "@id": "#step-raw_qc",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 13
+      "position": 3
     },
     {
       "@id": "#step-validate_raw_qc",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "position": 4
+    },
+    {
+      "@id": "#step-survey_method_landscape",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "position": 5
+    },
+    {
+      "@id": "#step-discover_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "position": 6
+    },
+    {
+      "@id": "#step-discover_quantification",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for quantification (options: salmon, kallisto, featurecounts, htseq, rsem). Surface set_intake_method.",
+      "position": 7
+    },
+    {
+      "@id": "#step-discover_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+      "position": 8
+    },
+    {
+      "@id": "#step-discover_normalisation",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
+      "position": 9
+    },
+    {
+      "@id": "#step-discover_dimensionality_reduction",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for dimensionality_reduction (options: pca, umap, tsne, phate). Surface set_intake_method.",
+      "position": 10
+    },
+    {
+      "@id": "#step-discover_differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+      "position": 11
+    },
+    {
+      "@id": "#step-discover_clustering",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for clustering (options: leiden, louvain, kmeans, hierarchical). Surface set_intake_method.",
+      "position": 12
+    },
+    {
+      "@id": "#step-discover_cell_type_annotation",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for cell_type_annotation (options: celltypist, singler, azimuth, sctype, marker_panel). Surface set_intake_method.",
+      "position": 13
+    },
+    {
+      "@id": "#step-discover_batch_correction",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for batch_correction (options: harmony, scvi, bbknn, mnn_correct, combat, seurat_cca). Surface set_intake_method.",
       "position": 14
+    },
+    {
+      "@id": "#step-discover_alignment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "position": 15
     },
     {
       "@id": "#step-sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 15
+      "position": 16
     },
     {
       "@id": "#step-validate_sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 16
+      "position": 17
     },
     {
       "@id": "#step-alignment",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 17
+      "position": 18
     },
     {
       "@id": "#step-validate_alignment",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 18
+      "position": 19
     },
     {
       "@id": "#step-quantification",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
-      "position": 19
+      "position": 20
     },
     {
       "@id": "#step-validate_quantification",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
-      "position": 20
+      "position": 21
     },
     {
       "@id": "#step-qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
-      "position": 21
+      "position": 22
     },
     {
       "@id": "#step-validate_qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
-      "position": 22
+      "position": 23
     },
     {
       "@id": "#step-normalisation",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 23
+      "position": 24
     },
     {
       "@id": "#step-validate_normalisation",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 24
+      "position": 25
     },
     {
       "@id": "#step-batch_correction",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
-      "position": 25
+      "position": 26
     },
     {
       "@id": "#step-validate_batch_correction",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
-      "position": 26
+      "position": 27
     },
     {
       "@id": "#step-integration",
       "@type": "HowToStep",
       "additionalType": "gate",
       "name": "Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
-      "position": 27
+      "position": 28
     },
     {
       "@id": "#step-validate_integration",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
-      "position": 28
+      "position": 29
     },
     {
       "@id": "#step-dimensionality_reduction",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
-      "position": 29
+      "position": 30
     },
     {
       "@id": "#step-validate_dimensionality_reduction",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
-      "position": 30
+      "position": 31
     },
     {
       "@id": "#step-clustering",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
-      "position": 31
+      "position": 32
     },
     {
       "@id": "#step-validate_clustering",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
-      "position": 32
+      "position": 33
     },
     {
       "@id": "#step-cell_type_annotation",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
-      "position": 33
+      "position": 34
     },
     {
       "@id": "#step-validate_cell_type_annotation",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
-      "position": 34
+      "position": 35
     },
     {
       "@id": "#step-differential_expression",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
-      "position": 35
+      "position": 36
     },
     {
       "@id": "#step-validate_differential_expression",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
-      "position": 36
+      "position": 37
     },
     {
       "@id": "#step-pathway_enrichment",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
-      "position": 37
+      "position": 38
     },
     {
       "@id": "#step-validate_pathway_enrichment",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
-      "position": 38
+      "position": 39
     },
     {
       "@id": "#step-reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 39
+      "position": 40
     },
     {
       "@id": "#step-validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 40
+      "position": 41
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 41
+      "position": 42
     },
     {
       "@id": "#step-validate_final_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 42
+      "position": 43
+    },
+    {
+      "@id": "runtime/outputs/batch_correction/figures/mixing_score_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'mixing_score_bar' produced by stage 'batch_correction' via runtime/plotting/stages/batch_correction.py.",
+      "encodingFormat": "image/png",
+      "name": "batch_correction — mixing_score_bar",
+      "schema:about": {
+        "@id": "#step-batch_correction"
+      }
+    },
+    {
+      "@id": "runtime/outputs/batch_correction/figures/umap_pre_post.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'umap_pre_post' produced by stage 'batch_correction' via runtime/plotting/stages/batch_correction.py.",
+      "encodingFormat": "image/png",
+      "name": "batch_correction — umap_pre_post",
+      "schema:about": {
+        "@id": "#step-batch_correction"
+      }
+    },
+    {
+      "@id": "runtime/outputs/cell_type_annotation/figures/umap_by_celltype.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'umap_by_celltype' produced by stage 'cell_type_annotation' via runtime/plotting/stages/cell_type_annotation.py.",
+      "encodingFormat": "image/png",
+      "name": "cell_type_annotation — umap_by_celltype",
+      "schema:about": {
+        "@id": "#step-cell_type_annotation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/cell_type_annotation/figures/celltype_size_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'celltype_size_bar' produced by stage 'cell_type_annotation' via runtime/plotting/stages/cell_type_annotation.py.",
+      "encodingFormat": "image/png",
+      "name": "cell_type_annotation — celltype_size_bar",
+      "schema:about": {
+        "@id": "#step-cell_type_annotation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/clustering/figures/umap_clusters.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'umap_clusters' produced by stage 'clustering' via runtime/plotting/stages/clustering.py.",
+      "encodingFormat": "image/png",
+      "name": "clustering — umap_clusters",
+      "schema:about": {
+        "@id": "#step-clustering"
+      }
+    },
+    {
+      "@id": "runtime/outputs/clustering/figures/cluster_size_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'cluster_size_bar' produced by stage 'clustering' via runtime/plotting/stages/clustering.py.",
+      "encodingFormat": "image/png",
+      "name": "clustering — cluster_size_bar",
+      "schema:about": {
+        "@id": "#step-clustering"
+      }
+    },
+    {
+      "@id": "runtime/outputs/data_acquisition/figures/samples_per_study.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'samples_per_study' produced by stage 'data_acquisition' via runtime/plotting/stages/data_acquisition.py.",
+      "encodingFormat": "image/png",
+      "name": "data_acquisition — samples_per_study",
+      "schema:about": {
+        "@id": "#step-data_acquisition"
+      }
+    },
+    {
+      "@id": "runtime/outputs/differential_expression/figures/volcano.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'volcano' produced by stage 'differential_expression' via runtime/plotting/stages/differential_expression.py.",
+      "encodingFormat": "image/png",
+      "name": "differential_expression — volcano",
+      "schema:about": {
+        "@id": "#step-differential_expression"
+      }
+    },
+    {
+      "@id": "runtime/outputs/differential_expression/figures/top_features_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'top_features_heatmap' produced by stage 'differential_expression' via runtime/plotting/stages/differential_expression.py.",
+      "encodingFormat": "image/png",
+      "name": "differential_expression — top_features_heatmap",
+      "schema:about": {
+        "@id": "#step-differential_expression"
+      }
+    },
+    {
+      "@id": "runtime/outputs/dimensionality_reduction/figures/variance_explained_elbow.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'variance_explained_elbow' produced by stage 'dimensionality_reduction' via runtime/plotting/stages/dimensionality_reduction.py.",
+      "encodingFormat": "image/png",
+      "name": "dimensionality_reduction — variance_explained_elbow",
+      "schema:about": {
+        "@id": "#step-dimensionality_reduction"
+      }
+    },
+    {
+      "@id": "runtime/outputs/dimensionality_reduction/figures/embedding_scatter.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'embedding_scatter' produced by stage 'dimensionality_reduction' via runtime/plotting/stages/dimensionality_reduction.py.",
+      "encodingFormat": "image/png",
+      "name": "dimensionality_reduction — embedding_scatter",
+      "schema:about": {
+        "@id": "#step-dimensionality_reduction"
+      }
+    },
+    {
+      "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'summary_dashboard' produced by stage 'final_reporting' via runtime/plotting/stages/final_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "final_reporting — summary_dashboard",
+      "schema:about": {
+        "@id": "#step-final_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/normalisation/figures/mean_variance.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'mean_variance' produced by stage 'normalisation' via runtime/plotting/stages/normalisation.py.",
+      "encodingFormat": "image/png",
+      "name": "normalisation — mean_variance",
+      "schema:about": {
+        "@id": "#step-normalisation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/normalisation/figures/hvg_count_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'hvg_count_bar' produced by stage 'normalisation' via runtime/plotting/stages/normalisation.py.",
+      "encodingFormat": "image/png",
+      "name": "normalisation — hvg_count_bar",
+      "schema:about": {
+        "@id": "#step-normalisation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'top_enriched_terms' produced by stage 'pathway_enrichment' via runtime/plotting/stages/pathway_enrichment.py.",
+      "encodingFormat": "image/png",
+      "name": "pathway_enrichment — top_enriched_terms",
+      "schema:about": {
+        "@id": "#step-pathway_enrichment"
+      }
+    },
+    {
+      "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'qc_preprocessing' via runtime/plotting/stages/qc_preprocessing.py.",
+      "encodingFormat": "image/png",
+      "name": "qc_preprocessing — per_sample_metric_violin",
+      "schema:about": {
+        "@id": "#step-qc_preprocessing"
+      }
+    },
+    {
+      "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'qc_preprocessing' via runtime/plotting/stages/qc_preprocessing.py.",
+      "encodingFormat": "image/png",
+      "name": "qc_preprocessing — per_sample_metric_bar",
+      "schema:about": {
+        "@id": "#step-qc_preprocessing"
+      }
+    },
+    {
+      "@id": "runtime/outputs/qc_preprocessing/figures/qc_summary_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'qc_preprocessing' via runtime/plotting/stages/qc_preprocessing.py.",
+      "encodingFormat": "image/png",
+      "name": "qc_preprocessing — qc_summary_bar",
+      "schema:about": {
+        "@id": "#step-qc_preprocessing"
+      }
+    },
+    {
+      "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_violin.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'raw_qc' via runtime/plotting/stages/raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "raw_qc — per_sample_metric_violin",
+      "schema:about": {
+        "@id": "#step-raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'raw_qc' via runtime/plotting/stages/raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "raw_qc — per_sample_metric_bar",
+      "schema:about": {
+        "@id": "#step-raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/raw_qc/figures/qc_summary_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'raw_qc' via runtime/plotting/stages/raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "raw_qc — qc_summary_bar",
+      "schema:about": {
+        "@id": "#step-raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "reporting — concordance_heatmap",
+      "schema:about": {
+        "@id": "#step-reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/reporting/figures/pathway_overlap_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "reporting — pathway_overlap_bar",
+      "schema:about": {
+        "@id": "#step-reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/sequence_trimming/figures/retention_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'retention_bar' produced by stage 'sequence_trimming' via runtime/plotting/stages/sequence_trimming.py.",
+      "encodingFormat": "image/png",
+      "name": "sequence_trimming — retention_bar",
+      "schema:about": {
+        "@id": "#step-sequence_trimming"
+      }
     },
     {
       "@id": "#p-plan/workflow-de62a6560b39",
@@ -688,6 +1211,106 @@
       }
     },
     {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_batch_correction",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_batch_correction#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_cell_type_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_cell_type_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_clustering",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_clustering#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_dimensionality_reduction",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_dimensionality_reduction#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_normalisation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_normalisation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_quantification#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_sequence_trimming#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/reporting__to__final_reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -825,6 +1448,26 @@
       },
       "targetParameter": {
         "@id": "#step-sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/data_acquisition__to__survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-survey_method_landscape#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/raw_qc__to__survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-survey_method_landscape#input"
       }
     },
     {

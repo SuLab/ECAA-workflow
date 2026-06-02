@@ -15,6 +15,9 @@
           "@id": "https://w3id.org/ro/crate/1.1"
         },
         {
+          "@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"
+        },
+        {
           "@id": "https://w3id.org/ro/wfrun/process/0.5"
         },
         {
@@ -22,6 +25,9 @@
         },
         {
           "@id": "https://w3id.org/ro/wfrun/provenance/0.5"
+        },
+        {
+          "@id": "https://w3id.org/ecaa/v0.1"
         }
       ]
     },
@@ -41,14 +47,227 @@
           "@id": "CONTEXT.md"
         },
         {
+          "@id": "AGENT-EXECUTOR.md"
+        },
+        {
           "@id": "policies/"
+        },
+        {
+          "@id": "runtime/LOG.jsonl"
+        },
+        {
+          "@id": "runtime/intake-conversation.jsonl"
+        },
+        {
+          "@id": "runtime/decisions.jsonl"
+        },
+        {
+          "@id": "runtime/proofs.jsonl"
+        },
+        {
+          "@id": "runtime/claim-verification.json"
+        },
+        {
+          "@id": "runtime/verifier-decisions.jsonl"
+        },
+        {
+          "@id": "runtime/assumptions.jsonl"
+        },
+        {
+          "@id": "runtime/validation-reports.jsonl"
+        },
+        {
+          "@id": "runtime/determinism-shim.json"
+        },
+        {
+          "@id": "runtime/security-policy.json"
+        },
+        {
+          "@id": "runtime/audit-proof-report.json"
+        },
+        {
+          "@id": "runtime/validation-summary.json"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_data_acquisition/figures/samples_per_study.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/volcano.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/ma_plot.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/diff_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_motif_enrichment/figures/motif_enrichment_table.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_motif_enrichment/figures/motif_logo_grid.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_peak_annotation/figures/peak_feature_distribution.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_peak_annotation/figures/tss_distance_distribution.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_peak_calling/figures/profile_pileup.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_peak_calling/figures/coverage_track.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_peak_calling/figures/peak_saturation.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_raw_qc/figures/per_sample_metric_violin.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_raw_qc/figures/per_sample_metric_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_raw_qc/figures/qc_summary_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_reporting/figures/concordance_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_reporting/figures/pathway_overlap_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/atac_seq_sequence_trimming/figures/retention_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_data_acquisition/figures/samples_per_study.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_differential_expression/figures/volcano.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_differential_expression/figures/top_features_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_normalisation/figures/mean_variance.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_normalisation/figures/hvg_count_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_pathway_enrichment/figures/top_enriched_terms.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_qc_preprocessing/figures/per_sample_metric_violin.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_qc_preprocessing/figures/per_sample_metric_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_qc_preprocessing/figures/qc_summary_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_raw_qc/figures/per_sample_metric_violin.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_raw_qc/figures/per_sample_metric_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_raw_qc/figures/qc_summary_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_reporting/figures/concordance_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_reporting/figures/pathway_overlap_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/bulk_rnaseq_sequence_trimming/figures/retention_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_data_acquisition/figures/samples_per_study.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_motif_enrichment/figures/motif_enrichment_table.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_motif_enrichment/figures/motif_logo_grid.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_peak_annotation/figures/peak_feature_distribution.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_peak_annotation/figures/tss_distance_distribution.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_peak_calling/figures/profile_pileup.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_peak_calling/figures/coverage_track.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_peak_calling/figures/peak_saturation.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_raw_qc/figures/per_sample_metric_violin.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_raw_qc/figures/per_sample_metric_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_raw_qc/figures/qc_summary_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_reporting/figures/concordance_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_reporting/figures/pathway_overlap_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/chip_seq_sequence_trimming/figures/retention_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png"
+        },
+        {
+          "@id": "runtime/outputs/multi_modal_thematic_comparison/figures/concordance_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/multi_modal_thematic_comparison/figures/pathway_overlap_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/variant_calling_data_acquisition/figures/samples_per_study.png"
+        },
+        {
+          "@id": "runtime/outputs/variant_calling_raw_qc/figures/per_sample_metric_violin.png"
+        },
+        {
+          "@id": "runtime/outputs/variant_calling_raw_qc/figures/per_sample_metric_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/variant_calling_raw_qc/figures/qc_summary_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/variant_calling_reporting/figures/concordance_heatmap.png"
+        },
+        {
+          "@id": "runtime/outputs/variant_calling_reporting/figures/pathway_overlap_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/variant_calling_sequence_trimming/figures/retention_bar.png"
+        },
+        {
+          "@id": "runtime/outputs/variant_calling_variant_filtering/figures/manhattan.png"
+        },
+        {
+          "@id": "runtime/outputs/variant_calling_variant_filtering/figures/qq.png"
         }
       ],
       "license": "https://www.apache.org/licenses/LICENSE-2.0",
       "mainEntity": {
         "@id": "WORKFLOW.json"
       },
-      "name": "computational biology — Bulk RNA-seq differential expression analysis. Standard pipeline: raw QC,\ntrim, align, quantify, normalise, test for DE between conditions, then\npathway enrichment on the ranked DE result. Mirrors today's\n`config/stage-taxonomies/rnaseq-de.yaml`.\n"
+      "name": "computational biology — "
     },
     {
       "@id": "WORKFLOW.json",
@@ -57,14 +276,14 @@
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
-        "@id": "https://edamontology.org/topic:3308"
+        "@id": "https://edamontology.org/topic_3308"
       },
       "conformsTo": {
         "@id": "https://bioschemas.org/profiles/ComputationalWorkflow/1.0-RELEASE"
       },
       "encodingFormat": "application/json",
       "featureList": {
-        "@id": "https://edamontology.org/operation:3223"
+        "@id": "https://edamontology.org/operation_3223"
       },
       "name": "workflow-095f86f076a7 DAG",
       "programmingLanguage": {
@@ -75,100 +294,346 @@
       },
       "step": [
         {
-          "@id": "#step-review_prior_work"
+          "@id": "#step-variant_calling_validate_final_reporting"
         },
         {
-          "@id": "#step-validate_review_prior_work"
+          "@id": "#step-variant_calling_review_prior_work"
         },
         {
-          "@id": "#step-discover_sequence_trimming"
+          "@id": "#step-variant_calling_validate_review_prior_work"
         },
         {
-          "@id": "#step-discover_quantification"
+          "@id": "#step-variant_calling_data_acquisition"
         },
         {
-          "@id": "#step-discover_pathway_enrichment"
+          "@id": "#step-variant_calling_validate_data_acquisition"
         },
         {
-          "@id": "#step-discover_normalisation"
+          "@id": "#step-variant_calling_raw_qc"
         },
         {
-          "@id": "#step-discover_differential_expression"
+          "@id": "#step-variant_calling_validate_raw_qc"
         },
         {
-          "@id": "#step-discover_alignment"
+          "@id": "#step-variant_calling_survey_method_landscape"
         },
         {
-          "@id": "#step-data_acquisition"
+          "@id": "#step-variant_calling_discover_variant_filtering"
         },
         {
-          "@id": "#step-validate_data_acquisition"
+          "@id": "#step-variant_calling_discover_variant_calling"
         },
         {
-          "@id": "#step-raw_qc"
+          "@id": "#step-variant_calling_discover_variant_annotation"
         },
         {
-          "@id": "#step-validate_raw_qc"
+          "@id": "#step-variant_calling_discover_sequence_trimming"
         },
         {
-          "@id": "#step-sequence_trimming"
+          "@id": "#step-variant_calling_discover_alignment"
         },
         {
-          "@id": "#step-validate_sequence_trimming"
+          "@id": "#step-variant_calling_sequence_trimming"
         },
         {
-          "@id": "#step-alignment"
+          "@id": "#step-variant_calling_validate_sequence_trimming"
         },
         {
-          "@id": "#step-validate_alignment"
+          "@id": "#step-variant_calling_alignment"
         },
         {
-          "@id": "#step-quantification"
+          "@id": "#step-variant_calling_variant_calling"
         },
         {
-          "@id": "#step-validate_quantification"
+          "@id": "#step-variant_calling_variant_filtering"
         },
         {
-          "@id": "#step-qc_preprocessing"
+          "@id": "#step-variant_calling_variant_annotation"
         },
         {
-          "@id": "#step-validate_qc_preprocessing"
+          "@id": "#step-variant_calling_validate_variant_annotation"
         },
         {
-          "@id": "#step-normalisation"
+          "@id": "#step-variant_calling_contextualize_findings_with_literature"
         },
         {
-          "@id": "#step-validate_normalisation"
+          "@id": "#step-variant_calling_validate_contextualize_findings_with_literature"
         },
         {
-          "@id": "#step-differential_expression"
+          "@id": "#step-variant_calling_reporting"
         },
         {
-          "@id": "#step-validate_differential_expression"
+          "@id": "#step-variant_calling_validate_reporting"
         },
         {
-          "@id": "#step-pathway_enrichment"
+          "@id": "#step-variant_calling_validate_variant_filtering"
         },
         {
-          "@id": "#step-validate_pathway_enrichment"
+          "@id": "#step-variant_calling_validate_variant_calling"
         },
         {
-          "@id": "#step-contextualize_findings_with_literature"
+          "@id": "#step-variant_calling_validate_alignment"
         },
         {
-          "@id": "#step-validate_contextualize_findings_with_literature"
+          "@id": "#step-chip_seq_validate_final_reporting"
         },
         {
-          "@id": "#step-reporting"
+          "@id": "#step-chip_seq_review_prior_work"
         },
         {
-          "@id": "#step-validate_reporting"
+          "@id": "#step-chip_seq_validate_review_prior_work"
+        },
+        {
+          "@id": "#step-chip_seq_data_acquisition"
+        },
+        {
+          "@id": "#step-chip_seq_validate_data_acquisition"
+        },
+        {
+          "@id": "#step-chip_seq_raw_qc"
+        },
+        {
+          "@id": "#step-chip_seq_validate_raw_qc"
+        },
+        {
+          "@id": "#step-chip_seq_survey_method_landscape"
+        },
+        {
+          "@id": "#step-chip_seq_discover_sequence_trimming"
+        },
+        {
+          "@id": "#step-chip_seq_discover_peak_calling"
+        },
+        {
+          "@id": "#step-chip_seq_discover_peak_annotation"
+        },
+        {
+          "@id": "#step-chip_seq_discover_motif_enrichment"
+        },
+        {
+          "@id": "#step-chip_seq_discover_alignment"
+        },
+        {
+          "@id": "#step-chip_seq_sequence_trimming"
+        },
+        {
+          "@id": "#step-chip_seq_validate_sequence_trimming"
+        },
+        {
+          "@id": "#step-chip_seq_alignment"
+        },
+        {
+          "@id": "#step-chip_seq_validate_alignment"
+        },
+        {
+          "@id": "#step-chip_seq_peak_calling"
+        },
+        {
+          "@id": "#step-chip_seq_validate_peak_calling"
+        },
+        {
+          "@id": "#step-chip_seq_peak_annotation"
+        },
+        {
+          "@id": "#step-chip_seq_validate_peak_annotation"
+        },
+        {
+          "@id": "#step-chip_seq_motif_enrichment"
+        },
+        {
+          "@id": "#step-chip_seq_validate_motif_enrichment"
+        },
+        {
+          "@id": "#step-chip_seq_contextualize_findings_with_literature"
+        },
+        {
+          "@id": "#step-chip_seq_validate_contextualize_findings_with_literature"
+        },
+        {
+          "@id": "#step-chip_seq_reporting"
+        },
+        {
+          "@id": "#step-chip_seq_validate_reporting"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_final_reporting"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_review_prior_work"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_review_prior_work"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_data_acquisition"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_data_acquisition"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_raw_qc"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_raw_qc"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_survey_method_landscape"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_discover_sequence_trimming"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_discover_quantification"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_discover_pathway_enrichment"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_discover_normalisation"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_discover_differential_expression"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_discover_alignment"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_sequence_trimming"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_sequence_trimming"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_alignment"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_alignment"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_quantification"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_quantification"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_qc_preprocessing"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_qc_preprocessing"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_normalisation"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_normalisation"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_differential_expression"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_differential_expression"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_pathway_enrichment"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_pathway_enrichment"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_contextualize_findings_with_literature"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_contextualize_findings_with_literature"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_reporting"
+        },
+        {
+          "@id": "#step-bulk_rnaseq_validate_reporting"
+        },
+        {
+          "@id": "#step-atac_seq_validate_final_reporting"
+        },
+        {
+          "@id": "#step-atac_seq_data_acquisition"
+        },
+        {
+          "@id": "#step-atac_seq_validate_data_acquisition"
+        },
+        {
+          "@id": "#step-atac_seq_raw_qc"
+        },
+        {
+          "@id": "#step-atac_seq_validate_raw_qc"
+        },
+        {
+          "@id": "#step-atac_seq_survey_method_landscape"
+        },
+        {
+          "@id": "#step-atac_seq_discover_sequence_trimming"
+        },
+        {
+          "@id": "#step-atac_seq_discover_peak_calling"
+        },
+        {
+          "@id": "#step-atac_seq_discover_peak_annotation"
+        },
+        {
+          "@id": "#step-atac_seq_discover_motif_enrichment"
+        },
+        {
+          "@id": "#step-atac_seq_discover_differential_accessibility"
+        },
+        {
+          "@id": "#step-atac_seq_discover_alignment"
+        },
+        {
+          "@id": "#step-atac_seq_sequence_trimming"
+        },
+        {
+          "@id": "#step-atac_seq_validate_sequence_trimming"
+        },
+        {
+          "@id": "#step-atac_seq_alignment"
+        },
+        {
+          "@id": "#step-atac_seq_validate_alignment"
+        },
+        {
+          "@id": "#step-atac_seq_peak_calling"
+        },
+        {
+          "@id": "#step-atac_seq_validate_peak_calling"
+        },
+        {
+          "@id": "#step-atac_seq_peak_annotation"
+        },
+        {
+          "@id": "#step-atac_seq_validate_peak_annotation"
+        },
+        {
+          "@id": "#step-atac_seq_motif_enrichment"
+        },
+        {
+          "@id": "#step-atac_seq_validate_motif_enrichment"
+        },
+        {
+          "@id": "#step-atac_seq_differential_accessibility"
+        },
+        {
+          "@id": "#step-atac_seq_validate_differential_accessibility"
+        },
+        {
+          "@id": "#step-atac_seq_reporting"
+        },
+        {
+          "@id": "#step-atac_seq_validate_reporting"
+        },
+        {
+          "@id": "#step-multi_modal_thematic_comparison"
         },
         {
           "@id": "#step-final_reporting"
-        },
-        {
-          "@id": "#step-validate_final_reporting"
         }
       ]
     },
@@ -202,6 +667,13 @@
       "name": "Workflow Context"
     },
     {
+      "@id": "AGENT-EXECUTOR.md",
+      "@type": "CreativeWork",
+      "description": "Per-package brief consumed by the execution agent; replaces ambient host CLAUDE.md for executor context.",
+      "encodingFormat": "text/markdown",
+      "name": "Executor agent task brief"
+    },
+    {
       "@id": "policies/",
       "@type": "Dataset",
       "name": "Discovery and scoring policies"
@@ -213,234 +685,1639 @@
       "name": "Execution provenance log"
     },
     {
+      "@id": "runtime/intake-conversation.jsonl",
+      "@type": "CreativeWork",
+      "description": "Compile-time intake conversation turns captured for ECAA replay.",
+      "encodingFormat": "application/jsonl",
+      "name": "SME intake conversation log"
+    },
+    {
+      "@id": "runtime/decisions.jsonl",
+      "@type": "CreativeWork",
+      "description": "Compile-time decision records captured for ECAA replay.",
+      "encodingFormat": "application/jsonl",
+      "name": "SME decision log"
+    },
+    {
+      "@id": "runtime/proofs.jsonl",
+      "@type": "CreativeWork",
+      "description": "Per-edge ECAA evidence records mirroring WORKFLOW.json dependencies.",
+      "encodingFormat": "application/jsonl",
+      "name": "Compatibility proofs"
+    },
+    {
+      "@id": "runtime/claim-verification.json",
+      "@type": "CreativeWork",
+      "description": "Emit-time claim verification rollup.",
+      "encodingFormat": "application/json",
+      "name": "Deterministic claim verification report"
+    },
+    {
+      "@id": "runtime/verifier-decisions.jsonl",
+      "@type": "CreativeWork",
+      "description": "Typed verifier-decision event log.",
+      "encodingFormat": "application/jsonl",
+      "name": "Verifier decision substrate"
+    },
+    {
+      "@id": "runtime/assumptions.jsonl",
+      "@type": "CreativeWork",
+      "description": "ECAA failure/assumption ledger.",
+      "encodingFormat": "application/jsonl",
+      "name": "Assumption ledger"
+    },
+    {
+      "@id": "runtime/validation-reports.jsonl",
+      "@type": "CreativeWork",
+      "description": "Harness validation report stream.",
+      "encodingFormat": "application/jsonl",
+      "name": "Validation reports"
+    },
+    {
+      "@id": "runtime/determinism-shim.json",
+      "@type": "CreativeWork",
+      "description": "Active deterministic environment, seed, temp-path, locale, and timezone disclosure.",
+      "encodingFormat": "application/json",
+      "name": "Determinism shim"
+    },
+    {
+      "@id": "runtime/security-policy.json",
+      "@type": "CreativeWork",
+      "description": "Package-level SafetyPolicy aggregate and container digest disclosure.",
+      "encodingFormat": "application/json",
+      "name": "Package security policy"
+    },
+    {
+      "@id": "runtime/audit-proof-report.json",
+      "@type": "CreativeWork",
+      "description": "ECAA audit-proof invariant verdicts.",
+      "encodingFormat": "application/json",
+      "name": "Audit-proof invariant report"
+    },
+    {
+      "@id": "runtime/validation-summary.json",
+      "@type": "CreativeWork",
+      "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
+      "encodingFormat": "application/json",
+      "name": "ECAA emit-time validation summary"
+    },
+    {
       "@id": "https://www.ncbi.nlm.nih.gov/Taxonomy/Browser/wwwtax.cgi?id=9606",
       "@type": "Taxon",
       "identifier": 9606,
       "name": "Homo sapiens"
     },
     {
-      "@id": "#step-review_prior_work",
+      "@id": "#step-variant_calling_validate_final_reporting",
       "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
       "position": 1
     },
     {
-      "@id": "#step-validate_review_prior_work",
+      "@id": "#step-variant_calling_review_prior_work",
       "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "additionalType": "computation",
+      "name": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
       "position": 2
     },
     {
-      "@id": "#step-discover_sequence_trimming",
+      "@id": "#step-variant_calling_validate_review_prior_work",
       "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
       "position": 3
     },
     {
-      "@id": "#step-discover_quantification",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for quantification (options: salmon, kallisto, featurecounts, htseq, rsem). Surface set_intake_method.",
-      "position": 4
-    },
-    {
-      "@id": "#step-discover_pathway_enrichment",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
-      "position": 5
-    },
-    {
-      "@id": "#step-discover_normalisation",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
-      "position": 6
-    },
-    {
-      "@id": "#step-discover_differential_expression",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
-      "position": 7
-    },
-    {
-      "@id": "#step-discover_alignment",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
-      "position": 8
-    },
-    {
-      "@id": "#step-data_acquisition",
+      "@id": "#step-variant_calling_data_acquisition",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 9
+      "position": 4
     },
     {
-      "@id": "#step-validate_data_acquisition",
+      "@id": "#step-variant_calling_validate_data_acquisition",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 10
+      "position": 5
     },
     {
-      "@id": "#step-raw_qc",
+      "@id": "#step-variant_calling_raw_qc",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 11
+      "position": 6
     },
     {
-      "@id": "#step-validate_raw_qc",
+      "@id": "#step-variant_calling_validate_raw_qc",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "position": 7
+    },
+    {
+      "@id": "#step-variant_calling_survey_method_landscape",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "position": 8
+    },
+    {
+      "@id": "#step-variant_calling_discover_variant_filtering",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for variant_filtering (options: vqsr, gatk_hard_filter, deepvariant_cnn, bcftools_filter). Surface set_intake_method.",
+      "position": 9
+    },
+    {
+      "@id": "#step-variant_calling_discover_variant_calling",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for variant_calling (options: haplotypecaller, deepvariant, mutect2, strelka2, dragen, lofreq). Surface set_intake_method.",
+      "position": 10
+    },
+    {
+      "@id": "#step-variant_calling_discover_variant_annotation",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for variant_annotation (options: vep, annovar, snpeff). Surface set_intake_method.",
+      "position": 11
+    },
+    {
+      "@id": "#step-variant_calling_discover_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
       "position": 12
     },
     {
-      "@id": "#step-sequence_trimming",
+      "@id": "#step-variant_calling_discover_alignment",
       "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "additionalType": "discovery",
+      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
       "position": 13
     },
     {
-      "@id": "#step-validate_sequence_trimming",
+      "@id": "#step-variant_calling_sequence_trimming",
       "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "additionalType": "computation",
+      "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
       "position": 14
     },
     {
-      "@id": "#step-alignment",
+      "@id": "#step-variant_calling_validate_sequence_trimming",
       "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
       "position": 15
     },
     {
-      "@id": "#step-validate_alignment",
+      "@id": "#step-variant_calling_alignment",
       "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "additionalType": "computation",
+      "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
       "position": 16
     },
     {
-      "@id": "#step-quantification",
+      "@id": "#step-variant_calling_variant_calling",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "name": "Call germline or somatic SNVs / indels from aligned reads. HaplotypeCaller /\nDeepVariant / Mutect2 / Strelka2 selected at runtime by experimental design\n(germline cohort vs tumor-normal pair vs tumor-only).\n",
       "position": 17
     },
     {
-      "@id": "#step-validate_quantification",
+      "@id": "#step-variant_calling_variant_filtering",
       "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "additionalType": "computation",
+      "name": "Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\necaax namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
       "position": 18
     },
     {
-      "@id": "#step-qc_preprocessing",
+      "@id": "#step-variant_calling_variant_annotation",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "name": "Annotate filtered variants with gene impact, consequence, population\nfrequency, and clinical significance. VEP / ANNOVAR / SnpEff against\nEnsembl / RefSeq / gnomAD / ClinVar selected at runtime.\n",
       "position": 19
     },
     {
-      "@id": "#step-validate_qc_preprocessing",
+      "@id": "#step-variant_calling_validate_variant_annotation",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "name": "Validate outputs of: Annotate filtered variants with gene impact, consequence, population\nfrequency, and clinical significance. VEP / ANNOVAR / SnpEff against\nEnsembl / RefSeq / gnomAD / ClinVar selected at runtime.\n",
       "position": 20
     },
     {
-      "@id": "#step-normalisation",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 21
-    },
-    {
-      "@id": "#step-validate_normalisation",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 22
-    },
-    {
-      "@id": "#step-differential_expression",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
-      "position": 23
-    },
-    {
-      "@id": "#step-validate_differential_expression",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
-      "position": 24
-    },
-    {
-      "@id": "#step-pathway_enrichment",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
-      "position": 25
-    },
-    {
-      "@id": "#step-validate_pathway_enrichment",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
-      "position": 26
-    },
-    {
-      "@id": "#step-contextualize_findings_with_literature",
+      "@id": "#step-variant_calling_contextualize_findings_with_literature",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
-      "position": 27
+      "position": 21
     },
     {
-      "@id": "#step-validate_contextualize_findings_with_literature",
+      "@id": "#step-variant_calling_validate_contextualize_findings_with_literature",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
-      "position": 28
+      "position": 22
     },
     {
-      "@id": "#step-reporting",
+      "@id": "#step-variant_calling_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 29
+      "position": 23
     },
     {
-      "@id": "#step-validate_reporting",
+      "@id": "#step-variant_calling_validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 24
+    },
+    {
+      "@id": "#step-variant_calling_validate_variant_filtering",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\necaax namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
+      "position": 25
+    },
+    {
+      "@id": "#step-variant_calling_validate_variant_calling",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Call germline or somatic SNVs / indels from aligned reads. HaplotypeCaller /\nDeepVariant / Mutect2 / Strelka2 selected at runtime by experimental design\n(germline cohort vs tumor-normal pair vs tumor-only).\n",
+      "position": 26
+    },
+    {
+      "@id": "#step-variant_calling_validate_alignment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "position": 27
+    },
+    {
+      "@id": "#step-chip_seq_validate_final_reporting",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "position": 28
+    },
+    {
+      "@id": "#step-chip_seq_review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "position": 29
+    },
+    {
+      "@id": "#step-chip_seq_validate_review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
       "position": 30
+    },
+    {
+      "@id": "#step-chip_seq_data_acquisition",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "position": 31
+    },
+    {
+      "@id": "#step-chip_seq_validate_data_acquisition",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "position": 32
+    },
+    {
+      "@id": "#step-chip_seq_raw_qc",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "position": 33
+    },
+    {
+      "@id": "#step-chip_seq_validate_raw_qc",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "position": 34
+    },
+    {
+      "@id": "#step-chip_seq_survey_method_landscape",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "position": 35
+    },
+    {
+      "@id": "#step-chip_seq_discover_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "position": 36
+    },
+    {
+      "@id": "#step-chip_seq_discover_peak_calling",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for peak_calling (options: macs2, macs3, seacr, genrich). Surface set_intake_method.",
+      "position": 37
+    },
+    {
+      "@id": "#step-chip_seq_discover_peak_annotation",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for peak_annotation (options: chipseeker, homer_annotatepeaks, great). Surface set_intake_method.",
+      "position": 38
+    },
+    {
+      "@id": "#step-chip_seq_discover_motif_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for motif_enrichment (options: homer_findmotifsgenome, meme_chip, monalisa). Surface set_intake_method.",
+      "position": 39
+    },
+    {
+      "@id": "#step-chip_seq_discover_alignment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "position": 40
+    },
+    {
+      "@id": "#step-chip_seq_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "position": 41
+    },
+    {
+      "@id": "#step-chip_seq_validate_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "position": 42
+    },
+    {
+      "@id": "#step-chip_seq_alignment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "position": 43
+    },
+    {
+      "@id": "#step-chip_seq_validate_alignment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "position": 44
+    },
+    {
+      "@id": "#step-chip_seq_peak_calling",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
+      "position": 45
+    },
+    {
+      "@id": "#step-chip_seq_validate_peak_calling",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
+      "position": 46
+    },
+    {
+      "@id": "#step-chip_seq_peak_annotation",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
+      "position": 47
+    },
+    {
+      "@id": "#step-chip_seq_validate_peak_annotation",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
+      "position": 48
+    },
+    {
+      "@id": "#step-chip_seq_motif_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
+      "position": 49
+    },
+    {
+      "@id": "#step-chip_seq_validate_motif_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
+      "position": 50
+    },
+    {
+      "@id": "#step-chip_seq_contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 51
+    },
+    {
+      "@id": "#step-chip_seq_validate_contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 52
+    },
+    {
+      "@id": "#step-chip_seq_reporting",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 53
+    },
+    {
+      "@id": "#step-chip_seq_validate_reporting",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 54
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_final_reporting",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "position": 55
+    },
+    {
+      "@id": "#step-bulk_rnaseq_review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "position": 56
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "position": 57
+    },
+    {
+      "@id": "#step-bulk_rnaseq_data_acquisition",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "position": 58
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_data_acquisition",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "position": 59
+    },
+    {
+      "@id": "#step-bulk_rnaseq_raw_qc",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "position": 60
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_raw_qc",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "position": 61
+    },
+    {
+      "@id": "#step-bulk_rnaseq_survey_method_landscape",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "position": 62
+    },
+    {
+      "@id": "#step-bulk_rnaseq_discover_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "position": 63
+    },
+    {
+      "@id": "#step-bulk_rnaseq_discover_quantification",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for quantification (options: salmon, kallisto, featurecounts, htseq, rsem). Surface set_intake_method.",
+      "position": 64
+    },
+    {
+      "@id": "#step-bulk_rnaseq_discover_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+      "position": 65
+    },
+    {
+      "@id": "#step-bulk_rnaseq_discover_normalisation",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
+      "position": 66
+    },
+    {
+      "@id": "#step-bulk_rnaseq_discover_differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+      "position": 67
+    },
+    {
+      "@id": "#step-bulk_rnaseq_discover_alignment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "position": 68
+    },
+    {
+      "@id": "#step-bulk_rnaseq_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "position": 69
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "position": 70
+    },
+    {
+      "@id": "#step-bulk_rnaseq_alignment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "position": 71
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_alignment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "position": 72
+    },
+    {
+      "@id": "#step-bulk_rnaseq_quantification",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "position": 73
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_quantification",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+      "position": 74
+    },
+    {
+      "@id": "#step-bulk_rnaseq_qc_preprocessing",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "position": 75
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_qc_preprocessing",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
+      "position": 76
+    },
+    {
+      "@id": "#step-bulk_rnaseq_normalisation",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "position": 77
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_normalisation",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "position": 78
+    },
+    {
+      "@id": "#step-bulk_rnaseq_differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "position": 79
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "position": 80
+    },
+    {
+      "@id": "#step-bulk_rnaseq_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 81
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 82
+    },
+    {
+      "@id": "#step-bulk_rnaseq_contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 83
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 84
+    },
+    {
+      "@id": "#step-bulk_rnaseq_reporting",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 85
+    },
+    {
+      "@id": "#step-bulk_rnaseq_validate_reporting",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 86
+    },
+    {
+      "@id": "#step-atac_seq_validate_final_reporting",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "position": 87
+    },
+    {
+      "@id": "#step-atac_seq_data_acquisition",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "position": 88
+    },
+    {
+      "@id": "#step-atac_seq_validate_data_acquisition",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "position": 89
+    },
+    {
+      "@id": "#step-atac_seq_raw_qc",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "position": 90
+    },
+    {
+      "@id": "#step-atac_seq_validate_raw_qc",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
+      "position": 91
+    },
+    {
+      "@id": "#step-atac_seq_survey_method_landscape",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "position": 92
+    },
+    {
+      "@id": "#step-atac_seq_discover_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
+      "position": 93
+    },
+    {
+      "@id": "#step-atac_seq_discover_peak_calling",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for peak_calling (options: macs2, macs3, seacr, genrich). Surface set_intake_method.",
+      "position": 94
+    },
+    {
+      "@id": "#step-atac_seq_discover_peak_annotation",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for peak_annotation (options: chipseeker, homer_annotatepeaks, great). Surface set_intake_method.",
+      "position": 95
+    },
+    {
+      "@id": "#step-atac_seq_discover_motif_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for motif_enrichment (options: homer_findmotifsgenome, meme_chip, monalisa). Surface set_intake_method.",
+      "position": 96
+    },
+    {
+      "@id": "#step-atac_seq_discover_differential_accessibility",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for differential_accessibility (options: diffbind, deseq2, edger, csaw). Surface set_intake_method.",
+      "position": 97
+    },
+    {
+      "@id": "#step-atac_seq_discover_alignment",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
+      "position": 98
+    },
+    {
+      "@id": "#step-atac_seq_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "position": 99
+    },
+    {
+      "@id": "#step-atac_seq_validate_sequence_trimming",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "position": 100
+    },
+    {
+      "@id": "#step-atac_seq_alignment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "position": 101
+    },
+    {
+      "@id": "#step-atac_seq_validate_alignment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
+      "position": 102
+    },
+    {
+      "@id": "#step-atac_seq_peak_calling",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
+      "position": 103
+    },
+    {
+      "@id": "#step-atac_seq_validate_peak_calling",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
+      "position": 104
+    },
+    {
+      "@id": "#step-atac_seq_peak_annotation",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
+      "position": 105
+    },
+    {
+      "@id": "#step-atac_seq_validate_peak_annotation",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
+      "position": 106
+    },
+    {
+      "@id": "#step-atac_seq_motif_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
+      "position": 107
+    },
+    {
+      "@id": "#step-atac_seq_validate_motif_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
+      "position": 108
+    },
+    {
+      "@id": "#step-atac_seq_differential_accessibility",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
+      "position": 109
+    },
+    {
+      "@id": "#step-atac_seq_validate_differential_accessibility",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
+      "position": 110
+    },
+    {
+      "@id": "#step-atac_seq_reporting",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 111
+    },
+    {
+      "@id": "#step-atac_seq_validate_reporting",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 112
+    },
+    {
+      "@id": "#step-multi_modal_thematic_comparison",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
+      "position": 113
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 31
+      "position": 114
     },
     {
-      "@id": "#step-validate_final_reporting",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 32
+      "@id": "runtime/outputs/atac_seq_data_acquisition/figures/samples_per_study.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'samples_per_study' produced by stage 'atac_seq_data_acquisition' via runtime/plotting/stages/atac_seq_data_acquisition.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_data_acquisition — samples_per_study",
+      "schema:about": {
+        "@id": "#step-atac_seq_data_acquisition"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/volcano.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'volcano' produced by stage 'atac_seq_differential_accessibility' via runtime/plotting/stages/atac_seq_differential_accessibility.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_differential_accessibility — volcano",
+      "schema:about": {
+        "@id": "#step-atac_seq_differential_accessibility"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/ma_plot.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'ma_plot' produced by stage 'atac_seq_differential_accessibility' via runtime/plotting/stages/atac_seq_differential_accessibility.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_differential_accessibility — ma_plot",
+      "schema:about": {
+        "@id": "#step-atac_seq_differential_accessibility"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/diff_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'diff_heatmap' produced by stage 'atac_seq_differential_accessibility' via runtime/plotting/stages/atac_seq_differential_accessibility.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_differential_accessibility — diff_heatmap",
+      "schema:about": {
+        "@id": "#step-atac_seq_differential_accessibility"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_motif_enrichment/figures/motif_enrichment_table.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'motif_enrichment_table' produced by stage 'atac_seq_motif_enrichment' via runtime/plotting/stages/atac_seq_motif_enrichment.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_motif_enrichment — motif_enrichment_table",
+      "schema:about": {
+        "@id": "#step-atac_seq_motif_enrichment"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_motif_enrichment/figures/motif_logo_grid.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'motif_logo_grid' produced by stage 'atac_seq_motif_enrichment' via runtime/plotting/stages/atac_seq_motif_enrichment.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_motif_enrichment — motif_logo_grid",
+      "schema:about": {
+        "@id": "#step-atac_seq_motif_enrichment"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_peak_annotation/figures/peak_feature_distribution.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'peak_feature_distribution' produced by stage 'atac_seq_peak_annotation' via runtime/plotting/stages/atac_seq_peak_annotation.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_peak_annotation — peak_feature_distribution",
+      "schema:about": {
+        "@id": "#step-atac_seq_peak_annotation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_peak_annotation/figures/tss_distance_distribution.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'tss_distance_distribution' produced by stage 'atac_seq_peak_annotation' via runtime/plotting/stages/atac_seq_peak_annotation.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_peak_annotation — tss_distance_distribution",
+      "schema:about": {
+        "@id": "#step-atac_seq_peak_annotation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_peak_calling/figures/profile_pileup.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'profile_pileup' produced by stage 'atac_seq_peak_calling' via runtime/plotting/stages/atac_seq_peak_calling.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_peak_calling — profile_pileup",
+      "schema:about": {
+        "@id": "#step-atac_seq_peak_calling"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_peak_calling/figures/coverage_track.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'coverage_track' produced by stage 'atac_seq_peak_calling' via runtime/plotting/stages/atac_seq_peak_calling.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_peak_calling — coverage_track",
+      "schema:about": {
+        "@id": "#step-atac_seq_peak_calling"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_peak_calling/figures/peak_saturation.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'peak_saturation' produced by stage 'atac_seq_peak_calling' via runtime/plotting/stages/atac_seq_peak_calling.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_peak_calling — peak_saturation",
+      "schema:about": {
+        "@id": "#step-atac_seq_peak_calling"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_raw_qc/figures/per_sample_metric_violin.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'atac_seq_raw_qc' via runtime/plotting/stages/atac_seq_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_raw_qc — per_sample_metric_violin",
+      "schema:about": {
+        "@id": "#step-atac_seq_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_raw_qc/figures/per_sample_metric_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'atac_seq_raw_qc' via runtime/plotting/stages/atac_seq_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_raw_qc — per_sample_metric_bar",
+      "schema:about": {
+        "@id": "#step-atac_seq_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_raw_qc/figures/qc_summary_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'atac_seq_raw_qc' via runtime/plotting/stages/atac_seq_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_raw_qc — qc_summary_bar",
+      "schema:about": {
+        "@id": "#step-atac_seq_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_reporting/figures/concordance_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'atac_seq_reporting' via runtime/plotting/stages/atac_seq_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_reporting — concordance_heatmap",
+      "schema:about": {
+        "@id": "#step-atac_seq_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_reporting/figures/pathway_overlap_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'atac_seq_reporting' via runtime/plotting/stages/atac_seq_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_reporting — pathway_overlap_bar",
+      "schema:about": {
+        "@id": "#step-atac_seq_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/atac_seq_sequence_trimming/figures/retention_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'retention_bar' produced by stage 'atac_seq_sequence_trimming' via runtime/plotting/stages/atac_seq_sequence_trimming.py.",
+      "encodingFormat": "image/png",
+      "name": "atac_seq_sequence_trimming — retention_bar",
+      "schema:about": {
+        "@id": "#step-atac_seq_sequence_trimming"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_data_acquisition/figures/samples_per_study.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'samples_per_study' produced by stage 'bulk_rnaseq_data_acquisition' via runtime/plotting/stages/bulk_rnaseq_data_acquisition.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_data_acquisition — samples_per_study",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_data_acquisition"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_differential_expression/figures/volcano.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'volcano' produced by stage 'bulk_rnaseq_differential_expression' via runtime/plotting/stages/bulk_rnaseq_differential_expression.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_differential_expression — volcano",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_differential_expression"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_differential_expression/figures/top_features_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'top_features_heatmap' produced by stage 'bulk_rnaseq_differential_expression' via runtime/plotting/stages/bulk_rnaseq_differential_expression.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_differential_expression — top_features_heatmap",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_differential_expression"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_normalisation/figures/mean_variance.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'mean_variance' produced by stage 'bulk_rnaseq_normalisation' via runtime/plotting/stages/bulk_rnaseq_normalisation.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_normalisation — mean_variance",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_normalisation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_normalisation/figures/hvg_count_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'hvg_count_bar' produced by stage 'bulk_rnaseq_normalisation' via runtime/plotting/stages/bulk_rnaseq_normalisation.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_normalisation — hvg_count_bar",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_normalisation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_pathway_enrichment/figures/top_enriched_terms.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'top_enriched_terms' produced by stage 'bulk_rnaseq_pathway_enrichment' via runtime/plotting/stages/bulk_rnaseq_pathway_enrichment.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_pathway_enrichment — top_enriched_terms",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_pathway_enrichment"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_qc_preprocessing/figures/per_sample_metric_violin.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'bulk_rnaseq_qc_preprocessing' via runtime/plotting/stages/bulk_rnaseq_qc_preprocessing.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_qc_preprocessing — per_sample_metric_violin",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_qc_preprocessing"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_qc_preprocessing/figures/per_sample_metric_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'bulk_rnaseq_qc_preprocessing' via runtime/plotting/stages/bulk_rnaseq_qc_preprocessing.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_qc_preprocessing — per_sample_metric_bar",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_qc_preprocessing"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_qc_preprocessing/figures/qc_summary_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'bulk_rnaseq_qc_preprocessing' via runtime/plotting/stages/bulk_rnaseq_qc_preprocessing.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_qc_preprocessing — qc_summary_bar",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_qc_preprocessing"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_raw_qc/figures/per_sample_metric_violin.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'bulk_rnaseq_raw_qc' via runtime/plotting/stages/bulk_rnaseq_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_raw_qc — per_sample_metric_violin",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_raw_qc/figures/per_sample_metric_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'bulk_rnaseq_raw_qc' via runtime/plotting/stages/bulk_rnaseq_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_raw_qc — per_sample_metric_bar",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_raw_qc/figures/qc_summary_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'bulk_rnaseq_raw_qc' via runtime/plotting/stages/bulk_rnaseq_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_raw_qc — qc_summary_bar",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_reporting/figures/concordance_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'bulk_rnaseq_reporting' via runtime/plotting/stages/bulk_rnaseq_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_reporting — concordance_heatmap",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_reporting/figures/pathway_overlap_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'bulk_rnaseq_reporting' via runtime/plotting/stages/bulk_rnaseq_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_reporting — pathway_overlap_bar",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/bulk_rnaseq_sequence_trimming/figures/retention_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'retention_bar' produced by stage 'bulk_rnaseq_sequence_trimming' via runtime/plotting/stages/bulk_rnaseq_sequence_trimming.py.",
+      "encodingFormat": "image/png",
+      "name": "bulk_rnaseq_sequence_trimming — retention_bar",
+      "schema:about": {
+        "@id": "#step-bulk_rnaseq_sequence_trimming"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_data_acquisition/figures/samples_per_study.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'samples_per_study' produced by stage 'chip_seq_data_acquisition' via runtime/plotting/stages/chip_seq_data_acquisition.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_data_acquisition — samples_per_study",
+      "schema:about": {
+        "@id": "#step-chip_seq_data_acquisition"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_motif_enrichment/figures/motif_enrichment_table.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'motif_enrichment_table' produced by stage 'chip_seq_motif_enrichment' via runtime/plotting/stages/chip_seq_motif_enrichment.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_motif_enrichment — motif_enrichment_table",
+      "schema:about": {
+        "@id": "#step-chip_seq_motif_enrichment"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_motif_enrichment/figures/motif_logo_grid.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'motif_logo_grid' produced by stage 'chip_seq_motif_enrichment' via runtime/plotting/stages/chip_seq_motif_enrichment.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_motif_enrichment — motif_logo_grid",
+      "schema:about": {
+        "@id": "#step-chip_seq_motif_enrichment"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_peak_annotation/figures/peak_feature_distribution.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'peak_feature_distribution' produced by stage 'chip_seq_peak_annotation' via runtime/plotting/stages/chip_seq_peak_annotation.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_peak_annotation — peak_feature_distribution",
+      "schema:about": {
+        "@id": "#step-chip_seq_peak_annotation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_peak_annotation/figures/tss_distance_distribution.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'tss_distance_distribution' produced by stage 'chip_seq_peak_annotation' via runtime/plotting/stages/chip_seq_peak_annotation.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_peak_annotation — tss_distance_distribution",
+      "schema:about": {
+        "@id": "#step-chip_seq_peak_annotation"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_peak_calling/figures/profile_pileup.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'profile_pileup' produced by stage 'chip_seq_peak_calling' via runtime/plotting/stages/chip_seq_peak_calling.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_peak_calling — profile_pileup",
+      "schema:about": {
+        "@id": "#step-chip_seq_peak_calling"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_peak_calling/figures/coverage_track.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'coverage_track' produced by stage 'chip_seq_peak_calling' via runtime/plotting/stages/chip_seq_peak_calling.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_peak_calling — coverage_track",
+      "schema:about": {
+        "@id": "#step-chip_seq_peak_calling"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_peak_calling/figures/peak_saturation.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'peak_saturation' produced by stage 'chip_seq_peak_calling' via runtime/plotting/stages/chip_seq_peak_calling.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_peak_calling — peak_saturation",
+      "schema:about": {
+        "@id": "#step-chip_seq_peak_calling"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_raw_qc/figures/per_sample_metric_violin.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'chip_seq_raw_qc' via runtime/plotting/stages/chip_seq_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_raw_qc — per_sample_metric_violin",
+      "schema:about": {
+        "@id": "#step-chip_seq_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_raw_qc/figures/per_sample_metric_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'chip_seq_raw_qc' via runtime/plotting/stages/chip_seq_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_raw_qc — per_sample_metric_bar",
+      "schema:about": {
+        "@id": "#step-chip_seq_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_raw_qc/figures/qc_summary_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'chip_seq_raw_qc' via runtime/plotting/stages/chip_seq_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_raw_qc — qc_summary_bar",
+      "schema:about": {
+        "@id": "#step-chip_seq_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_reporting/figures/concordance_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'chip_seq_reporting' via runtime/plotting/stages/chip_seq_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_reporting — concordance_heatmap",
+      "schema:about": {
+        "@id": "#step-chip_seq_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_reporting/figures/pathway_overlap_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'chip_seq_reporting' via runtime/plotting/stages/chip_seq_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_reporting — pathway_overlap_bar",
+      "schema:about": {
+        "@id": "#step-chip_seq_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/chip_seq_sequence_trimming/figures/retention_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'retention_bar' produced by stage 'chip_seq_sequence_trimming' via runtime/plotting/stages/chip_seq_sequence_trimming.py.",
+      "encodingFormat": "image/png",
+      "name": "chip_seq_sequence_trimming — retention_bar",
+      "schema:about": {
+        "@id": "#step-chip_seq_sequence_trimming"
+      }
+    },
+    {
+      "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'summary_dashboard' produced by stage 'final_reporting' via runtime/plotting/stages/final_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "final_reporting — summary_dashboard",
+      "schema:about": {
+        "@id": "#step-final_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/multi_modal_thematic_comparison/figures/concordance_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'multi_modal_thematic_comparison' via runtime/plotting/stages/multi_modal_thematic_comparison.py.",
+      "encodingFormat": "image/png",
+      "name": "multi_modal_thematic_comparison — concordance_heatmap",
+      "schema:about": {
+        "@id": "#step-multi_modal_thematic_comparison"
+      }
+    },
+    {
+      "@id": "runtime/outputs/multi_modal_thematic_comparison/figures/pathway_overlap_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'multi_modal_thematic_comparison' via runtime/plotting/stages/multi_modal_thematic_comparison.py.",
+      "encodingFormat": "image/png",
+      "name": "multi_modal_thematic_comparison — pathway_overlap_bar",
+      "schema:about": {
+        "@id": "#step-multi_modal_thematic_comparison"
+      }
+    },
+    {
+      "@id": "runtime/outputs/variant_calling_data_acquisition/figures/samples_per_study.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'samples_per_study' produced by stage 'variant_calling_data_acquisition' via runtime/plotting/stages/variant_calling_data_acquisition.py.",
+      "encodingFormat": "image/png",
+      "name": "variant_calling_data_acquisition — samples_per_study",
+      "schema:about": {
+        "@id": "#step-variant_calling_data_acquisition"
+      }
+    },
+    {
+      "@id": "runtime/outputs/variant_calling_raw_qc/figures/per_sample_metric_violin.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'variant_calling_raw_qc' via runtime/plotting/stages/variant_calling_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "variant_calling_raw_qc — per_sample_metric_violin",
+      "schema:about": {
+        "@id": "#step-variant_calling_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/variant_calling_raw_qc/figures/per_sample_metric_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'variant_calling_raw_qc' via runtime/plotting/stages/variant_calling_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "variant_calling_raw_qc — per_sample_metric_bar",
+      "schema:about": {
+        "@id": "#step-variant_calling_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/variant_calling_raw_qc/figures/qc_summary_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'variant_calling_raw_qc' via runtime/plotting/stages/variant_calling_raw_qc.py.",
+      "encodingFormat": "image/png",
+      "name": "variant_calling_raw_qc — qc_summary_bar",
+      "schema:about": {
+        "@id": "#step-variant_calling_raw_qc"
+      }
+    },
+    {
+      "@id": "runtime/outputs/variant_calling_reporting/figures/concordance_heatmap.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'variant_calling_reporting' via runtime/plotting/stages/variant_calling_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "variant_calling_reporting — concordance_heatmap",
+      "schema:about": {
+        "@id": "#step-variant_calling_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/variant_calling_reporting/figures/pathway_overlap_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'variant_calling_reporting' via runtime/plotting/stages/variant_calling_reporting.py.",
+      "encodingFormat": "image/png",
+      "name": "variant_calling_reporting — pathway_overlap_bar",
+      "schema:about": {
+        "@id": "#step-variant_calling_reporting"
+      }
+    },
+    {
+      "@id": "runtime/outputs/variant_calling_sequence_trimming/figures/retention_bar.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'retention_bar' produced by stage 'variant_calling_sequence_trimming' via runtime/plotting/stages/variant_calling_sequence_trimming.py.",
+      "encodingFormat": "image/png",
+      "name": "variant_calling_sequence_trimming — retention_bar",
+      "schema:about": {
+        "@id": "#step-variant_calling_sequence_trimming"
+      }
+    },
+    {
+      "@id": "runtime/outputs/variant_calling_variant_filtering/figures/manhattan.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'manhattan' produced by stage 'variant_calling_variant_filtering' via runtime/plotting/stages/variant_calling_variant_filtering.py.",
+      "encodingFormat": "image/png",
+      "name": "variant_calling_variant_filtering — manhattan",
+      "schema:about": {
+        "@id": "#step-variant_calling_variant_filtering"
+      }
+    },
+    {
+      "@id": "runtime/outputs/variant_calling_variant_filtering/figures/qq.png",
+      "@type": [
+        "File",
+        "ImageObject"
+      ],
+      "description": "Diagnostic figure 'qq' produced by stage 'variant_calling_variant_filtering' via runtime/plotting/stages/variant_calling_variant_filtering.py.",
+      "encodingFormat": "image/png",
+      "name": "variant_calling_variant_filtering — qq",
+      "schema:about": {
+        "@id": "#step-variant_calling_variant_filtering"
+      }
     },
     {
       "@id": "#p-plan/workflow-095f86f076a7",
@@ -448,337 +2325,1857 @@
         "Plan",
         "p-plan:Plan"
       ],
-      "matchedArchetype": "bulk_rnaseq_de",
+      "matchedArchetype": "v4:data:0951",
       "rationale": "Composed for modality `bulk_rnaseq` (domain `computational biology`)."
     },
     {
-      "@id": "#parameter-connection/discover_alignment__to__alignment",
+      "@id": "#parameter-connection/atac_seq_discover_alignment__to__atac_seq_alignment",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-discover_alignment#output"
+        "@id": "#step-atac_seq_discover_alignment#output"
       },
       "targetParameter": {
-        "@id": "#step-alignment#input"
+        "@id": "#step-atac_seq_alignment#input"
       }
     },
     {
-      "@id": "#parameter-connection/sequence_trimming__to__alignment",
+      "@id": "#parameter-connection/atac_seq_sequence_trimming__to__atac_seq_alignment",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-sequence_trimming#output"
+        "@id": "#step-atac_seq_sequence_trimming#output"
       },
       "targetParameter": {
-        "@id": "#step-alignment#input"
+        "@id": "#step-atac_seq_alignment#input"
       }
     },
     {
-      "@id": "#parameter-connection/differential_expression__to__contextualize_findings_with_literature",
+      "@id": "#parameter-connection/atac_seq_discover_differential_accessibility__to__atac_seq_differential_accessibility",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-differential_expression#output"
+        "@id": "#step-atac_seq_discover_differential_accessibility#output"
       },
       "targetParameter": {
-        "@id": "#step-contextualize_findings_with_literature#input"
+        "@id": "#step-atac_seq_differential_accessibility#input"
       }
     },
     {
-      "@id": "#parameter-connection/review_prior_work__to__contextualize_findings_with_literature",
+      "@id": "#parameter-connection/atac_seq_peak_calling__to__atac_seq_differential_accessibility",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-review_prior_work#output"
+        "@id": "#step-atac_seq_peak_calling#output"
       },
       "targetParameter": {
-        "@id": "#step-contextualize_findings_with_literature#input"
+        "@id": "#step-atac_seq_differential_accessibility#input"
       }
     },
     {
-      "@id": "#parameter-connection/discover_differential_expression__to__differential_expression",
+      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_alignment",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-discover_differential_expression#output"
+        "@id": "#step-atac_seq_survey_method_landscape#output"
       },
       "targetParameter": {
-        "@id": "#step-differential_expression#input"
+        "@id": "#step-atac_seq_discover_alignment#input"
       }
     },
     {
-      "@id": "#parameter-connection/normalisation__to__differential_expression",
+      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_differential_accessibility",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-normalisation#output"
+        "@id": "#step-atac_seq_survey_method_landscape#output"
       },
       "targetParameter": {
-        "@id": "#step-differential_expression#input"
+        "@id": "#step-atac_seq_discover_differential_accessibility#input"
       }
     },
     {
-      "@id": "#parameter-connection/reporting__to__final_reporting",
+      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_motif_enrichment",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-reporting#output"
+        "@id": "#step-atac_seq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_discover_motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_discover_peak_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_peak_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_discover_peak_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_discover_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_discover_motif_enrichment__to__atac_seq_motif_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_discover_motif_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_peak_calling__to__atac_seq_motif_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_discover_peak_annotation__to__atac_seq_peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_discover_peak_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_peak_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_peak_calling__to__atac_seq_peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_peak_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_alignment__to__atac_seq_peak_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_peak_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_discover_peak_calling__to__atac_seq_peak_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_discover_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_peak_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_data_acquisition__to__atac_seq_raw_qc",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_raw_qc#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_differential_accessibility__to__atac_seq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_differential_accessibility#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_motif_enrichment__to__atac_seq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_motif_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_peak_annotation__to__atac_seq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_peak_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_peak_calling__to__atac_seq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_discover_sequence_trimming__to__atac_seq_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_discover_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_raw_qc__to__atac_seq_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_data_acquisition__to__atac_seq_survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_survey_method_landscape#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_raw_qc__to__atac_seq_survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_survey_method_landscape#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_alignment__to__atac_seq_validate_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_validate_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_data_acquisition__to__atac_seq_validate_data_acquisition",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_validate_data_acquisition#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_differential_accessibility__to__atac_seq_validate_differential_accessibility",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_differential_accessibility#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_validate_differential_accessibility#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_motif_enrichment__to__atac_seq_validate_motif_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_motif_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_validate_motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_peak_annotation__to__atac_seq_validate_peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_peak_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_validate_peak_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_peak_calling__to__atac_seq_validate_peak_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_validate_peak_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_raw_qc__to__atac_seq_validate_raw_qc",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_validate_raw_qc#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_reporting__to__atac_seq_validate_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_validate_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_sequence_trimming__to__atac_seq_validate_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_validate_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_discover_alignment__to__bulk_rnaseq_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_discover_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_sequence_trimming__to__bulk_rnaseq_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_differential_expression__to__bulk_rnaseq_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_review_prior_work__to__bulk_rnaseq_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_discover_differential_expression__to__bulk_rnaseq_differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_discover_differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_normalisation__to__bulk_rnaseq_differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_normalisation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_survey_method_landscape__to__bulk_rnaseq_discover_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_discover_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_survey_method_landscape__to__bulk_rnaseq_discover_differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_discover_differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_survey_method_landscape__to__bulk_rnaseq_discover_normalisation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_discover_normalisation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_survey_method_landscape__to__bulk_rnaseq_discover_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_discover_pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_survey_method_landscape__to__bulk_rnaseq_discover_quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_discover_quantification#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_survey_method_landscape__to__bulk_rnaseq_discover_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_discover_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_discover_normalisation__to__bulk_rnaseq_normalisation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_discover_normalisation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_normalisation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_qc_preprocessing__to__bulk_rnaseq_normalisation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_qc_preprocessing#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_normalisation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_differential_expression__to__bulk_rnaseq_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_discover_pathway_enrichment__to__bulk_rnaseq_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_discover_pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_quantification__to__bulk_rnaseq_qc_preprocessing",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_quantification#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_qc_preprocessing#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_alignment__to__bulk_rnaseq_quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_quantification#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_discover_quantification__to__bulk_rnaseq_quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_discover_quantification#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_quantification#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_data_acquisition__to__bulk_rnaseq_raw_qc",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_raw_qc#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_contextualize_findings_with_literature__to__bulk_rnaseq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_differential_expression__to__bulk_rnaseq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_pathway_enrichment__to__bulk_rnaseq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_discover_sequence_trimming__to__bulk_rnaseq_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_discover_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_raw_qc__to__bulk_rnaseq_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_data_acquisition__to__bulk_rnaseq_survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_survey_method_landscape#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_raw_qc__to__bulk_rnaseq_survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_survey_method_landscape#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_alignment__to__bulk_rnaseq_validate_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_contextualize_findings_with_literature__to__bulk_rnaseq_validate_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_data_acquisition__to__bulk_rnaseq_validate_data_acquisition",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_data_acquisition#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_differential_expression__to__bulk_rnaseq_validate_differential_expression",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_differential_expression#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_normalisation__to__bulk_rnaseq_validate_normalisation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_normalisation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_normalisation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_pathway_enrichment__to__bulk_rnaseq_validate_pathway_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_pathway_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_pathway_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_qc_preprocessing__to__bulk_rnaseq_validate_qc_preprocessing",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_qc_preprocessing#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_qc_preprocessing#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_quantification__to__bulk_rnaseq_validate_quantification",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_quantification#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_quantification#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_raw_qc__to__bulk_rnaseq_validate_raw_qc",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_raw_qc#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_reporting__to__bulk_rnaseq_validate_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_review_prior_work__to__bulk_rnaseq_validate_review_prior_work",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_review_prior_work#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/bulk_rnaseq_sequence_trimming__to__bulk_rnaseq_validate_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-bulk_rnaseq_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-bulk_rnaseq_validate_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_discover_alignment__to__chip_seq_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_discover_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_sequence_trimming__to__chip_seq_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_peak_calling__to__chip_seq_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_review_prior_work__to__chip_seq_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_survey_method_landscape__to__chip_seq_discover_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_discover_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_survey_method_landscape__to__chip_seq_discover_motif_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_discover_motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_survey_method_landscape__to__chip_seq_discover_peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_discover_peak_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_survey_method_landscape__to__chip_seq_discover_peak_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_discover_peak_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_survey_method_landscape__to__chip_seq_discover_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_discover_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_discover_motif_enrichment__to__chip_seq_motif_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_discover_motif_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_peak_calling__to__chip_seq_motif_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_discover_peak_annotation__to__chip_seq_peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_discover_peak_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_peak_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_peak_calling__to__chip_seq_peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_peak_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_alignment__to__chip_seq_peak_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_peak_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_discover_peak_calling__to__chip_seq_peak_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_discover_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_peak_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_data_acquisition__to__chip_seq_raw_qc",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_raw_qc#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_contextualize_findings_with_literature__to__chip_seq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_motif_enrichment__to__chip_seq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_motif_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_peak_annotation__to__chip_seq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_peak_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_peak_calling__to__chip_seq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_discover_sequence_trimming__to__chip_seq_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_discover_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_raw_qc__to__chip_seq_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_data_acquisition__to__chip_seq_survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_survey_method_landscape#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_raw_qc__to__chip_seq_survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_survey_method_landscape#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_alignment__to__chip_seq_validate_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_validate_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_contextualize_findings_with_literature__to__chip_seq_validate_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_validate_contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_data_acquisition__to__chip_seq_validate_data_acquisition",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_validate_data_acquisition#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_motif_enrichment__to__chip_seq_validate_motif_enrichment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_motif_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_validate_motif_enrichment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_peak_annotation__to__chip_seq_validate_peak_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_peak_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_validate_peak_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_peak_calling__to__chip_seq_validate_peak_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_validate_peak_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_raw_qc__to__chip_seq_validate_raw_qc",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_validate_raw_qc#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_reporting__to__chip_seq_validate_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_validate_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_review_prior_work__to__chip_seq_validate_review_prior_work",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_validate_review_prior_work#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_sequence_trimming__to__chip_seq_validate_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-chip_seq_validate_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/multi_modal_thematic_comparison__to__final_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#output"
       },
       "targetParameter": {
         "@id": "#step-final_reporting#input"
       }
     },
     {
-      "@id": "#parameter-connection/discover_normalisation__to__normalisation",
+      "@id": "#parameter-connection/atac_seq_validate_alignment__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-discover_normalisation#output"
+        "@id": "#step-atac_seq_validate_alignment#output"
       },
       "targetParameter": {
-        "@id": "#step-normalisation#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/qc_preprocessing__to__normalisation",
+      "@id": "#parameter-connection/atac_seq_validate_data_acquisition__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-qc_preprocessing#output"
+        "@id": "#step-atac_seq_validate_data_acquisition#output"
       },
       "targetParameter": {
-        "@id": "#step-normalisation#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/differential_expression__to__pathway_enrichment",
+      "@id": "#parameter-connection/atac_seq_validate_differential_accessibility__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-differential_expression#output"
+        "@id": "#step-atac_seq_validate_differential_accessibility#output"
       },
       "targetParameter": {
-        "@id": "#step-pathway_enrichment#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/discover_pathway_enrichment__to__pathway_enrichment",
+      "@id": "#parameter-connection/atac_seq_validate_final_reporting__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-discover_pathway_enrichment#output"
+        "@id": "#step-atac_seq_validate_final_reporting#output"
       },
       "targetParameter": {
-        "@id": "#step-pathway_enrichment#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/quantification__to__qc_preprocessing",
+      "@id": "#parameter-connection/atac_seq_validate_motif_enrichment__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-quantification#output"
+        "@id": "#step-atac_seq_validate_motif_enrichment#output"
       },
       "targetParameter": {
-        "@id": "#step-qc_preprocessing#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/alignment__to__quantification",
+      "@id": "#parameter-connection/atac_seq_validate_peak_annotation__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-alignment#output"
+        "@id": "#step-atac_seq_validate_peak_annotation#output"
       },
       "targetParameter": {
-        "@id": "#step-quantification#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/discover_quantification__to__quantification",
+      "@id": "#parameter-connection/atac_seq_validate_peak_calling__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-discover_quantification#output"
+        "@id": "#step-atac_seq_validate_peak_calling#output"
       },
       "targetParameter": {
-        "@id": "#step-quantification#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/data_acquisition__to__raw_qc",
+      "@id": "#parameter-connection/atac_seq_validate_raw_qc__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-data_acquisition#output"
+        "@id": "#step-atac_seq_validate_raw_qc#output"
       },
       "targetParameter": {
-        "@id": "#step-raw_qc#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/contextualize_findings_with_literature__to__reporting",
+      "@id": "#parameter-connection/atac_seq_validate_reporting__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-contextualize_findings_with_literature#output"
+        "@id": "#step-atac_seq_validate_reporting#output"
       },
       "targetParameter": {
-        "@id": "#step-reporting#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/differential_expression__to__reporting",
+      "@id": "#parameter-connection/atac_seq_validate_sequence_trimming__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-differential_expression#output"
+        "@id": "#step-atac_seq_validate_sequence_trimming#output"
       },
       "targetParameter": {
-        "@id": "#step-reporting#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/pathway_enrichment__to__reporting",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_alignment__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-pathway_enrichment#output"
+        "@id": "#step-bulk_rnaseq_validate_alignment#output"
       },
       "targetParameter": {
-        "@id": "#step-reporting#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/discover_sequence_trimming__to__sequence_trimming",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_contextualize_findings_with_literature__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-discover_sequence_trimming#output"
+        "@id": "#step-bulk_rnaseq_validate_contextualize_findings_with_literature#output"
       },
       "targetParameter": {
-        "@id": "#step-sequence_trimming#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/raw_qc__to__sequence_trimming",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_data_acquisition__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-raw_qc#output"
+        "@id": "#step-bulk_rnaseq_validate_data_acquisition#output"
       },
       "targetParameter": {
-        "@id": "#step-sequence_trimming#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/alignment__to__validate_alignment",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_differential_expression__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-alignment#output"
+        "@id": "#step-bulk_rnaseq_validate_differential_expression#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_alignment#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/contextualize_findings_with_literature__to__validate_contextualize_findings_with_literature",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_final_reporting__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-contextualize_findings_with_literature#output"
+        "@id": "#step-bulk_rnaseq_validate_final_reporting#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_contextualize_findings_with_literature#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/data_acquisition__to__validate_data_acquisition",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_normalisation__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-data_acquisition#output"
+        "@id": "#step-bulk_rnaseq_validate_normalisation#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_data_acquisition#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/differential_expression__to__validate_differential_expression",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_pathway_enrichment__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-differential_expression#output"
+        "@id": "#step-bulk_rnaseq_validate_pathway_enrichment#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_differential_expression#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/final_reporting__to__validate_final_reporting",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_qc_preprocessing__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-final_reporting#output"
+        "@id": "#step-bulk_rnaseq_validate_qc_preprocessing#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_final_reporting#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/normalisation__to__validate_normalisation",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_quantification__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-normalisation#output"
+        "@id": "#step-bulk_rnaseq_validate_quantification#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_normalisation#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/pathway_enrichment__to__validate_pathway_enrichment",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_raw_qc__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-pathway_enrichment#output"
+        "@id": "#step-bulk_rnaseq_validate_raw_qc#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_pathway_enrichment#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/qc_preprocessing__to__validate_qc_preprocessing",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_reporting__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-qc_preprocessing#output"
+        "@id": "#step-bulk_rnaseq_validate_reporting#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_qc_preprocessing#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/quantification__to__validate_quantification",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_review_prior_work__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-quantification#output"
+        "@id": "#step-bulk_rnaseq_validate_review_prior_work#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_quantification#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/raw_qc__to__validate_raw_qc",
+      "@id": "#parameter-connection/bulk_rnaseq_validate_sequence_trimming__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-raw_qc#output"
+        "@id": "#step-bulk_rnaseq_validate_sequence_trimming#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_raw_qc#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/reporting__to__validate_reporting",
+      "@id": "#parameter-connection/chip_seq_validate_alignment__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-reporting#output"
+        "@id": "#step-chip_seq_validate_alignment#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_reporting#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/review_prior_work__to__validate_review_prior_work",
+      "@id": "#parameter-connection/chip_seq_validate_contextualize_findings_with_literature__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-review_prior_work#output"
+        "@id": "#step-chip_seq_validate_contextualize_findings_with_literature#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_review_prior_work#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
       }
     },
     {
-      "@id": "#parameter-connection/sequence_trimming__to__validate_sequence_trimming",
+      "@id": "#parameter-connection/chip_seq_validate_data_acquisition__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-sequence_trimming#output"
+        "@id": "#step-chip_seq_validate_data_acquisition#output"
       },
       "targetParameter": {
-        "@id": "#step-validate_sequence_trimming#input"
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_validate_final_reporting__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_validate_final_reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_validate_motif_enrichment__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_validate_motif_enrichment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_validate_peak_annotation__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_validate_peak_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_validate_peak_calling__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_validate_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_validate_raw_qc__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_validate_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_validate_reporting__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_validate_reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_validate_review_prior_work__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_validate_review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/chip_seq_validate_sequence_trimming__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-chip_seq_validate_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_validate_alignment__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_validate_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_validate_contextualize_findings_with_literature__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_validate_contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_validate_data_acquisition__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_validate_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_validate_final_reporting__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_validate_final_reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_validate_raw_qc__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_validate_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_validate_reporting__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_validate_reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_validate_review_prior_work__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_validate_review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_validate_sequence_trimming__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_validate_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_validate_variant_annotation__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_validate_variant_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_validate_variant_calling__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_validate_variant_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_validate_variant_filtering__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_validate_variant_filtering#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_discover_alignment__to__variant_calling_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_discover_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_sequence_trimming__to__variant_calling_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_review_prior_work__to__variant_calling_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_variant_annotation__to__variant_calling_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_variant_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_survey_method_landscape__to__variant_calling_discover_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_discover_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_survey_method_landscape__to__variant_calling_discover_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_discover_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_survey_method_landscape__to__variant_calling_discover_variant_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_discover_variant_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_survey_method_landscape__to__variant_calling_discover_variant_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_discover_variant_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_survey_method_landscape__to__variant_calling_discover_variant_filtering",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_discover_variant_filtering#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_data_acquisition__to__variant_calling_raw_qc",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_raw_qc#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_contextualize_findings_with_literature__to__variant_calling_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_variant_annotation__to__variant_calling_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_variant_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_discover_sequence_trimming__to__variant_calling_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_discover_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_raw_qc__to__variant_calling_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_data_acquisition__to__variant_calling_survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_survey_method_landscape#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_raw_qc__to__variant_calling_survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_survey_method_landscape#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_alignment__to__variant_calling_validate_alignment",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_validate_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_contextualize_findings_with_literature__to__variant_calling_validate_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_validate_contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_data_acquisition__to__variant_calling_validate_data_acquisition",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_validate_data_acquisition#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_raw_qc__to__variant_calling_validate_raw_qc",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_raw_qc#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_validate_raw_qc#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_reporting__to__variant_calling_validate_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_validate_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_review_prior_work__to__variant_calling_validate_review_prior_work",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_validate_review_prior_work#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_sequence_trimming__to__variant_calling_validate_sequence_trimming",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_sequence_trimming#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_validate_sequence_trimming#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_variant_annotation__to__variant_calling_validate_variant_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_variant_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_validate_variant_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_variant_calling__to__variant_calling_validate_variant_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_variant_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_validate_variant_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_variant_filtering__to__variant_calling_validate_variant_filtering",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_variant_filtering#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_validate_variant_filtering#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_discover_variant_annotation__to__variant_calling_variant_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_discover_variant_annotation#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_variant_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_variant_filtering__to__variant_calling_variant_annotation",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_variant_filtering#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_variant_annotation#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_alignment__to__variant_calling_variant_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_alignment#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_variant_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_discover_variant_calling__to__variant_calling_variant_calling",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_discover_variant_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_variant_calling#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_discover_variant_filtering__to__variant_calling_variant_filtering",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_discover_variant_filtering#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_variant_filtering#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/variant_calling_variant_calling__to__variant_calling_variant_filtering",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-variant_calling_variant_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-variant_calling_variant_filtering#input"
       }
     }
   ]

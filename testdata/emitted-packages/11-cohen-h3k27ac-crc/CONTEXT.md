@@ -2,11 +2,7 @@
 
 **Modality:** bulk_rnaseq
 **Domain:** computational biology
-**Description:** Bulk RNA-seq differential expression analysis. Standard pipeline: raw QC,
-trim, align, quantify, normalise, test for DE between conditions, then
-pathway enrichment on the ranked DE result. Mirrors today's
-`config/modalities/rnaseq-de.yaml` + `config/archetypes/`.
-
+**Description:** 
 **EDAM topic:** topic:3308
 **EDAM operation:** operation:3223
 **Confidence:** high (100%)

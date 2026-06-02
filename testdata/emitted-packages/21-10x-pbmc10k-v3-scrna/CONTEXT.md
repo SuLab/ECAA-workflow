@@ -6,7 +6,7 @@
 preprocess, cell-level QC, normalise, optional batch correction +
 integration sweep, dimensionality reduction, cluster, annotate cell
 types, test cluster-vs-rest or cross-condition DE, then pathway
-enrichment. Mirrors today's `config/modalities/single-cell.yaml` + `config/archetypes/`.
+enrichment.
 
 **EDAM topic:** topic:3308
 **EDAM operation:** operation:3432

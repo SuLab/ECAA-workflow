@@ -1,0 +1,26 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "single_cell_vdj_cdr3_clonotype_clustering"
+  ],
+  "description": "Validate outputs of: Cluster CDR3 amino-acid sequences across donors to detect public\nclonotypes (shared TCR/BCR sequences across individuals,\npotentially antigen-responsive). TCRdist3 / GLIPH2 for T cells;\nSCOPer / Immcantation for B-cell SHM-aware clustering.\n",
+  "kind": "validation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "validate_cdr3_clonotype_clustering",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "single_cell_vdj_validate_cdr3_clonotype_clustering"
+}
