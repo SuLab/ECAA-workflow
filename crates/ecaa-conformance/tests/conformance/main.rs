@@ -14,6 +14,7 @@ mod rust_pyshacl_agreement;
 mod false_positive_corpus;
 mod invariant_utility;
 mod shacl_non_vacuous;
+mod skos_scheme_agreement;
 mod spec_consistency;
 mod wrroc_runcrate;
 mod wrroc_v05_conformance;
