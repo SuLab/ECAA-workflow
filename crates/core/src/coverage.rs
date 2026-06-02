@@ -46,7 +46,10 @@ pub struct CoverageResult {
 /// source table basename — the structured path sets `claim.source_table`
 /// to the resolved table name, which is exactly the manifest's
 /// `expected_output_table` for confirmatory stages.
-fn verdict_addresses(verdict: &ClaimVerdict, expected: &crate::expected_claim::ExpectedClaim) -> bool {
+fn verdict_addresses(
+    verdict: &ClaimVerdict,
+    expected: &crate::expected_claim::ExpectedClaim,
+) -> bool {
     let want_entity = expected.entity.to_ascii_lowercase();
     let want_table = expected
         .expected_output_table
@@ -229,7 +232,10 @@ mod tests {
             ("pathway_enrichment", Requirement::Optional),
         ]);
         let cov = reconcile_coverage(&m, &[]);
-        assert_eq!(cov.required_total, 1, "Optional excluded from Required total");
+        assert_eq!(
+            cov.required_total, 1,
+            "Optional excluded from Required total"
+        );
         assert!(!cov.per_entity.contains_key("pathway_enrichment"));
     }
 

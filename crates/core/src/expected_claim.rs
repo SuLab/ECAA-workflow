@@ -235,7 +235,10 @@ mod tests {
             schema_version: crate::dag::current_dag_schema_version(),
             workflow_id: "test".into(),
             current_task: None,
-            tasks: tasks.into_iter().map(|(k, v)| (TaskId::from(k), v)).collect(),
+            tasks: tasks
+                .into_iter()
+                .map(|(k, v)| (TaskId::from(k), v))
+                .collect(),
             reverse_deps: BTreeMap::new(),
             run_id: None,
         };
@@ -287,11 +290,8 @@ mod tests {
     #[test]
     fn empty_dag_and_no_goal_yields_empty_manifest() {
         let dag = dag_with(vec![]);
-        let m = derive_expected_manifest(
-            &empty_classification(),
-            &dag,
-            ProjectClass::Bioinformatics,
-        );
+        let m =
+            derive_expected_manifest(&empty_classification(), &dag, ProjectClass::Bioinformatics);
         assert_eq!(m.schema_version, "1");
         assert!(
             m.entries.is_empty(),
@@ -308,11 +308,8 @@ mod tests {
             "differential_expression",
             comp_task("differential_expression"),
         )]);
-        let m = derive_expected_manifest(
-            &empty_classification(),
-            &dag,
-            ProjectClass::Bioinformatics,
-        );
+        let m =
+            derive_expected_manifest(&empty_classification(), &dag, ProjectClass::Bioinformatics);
         assert_eq!(m.entries.len(), 1, "one confirmatory stage ⇒ one entry");
         let e = &m.entries[0];
         assert_eq!(e.requirement, Requirement::Required);
@@ -329,13 +326,13 @@ mod tests {
         // same intake produce byte-identical manifests.
         let dag = dag_with(vec![
             ("pathway_enrichment", comp_task("pathway_enrichment")),
-            ("differential_expression", comp_task("differential_expression")),
+            (
+                "differential_expression",
+                comp_task("differential_expression"),
+            ),
         ]);
-        let m = derive_expected_manifest(
-            &empty_classification(),
-            &dag,
-            ProjectClass::Bioinformatics,
-        );
+        let m =
+            derive_expected_manifest(&empty_classification(), &dag, ProjectClass::Bioinformatics);
         let entities: Vec<&str> = m.entries.iter().map(|e| e.entity.as_str()).collect();
         let mut sorted = entities.clone();
         sorted.sort();
@@ -373,8 +370,7 @@ mod tests {
         };
         inject_manifest_into_policy(dir.path(), &manifest).unwrap();
 
-        let raw =
-            std::fs::read_to_string(policies.join("interpretation-policy.json")).unwrap();
+        let raw = std::fs::read_to_string(policies.join("interpretation-policy.json")).unwrap();
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         let expected = v["verifiableEntities"]["expected"].as_array().unwrap();
         assert_eq!(expected.len(), 1);
