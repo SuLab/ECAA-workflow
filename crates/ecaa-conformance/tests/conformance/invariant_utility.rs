@@ -983,3 +983,67 @@ fn invariant_utility_specificity_matrix() {
 
     println!("{}", "=".repeat(67));
 }
+
+/// Aim 3A positive-treatment control (synthetic leg). The dual of the
+/// null-treatment control: a spec-derived mutation of a CLEAN complete package
+/// must flip the targeted invariant off `Pass` (Warn/Fail). The specificity
+/// matrix already proves this for the union; this test states the
+/// positive-treatment framing explicitly and is the canonical synthetic
+/// positive — reusing the private `mutate_*` mutators (rather than duplicating
+/// them) so it tracks the same spec-grounded oracle.
+#[test]
+fn benchmark_positive_treatment_mutators_flip() {
+    let (_g0, clean_root) = fresh_package();
+    let baseline = run(&clean_root);
+
+    struct Pos {
+        target: InvariantId,
+        mutate: fn(&Path),
+    }
+    let cases = [
+        Pos {
+            target: InvariantId::ClaimCompleteness,
+            mutate: mutate_claim_completeness,
+        },
+        Pos {
+            target: InvariantId::DecisionJustification,
+            mutate: mutate_decision_justification,
+        },
+        Pos {
+            target: InvariantId::EvidenceCoverage,
+            mutate: mutate_evidence_coverage,
+        },
+        Pos {
+            target: InvariantId::EquivalenceFailure,
+            mutate: mutate_equivalence_failure,
+        },
+        Pos {
+            target: InvariantId::CrossGraphIntegrity,
+            mutate: mutate_cross_graph_integrity,
+        },
+    ];
+
+    for case in &cases {
+        let (_g, root) = fresh_package();
+        (case.mutate)(&root);
+        let mutated = run(&root);
+        let got = verdict(&mutated, case.target).status;
+        // The apparatus must be LOUD on a real violation: the targeted
+        // invariant moves off Pass (Warn or Fail), and it is a genuine change
+        // from the clean baseline.
+        assert_ne!(
+            got,
+            InvariantStatus::Pass,
+            "POSITIVE-TREATMENT: {:?} stayed Pass after its own injection (detail: {:?})",
+            case.target,
+            verdict(&mutated, case.target).detail
+        );
+        assert_ne!(
+            verdict(&baseline, case.target).status,
+            got,
+            "POSITIVE-TREATMENT: {:?} was already {:?} clean — injection proves nothing",
+            case.target,
+            got
+        );
+    }
+}
