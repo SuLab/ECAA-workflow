@@ -88,6 +88,95 @@ def test_harness_bin_prefers_explicit_env_path(monkeypatch, tmp_path: Path) -> N
     assert harness_bin() == explicit
 
 
+def test_fixture_agent_auto_picks_aliased_discovery_task(tmp_path: Path) -> None:
+    pkg = tmp_path / "aliased-discovery-package"
+    task_id = "atac_seq_discover_sequence_trimming"
+    write_json(
+        pkg / "WORKFLOW.json",
+        {
+            "version": "1",
+            "workflow_id": "fixture-aliased-discovery",
+            "current_task": None,
+            "tasks": {
+                task_id: {
+                    "kind": "computation",
+                    "state": {"status": "ready"},
+                    "depends_on": [],
+                    "assignee": "agent",
+                    "description": "Fixture discovery for aliased branch task",
+                    "resource_class": "cpu_heavy",
+                    "requires_sme_review": True,
+                }
+            },
+        },
+    )
+    write_json(
+        pkg / "runtime" / "outputs" / task_id / "task-spec.json",
+        task_spec(task_id, "computation"),
+    )
+
+    env = {
+        **os.environ,
+        "ECAA_TASK_ID": task_id,
+        "ECAA_DISABLE_CONTAINERS": "1",
+        "ECAA_REQUIRE_CONTAINER_EXECUTION": "0",
+        "MPLBACKEND": "Agg",
+    }
+    run([str(AGENT), str(pkg)], cwd=REPO, env=env)
+
+    decision = json.loads(
+        (pkg / "runtime" / "outputs" / task_id / "decision.json").read_text()
+    )
+    assert decision["task_id"] == task_id
+    assert decision["auto_picked"] is True
+
+
+def test_fixture_agent_renders_aliased_reporting_task(tmp_path: Path) -> None:
+    pkg = tmp_path / "aliased-reporting-package"
+    task_id = "atac_seq_reporting"
+    shutil.copytree(REPO / "lib" / "plotting", pkg / "runtime" / "plotting")
+    write_json(
+        pkg / "WORKFLOW.json",
+        {
+            "version": "1",
+            "workflow_id": "fixture-aliased-reporting",
+            "current_task": None,
+            "tasks": {
+                task_id: {
+                    "kind": "computation",
+                    "state": {"status": "ready"},
+                    "depends_on": [],
+                    "assignee": "agent",
+                    "description": "Fixture reporting for aliased branch task",
+                    "resource_class": "cpu_heavy",
+                    "source_atom_id": "reporting",
+                }
+            },
+        },
+    )
+    write_json(
+        pkg / "runtime" / "outputs" / task_id / "task-spec.json",
+        task_spec(
+            task_id,
+            "computation",
+            ["concordance_heatmap", "pathway_overlap_bar"],
+            "reporting",
+        ),
+    )
+
+    env = {
+        **os.environ,
+        "ECAA_TASK_ID": task_id,
+        "ECAA_DISABLE_CONTAINERS": "1",
+        "ECAA_REQUIRE_CONTAINER_EXECUTION": "0",
+        "MPLBACKEND": "Agg",
+    }
+    run([str(AGENT), str(pkg)], cwd=REPO, env=env)
+
+    assert_figure(pkg, task_id, "concordance_heatmap")
+    assert_figure(pkg, task_id, "pathway_overlap_bar")
+
+
 def task_spec(
     task_id: str,
     kind: object,
@@ -217,6 +306,61 @@ def build_pasilla_package(pkg: Path) -> list[str]:
     for task_id, spec in specs.items():
         write_json(outputs / task_id / "task-spec.json", spec)
     return order
+
+
+def build_aliased_data_acquisition_package(pkg: Path) -> None:
+    runtime = pkg / "runtime"
+    outputs = runtime / "outputs"
+    shutil.copytree(REPO / "lib" / "plotting", runtime / "plotting")
+    write_json(pkg / "policies" / "container.json", {"image": CONTAINER_IMAGE})
+
+    staged = runtime / "inputs" / "cross_omics"
+    staged.mkdir(parents=True)
+    source = REPO / "testdata" / "scenarios" / "atoms" / "cross-omics-rna-atac"
+    for filename in ("rna_samples.csv", "atac_samples.csv", "modalities.json"):
+        shutil.copy2(source / filename, staged / filename)
+    write_json(
+        runtime / "inputs.json",
+        [
+            {
+                "input_id": "cross_omics_fixture",
+                "label": "cross-omics-rna-atac",
+                "kind": "local_path",
+                "root_path": str(staged),
+                "files": [
+                    {"relpath": "rna_samples.csv"},
+                    {"relpath": "atac_samples.csv"},
+                    {"relpath": "modalities.json"},
+                ],
+            }
+        ],
+    )
+    tasks = {
+        "bulk_rnaseq_data_acquisition": workflow_task(
+            "bulk_rnaseq_data_acquisition", "computation", []
+        ),
+        "final_reporting": workflow_task("final_reporting", "computation", ["bulk_rnaseq_data_acquisition"]),
+    }
+    write_json(
+        pkg / "WORKFLOW.json",
+        {
+            "version": "1",
+            "workflow_id": "fixture-aliased-data-acquisition",
+            "current_task": None,
+            "tasks": tasks,
+        },
+    )
+    write_json(
+        outputs / "bulk_rnaseq_data_acquisition" / "task-spec.json",
+        task_spec(
+            "bulk_rnaseq_data_acquisition",
+            "computation",
+            ["samples_per_study"],
+            "data_acquisition",
+        ),
+    )
+    write_json(outputs / "final_reporting" / "task-spec.json", task_spec("final_reporting", "computation"))
+    assert_no_isolated_nodes({"tasks": tasks})
 
 
 def assert_no_isolated_nodes(workflow: dict[str, object]) -> None:
@@ -425,6 +569,56 @@ def test_local_harness_executes_every_atom_catalog_task_and_plot(tmp_path: Path)
             assert_figure(pkg, task_id, str(figure_id))
 
     commit_package_artifacts(pkg)
+
+
+def test_local_harness_executes_aliased_data_acquisition_plot(tmp_path: Path) -> None:
+    pkg = tmp_path / "aliased-data-acquisition-package"
+    build_aliased_data_acquisition_package(pkg)
+
+    env = {
+        **os.environ,
+        "ECAA_EXECUTOR_MODE": "local",
+        "ECAA_DEFAULT_CONTAINER_IMAGE": CONTAINER_IMAGE,
+        "ECAA_HARNESS_CONCURRENCY": "1",
+        "ECAA_HARNESS_VALIDATION_LANE": "0",
+        "ECAA_HARNESS_SETTLE_SECS": "0",
+        "ECAA_LOCAL_SANDBOX": "off",
+        "ECAA_DISABLE_CONTAINERS": "0",
+        "ECAA_REQUIRE_CONTAINER_EXECUTION": "1",
+        "ECAA_DISABLE_ENV_CLEAR": "0",
+        "OMP_NUM_THREADS": "1",
+        "OPENBLAS_NUM_THREADS": "1",
+        "MKL_NUM_THREADS": "1",
+        "NUMEXPR_NUM_THREADS": "1",
+    }
+    result = run(
+        [
+            str(harness_bin()),
+            "--package",
+            str(pkg),
+            "--agent",
+            str(AGENT),
+            "--max-iterations",
+            "8",
+            "--task-timeout",
+            "180",
+            "--no-interactive",
+        ],
+        cwd=REPO,
+        env=env,
+    )
+    assert "All tasks complete" in result.stdout
+
+    workflow = json.loads((pkg / "WORKFLOW.json").read_text())
+    assert_no_isolated_nodes(workflow)
+    assert {t["state"]["status"] for t in workflow["tasks"].values()} == {"completed"}
+    assert_completion_order_respects_dependencies(workflow, completed_task_events(pkg))
+    assert_container_and_usage(pkg, "bulk_rnaseq_data_acquisition")
+    assert_figure(pkg, "bulk_rnaseq_data_acquisition", "samples_per_study")
+    manifest = json.loads(
+        (pkg / "runtime" / "outputs" / "bulk_rnaseq_data_acquisition" / "manifest.json").read_text()
+    )
+    assert len(manifest["samples"]) >= 2
 
 
 def test_local_harness_executes_containerized_pasilla_plot_dag(tmp_path: Path) -> None:

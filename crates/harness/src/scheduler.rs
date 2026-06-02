@@ -267,6 +267,34 @@ pub fn filter_picks_respecting_sme_gate(
         .collect()
 }
 
+pub fn ready_task_ids_passing_sme_gate(
+    dag: &DAG,
+    confirmed_stages: &std::collections::BTreeSet<TaskId>,
+) -> std::collections::BTreeSet<TaskId> {
+    let ready: Vec<TaskId> = dag
+        .tasks
+        .iter()
+        .filter(|(_, task)| matches!(task.state, TaskState::Ready))
+        .map(|(id, _)| id.clone())
+        .collect();
+    filter_picks_respecting_sme_gate(dag, ready, confirmed_stages)
+        .into_iter()
+        .collect()
+}
+
+pub fn dag_with_ready_tasks_limited_to(
+    dag: &DAG,
+    allowed_ready: &std::collections::BTreeSet<TaskId>,
+) -> DAG {
+    let mut filtered = dag.clone();
+    for (id, task) in filtered.tasks.iter_mut() {
+        if matches!(task.state, TaskState::Ready) && !allowed_ready.contains(id) {
+            task.state = TaskState::Pending;
+        }
+    }
+    filtered
+}
+
 fn has_unconfirmed_review_ancestor(
     dag: &DAG,
     task_id: &str,
@@ -852,6 +880,46 @@ mod tests {
         ]);
         let picks = pick_ready_with_lanes(&dag, LaneBudget::one_plus_one());
         assert_eq!(picks, vec![TaskId::from("compute_a")]);
+    }
+
+    #[test]
+    fn sme_gated_ready_task_does_not_starve_later_ready_processing_task() {
+        let mut review_gate = task(
+            "atac_seq_discover_sequence_trimming",
+            TaskState::Completed {
+                result: serde_json::json!({"decision": "fixture"}),
+            },
+            ResourceClass::CpuHeavy,
+        );
+        review_gate.1.requires_sme_review = true;
+
+        let mut gated = task(
+            "atac_seq_sequence_trimming",
+            TaskState::Ready,
+            ResourceClass::CpuHeavy,
+        );
+        gated
+            .1
+            .depends_on
+            .push(TaskId::from("atac_seq_discover_sequence_trimming"));
+
+        let ungated = task(
+            "bulk_rnaseq_data_acquisition",
+            TaskState::Ready,
+            ResourceClass::CpuHeavy,
+        );
+
+        let dag = dag_from(vec![review_gate, gated, ungated]);
+        let unfiltered = pick_ready_with_lanes(&dag, LaneBudget::one_plus_one());
+        assert_eq!(unfiltered, vec![TaskId::from("atac_seq_sequence_trimming")]);
+
+        let eligible = ready_task_ids_passing_sme_gate(&dag, &std::collections::BTreeSet::new());
+        assert!(!eligible.contains("atac_seq_sequence_trimming"));
+        assert!(eligible.contains("bulk_rnaseq_data_acquisition"));
+
+        let dispatchable_dag = dag_with_ready_tasks_limited_to(&dag, &eligible);
+        let picks = pick_ready_with_lanes(&dispatchable_dag, LaneBudget::one_plus_one());
+        assert_eq!(picks, vec![TaskId::from("bulk_rnaseq_data_acquisition")]);
     }
 
     #[test]

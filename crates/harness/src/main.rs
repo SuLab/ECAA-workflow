@@ -29,9 +29,10 @@ use ecaa_workflow_harness::finalize_probe::{probe_one_task, ProbeOutcome};
 use ecaa_workflow_harness::multiprocess_lock::SessionLock;
 use ecaa_workflow_harness::required_artifacts::verify_required_artifacts;
 use ecaa_workflow_harness::scheduler::{
-    count_concurrent_peers_by_class, filter_picks_respecting_sme_gate, lane_mode_from_env,
+    count_concurrent_peers_by_class, dag_with_ready_tasks_limited_to, lane_mode_from_env,
     pause_dependent_tasks, pick_ready_respecting_budgets, pick_ready_with_lanes,
-    read_confirmed_review_stages, ConcurrencyMode, SchedulerBudget,
+    read_confirmed_review_stages, ready_task_ids_passing_sme_gate, ConcurrencyMode,
+    SchedulerBudget,
 };
 use ecaa_workflow_harness::scratch_cleanup::cleanup_task_scratch;
 use ecaa_workflow_harness::sme_skip;
@@ -2438,49 +2439,38 @@ fn run_loop(
         // pre-marked task emits a task_started progress event + a
         // harness-owned log line before the agent spawn.
         //
-        // After budget-picking, filter out tasks whose
-        // ancestor chain includes a Completed task with
-        // requires_sme_review: true that the SME has not yet
-        // confirmed. Confirmed stages come from per-stage sidecar
-        // files written by the server's /confirm handler.
+        // Before budget-picking, hide Ready tasks whose ancestor chain
+        // includes a Completed task with requires_sme_review: true that
+        // the SME has not yet confirmed. Confirmed stages come from
+        // per-stage sidecar files written by the server's /confirm handler.
         let (picks, picked_dispatches): (Vec<String>, Vec<PickedDispatch>) = {
             let mut dag_mut = read_dag(path)?;
             let mut picked_dispatches = Vec::new();
+            let confirmed_stages = read_confirmed_review_stages(path);
+            let sme_eligible_ready = ready_task_ids_passing_sme_gate(&dag_mut, &confirmed_stages);
+            let mut allowed_ready = sme_eligible_ready.clone();
+            // Apply gates before budget picking. If a lexically early Ready
+            // task is waiting on SME review, it must not consume the only
+            // processing lane and starve later Ready tasks that are actually
+            // dispatchable.
+            if dispatch_gate_failed_this_iter {
+                allowed_ready.clear();
+            } else if session_pausing {
+                allowed_ready.retain(|id| !pause_excluded.contains(id.as_str()));
+            }
+            let dispatchable_dag = dag_with_ready_tasks_limited_to(&dag_mut, &allowed_ready);
             // Validation-lane mode (ECAA_HARNESS_VALIDATION_LANE=1)
             // overrides ECAA_HARNESS_CONCURRENCY: one slot reserved
             // for validators, one for processing.
             let raw_picks = if let Some(lanes) = lane_mode_from_env() {
-                pick_ready_with_lanes(&dag_mut, lanes)
+                pick_ready_with_lanes(&dispatchable_dag, lanes)
             } else {
-                pick_ready_respecting_budgets(&dag_mut, budget)
+                pick_ready_respecting_budgets(&dispatchable_dag, budget)
             };
-            // When session is pausing, filter out tasks that
-            // transitively depend on a Blocked task — they would
-            // themselves hit the SME gate. Tasks with no such
-            // dependency (validators, review tasks) are left in.
-            //
-            // Fail-closed override: when the dispatch_gate GET failed
-            // this iteration we have no reliable view of session state,
-            // so refuse to dispatch ANY task — not just transitively-
-            // dependent ones. Otherwise an unreachable-server window
-            // would still spawn agents whose POSTs immediately 404.
-            let raw_picks: Vec<ecaa_workflow_core::ids::TaskId> = if dispatch_gate_failed_this_iter
-            {
-                Vec::new()
-            } else if session_pausing {
-                raw_picks
-                    .into_iter()
-                    .filter(|id| !pause_excluded.contains(id.as_str()))
-                    .collect()
-            } else {
-                raw_picks
-            };
-            let confirmed_stages = read_confirmed_review_stages(path);
+            let sme_eligible_ready_set: std::collections::BTreeSet<String> =
+                sme_eligible_ready.iter().map(|id| id.to_string()).collect();
             let picks_pre_sandbox: Vec<String> =
-                filter_picks_respecting_sme_gate(&dag_mut, raw_picks, &confirmed_stages)
-                    .into_iter()
-                    .map(|id| id.to_string())
-                    .collect();
+                raw_picks.into_iter().map(|id| id.to_string()).collect();
             // Pre-dispatch sandbox check. For v4 sessions
             // with an active policy bundle, refuse tasks that violate
             // the sandbox policy (e.g. unreviewed generated code,
@@ -2526,40 +2516,13 @@ fn run_loop(
             //   sandbox_refused    — task in `sandbox_refusals`
             //   network_refused    — task in `safety_refusals` with NetworkPolicyMismatch
             //   safety_refused     — task in `safety_refusals` (other BlockerKind)
-            //   sme_review_required — in budget picks but filtered by SME gate
+            //   sme_review_required — Ready but withheld by SME gate before budget picking
             //   slot_exhausted     — Ready but not reached by budget picker
             {
                 use ecaa_workflow_core::blocker::BlockerKind;
                 use picker_decisions::{append_picker_decisions, PickerDecisionRecord};
 
                 let now_ts = chrono::Utc::now().to_rfc3339();
-                // Re-run the budget picker (pure read over in-memory dag;
-                // no I/O) to reconstruct which tasks were budget-selected
-                // after pause-exclusion. This lets us distinguish
-                // slot_exhausted (budget skipped), pause_dependent (filtered
-                // because the task transitively depends on a Blocked task
-                // while the session is pausing), and sme_review_required
-                // (budget included, gate filtered).
-                let budget_picks_set: std::collections::BTreeSet<String> = {
-                    let raw: Vec<String> = if budget.cpu_slots == 0 && budget.gpu_slots == 0 {
-                        Vec::new()
-                    } else if let Some(lanes) = lane_mode_from_env() {
-                        pick_ready_with_lanes(&dag_mut, lanes)
-                            .into_iter()
-                            .map(|id| id.to_string())
-                            .collect()
-                    } else {
-                        pick_ready_respecting_budgets(&dag_mut, budget)
-                            .into_iter()
-                            .map(|id| id.to_string())
-                            .collect()
-                    };
-                    raw.into_iter()
-                        .filter(|id| !pause_excluded.contains(id))
-                        .collect()
-                };
-                let picks_pre_sandbox_set: std::collections::BTreeSet<&str> =
-                    picks_pre_sandbox.iter().map(String::as_str).collect();
                 let picks_set: std::collections::BTreeSet<&str> =
                     picks.iter().map(String::as_str).collect();
                 // Iterate over all Ready tasks in stable id order.
@@ -2594,9 +2557,7 @@ fn run_loop(
                             // while the session is pausing; withheld
                             // until the SME unblocks the upstream gate.
                             ("pause_dependent", String::new())
-                        } else if budget_picks_set.contains(task_id)
-                            && !picks_pre_sandbox_set.contains(task_id.as_str())
-                        {
+                        } else if !sme_eligible_ready_set.contains(task_id) {
                             ("sme_review_required", String::new())
                         } else {
                             // Not reached by the budget picker.

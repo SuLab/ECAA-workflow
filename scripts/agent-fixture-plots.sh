@@ -1549,6 +1549,10 @@ def discovery(task_id: str) -> dict:
     return {"status": "completed", "top_candidate": method, "decision": decision}
 
 
+def is_discovery_task(task_id: str) -> bool:
+    return task_id.startswith("discover_") or "_discover_" in task_id
+
+
 def validation(task_id: str) -> dict:
     out = OUTPUTS / task_id
     target = task_id.replace("validate_", "", 1)
@@ -1815,12 +1819,13 @@ def clinical_sensitivity_analysis(task_id: str, spec: dict) -> dict:
 
 
 def execute(task_id: str, spec: dict, workflow: dict) -> dict:
-    if task_id.startswith("discover_"):
+    if is_discovery_task(task_id):
         return discovery(task_id)
     kind = spec.get("kind") if isinstance(spec.get("kind"), str) else workflow_task_kind(workflow, task_id)
     if task_id.startswith("validate_") and kind != "computation":
         return validation(task_id)
-    if task_id == "data_acquisition":
+    stage_id = plot_stage(task_id, spec)
+    if task_id == "data_acquisition" or stage_id == "data_acquisition":
         return data_acquisition(task_id, spec)
     if task_id == "data_import":
         # Clinical-trial scaffold uses `data_import` instead of `data_acquisition`.
@@ -1833,7 +1838,7 @@ def execute(task_id: str, spec: dict, workflow: dict) -> dict:
         return differential_expression(task_id, spec)
     if task_id == "pathway_enrichment":
         return pathway_enrichment(task_id, spec)
-    if task_id == "reporting":
+    if task_id == "reporting" or stage_id == "reporting":
         return reporting(task_id, spec)
     if task_id == "final_reporting":
         return final_reporting(task_id, spec)

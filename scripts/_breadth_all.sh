@@ -65,8 +65,17 @@ json.dump(inp, open(os.path.join(pkg, "runtime", "inputs.json"), "w"), indent=2)
 PY
     fi
     "$HARNESS" --package "$pkg" --agent scripts/agent-fixture-plots.sh --max-iterations 250 >"$pkg/harness.log" 2>&1
+    if [ -d "$pkg" ]; then
+        git -C "$pkg" init >/dev/null 2>&1 || true
+        git -C "$pkg" config user.name "Scripps Breadth QA" >/dev/null 2>&1 || true
+        git -C "$pkg" config user.email "breadth-qa@scripps.local" >/dev/null 2>&1 || true
+        git -C "$pkg" add -A >/dev/null 2>&1 || true
+        if ! git -C "$pkg" diff --cached --quiet >/dev/null 2>&1; then
+            git -C "$pkg" commit -m "test: commit breadth harness artifacts" >/dev/null 2>&1 || true
+        fi
+    fi
     ECAA_RS_PKG="$pkg" ECAA_RS_NAME="$name" ECAA_RS_NT="$nt" ECAA_RS_AUDIT="$audit" ECAA_RS_RES="$RES" python3 - <<'PY'
-import json, os
+import json, os, subprocess
 pkg = os.environ["ECAA_RS_PKG"]; name = os.environ["ECAA_RS_NAME"]
 nt = os.environ["ECAA_RS_NT"]; audit = os.environ["ECAA_RS_AUDIT"]; res = os.environ["ECAA_RS_RES"]
 wf = json.load(open(os.path.join(pkg, "WORKFLOW.json"))); T = wf["tasks"]
@@ -86,13 +95,18 @@ for k, t in T.items():
             miss.append(f"{k}/{f}")
     if os.path.exists(os.path.join(pkg, "runtime", "outputs", k, "container-proof.json")):
         cproof += 1
-ok = (audit == "AUDIT-PASS") and not inc and not miss
+rev = subprocess.run(["git", "-C", pkg, "rev-parse", "--is-inside-work-tree"], capture_output=True, text=True)
+status = subprocess.run(["git", "-C", pkg, "status", "--porcelain"], capture_output=True, text=True)
+git_ok = rev.returncode == 0 and rev.stdout.strip() == "true" and status.returncode == 0 and status.stdout.strip() == ""
+ok = (audit == "AUDIT-PASS") and not inc and not miss and git_ok
 tag = "PASS" if ok else "FAIL"
 line = f"{tag} {name} tasks={nt} {audit} figs={figs} cproof={cproof}"
 if inc:
     line += f" INCOMPLETE={inc}"
 if miss:
     line += f" MISSFIG={miss[:5]}"
+if not git_ok:
+    line += " GIT-FAIL"
 open(res, "a").write(line + "\n")
 print(line)
 PY
