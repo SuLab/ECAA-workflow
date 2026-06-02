@@ -417,6 +417,72 @@ fn cross_graph_fails_when_assumption_dangling() {
     assert_eq!(v.status, InvariantStatus::Fail);
 }
 
+#[test]
+fn cross_graph_resolves_prefixed_supported_by_into_v() {
+    // Spec §5 general form: a prefix-tagged `V:<id>` supported_by reference
+    // resolves against the Evidence node-id set (output basename, sanitized).
+    let pkg = LoadedPackage {
+        intake: vec![],
+        decisions: vec![],
+        validation_reports: vec![],
+        proofs: vec![json!({"id":"workflow:de","computed_from":"runtime/tables/de.csv"})],
+        claims: Some(json!({"verdicts":[{"claim_id":"c-1","status":"verified",
+            "supported_by":["V:de_csv"]}]})),
+        verifier_decisions: vec![],
+        assumptions: vec![],
+        determinism_shim: None,
+        security_policy: None,
+        plot_affordances: None,
+    };
+    let v = check_cross_graph_integrity(&pkg);
+    assert!(v.n_inspected >= 1);
+    assert_eq!(v.status, InvariantStatus::Pass);
+}
+
+#[test]
+fn cross_graph_general_resolves_prefixed_ref_against_named_subgraph() {
+    // Spec §5 general predicate: a `D:<id>` reference resolves against the
+    // Decision node-id set (here a child decision derived from its parent).
+    let pkg = LoadedPackage {
+        intake: vec![],
+        decisions: vec![
+            json!({"id":"parent"}),
+            json!({"id":"child","prov:wasDerivedFrom":"D:parent"}),
+        ],
+        validation_reports: vec![],
+        proofs: vec![],
+        claims: None,
+        verifier_decisions: vec![],
+        assumptions: vec![],
+        determinism_shim: None,
+        security_policy: None,
+        plot_affordances: None,
+    };
+    let v = check_cross_graph_integrity(&pkg);
+    assert!(v.n_inspected >= 1);
+    assert_eq!(v.status, InvariantStatus::Pass);
+}
+
+#[test]
+fn cross_graph_general_fails_on_dangling_prefixed_ref() {
+    // A `D:ghost` reference with no matching Decision node dangles → Fail.
+    let pkg = LoadedPackage {
+        intake: vec![],
+        decisions: vec![json!({"id":"child","prov:wasDerivedFrom":"D:ghost"})],
+        validation_reports: vec![],
+        proofs: vec![],
+        claims: None,
+        verifier_decisions: vec![],
+        assumptions: vec![],
+        determinism_shim: None,
+        security_policy: None,
+        plot_affordances: None,
+    };
+    let v = check_cross_graph_integrity(&pkg);
+    assert_eq!(v.status, InvariantStatus::Fail);
+    assert!(v.n_violations >= 1);
+}
+
 use ecaa_workflow_core::audit_proof::invariants::substrate_validity::check_substrate_validity;
 use ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
 

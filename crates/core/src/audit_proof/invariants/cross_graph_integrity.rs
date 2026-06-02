@@ -1,14 +1,223 @@
 //! Invariant 5: cross-graph-integrity.
+//!
+//! Spec (`docs/ecaa-spec/invariants.md` §5): *every cross-sub-graph reference
+//! dereferences to an existing node.* A reference is "cross-graph" when its
+//! target is prefix-tagged with a sub-graph letter (`I:`/`D:`/`E:`/`V:`/`C:`/
+//! `Q:`/`F:`/`A:`, §4.2). The predicate is one-directional — a reference MUST
+//! resolve to a node in the named sub-graph; nodes need not be referenced.
+//!
+//! This is the sidecar-level realization of that projected-graph predicate.
+//! The audit framework reads the `runtime/` sidecars (not the projected
+//! RO-Crate `@graph`), so we build a per-sub-graph node-id registry from the
+//! sidecars — deriving local ids the same way the projector
+//! (`emitter::ecaa_projection`) does — and resolve every cross-graph
+//! reference against the set named by its letter prefix.
+//!
+//! Two reference encodings are checked:
+//!   * the concrete forms emitted today — a Claim verdict's `supported_by`
+//!     output reference (C→V) resolved against the Evidence outputs, and a
+//!     Failure assumption's `edge_id` (F→ proof edge) resolved against the
+//!     proof-edge set; and
+//!   * the general spec form — any `<letter>:<id>` prefix-tagged value in a
+//!     reference-bearing field of any sub-graph row, resolved against the
+//!     named sub-graph's node-id set.
 
 use crate::audit_proof::loader::LoadedPackage;
 use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
-use std::collections::BTreeSet;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet};
+
+/// Reference-bearing fields scanned for `<letter>:<id>` cross-graph targets.
+/// Restricted to fields that carry references by contract — free-text fields
+/// (`statement`, `rationale`, `narrative_text`, …) are deliberately excluded
+/// so a prose value that happens to begin `E: …` is never read as an edge.
+/// `supported_by` and `edge_id` are handled by the concrete passes below in
+/// their un-prefixed encoding; their prefix-tagged form is caught here.
+const REFERENCE_FIELDS: &[&str] = &[
+    "supported_by",
+    "target",
+    "target_id",
+    "ref",
+    "refs",
+    "references",
+    "derived_from",
+    "prov:wasDerivedFrom",
+    "wasDerivedFrom",
+    "evaluates",
+    "evaluated_against",
+    "affects_nodes",
+];
+
+/// True when `id` carries a `^(I|D|E|V|C|Q|F|A):` prefix tag with a non-empty
+/// local part — mirrors `ecaa_projection::is_prefix_tagged`.
+fn is_prefix_tagged(id: &str) -> bool {
+    let mut chars = id.chars();
+    matches!(
+        chars.next(),
+        Some('I' | 'D' | 'E' | 'V' | 'C' | 'Q' | 'F' | 'A')
+    ) && chars.next() == Some(':')
+        && id.len() > 2
+}
+
+/// Reduce a string to the §4.2 id grapheme set (`[A-Za-z0-9_\-]`), mirroring
+/// `ecaa_projection::sanitize_id` so resolution matches the projector's ids.
+fn sanitize_id(s: &str) -> String {
+    let cleaned: String = s
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if cleaned.is_empty() {
+        "x".to_string()
+    } else {
+        cleaned
+    }
+}
+
+fn str_field<'a>(row: &'a Value, key: &str) -> Option<&'a str> {
+    row.get(key).and_then(Value::as_str)
+}
+
+/// Build the per-sub-graph local-node-id registry from the sidecars. Ids are
+/// sanitized so they compare equal to a sanitized reference local part.
+fn collect_node_ids(pkg: &LoadedPackage) -> BTreeMap<char, BTreeSet<String>> {
+    let mut nodes: BTreeMap<char, BTreeSet<String>> = BTreeMap::new();
+    let mut add = |letter: char, id: &str| {
+        nodes.entry(letter).or_default().insert(sanitize_id(id));
+    };
+
+    // I — Intent nodes.
+    for r in &pkg.intake {
+        if let Some(id) = str_field(r, "id") {
+            add('I', id);
+        }
+    }
+    // D — Decision nodes.
+    for r in &pkg.decisions {
+        if let Some(id) = str_field(r, "id") {
+            add('D', id);
+        }
+    }
+    // E — WorkflowStep nodes: validation-report task/step ids plus the
+    // producer/consumer step ids the proof edges connect.
+    for r in &pkg.validation_reports {
+        for k in ["task_id", "step_id", "id"] {
+            if let Some(id) = str_field(r, k) {
+                add('E', id);
+            }
+        }
+    }
+    for r in &pkg.proofs {
+        for k in ["from_node", "to_node", "id"] {
+            if let Some(id) = str_field(r, k) {
+                add('E', id);
+            }
+        }
+    }
+    // V — Evidence nodes: one per `computed_from`/`produces` output, keyed by
+    // the output basename (mirrors `project_evidence_subgraph`).
+    for r in &pkg.proofs {
+        if let Some(output) = r
+            .get("computed_from")
+            .or_else(|| r.get("produces"))
+            .and_then(Value::as_str)
+        {
+            add('V', output.rsplit('/').next().unwrap_or(output));
+        }
+    }
+    // C — Claim nodes (one per verdict).
+    if let Some(verdicts) = pkg
+        .claims
+        .as_ref()
+        .and_then(|c| c.get("verdicts"))
+        .and_then(Value::as_array)
+    {
+        for (idx, v) in verdicts.iter().enumerate() {
+            let id = v
+                .get("claim_id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!("claim_{idx:03}"));
+            add('C', &id);
+        }
+    }
+    // Q — Equivalence (RerunOutcome) nodes.
+    for r in &pkg.verifier_decisions {
+        if let Some(id) = str_field(r, "id") {
+            add('Q', id);
+        }
+    }
+    // F — Failure (Blocker/Assumption) nodes.
+    for r in &pkg.assumptions {
+        if let Some(id) = str_field(r, "id") {
+            add('F', id);
+        }
+    }
+    // A (Audit-proof) node ids live in `audit-proof-report.json`, which is not
+    // part of `LoadedPackage`; an `A:` reference therefore cannot resolve here.
+    // No emitted sub-graph references the A nodes, so this is not exercised.
+    nodes
+}
+
+/// Resolve a prefix-tagged `<letter>:<local>` reference against the registry.
+fn resolves(target: &str, nodes: &BTreeMap<char, BTreeSet<String>>) -> bool {
+    let letter = target.chars().next().expect("prefix-tagged");
+    let local = sanitize_id(&target[2..]);
+    nodes
+        .get(&letter)
+        .is_some_and(|set| set.contains(&local))
+}
+
+/// Visit every prefix-tagged value in `row`'s reference-bearing fields (and,
+/// for the claim-verification object, its nested `verdicts[]` rows).
+fn for_each_prefixed_ref(row: &Value, visit: &mut dyn FnMut(&str)) {
+    let Some(obj) = row.as_object() else {
+        return;
+    };
+    let mut scan = |v: &Value, visit: &mut dyn FnMut(&str)| match v {
+        Value::String(s) if is_prefix_tagged(s) => visit(s),
+        Value::Array(arr) => {
+            for x in arr {
+                if let Some(s) = x.as_str() {
+                    if is_prefix_tagged(s) {
+                        visit(s);
+                    }
+                }
+            }
+        }
+        _ => {}
+    };
+    for &field in REFERENCE_FIELDS {
+        if let Some(v) = obj.get(field) {
+            scan(v, visit);
+        }
+    }
+    if let Some(verdicts) = obj.get("verdicts").and_then(Value::as_array) {
+        for vd in verdicts {
+            if let Some(vo) = vd.as_object() {
+                for &field in REFERENCE_FIELDS {
+                    if let Some(v) = vo.get(field) {
+                        scan(v, visit);
+                    }
+                }
+            }
+        }
+    }
+}
 
 /// Check cross graph integrity.
 pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
-    // Known outputs come from the Evidence (E) graph (`proofs.jsonl`),
-    // matching evidence_coverage. The harness `validation-reports.jsonl`
-    // rows are obligation outcomes and carry no `outputs` field.
+    let nodes = collect_node_ids(pkg);
+
+    // Concrete sidecar reference forms emitted today. Known outputs come from
+    // the Evidence (V) graph (`proofs.jsonl`), matching evidence_coverage; the
+    // harness `validation-reports.jsonl` rows are obligation outcomes and carry
+    // no `outputs` field.
     let known_outputs: BTreeSet<String> = pkg
         .proofs
         .iter()
@@ -24,33 +233,68 @@ pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
         .iter()
         .filter_map(|p| p.get("edge_id").and_then(|s| s.as_str()).map(String::from))
         .collect();
+
     let mut violators = Vec::new();
     let mut n_inspected = 0;
+
+    // C → V: a Claim verdict's `supported_by` output reference (un-prefixed
+    // path form). The prefix-tagged form is handled by the general pass.
     if let Some(claims) = &pkg.claims {
         if let Some(verdicts) = claims.get("verdicts").and_then(|v| v.as_array()) {
             for v in verdicts {
                 if let Some(refs) = v.get("supported_by").and_then(|s| s.as_array()) {
-                    for r in refs {
-                        if let Some(s) = r.as_str() {
-                            n_inspected += 1;
-                            let path = s.split('#').next().unwrap_or(s);
-                            if !known_outputs.contains(path) {
-                                violators.push(format!("supported_by: {}", s));
-                            }
+                    for r in refs.iter().filter_map(|r| r.as_str()) {
+                        if is_prefix_tagged(r) {
+                            continue;
+                        }
+                        n_inspected += 1;
+                        let path = r.split('#').next().unwrap_or(r);
+                        if !known_outputs.contains(path) {
+                            violators.push(format!("supported_by: {r}"));
                         }
                     }
                 }
             }
         }
     }
+    // F → proof edge: a Failure assumption's `edge_id` (un-prefixed form).
     for a in &pkg.assumptions {
         if let Some(eid) = a.get("edge_id").and_then(|s| s.as_str()) {
+            if is_prefix_tagged(eid) {
+                continue;
+            }
             n_inspected += 1;
             if !known_edges.contains(eid) {
-                violators.push(format!("assumption edge_id: {}", eid));
+                violators.push(format!("assumption edge_id: {eid}"));
             }
         }
     }
+
+    // General spec predicate: every `<letter>:<id>` reference in any sub-graph
+    // row resolves to a node in the named sub-graph.
+    let row_sets: [&[Value]; 6] = [
+        &pkg.intake,
+        &pkg.decisions,
+        &pkg.validation_reports,
+        &pkg.proofs,
+        &pkg.verifier_decisions,
+        &pkg.assumptions,
+    ];
+    let mut inspect = |target: &str| {
+        n_inspected += 1;
+        if !resolves(target, &nodes) {
+            violators.push(format!("dangling ref: {target}"));
+        }
+    };
+    for rows in row_sets {
+        for row in rows {
+            for_each_prefixed_ref(row, &mut inspect);
+        }
+    }
+    if let Some(claims) = &pkg.claims {
+        for_each_prefixed_ref(claims, &mut inspect);
+    }
+
     let n_violations = violators.len();
     let status = if n_violations == 0 {
         InvariantStatus::Pass
