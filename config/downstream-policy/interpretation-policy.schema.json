@@ -53,6 +53,21 @@
             "log2FcAbsoluteDelta": { "type": "number" },
             "pvalueRelativeDelta": { "type": "number" }
           }
+        },
+        "expected": {
+          "type": "array",
+          "description": "Deterministically derived recall anchor: the expected confirmatory claims for this package. Injected at emit time from the intake goal + the DAG's confirmatory-stage outputs. Each entry's `requirement: required` must be addressed by a Verified structured claim or the package fails the claim_completeness invariant (Inv 1) and blocks on Required+Unverifiable.",
+          "items": {
+            "type": "object",
+            "required": ["entity", "requirement"],
+            "properties": {
+              "entity": { "type": "string" },
+              "contrast": { "type": "string" },
+              "expected_output_table": { "type": "string" },
+              "requirement": { "type": "string", "enum": ["required", "optional"] },
+              "edam_data": { "type": "string" }
+            }
+          }
         }
       }
     }

@@ -7,6 +7,7 @@ mod blocker_variant_count;
 mod compatibility_proof_evidence;
 mod config_parse;
 mod cost_arithmetic;
+mod interpretation_policy_expected_schema;
 mod ontology_scope_loader;
 mod ontology_scope_schema;
 mod policy_rule_id_registry;
