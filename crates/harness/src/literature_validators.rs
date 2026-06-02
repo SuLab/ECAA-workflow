@@ -135,6 +135,28 @@ fn load_manifest(manifest_path: &Path) -> Result<EvidenceManifest, String> {
     serde_json::from_slice(&bytes).map_err(|e| e.to_string())
 }
 
+/// Resolve an evidence-manifest entry's `path` to an on-disk file. The path may
+/// be evidence-dir-relative ("pmid_X.xml", the claims-matrix convention) OR
+/// task-dir-relative with an "evidence/" prefix (what agent_literature_fetch.py
+/// and the agent's PMC fetch write). Joining a prefixed path straight onto the
+/// evidence dir doubles it (evidence/evidence/…) and spuriously reports the
+/// artifact missing, so fall back to the stripped form. Returns the `direct`
+/// join when neither resolves (so callers still surface a missing-artifact
+/// error against a sensible path).
+fn resolve_evidence_file(evidence_dir: &Path, entry_path: &str) -> std::path::PathBuf {
+    let direct = evidence_dir.join(entry_path);
+    if direct.exists() {
+        return direct;
+    }
+    if let Some(stripped) = entry_path.strip_prefix("evidence/") {
+        let stripped_join = evidence_dir.join(stripped);
+        if stripped_join.exists() {
+            return stripped_join;
+        }
+    }
+    direct
+}
+
 // ============================================================================
 // Runner 1: pmid_resolves
 // ============================================================================
@@ -207,7 +229,7 @@ pub fn run_pmid_resolves(
                 ));
             }
             let entry = manifest_pmids[pmid];
-            let evidence_path = manifest_path.parent().unwrap().join(&entry.path);
+            let evidence_path = resolve_evidence_file(manifest_path.parent().unwrap(), &entry.path);
             if !evidence_path.exists() {
                 return Err((
                     i as u64,
@@ -417,7 +439,7 @@ pub fn run_source_resolves(
                 };
                 return Err((i as u64, lit_fail(i as u64, &artifact, fk)));
             };
-            if !ev_dir.join(&entry.path).exists() {
+            if !resolve_evidence_file(ev_dir, &entry.path).exists() {
                 let fk = if kind == "pmid" {
                     LiteratureClaimFailureKind::EvidenceArtifactMissing
                 } else {
@@ -487,6 +509,12 @@ pub fn run_evidence_quote_substring_match(
         if row.source_kind == "none" {
             continue;
         }
+        // A verified=false row self-declares its quote as unverified/tentative
+        // (the producer's contract: it could not confirm a verbatim match), so
+        // it is not a QuoteNotInSource violation — skip rather than hard-fail.
+        if !row.verified {
+            continue;
+        }
 
         // Resolve the row's locator: pmid (claims-matrix) or the typed
         // source_ref (method_landscape). Rows with neither are skipped
@@ -518,16 +546,7 @@ pub fn run_evidence_quote_substring_match(
         // Resolve against both so the read succeeds either way — joining a
         // prefixed path straight onto the evidence dir doubles it
         // (evidence/evidence/…) and spuriously reports EvidenceArtifactMissing.
-        let evidence_path = {
-            let direct = manifest_dir.join(&entry.path);
-            if direct.exists() {
-                direct
-            } else if let Some(stripped) = entry.path.strip_prefix("evidence/") {
-                manifest_dir.join(stripped)
-            } else {
-                direct
-            }
-        };
+        let evidence_path = resolve_evidence_file(manifest_dir, &entry.path);
         let raw = fs::read_to_string(&evidence_path).map_err(|_| {
             (
                 i as u64,
@@ -1067,7 +1086,7 @@ pub fn run_doc_page_matches_tool(
                 ),
             ));
         };
-        let raw = fs::read_to_string(ev_dir.join(&entry.path)).map_err(|_| {
+        let raw = fs::read_to_string(resolve_evidence_file(ev_dir, &entry.path)).map_err(|_| {
             (
                 i as u64,
                 lit_fail(

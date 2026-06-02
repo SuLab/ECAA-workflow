@@ -608,6 +608,18 @@ def fetch_for_axis(
         "fallback_used": fallback_used,
         "truncated_at_storage_cap": truncated,
     }
+    if fallback_used:
+        # Soft-warning: this axis fell back to curated_baseline rows only (no
+        # live source resolved/verified). The Phase-13 validators SKIP
+        # curated_baseline rows, so the survey passes GREEN while carrying zero
+        # verified literature evidence for this axis. Surface it so a green
+        # offline run does not masquerade as real retrieval (warn-only, by
+        # design never-block).
+        summary["warning"] = (
+            f"axis '{axis}' fell back to curated_baseline only: no live source "
+            "was resolved/verified, so this axis contributes zero verified "
+            "evidence (validators skip curated_baseline rows)."
+        )
     if truncated:
         summary["truncated_at_storage_cap"] = True
     return summary
