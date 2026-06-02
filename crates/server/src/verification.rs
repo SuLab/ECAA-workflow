@@ -288,6 +288,30 @@ pub async fn reverify_and_block_on_mismatch(
                 .await;
             block_on_mismatch(app, session_id, task_id, &v.report).await;
 
+            // Recall: compute structured-claims-only coverage against the
+            // injected manifest (deterministic), so the signed sink carries it
+            // and Inv 1 reads it. The ExtractorConfig is rebuilt from the same
+            // policy the verify used. `None` when the package carries no
+            // manifest (un-anchored task) — Phase-1 verdict-only shape holds.
+            let config_dir2 = crate::chat_routes::config_dir_or_default();
+            let root2 = root.clone();
+            let task2 = task_id.to_string();
+            let coverage = tokio::task::spawn_blocking(move || {
+                let cfg = match load_interpretation_policy(&config_dir2) {
+                    PolicyLoad::Loaded(p) => ExtractorConfig::from_policy_for_class(
+                        &p,
+                        &config_dir2.join("downstream-policy"),
+                        project_class,
+                    )
+                    .ok(),
+                    _ => None,
+                }?;
+                compute_task_coverage(&root2, &task2, &cfg)
+            })
+            .await
+            .ok()
+            .flatten();
+
             // Persist the recomputed verdicts as an HMAC-signed,
             // agent-unforgeable sink so the audit-proof loader can read them
             // (de-vacuifies Inv 1/5). The agent's container has already
@@ -295,12 +319,17 @@ pub async fn reverify_and_block_on_mismatch(
             // window and outside the emit byte-diff baseline
             // (runtime/verification-reports/ is BagIt-excluded). Holds the
             // per-session secret, which the agent never sees, so the sink
-            // cannot be forged from the executor side.
+            // cannot be forged from the executor side. The coverage block (when
+            // present) rides the same signed payload.
             let writer = ecaa_workflow_core::audit_writer::AuditWriter::with_secret(
                 session.audit_writer_secret,
             );
             if let Err(e) = ecaa_workflow_core::claim_sink::persist_signed_verdicts(
-                &root, task_id, &v.report, None, &writer,
+                &root,
+                task_id,
+                &v.report,
+                coverage.as_ref(),
+                &writer,
             ) {
                 tracing::warn!(
                     target: "ecaa::verify",
@@ -311,8 +340,8 @@ pub async fn reverify_and_block_on_mismatch(
             }
 
             // Regenerate the at-rest audit-proof report so claim_completeness
-            // / cross_graph_integrity reflect the just-persisted verdicts. The
-            // report is BagIt-excluded (carries the spec-excluded
+            // / cross_graph_integrity reflect the just-persisted verdicts +
+            // coverage. The report is BagIt-excluded (carries the spec-excluded
             // `evaluated_at`), so rewriting it post-exec does not affect emit
             // byte-reproducibility.
             let validator = ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
@@ -326,6 +355,35 @@ pub async fn reverify_and_block_on_mismatch(
                 let p = root.join("runtime/audit-proof-report.json");
                 if let Ok(bytes) = serde_json::to_vec_pretty(&report_doc) {
                     let _ = std::fs::write(&p, bytes);
+                }
+            }
+
+            // Block on any Required recall gap (absent or unverifiable),
+            // reusing `BlockerKind::ValidationFailed` (no new blocker variant).
+            // Additive to the existing Mismatch block above.
+            if let Some(cov) = coverage.as_ref() {
+                if coverage_should_block(cov) {
+                    let detail = format!(
+                        "recall gap on task {}: {} required claim(s) absent, {} unverifiable",
+                        task_id, cov.required_absent, cov.required_unverifiable
+                    );
+                    let kind = ecaa_workflow_core::blocker::BlockerKind::ValidationFailed {
+                        check: format!("claim_coverage:{}", task_id),
+                        message: detail.clone(),
+                        cause: None,
+                    };
+                    if let Err(e) = app
+                        .conversation
+                        .block_from_harness(session_id, task_id.to_string(), detail, kind)
+                        .await
+                    {
+                        tracing::debug!(
+                            ?session_id,
+                            %task_id,
+                            error = %e,
+                            "coverage block no-op (already blocked)"
+                        );
+                    }
                 }
             }
         }
@@ -370,6 +428,49 @@ fn load_structured_claims(package_root: &Path, task_id: &str) -> Vec<StructuredC
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// True when a coverage result has any Required recall gap (absent or
+/// unverifiable). Drives the on-completion `ValidationFailed` block for
+/// Required+Unverifiable (and Required-absent) in addition to the
+/// existing Mismatch block.
+pub(crate) fn coverage_should_block(cov: &ecaa_workflow_core::coverage::CoverageResult) -> bool {
+    cov.required_absent > 0 || cov.required_unverifiable > 0
+}
+
+/// Compute the structured-claims-only CoverageResult for a task. Reads the
+/// emitted `policies/interpretation-policy.json`'s `verifiableEntities.
+/// expected` block (the manifest the emitter injected), reconciles it
+/// against the task's structured `result.json claims[]` verdicts, and
+/// returns the coverage. `None` when no manifest is present (un-anchored).
+fn compute_task_coverage(
+    package_root: &Path,
+    task_id: &str,
+    cfg: &ExtractorConfig,
+) -> Option<ecaa_workflow_core::coverage::CoverageResult> {
+    // Read the injected manifest from the per-package policy.
+    let policy_path = package_root.join("policies/interpretation-policy.json");
+    let raw = std::fs::read_to_string(&policy_path).ok()?;
+    let policy: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let expected = policy
+        .get("verifiableEntities")
+        .and_then(|v| v.get("expected"))
+        .cloned()?;
+    let entries: Vec<ecaa_workflow_core::expected_claim::ExpectedClaim> =
+        serde_json::from_value(expected).ok()?;
+    if entries.is_empty() {
+        return None;
+    }
+    let manifest = ecaa_workflow_core::expected_claim::ExpectedClaimManifest {
+        schema_version: "1".into(),
+        entries,
+    };
+    // Structured claims ONLY — never the regex/narrative path.
+    let structured = load_structured_claims(package_root, task_id);
+    let verdicts = verify_structured_claims(&structured, package_root, cfg);
+    Some(ecaa_workflow_core::coverage::reconcile_coverage(
+        &manifest, &verdicts,
+    ))
 }
 
 // Canonical task-outputs layout is `runtime/outputs/<task_id>/`; legacy
@@ -966,5 +1067,66 @@ mod signed_sink_wiring_tests {
         let line = std::fs::read_to_string(dir.path().join(SIGNED_SINK_REL)).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
         assert!(reader.verify_row(&parsed).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod recall_wiring_tests {
+    use super::coverage_should_block;
+    use ecaa_workflow_core::claim_contract::ClaimContract;
+    use ecaa_workflow_core::claim_extractor::Claim;
+    use ecaa_workflow_core::claim_verifier::{ClaimStatus, ClaimStrength, ClaimVerdict};
+    use ecaa_workflow_core::coverage::{reconcile_coverage, EntityCoverage};
+    use ecaa_workflow_core::expected_claim::{ExpectedClaim, ExpectedClaimManifest, Requirement};
+
+    #[test]
+    fn required_absent_yields_blocking_coverage() {
+        let manifest = ExpectedClaimManifest {
+            schema_version: "1".into(),
+            entries: vec![ExpectedClaim {
+                entity: "differential_expression".into(),
+                contrast: None,
+                expected_output_table: Some("differential_expression".into()),
+                requirement: Requirement::Required,
+                edam_data: None,
+            }],
+        };
+        let cov = reconcile_coverage(&manifest, &[]);
+        assert_eq!(cov.required_absent, 1);
+        assert!(
+            coverage_should_block(&cov),
+            "Required-absent must drive the ValidationFailed block"
+        );
+    }
+
+    #[test]
+    fn all_addressed_does_not_block() {
+        let manifest = ExpectedClaimManifest {
+            schema_version: "1".into(),
+            entries: vec![ExpectedClaim {
+                entity: "differential_expression".into(),
+                contrast: None,
+                expected_output_table: Some("differential_expression".into()),
+                requirement: Requirement::Required,
+                edam_data: None,
+            }],
+        };
+        let verdict = ClaimVerdict {
+            claim: Claim {
+                entity: "differential_expression".into(),
+                direction: None,
+                effect_size: None,
+                pvalue: None,
+                source_table: Some("differential_expression".into()),
+                excerpt: String::new(),
+                contract: ClaimContract::NumericTableLookup,
+            },
+            status: ClaimStatus::Verified,
+            strength: ClaimStrength::Exploratory,
+        };
+        let cov = reconcile_coverage(&manifest, &[verdict]);
+        assert_eq!(cov.required_addressed, 1);
+        assert!(!coverage_should_block(&cov));
+        let _ = EntityCoverage::Addressed; // touch the import
     }
 }
