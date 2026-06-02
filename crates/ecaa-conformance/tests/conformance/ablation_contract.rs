@@ -181,3 +181,95 @@ fn ablation_one_flag_changes_exactly_one_artifact() {
         }
     }
 }
+
+// ===========================================================================
+// Post-exec companion to the emit-time byte-identity suite (Aim 3A).
+//
+// The signed verdict sink is a post-execution artifact (host-written, under
+// `runtime/verification-reports/`, BagIt-excluded). It is owned by EXACTLY ONE
+// flag (ClaimConsistency, via Site 1 in `core::claim_sink::build_sink_doc`).
+// For every flag, this test simulates the host-side post-exec persist and
+// asserts: only ClaimConsistency changes the signed sink's verdict-bearing
+// payload; every other flag leaves it byte-identical to the un-ablated
+// post-exec baseline. The emit-time suite above is untouched.
+//
+// NOTE (verified 2026-06-02): the recall manifest (`ExpectedClaimManifest`)
+// is a VERIFY-TIME computed structure, not an emitted package file — `rg`
+// finds it only in `expected_claim`/`coverage`/`server::verification`, never
+// in any emitter path. There is therefore no emit-time manifest artifact to
+// byte-compare; the coverage it produces rides inside the signed sink, which
+// this test already covers. A standalone manifest byte-identity leg is left
+// as TODO(phase2) pending a future emit-time manifest artifact.
+// ===========================================================================
+
+/// A fixed report a host would sign post-exec (deterministic content).
+fn post_exec_report() -> ecaa_workflow_core::claim_verifier::ClaimVerificationReport {
+    use ecaa_workflow_core::claim_contract::ClaimContract;
+    use ecaa_workflow_core::claim_extractor::Claim;
+    use ecaa_workflow_core::claim_verifier::{
+        ClaimStatus, ClaimStrength, ClaimVerdict, ClaimVerificationReport,
+    };
+    let c = Claim {
+        entity: "TP53".into(),
+        direction: None,
+        effect_size: None,
+        pvalue: None,
+        source_table: Some("results/tables/de.csv".into()),
+        excerpt: String::new(),
+        contract: ClaimContract::NumericTableLookup,
+    };
+    ClaimVerificationReport {
+        n_checked: 1,
+        n_verified: 1,
+        n_mismatch: 0,
+        n_unverifiable: 0,
+        verdicts: vec![ClaimVerdict {
+            claim: c,
+            status: ClaimStatus::Verified,
+            strength: ClaimStrength::default(),
+        }],
+        runtime_decision_log_path: None,
+    }
+}
+
+/// Persist a signed sink into a fresh dir under the current env, return its bytes.
+fn persist_and_read_sink() -> Vec<u8> {
+    use ecaa_workflow_core::audit_writer::AuditWriter;
+    use ecaa_workflow_core::claim_sink::{persist_signed_verdicts, SIGNED_SINK_REL};
+    let dir = tempfile::tempdir().unwrap();
+    // Fixed secret so the signature is deterministic across arms — the test
+    // measures CONTENT divergence (ablation), not key divergence.
+    let writer = AuditWriter::with_secret([3u8; 32]);
+    // `coverage` is None: the cross-arm byte difference must be the verdict
+    // payload Site 1 suppresses, not a coverage block.
+    persist_signed_verdicts(dir.path(), "diff_expr", &post_exec_report(), None, &writer).unwrap();
+    std::fs::read(dir.path().join(SIGNED_SINK_REL)).unwrap()
+}
+
+#[test]
+#[serial_test::serial]
+fn post_exec_signed_sink_owned_by_exactly_one_flag() {
+    for f in ecaa_workflow_core::ablation::all_flags() {
+        std::env::remove_var(f.env_var());
+    }
+    let baseline = persist_and_read_sink();
+
+    for flag in ecaa_workflow_core::ablation::all_flags() {
+        std::env::set_var(flag.env_var(), "1");
+        let now = persist_and_read_sink();
+        std::env::remove_var(flag.env_var());
+
+        if flag == AblationFlag::ClaimConsistency {
+            assert_ne!(
+                now, baseline,
+                "ClaimConsistency MUST change the signed sink (Site 1 suppression)"
+            );
+        } else {
+            assert_eq!(
+                now, baseline,
+                "flag {:?} must leave the signed sink byte-identical",
+                flag
+            );
+        }
+    }
+}
