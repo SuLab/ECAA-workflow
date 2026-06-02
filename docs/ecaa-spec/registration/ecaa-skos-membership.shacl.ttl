@@ -1,0 +1,67 @@
+@prefix sh:    <http://www.w3.org/ns/shacl#> .
+@prefix skos:  <http://www.w3.org/2004/02/skos/core#> .
+@prefix ecaa:  <https://w3id.org/ecaa/ns/0.1#> .
+@prefix vocab: <https://w3id.org/ecaa/vocab/> .
+
+#######################################################################
+# Enum-membership validation via skos:inScheme (additive — adding a
+# concept to a scheme does NOT touch these shapes). Apparatus-tier.
+#
+# The skos:inScheme indirection is load-bearing: an sh:in (…enumerated
+# list…) would re-encode the closed set INSIDE the shape, so adding a
+# variant would require editing the shape (a closed-world re-cut).
+# Deferring to the scheme graph (ecaa-skos-schemes.ttl) keeps a v0.2
+# minor that ADDS a concept additive: the shape is unchanged, the scheme
+# grows, packages stay conformant.
+#######################################################################
+
+# Every Blocker.kind token MUST resolve to a concept in the
+# blocker-kind scheme (matched on skos:notation).
+ecaa:BlockerKindMembershipShape a sh:NodeShape ;
+    sh:targetClass ecaa:Blocker ;
+    sh:severity sh:Violation ;
+    sh:sparql [
+        sh:select """
+            PREFIX ecaa: <https://w3id.org/ecaa/ns/0.1#>
+            PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+            PREFIX vocab: <https://w3id.org/ecaa/vocab/>
+            SELECT $this WHERE {
+                $this ecaa:kind ?tok .
+                FILTER NOT EXISTS {
+                    ?c skos:inScheme vocab:blocker-kind ;
+                       skos:notation ?tok .
+                }
+            }
+        """ ;
+        sh:message "Blocker.kind is not a registered BlockerKind concept (add it to the blocker-kind SKOS scheme — a MINOR change)."
+    ] .
+
+# Every RerunOutcome.class token MUST resolve to a concept in the
+# rerun-outcome scheme.
+ecaa:RerunOutcomeClassMembershipShape a sh:NodeShape ;
+    sh:targetClass ecaa:RerunOutcome ;
+    sh:severity sh:Violation ;
+    sh:sparql [
+        sh:select """
+            PREFIX ecaa: <https://w3id.org/ecaa/ns/0.1#>
+            PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+            PREFIX vocab: <https://w3id.org/ecaa/vocab/>
+            SELECT $this WHERE {
+                $this ecaa:class ?tok .
+                FILTER NOT EXISTS {
+                    ?c skos:inScheme vocab:rerun-outcome ;
+                       skos:notation ?tok .
+                }
+            }
+        """ ;
+        sh:message "RerunOutcome.class is not a registered concept (add it to the rerun-outcome SKOS scheme — a MINOR change)."
+    ] .
+
+# NOTE — no AblationFlag membership shape. AblationFlag has no RDF node
+# type in the wire graph (it is an env-keyed, build-time treatment
+# variable, not a document feature — design §3 L3). Its scheme is
+# registered for governance / agreement-lint purposes only; there is
+# nothing in a package ABox to target. The Rust enum↔scheme lint
+# (skos_scheme_agreement.rs) is its sole enforcement. Inventing an
+# ecaa:AblationFlag node type would add a 26th node type and break
+# spec_consistency.rs::closed_set_sizes_match_design (NODE_TYPES == 25).

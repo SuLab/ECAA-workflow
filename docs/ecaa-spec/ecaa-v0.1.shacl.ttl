@@ -8,6 +8,18 @@
 # All six invariants are runnable SHACL here; ecaa-v0.1.ttl retains the
 # equivalent OWL-DL restrictions for Invariants 1, 3, 5 for the
 # OWL-consistency path (the two are dual encodings, not alternatives).
+#
+# Per-shape sh:severity → two conformsTo tiers (registration/ecaa-profiles.ttl):
+#   substrate-hygiene  (sh:Violation) — attested-at-rest floor an adopter can
+#     satisfy on a WRROC substrate alone: Inv 2 (decision-justification),
+#     Inv 6 (substrate-validity + its execution-consistency sub-check).
+#   apparatus          (sh:Warning)   — the full ECAA contract's carried /
+#     runtime-enforced shapes: Inv 1 (claim-completeness), Inv 3
+#     (evidence-coverage), Inv 4 (equivalence-failure), Inv 5
+#     (cross-graph-integrity).
+# Under pyshacl, sh:Warning does NOT set conforms=False, so the existing
+# hygiene gate (fail on conforms==false) keeps grading the floor; the
+# apparatus gate (Task 6 helper) additionally fails on any sh:Warning.
 #######################################################################
 
 # Invariant 2: decision-justification
@@ -15,6 +27,7 @@
 
 ecaa:DecisionJustificationShape a sh:NodeShape ;
     sh:targetClass ecaa:MethodChoice ;
+    sh:severity sh:Violation ;     # substrate-hygiene tier
     sh:or (
         [ sh:path ecaa:cites ; sh:minCount 1 ]
         [ sh:path ecaa:rationale ; sh:datatype xsd:string ; sh:minLength 30 ]
@@ -30,6 +43,7 @@ ecaa:rationale a rdfs:Property ;
 
 ecaa:EquivalenceFailureShape a sh:NodeShape ;
     sh:targetClass ecaa:RerunOutcome ;
+    sh:severity sh:Warning ;     # apparatus tier (apparatus-fed)
     sh:sparql [
         sh:select """
             PREFIX ecaa: <https://w3id.org/ecaa/ns/0.1#>
@@ -55,6 +69,7 @@ ecaa:EquivalenceFailureShape a sh:NodeShape ;
 
 ecaa:SubstrateValidityShape a sh:NodeShape ;
     sh:targetClass ecaa:Package ;
+    sh:severity sh:Violation ;     # substrate-hygiene tier
     sh:property [
         sh:path <http://purl.org/dc/terms/conformsTo> ;
         sh:minCount 6 ;
@@ -69,6 +84,7 @@ ecaa:SubstrateValidityShape a sh:NodeShape ;
 
 ecaa:EvidenceCoverageShape a sh:NodeShape ;
     sh:targetClass ecaa:OutputFile ;
+    sh:severity sh:Warning ;     # apparatus tier
     sh:sparql [
         sh:select """
             PREFIX ecaa: <https://w3id.org/ecaa/ns/0.1#>
@@ -91,6 +107,7 @@ ecaa:EvidenceCoverageShape a sh:NodeShape ;
 
 ecaa:ClaimCompletenessShape a sh:NodeShape ;
     sh:targetClass ecaa:Claim ;
+    sh:severity sh:Warning ;     # apparatus tier
     sh:or (
         [ sh:path ecaa:status ; sh:hasValue "pending" ]
         [ sh:path ecaa:supported_by ; sh:minCount 1 ]
@@ -106,6 +123,7 @@ ecaa:ClaimCompletenessShape a sh:NodeShape ;
 
 ecaa:CrossGraphIntegrityShape a sh:NodeShape ;
     sh:targetObjectsOf ecaa:supported_by ;
+    sh:severity sh:Warning ;     # apparatus tier
     sh:or (
         [ sh:class ecaa:OutputFile ] [ sh:class ecaa:Table ]
         [ sh:class ecaa:Figure ] [ sh:class ecaa:Statistic ] [ sh:class ecaa:File ]
@@ -123,6 +141,7 @@ ecaa:CrossGraphIntegrityShape a sh:NodeShape ;
 
 ecaa:ExecutionConsistencyShape a sh:NodeShape ;
     sh:targetClass ecaa:WorkflowStep ;
+    sh:severity sh:Violation ;     # substrate-hygiene tier (Inv 6 sub-check)
     sh:sparql [
         sh:select """
             PREFIX ecaa: <https://w3id.org/ecaa/ns/0.1#>

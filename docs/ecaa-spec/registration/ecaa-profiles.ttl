@@ -1,0 +1,25 @@
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix profile: <http://www.w3.org/ns/dx/prof/> .
+@prefix rdfs:    <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix ecaa:    <https://w3id.org/ecaa/ns/0.1#> .
+
+#######################################################################
+# Two conformsTo tiers so adopters are not all-or-nothing (F10).
+#   substrate-hygiene ⊂ apparatus
+# A package MAY declare either; declaring apparatus implies hygiene.
+#
+# These are net-new, OPTIONAL conformsTo IRIs a v0.2 emitter MAY add to
+# signal which tier it targets. They are orthogonal to (and do NOT
+# touch) REQUIRED_PROFILE_IRIS in crates/ecaa-types/src/consts.rs — that
+# is the substrate profile set (RO-Crate + WRROC tiers + ecaa/v0.1),
+# separately pinned by emit-side tests.
+#######################################################################
+
+<https://w3id.org/ecaa/profile/substrate-hygiene/0.2> a profile:Profile ;
+    dcterms:title "ECAA Substrate-Hygiene Profile (v0.2)"@en ;
+    rdfs:comment "Referential, attested-at-rest floor: WRROC substrate round-trip + decision-justification (Inv 2) + substrate-validity (Inv 6). Satisfiable without the runtime apparatus. SHACL severity sh:Violation."@en .
+
+<https://w3id.org/ecaa/profile/apparatus/0.2> a profile:Profile ;
+    dcterms:title "ECAA Apparatus Profile (v0.2)"@en ;
+    dcterms:requires <https://w3id.org/ecaa/profile/substrate-hygiene/0.2> ;
+    rdfs:comment "Full ECAA contract: substrate-hygiene PLUS carried signed verdicts (Inv 1/5), evidence-coverage (Inv 3), equivalence-failure (Inv 4), and enum-membership via skos:inScheme. Apparatus shapes graded at sh:Warning in the v0.1 shapes file; the apparatus gate fails on any Warning."@en .
