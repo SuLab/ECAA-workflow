@@ -404,6 +404,17 @@ pub(crate) fn compose_v4_dispatch_full(
     ctx.opaque_observation_sink = opaque_sink;
     ctx.opaque_session_id = opaque_session_id.map(String::from);
     ctx.preferred_methods = preferred_methods.clone();
+    // Session-scope every verifier-substrate row recorded for the rest
+    // of this dispatch (the engine + planner rows fired inside `plan()`
+    // below, plus the policy-gate rows fired by `collect_policy_decisions`)
+    // into the calling session's bucket so two server sessions composing
+    // concurrently never interleave their decisions into one shared
+    // buffer. Bare callers (CLI `intake`, eval, tests) pass no session id
+    // and so record into the unscoped default bucket exactly as before.
+    // The named binding keeps the RAII guard alive until the function
+    // returns from any of its match arms, restoring the thread's previous
+    // ambient session on drop.
+    let _substrate_scope = opaque_session_id.map(crate::decision_substrate::enter_session);
     let result = composer_v4::plan(
         &ctx,
         &effective_goal,

@@ -288,11 +288,14 @@ use crate::workflow_contracts::semantic_type::SemanticType;
 use std::collections::{BTreeSet, BinaryHeap};
 
 /// Inputs to [`search_backward`]. The `available_inputs` set names the
-/// semantic-type IRIs the search may treat as "already on hand"
-/// (typically FASTQ — `data:2044` — for sequencing intake; future
-/// callers will derive it from `IntakeFacts.input_kinds`). The
-/// `goal_format` is carried for downstream context only; the search
-/// matches on `goal_data` (semantic-type) IRI.
+/// semantic-type IRIs the search may treat as "already on hand". The
+/// planner's `try_backward_search_fallback` derives this from the
+/// intake's *declared* input kinds (`intent.available_data`) when they
+/// carry a distinct EDAM IRI (e.g. a CDISC tabular `dataset_descriptor`
+/// → `data:2531`), falling back to the modality's canonical input and
+/// then FASTQ (`data:2044`) for sequencing intake. The `goal_format` is
+/// carried for downstream context only; the search matches on
+/// `goal_data` (semantic-type) IRI.
 pub struct BackwardSearchInput<'a> {
     /// Target semantic-type IRI we want some atom in the chain to
     /// produce (e.g. `data:1255` for peaks, `data:0951` for DE table).

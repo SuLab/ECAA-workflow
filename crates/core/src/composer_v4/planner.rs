@@ -306,13 +306,14 @@ pub fn plan(
     // pure backward type-directed A* search over the atom catalog. A
     // synthesized chain becomes an ad-hoc "archetype" tagged
     // `adhoc_<goal_iri>` so the rest of the planner lifts it like any
-    // other seed. Pillar B (Lever 2): the starting frontier is the
-    // requested modality's canonical input (FASTQ `data:2044` for RNA,
-    // mass-spec `data:2531` for proteomics) so a modality with no
-    // archetype seed grounds to ITS OWN atoms rather than chaining from
-    // FASTQ into wrong-modality atoms. Future work threads
-    // `IntakeFacts.input_kinds` in here for non-FASTQ intake (CDISC
-    // tabular, MTBLS metabolomics, etc.).
+    // other seed. Pillar B (Lever 2): the starting frontier prefers the
+    // intake's *declared* input kinds (`intent.available_data`, seeded by
+    // the dispatcher from project class + modality — e.g. a CDISC tabular
+    // `dataset_descriptor` for clinical trials, mass-spec `data:2531` for
+    // proteomics), then the requested modality's canonical input, then
+    // FASTQ `data:2044`. This grounds a modality with no archetype seed
+    // to ITS OWN atoms rather than chaining from FASTQ into wrong-modality
+    // atoms.
     if archetype_seed.is_none() {
         archetype_seed = try_backward_search_fallback(
             goal,
@@ -320,6 +321,7 @@ pub fn plan(
             archetype_reg,
             ctx.intent.modality.as_deref(),
             project_class,
+            &ctx.intent.available_data,
         );
     }
     let archetype_definitive = archetype_seed
@@ -1029,35 +1031,72 @@ fn try_archetype_seed(
 /// through to the search seed and (if that also fails) the
 /// `PartialDag` no-producer-for-goal path.
 ///
-/// Pillar B (Lever 2): the starting frontier is the modality's canonical
-/// input EDAM, derived via [`modality_canonical_input`] from the
-/// modality's primary archetype. RNA modalities resolve to FASTQ
-/// (`data:2044`, the historical default); proteomics resolves to
-/// mass-spec data (`data:2531`). Without this, a modality whose
-/// archetypes tie on `modality_hint` (no archetype seed) would search
-/// from FASTQ with the shared cross-branch goal and chain wrong-modality
-/// atoms. When `modality` is `None` (bare callers, non-multi-branch
-/// single-modality paths that already archetype-seed) the frontier
-/// defaults to FASTQ, preserving the pre-Pillar-B behavior exactly.
+/// Starting-frontier precedence (A1):
+///
+/// 1. **Declared input kinds.** When the intake carried a *distinct*
+///    declared input (`declared_inputs` = `intent.available_data`,
+///    seeded by the dispatcher — e.g. a CDISC tabular
+///    `dataset_descriptor` → `data:2531` for clinical-trial /
+///    time-series intake), the frontier is the set of EDAM IRIs those
+///    contracts reduce to. The reduction matches [`backward_search`]'s
+///    own `semantic_iri` (OntologyTerm → IRI; LocalExtension → first
+///    proposed parent term) so the declared seed unifies against atom
+///    input ports on the very first backward step.
+///
+///    The dispatcher currently seeds bioinformatics modalities with a
+///    paired-end FASTQ *placeholder* (`data:2044`) rather than a
+///    profiler-derived contract, so a declared input that reduces to the
+///    FASTQ default carries no more signal than rule 3 — it is treated as
+///    "no distinct declaration" and falls through to the modality
+///    canonical so the proteomics frontier (`data:2531`) is preserved.
+///    When a real dataset profiler threads non-placeholder contracts in,
+///    this branch picks them up automatically.
+/// 2. **Modality canonical input.** No distinct declared input but a
+///    modality is known → [`modality_canonical_input`] derives the
+///    modality's primary archetype's first-atom input EDAM (proteomics →
+///    mass-spec `data:2531`, RNA → FASTQ `data:2044`). This grounds a
+///    modality whose archetypes tie on `modality_hint` (no archetype
+///    seed) to ITS OWN atoms rather than chaining from FASTQ into
+///    wrong-modality atoms.
+/// 3. **FASTQ `data:2044`.** Bare callers (no declared input, no
+///    modality) keep the historical default exactly.
 fn try_backward_search_fallback(
     goal: &GoalSpec,
     atom_reg: &AtomRegistry,
     archetype_reg: &ArchetypeRegistry,
     modality: Option<&str>,
     project_class: &str,
+    declared_inputs: &[crate::workflow_contracts::data_product::DataProductContract],
 ) -> Option<ArchetypeSeed> {
     use crate::composer_v4::backward_search::{search_backward, BackwardSearchInput};
 
-    // Modality-aware starting frontier. FASTQ (`data:2044`) when no
-    // modality is supplied; otherwise the modality's canonical input.
-    let available_inputs = match modality {
-        Some(m) => vec![modality_canonical_input(
-            archetype_reg,
-            atom_reg,
-            m,
-            project_class,
-        )],
-        None => vec!["data:2044".to_string()],
+    const FASTQ_DEFAULT: &str = "data:2044";
+
+    // Frontier precedence: distinct declared intake inputs → modality
+    // canonical → FASTQ. Declared contracts reduce to EDAM IRIs the same
+    // way the backward search reduces an atom's input port (OntologyTerm
+    // → IRI; LocalExtension → first proposed parent term) so the seed
+    // lands on the same frontier values the search produces while
+    // decomposing. A declaration that reduces only to the FASTQ
+    // placeholder is dropped (see rule 1 in the doc) so the modality
+    // canonical still wins for proteomics et al.
+    let declared: Vec<String> = declared_inputs
+        .iter()
+        .filter_map(|c| declared_input_iri(&c.semantic_type))
+        .filter(|iri| iri.as_str() != FASTQ_DEFAULT)
+        .collect();
+    let available_inputs = if !declared.is_empty() {
+        declared
+    } else {
+        match modality {
+            Some(m) => vec![modality_canonical_input(
+                archetype_reg,
+                atom_reg,
+                m,
+                project_class,
+            )],
+            None => vec![FASTQ_DEFAULT.to_string()],
+        }
     };
     let chain = search_backward(BackwardSearchInput {
         goal_data: goal.edam_data.clone(),
@@ -1250,6 +1289,28 @@ fn modality_canonical_input(
             _ => None,
         });
     canonical_input.unwrap_or_else(|| DEFAULT_FRONTIER.to_string())
+}
+
+/// Reduce a declared intake-input semantic type to the EDAM IRI the
+/// backward search treats as already-on-hand. Mirrors
+/// `backward_search::semantic_iri` (the reduction applied to atom *input*
+/// ports) so a declared seed unifies against atom inputs on the first
+/// backward step: `OntologyTerm` yields its IRI; `LocalExtension` (e.g.
+/// `ecaax:dataset_descriptor`) yields its first proposed parent term
+/// (`data:2531`); `Opaque` / `Union` yield `None` (no stable EDAM IRI to
+/// seed from — the caller falls through to the modality canonical input).
+fn declared_input_iri(
+    semantic_type: &crate::workflow_contracts::semantic_type::SemanticType,
+) -> Option<String> {
+    use crate::workflow_contracts::semantic_type::SemanticType;
+    match semantic_type {
+        SemanticType::OntologyTerm { iri, .. } => Some(iri.clone()),
+        SemanticType::LocalExtension {
+            proposed_parent_terms,
+            ..
+        } => proposed_parent_terms.first().cloned(),
+        _ => None,
+    }
 }
 
 /// Cross-omics archetype seed. Mirrors the v3
