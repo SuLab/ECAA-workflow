@@ -3,6 +3,7 @@
 //! an HMAC-signed, agent-unforgeable sink the loader verifies.
 
 use crate::claim_verifier::{ClaimStatus, ClaimVerificationReport};
+use ecaa_workflow_types::consts::{ECAA_VERSION, MIN_READER_VERSION};
 use serde_json::{json, Value};
 
 /// Project live verdicts into the audit-proof C-graph row shape
@@ -28,6 +29,26 @@ pub fn project_verdict_rows(report: &ClaimVerificationReport, task_id: &str) -> 
             })
         })
         .collect()
+}
+
+/// Build the full claim-verification document that gets HMAC-signed and
+/// written to the sink. Shape is a superset of the emit-time stub
+/// (`schema_version` + counts + `verdicts`) plus the version triple and
+/// provenance discriminators distinguishing it from the agent-writable
+/// stub the loader must NOT trust.
+pub fn build_sink_doc(report: &ClaimVerificationReport, task_id: &str) -> Value {
+    json!({
+        "schema_version": "1",
+        "source": "runtime-verifier",
+        "task_id": task_id,
+        "ecaa_version": ECAA_VERSION,
+        "min_reader_version": MIN_READER_VERSION,
+        "n_checked": report.n_checked,
+        "n_verified": report.n_verified,
+        "n_mismatch": report.n_mismatch,
+        "n_unverifiable": report.n_unverifiable,
+        "verdicts": project_verdict_rows(report, task_id),
+    })
 }
 
 #[cfg(test)]
@@ -115,5 +136,39 @@ mod tests {
         let rows = project_verdict_rows(&report, "diff_expr");
         assert_eq!(rows[0]["status"], json!("mismatch"));
         assert_eq!(rows[0]["supported_by"], json!([]));
+    }
+
+    #[test]
+    fn sink_doc_carries_counts_version_and_verdicts() {
+        let report = ClaimVerificationReport {
+            n_checked: 2,
+            n_verified: 1,
+            n_mismatch: 1,
+            n_unverifiable: 0,
+            verdicts: vec![
+                verdict(
+                    claim("TP53", Some("results/tables/de.csv")),
+                    ClaimStatus::Verified,
+                ),
+                verdict(
+                    claim("IL6", Some("results/tables/de.csv")),
+                    ClaimStatus::Mismatch {
+                        detail: "sign flip".into(),
+                    },
+                ),
+            ],
+            runtime_decision_log_path: None,
+        };
+        let doc = build_sink_doc(&report, "diff_expr");
+        assert_eq!(doc["schema_version"], json!("1"));
+        assert_eq!(doc["n_checked"], json!(2));
+        assert_eq!(doc["n_mismatch"], json!(1));
+        assert_eq!(doc["ecaa_version"], json!("0.1"));
+        assert_eq!(doc["min_reader_version"], json!("0.1"));
+        assert_eq!(doc["source"], json!("runtime-verifier"));
+        assert_eq!(doc["task_id"], json!("diff_expr"));
+        let verdicts = doc["verdicts"].as_array().unwrap();
+        assert_eq!(verdicts.len(), 2);
+        assert_eq!(verdicts[0]["status"], json!("verified"));
     }
 }
