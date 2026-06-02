@@ -41,13 +41,15 @@ use std::path::Path;
 /// claim "this surface ships at emit" holds; the runtime overwrites
 /// with concrete verdicts as tasks complete.
 ///
-/// Under `ECAA_ABLATE_CLAIM_CONSISTENCY` (Arm B′ ablation — Grant v19
-/// §Aim 3A Subsystem B4) the file is still written but with an empty
-/// `verdicts` array and an `ablation_engaged: true` metadata note.
-/// Writing the file (rather than omitting it) preserves the runtime
-/// `/verify` endpoint's ability to operate: the endpoint runs the live
-/// extractor regardless of this flag — the ablation only suppresses the
-/// emitted artifact, not runtime verification.
+/// Under `ECAA_ABLATE_CLAIM_CONSISTENCY` (Arm B′ ablation — Aim 3A) this
+/// emit-time stub records `ablation_engaged: true` with an empty `verdicts`
+/// array. This is ONE of THREE coordinated suppression sites for the same
+/// flag: (1) this emit-time stub, (2) the populated host-signed sink under
+/// `runtime/verification-reports/` (`core::claim_sink::build_sink_doc`,
+/// suppressed with an explicit `ablated: true`), and (3) the live L2 block
+/// at task completion (`server::verification::block_enforced_under_current_env`).
+/// Together they make the A-vs-B′ contrast measure enforcement PRESENCE, not
+/// a status-enum flip on a perpetually-empty file.
 pub(super) async fn write_claim_verification(output_dir: &Path) -> Result<()> {
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
@@ -63,7 +65,7 @@ pub(super) async fn write_claim_verification(output_dir: &Path) -> Result<()> {
             "n_mismatch": 0,
             "verdicts": [],
             "ablation_engaged": true,
-            "ablation_note": "ECAA_ABLATE_CLAIM_CONSISTENCY=1 — emitted artifact is intentionally empty; runtime /verify endpoint is unaffected",
+            "ablation_note": "ECAA_ABLATE_CLAIM_CONSISTENCY=1 — emit-time stub intentionally empty; the populated signed sink and the live L2 block are also suppressed (two-site toggle, Aim 3A)",
         }))
     } else {
         serde_json::to_vec_pretty(&serde_json::json!({

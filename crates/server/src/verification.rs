@@ -190,6 +190,19 @@ pub fn verify_task_with_context(
 /// best-effort/idempotent: a session that is already `Blocked` (or no longer
 /// in an execution state) returns `Err`, which is the benign double-fire
 /// case — the earlier blocker stays surfaced.
+/// Site 2 of the two-site benchmark toggle (Aim 3A). The live L2 block on
+/// claim Mismatch is the headline guardrail; under
+/// `ECAA_ABLATE_CLAIM_CONSISTENCY` the ablated arm (B') runs WITHOUT it, so
+/// the A-vs-B' contrast attributes the blocker's marginal contribution
+/// rather than reducing to an at-rest artifact difference. The recompute and
+/// the signed-sink persist still run (the sink carries the Task-1 ablation
+/// marker); only the dispatch-gating block is suppressed.
+pub(crate) fn block_enforced_under_current_env() -> bool {
+    !ecaa_workflow_core::ablation::AblationFlagExt::is_active(
+        ecaa_workflow_core::ablation::AblationFlag::ClaimConsistency,
+    )
+}
+
 pub(crate) async fn block_on_mismatch(
     app: &crate::chat_routes::ChatAppState,
     session_id: uuid::Uuid,
@@ -286,7 +299,14 @@ pub async fn reverify_and_block_on_mismatch(
                     v.report.n_mismatch as u64,
                 )
                 .await;
-            block_on_mismatch(app, session_id, task_id, &v.report).await;
+            // Site 2 (Aim 3A): the live L2 block on Mismatch is the headline
+            // guardrail. The recompute + signed-sink persist below run on both
+            // arms; the BLOCK is the toggle — the ablated arm (B') observes the
+            // Mismatch but does not gate dispatch, so the contrast measures the
+            // blocker's marginal contribution rather than an at-rest delta.
+            if block_enforced_under_current_env() {
+                block_on_mismatch(app, session_id, task_id, &v.report).await;
+            }
 
             // Recall: compute structured-claims-only coverage against the
             // injected manifest (deterministic), so the signed sink carries it
@@ -360,9 +380,12 @@ pub async fn reverify_and_block_on_mismatch(
 
             // Block on any Required recall gap (absent or unverifiable),
             // reusing `BlockerKind::ValidationFailed` (no new blocker variant).
-            // Additive to the existing Mismatch block above.
+            // Additive to the existing Mismatch block above. This is part of
+            // the same claim-consistency enforcement surface, so Site 2 gates
+            // it too: the ablated arm (B') skips the recall-gap block alongside
+            // the Mismatch block.
             if let Some(cov) = coverage.as_ref() {
-                if coverage_should_block(cov) {
+                if coverage_should_block(cov) && block_enforced_under_current_env() {
                     let detail = format!(
                         "recall gap on task {}: {} required claim(s) absent, {} unverifiable",
                         task_id, cov.required_absent, cov.required_unverifiable
@@ -1128,5 +1151,29 @@ mod recall_wiring_tests {
         assert_eq!(cov.required_addressed, 1);
         assert!(!coverage_should_block(&cov));
         let _ = EntityCoverage::Addressed; // touch the import
+    }
+}
+
+#[cfg(test)]
+mod site2_ablation_tests {
+    // Pure-decision helper: does the live /verify enforce a block on Mismatch?
+    // Under ECAA_ABLATE_CLAIM_CONSISTENCY (Site 2) it must NOT block, so the
+    // ablated arm runs without the L2 guardrail — the contrast measures the
+    // blocker's marginal contribution, not a status flip.
+    use super::block_enforced_under_current_env;
+
+    #[test]
+    #[serial_test::serial]
+    fn block_disabled_under_claim_consistency_ablation() {
+        std::env::set_var("ECAA_ABLATE_CLAIM_CONSISTENCY", "1");
+        assert!(
+            !block_enforced_under_current_env(),
+            "Site 2: ablated arm must NOT enforce the live block"
+        );
+        std::env::remove_var("ECAA_ABLATE_CLAIM_CONSISTENCY");
+        assert!(
+            block_enforced_under_current_env(),
+            "un-ablated arm must enforce the live block"
+        );
     }
 }
