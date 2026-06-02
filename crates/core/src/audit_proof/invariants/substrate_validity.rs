@@ -112,15 +112,28 @@ fn read_graph_nodes(root: &Path) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-/// Build the E (Evidence) execution-step set from `proofs.jsonl`. Each row
-/// names a producing step (`id` = `workflow:<to>`) and its source
-/// (`computed_from` = `workflow:<from>`); BOTH endpoints are emitted as
-/// step entries so a root step (which appears only as a `computed_from`
-/// source, never as an `id`) is still represented and does not register as
-/// spurious drift against the `@graph`. Only `workflow:`-prefixed values are
-/// step refs — a `computed_from` that is a file path (the evidence-coverage
-/// form) is an output, not a step, and is excluded. Returns one `{"id": ...}`
-/// value per distinct endpoint.
+/// Build the E (Evidence) execution-step set from `proofs.jsonl`, accepting
+/// BOTH on-disk row schemas:
+///
+/// 1. **Bare `EdgeContract`** (the production form — conversation's
+///    `build_proofs_jsonl` and `backend_emitters::workflow_json::emit_proofs_jsonl`
+///    serialize an `EdgeContract` directly): `{"from_node","from_port",
+///    "to_node","to_port","proof"}`. BOTH endpoints (`from_node`, `to_node`)
+///    are execution steps and are emitted as step entries. The bare node ids
+///    (`qc`, `de`) reduce to the same key as the `@graph`'s `#step-<id>`
+///    HowToSteps via [`execution_consistency::bare`], so E is non-empty on
+///    real packages.
+/// 2. **`workflow:`-enveloped** (core's `render_dependency_proofs_jsonl`):
+///    `id` = `workflow:<to>`, `computed_from` = `workflow:<from>`. Both
+///    endpoints are emitted; only `workflow:`-prefixed values are step refs —
+///    a `computed_from` that is a file path (the evidence-coverage form) is an
+///    output, not a step, and is excluded.
+///
+/// Emitting both endpoints means a root step (which appears only as a source —
+/// `from_node` / `computed_from`) and a terminal sink (only a consumer —
+/// `to_node` / `id`) are each represented and do not register as spurious
+/// drift against the `@graph`. Returns one `{"id": ...}` value per distinct
+/// endpoint.
 fn read_e_steps(root: &Path) -> Vec<Value> {
     let Ok(text) = std::fs::read_to_string(root.join("runtime/proofs.jsonl")) else {
         return Vec::new();
@@ -134,6 +147,17 @@ fn read_e_steps(root: &Path) -> Vec<Value> {
         let Ok(row) = serde_json::from_str::<Value>(line) else {
             continue;
         };
+        // Bare EdgeContract form: the producer/consumer node ids are the
+        // execution steps directly. Plain tokens map onto `#step-<id>` via
+        // `bare()` (which leaves un-prefixed tokens unchanged).
+        for key in ["from_node", "to_node"] {
+            if let Some(s) = row.get(key).and_then(Value::as_str) {
+                if !s.is_empty() {
+                    out.push(serde_json::json!({"id": s}));
+                }
+            }
+        }
+        // workflow:-enveloped form (render_dependency_proofs_jsonl).
         for key in ["id", "computed_from"] {
             if let Some(s) = row.get(key).and_then(Value::as_str) {
                 if s.starts_with("workflow:") {
