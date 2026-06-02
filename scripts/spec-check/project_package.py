@@ -67,14 +67,45 @@ onto.parse(spec_dir / "ecaa-v0.1.ttl", format="turtle")
 shapes = Graph()
 shapes.parse(spec_dir / "ecaa-v0.1.shacl.ttl", format="turtle")
 
-# Run SHACL.
-conforms, _, report = pyshacl.validate(
+# Run SHACL. `report_graph` is the RDF validation report; we bucket
+# violations per shape so the Rust↔pyshacl agreement gate can compare per
+# invariant (not just the global verdict).
+conforms, report_graph, report = pyshacl.validate(
     data_graph=projected,
     shacl_graph=shapes,
     ont_graph=onto,
     inference="rdfs",
     debug=False,
 )
+
+# Per-shape machine-readable verdicts: one `SHACL-INVARIANT: <Shape>=PASS|FAIL`
+# line per NodeShape the SHACL file declares. A shape is FAIL iff the report
+# carries a ValidationResult whose sh:sourceShape is that shape; every other
+# declared shape is PASS (it had focus nodes or none, but no violation). The
+# global `SHACL conformance:` line below is retained for the existing
+# `shacl_non_vacuous.rs` / per-invariant gates that parse it.
+from rdflib import RDF, URIRef  # noqa: E402
+
+
+def _sh(local):
+    return URIRef("http://www.w3.org/ns/shacl#" + local)
+
+
+def _local_name(iri):
+    return str(iri).split("#")[-1].split("/")[-1]
+
+
+declared_shapes = {
+    _local_name(s) for s in shapes.subjects(RDF.type, _sh("NodeShape"))
+}
+violated_shapes = set()
+for result in report_graph.subjects(RDF.type, _sh("ValidationResult")):
+    for src in report_graph.objects(result, _sh("sourceShape")):
+        violated_shapes.add(_local_name(src))
+for shape in sorted(declared_shapes):
+    verdict = "FAIL" if shape in violated_shapes else "PASS"
+    print(f"SHACL-INVARIANT: {shape}={verdict}")
+
 print(f"SHACL conformance: {'PASS' if conforms else 'FAIL'}")
 if not conforms:
     print(report)

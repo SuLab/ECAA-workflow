@@ -10,6 +10,7 @@ mod evidence_coverage_shacl;
 mod execution_consistency_shacl;
 mod nanopub_projection;
 mod qualified_derivation;
+mod rust_pyshacl_agreement;
 mod false_positive_corpus;
 mod invariant_utility;
 mod shacl_non_vacuous;
