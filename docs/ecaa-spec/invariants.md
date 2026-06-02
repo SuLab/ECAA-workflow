@@ -146,7 +146,7 @@ prefix-scheme identifiers `<letter>:<id>` declared in `v0.1.md` §4.
 
 ```
 ∀ r ∈ Q.RerunOutcomes :
-    r.class ∉ {"failed", "non-deterministic"}
+    r.class ∉ {"failed", "acknowledged_non_determinism"}
   ∨ ∃ b ∈ F.Blockers :
         b.kind ∈ {"UnprovableEdge", "PolicyException"}
       ∧ b.refs ∋ r.id
