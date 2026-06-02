@@ -122,6 +122,18 @@ fn read_json(root: &Path, name: &str) -> Value {
     serde_json::from_str(&raw).expect("parse json")
 }
 
+/// Parse `runtime/<name>` (JSONL) into one `Value` per non-empty line.
+/// Used by spec-fidelity assertions to confirm a mutator wrote the node/edge
+/// the spec predicate ranges over.
+fn read_jsonl(root: &Path, name: &str) -> Vec<Value> {
+    let path = runtime(root).join(name);
+    let raw = std::fs::read_to_string(&path).unwrap_or_default();
+    raw.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| serde_json::from_str(l).expect("parse jsonl row"))
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Verdict lookup helpers
 // ---------------------------------------------------------------------------
@@ -204,12 +216,48 @@ fn status_glyph(s: InvariantStatus) -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// Per-invariant mutators
-// Each corrupts exactly one invariant's precondition on a fresh package.
+// Per-invariant mutators (spec-derived)
+//
+// Each mutator's contract is the NORMATIVE first-order-logic predicate from
+// `docs/ecaa-spec/invariants.md` (quoted verbatim in its doc comment), stated
+// over the §5 node/edge vocabulary — NOT the Rust field names of the reference
+// implementation. The mutator falsifies that spec predicate, then asserts
+// in-line that the spec-level node/edge it ranges over is actually present in
+// the mutated sub-graph. This makes the spec the independent oracle: if the
+// implementation drifted from the spec predicate, the matrix flip would stop
+// reproducing and the test would fail, rather than the test silently tracking
+// the implementation.
+//
+// RESIDUAL CIRCULARITY (honest scope): spec-grounding REDUCES but does not
+// ELIMINATE circularity. The same workspace emits the package AND evaluates
+// the invariants, so a shared misreading of the spec could be masked by both.
+// Full implementation-independence requires a SECOND, independent
+// emitter/evaluator running this same harness against its own packages (out of
+// scope here; this is the preprint's stated implementation-independence
+// limitation). What spec-grounding buys: the mutators are now derived from
+// `invariants.md`, so a divergence between the spec predicate and the
+// implementation surfaces as a test failure instead of being absorbed.
+//
+// SPEC §5 vs IMPL FIELDS: the spec models sub-graphs as nodes +
+// `{source,target,predicate}` edge triples; the reference impl reads flat
+// per-row fields. The mutators therefore write the impl-read field that
+// encodes the spec edge (and the fidelity assertions check that field), with
+// the spec predicate quoted so the intent is anchored to the normative text.
 // ---------------------------------------------------------------------------
 
-/// Invariant 1 — claim_completeness → Warn.
-/// Add a Claim verdict with NO supported_by edge and status != "pending".
+/// Invariant 1 — `claim_completeness` → Warn.
+///
+/// Spec predicate (`invariants.md` §1, verbatim):
+/// ```text
+/// ∀ c ∈ C.Claims :
+///     c.status = "pending"
+///   ∨ ∃ e ∈ C.edges :
+///         e.predicate = "supported-by"
+///       ∧ e.source = c.id
+///       ∧ e.target ∈ V.Statistics ∪ V.Figures ∪ V.Tables
+/// ```
+/// Violation injected: a `C.Claim` with `status = "verified"` (NOT "pending")
+/// and NO `supported-by` edge — falsifying both disjuncts.
 fn mutate_claim_completeness(root: &Path) {
     let mut claims = read_json(root, "claim-verification.json");
     let verdicts = claims
@@ -222,12 +270,30 @@ fn mutate_claim_completeness(root: &Path) {
         "supported_by": []
     }));
     write_json(root, "claim-verification.json", &claims);
+
+    // Spec-fidelity: the C sub-graph now holds a non-pending Claim with no
+    // supported-by edge (the node/edge shape the §1 predicate ranges over).
+    let claims = read_json(root, "claim-verification.json");
+    let v = claims["verdicts"].as_array().expect("verdicts array");
+    assert!(
+        v.iter().any(|c| c["status"] == "verified"
+            && c["supported_by"]
+                .as_array()
+                .map_or(true, |a| a.is_empty())),
+        "spec §1 violation (verified Claim with no supported-by) not present in C sub-graph"
+    );
 }
 
-/// Invariant 2 — decision_justification → Warn.
-/// Add a `set_intake_method` decision whose method_prose AND record-level
-/// rationale are both <30 chars (no cites field exists on v0.1 method
-/// decisions, so the predicate reduces to the rationale-length branch).
+/// Invariant 2 — `decision_justification` → Warn.
+///
+/// Spec predicate (`invariants.md` §2, verbatim):
+/// ```text
+/// ∀ m ∈ D.MethodChoices :
+///     (∃ e ∈ D.edges : e.predicate = "cites" ∧ e.source = m.id)
+///   ∨ length(m.rationale) ≥ 30
+/// ```
+/// Violation injected: a `D.MethodChoice` (encoded as the `set_intake_method`
+/// decision the impl reads) with NO `cites` edge and `length(rationale) < 30`.
 fn mutate_decision_justification(root: &Path) {
     append_jsonl(
         root,
@@ -245,12 +311,31 @@ fn mutate_decision_justification(root: &Path) {
             "actor": "sme"
         }),
     );
+
+    // Spec-fidelity: the D sub-graph now holds a MethodChoice (set_intake_method)
+    // with no `cites` edge and a rationale shorter than the §2 threshold of 30.
+    let decisions = read_jsonl(root, "decisions.jsonl");
+    assert!(
+        decisions.iter().any(|d| {
+            d["decision"]["kind"] == "set_intake_method"
+                && d["rationale"].as_str().map_or(0, |s| s.chars().count()) < 30
+                && d.get("cites").is_none()
+        }),
+        "spec §2 violation (MethodChoice, no cites, rationale <30) not present in D sub-graph"
+    );
 }
 
-/// Invariant 3 — evidence_coverage → Warn.
-/// Add an Evidence (E) output row to proofs.jsonl (via `computed_from`) that
-/// is referenced by no claim verdict's supported_by and marked by no
-/// `output_unused` assumption.
+/// Invariant 3 — `evidence_coverage` → Warn.
+///
+/// Spec predicate (`invariants.md` §3, verbatim):
+/// ```text
+/// ∀ o ∈ E.OutputFiles :
+///     (∃ e ∈ V.edges : e.predicate = "computed-from" ∧ e.target = o.id)
+///   ∨ (∃ b ∈ F.Blockers : b.kind = "OutputUnused" ∧ b.refs ∋ o.id)
+/// ```
+/// Violation injected: an `E.OutputFile` (a V `computed-from` row whose output
+/// path is the bare `o.id`) referenced by NO `C.supported-by` and marked by NO
+/// `F` `output_unused` blocker — falsifying both disjuncts.
 fn mutate_evidence_coverage(root: &Path) {
     append_jsonl(
         root,
@@ -260,15 +345,52 @@ fn mutate_evidence_coverage(root: &Path) {
             "computed_from": "data/outputs/orphan_result.tsv"
         }),
     );
-    // claim-verification.json must exist with a verdicts array for the
-    // check to run the per-output coverage branch (Pass vs Warn) rather
-    // than the claims-absent default. The fixture already ships one with an
-    // empty verdicts array, so no supported_by edge can cover the new output.
+
+    // Spec-fidelity: the V sub-graph now declares an output via a
+    // `computed-from` row, and neither C nor F covers it — exactly the
+    // un-referenced OutputFile the §3 predicate ranges over.
+    let proofs = read_jsonl(root, "proofs.jsonl");
+    let declared = proofs.iter().any(|p| {
+        p.get("computed_from").or_else(|| p.get("produces")).and_then(|v| v.as_str())
+            == Some("data/outputs/orphan_result.tsv")
+    });
+    assert!(
+        declared,
+        "spec §3 setup (computed-from OutputFile) not present in V sub-graph"
+    );
+    let claims = read_json(root, "claim-verification.json");
+    let covered = claims["verdicts"].as_array().is_some_and(|vs| {
+        vs.iter()
+            .filter_map(|c| c["supported_by"].as_array())
+            .flatten()
+            .any(|r| r.as_str().map(|s| s.split('#').next().unwrap_or(s))
+                == Some("data/outputs/orphan_result.tsv"))
+    });
+    assert!(
+        !covered,
+        "spec §3 violation: the new OutputFile must NOT be referenced in C"
+    );
 }
 
-/// Invariant 4 — equivalence_failure → Fail.
-/// Add a verifier-decisions `prove`/`failed` row whose edge_id has NO
-/// matching `unprovable_edge` / `policy_exception` acknowledgement.
+/// Invariant 4 — `equivalence_failure` → Fail.
+///
+/// Spec predicate (`invariants.md` §4, verbatim):
+/// ```text
+/// ∀ r ∈ Q.RerunOutcomes :
+///     r.class ∉ {"failed", "non-deterministic"}
+///   ∨ ∃ b ∈ F.Blockers :
+///         b.kind ∈ {"UnprovableEdge", "PolicyException"}
+///       ∧ b.refs ∋ r.id
+/// ```
+/// NOTE (spec discrepancy): the committed `invariants.md` §4 carries a STALE
+/// token `"non-deterministic"`. The closed `Q.RerunOutcome` class enum is
+/// `byte_identical | semantic_equivalent | acknowledged_non_determinism |
+/// unavailable | failed`; `"non-deterministic"` is the obsolete spelling of
+/// `acknowledged_non_determinism`. This mutator injects the `failed` class
+/// (which the reference impl reads as a `prove`/`failed` verifier-decision row);
+/// the second-branch mutator in Task 3 exercises `acknowledged_non_determinism`.
+/// Violation injected: a `Q.RerunOutcome` of class `failed` with NO
+/// `F.Blocker` of kind `UnprovableEdge`/`PolicyException` acknowledging it.
 fn mutate_equivalence_failure(root: &Path) {
     append_jsonl(
         root,
@@ -279,11 +401,41 @@ fn mutate_equivalence_failure(root: &Path) {
             "edge_id": "edge_unproven_001"
         }),
     );
+
+    // Spec-fidelity: the Q sub-graph now holds a failed RerunOutcome and the F
+    // sub-graph holds no acknowledging Blocker for it.
+    let q = read_jsonl(root, "verifier-decisions.jsonl");
+    assert!(
+        q.iter().any(|r| r["event"] == "prove"
+            && r["outcome"] == "failed"
+            && r["edge_id"] == "edge_unproven_001"),
+        "spec §4 violation (failed RerunOutcome) not present in Q sub-graph"
+    );
+    let f = read_jsonl(root, "assumptions.jsonl");
+    assert!(
+        !f.iter().any(|b| {
+            matches!(
+                b.get("kind").and_then(|k| k.as_str()),
+                Some("unprovable_edge" | "policy_exception")
+            )
+        }),
+        "spec §4 violation requires NO acknowledging F.Blocker"
+    );
 }
 
-/// Invariant 5 — cross_graph_integrity → Fail.
-/// Add a claim verdict whose supported_by points at an output IRI that
-/// resolves to NO row in the Evidence (E) graph (proofs.jsonl).
+/// Invariant 5 — `cross_graph_integrity` → Fail.
+///
+/// Spec predicate (`invariants.md` §5, verbatim):
+/// ```text
+/// ∀ e ∈ ⋃_{G∈{I,D,E,V,C,Q,F,A}} G.edges :
+///     cross_graph(e) ⇒
+///         ∃ G' ∈ {I,D,E,V,C,Q,F,A} :
+///             (e.target matches "<G'.letter>:<id>")
+///           ∧ (∃ n ∈ G'.nodes : n.id = e.target_local_id)
+/// ```
+/// Violation injected: a `C` `supported-by` edge whose target output resolves
+/// to NO node in the `V` (Evidence) sub-graph — a dangling cross-graph
+/// reference falsifying the consequent.
 fn mutate_cross_graph_integrity(root: &Path) {
     let mut claims = read_json(root, "claim-verification.json");
     let verdicts = claims
@@ -296,12 +448,52 @@ fn mutate_cross_graph_integrity(root: &Path) {
         "supported_by": ["data/outputs/ghost_node.tsv#row1"]
     }));
     write_json(root, "claim-verification.json", &claims);
+
+    // Spec-fidelity: the C edge points at an output that no V `computed-from`
+    // row declares — the dangling cross-graph reference §5 ranges over.
+    let claims = read_json(root, "claim-verification.json");
+    let dangling_ref = claims["verdicts"]
+        .as_array()
+        .expect("verdicts array")
+        .iter()
+        .filter_map(|c| c["supported_by"].as_array())
+        .flatten()
+        .filter_map(|r| r.as_str())
+        .any(|s| s.split('#').next() == Some("data/outputs/ghost_node.tsv"));
+    assert!(
+        dangling_ref,
+        "spec §5 setup: C supported-by edge to the ghost output must be present"
+    );
+    let known: std::collections::BTreeSet<String> = read_jsonl(root, "proofs.jsonl")
+        .iter()
+        .filter_map(|p| {
+            p.get("computed_from")
+                .or_else(|| p.get("produces"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.split('#').next().unwrap_or(s).to_string())
+        })
+        .collect();
+    assert!(
+        !known.contains("data/outputs/ghost_node.tsv"),
+        "spec §5 violation: the referenced V node must NOT exist (dangling)"
+    );
 }
 
-/// Invariant 6 — substrate_validity → Fail (gated; runcrate-only).
-/// Drop a required `conformsTo` profile IRI from ro-crate-metadata.json so a
-/// real WRROC validator rejects the descriptor. Under NoopWrrocValidator this
-/// is inert (always Unverified); see SUBSTRATE CAVEAT in the module docs.
+/// Invariant 6 — `substrate_validity` → Fail (gated; runcrate-only).
+///
+/// Spec predicate (`invariants.md` §6, verbatim — the conjunct this mutator
+/// falsifies):
+/// ```text
+/// package.passes(`runcrate validate ≥ 0.5.0`)
+///   ∧ |{iri ∈ package.conformsTo : iri ∈ REQUIRED_PROFILE_IRIS}| = 6
+///   ∧ ∃ entity ∈ package.@graph : entity.@type ∋ "wfprov:ParameterConnection"
+///   ∧ ∃ entity ∈ package.@graph : entity.@type ∋ "p-plan:Plan"
+///   ∧ ∀ sidecar ∈ REQUIRED_SIDECARS : sidecar ∈ package.@graph as CreativeWork
+/// ```
+/// Violation injected: drop one required `conformsTo` profile IRI so the
+/// `|{…}| = 6` conjunct no longer holds (the §3 `REQUIRED_PROFILE_IRIS` set is
+/// undersatisfied). Under `NoopWrrocValidator` this is inert (always
+/// `Unverified`); the row is gated behind `runcrate`. See SUBSTRATE CAVEAT.
 fn mutate_substrate_validity(root: &Path) {
     let path = root.join("ro-crate-metadata.json");
     let raw = std::fs::read_to_string(&path).expect("read descriptor");
