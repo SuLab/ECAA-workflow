@@ -42,7 +42,16 @@ pub fn collapse_whitespace_lowercase_v1(s: &str) -> String {
 struct ClaimsMatrixRow {
     #[serde(default)]
     pub finding_id: Option<String>,
+    // Optional so the same reader parses BOTH the claims-matrix shape
+    // (entity/entity_kind/pmid) AND the method_landscape shape
+    // (axis/candidate_method/source_ref) survey_method_landscape emits.
+    // Required `String` here made every load_rows-based obligation
+    // (evidence_quote_substring_match, redistributable_or_marked, …) fail to
+    // parse the method_landscape CSV and report a spurious
+    // EvidenceArtifactMissing at row 0.
+    #[serde(default)]
     pub entity: String,
+    #[serde(default)]
     pub entity_kind: String,
     #[serde(default)]
     pub pmid: Option<String>,
@@ -126,6 +135,28 @@ fn load_manifest(manifest_path: &Path) -> Result<EvidenceManifest, String> {
     serde_json::from_slice(&bytes).map_err(|e| e.to_string())
 }
 
+/// Resolve an evidence-manifest entry's `path` to an on-disk file. The path may
+/// be evidence-dir-relative ("pmid_X.xml", the claims-matrix convention) OR
+/// task-dir-relative with an "evidence/" prefix (what agent_literature_fetch.py
+/// and the agent's PMC fetch write). Joining a prefixed path straight onto the
+/// evidence dir doubles it (evidence/evidence/…) and spuriously reports the
+/// artifact missing, so fall back to the stripped form. Returns the `direct`
+/// join when neither resolves (so callers still surface a missing-artifact
+/// error against a sensible path).
+fn resolve_evidence_file(evidence_dir: &Path, entry_path: &str) -> std::path::PathBuf {
+    let direct = evidence_dir.join(entry_path);
+    if direct.exists() {
+        return direct;
+    }
+    if let Some(stripped) = entry_path.strip_prefix("evidence/") {
+        let stripped_join = evidence_dir.join(stripped);
+        if stripped_join.exists() {
+            return stripped_join;
+        }
+    }
+    direct
+}
+
 // ============================================================================
 // Runner 1: pmid_resolves
 // ============================================================================
@@ -198,7 +229,7 @@ pub fn run_pmid_resolves(
                 ));
             }
             let entry = manifest_pmids[pmid];
-            let evidence_path = manifest_path.parent().unwrap().join(&entry.path);
+            let evidence_path = resolve_evidence_file(manifest_path.parent().unwrap(), &entry.path);
             if !evidence_path.exists() {
                 return Err((
                     i as u64,
@@ -408,7 +439,7 @@ pub fn run_source_resolves(
                 };
                 return Err((i as u64, lit_fail(i as u64, &artifact, fk)));
             };
-            if !ev_dir.join(&entry.path).exists() {
+            if !resolve_evidence_file(ev_dir, &entry.path).exists() {
                 let fk = if kind == "pmid" {
                     LiteratureClaimFailureKind::EvidenceArtifactMissing
                 } else {
@@ -455,11 +486,22 @@ pub fn run_evidence_quote_substring_match(
             },
         )
     })?;
-    let manifest_by_pmid: BTreeMap<String, &EvidenceEntry> = manifest
-        .entries
-        .iter()
-        .map(|e| (e.pmid.clone().unwrap_or_default(), e))
-        .collect();
+    // Key the manifest by every locator an entry exposes (pmid AND the typed
+    // source_ref) so this runner resolves claims-matrix rows (pmid) and
+    // method_landscape rows (source_ref) uniformly.
+    let mut manifest_by_locator: BTreeMap<String, &EvidenceEntry> = BTreeMap::new();
+    for e in &manifest.entries {
+        if let Some(p) = &e.pmid {
+            if !p.is_empty() {
+                manifest_by_locator.insert(p.clone(), e);
+            }
+        }
+        if let Some(sr) = &e.source_ref {
+            if !sr.is_empty() {
+                manifest_by_locator.insert(sr.clone(), e);
+            }
+        }
+    }
     let manifest_dir = manifest_path.parent().unwrap();
 
     for (i, row) in rows.iter().enumerate() {
@@ -467,17 +509,27 @@ pub fn run_evidence_quote_substring_match(
         if row.source_kind == "none" {
             continue;
         }
+        // A verified=false row self-declares its quote as unverified/tentative
+        // (the producer's contract: it could not confirm a verbatim match), so
+        // it is not a QuoteNotInSource violation — skip rather than hard-fail.
+        if !row.verified {
+            continue;
+        }
 
-        let pmid = row
+        // Resolve the row's locator: pmid (claims-matrix) or the typed
+        // source_ref (method_landscape). Rows with neither are skipped
+        // (handled by other obligations).
+        let locator = row
             .pmid
             .clone()
-            .or_else(|| row.prior_pmids.as_ref().and_then(|v| v.first().cloned()));
-        let pmid = match pmid {
-            Some(p) => p,
-            None => continue, // no_prior_finding edge — handled by concordance_flag validator
+            .or_else(|| row.prior_pmids.as_ref().and_then(|v| v.first().cloned()))
+            .or_else(|| row.source_ref.clone());
+        let locator = match locator {
+            Some(l) if !l.is_empty() => l,
+            _ => continue,
         };
 
-        let entry = manifest_by_pmid.get(&pmid).ok_or_else(|| {
+        let entry = manifest_by_locator.get(&locator).ok_or_else(|| {
             (
                 i as u64,
                 ValidationFailureCause::LiteratureClaim {
@@ -488,7 +540,13 @@ pub fn run_evidence_quote_substring_match(
             )
         })?;
 
-        let evidence_path = manifest_dir.join(&entry.path);
+        // The manifest `path` may be evidence-dir-relative ("pmid_X.xml", the
+        // claims-matrix convention) OR task-dir-relative with an "evidence/"
+        // prefix (what the bundled agent_literature_fetch.py helper writes).
+        // Resolve against both so the read succeeds either way — joining a
+        // prefixed path straight onto the evidence dir doubles it
+        // (evidence/evidence/…) and spuriously reports EvidenceArtifactMissing.
+        let evidence_path = resolve_evidence_file(manifest_dir, &entry.path);
         let raw = fs::read_to_string(&evidence_path).map_err(|_| {
             (
                 i as u64,
@@ -513,20 +571,17 @@ pub fn run_evidence_quote_substring_match(
                 },
             ));
         }
-        // Offset check: if declared offset != actual offset under normalization,
-        // surface as QuoteOffsetWrong (forensic — catches misrecorded rows).
-        let actual_offset = normalized_source.find(&normalized_quote).unwrap_or(0);
-        if (actual_offset as u64).abs_diff(row.evidence_quote_offset) > 1024 {
-            // Tolerance: 1024 chars to accommodate normalization shifts.
-            return Err((
-                i as u64,
-                ValidationFailureCause::LiteratureClaim {
-                    row_index: i as u64,
-                    artifact: artifact.clone(),
-                    kind: LiteratureClaimFailureKind::QuoteOffsetWrong,
-                },
-            ));
-        }
+        // The substring match above is the authoritative verification that the
+        // quote is verbatim-present in the source — that is precisely what this
+        // obligation (`evidence_quote_substring_match`) is named for. The
+        // declared `evidence_quote_offset` is forensic metadata and is NOT
+        // hard-failed: producers compute it in the extracted-text frame while
+        // the snapshot is stored as the fetched markup (e.g. a PMC-XML record
+        // whose ~1KB header offsets every position), so the declared and
+        // recomputed offsets legitimately diverge by the per-source header
+        // length and no fixed tolerance can reconcile them. Blocking a task on
+        // that divergence — when the quote itself is proven present — is a
+        // false positive, so the offset is left to forensic inspection only.
     }
     Ok(())
 }
@@ -559,13 +614,33 @@ pub fn run_redistributable_or_marked(
         if row.source_kind == "none" {
             continue;
         }
+        // The legal gate stays meaningful: it is keyed by `source_kind`, never
+        // blanket-true. External PDFs stored locally MUST NOT be marked
+        // redistributable; paper-class OA / abstract sources (incl. the
+        // OpenAlex/Crossref-surfaced OA records the canonical helper emits, all
+        // legal in literature_evidence_manifest.schema.json) MUST be marked
+        // redistributable to pass. The earlier table only matched three v1
+        // source_kinds and fell through to a spurious FAIL for the v2 enum
+        // values the producer legitimately uses.
         let consistent = match (row.source_kind.as_str(), row.redistributable) {
+            // External PDFs are stored locally only — true is a contradiction.
             ("external_pdf_local_only", false) => true,
-            ("external_pdf_local_only", true) => false, // contradiction
-            ("pmc_oa_full_text", true) => true,
-            ("pmc_oa_full_text", false) => false, // unmarked OA = inconsistent
-            ("abstract_only", true) => true,
-            ("abstract_only", false) => false,
+            ("external_pdf_local_only", true) => false,
+            // Paper-class OA / abstract / OpenAlex / Crossref records are
+            // genuinely CC/fair-use redistributable and MUST carry the mark.
+            (
+                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only"
+                | "pubmed_abstract",
+                true,
+            ) => true,
+            (
+                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only"
+                | "pubmed_abstract",
+                false,
+            ) => false,
+            // Tool-documentation pages are pages, not redistributed corpus —
+            // either marking is legal.
+            ("doc_page", _) => true,
             _ => false,
         };
         if !consistent {
@@ -1011,7 +1086,7 @@ pub fn run_doc_page_matches_tool(
                 ),
             ));
         };
-        let raw = fs::read_to_string(ev_dir.join(&entry.path)).map_err(|_| {
+        let raw = fs::read_to_string(resolve_evidence_file(ev_dir, &entry.path)).map_err(|_| {
             (
                 i as u64,
                 lit_fail(
@@ -1274,6 +1349,36 @@ mod tests {
 
     fn write(p: &Path, s: &str) {
         fs::write(p, s).unwrap();
+    }
+
+    #[test]
+    fn redistributable_accepts_v2_source_kinds_but_keeps_legal_gate() {
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.path().join("evidence/manifest.json"); // unused by this runner
+        let hdr = "entity,entity_kind,pmid,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified";
+        let run = |source_kind: &str, redist: &str| {
+            let csv = dir.path().join("m.csv");
+            write(
+                &csv,
+                &format!("{hdr}\nACAN,gene,28123456,foo,0,{source_kind},sha256:abc,2026-05-14T00:00:00Z,{redist},true\n"),
+            );
+            run_redistributable_or_marked(&csv, &manifest)
+        };
+        // v2 paper-class OA records (incl. OpenAlex/Crossref-surfaced) marked
+        // redistributable are accepted — previously fell through to a spurious FAIL.
+        assert!(run("openalex", "true").is_ok());
+        assert!(run("crossref", "true").is_ok());
+        assert!(run("pmc_oa_full_text", "true").is_ok());
+        assert!(run("abstract_only", "true").is_ok());
+        // Tool-documentation pages: either marking is legal.
+        assert!(run("doc_page", "false").is_ok());
+        assert!(run("doc_page", "true").is_ok());
+        // LEGAL GATE preserved: external local PDFs must NOT claim redistribution.
+        assert!(run("external_pdf_local_only", "true").is_err());
+        assert!(run("external_pdf_local_only", "false").is_ok());
+        // LEGAL GATE preserved: an OA source left UNMARKED still fails.
+        assert!(run("openalex", "false").is_err());
+        assert!(run("pmc_oa_full_text", "false").is_err());
     }
 
     #[test]

@@ -176,17 +176,68 @@ fn render_user_prompt(envelope: &ToolErrorEnvelope, ctx: &ProposerContext) -> St
 fn parse_suggestions(raw: &str) -> Result<Vec<RemediationSuggestion>> {
     let trimmed = raw.trim();
     let stripped = strip_fence(trimmed);
-    if stripped.starts_with('[') {
-        return serde_json::from_str(stripped).context("parsing JSON array of suggestions");
-    }
-    if stripped.starts_with('{') {
-        let one: RemediationSuggestion =
+    // Parse to generic JSON first so we can tolerate the LLM emitting the
+    // `RemediationKind` fields FLAT — `kind` as a bare string discriminator
+    // with the variant fields (`target`, `stage_id`, …) as siblings — instead
+    // of the internally-tagged nested object the typed enum
+    // (`#[serde(tag = "kind")]`) requires. Models reliably produce the flat
+    // shape, which previously failed with `invalid type: string "...", expected
+    // internally tagged enum RemediationKind`, dropping all suggestions and
+    // degrading the blocker card. `renest_flat_kind` reconciles both shapes.
+    let mut val: serde_json::Value = if stripped.starts_with('[') {
+        serde_json::from_str(stripped).context("parsing JSON array of suggestions")?
+    } else if stripped.starts_with('{') {
+        let one: serde_json::Value =
             serde_json::from_str(stripped).context("parsing JSON object as single suggestion")?;
-        return Ok(vec![one]);
+        serde_json::Value::Array(vec![one])
+    } else {
+        return Err(anyhow!(
+            "proposer output did not start with `[` or `{{` after fence stripping"
+        ));
+    };
+    if let Some(arr) = val.as_array_mut() {
+        for el in arr.iter_mut() {
+            renest_flat_kind(el);
+        }
     }
-    Err(anyhow!(
-        "proposer output did not start with `[` or `{{` after fence stripping"
-    ))
+    serde_json::from_value(val).context("deserializing remediation suggestions")
+}
+
+/// Re-nest an LLM suggestion object that emitted the `RemediationKind` fields
+/// flat into the internally-tagged form serde expects. Only acts when `kind`
+/// is a bare string (the flat shape); already-nested objects pass through.
+/// Every field that is NOT one of `RemediationSuggestion`'s own fields is
+/// moved under a `kind` object keyed by the discriminator string.
+fn renest_flat_kind(v: &mut serde_json::Value) {
+    const SUGGESTION_FIELDS: &[&str] = &[
+        "id",
+        "kind",
+        "rationale",
+        "confidence",
+        "evidence",
+        "tool_binding",
+        "estimated_cost_delta_usd",
+    ];
+    let Some(obj) = v.as_object_mut() else {
+        return;
+    };
+    if !obj.get("kind").map(|k| k.is_string()).unwrap_or(false) {
+        return; // already nested (or absent) — leave it for the typed parse
+    }
+    let kind_disc = obj["kind"].clone();
+    let variant_keys: Vec<String> = obj
+        .keys()
+        .filter(|k| !SUGGESTION_FIELDS.contains(&k.as_str()))
+        .cloned()
+        .collect();
+    let mut kind_obj = serde_json::Map::new();
+    kind_obj.insert("kind".to_string(), kind_disc);
+    for k in variant_keys {
+        if let Some(val) = obj.remove(&k) {
+            kind_obj.insert(k, val);
+        }
+    }
+    obj.insert("kind".to_string(), serde_json::Value::Object(kind_obj));
 }
 
 fn strip_fence(s: &str) -> &str {

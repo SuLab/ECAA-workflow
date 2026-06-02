@@ -34,7 +34,16 @@ struct EvidenceManifest {
 
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
 struct EvidenceEntry {
-    pub pmid: String,
+    // v2 manifest: `pmid` is optional (DOI/arXiv/URL/curated sources carry a
+    // typed `source_ref`/`source_ref_kind` instead). Stale v1 mirror required
+    // `pmid: String`, which made the whole RO-Crate emit fail on any
+    // non-PMID-anchored evidence entry.
+    #[serde(default)]
+    pub pmid: Option<String>,
+    #[serde(default)]
+    pub source_ref_kind: Option<String>,
+    #[serde(default)]
+    pub source_ref: Option<String>,
     pub source_kind: String,
     pub path: String,
     pub sha256_binary: String,
@@ -117,11 +126,18 @@ fn register_literature_evidence(
                 continue;
             }
 
+            // Identifier prefers the PMID; non-PMID sources fall back to the
+            // typed locator (e.g. `doi:10.…`) or the on-disk path.
+            let identifier = match (&ev.pmid, &ev.source_ref_kind, &ev.source_ref) {
+                (Some(p), _, _) => format!("PMID:{}", p),
+                (None, Some(kind), Some(sr)) => format!("{}:{}", kind, sr),
+                (None, _, Some(sr)) => sr.clone(),
+                _ => evidence_rel_path.clone(),
+            };
             let mut node = serde_json::json!({
                 "@id": evidence_rel_path,
                 "@type": ["CreativeWork", "ScholarlyArticle"],
-                "identifier": format!("PMID:{}", ev.pmid),
-                "sameAs": format!("https://pubmed.ncbi.nlm.nih.gov/{}/", ev.pmid),
+                "identifier": identifier,
                 "license": normalise_license(&ev.license),
                 "contentSize": ev.bytes,
                 "hasDigest": format!("sha256:{}", ev.sha256_binary),
@@ -130,6 +146,17 @@ fn register_literature_evidence(
                 "ecaax:redistributable": ev.redistributable,
                 "ecaax:retrievalTimestamp": ev.retrieval_ts,
             });
+            // `sameAs`: PubMed URL for PMID-anchored sources; otherwise the
+            // source locator URL when one is present.
+            let same_as = match &ev.pmid {
+                Some(p) => Some(format!("https://pubmed.ncbi.nlm.nih.gov/{}/", p)),
+                None => ev.source_ref.clone(),
+            };
+            if let Some(sa) = same_as {
+                node.as_object_mut()
+                    .unwrap()
+                    .insert("sameAs".into(), serde_json::Value::String(sa));
+            }
 
             if shareable && !ev.redistributable {
                 node.as_object_mut().unwrap().insert(

@@ -491,6 +491,32 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     if let Some(aug) = node.attributes.get("candidate_pool_augmented") {
         spec_map.insert("candidate_pool_augmented".into(), aug.clone());
     }
+    // Literature-retrieval atoms (survey_method_landscape, review_prior_work,
+    // contextualize_findings_with_literature) declare `retrieval_tools` /
+    // `source_scope_env` / `candidate_tools` on `node.attributes`. The agent
+    // prompt-assembly gate in scripts/agent-claude.sh keys on
+    // `spec.attributes.retrieval_tools` to append the literature-retrieval
+    // runbook (the CSV column list + manifest schema + the bundled
+    // agent_literature_fetch.py helper). Without hoisting these into
+    // `spec.attributes` the gate never fires, the runbook is never delivered,
+    // and the agent hand-rolls a non-conforming manifest/CSV that the Phase-13
+    // literature validators reject. Additive: the `attributes` key is emitted
+    // only when the atom declares ≥1 of these, so non-literature tasks keep
+    // their byte-reproducible spec shape.
+    let mut attrs_map = serde_json::Map::new();
+    for key in [
+        "retrieval_tools",
+        "source_scope_env",
+        "candidate_tools",
+        "claim_boundary",
+    ] {
+        if let Some(v) = node.attributes.get(key) {
+            attrs_map.insert(key.into(), v.clone());
+        }
+    }
+    if !attrs_map.is_empty() {
+        spec_map.insert("attributes".into(), serde_json::Value::Object(attrs_map));
+    }
     let spec = if spec_map.is_empty() {
         None
     } else {

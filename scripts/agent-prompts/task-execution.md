@@ -162,10 +162,23 @@ wedges and burns its whole budget):
   actually landed in a conda env) never exits, so the loop runs forever,
   keeps the heartbeat artificially fresh, and the dispatch hangs even
   though your real work already finished. No background `&` + poll loops.
+- **The container root filesystem is read-only — the conda *base* env
+  cannot be modified.** `conda install` / `mamba install` with no target
+  env install into the active base env and fail with
+  `critical libmamba filesystem error: ... Read-only file system
+  [/opt/conda/conda-meta/history]`. ALWAYS install conda/bioconda packages
+  into a NEW named env, which is redirected to a writable cache dir:
+  `mamba create -y -n <env> -c conda-forge -c bioconda <pkg>` — NEVER bare
+  `mamba install <pkg>` / `conda install <pkg>`. (`pip install` needs no
+  such care: it is pre-pointed at a writable user base and works as-is.)
 - **Prefer a pre-built binary over a source compile.** For Bioconductor
-  tools use the bioconda binary (`mamba install -y -c bioconda
-  bioconductor-deseq2`) rather than `BiocManager::install("DESeq2")`,
-  which triggers a 10–30 min Rcpp/C++ compile from source.
+  tools create a fresh env from the bioconda binary
+  (`mamba create -y -n bioc -c conda-forge -c bioconda bioconductor-deseq2`)
+  rather than `BiocManager::install("DESeq2")`, which triggers a 10–30 min
+  Rcpp/C++ compile from source (and that compile can itself fail in the
+  sandbox). When a Bioconductor tool has no usable bioconda binary, fall
+  back to the Python equivalent via `pip install` (e.g. `gseapy` for
+  GSEA / fgsea-style enrichment) — pip installs always succeed here.
 - **Run the analysis with the interpreter you installed into.** If you
   install into a conda env, invoke `conda run -n <env> Rscript …` (or that
   env's `python`) so the tool actually resolves — don't install into one

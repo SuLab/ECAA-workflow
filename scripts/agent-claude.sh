@@ -307,13 +307,18 @@ if [ "${ECAA_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${ECAA_CHAT_SESSION_ID:-
   else
     CACHE_DIR="$CACHE_BASE/$ECAA_CHAT_SESSION_ID"
   fi
-  mkdir -p "$CACHE_DIR/pip" "$CACHE_DIR/conda" "$CACHE_DIR/apt" "$CACHE_DIR/R-libs" 2>/dev/null || true
+  mkdir -p "$CACHE_DIR/pip" "$CACHE_DIR/conda" "$CACHE_DIR/conda-envs" "$CACHE_DIR/apt" "$CACHE_DIR/R-libs" 2>/dev/null || true
   export ECAA_SESSION_CACHE_DIR="$CACHE_DIR"
   # Surface the standard pip / conda / R env vars so tool scripts pick
   # them up without per-tool override. Apt cache is bind-mounted in
   # container mode only (host mode lacks rights to redirect apt).
   export PIP_CACHE_DIR="$CACHE_DIR/pip"
   export CONDA_PKGS_DIRS="$CACHE_DIR/conda"
+  # The container rootfs is read-only, so the conda *base* prefix
+  # (/opt/conda) cannot be modified. Point named-env creation
+  # (`conda create -n <env>`) at a writable cache dir; without this
+  # even `conda create -n` falls back to the read-only /opt/conda/envs.
+  export CONDA_ENVS_DIRS="$CACHE_DIR/conda-envs"
   export R_LIBS_USER="$CACHE_DIR/R-libs"
 fi
 
@@ -928,13 +933,16 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # `$PYTHONUSERBASE/lib/pythonX.Y/site-packages` to sys.path.
   DOCKER_CACHE_ARGS=()
   if [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
-    mkdir -p "$ECAA_SESSION_CACHE_DIR/python" 2>/dev/null || true
+    mkdir -p "$ECAA_SESSION_CACHE_DIR/python" "$ECAA_SESSION_CACHE_DIR/conda-envs" 2>/dev/null || true
     DOCKER_CACHE_ARGS+=(
       -v "$ECAA_SESSION_CACHE_DIR":"$ECAA_SESSION_CACHE_DIR":rw
       -e "ECAA_SESSION_CACHE_DIR=$ECAA_SESSION_CACHE_DIR"
       -e "R_LIBS_USER=$ECAA_SESSION_CACHE_DIR/R-libs"
       -e "PIP_CACHE_DIR=$ECAA_SESSION_CACHE_DIR/pip"
       -e "CONDA_PKGS_DIRS=$ECAA_SESSION_CACHE_DIR/conda"
+      # Read-only rootfs: named conda envs must land in a writable dir,
+      # not the read-only /opt/conda/envs base location.
+      -e "CONDA_ENVS_DIRS=$ECAA_SESSION_CACHE_DIR/conda-envs"
       -e "PYTHONUSERBASE=$ECAA_SESSION_CACHE_DIR/python"
       # Default every `pip install` to user-mode so packages land in
       # PYTHONUSERBASE (the mounted cache). Bypasses PEP 668's
@@ -1333,6 +1341,7 @@ else
           --setenv ECAA_SESSION_CACHE_DIR "$ECAA_SESSION_CACHE_DIR"
           --setenv PIP_CACHE_DIR "$ECAA_SESSION_CACHE_DIR/pip"
           --setenv CONDA_PKGS_DIRS "$ECAA_SESSION_CACHE_DIR/conda"
+          --setenv CONDA_ENVS_DIRS "$ECAA_SESSION_CACHE_DIR/conda-envs"
           --setenv R_LIBS_USER "$ECAA_SESSION_CACHE_DIR/R-libs"
         )
       fi

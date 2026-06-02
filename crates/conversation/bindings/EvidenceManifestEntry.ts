@@ -7,9 +7,10 @@ import type { SourceKind } from "./SourceKind";
  */
 export type EvidenceManifestEntry = { 
 /**
- * PubMed ID of the source article.
+ * PubMed ID of the source article. Absent for non-PMID sources
+ * (DOI/arXiv/URL/curated), which anchor via a typed locator instead.
  */
-pmid: string, 
+pmid: string | null, 
 /**
  * Where the evidence text was retrieved from.
  */

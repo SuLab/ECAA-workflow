@@ -112,6 +112,30 @@ pub(super) const REQUIRED_INHERITED_KEYS: &[&str] = &[
 /// credential) or `REQUIRED_INHERITED_KEYS` (if it's a host-binary
 /// locator). The Once guard means the warn fires at most once per
 /// harness process, avoiding log spam on the per-dispatch hot path.
+/// Grace added on top of the agent's declared wallclock so the agent's
+/// own SIGTERM timer (agent-claude.sh) fires and flushes partial output
+/// before this executor-side backstop escalates to SIGKILL.
+const AGENT_WALLCLOCK_GRACE_SECS: u64 = 120;
+
+/// Hard wall-clock backstop (seconds) for a dispatched local agent.
+///
+/// `task_timeout_secs` is the harness `--task-timeout` value, documented
+/// as a *stale-reset* threshold (default 300s). Re-using it verbatim as
+/// the local executor's hard SIGKILL deadline preempts the agent's own
+/// wallclock budget (`ECAA_AGENT_WALLCLOCK_SECS`, enforced inside
+/// agent-claude.sh) — killing legitimate long-running work at 5 minutes
+/// even when the agent (and the operator's `.env`) expect hours. The
+/// stall monitor is the fast path for genuinely-wedged agents; this
+/// deadline is only a last-resort backstop, so it takes the larger of
+/// the configured timeout and the agent's declared wallclock (+ grace).
+/// It can only ever *raise* the prior bound, never shorten it.
+fn effective_task_deadline_secs(task_timeout_secs: u64, agent_wallclock_secs: Option<u64>) -> u64 {
+    match agent_wallclock_secs {
+        Some(w) if w > 0 => task_timeout_secs.max(w.saturating_add(AGENT_WALLCLOCK_GRACE_SECS)),
+        _ => task_timeout_secs,
+    }
+}
+
 fn env_clear_disabled() -> bool {
     let enabled = matches!(std::env::var("ECAA_DISABLE_ENV_CLEAR").as_deref(), Ok("1"));
     if enabled {
@@ -1081,8 +1105,24 @@ impl Executor for LocalExecutor {
             // `server::git_routes::service::run_git_with_timeout`:
             // SIGTERM, 10s grace (matching the amendment-cancel path),
             // then SIGKILL, then reap.
-            let deadline =
-                std::time::Instant::now() + std::time::Duration::from_secs(self.task_timeout_secs);
+            // Backstop deadline derived from the agent's declared
+            // wallclock (ECAA_AGENT_WALLCLOCK_SECS, as merged into the
+            // agent env, else the inherited process env) so we never
+            // SIGKILL legitimate work before the agent's own timer fires.
+            // See `effective_task_deadline_secs`.
+            let agent_wallclock_secs = merged_envelope
+                .get("ECAA_AGENT_WALLCLOCK_SECS")
+                .and_then(|v| v.parse::<u64>().ok())
+                .or_else(|| {
+                    std::env::var("ECAA_AGENT_WALLCLOCK_SECS")
+                        .ok()
+                        .and_then(|s| s.parse::<u64>().ok())
+                });
+            let deadline = std::time::Instant::now()
+                + std::time::Duration::from_secs(effective_task_deadline_secs(
+                    self.task_timeout_secs,
+                    agent_wallclock_secs,
+                ));
             let mut wall_clock_killed = false;
             let status = loop {
                 match child.try_wait().context("waiting on agent")? {
@@ -1855,6 +1895,26 @@ fn local_context() -> std::collections::BTreeMap<String, String> {
 mod tests {
     use super::*;
     use ecaa_workflow_core::dag::{Assignee, BlockedRecord, ResourceClass, TaskKind};
+
+    #[test]
+    fn task_deadline_never_preempts_agent_wallclock() {
+        // Unset / zero agent wallclock → fall back to the configured
+        // stale-reset timeout (prior behavior preserved).
+        assert_eq!(effective_task_deadline_secs(300, None), 300);
+        assert_eq!(effective_task_deadline_secs(300, Some(0)), 300);
+        // A declared agent wallclock dominates (+grace) and is never
+        // shortened below the configured timeout.
+        assert_eq!(
+            effective_task_deadline_secs(300, Some(1800)),
+            1800 + AGENT_WALLCLOCK_GRACE_SECS
+        );
+        assert_eq!(
+            effective_task_deadline_secs(300, Some(28800)),
+            28800 + AGENT_WALLCLOCK_GRACE_SECS
+        );
+        // A larger configured timeout than the agent wallclock is kept.
+        assert_eq!(effective_task_deadline_secs(7200, Some(600)), 7200);
+    }
 
     fn args(timeout: u64) -> ExecutorArgs {
         ExecutorArgs {

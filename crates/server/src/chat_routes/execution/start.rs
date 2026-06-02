@@ -735,6 +735,34 @@ async fn check_ready_and_sentinel(package_dir: Option<std::path::PathBuf>) -> (b
     (has_ready, sentinel_pending)
 }
 
+/// OS-level liveness probe of the per-session harness lockfile
+/// (`$HOME/.ecaa-workflow/locks/<session_id>.lock`, written by the harness
+/// `SessionLock` as "<pid> <ts>"). A `--no-interactive` harness blocked on
+/// `waiting_for_sme` loops indefinitely holding the flock but never writes an
+/// exit sidecar, so both the in-memory handle AND the sidecar miss it — this
+/// probe is the authoritative backstop that closes the auto-relaunch fail-open
+/// (worst after a server restart drops the in-memory executions map). Pure-std
+/// `/proc/<pid>` check (this crate denies `unsafe`, so no `kill(pid, 0)`).
+fn harness_lock_pid_alive(session_id: SessionId) -> bool {
+    let Some(home) = std::env::var_os("HOME") else {
+        return false;
+    };
+    let lock = std::path::PathBuf::from(home)
+        .join(".ecaa-workflow")
+        .join("locks")
+        .join(format!("{session_id}.lock"));
+    let Ok(contents) = std::fs::read_to_string(&lock) else {
+        return false;
+    };
+    let Some(pid_str) = contents.split_whitespace().next() else {
+        return false;
+    };
+    let Ok(pid) = pid_str.parse::<u32>() else {
+        return false;
+    };
+    std::path::Path::new(&format!("/proc/{pid}")).exists()
+}
+
 /// Resolve the prior execution's (started_at, exited) timing from the in-memory
 /// handle, falling back to the on-disk sidecar (watcher-cancel + post-restart
 /// paths) so the debounce window is honored even when the map is empty.
@@ -772,7 +800,20 @@ fn resolve_existing_execution_timing(
         // the prior run's started_at.
         None => match package_dir.and_then(|p| execution_status_sidecar::read(p).ok().flatten()) {
             Some(persisted) => (Some(persisted.started_at), Some(true)),
-            None => (None, None),
+            None => {
+                // OS-level backstop (P1): a still-looping --no-interactive
+                // harness blocked on waiting_for_sme holds the session flock but
+                // writes no exit sidecar, so neither the in-memory handle nor
+                // the sidecar sees it. Probe the lockfile pid; if alive, report
+                // the prior run as NOT exited so auto_relaunch_decision yields
+                // "execution already running" and suppresses a flock-doomed
+                // re-spawn.
+                if harness_lock_pid_alive(session_id) {
+                    (None, Some(false))
+                } else {
+                    (None, None)
+                }
+            }
         },
     }
 }
