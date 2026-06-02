@@ -132,10 +132,32 @@ pub fn verify_task_with_context(
     }
 
     // Nothing to verify: no narrative AND no structured claims. The policy
-    // is enabled and loadable here — this is a benign "nothing to do", not a
-    // configuration defect, so report it as Disabled rather than Unavailable.
+    // is enabled and loadable here — this is normally a benign "nothing to
+    // do", reported as Disabled rather than Unavailable.
+    //
+    // EXCEPT when the per-package manifest declares Required expected claims:
+    // "said nothing" against a non-empty Required manifest is a RECALL gap,
+    // not an empty pass. A bare `Disabled` here would let the downstream
+    // `reverify_and_block_on_mismatch` Disabled arm no-op — no coverage
+    // computed, no signed sink written, no recall-gap block — so the at-rest
+    // loader would fall back to the emit-time stub and Inv 1 would Pass. Close
+    // that hole: when coverage over the package manifest yields a Required
+    // recall gap (absent or unverifiable), fall through to `Verified` carrying
+    // the (empty) report. The Verified arm then recomputes coverage, persists
+    // the signed sink with the coverage block, fires the
+    // `ValidationFailed`/recall-gap block, and regenerates the audit-proof
+    // report so Inv 1 (claim_completeness) Fails. Determinism boundary holds:
+    // `compute_task_coverage` reads only the package manifest + structured
+    // `result.json claims[]`, never the regex/narrative path.
     if narrative_path.is_none() && report.n_checked == 0 {
-        return VerifyOutcome::Disabled;
+        let recall_gap = compute_task_coverage(package_root, task_id, &cfg)
+            .map(|cov| coverage_should_block(&cov))
+            .unwrap_or(false);
+        if !recall_gap {
+            return VerifyOutcome::Disabled;
+        }
+        // Fall through with the empty report; the Verified arm owns the
+        // coverage recompute, signed-sink persist, and recall-gap block.
     }
 
     demote_claims_from_deviations(&mut report, decisions, is_confirmatory);
@@ -1151,6 +1173,254 @@ mod recall_wiring_tests {
         assert_eq!(cov.required_addressed, 1);
         assert!(!coverage_should_block(&cov));
         let _ = EntityCoverage::Addressed; // touch the import
+    }
+}
+
+#[cfg(test)]
+mod recall_gate_end_to_end_tests {
+    //! F5 floor — LIVE-GATE end-to-end coverage. The function-boundary tests
+    //! in `coverage.rs` / this file call `reconcile_coverage` directly; these
+    //! drive the real server verify+persist path
+    //! (`reverify_and_block_on_mismatch` → `verify_task_with_context`) over a
+    //! real package on disk whose per-package interpretation policy carries a
+    //! NON-EMPTY `verifiableEntities.expected` (one Required entry) and whose
+    //! Completed task wrote NO narrative and a `result.json` with NO `claims[]`.
+    //!
+    //! Before the fix, `verify_task_with_context` short-circuited to
+    //! `Disabled` (no narrative + zero structured claims) BEFORE coverage ran;
+    //! the `Disabled` arm in `reverify_and_block_on_mismatch` is a no-op, so no
+    //! signed sink was written, no recall-gap block fired, and the at-rest
+    //! audit-proof loader fell back to the emit-time stub → Inv 1 Pass. This is
+    //! the exact CLEAN-PASS hole F5 claimed was eliminated.
+    use super::*;
+    use crate::chat_routes::test_support::{config_dir, seed_session_with_completed_task};
+    use ecaa_workflow_core::audit_proof::{
+        run_audit_proof_with_verifier, InvariantId, InvariantStatus,
+    };
+    use ecaa_workflow_core::audit_writer::AuditWriter;
+    use ecaa_workflow_core::expected_claim::{
+        inject_manifest_into_policy, ExpectedClaim, ExpectedClaimManifest, Requirement,
+    };
+    use std::fs;
+
+    /// Build a package tree the live gate reads: copy the REAL shipped
+    /// interpretation policy into `<pkg>/policies/` (exactly what the emitter's
+    /// `copy_policies` does), then inject a Required `differential_expression`
+    /// expected-claim via the REAL `inject_manifest_into_policy` (exactly what
+    /// the emitter does after `copy_policies`). The Completed task writes a
+    /// `result.json` with NO `claims[]` array and NO narrative file.
+    fn scaffold_package_with_required_manifest_and_empty_result(pkg_root: &Path, task_id: &str) {
+        // 1. Per-package policy = the real shipped policy, byte-copied.
+        let cfg = config_dir();
+        let src_policy = cfg
+            .join("downstream-policy")
+            .join("interpretation-policy.json");
+        let policies_dir = pkg_root.join("policies");
+        fs::create_dir_all(&policies_dir).unwrap();
+        fs::copy(&src_policy, policies_dir.join("interpretation-policy.json"))
+            .expect("copy shipped interpretation-policy.json");
+
+        // 2. Inject a NON-EMPTY Required manifest via the real emitter fn.
+        let manifest = ExpectedClaimManifest {
+            schema_version: "1".into(),
+            entries: vec![ExpectedClaim {
+                entity: "differential_expression".into(),
+                contrast: None,
+                expected_output_table: Some("differential_expression".into()),
+                requirement: Requirement::Required,
+                edam_data: None,
+            }],
+        };
+        inject_manifest_into_policy(pkg_root, &manifest).expect("inject manifest");
+
+        // Sanity: the per-package manifest the live gate reads is non-empty.
+        let raw = fs::read_to_string(policies_dir.join("interpretation-policy.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let expected = v["verifiableEntities"]["expected"].as_array().unwrap();
+        assert_eq!(expected.len(), 1, "manifest must carry one Required entry");
+
+        // 3. Completed task: a result.json with NO `claims[]` array, NO
+        //    narrative (.md/.txt) file. Canonical outputs layout.
+        let task_dir = pkg_root.join("runtime").join("outputs").join(task_id);
+        fs::create_dir_all(&task_dir).unwrap();
+        fs::write(
+            task_dir.join("result.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "status": "ok",
+                "metric": 42
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn empty_claims_plus_required_manifest_blocks_and_fails_inv1_end_to_end() {
+        // Pin config + ensure the claim-consistency enforcement is NOT ablated
+        // (Site 2 / Site 1 both gate the block + signed-sink content on this).
+        let cfg = config_dir();
+        std::env::set_var("ECAA_CONFIG_DIR", &cfg);
+        std::env::remove_var("ECAA_ABLATE_CLAIM_CONSISTENCY");
+
+        let task_id = "differential_expression";
+        let pkg = tempfile::tempdir().unwrap();
+        scaffold_package_with_required_manifest_and_empty_result(pkg.path(), task_id);
+
+        // --- Sub-assertion A: the LIVE gate no longer short-circuits to
+        //     Disabled. verify_task_with_context must now return Verified
+        //     (carrying the empty report) so the Verified arm can run. ---
+        let direct = verify_task_with_context(
+            pkg.path(),
+            task_id,
+            &cfg,
+            ProjectClass::Bioinformatics,
+            &[],
+            false,
+        );
+        assert!(
+            matches!(direct, VerifyOutcome::Verified(_)),
+            "live gate must NOT return Disabled when the package manifest carries \
+             a Required entry and the task produced no claims (got {})",
+            direct.label()
+        );
+
+        // --- Drive the REAL server verify+persist path. ---
+        // Set up the app + a session whose emitted_package_path points at the
+        // scaffolded package and whose state accepts a HarnessTaskBlocked.
+        let dir = tempfile::tempdir().unwrap();
+        let store = ecaa_workflow_conversation::SessionStore::open(dir.path())
+            .await
+            .unwrap();
+        let backend: std::sync::Arc<dyn ecaa_workflow_conversation::LlmBackend> =
+            std::sync::Arc::new(ecaa_workflow_conversation::MockLlmBackend::new(vec![]));
+        let app = crate::chat_routes::ChatAppState::with_backend(backend, store, cfg.clone());
+
+        let session_id =
+            seed_session_with_completed_task(&app, task_id, Some(pkg.path().to_path_buf())).await;
+        // The seeded session is in Greeting; block_from_harness only accepts
+        // execution-side states (Emitted / ReadyToEmit / Amending / Blocked /
+        // Intake / IntakeFollowup). Move it to Emitted so the recall-gap block
+        // can transition it to Blocked { ValidationFailed }.
+        app.conversation
+            .store_handle()
+            .update(session_id, |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Emitted;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        // Capture the per-session secret BEFORE the call so we can reconstruct
+        // the writer and independently verify the signed sink + re-run audit
+        // proof with the same key the server used.
+        let secret = app
+            .conversation
+            .get_session(session_id)
+            .await
+            .unwrap()
+            .audit_writer_secret;
+
+        // THE REAL PATH.
+        let outcome = reverify_and_block_on_mismatch(&app, session_id, task_id).await;
+        assert!(
+            matches!(outcome, Some(VerifyOutcome::Verified(_))),
+            "reverify must run the Verified arm (coverage recompute + persist)"
+        );
+
+        // --- Sub-assertion B: the signed sink was written carrying the
+        //     coverage FAILURE block (required_absent == 1). ---
+        let writer = AuditWriter::with_secret(secret);
+        let sink_path = pkg
+            .path()
+            .join("runtime/verification-reports/claim-verification.signed.json");
+        assert!(
+            sink_path.exists(),
+            "signed verdict sink must be written on the recall-gap path"
+        );
+        let line = fs::read_to_string(&sink_path).unwrap();
+        let signed: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
+        let inner = writer
+            .verify_row(&signed)
+            .expect("signed sink must verify with the session secret");
+        assert_eq!(
+            inner["coverage"]["required_absent"],
+            serde_json::json!(1),
+            "sink coverage block must record the Required recall gap"
+        );
+
+        // --- Sub-assertion C: the session is Blocked { ValidationFailed }. ---
+        let blocked = app.conversation.get_session(session_id).await.unwrap();
+        match &blocked.state {
+            ecaa_workflow_conversation::SessionState::Blocked { blocker_kind, .. } => {
+                assert!(
+                    matches!(
+                        blocker_kind,
+                        Some(ecaa_workflow_core::blocker::BlockerKind::ValidationFailed { .. })
+                    ),
+                    "recall gap must surface as BlockerKind::ValidationFailed, got {:?}",
+                    blocker_kind
+                );
+            }
+            other => panic!(
+                "session must be Blocked after the recall gap, got {:?}",
+                other
+            ),
+        }
+
+        // --- Sub-assertion D (the headline): run_audit_proof_with_verifier →
+        //     check_claim_completeness (Inv 1) == Fail. ---
+        let validator = ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
+        let clock = ecaa_workflow_core::clock::WallClock;
+        let report = run_audit_proof_with_verifier(pkg.path(), &validator, &clock, Some(&writer))
+            .expect("audit proof must run");
+        let inv1 = report
+            .verdicts
+            .iter()
+            .find(|v| v.id == InvariantId::ClaimCompleteness)
+            .expect("claim-completeness verdict present");
+        assert_eq!(
+            inv1.status,
+            InvariantStatus::Fail,
+            "Inv 1 (claim-completeness) MUST Fail end-to-end on empty-claims + \
+             non-empty Required manifest; detail = {:?}",
+            inv1.detail
+        );
+
+        std::env::remove_var("ECAA_CONFIG_DIR");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn no_manifest_still_returns_disabled_for_empty_task() {
+        // Guard the narrow scope of the fix: when the package carries NO
+        // expected manifest (un-anchored task), an empty task still returns
+        // Disabled — the Phase-1 verdict-only shape is preserved and we did
+        // not turn every empty task into a Verified/blocking outcome.
+        let cfg = config_dir();
+        std::env::set_var("ECAA_CONFIG_DIR", &cfg);
+        std::env::remove_var("ECAA_ABLATE_CLAIM_CONSISTENCY");
+
+        let task_id = "some_task";
+        let pkg = tempfile::tempdir().unwrap();
+        // Empty task dir, no policies/interpretation-policy.json at all →
+        // compute_task_coverage returns None → recall_gap == false → Disabled.
+        fs::create_dir_all(pkg.path().join("runtime").join("outputs").join(task_id)).unwrap();
+
+        let out = verify_task_with_context(
+            pkg.path(),
+            task_id,
+            &cfg,
+            ProjectClass::Bioinformatics,
+            &[],
+            false,
+        );
+        assert!(
+            matches!(out, VerifyOutcome::Disabled),
+            "empty task with no package manifest must stay Disabled, got {}",
+            out.label()
+        );
+        std::env::remove_var("ECAA_CONFIG_DIR");
     }
 }
 
