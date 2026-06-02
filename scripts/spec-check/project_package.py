@@ -75,18 +75,28 @@ shapes.parse(spec_dir / "ecaa-v0.1.shacl.ttl", format="turtle")
 # package.ttl stays the clean §8.5 ABox. ecaa-profiles.ttl (governance profile
 # IRIs) has no membership-join role and goes into the ont graph.
 #
-# Enum-membership SHACL (ecaa-skos-membership.shacl.ttl) is registered as a
-# published, parse-verified governance artifact but is NOT loaded into the live
-# shapes graph here: the projected conformance ABox represents Q
+# Enum-membership SHACL (ecaa-skos-membership.shacl.ttl) is NOT loaded into the
+# live shapes graph here: the projected conformance ABox represents Q
 # RerunOutcome.class as an IRI individual (ecaa:failed) and F Blocker.kind as
 # the spec-canonical carve-out string the Invariant-4 SHACL lists
 # (UnprovableEdge / PolicyException), neither of which is the snake_case
 # skos:notation wire token the membership shapes match on. Loading them into
-# the live gate would mis-fire on the Phase-3 Invariant-4 fixtures. The binding
-# enforcement of enum↔scheme agreement is the unconditional Rust lint
-# (crates/ecaa-conformance/tests/conformance/skos_scheme_agreement.rs); the
-# membership shapes' SPARQL is exercised over a snake_case ABox by that test
-# suite's standalone checks, not over the IRI/carve-out projection ABox.
+# this live gate would mis-fire on the Phase-3 Invariant-4 fixtures.
+#
+# The membership shapes ARE executed — by a DEDICATED gate, not by this call
+# and not by the Rust enum↔scheme lint. `scripts/spec-check/test_skos_membership.py`
+# (run standalone, under pytest, and inside `make conformance` via the Rust gate
+# `crates/ecaa-conformance/tests/conformance/skos_membership_shacl.rs`) projects a
+# snake_case ABox through THIS canonical context and runs real pyshacl/SPARQL
+# over the published membership shapes + published SKOS schemes: a registered
+# token (agent_error / byte_identical) conforms; an unregistered token
+# (agnt_error / totally_made_up) fires the membership shape. Separately, the
+# unconditional Rust lint
+# (crates/ecaa-conformance/tests/conformance/skos_scheme_agreement.rs) checks
+# Rust-enum ⇄ SKOS-scheme set agreement by string-parse only — it runs NO
+# pyshacl/SPARQL. The two are complementary: the lint pins the vocabulary size
+# and membership of the closed enums against the Rust source; the dedicated gate
+# proves the published SPARQL actually rejects out-of-vocabulary wire tokens.
 reg = spec_dir / "registration"
 for fname in ("ecaa-skos-schemes.ttl", "ecaa-profiles.ttl"):
     f = reg / fname
