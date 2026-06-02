@@ -118,7 +118,12 @@ fn absent_required_fails_inv1() {
 fn unverifiable_required_fails_inv1() {
     let dir = tempfile::tempdir().unwrap();
     let w = AuditWriter::for_session();
-    let cov = coverage(0, 1, 0, &[("variant_calling", EntityCoverage::Unverifiable)]);
+    let cov = coverage(
+        0,
+        1,
+        0,
+        &[("variant_calling", EntityCoverage::Unverifiable)],
+    );
     persist_signed_verdicts(
         dir.path(),
         "differential_expression",
