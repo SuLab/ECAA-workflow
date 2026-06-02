@@ -67,6 +67,29 @@ onto.parse(spec_dir / "ecaa-v0.1.ttl", format="turtle")
 shapes = Graph()
 shapes.parse(spec_dir / "ecaa-v0.1.shacl.ttl", format="turtle")
 
+# SKOS concept schemes — additive, optional. The schemes are merged into the
+# DATA graph (not the ont graph): pyshacl evaluates sh:sparql constraints
+# against the data graph (plus inferences), NOT the ont graph, so the
+# membership shapes' `FILTER NOT EXISTS { ?c skos:inScheme … ; skos:notation … }`
+# can only see the concept notations if they live alongside the package ABox.
+# Adding a concept to a scheme is additive (skos:inScheme, not sh:in) — it does
+# not touch any shape. ecaa-profiles.ttl is governance metadata (profile IRIs),
+# loaded into the ont graph since it has no membership-join role.
+reg = spec_dir / "registration"
+schemes_file = reg / "ecaa-skos-schemes.ttl"
+if schemes_file.exists():
+    projected.parse(schemes_file, format="turtle")
+profiles_file = reg / "ecaa-profiles.ttl"
+if profiles_file.exists():
+    onto.parse(profiles_file, format="turtle")
+
+# Enum-membership shapes (skos:inScheme, not sh:in) — additive. These target
+# ecaa:Blocker / ecaa:RerunOutcome, so on a package with no such typed nodes
+# they have zero focus nodes ⇒ trivially conformant.
+membership = reg / "ecaa-skos-membership.shacl.ttl"
+if membership.exists():
+    shapes.parse(membership, format="turtle")
+
 # Run SHACL. `report_graph` is the RDF validation report; we bucket
 # violations per shape so the Rust↔pyshacl agreement gate can compare per
 # invariant (not just the global verdict).
