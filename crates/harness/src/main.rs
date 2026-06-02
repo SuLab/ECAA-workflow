@@ -1707,6 +1707,164 @@ fn executor_pick_preview(dag: &DAG, _cfg: &PilotConfig) -> Vec<String> {
         .collect()
 }
 
+/// The user-facing progress event a single task transition resolves to.
+/// `decide_task_progress_event` returns one of these per task per
+/// iteration; the `run_loop` event-emit pass turns it into the matching
+/// `ProgressClient` POST. Pure data so the decision logic (notably the
+/// harness-04 once-per-Failed gate) is unit-testable without a server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum TaskProgressEvent {
+    /// No transition observed this pass (or already emitted once).
+    None,
+    /// New Running observation → `task_started`.
+    Started,
+    /// New Completed observation → `task_completed[_with_usage]`.
+    Completed,
+    /// New Blocked observation → `task_blocked` with the agent reason.
+    Blocked { reason: String },
+    /// New Failed observation, no `error.json` envelope present →
+    /// `task_failed` (carries the task description, not the failure
+    /// reason, matching the legacy wire contract).
+    Failed,
+    /// New Failed observation WITH an `error.json` envelope present →
+    /// routed as `task_blocked` so the server upgrades it to
+    /// `BlockerKind::ToolError`. Carries the failure reason.
+    FailedAsBlocked { reason: String },
+}
+
+/// Mutations the caller must apply to the four `prior_*` once-guard sets
+/// after acting on a `TaskProgressEvent`. Returned alongside the event so
+/// the decision is a pure function of (state, prior sets, envelope) and
+/// the side effects (set inserts/removes) stay at the call site.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct PriorSetOps {
+    insert_completed: bool,
+    insert_blocked: bool,
+    insert_failed: bool,
+    remove_running: bool,
+    remove_blocked: bool,
+    insert_running: bool,
+}
+
+/// The full decision for one task in the event-emit pass: which event to
+/// POST, whether to mirror the state to the server, whether to reclaim
+/// scratch, and how to update the once-guard sets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TaskTransitionDecision {
+    event: TaskProgressEvent,
+    /// Mirror the new state to `POST .../task/:id/state` before the event.
+    mirror_state: bool,
+    /// Reclaim `runtime/scratch/<id>/` (terminal transitions only).
+    cleanup_scratch: bool,
+    ops: PriorSetOps,
+}
+
+/// Pure transition-classification for one task. Derives the user-facing
+/// progress event and once-guard bookkeeping from the task's terminal
+/// flags + prior-set membership. Extracted from `run_loop` so it can be
+/// driven directly from tests.
+///
+/// harness-04 invariant: a Failed task is gated on `prior_failed`, NOT
+/// `prior_running`. The harness pre-marks dispatched tasks Running for UI
+/// visibility, so a Running→Failed task is always already in
+/// `prior_running`; gating the failed-event on `!prior_running` (the old
+/// behavior) suppressed the event entirely. Gating on `!prior_failed`
+/// fires the event exactly once and never re-emits it on later passes.
+fn decide_task_progress_event(
+    state: &TaskState,
+    prior_completed: bool,
+    prior_running: bool,
+    prior_blocked: bool,
+    prior_failed: bool,
+    description: &str,
+    envelope_exists: bool,
+) -> TaskTransitionDecision {
+    let is_running = matches!(state, TaskState::Running { .. });
+    let is_completed = matches!(state, TaskState::Completed { .. });
+    let is_blocked = matches!(state, TaskState::Blocked { .. });
+    let is_failed = matches!(state, TaskState::Failed { .. });
+
+    let mut ops = PriorSetOps::default();
+
+    // Clear the blocked once-guard when the task leaves Blocked so a
+    // later re-block fires again (matches the run_loop clear).
+    if !is_blocked && prior_blocked {
+        ops.remove_blocked = true;
+    }
+
+    if is_running && !prior_running {
+        ops.insert_running = true;
+        return TaskTransitionDecision {
+            event: TaskProgressEvent::Started,
+            mirror_state: true,
+            cleanup_scratch: false,
+            ops,
+        };
+    }
+    if is_completed && !prior_completed {
+        ops.insert_completed = true;
+        ops.remove_running = true;
+        return TaskTransitionDecision {
+            event: TaskProgressEvent::Completed,
+            mirror_state: true,
+            cleanup_scratch: true,
+            ops,
+        };
+    }
+    if is_blocked && !prior_blocked {
+        let reason = if let TaskState::Blocked { record } = state {
+            if !record.reason.is_empty() {
+                record.reason.clone()
+            } else {
+                description.to_string()
+            }
+        } else {
+            description.to_string()
+        };
+        ops.insert_blocked = true;
+        ops.remove_running = true;
+        return TaskTransitionDecision {
+            event: TaskProgressEvent::Blocked { reason },
+            mirror_state: true,
+            cleanup_scratch: false,
+            ops,
+        };
+    }
+    if is_failed && !prior_failed {
+        ops.insert_failed = true;
+        ops.remove_running = true;
+        if envelope_exists {
+            let reason = if let TaskState::Failed { reason } = state {
+                reason.clone()
+            } else {
+                description.to_string()
+            };
+            ops.insert_blocked = true;
+            return TaskTransitionDecision {
+                event: TaskProgressEvent::FailedAsBlocked { reason },
+                mirror_state: true,
+                cleanup_scratch: true,
+                ops,
+            };
+        }
+        return TaskTransitionDecision {
+            event: TaskProgressEvent::Failed,
+            mirror_state: true,
+            cleanup_scratch: true,
+            ops,
+        };
+    }
+
+    // No new transition (or already emitted once) — still surface the
+    // blocked-set clear computed above.
+    TaskTransitionDecision {
+        event: TaskProgressEvent::None,
+        mirror_state: false,
+        cleanup_scratch: false,
+        ops,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(
     skip(args, executor, validation_executor, progress, stall_rx, watchdog_rx, clock),
@@ -1736,15 +1894,13 @@ fn run_loop(
     // agent (skipped by the orphan-recovery is_live probe) is never
     // charged. See `dispatch_guard`.
     let mut noprogress_guard = ecaa_workflow_harness::dispatch_guard::NoProgressGuard::from_env();
-    // Terminal-state scratch cleanup needs to
-    // fire exactly once per task per failure transition. The existing
-    // `is_failed` event-emit branch below is guarded by
-    // `!prior_running.contains(tid)`, which deliberately suppresses a
-    // re-fire for tasks that the harness saw Running and then Failed
-    // — that gate is load-bearing for the progress event but the
-    // scratch lifecycle is independent. Track failures separately so
-    // we clean scratch on the Running→Failed transition without
-    // disturbing the existing event semantics.
+    // Tracks tasks already observed in Failed so the user-facing
+    // `task_failed`/`task_blocked` event AND the terminal-state scratch
+    // cleanup each fire exactly once per Failed transition. The harness
+    // pre-marks tasks Running for UI visibility, so a Running→Failed task
+    // is always already in `prior_running`; the failed-event branch below
+    // therefore gates on this set (mirroring `prior_blocked`) rather than
+    // on `!prior_running`, which would suppress the event entirely.
     let mut prior_failed: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     let runtime_dir = path.join("runtime");
@@ -3312,6 +3468,19 @@ fn run_loop(
         // `pc.set_task_state`, so the server-side `task_states` map
         // captures harness-merged agent transitions instead of being
         // clobbered by the conversation tool-loop merge.
+        //
+        // ACCEPTED TRADEOFF (do not "fix"): `pc.set_task_state` is
+        // fire-and-forget over a bounded mpsc (256-deep). Under
+        // sustained backpressure — server unreachable or the sender
+        // thread saturated — an individual state mirror can be dropped
+        // (counted by the ProgressClient drop counters; see the
+        // degraded-exit guard at the run() tail). This is intentional,
+        // NOT a lost-update bug: WORKFLOW.json is the durable source of
+        // truth and is written to disk via `write_dag` BELOW *before*
+        // any mirror POST fires this iteration, and the server
+        // reconciles its `task_states` map from that on-disk DAG on its
+        // next poll. A dropped mirror therefore self-heals on the next
+        // successful transition or DAG poll; it never strands the task.
         // Mirror on-disk first so any third-party reader observing WORKFLOW.json sees the new state before the server's SSE stream does.
         if let Err(e) = write_dag(path, &after) {
             tracing::warn!(
@@ -3323,120 +3492,95 @@ fn run_loop(
         if let Some(ref pc) = progress {
             for (tid, task) in &after.tasks {
                 let tid_str: &str = tid.as_str();
-                let is_running = matches!(task.state, TaskState::Running { .. });
-                let is_completed = matches!(task.state, TaskState::Completed { .. });
-                let is_blocked = matches!(task.state, TaskState::Blocked { .. });
-                let is_failed = matches!(task.state, TaskState::Failed { .. });
-                // Clear prior_blocked when the task leaves Blocked (via
-                // SME unblock → Ready/Running, or completion). Without
-                // this clear, the "fire once per transition" gate below
-                // suppresses every re-block after the first — observed
-                // when the agent completes iteration N, hits a new
-                // blocker in iteration N+1, and the harness never
-                // POSTs task_blocked to the server. SME sees no
-                // BlockerCard and the test stalls.
-                if !is_blocked && prior_blocked.contains(tid_str) {
-                    prior_blocked.remove(tid_str);
-                }
-                if is_running && !prior_running.contains(tid_str) {
+                // `error.json` presence routes a Failed task to
+                // `task_blocked` (BlockerKind::ToolError) instead of
+                // `task_failed`; the synthesis already ran earlier this
+                // iteration. Read it here so the pure decision function
+                // stays I/O-free and unit-testable.
+                let envelope_exists = path
+                    .join("runtime")
+                    .join("outputs")
+                    .join(tid_str)
+                    .join("error.json")
+                    .exists();
+                // Pure transition-classification. Carries the harness-04
+                // invariant: Failed gates on `prior_failed`, not
+                // `prior_running` (which the pre-mark always populates),
+                // so the user-facing failed/blocked event fires exactly
+                // once and never re-emits while the task lingers Failed.
+                let decision = decide_task_progress_event(
+                    &task.state,
+                    prior_completed.contains(tid_str),
+                    prior_running.contains(tid_str),
+                    prior_blocked.contains(tid_str),
+                    prior_failed.contains(tid_str),
+                    &task.description,
+                    envelope_exists,
+                );
+                if decision.mirror_state {
                     pc.set_task_state(tid_str, &task.state);
-                    pc.task_started(tid_str, &task.description);
-                    prior_running.insert(tid_str.to_string());
                 }
-                if is_completed && !prior_completed.contains(tid_str) {
-                    pc.set_task_state(tid_str, &task.state);
-                    // If the agent wrote runtime/outputs/<tid>/agent-usage.json,
-                    // attach the parsed usage so the server can record
-                    // agent-side spend into the session metrics. Missing
-                    // file = older agent with no instrumentation; post
-                    // the bare event so the existing wire contract is
-                    // preserved.
-                    match ProgressClient::read_agent_usage(path, tid_str) {
-                        Some(usage) => {
-                            pc.task_completed_with_usage(tid_str, &task.description, usage);
-                        }
-                        None => pc.task_completed(tid_str, &task.description),
+                match &decision.event {
+                    TaskProgressEvent::None => {}
+                    TaskProgressEvent::Started => {
+                        pc.task_started(tid_str, &task.description);
                     }
-                    prior_completed.insert(tid_str.to_string());
-                    prior_running.remove(tid_str);
-                    // Terminal-state scratch cleanup. Without this
-                    // hook `runtime/scratch/<tid>/` accumulates across
-                    // all dispatches in a package. By the time we
-                    // observe the Completed transition the agent
-                    // subprocess has exited, so no concurrent reader
-                    // exists. Bypass via ECAA_SCRATCH_KEEP=1 for
-                    // forensic debugging.
-                    cleanup_task_scratch(path, tid_str);
-                }
-                // Fire task_blocked on any new Blocked state, not only
-                // when we haven't seen the task Running. Because the
-                // harness pre-marks tasks Running for UI visibility, a
-                // task that blocks is always already in prior_running
-                // — gating on that set would suppress the blocker
-                // event entirely. Track prior_blocked separately so
-                // each blocker fires once per transition.
-                if is_blocked && !prior_blocked.contains(tid_str) {
-                    pc.set_task_state(tid_str, &task.state);
-                    // Surface the agent-written blocker reason instead
-                    // of the task description. The
-                    // BlockerCard parses this string for a
-                    // `runtime/outputs/<task_id>/decision.json` tail
-                    // to decide whether to render the rich candidate
-                    // picker, so the reason must carry the agent's
-                    // full text. Falls back to task.description when
-                    // the record is empty (legacy path).
-                    let reason = if let TaskState::Blocked { record } = &task.state {
-                        if !record.reason.is_empty() {
-                            record.reason.clone()
-                        } else {
-                            task.description.clone()
+                    TaskProgressEvent::Completed => {
+                        // If the agent wrote runtime/outputs/<tid>/agent-usage.json,
+                        // attach the parsed usage so the server can record
+                        // agent-side spend into the session metrics. Missing
+                        // file = older agent with no instrumentation; post
+                        // the bare event so the existing wire contract is
+                        // preserved.
+                        match ProgressClient::read_agent_usage(path, tid_str) {
+                            Some(usage) => {
+                                pc.task_completed_with_usage(tid_str, &task.description, usage);
+                            }
+                            None => pc.task_completed(tid_str, &task.description),
                         }
-                    } else {
-                        task.description.clone()
-                    };
-                    pc.task_blocked(tid_str, &reason);
-                    prior_blocked.insert(tid_str.to_string());
-                    prior_running.remove(tid_str);
-                }
-                if is_failed && !prior_running.contains(tid_str) {
-                    pc.set_task_state(tid_str, &task.state);
-                    // When a tool-error envelope was just written for
-                    // this task, route the event as `task_blocked`
-                    // instead of `task_failed` so the server's
-                    // progress handler upgrades it to
-                    // `BlockerKind::ToolError` and the BlockerCard
-                    // surfaces the remediation list. The envelope
-                    // synthesis already happened earlier in this
-                    // iteration; if the file is present the SME can
-                    // act on it. Without the envelope (legacy /
-                    // non-capturing executor) fall back to the
-                    // original `task_failed` path.
-                    let envelope_path = path
-                        .join("runtime")
-                        .join("outputs")
-                        .join(tid_str)
-                        .join("error.json");
-                    if envelope_path.exists() {
-                        let reason = if let TaskState::Failed { reason } = &task.state {
-                            reason.clone()
-                        } else {
-                            task.description.clone()
-                        };
-                        pc.task_blocked(tid_str, &reason);
-                        prior_blocked.insert(tid_str.to_string());
-                    } else {
+                    }
+                    TaskProgressEvent::Blocked { reason }
+                    | TaskProgressEvent::FailedAsBlocked { reason } => {
+                        pc.task_blocked(tid_str, reason);
+                    }
+                    TaskProgressEvent::Failed => {
                         pc.task_failed(tid_str, &task.description);
                     }
                 }
-                // Scratch cleanup on Failed. Fires
-                // once per terminal Failed transition regardless of
-                // whether the prior_running gate above suppressed the
-                // user-facing event (the event semantics are
-                // load-bearing; the scratch lifecycle is independent).
-                if is_failed && !prior_failed.contains(tid_str) {
+                // Terminal-state scratch cleanup. Without this hook
+                // `runtime/scratch/<tid>/` accumulates across all
+                // dispatches in a package. By the time we observe a
+                // terminal (Completed/Failed) transition the agent
+                // subprocess has exited, so no concurrent reader exists.
+                // Bypass via ECAA_SCRATCH_KEEP=1 for forensic debugging.
+                if decision.cleanup_scratch {
                     cleanup_task_scratch(path, tid_str);
-                    prior_failed.insert(tid_str.to_string());
+                }
+                // Apply the once-guard set mutations the decision computed.
+                // Removes BEFORE inserts so the independent blocked-clear
+                // (set when a now-terminal task was previously Blocked)
+                // can't cancel a same-pass `insert_blocked` — matches the
+                // original top-to-bottom statement order where the clear
+                // ran first and the per-branch insert ran last (relevant
+                // only for a Failed-with-envelope task that was Blocked).
+                let ops = &decision.ops;
+                if ops.remove_running {
                     prior_running.remove(tid_str);
+                }
+                if ops.remove_blocked {
+                    prior_blocked.remove(tid_str);
+                }
+                if ops.insert_running {
+                    prior_running.insert(tid_str.to_string());
+                }
+                if ops.insert_completed {
+                    prior_completed.insert(tid_str.to_string());
+                }
+                if ops.insert_blocked {
+                    prior_blocked.insert(tid_str.to_string());
+                }
+                if ops.insert_failed {
+                    prior_failed.insert(tid_str.to_string());
                 }
             }
         }
@@ -6504,5 +6648,298 @@ mod frozen_method_authority_tests {
                 Some("bounded")
             );
         });
+    }
+}
+
+/// Coverage for the `run_loop` per-iteration transition-classification
+/// logic (extracted into `decide_task_progress_event`) plus a
+/// MockExecutor-driven smoke of the executor dispatch surface run_loop
+/// drives. The full `run_loop` cannot be invoked from a unit test without
+/// a fully-formed package on disk + host probing + dispatch threads, so
+/// coverage targets the extracted decision step — which carries the
+/// load-bearing harness-04 invariant — and the scripted-outcome ordering
+/// the loop relies on.
+#[cfg(test)]
+mod run_loop_transition_tests {
+    use super::*;
+    // `TaskState` and `DAG` arrive via `super::*`; only `BlockedRecord`
+    // needs an explicit import.
+    use ecaa_workflow_core::dag::BlockedRecord;
+
+    fn running() -> TaskState {
+        TaskState::Running {
+            started_at: "2026-06-01T00:00:00Z".into(),
+            remote: None,
+        }
+    }
+    fn completed() -> TaskState {
+        TaskState::Completed {
+            result: serde_json::json!({"ok": true}),
+        }
+    }
+    fn failed() -> TaskState {
+        TaskState::Failed {
+            reason: "agent exited non-zero".into(),
+        }
+    }
+    fn blocked(reason: &str) -> TaskState {
+        TaskState::Blocked {
+            record: BlockedRecord {
+                reason: reason.into(),
+                attempts: vec![],
+            },
+        }
+    }
+
+    /// A freshly-Running task with no prior observation → `Started`,
+    /// mirror the state, insert into prior_running, no scratch cleanup.
+    #[test]
+    fn first_running_observation_emits_started() {
+        let d = decide_task_progress_event(&running(), false, false, false, false, "align", false);
+        assert_eq!(d.event, TaskProgressEvent::Started);
+        assert!(d.mirror_state);
+        assert!(!d.cleanup_scratch);
+        assert!(d.ops.insert_running);
+        assert!(!d.ops.remove_running);
+    }
+
+    /// Running task already in prior_running → no event re-emitted.
+    #[test]
+    fn repeat_running_observation_is_silent() {
+        let d = decide_task_progress_event(&running(), false, true, false, false, "align", false);
+        assert_eq!(d.event, TaskProgressEvent::None);
+        assert!(!d.mirror_state);
+    }
+
+    /// First Completed observation → `Completed`, scratch cleanup, drop
+    /// from prior_running, record in prior_completed.
+    #[test]
+    fn first_completed_observation_emits_completed_and_cleans_scratch() {
+        let d =
+            decide_task_progress_event(&completed(), false, true, false, false, "align", false);
+        assert_eq!(d.event, TaskProgressEvent::Completed);
+        assert!(d.mirror_state);
+        assert!(d.cleanup_scratch);
+        assert!(d.ops.insert_completed);
+        assert!(d.ops.remove_running);
+    }
+
+    /// harness-04 CORE REGRESSION GUARD: a task that the harness already
+    /// pre-marked Running (so it IS in prior_running) then transitions to
+    /// Failed MUST still POST `task_failed`. The old gate
+    /// (`is_failed && !prior_running`) suppressed this entirely.
+    #[test]
+    fn failed_after_premark_running_still_emits_failed() {
+        // prior_running = true (pre-marked), prior_failed = false.
+        let d = decide_task_progress_event(&failed(), false, true, false, false, "align", false);
+        assert_eq!(
+            d.event,
+            TaskProgressEvent::Failed,
+            "Running→Failed must POST task_failed even though prior_running is set"
+        );
+        assert!(d.mirror_state);
+        assert!(d.cleanup_scratch);
+        assert!(d.ops.insert_failed);
+        assert!(d.ops.remove_running);
+    }
+
+    /// harness-04 ONCE-ONLY GUARD: once the failure has been observed
+    /// (prior_failed = true) the event is NOT re-emitted on later passes.
+    #[test]
+    fn failed_already_observed_is_silent() {
+        let d = decide_task_progress_event(&failed(), false, true, false, true, "align", false);
+        assert_eq!(d.event, TaskProgressEvent::None);
+        assert!(!d.mirror_state);
+        assert!(!d.cleanup_scratch);
+        assert!(!d.ops.insert_failed);
+    }
+
+    /// AWS SSM bare-`Failed` path: the executor sets `TaskState::Failed`
+    /// directly without ever pre-marking Running locally. The event must
+    /// still fire exactly once.
+    #[test]
+    fn bare_failed_without_prior_running_emits_failed() {
+        let d = decide_task_progress_event(&failed(), false, false, false, false, "ssm", false);
+        assert_eq!(d.event, TaskProgressEvent::Failed);
+        assert!(d.ops.insert_failed);
+    }
+
+    /// Failed WITH an `error.json` envelope routes to `task_blocked`
+    /// (BlockerKind::ToolError) carrying the failure reason, and also
+    /// records the task in prior_blocked.
+    #[test]
+    fn failed_with_envelope_routes_as_blocked() {
+        let d = decide_task_progress_event(&failed(), false, true, false, false, "align", true);
+        match &d.event {
+            TaskProgressEvent::FailedAsBlocked { reason } => {
+                assert_eq!(reason, "agent exited non-zero");
+            }
+            other => panic!("expected FailedAsBlocked, got {:?}", other),
+        }
+        assert!(d.cleanup_scratch, "Failed transition still reclaims scratch");
+        assert!(d.ops.insert_failed);
+        assert!(d.ops.insert_blocked);
+    }
+
+    /// First Blocked observation surfaces the agent reason; falls back to
+    /// the description when the record reason is empty.
+    #[test]
+    fn first_blocked_observation_uses_agent_reason() {
+        let d = decide_task_progress_event(
+            &blocked("missing input file"),
+            false,
+            true,
+            false,
+            false,
+            "align",
+            false,
+        );
+        match &d.event {
+            TaskProgressEvent::Blocked { reason } => assert_eq!(reason, "missing input file"),
+            other => panic!("expected Blocked, got {:?}", other),
+        }
+        assert!(d.ops.insert_blocked);
+        assert!(d.ops.remove_running);
+    }
+
+    #[test]
+    fn blocked_with_empty_reason_falls_back_to_description() {
+        let d =
+            decide_task_progress_event(&blocked(""), false, true, false, false, "the-task", false);
+        match &d.event {
+            TaskProgressEvent::Blocked { reason } => assert_eq!(reason, "the-task"),
+            other => panic!("expected Blocked, got {:?}", other),
+        }
+    }
+
+    /// A task that leaves Blocked (now Completed) while still flagged in
+    /// prior_blocked must clear the blocked once-guard so a later re-block
+    /// fires again — and the same pass still emits Completed.
+    #[test]
+    fn leaving_blocked_clears_prior_blocked_guard() {
+        let d = decide_task_progress_event(&completed(), false, false, true, false, "align", false);
+        assert_eq!(d.event, TaskProgressEvent::Completed);
+        assert!(d.ops.remove_blocked, "must clear the blocked once-guard");
+        assert!(d.ops.insert_completed);
+    }
+
+    /// Drives a multi-iteration sequence the way `run_loop` does: replay
+    /// the decision over a Ready→Running→Failed lifecycle, threading the
+    /// once-guard sets between passes, and assert the failed event fires
+    /// EXACTLY ONCE across the lingering-Failed iterations (harness-04).
+    #[test]
+    fn lifecycle_emits_failed_exactly_once_across_iterations() {
+        use std::collections::HashSet;
+        let mut prior_completed: HashSet<String> = HashSet::new();
+        let mut prior_running: HashSet<String> = HashSet::new();
+        let mut prior_blocked: HashSet<String> = HashSet::new();
+        let mut prior_failed: HashSet<String> = HashSet::new();
+        let tid = "align";
+
+        // Mirror the run_loop apply order (removes before inserts).
+        let mut apply = |state: &TaskState| -> TaskProgressEvent {
+            let d = decide_task_progress_event(
+                state,
+                prior_completed.contains(tid),
+                prior_running.contains(tid),
+                prior_blocked.contains(tid),
+                prior_failed.contains(tid),
+                "align",
+                false,
+            );
+            let ops = &d.ops;
+            if ops.remove_running {
+                prior_running.remove(tid);
+            }
+            if ops.remove_blocked {
+                prior_blocked.remove(tid);
+            }
+            if ops.insert_running {
+                prior_running.insert(tid.to_string());
+            }
+            if ops.insert_completed {
+                prior_completed.insert(tid.to_string());
+            }
+            if ops.insert_blocked {
+                prior_blocked.insert(tid.to_string());
+            }
+            if ops.insert_failed {
+                prior_failed.insert(tid.to_string());
+            }
+            d.event
+        };
+
+        // Iteration 1: pre-marked Running → Started.
+        assert_eq!(apply(&running()), TaskProgressEvent::Started);
+        // Iteration 2: still Running → silent.
+        assert_eq!(apply(&running()), TaskProgressEvent::None);
+        // Iteration 3: Running→Failed → Failed (the harness-04 fix).
+        assert_eq!(apply(&failed()), TaskProgressEvent::Failed);
+        // Iterations 4..6: task lingers in Failed → never re-emits.
+        for _ in 0..3 {
+            assert_eq!(apply(&failed()), TaskProgressEvent::None);
+        }
+        assert!(prior_failed.contains(tid));
+        assert!(!prior_running.contains(tid), "running guard dropped on Failed");
+    }
+}
+
+/// MockExecutor-driven coverage of the executor dispatch surface
+/// `run_loop` iterates over: scripted outcomes are returned in order and
+/// exhaustion is an error rather than a silent no-op.
+///
+/// Gated on `feature = "dry-run"` because `executor::mock` is itself
+/// `#[cfg(any(test, feature = "dry-run"))]` — when the binary's unit
+/// tests link the library as a dependency, the library is built WITHOUT
+/// `cfg(test)`, so `MockExecutor` is only reachable here under `dry-run`.
+/// Run with `cargo test -p ecaa-workflow-harness --features dry-run`.
+#[cfg(all(test, feature = "dry-run"))]
+mod run_loop_executor_smoke_tests {
+    // Fully explicit imports (no `super::*`) so this feature-gated module
+    // can't pick up a duplicate of an already-globbed name.
+    use ecaa_workflow_core::dag::DAG;
+    use ecaa_workflow_harness::executor::mock::MockExecutor;
+    use ecaa_workflow_harness::executor::{Executor, IterationOutcome};
+    use std::collections::BTreeMap;
+    use std::os::unix::process::ExitStatusExt;
+    use std::path::PathBuf;
+    use std::process::ExitStatus;
+
+    fn empty_dag() -> DAG {
+        DAG {
+            version: "1.0".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "mock".into(),
+            current_task: None,
+            tasks: Default::default(),
+            reverse_deps: Default::default(),
+            run_id: None,
+        }
+    }
+
+    #[test]
+    fn mock_executor_returns_scripted_failure_then_success_in_order() {
+        let mut m = MockExecutor::new(vec![
+            IterationOutcome {
+                agent_status: ExitStatus::from_raw(256), // exit code 1 → failure
+                remote: None,
+            },
+            IterationOutcome {
+                agent_status: ExitStatus::from_raw(0),
+                remote: None,
+            },
+        ]);
+        let path = PathBuf::from("/tmp/pkg");
+        m.provision(&empty_dag()).expect("provision");
+        let first = m
+            .run_iteration(&path, "agent", &BTreeMap::new())
+            .expect("first outcome");
+        assert!(!first.agent_status.success(), "first scripted outcome fails");
+        let second = m
+            .run_iteration(&path, "agent", &BTreeMap::new())
+            .expect("second outcome");
+        assert!(second.agent_status.success(), "second scripted outcome succeeds");
+        assert_eq!(m.provision_calls(), 1);
+        assert_eq!(m.remaining(), 0);
     }
 }
