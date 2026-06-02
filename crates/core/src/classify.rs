@@ -1009,6 +1009,17 @@ impl Classifier {
         let above_threshold: Vec<ModalityCandidate> = scored
             .iter()
             .filter(|(m, _, _, _)| m.id != primary.id)
+            // A narrow-scope specialization (Perturb-seq, scVDJ, spatial,
+            // CUT&Tag, ChIP-exo, …) is built ON TOP OF a broader modality
+            // and is never a co-equal cross-omics layer: its keywords are
+            // its parent modality's vocabulary plus a protocol twist, not a
+            // second omics matrix to join. The NARROW_SCOPE_MODALITIES guard
+            // above already suppresses companions when such a modality is the
+            // PRIMARY; apply the same rationale symmetrically when it appears
+            // as a COMPANION, so e.g. a single_cell_rnaseq Perturb-seq prompt
+            // doesn't fan the DAG out into a phantom crispr_screen_scrnaseq
+            // branch carrying wrong atoms.
+            .filter(|(m, _, _, _)| !NARROW_SCOPE_MODALITIES.contains(&m.id.as_str()))
             .filter(|(m, _, _, _)| {
                 // Per-marker override: a SUPPRESSED_PAIR is lifted
                 // only when SOME marker present in the prompt
@@ -1401,14 +1412,6 @@ fn has_strong_cross_omics_marker(normalized_text: &str) -> bool {
         "rna seq and methylation",
         "rna seq and bisulfite",
         "rna seq and proteomics",
-        // Perturb-seq / sgRNA-augmented scRNA — the SME naming sgRNA
-        // identity + transcriptome together is a commitment to the
-        // CRISPR-screen scRNA archetype.
-        "perturb seq",
-        "perturbseq",
-        "perturb-seq",
-        "crispr screen",
-        "sgrna assignment",
     ];
     MARKERS.iter().any(|m| normalized_text.contains(m))
 }
@@ -3244,6 +3247,47 @@ mod tests {
         assert!(
             r.additional_modalities.is_empty(),
             "pure proteomics intake must NOT add bulk_rnaseq companion, got {:?}",
+            r.additional_modalities
+        );
+    }
+
+    /// Perturb-seq (pooled CRISPR + scRNA-seq) is ONE analysis, not a
+    /// cross-omics join: the sgRNA feature-barcode library rides on the
+    /// same cells as the transcriptome. `crispr_screen_scrnaseq` is a
+    /// narrow-scope specialization of `single_cell_rnaseq`, so even when
+    /// the prose scores it as a secondary candidate (and uses "AND"
+    /// conjunctions) it must NOT surface as a cross-omics companion —
+    /// otherwise the composer fans the DAG into a phantom second branch
+    /// with wrong atoms (translation_efficiency_de, vdj_reconstruction).
+    #[test]
+    fn perturb_seq_does_not_surface_crispr_companion() {
+        let cls = load_classifier();
+        let r = cls.classify(
+            "We've run a pooled CRISPR-cas9 knockout screen in mouse bone-marrow derived \
+             dendritic cells with a 10x Chromium scRNA-seq readout and a parallel \
+             feature-barcode library encoding the sgRNA in each cell. About two dozen \
+             targeted transcription factors plus non-targeting control sgRNAs. Need the \
+             standard Perturb-seq pipeline: per-cell gene quantification AND per-cell sgRNA \
+             assignment from the feature-barcode reads, standard scRNA-seq QC and \
+             normalization, clustering and a UMAP, then per-perturbation pseudobulk \
+             differential expression versus the non-targeting control cells. The deliverable \
+             we care about is a per-perturbation effect score on the transcriptome plus the \
+             gene-level DE tables. Reference is mm10.",
+        );
+        // Perturb-seq is single-modality: the sgRNA feature-barcode rides
+        // on the same cells as the transcriptome. No cross-omics companion
+        // of any kind should surface — neither the crispr_screen_scrnaseq
+        // specialization (Fix A: narrow-scope companion filter) nor an
+        // incidental 1-hit modality like chip_seq matched on "transcription
+        // factors" (Fix B: Perturb-seq markers must not relax the
+        // cross-omics threshold). A surfaced companion fans the emitted DAG
+        // into a phantom prefixed branch and loses the bare atom names.
+        assert!(
+            r.additional_modalities.is_empty(),
+            "Perturb-seq must not surface ANY cross-omics companion \
+             (it is single-modality: scRNA + sgRNA on the same cells), \
+             got primary={} additional={:?}",
+            r.modality,
             r.additional_modalities
         );
     }
