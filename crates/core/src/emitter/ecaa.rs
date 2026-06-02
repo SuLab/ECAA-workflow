@@ -131,6 +131,16 @@ pub(super) fn write_audit_proof_report(output_dir: &Path) -> Result<()> {
         return Ok(());
     }
     let validator = crate::wrroc_validator::NoopWrrocValidator;
+    // The `WallClock` here stamps the report's `evaluated_at` field with the
+    // current wall-clock time. This is NOT a determinism bug: it is an
+    // INTENTIONAL, spec-documented byte-reproducibility exclusion. See
+    // `docs/ecaa-spec/operations.md` ("For identical input I, compose(I) =
+    // compose(I) byte-wise, with the following documented exclusions: the
+    // `evaluated_at` timestamp in audit-proof-report.json"). Consistent with
+    // that exclusion, `runtime/audit-proof-report.json` is on the BagIt
+    // manifest exclusion list (`emitter::bagit`), so its per-emit timestamp
+    // never perturbs payload checksums and is never mistaken for a
+    // determinism regression by the byte-characterization harness.
     let report =
         crate::audit_proof::run_audit_proof(output_dir, &validator, &crate::clock::WallClock)
             .context("running audit-proof invariants")?;
