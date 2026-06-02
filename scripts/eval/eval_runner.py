@@ -594,7 +594,18 @@ def main(argv: list[str]) -> int:
                                                  "scored": len(scores), "missing": missing}
             print(f"WARNING: scorecard has {len(scores)}/{expected} rows; missing: {missing}",
                   file=sys.stderr)
-        write_scorecard(card, run_dir, plugin=plugin)
+        # F12: hand the scorecard a representative executed ECAA package so it
+        # disk-probes the real de-vacuifying artifacts (proofs.jsonl / signed
+        # sink) for the published benchmarkable set, instead of hardcoding the
+        # all-false pre-Phase state. Resolved exactly like the guard-outcomes
+        # path (first ECAA row whose package dir is extant); None for a bare-arm-
+        # only run leaves the honest pre-Phase fallback.
+        ref_pkg = next(
+            (pkg for s in scores
+             if (pkg := _package_dir_for_score(s, spec_by_key, base_recs)) is not None),
+            None,
+        )
+        write_scorecard(card, run_dir, plugin=plugin, package_dir=ref_pkg)
         print(f"wrote {run_dir}/scorecard.md")
         return 0
 

@@ -629,6 +629,38 @@ def benchmarkable_set_meta(
     }
 
 
+def probe_devacuifiers(package_dir) -> dict:
+    """Structural disk-probe of the de-vacuifying artifacts on one executed ECAA
+    package. Mirrors the Rust conformance probes in
+    `crates/ecaa-conformance/tests/conformance/benchmark_readiness.rs` so the
+    Python scorecard's published `benchmarkable_set` agrees with the Rust
+    readiness gate (`no_vacuous_invariant_is_benchmarked`):
+
+      - ``evidence_from_proofs`` ⇐ ``runtime/proofs.jsonl`` exists AND carries at
+        least one non-blank line (the 04-C2 de-vacuifier for Inv 3).
+      - ``signed_sink`` ⇐ ``runtime/verification-reports/claim-verification.signed.json``
+        exists (Phase 1 signed verdict sink for Inv 1/5).
+      - ``refs_projected`` ⇐ honest ``False``: the corpus carries 0 ecaa:refs, so
+        Inv 4 stays vacuous (matches the Rust probe, which keeps refs=false).
+
+    Never raises: a missing/unreadable package yields all-``False``.
+    """
+    pkg = Path(package_dir)
+    proofs = pkg / "runtime" / "proofs.jsonl"
+    try:
+        evidence_from_proofs = any(line.strip() for line in proofs.read_text().splitlines())
+    except OSError:
+        evidence_from_proofs = False
+    signed_sink = (
+        pkg / "runtime" / "verification-reports" / "claim-verification.signed.json"
+    ).exists()
+    return {
+        "signed_sink": signed_sink,
+        "refs_projected": False,
+        "evidence_from_proofs": evidence_from_proofs,
+    }
+
+
 def _render_benchmarkable_set(meta: dict) -> list[str]:
     lines = ["", "## Benchmarkable invariant set (F12 readiness gate)", ""]
     ready = meta.get("ready", [])
@@ -714,7 +746,7 @@ def _markdown(card: Scorecard) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None) -> Path:
+def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None, package_dir=None) -> Path:
     """Emit the machine (JSON) + human (markdown) scorecards.
 
     ``plugin`` (optional) is the Benchmark plugin that produced the card. When
@@ -722,7 +754,14 @@ def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None) -> Path:
     ``plugin.locked_methods(task, arm)`` and surfaced under
     ``meta["locked_methods"]``; a recipe arm's pinned tools then appear in both
     the JSON and the markdown. Omitting it keeps the legacy call shape working
-    (the runner passes the plugin so the field auto-populates on real runs)."""
+    (the runner passes the plugin so the field auto-populates on real runs).
+
+    ``package_dir`` (optional) is a representative executed ECAA package whose
+    de-vacuifying artifacts are disk-probed (see ``probe_devacuifiers``) to
+    compute the published ``benchmarkable_set``. With a real package present the
+    set reflects reality — e.g. a non-empty ``runtime/proofs.jsonl`` reports
+    ``evidence_coverage`` as benchmarkable — so the Python scorecard agrees with
+    the Rust readiness gate instead of hardcoding the all-false pre-Phase state."""
     out_dir.mkdir(parents=True, exist_ok=True)
     # Surface the derived eval-04 paired stats and eval-02 guard-outcome
     # aggregates in the machine scorecard's meta (without mutating the caller's
@@ -753,12 +792,16 @@ def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None) -> Path:
     if n_partial and "partial_judging_excluded" not in meta:
         meta["partial_judging_excluded"] = n_partial
     # F12: record the benchmarkable invariant set + per-invariant exclusion
-    # reasons so the A-vs-B' contrast is self-describing. Defaults to the live
-    # pre-Phase-1/3 readiness state (only the referential Inv 2/6 are
-    # benchmarkable); a caller/plugin that has probed the real de-vacuifying
-    # state can pre-set meta["benchmarkable_set"] and that wins.
+    # reasons so the A-vs-B' contrast is self-describing. When a representative
+    # executed ECAA package is supplied, disk-probe its de-vacuifying artifacts
+    # (proofs.jsonl / signed sink) so the published set mirrors the Rust
+    # readiness gate — a non-empty proofs.jsonl reports evidence_coverage as
+    # benchmarkable. Absent a package, fall back to the honest all-false
+    # pre-Phase state. A caller/plugin that pre-set meta["benchmarkable_set"]
+    # still wins.
     if "benchmarkable_set" not in meta:
-        meta["benchmarkable_set"] = benchmarkable_set_meta()
+        probes = probe_devacuifiers(package_dir) if package_dir is not None else {}
+        meta["benchmarkable_set"] = benchmarkable_set_meta(**probes)
     # Render markdown from a card carrying the derived/injected meta so the
     # human scorecard shows the same locked-methods + caveat sections.
     render_card = Scorecard(benchmark=card.benchmark, rows=card.rows, meta=meta)
