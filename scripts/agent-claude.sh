@@ -524,12 +524,15 @@ fi
 #     - discover_*  — method-selection over multiple candidate algorithms;
 #                     the choice constrains every downstream task, so the
 #                     stronger model picks better
-#     - validate_*  — independent integrity check of the upstream task's
-#                     outputs (must catch Sonnet's mistakes, so stays on
-#                     a stronger model — this is the QC safety net)
 #     - kind == discovery (legacy alias)
 #
 #   Sonnet (--model claude-sonnet-4-6):
+#     - validate_*  — independent integrity check of the upstream task's
+#                     outputs. The check is a stable schema / checksum /
+#                     figure-presence codegen shape Sonnet handles reliably
+#                     at ~3x lower cost; it is the QC safety net but does
+#                     not need Opus-tier reasoning. (Budget calibrated for
+#                     Sonnet: validate_* p99 $0.95, cap $1.25.)
 #     - everything else — compute atoms that execute the chosen method
 #       (DESeq2, sctransform, harmony, etc.) and produce structured
 #       artifacts. These are well-bounded code-execution tasks where the
@@ -537,9 +540,9 @@ fi
 #       with Opus 4.8 in production runs while costing ~3× less.
 #
 # Quality safety nets that justify the tier split:
-#   1. validate_<task> runs AFTER <task> on Opus, with its own integrity
-#      check spec. If a Sonnet-run compute task emits malformed outputs,
-#      the validate task blocks the DAG with a concrete reason — Sonnet
+#   1. validate_<task> runs AFTER <task> (on Sonnet) with its own integrity
+#      check spec. If a compute task emits malformed outputs, the validate
+#      task blocks the DAG with a concrete reason — a bad task output
 #      cannot silently corrupt the workflow.
 #   2. claim_extractor + claim_verifier (when interpretation-policy
 #      declares a verifiableEntities block) run on the narrative and
