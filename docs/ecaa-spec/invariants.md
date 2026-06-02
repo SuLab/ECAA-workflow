@@ -204,7 +204,7 @@ where `cross_graph(e)` is true iff `e.target` is prefixed with a sub-graph lette
 **Predicate.**
 
 ```
-package.passes(`runcrate validate ≥ 0.5.0`)
+package.passes(`runcrate report ≥ 0.5.0` parseability proxy; runcrate ships no `validate` subcommand)
   ∧ |{iri ∈ package.conformsTo : iri ∈ REQUIRED_PROFILE_IRIS}| = 6
   ∧ ∃ entity ∈ package.@graph : entity.@type ∋ "wfprov:ParameterConnection"
   ∧ ∃ entity ∈ package.@graph : entity.@type ∋ "p-plan:Plan"

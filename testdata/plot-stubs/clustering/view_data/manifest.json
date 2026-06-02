@@ -1,0 +1,9 @@
+{
+  "errors": {},
+  "skipped": {
+    "cluster_sizes": "input artifact missing: no cluster_sizes for any run",
+    "umap_by_cluster": "input artifact missing: no cluster labels readable"
+  },
+  "stage_id": "clustering",
+  "written": {}
+}

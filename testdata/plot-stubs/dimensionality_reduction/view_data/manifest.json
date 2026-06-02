@@ -1,0 +1,9 @@
+{
+  "errors": {},
+  "skipped": {
+    "embedding_scatter": "input artifact missing: no readable embeddings for any run",
+    "variance_explained": "input artifact missing: no variance_explained in any run"
+  },
+  "stage_id": "dimensionality_reduction",
+  "written": {}
+}

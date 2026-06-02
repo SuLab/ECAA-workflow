@@ -10,12 +10,6 @@ import yaml
 
 
 REPO = Path(__file__).resolve().parents[1]
-HARNESS = (
-    Path(os.environ.get("CARGO_TARGET_DIR", REPO / "target"))
-    / "debug"
-    / "ecaa-workflow-harness"
-)
-ALT_HARNESS = None  # operator-local mount fallback removed for OSS distribution
 AGENT = REPO / "scripts" / "agent-fixture-plots.sh"
 PASILLA = REPO / "testdata" / "scenarios" / "atoms" / "bulk-rnaseq-pasilla"
 CONTAINER_IMAGE = "bio-min:local"
@@ -59,9 +53,39 @@ def run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> subproc
 
 
 def harness_bin() -> Path:
-    if HARNESS.exists():
-        return HARNESS
-    raise AssertionError(f"harness binary not found at {HARNESS}")
+    explicit = os.environ.get("ECAA_HARNESS_BIN_PATH")
+    target_dir = Path(os.environ.get("CARGO_TARGET_DIR", REPO / "target"))
+    candidates: list[Path] = []
+    if explicit:
+        candidates.append(Path(explicit))
+    candidates.extend(
+        [
+        target_dir / "release" / "ecaa-workflow-harness",
+        target_dir / "debug" / "ecaa-workflow-harness",
+        REPO / "target" / "release" / "ecaa-workflow-harness",
+        REPO / "target" / "debug" / "ecaa-workflow-harness",
+        ]
+    )
+    seen: set[Path] = set()
+    checked: list[Path] = []
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        checked.append(candidate)
+        if candidate.exists():
+            return candidate
+    checked_text = ", ".join(str(path) for path in checked)
+    raise AssertionError(f"harness binary not found; checked: {checked_text}")
+
+
+def test_harness_bin_prefers_explicit_env_path(monkeypatch, tmp_path: Path) -> None:
+    explicit = tmp_path / "ecaa-workflow-harness"
+    explicit.write_text("#!/bin/sh\n")
+    explicit.chmod(0o755)
+    monkeypatch.setenv("ECAA_HARNESS_BIN_PATH", str(explicit))
+
+    assert harness_bin() == explicit
 
 
 def task_spec(

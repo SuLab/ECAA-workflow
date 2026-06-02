@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the bio-min container image and bump
-# `crates/eval-adapters/versions.lock::containers.bio_min.digest` to
+# Build the bio-min container image. When the historical eval-adapter
+# lock file is present, bump its `containers.bio_min.digest` entry to
 # the resolved sha256.
 #
 # Usage: scripts/build-bio-min.sh [TAG] [--push]
@@ -91,21 +91,25 @@ fi
 
 echo "[bio-min] resolved digest: $DIGEST"
 
-# Bump versions.lock. Write a backup and use awk (portable across
-# macOS BSD sed and GNU sed).
-cp "$LOCK_FILE" "$LOCK_FILE.bak"
-awk -v new_digest="$DIGEST" -v new_image="${TAG%:*}" '
-  BEGIN { in_bio_min = 0 }
-  /^containers:/ { print; next }
-  /^  bio_min:/  { in_bio_min = 1; print; next }
-  in_bio_min && /^    image:/ { print "    image: \"" new_image "\""; next }
-  in_bio_min && /^    digest:/ { print "    digest: \"" new_digest "\""; in_bio_min = 0; next }
-  /^[a-z]/ { in_bio_min = 0; print; next }
-  { print }
-' "$LOCK_FILE.bak" > "$LOCK_FILE"
+if [[ -f "$LOCK_FILE" ]]; then
+  # Bump versions.lock. Write a backup and use awk (portable across
+  # macOS BSD sed and GNU sed).
+  cp "$LOCK_FILE" "$LOCK_FILE.bak"
+  awk -v new_digest="$DIGEST" -v new_image="${TAG%:*}" '
+    BEGIN { in_bio_min = 0 }
+    /^containers:/ { print; next }
+    /^  bio_min:/  { in_bio_min = 1; print; next }
+    in_bio_min && /^    image:/ { print "    image: \"" new_image "\""; next }
+    in_bio_min && /^    digest:/ { print "    digest: \"" new_digest "\""; in_bio_min = 0; next }
+    /^[a-z]/ { in_bio_min = 0; print; next }
+    { print }
+  ' "$LOCK_FILE.bak" > "$LOCK_FILE"
 
-echo "[bio-min] bumped $LOCK_FILE; review with:"
-echo "  diff $LOCK_FILE.bak $LOCK_FILE"
+  echo "[bio-min] bumped $LOCK_FILE; review with:"
+  echo "  diff $LOCK_FILE.bak $LOCK_FILE"
+else
+  echo "[bio-min] versions.lock not found at $LOCK_FILE; skipping digest pin bump"
+fi
 
 # Optional cache size report so the operator can spot drift.
 if [[ -d "$CACHE_DIR" ]]; then

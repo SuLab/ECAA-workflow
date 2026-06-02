@@ -33,7 +33,7 @@ install: ## Install binaries to ~/.cargo/bin
 bootstrap: build install bio-min ## Build + install binaries + build the bio-min container
 
 bio-min: ## Build the agent execution container (bio-min)
-	bash scripts/build-bio-min.sh
+	bash scripts/build-bio-min.sh bio-min:local
 
 # ── Test ─────────────────────────────────────────────────────────────────────
 

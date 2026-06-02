@@ -1,0 +1,8 @@
+{
+  "errors": {},
+  "skipped": {
+    "umap_by_celltype": "input artifact missing: no celltype labels readable"
+  },
+  "stage_id": "cell_type_annotation",
+  "written": {}
+}

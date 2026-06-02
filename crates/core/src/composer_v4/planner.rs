@@ -1630,10 +1630,14 @@ pub fn lift_to_workflow_dag(
                 ),
             );
         }
-        if let Some(plot_stage_id) = &c.atom.plot_stage_id {
+        let plot_stage_id = c.atom.plot_stage_id.clone().or_else(|| {
+            (!c.atom.required_figures.is_empty() && c.stage_id != c.atom.id)
+                .then(|| c.atom.id.clone())
+        });
+        if let Some(plot_stage_id) = plot_stage_id {
             node.attributes.insert(
                 "plot_stage_id".into(),
-                serde_json::Value::String(plot_stage_id.clone()),
+                serde_json::Value::String(plot_stage_id),
             );
         }
         if !c.atom.expected_artifacts.is_empty() {

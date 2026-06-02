@@ -54,7 +54,7 @@ def test_build_bio_min_local_digest_fallback_is_quiet(tmp_path: Path) -> None:
                 printf 'bio-min@sha256:1111111111111111111111111111111111111111111111111111111111111111\\n'
                 exit 0
               fi
-              if [[ "$3" == "--format={{.Id}}" ]]; then
+              if [[ "$3" == *'.Id'* ]]; then
                 printf 'sha256:2222222222222222222222222222222222222222222222222222222222222222\\n'
                 exit 0
               fi
@@ -90,3 +90,73 @@ def test_build_bio_min_local_digest_fallback_is_quiet(tmp_path: Path) -> None:
         'digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"'
         in text
     )
+
+
+def test_build_bio_min_succeeds_when_versions_lock_is_absent(tmp_path: Path) -> None:
+    work = tmp_path / "repo"
+    (work / "scripts").mkdir(parents=True)
+    (work / "containers" / "bio-min").mkdir(parents=True)
+    (work / "containers" / "bio-min" / "Dockerfile").write_text("FROM scratch\n")
+    (work / "scripts" / "build-bio-min.sh").write_text(
+        (REPO / "scripts" / "build-bio-min.sh").read_text()
+    )
+    subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    build_args = tmp_path / "docker-build.args"
+    (bin_dir / "docker").write_text(
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            if [[ "$1" == "buildx" && "${{2:-}}" == "version" ]]; then
+              exit 0
+            fi
+            if [[ "$1" == "buildx" && "${{2:-}}" == "build" ]]; then
+              printf '%s\\n' "$*" > "{build_args}"
+              exit 0
+            fi
+            if [[ "$1" == "manifest" && "${{2:-}}" == "inspect" ]]; then
+              exit 1
+            fi
+            if [[ "$1" == "image" && "${{2:-}}" == "inspect" ]]; then
+              if [[ "$3" == --format=*RepoDigests* ]]; then
+                exit 0
+              fi
+              if [[ "$3" == *'.Id'* ]]; then
+                printf 'sha256:2222222222222222222222222222222222222222222222222222222222222222\\n'
+                exit 0
+              fi
+            fi
+            echo "unexpected docker invocation: $*" >&2
+            exit 2
+            """
+        )
+    )
+    (bin_dir / "docker").chmod(0o755)
+
+    env = {
+        **os.environ,
+        "PATH": f"{bin_dir}:{os.environ['PATH']}",
+        "ECAA_BUILDX_CACHE_DIR": str(tmp_path / "cache"),
+    }
+    result = subprocess.run(
+        ["bash", "scripts/build-bio-min.sh", "bio-min:local"],
+        cwd=work,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--tag bio-min:local" in build_args.read_text()
+    assert "versions.lock not found" in result.stdout
+
+
+def test_make_bio_min_builds_local_image() -> None:
+    makefile = (REPO / "Makefile").read_text()
+
+    assert "bash scripts/build-bio-min.sh bio-min:local" in makefile

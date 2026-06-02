@@ -74,21 +74,39 @@ fn modality_prefix(modality: &str, used: &mut BTreeSet<String>) -> String {
 /// onto the SAME `ComposedAtom.stage_id` — `validate_composition`'s Kahn
 /// pass then counts `popped < atoms.len()` (the deduped key map is
 /// smaller than the duplicate-laden vec) yet finds no surviving in-degree
-/// and reports a spurious `CycleDetected { cycle: [] }`. The same logic
-/// prefixes `plot_stage_id` because it points at an intra-branch plotting
-/// stage; the bare `atom_id` attribute is intentionally NOT prefixed (it
-/// is the registry lookup key, exactly like `machine_name`).
+/// and reports a spurious `CycleDetected { cycle: [] }`. The bare
+/// `atom_id` attribute is intentionally NOT prefixed (it is the registry
+/// lookup key, exactly like `machine_name`), and `plot_stage_id` is also
+/// NOT prefixed because it names the shared renderer module, not the
+/// branch-local task id.
 fn prefix_branch(dag: &mut WorkflowDag, prefix: &str) {
     for n in &mut dag.nodes {
+        if !n.attributes.contains_key("plot_stage_id") {
+            let has_required_figures = n
+                .attributes
+                .get("required_figures")
+                .and_then(|v| v.as_array())
+                .map(|figures| !figures.is_empty())
+                .unwrap_or(false);
+            if has_required_figures {
+                let stage = n
+                    .attributes
+                    .get("atom_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(n.id.as_str());
+                n.attributes.insert(
+                    "plot_stage_id".into(),
+                    serde_json::Value::String(stage.to_string()),
+                );
+            }
+        }
         n.id = format!("{prefix}{}", n.id);
         n.human_name = format!("{prefix}{}", n.human_name);
         // machine_name intentionally NOT prefixed.
-        for attr in ["stage_id", "plot_stage_id"] {
-            if let Some(serde_json::Value::String(v)) = n.attributes.get(attr) {
-                let prefixed = format!("{prefix}{v}");
-                n.attributes
-                    .insert(attr.into(), serde_json::Value::String(prefixed));
-            }
+        if let Some(serde_json::Value::String(v)) = n.attributes.get("stage_id") {
+            let prefixed = format!("{prefix}{v}");
+            n.attributes
+                .insert("stage_id".into(), serde_json::Value::String(prefixed));
         }
     }
     for e in &mut dag.edges {

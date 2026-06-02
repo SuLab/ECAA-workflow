@@ -32,7 +32,7 @@ its pre-condition, post-condition, and the ablation contract guarantee.
 - Output package P MUST satisfy all six normative `conformsTo` profile IRIs (`v0.1.md` §3).
 - Output package P MUST contain all 8 sidecars at their normative paths (`v0.1.md` §3 sidecar table).
 - Output package P's `audit-proof-report.json` MUST record exactly 6 `InvariantVerdict` nodes.
-- Output package P MUST round-trip through `runcrate validate ≥ 0.5.0` (verifying via the substrate-validity invariant).
+- Output package P MUST round-trip through `runcrate report ≥ 0.5.0` parseability (runcrate ships no `validate` subcommand; `report` is the parseability proxy), verified via the substrate-validity invariant.
 - Conformance MAY be claimed only when the invariant verdicts are evaluated post-emission, not predicted pre-emission.
 
 ### 1.4 Determinism guarantee

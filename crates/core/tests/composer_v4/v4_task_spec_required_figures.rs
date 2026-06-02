@@ -110,3 +110,78 @@ fn v4_bulk_rnaseq_de_threads_required_figures_into_task_spec() {
         violations.join("\n")
     );
 }
+
+#[test]
+fn v4_multi_branch_aliases_keep_base_plot_stage_ids() {
+    let atoms = AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms"))
+        .expect("load stage-atoms registry");
+    let archetypes = ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes"))
+        .expect("load archetypes registry");
+
+    let goal = GoalSpec {
+        edam_data: "data:0951".into(),
+        edam_format: Some("format:3475".into()),
+        modifiers: BTreeMap::new(),
+        source_prose: Some(
+            "Paired bulk RNA-seq and ATAC-seq from matched samples with RNA \
+             differential expression and ATAC peak calling."
+                .into(),
+        ),
+        confidence: 0.9,
+    };
+    let modalities = vec!["bulk_rnaseq", "atac_seq"];
+
+    let out = compose_with_modalities_full(
+        &goal,
+        "bioinformatics",
+        &atoms,
+        &archetypes,
+        &modalities,
+        None,
+        None,
+        None,
+    )
+    .expect("v4 multi-branch compose");
+
+    let wf = out.workflow_dag.as_ref().expect("v4 workflow_dag");
+    let dag = build_dag_from_workflow_dag(wf, "wf-test").expect("lower v4 dag");
+
+    for (task_id, source_atom, expected_plot_stage) in [
+        (
+            "bulk_rnaseq_data_acquisition",
+            "data_acquisition",
+            "data_acquisition",
+        ),
+        ("bulk_rnaseq_raw_qc", "raw_qc", "quality_control"),
+        ("atac_seq_data_acquisition", "data_acquisition", "data_acquisition"),
+        ("atac_seq_peak_calling", "peak_calling", "peak_calling"),
+    ] {
+        let task = dag
+            .tasks
+            .get(task_id)
+            .unwrap_or_else(|| panic!("missing expected task {task_id}"));
+        assert_eq!(
+            task.source_atom_id.as_deref(),
+            Some(source_atom),
+            "{task_id} should keep its base source atom id"
+        );
+        let spec = task
+            .spec
+            .as_ref()
+            .unwrap_or_else(|| panic!("{task_id} missing task spec"));
+        let figures = spec
+            .get("required_figures")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or_default();
+        assert!(
+            figures > 0,
+            "{task_id} should carry required_figures in spec; got {spec:?}"
+        );
+        assert_eq!(
+            spec.get("plot_stage_id").and_then(|v| v.as_str()),
+            Some(expected_plot_stage),
+            "{task_id} must point at the base renderer stage, not the prefixed task id"
+        );
+    }
+}
