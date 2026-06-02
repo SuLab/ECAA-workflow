@@ -144,10 +144,7 @@ fn shapes_for(id: InvariantId) -> &'static [&'static str] {
         InvariantId::EquivalenceFailure => &["EquivalenceFailureShape"],
         InvariantId::CrossGraphIntegrity => &["CrossGraphIntegrityShape"],
         // Inv 6 folds the execution-consistency sub-check; both shapes count.
-        InvariantId::SubstrateValidity => {
-            &["SubstrateValidityShape", "ExecutionConsistencyShape"]
-        }
-        _ => &[],
+        InvariantId::SubstrateValidity => &["SubstrateValidityShape", "ExecutionConsistencyShape"],
     }
 }
 

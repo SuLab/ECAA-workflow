@@ -60,6 +60,13 @@ fn audit_proof_invariant_modules() -> Vec<String> {
             if stem == "mod" {
                 return None;
             }
+            // `execution_consistency` is a SUB-CHECK folded under Invariant 6
+            // (substrate-validity), not a 7th normative invariant — it has no
+            // own `InvariantId`, so it is excluded from the per-invariant file
+            // census (INVARIANT_IDS stays 6).
+            if stem == "execution_consistency" {
+                return None;
+            }
             // Module file stems are snake_case; canonical wire IDs are snake_case.
             Some(stem)
         })
