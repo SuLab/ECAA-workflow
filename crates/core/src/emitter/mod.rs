@@ -325,6 +325,21 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     .context("writing AGENT-EXECUTOR.md")?;
 
     copy_policies(config.policies_dir, dir, config.policy_allowlist).context("copying policies")?;
+
+    // Recall anchor: derive the expected-claim manifest from the intake
+    // goal + the DAG's confirmatory stages and promote it into the copied
+    // policy's `verifiableEntities.expected`. Deterministic over intake;
+    // no-op when the policy is absent.
+    {
+        let manifest = crate::expected_claim::derive_expected_manifest(
+            config.classification,
+            config.dag,
+            crate::project_class::ProjectClass::default(),
+        );
+        crate::expected_claim::inject_manifest_into_policy(dir, &manifest)
+            .context("injecting expected-claim manifest")?;
+    }
+
     if let Some(contract_name) = config.validation_contract_ref {
         copy_validation_contract(config.policies_dir, dir, contract_name)
             .context("copying validation contract")?;

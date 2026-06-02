@@ -9,6 +9,7 @@ use crate::classify::ClassificationResult;
 use crate::dag::{TaskKind, DAG};
 use crate::project_class::ProjectClass;
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use ts_rs::TS;
 
 /// Whether a manifest entry must be addressed for the package to pass
@@ -171,6 +172,54 @@ pub fn derive_expected_manifest(
     }
 }
 
+/// Rel path of the per-package interpretation policy the verifier reads.
+const POLICY_REL: &str = "policies/interpretation-policy.json";
+
+/// Inject the derived manifest's `entries` into the package's
+/// `policies/interpretation-policy.json` under
+/// `verifiableEntities.expected`. Called AFTER `copy_policies` byte-copies
+/// the static config policy, so this is the per-package promotion of the
+/// shared `verifiableEntities` block. Deterministic over the manifest
+/// (and thus over intake): `serde_json::to_vec_pretty` is stable, the
+/// manifest is sorted, so two emits of the same intake stay byte-identical
+/// — which keeps `policies/` (BagIt-manifested) reproducible.
+///
+/// No-op (returns Ok) when the policy file is absent — packages emitted
+/// from a tree without `config/downstream-policy/` stay byte-identical to
+/// the baseline. Writes an empty `expected: []` when the manifest is empty
+/// so the verifier can distinguish "no expectations declared" from "block
+/// missing entirely".
+pub fn inject_manifest_into_policy(
+    package_root: &Path,
+    manifest: &ExpectedClaimManifest,
+) -> anyhow::Result<()> {
+    let path = package_root.join(POLICY_REL);
+    if !path.exists() {
+        return Ok(());
+    }
+    let raw = std::fs::read_to_string(&path)?;
+    let mut policy: serde_json::Value = serde_json::from_str(&raw)?;
+    // Only inject when the verifiableEntities block exists (enabled or not);
+    // a policy with no such block isn't a claim-verification policy.
+    let Some(ve) = policy
+        .get_mut("verifiableEntities")
+        .and_then(|v| v.as_object_mut())
+    else {
+        return Ok(());
+    };
+    ve.insert(
+        "expected".to_string(),
+        serde_json::to_value(&manifest.entries)?,
+    );
+    // Atomic write so a torn write never leaves a half-policy. `to_vec_pretty`
+    // is deterministic for a fixed Value.
+    let bytes = serde_json::to_vec_pretty(&policy)?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &bytes)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,5 +343,78 @@ mod tests {
             entities, sorted,
             "manifest entries must be deterministically sorted"
         );
+    }
+
+    #[test]
+    fn inject_writes_expected_block_into_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let policies = dir.path().join("policies");
+        std::fs::create_dir_all(&policies).unwrap();
+        // Minimal copy of the policy with an enabled verifiableEntities block.
+        std::fs::write(
+            policies.join("interpretation-policy.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "schemaVersion": "1.1",
+                "verifiableEntities": { "enabled": true }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let manifest = ExpectedClaimManifest {
+            schema_version: "1".into(),
+            entries: vec![ExpectedClaim {
+                entity: "differential_expression".into(),
+                contrast: None,
+                expected_output_table: Some("differential_expression".into()),
+                requirement: Requirement::Required,
+                edam_data: None,
+            }],
+        };
+        inject_manifest_into_policy(dir.path(), &manifest).unwrap();
+
+        let raw =
+            std::fs::read_to_string(policies.join("interpretation-policy.json")).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let expected = v["verifiableEntities"]["expected"].as_array().unwrap();
+        assert_eq!(expected.len(), 1);
+        assert_eq!(expected[0]["requirement"], serde_json::json!("required"));
+        assert_eq!(
+            expected[0]["expected_output_table"],
+            serde_json::json!("differential_expression")
+        );
+        // Idempotent + deterministic: a second injection of the same manifest
+        // produces byte-identical output.
+        let first = std::fs::read(policies.join("interpretation-policy.json")).unwrap();
+        inject_manifest_into_policy(dir.path(), &manifest).unwrap();
+        let second = std::fs::read(policies.join("interpretation-policy.json")).unwrap();
+        assert_eq!(first, second, "injection must be idempotent + byte-stable");
+    }
+
+    #[test]
+    fn inject_is_noop_when_no_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let policies = dir.path().join("policies");
+        std::fs::create_dir_all(&policies).unwrap();
+        let original = serde_json::to_vec_pretty(&serde_json::json!({
+            "schemaVersion": "1.1",
+            "verifiableEntities": { "enabled": true }
+        }))
+        .unwrap();
+        std::fs::write(policies.join("interpretation-policy.json"), &original).unwrap();
+
+        let empty = ExpectedClaimManifest {
+            schema_version: "1".into(),
+            entries: vec![],
+        };
+        inject_manifest_into_policy(dir.path(), &empty).unwrap();
+
+        // Empty manifest still writes an empty `expected: []` so the
+        // verifier can distinguish "no expectations" from "block missing".
+        let v: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(policies.join("interpretation-policy.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(v["verifiableEntities"]["expected"], serde_json::json!([]));
     }
 }
