@@ -2,9 +2,14 @@
 //! C-graph shape (`{claim_id, status, supported_by}`) and persists them as
 //! an HMAC-signed, agent-unforgeable sink the loader verifies.
 
+use crate::audit_writer::AuditWriter;
 use crate::claim_verifier::{ClaimStatus, ClaimVerificationReport};
 use ecaa_workflow_types::consts::{ECAA_VERSION, MIN_READER_VERSION};
 use serde_json::{json, Value};
+use std::path::{Path, PathBuf};
+
+/// Sink path under the BagIt-excluded, never-agent-trusted reports dir.
+pub const SIGNED_SINK_REL: &str = "runtime/verification-reports/claim-verification.signed.json";
 
 /// Project live verdicts into the audit-proof C-graph row shape
 /// (`{claim_id, status, supported_by}`). Deterministic; `claim_id` is
@@ -49,6 +54,36 @@ pub fn build_sink_doc(report: &ClaimVerificationReport, task_id: &str) -> Value 
         "n_unverifiable": report.n_unverifiable,
         "verdicts": project_verdict_rows(report, task_id),
     })
+}
+
+/// Build the sink doc for `task_id`, HMAC-sign it with `writer`, and write
+/// it atomically to
+/// `<package_root>/runtime/verification-reports/claim-verification.signed.json`.
+/// Returns the written path.
+///
+/// The reports dir is already excluded from the BagIt manifest
+/// (`emitter/bagit.rs`) and is never trusted from the agent side
+/// (`server::chat_routes::events::rate_limit`). Written post-execution by
+/// the host (which holds the session secret), so it is outside the emit
+/// byte-diff baseline and cannot be forged by the agent.
+pub fn persist_signed_verdicts(
+    package_root: &Path,
+    task_id: &str,
+    report: &ClaimVerificationReport,
+    writer: &AuditWriter,
+) -> std::io::Result<PathBuf> {
+    let path = package_root.join(SIGNED_SINK_REL);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let doc = build_sink_doc(report, task_id);
+    let mut buf = Vec::new();
+    writer.write_signed_row(&mut buf, &doc)?;
+
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &buf)?;
+    std::fs::rename(&tmp, &path)?;
+    Ok(path)
 }
 
 #[cfg(test)]
@@ -170,5 +205,37 @@ mod tests {
         let verdicts = doc["verdicts"].as_array().unwrap();
         assert_eq!(verdicts.len(), 2);
         assert_eq!(verdicts[0]["status"], json!("verified"));
+    }
+
+    #[test]
+    fn persisted_sink_verifies_and_round_trips() {
+        let dir = tempfile::tempdir().unwrap();
+        let report = ClaimVerificationReport {
+            n_checked: 1,
+            n_verified: 1,
+            n_mismatch: 0,
+            n_unverifiable: 0,
+            verdicts: vec![verdict(
+                claim("TP53", Some("results/tables/de.csv")),
+                ClaimStatus::Verified,
+            )],
+            runtime_decision_log_path: None,
+        };
+        let writer = AuditWriter::for_session();
+
+        let path = persist_signed_verdicts(dir.path(), "diff_expr", &report, &writer).unwrap();
+        assert_eq!(
+            path,
+            dir.path()
+                .join("runtime/verification-reports/claim-verification.signed.json")
+        );
+
+        // The on-disk line is a single signed JSON row; verify_row strips _mac.
+        let line = std::fs::read_to_string(&path).unwrap();
+        let parsed: Value = serde_json::from_str(line.trim_end()).unwrap();
+        assert!(parsed.get("_mac").is_some(), "sink must be signed");
+        let inner = writer.verify_row(&parsed).expect("valid HMAC");
+        assert_eq!(inner["verdicts"].as_array().unwrap().len(), 1);
+        assert_eq!(inner["source"], json!("runtime-verifier"));
     }
 }
