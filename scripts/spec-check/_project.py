@@ -428,11 +428,25 @@ def project_execution_steps(graph_nodes, proofs_rows):
     for row in proofs_rows:
         if not isinstance(row, dict):
             continue
-        # Both endpoints (`id` = producing step, `computed_from` = its source)
-        # are E execution steps; a root step appears only as a `computed_from`.
-        # Only `workflow:`-prefixed values are step refs — a `computed_from`
-        # that is a file path (the evidence-coverage form) is an output, not a
-        # step, and is excluded so it does not register as spurious drift.
+        # The on-disk proofs.jsonl carries TWO row schemas; accept both:
+        #
+        # 1. Bare EdgeContract (the production form — conversation's
+        #    `build_proofs_jsonl` and `emit_proofs_jsonl` serialize an
+        #    EdgeContract directly): `{from_node, from_port, to_node, to_port,
+        #    proof}`. BOTH endpoints (from_node, to_node) are execution steps;
+        #    their bare node ids (`qc`, `de`) reduce to the same key as the
+        #    @graph `#step-<id>` HowToSteps via `_bare_step`, so E is non-empty
+        #    on real packages.
+        for key in ("from_node", "to_node"):
+            v = row.get(key)
+            if isinstance(v, str) and v:
+                _mark(v, "evidence")
+        # 2. workflow:-enveloped (core's `render_dependency_proofs_jsonl`):
+        #    `id` = producing step, `computed_from` = its source; a root step
+        #    appears only as a `computed_from`. Only `workflow:`-prefixed
+        #    values are step refs — a `computed_from` that is a file path (the
+        #    evidence-coverage form) is an output, not a step, and is excluded
+        #    so it does not register as spurious drift.
         for key in ("id", "computed_from"):
             v = row.get(key)
             if isinstance(v, str) and v.startswith("workflow:"):
