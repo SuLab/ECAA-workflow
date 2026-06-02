@@ -108,6 +108,39 @@ def _strip_fragment(s):
     return s.split("#", 1)[0]
 
 
+# Post-Phase-1, the authoritative C-graph source is the host-signed verdict
+# sink; the agent-writable stub is the fallback. Mirrors the Rust keystone
+# loader (`audit_proof::loader`), which prefers the signed sink over the stub.
+SIGNED_SINK_REL = "runtime/verification-reports/claim-verification.signed.json"
+CLAIM_STUB_REL = "runtime/claim-verification.json"
+
+
+def load_claim_doc(pkg_dir):
+    """Load the C-graph claim document, preferring the host-signed verdict
+    sink over the agent-writable stub.
+
+    The signed sink is a single JSON object carrying the verdicts in the clear
+    plus an `_mac` HMAC field; the projection reads the cleartext `verdicts`
+    (the host already verified the signature — the projector does not re-verify
+    here). Returns the parsed document (a dict) or `None` when neither file is
+    present. The `_mac` field, if present, is left in place (harmless; no shape
+    targets it)."""
+    pkg_dir = Path(pkg_dir)
+    signed = pkg_dir / SIGNED_SINK_REL
+    if signed.exists():
+        try:
+            return json.loads(signed.read_text().strip())
+        except (ValueError, OSError):
+            pass
+    stub = pkg_dir / CLAIM_STUB_REL
+    if stub.exists():
+        try:
+            return json.load(open(stub))
+        except (ValueError, OSError):
+            pass
+    return None
+
+
 # Map a Q `RerunOutcome.class` value (as written by the harness classifier,
 # `equivalence_failure::DIVERGED_CLASSES` + the non-divergent classes) onto the
 # spec §5.6 `ecaa:` individual the Invariant-4 SHACL FILTER tests against
@@ -202,6 +235,108 @@ def project_claim_verdicts(claim_doc):
                 node["supported_by"] = stripped
         nodes.append(node)
     return nodes
+
+
+# Nanopublication + schema.org bridge vocabulary. These are projection-side
+# standards-bridge terms (F7-engineering) — NOT part of the ECAA closed term
+# set, so they are bound in a local `@context` here, never in
+# `ecaa-v0.1.jsonld`.
+_NANOPUB_CTX = {
+    "np": "http://www.nanopub.org/nschema#",
+    "schema": "https://schema.org/",
+    "prov": "http://www.w3.org/ns/prov#",
+    "ecaa": "https://w3id.org/ecaa/ns/0.1#",
+    "id": "@id",
+    "type": "@type",
+    "hasAssertion": {"@id": "np:hasAssertion", "@type": "@id"},
+    "hasProvenance": {"@id": "np:hasProvenance", "@type": "@id"},
+    "hasPublicationInfo": {"@id": "np:hasPublicationInfo", "@type": "@id"},
+    "reviewRating": {"@id": "schema:reviewRating"},
+    "citation": {"@id": "schema:citation", "@type": "@id"},
+    "itemReviewed": {"@id": "schema:itemReviewed", "@type": "@id"},
+    "wasGeneratedBy": {"@id": "prov:wasGeneratedBy", "@type": "@id"},
+    "specVersion": {"@id": "ecaa:specVersion"},
+}
+
+
+def project_nanopub(claim_doc, ecaa_version="0.1"):
+    """Wrap each C-graph verdict as a `schema:ClaimReview`/`schema:Claim`
+    inside a nanopublication (F7-engineering) so the replaceable contract is
+    expressible on a recognised standard.
+
+    Emits, per verdict: (a) an ASSERTION graph of a `schema:ClaimReview` (with
+    the verdict `status` as `schema:reviewRating` and each `supported_by` as a
+    `schema:citation`) reviewing a `schema:Claim`; plus one nanopublication node
+    linking (b) a PROVENANCE graph attributing the assertion to the ECAA
+    verifier activity and (c) a PUBINFO graph stamping the ECAA spec version.
+    Returns a list of JSON-LD docs (each with the local `np`/`schema` context),
+    or an empty list when the C document carries no verdicts. `np`/`schema` are
+    projection-side bridge terms, NOT ECAA closed predicates.
+    """
+    if not isinstance(claim_doc, dict):
+        return []
+    verdicts = claim_doc.get("verdicts")
+    if not isinstance(verdicts, list):
+        return []
+    docs = []
+    for idx, v in enumerate(verdicts):
+        if not isinstance(v, dict):
+            continue
+        cid = v.get("claim_id") or f"claim_{idx:03d}"
+        status = v.get("status", "pending")
+        refs = v.get("supported_by")
+        citations = (
+            [_strip_fragment(r) for r in refs if isinstance(r, str)]
+            if isinstance(refs, list)
+            else []
+        )
+        np_id = f"ecaa:nanopub:{cid}"
+        review_id = f"ecaa:claimreview:{cid}"
+        claim_id = f"ecaa:schemaclaim:{cid}"
+        review = {
+            "id": review_id,
+            "type": "schema:ClaimReview",
+            "reviewRating": status,
+            "itemReviewed": claim_id,
+        }
+        if citations:
+            review["citation"] = citations
+        # Nanopublication head + the three named graphs.
+        docs.append(
+            {
+                "@context": _NANOPUB_CTX,
+                "id": np_id,
+                "type": "np:Nanopublication",
+                "hasAssertion": f"{np_id}:assertion",
+                "hasProvenance": f"{np_id}:provenance",
+                "hasPublicationInfo": f"{np_id}:pubinfo",
+            }
+        )
+        docs.append({"@context": _NANOPUB_CTX, **review})
+        docs.append(
+            {
+                "@context": _NANOPUB_CTX,
+                "id": claim_id,
+                "type": "schema:Claim",
+            }
+        )
+        # Provenance: the assertion was generated by the ECAA verifier activity.
+        docs.append(
+            {
+                "@context": _NANOPUB_CTX,
+                "id": f"{np_id}:assertion",
+                "wasGeneratedBy": "ecaa:claim-verifier",
+            }
+        )
+        # Pubinfo: stamp the ECAA spec version.
+        docs.append(
+            {
+                "@context": _NANOPUB_CTX,
+                "id": f"{np_id}:pubinfo",
+                "specVersion": ecaa_version,
+            }
+        )
+    return docs
 
 
 def project_evidence_outputs(proofs_rows):
@@ -464,17 +599,24 @@ def project(pkg_dir, log=print):
         node["@context"] = ctx["@context"]
         _to_rdf(projected, node, context_label="runtime/proofs.jsonl#OutputFile")
 
-    # C is a single document. Project typed `ecaa:Claim` nodes (status +
-    # fragment-stripped `supported_by`) so Invariants 1 and 5 bind; projecting
-    # the raw doc yields zero triples (the nested verdicts carry no @id/@type).
-    c_path = pkg_dir / "runtime/claim-verification.json"
-    if c_path.exists():
-        c_doc = json.load(open(c_path))
+    # C is a single document, sourced from the host-signed verdict sink when
+    # present (Phase-1 keystone) and the agent-writable stub otherwise. Project
+    # typed `ecaa:Claim` nodes (status + fragment-stripped `supported_by`) so
+    # Invariants 1 and 5 bind; projecting the raw doc yields zero triples (the
+    # nested verdicts carry no @id/@type). Additionally wrap each verdict as a
+    # `schema:ClaimReview`/`schema:Claim` inside a nanopublication (F7).
+    c_doc = load_claim_doc(pkg_dir)
+    if c_doc is not None:
         records_seen += 1
         for claim_node in project_claim_verdicts(c_doc):
             node = dict(claim_node)
             node["@context"] = ctx["@context"]
-            _to_rdf(projected, node, context_label="runtime/claim-verification.json")
+            _to_rdf(projected, node, context_label="runtime/claim-verification")
+        np_docs = project_nanopub(c_doc, c_doc.get("ecaa_version", "0.1"))
+        for np_doc in np_docs:
+            _to_rdf(projected, np_doc, context_label="runtime/claim-verification#nanopub")
+        if np_docs and log is not None:
+            log(f"  nanopublication: {len(np_docs)} schema.org/nanopub nodes")
 
     # A (audit-proof) is a single document — the report plus its embedded
     # InvariantVerdict array. One JSON-LD document, not a JSONL stream.
