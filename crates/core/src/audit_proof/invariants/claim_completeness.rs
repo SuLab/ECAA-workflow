@@ -60,9 +60,33 @@ pub fn check_claim_completeness(pkg: &LoadedPackage) -> InvariantVerdict {
             violators.push(id.to_string());
         }
     }
+    // Recall floor (folded into Inv 1, NOT a 7th invariant): when the
+    // signed sink carries a `coverage` block, every Required entry must be
+    // Addressed. Absent/Unverifiable Required entries are recall gaps that
+    // FAIL the invariant — saying less is no longer the cheapest clean run.
+    // The coverage block is structured-claims-only (deterministic), so the
+    // predicate stays free of regex/narrative heuristic input.
+    let mut coverage_gaps: usize = 0;
+    if let Some(cov) = claims.get("coverage") {
+        let unverifiable = cov
+            .get("required_unverifiable")
+            .and_then(|n| n.as_u64())
+            .unwrap_or(0);
+        let absent = cov
+            .get("required_absent")
+            .and_then(|n| n.as_u64())
+            .unwrap_or(0);
+        coverage_gaps = (unverifiable + absent) as usize;
+    }
+
     let n_inspected = verdicts.len();
-    let n_violations = violators.len();
-    let status = if n_violations == 0 {
+    let support_violations = violators.len();
+    let n_violations = support_violations + coverage_gaps;
+    let status = if coverage_gaps > 0 {
+        // A Required recall gap is a hard FAIL (blocking-class), distinct
+        // from a soft Warn on an empty supported_by.
+        InvariantStatus::Fail
+    } else if support_violations == 0 {
         InvariantStatus::Pass
     } else {
         InvariantStatus::Warn
@@ -70,11 +94,21 @@ pub fn check_claim_completeness(pkg: &LoadedPackage) -> InvariantVerdict {
     let detail = if n_violations == 0 {
         None
     } else {
-        Some(format!(
-            "{} claim(s) with empty supported_by and not pending: {}",
-            n_violations,
-            violators.join(", ")
-        ))
+        let mut parts = Vec::new();
+        if support_violations > 0 {
+            parts.push(format!(
+                "{} claim(s) with empty supported_by and not pending: {}",
+                support_violations,
+                violators.join(", ")
+            ));
+        }
+        if coverage_gaps > 0 {
+            parts.push(format!(
+                "{} required expected-claim(s) absent or unverifiable (recall gap)",
+                coverage_gaps
+            ));
+        }
+        Some(parts.join("; "))
     };
     InvariantVerdict {
         id: InvariantId::ClaimCompleteness,

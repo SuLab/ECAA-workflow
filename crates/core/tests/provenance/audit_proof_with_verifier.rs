@@ -35,7 +35,7 @@ fn report_claim_completeness_is_non_vacuous_with_sink() {
         }],
         runtime_decision_log_path: None,
     };
-    persist_signed_verdicts(dir.path(), "diff_expr", &rep, &w).unwrap();
+    persist_signed_verdicts(dir.path(), "diff_expr", &rep, None, &w).unwrap();
 
     // Use the project's existing no-op WRROC validator + WallClock.
     let validator = ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;

@@ -300,7 +300,7 @@ pub async fn reverify_and_block_on_mismatch(
                 session.audit_writer_secret,
             );
             if let Err(e) = ecaa_workflow_core::claim_sink::persist_signed_verdicts(
-                &root, task_id, &v.report, &writer,
+                &root, task_id, &v.report, None, &writer,
             ) {
                 tracing::warn!(
                     target: "ecaa::verify",
@@ -959,7 +959,7 @@ mod signed_sink_wiring_tests {
             runtime_decision_log_path: None,
         };
 
-        persist_signed_verdicts(dir.path(), "diff_expr", &rep, &writer).unwrap();
+        persist_signed_verdicts(dir.path(), "diff_expr", &rep, None, &writer).unwrap();
 
         // A reader reconstructing the writer from the same secret verifies it.
         let reader = AuditWriter::with_secret(secret);

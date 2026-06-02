@@ -45,7 +45,7 @@ fn verified_claim_is_inspected_and_passes() {
         )],
         runtime_decision_log_path: None,
     };
-    persist_signed_verdicts(dir.path(), "diff_expr", &rep, &w).unwrap();
+    persist_signed_verdicts(dir.path(), "diff_expr", &rep, None, &w).unwrap();
 
     let pkg = LoadedPackage::from_root_with_verifier(dir.path(), Some(&w)).unwrap();
     let verdict = check_claim_completeness(&pkg);
@@ -73,7 +73,7 @@ fn mismatch_claim_is_a_violation() {
         )],
         runtime_decision_log_path: None,
     };
-    persist_signed_verdicts(dir.path(), "diff_expr", &rep, &w).unwrap();
+    persist_signed_verdicts(dir.path(), "diff_expr", &rep, None, &w).unwrap();
 
     let pkg = LoadedPackage::from_root_with_verifier(dir.path(), Some(&w)).unwrap();
     let verdict = check_claim_completeness(&pkg);
@@ -96,7 +96,7 @@ fn tampered_sink_fails_inv1() {
         )],
         runtime_decision_log_path: None,
     };
-    let path = persist_signed_verdicts(dir.path(), "diff_expr", &rep, &w).unwrap();
+    let path = persist_signed_verdicts(dir.path(), "diff_expr", &rep, None, &w).unwrap();
     // Tamper a value that is actually present in the signed payload (the
     // status). The projected sink carries {claim_id, status, supported_by}
     // and the counts — not the original claim entity — so flipping the

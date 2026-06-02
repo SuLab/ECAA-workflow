@@ -4,6 +4,7 @@
 
 use crate::audit_writer::AuditWriter;
 use crate::claim_verifier::{ClaimStatus, ClaimVerificationReport};
+use crate::coverage::CoverageResult;
 use ecaa_workflow_types::consts::{ECAA_VERSION, MIN_READER_VERSION};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
@@ -40,9 +41,16 @@ pub fn project_verdict_rows(report: &ClaimVerificationReport, task_id: &str) -> 
 /// written to the sink. Shape is a superset of the emit-time stub
 /// (`schema_version` + counts + `verdicts`) plus the version triple and
 /// provenance discriminators distinguishing it from the agent-writable
-/// stub the loader must NOT trust.
-pub fn build_sink_doc(report: &ClaimVerificationReport, task_id: &str) -> Value {
-    json!({
+/// stub the loader must NOT trust, and — when present — the
+/// structured-claims-only `coverage` block the reframed Inv 1 reads
+/// (recall floor). The `coverage` block is computed only from structured
+/// `result.json claims[]` verdicts (deterministic), never the regex path.
+pub fn build_sink_doc(
+    report: &ClaimVerificationReport,
+    task_id: &str,
+    coverage: Option<&CoverageResult>,
+) -> Value {
+    let mut doc = json!({
         "schema_version": "1",
         "source": "runtime-verifier",
         "task_id": task_id,
@@ -53,7 +61,11 @@ pub fn build_sink_doc(report: &ClaimVerificationReport, task_id: &str) -> Value 
         "n_mismatch": report.n_mismatch,
         "n_unverifiable": report.n_unverifiable,
         "verdicts": project_verdict_rows(report, task_id),
-    })
+    });
+    if let Some(cov) = coverage {
+        doc["coverage"] = serde_json::to_value(cov).unwrap_or(Value::Null);
+    }
+    doc
 }
 
 /// Build the sink doc for `task_id`, HMAC-sign it with `writer`, and write
@@ -70,13 +82,14 @@ pub fn persist_signed_verdicts(
     package_root: &Path,
     task_id: &str,
     report: &ClaimVerificationReport,
+    coverage: Option<&CoverageResult>,
     writer: &AuditWriter,
 ) -> std::io::Result<PathBuf> {
     let path = package_root.join(SIGNED_SINK_REL);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let doc = build_sink_doc(report, task_id);
+    let doc = build_sink_doc(report, task_id, coverage);
     let mut buf = Vec::new();
     writer.write_signed_row(&mut buf, &doc)?;
 
@@ -194,7 +207,7 @@ mod tests {
             ],
             runtime_decision_log_path: None,
         };
-        let doc = build_sink_doc(&report, "diff_expr");
+        let doc = build_sink_doc(&report, "diff_expr", None);
         assert_eq!(doc["schema_version"], json!("1"));
         assert_eq!(doc["n_checked"], json!(2));
         assert_eq!(doc["n_mismatch"], json!(1));
@@ -205,6 +218,31 @@ mod tests {
         let verdicts = doc["verdicts"].as_array().unwrap();
         assert_eq!(verdicts.len(), 2);
         assert_eq!(verdicts[0]["status"], json!("verified"));
+    }
+
+    #[test]
+    fn sink_doc_carries_coverage_when_present() {
+        use crate::coverage::{CoverageResult, EntityCoverage};
+        use std::collections::BTreeMap;
+        let report = ClaimVerificationReport::empty();
+        let mut per_entity = BTreeMap::new();
+        per_entity.insert(
+            "differential_expression".to_string(),
+            EntityCoverage::Absent,
+        );
+        let cov = CoverageResult {
+            required_total: 1,
+            required_addressed: 0,
+            required_unverifiable: 0,
+            required_absent: 1,
+            per_entity,
+        };
+        let doc = build_sink_doc(&report, "diff_expr", Some(&cov));
+        assert_eq!(doc["coverage"]["required_absent"], json!(1));
+        assert_eq!(doc["coverage"]["required_total"], json!(1));
+        // Absent the coverage arg, no coverage key is written (Phase-1 shape).
+        let bare = build_sink_doc(&report, "diff_expr", None);
+        assert!(bare.get("coverage").is_none());
     }
 
     #[test]
@@ -223,7 +261,8 @@ mod tests {
         };
         let writer = AuditWriter::for_session();
 
-        let path = persist_signed_verdicts(dir.path(), "diff_expr", &report, &writer).unwrap();
+        let path =
+            persist_signed_verdicts(dir.path(), "diff_expr", &report, None, &writer).unwrap();
         assert_eq!(
             path,
             dir.path()

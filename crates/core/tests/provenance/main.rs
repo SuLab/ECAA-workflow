@@ -13,6 +13,7 @@ mod claim_extractor_excludes;
 mod claim_verifier_pvalue_tolerance;
 mod prov_o_corpus;
 mod provenance_tiers;
+mod recall_coverage_invariant;
 mod reexecution_classifier;
 mod replay_provenance;
 mod signed_sink_invariants;

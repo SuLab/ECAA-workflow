@@ -36,7 +36,7 @@ fn report() -> ClaimVerificationReport {
 fn valid_signed_sink_populates_claims() {
     let dir = tempfile::tempdir().unwrap();
     let w = AuditWriter::for_session();
-    persist_signed_verdicts(dir.path(), "diff_expr", &report(), &w).unwrap();
+    persist_signed_verdicts(dir.path(), "diff_expr", &report(), None, &w).unwrap();
 
     let pkg = LoadedPackage::from_root_with_verifier(dir.path(), Some(&w)).unwrap();
     assert!(!pkg.claims_tampered);
@@ -58,7 +58,7 @@ fn valid_signed_sink_populates_claims() {
 fn tampered_sink_sets_flag() {
     let dir = tempfile::tempdir().unwrap();
     let w = AuditWriter::for_session();
-    let path = persist_signed_verdicts(dir.path(), "diff_expr", &report(), &w).unwrap();
+    let path = persist_signed_verdicts(dir.path(), "diff_expr", &report(), None, &w).unwrap();
     // Tamper: flip a byte in the verdicts payload after signing.
     let line = std::fs::read_to_string(&path).unwrap();
     std::fs::write(&path, line.replace("verified", "pending")).unwrap();
