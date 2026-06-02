@@ -14,6 +14,7 @@ mod claim_verifier_pvalue_tolerance;
 mod prov_o_corpus;
 mod provenance_tiers;
 mod recall_coverage_invariant;
+mod recall_end_to_end;
 mod reexecution_classifier;
 mod replay_provenance;
 mod signed_sink_invariants;
