@@ -53,6 +53,10 @@ Operational scripts used by the Make targets and manual end-to-end runs, organiz
 | `spec-check/project_package.py` | Project an emitted package into the ECAA subgraph view for validation. |
 | `wrroc-validate.py` | WRROC Tier-3 round-trip validation against the fixture corpus. |
 
+### `runcrate` (substrate-validity bar)
+
+`scripts/wrroc-validate.py` shells out to the WRROC **`runcrate report`** wrapper. Install it with `pip install runcrate` (it provides the `runcrate` console-script entrypoint on `PATH`). With `runcrate` present, `make test-substrate-utility` exercises the `substrate_validity` row of the invariant-utility conformance matrix (and `make conformance` runs it as a non-blocking step). Without `runcrate`, the substrate row is only `Unverified` under the hermetic Noop validator — that row is **only meaningful with `runcrate` installed**, so the substrate invariant is `SKIP`ped and `make conformance` continues without blocking.
+
 ## Test drivers
 
 | Script | Make target | Purpose |
