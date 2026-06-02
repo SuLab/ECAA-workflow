@@ -32,6 +32,19 @@ fn signed_sink_present(pkg: &std::path::Path) -> bool {
         .exists()
 }
 
+/// Structural probe of the 04-C2 de-vacuifier for Inv 3 (EvidenceCoverage):
+/// `evidence_coverage` derives outputs from `runtime/proofs.jsonl`, so the
+/// invariant is non-vacuous exactly when that sidecar is present and carries at
+/// least one proof row. Mirrors `signed_sink_present` — a disk probe, not a
+/// hardcoded phase boolean.
+fn evidence_from_proofs(pkg: &std::path::Path) -> bool {
+    let proofs = pkg.join("runtime/proofs.jsonl");
+    match std::fs::read_to_string(&proofs) {
+        Ok(contents) => contents.lines().any(|l| !l.trim().is_empty()),
+        Err(_) => false,
+    }
+}
+
 #[test]
 fn no_vacuous_invariant_is_benchmarked() {
     let pkg = first_corpus_pkg();
@@ -43,10 +56,11 @@ fn no_vacuous_invariant_is_benchmarked() {
         inspected[index_of(v.id)] = v.n_inspected;
     }
 
-    // Probe live state. As Phases land, flip these probes from disk/feature.
+    // Probe live state from the reference package on disk, not a hardcoded
+    // phase boolean — so a de-vacuified invariant cannot be silently dropped.
     let sink = signed_sink_present(&pkg);
-    let refs = false; // TODO(phase3): probe ecaa:refs in ro-crate context
-    let evidence = false; // TODO(phase3): probe evidence_coverage-from-proofs
+    let refs = false; // honest: the corpus carries 0 ecaa:refs (Inv 4 still vacuous)
+    let evidence = evidence_from_proofs(&pkg); // 04-C2: derives outputs from proofs.jsonl
 
     let set = benchmarkable(&inspected, sink, refs, evidence);
 
@@ -79,12 +93,29 @@ fn no_vacuous_invariant_is_benchmarked() {
 
     println!("readiness: benchmarkable today = {set:?}");
     // Pre-Phase-1 sanity: with no signed sink, Inv1/5 are vacuous-pass and MUST
-    // be excluded; the benchmarkable set is exactly {DecisionJustification,
-    // SubstrateValidity} (the referential Inv 2/6).
+    // be excluded. The corpus DOES ship runtime/proofs.jsonl (04-C2), so Inv 3
+    // (EvidenceCoverage) is non-vacuous and benchmarkable; the set today is
+    // {DecisionJustification, SubstrateValidity, EvidenceCoverage}.
     if !sink {
         assert!(!set.contains(&InvariantId::ClaimCompleteness));
         assert!(!set.contains(&InvariantId::CrossGraphIntegrity));
         assert!(set.contains(&InvariantId::DecisionJustification));
         assert!(set.contains(&InvariantId::SubstrateValidity));
     }
+
+    // The 04-C2 de-vacuifier ships in the reference package: proofs.jsonl is
+    // present, so EvidenceCoverage MUST be benchmarkable. Asserting this
+    // explicitly prevents the F12 confound from regressing — a hardcoded
+    // `evidence = false` would silently drop the de-vacuified invariant.
+    assert!(
+        evidence,
+        "reference package {} is missing a non-empty runtime/proofs.jsonl; \
+         the evidence_from_proofs probe must see the 04-C2 de-vacuifier",
+        pkg.display()
+    );
+    assert!(
+        set.contains(&InvariantId::EvidenceCoverage),
+        "EvidenceCoverage (Inv 3) is de-vacuified by proofs.jsonl but absent \
+         from the benchmarkable set {set:?} — the F12 confound has regressed"
+    );
 }
