@@ -7,6 +7,18 @@ use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
 
 /// Check claim completeness.
 pub fn check_claim_completeness(pkg: &LoadedPackage) -> InvariantVerdict {
+    if pkg.claims_tampered {
+        return InvariantVerdict {
+            id: InvariantId::ClaimCompleteness,
+            status: InvariantStatus::Fail,
+            detail: Some(
+                "claim-verification sink failed HMAC verification (tampered or unauthorized writer)"
+                    .into(),
+            ),
+            n_inspected: 0,
+            n_violations: 1,
+        };
+    }
     let claims = match &pkg.claims {
         Some(v) => v,
         None => {

@@ -13,5 +13,6 @@ mod prov_o_corpus;
 mod provenance_tiers;
 mod reexecution_classifier;
 mod replay_provenance;
+mod signed_sink_invariants;
 mod signed_sink_loader;
 mod wrroc_v05_fixtures;
