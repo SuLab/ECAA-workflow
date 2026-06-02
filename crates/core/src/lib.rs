@@ -75,6 +75,7 @@ pub mod emission_invariants;
 pub mod emit_mode;
 /// Emitter module.
 pub mod emitter;
+pub mod expected_claim;
 // Shared validators (C-8 / C-9)
 // for env-var names and values that flow into shell-interpolated
 // commands (SSM RunCommand, sbatch --export, agent env passthrough).
