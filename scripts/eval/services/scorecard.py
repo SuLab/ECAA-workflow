@@ -79,8 +79,35 @@ def _render_error_matrix(em: dict) -> list[str]:
     return lines
 
 
+def _dimension_caveat_text(meta: dict) -> str | None:
+    """The explicit 'these are NOT paper-faithful dimension scores' caveat.
+
+    Returns ``None`` only for a paper-defined dimension source; any heuristic
+    source (the default for BiomniBench-DA, which defines no dimensions) yields
+    a loud, citable warning. Falls back to a default sentence when the plugin
+    set the heuristic marker but no explicit note."""
+    source = meta.get("dimension_source")
+    if source is None or source == "paper_defined":
+        return None
+    note = meta.get("dimension_note")
+    base = (
+        "Per-dimension scores below are a TITLE-KEYWORD HEURISTIC "
+        f"(dimension_source = {source}), NOT paper-defined dimensions. "
+        "BiomniBench-DA defines no per-dimension breakdown; only the overall "
+        "0-100 score is benchmark-faithful. DO NOT cite these per-dimension "
+        "numbers as paper-faithful dimension scores."
+    )
+    if note:
+        return f"{base} {note}"
+    return base
+
+
 def _render_dimensions(meta: dict) -> list[str]:
-    """Render meta["dimensions"] (BiomniBench) as a per-dimension table."""
+    """Render meta["dimensions"] (BiomniBench) as a per-dimension table.
+
+    eval-05: when the dimension source is a heuristic (the default — the dataset
+    defines no dimensions), a loud, unmissable caveat is rendered immediately
+    above the table so the numbers can't be lifted out as paper-faithful."""
     dims_meta: dict = meta["dimensions"]
     arms = sorted(dims_meta.keys())
     # Collect union of dimension names in insertion order.
@@ -93,6 +120,10 @@ def _render_dimensions(meta: dict) -> list[str]:
                 seen.add(dim)
 
     lines = ["", "## Per-dimension", ""]
+    caveat = _dimension_caveat_text(meta)
+    if caveat:
+        lines.append(f"> **HEURISTIC — NOT PAPER-FAITHFUL.** {caveat}")
+        lines.append("")
     ecaa_vals = dims_meta.get("ecaa", {})
     direct_vals = dims_meta.get("claude-direct", {})
 
@@ -292,6 +323,124 @@ def _render_guard_outcomes(per_arm: dict) -> list[str]:
     return lines
 
 
+# ── eval-03: method-lock asymmetry (recipe arms pin canonical tools) ─────────
+#
+# Recipe benchmarks (Nekrutenko) hard-pin the paper's canonical tools — bwa for
+# alignment, lofreq for variant_calling — on the ECAA arm ONLY, via the
+# plugin's `locked_methods(task, arm)` contract (consumed by drive_chat_intake's
+# SME-named-method flag). The bare arm has no chat-intake to lock against, so it
+# stays free. That asymmetry is load-bearing for interpreting the delta, so it
+# must be auditable from the scorecard rather than implicit in the plugin code.
+
+class _TaskRef:
+    """Minimal stand-in carrying just ``task_id`` for ``locked_methods`` lookups
+    (the method-lock contract keys on the id + arm, not on richer Task fields)."""
+
+    def __init__(self, task_id: str):
+        self.task_id = task_id
+
+
+def _arm_enum_for(arm: str):
+    """Map a row's arm string back to the Arm enum the plugin expects.
+
+    Falls back to the raw string when the Arm enum can't be imported (keeps the
+    helper standalone-testable with a fake plugin that accepts plain strings)."""
+    try:
+        from scripts.eval.benchmark import Arm
+        return Arm(arm)
+    except Exception:  # noqa: BLE001
+        return arm
+
+
+def locked_methods_meta(plugin, card: Scorecard) -> dict | None:
+    """Per-arm record of the (stage, method) pairs the plugin pinned at intake.
+
+    Sourced from ``plugin.locked_methods(task, arm)`` for every (task, arm)
+    present in the card's rows. Returns a dict shaped::
+
+        {
+          "<arm>": {
+            "any_locked": bool,
+            "pairs": [{"stage": "alignment", "method": "bwa"}, ...],
+            "by_task": {"<task_id>": [{"stage", "method"}, ...]},
+          },
+          ...,
+          "asymmetric": bool,   # True when arms differ in what was locked
+        }
+
+    Returns ``None`` when no arm locked anything (the "free" benchmarks), so
+    open evals don't grow an empty section. Never raises: a plugin without a
+    usable ``locked_methods`` yields ``None``."""
+    lock_fn = getattr(plugin, "locked_methods", None)
+    if not callable(lock_fn):
+        return None
+    # Recover the (arm, task_id) universe from the rows. We only have task_ids,
+    # not Task objects, so synthesize a minimal stand-in carrying the id — the
+    # method-lock contract keys on the task id / arm, not on richer Task fields.
+    arms: list[str] = []
+    tasks_for_arm: dict[str, list[str]] = {}
+    for r in card.rows:
+        if r.arm not in tasks_for_arm:
+            tasks_for_arm[r.arm] = []
+            arms.append(r.arm)
+        if r.task_id not in tasks_for_arm[r.arm]:
+            tasks_for_arm[r.arm].append(r.task_id)
+
+    per_arm: dict = {}
+    any_locked = False
+    for arm in arms:
+        arm_enum = _arm_enum_for(arm)
+        by_task: dict[str, list[dict]] = {}
+        pair_set: list[dict] = []
+        seen: set[tuple[str, str]] = set()
+        for tid in tasks_for_arm[arm]:
+            try:
+                pairs = lock_fn(_TaskRef(tid), arm_enum)
+            except Exception:  # noqa: BLE001 — auditing must never crash a write
+                pairs = []
+            norm = [{"stage": str(s), "method": str(m)} for (s, m) in (pairs or [])]
+            if norm:
+                any_locked = True
+            by_task[tid] = norm
+            for s, m in (pairs or []):
+                if (str(s), str(m)) not in seen:
+                    seen.add((str(s), str(m)))
+                    pair_set.append({"stage": str(s), "method": str(m)})
+        per_arm[arm] = {
+            "any_locked": bool(pair_set),
+            "pairs": pair_set,
+            "by_task": by_task,
+        }
+    if not any_locked:
+        return None
+    locked_arms = {a for a, v in per_arm.items() if v["any_locked"]}
+    per_arm["asymmetric"] = bool(locked_arms) and locked_arms != set(arms)
+    return per_arm
+
+
+def _render_locked_methods(per_arm: dict) -> list[str]:
+    arms = [a for a in per_arm if a != "asymmetric"]
+    lines = ["", "## Method lock (recipe arms pin canonical tools)", ""]
+    if per_arm.get("asymmetric"):
+        lines.append(
+            "**Method-lock asymmetry:** the arms below did NOT have the same "
+            "methods pinned at intake. Read the delta with this in mind — a "
+            "locked arm was constrained to the paper's canonical tools while a "
+            "free arm chose methods at runtime."
+        )
+        lines.append("")
+    lines.append("| arm | locked | pinned (stage = method) |")
+    lines.append("| --- | --- | --- |")
+    for arm in sorted(arms):
+        v = per_arm[arm]
+        if v["pairs"]:
+            pinned = ", ".join(f"{p['stage']} = {p['method']}" for p in v["pairs"])
+        else:
+            pinned = "_(none — free)_"
+        lines.append(f"| {arm} | {'yes' if v['any_locked'] else 'no'} | {pinned} |")
+    return lines
+
+
 # ── eval-04: per-(task,trial) paired delta + bootstrap CI ────────────────────
 
 def _paired_deltas(card: Scorecard) -> tuple[list[float], list[str]]:
@@ -385,7 +534,10 @@ def _markdown(card: Scorecard) -> str:
     lines = [f"# {card.benchmark} scorecard", ""]
     # Render scalar meta keys (skip the rich-object keys handled below).
     _RICH_KEYS = {"error_matrix", "dimensions", "judge_agreement", "published_best",
-                  "cost", "paired_delta", "guard_outcomes"}
+                  "cost", "paired_delta", "guard_outcomes", "locked_methods",
+                  # eval-05: the dimension caveat is surfaced loudly inside the
+                  # Per-dimension section, not as a stray scalar bullet up top.
+                  "dimension_source", "dimension_note"}
     if card.meta:
         for k, v in card.meta.items():
             if k not in _RICH_KEYS:
@@ -414,6 +566,9 @@ def _markdown(card: Scorecard) -> str:
 
     # Optional rich sections.
     if card.meta:
+        # eval-03: method-lock asymmetry (recipe arms pin canonical tools).
+        if card.meta.get("locked_methods"):
+            lines += _render_locked_methods(card.meta["locked_methods"])
         if "error_matrix" in card.meta:
             lines += _render_error_matrix(card.meta["error_matrix"])
         if "dimensions" in card.meta:
@@ -429,7 +584,15 @@ def _markdown(card: Scorecard) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_scorecard(card: Scorecard, out_dir: Path) -> Path:
+def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None) -> Path:
+    """Emit the machine (JSON) + human (markdown) scorecards.
+
+    ``plugin`` (optional) is the Benchmark plugin that produced the card. When
+    supplied, the method-lock asymmetry (eval-03) is sourced from
+    ``plugin.locked_methods(task, arm)`` and surfaced under
+    ``meta["locked_methods"]``; a recipe arm's pinned tools then appear in both
+    the JSON and the markdown. Omitting it keeps the legacy call shape working
+    (the runner passes the plugin so the field auto-populates on real runs)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     # Surface the derived eval-04 paired stats and eval-02 guard-outcome
     # aggregates in the machine scorecard's meta (without mutating the caller's
@@ -441,8 +604,24 @@ def write_scorecard(card: Scorecard, out_dir: Path) -> Path:
     guard = _aggregate_guard_outcomes(card)
     if guard and "guard_outcomes" not in meta:
         meta["guard_outcomes"] = guard
+    # eval-03: record the (stage, method) pairs locked at intake, per arm, so the
+    # method-lock asymmetry (ECAA arm pinned, bare arm free) is auditable from
+    # the output. Sourced from the plugin's locked_methods contract.
+    if plugin is not None and "locked_methods" not in meta:
+        locked = locked_methods_meta(plugin, card)
+        if locked is not None:
+            meta["locked_methods"] = locked
+    # eval-05: persist the heuristic-dimension caveat as an explicit, top-level
+    # JSON field (not just buried in the markdown) so an automated reader can't
+    # lift the per-dimension numbers without seeing the warning.
+    caveat = _dimension_caveat_text(meta)
+    if caveat and "dimension_caveat" not in meta:
+        meta["dimension_caveat"] = caveat
+    # Render markdown from a card carrying the derived/injected meta so the
+    # human scorecard shows the same locked-methods + caveat sections.
+    render_card = Scorecard(benchmark=card.benchmark, rows=card.rows, meta=meta)
     payload = {"benchmark": card.benchmark, "meta": meta,
                "rows": [asdict(r) for r in card.rows]}
     (out_dir / "scorecard.json").write_text(json.dumps(payload, indent=2, default=str))
-    (out_dir / "scorecard.md").write_text(_markdown(card))
+    (out_dir / "scorecard.md").write_text(_markdown(render_card))
     return out_dir
