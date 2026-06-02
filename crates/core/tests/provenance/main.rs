@@ -11,6 +11,7 @@ mod audit_writer_tamper;
 mod auditability_corpus_smoke;
 mod claim_extractor_excludes;
 mod claim_verifier_pvalue_tolerance;
+mod execution_consistency;
 mod prov_o_corpus;
 mod provenance_tiers;
 mod recall_coverage_invariant;

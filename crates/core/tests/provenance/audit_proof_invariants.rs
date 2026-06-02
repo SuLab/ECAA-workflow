@@ -276,6 +276,36 @@ fn evidence_coverage_warns_when_no_claims_file() {
     assert_eq!(v.status, InvariantStatus::Warn);
 }
 
+#[test]
+fn evidence_coverage_source_is_proofs_not_validation_reports() {
+    // Regression guard (F6): outputs MUST derive from proofs.jsonl
+    // (computed_from/produces), never from a validation_reports[].outputs
+    // field — that field does not exist on real harness rows
+    // ({task_id, obligation_id, outcome}). A package whose validation_reports
+    // fabricate an `outputs` array must NOT cause it to be inspected.
+    let pkg = LoadedPackage {
+        intake: vec![],
+        decisions: vec![],
+        validation_reports: vec![json!({"task_id":"de","obligation_id":"o1","outcome":"passed",
+            "outputs":["SHOULD_BE_IGNORED.csv"]})],
+        proofs: vec![json!({"id":"workflow:de","type":"WorkflowStep",
+            "computed_from":"runtime/tables/de.csv"})],
+        claims: Some(json!({"verdicts":[{"claim_id":"c-1","status":"verified",
+            "supported_by":["runtime/tables/de.csv#row_TP53"]}]})),
+        verifier_decisions: vec![],
+        assumptions: vec![],
+        determinism_shim: None,
+        security_policy: None,
+        plot_affordances: None,
+        claims_tampered: false,
+    };
+    let v = check_evidence_coverage(&pkg);
+    // Exactly the one proofs-derived output is inspected; the fabricated
+    // validation_reports `outputs` entry is invisible.
+    assert_eq!(v.n_inspected, 1);
+    assert_eq!(v.status, InvariantStatus::Pass);
+}
+
 use ecaa_workflow_core::audit_proof::invariants::equivalence_failure::check_equivalence_failure;
 
 fn pkg_with_q(

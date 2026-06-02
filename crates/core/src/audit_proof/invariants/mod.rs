@@ -6,4 +6,5 @@ pub mod cross_graph_integrity;
 pub mod decision_justification;
 pub mod equivalence_failure;
 pub mod evidence_coverage;
+pub mod execution_consistency;
 pub mod substrate_validity;

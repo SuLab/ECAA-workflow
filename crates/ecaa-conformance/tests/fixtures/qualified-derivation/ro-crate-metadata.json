@@ -1,0 +1,31 @@
+{
+  "@context": "https://w3id.org/ro/crate/1.1/context",
+  "@graph": [
+    {
+      "@id": "ro-crate-metadata.json",
+      "@type": "CreativeWork",
+      "about": {"@id": "./"},
+      "conformsTo": [
+        {"@id": "https://w3id.org/ro/crate/1.1"}
+      ]
+    },
+    {
+      "@id": "./",
+      "@type": "Dataset",
+      "conformsTo": [
+        {"@id": "https://w3id.org/ro/crate/1.1"},
+        {"@id": "https://w3id.org/workflowhub/workflow-ro-crate/1.0"},
+        {"@id": "https://w3id.org/ro/wfrun/process/0.5"},
+        {"@id": "https://w3id.org/ro/wfrun/workflow/0.5"},
+        {"@id": "https://w3id.org/ro/wfrun/provenance/0.5"},
+        {"@id": "https://w3id.org/ecaa/v0.1"}
+      ],
+      "prov:wasDerivedFrom": {"@id": "amendment-parent:wf-0001"}
+    },
+    {
+      "@id": "amendment-parent:wf-0001",
+      "@type": "Dataset",
+      "name": "parent package wf-0001"
+    }
+  ]
+}
