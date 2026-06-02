@@ -939,6 +939,12 @@ impl TableIndex {
         // scan over the (small) index:
         // 1. Exact file-name match: cite "de_summary.tsv".
         // 2. Exact stem: cite "de_summary".
+        // 2b. Cited-path basename/stem EXACT match: cite
+        // "results/tables/de_summary.tsv" → reduce to the bare basename
+        // ("de_summary.tsv") and stem ("de_summary") and try each as an
+        // exact lookup. This sits between the exact steps and the fuzzy
+        // fallback so a cited *path* never collapses to None merely because
+        // a twin table shares a fuzzy token (F4 laundering guard).
         // 3. Token match: cite "Table S1"; peel "table" off the front
         // and match any file whose stem contains the remaining
         // identifier ("s1"). This is the common case — narratives
@@ -950,7 +956,7 @@ impl TableIndex {
         // candidates match the needle — choosing the first one
         // silently hides ambiguity from the caller and risks
         // cross-table fabrication going unverified. Exact-match
-        // steps (1, 2) remain deterministic and unique by
+        // steps (1, 2, 2b) remain deterministic and unique by
         // construction.
         let needle = normalize(source_ref.trim());
         if let Some(p) = self.by_name.get(&needle) {
@@ -959,6 +965,27 @@ impl TableIndex {
         let collapsed: String = needle.split_whitespace().collect();
         if let Some(p) = self.by_name.get(&collapsed) {
             return Some(p);
+        }
+        // Cited-path preference (F4): when the reference is a path, try its
+        // bare basename (and stem) as an EXACT lookup before any fuzzy
+        // fallback. A cited path must never collapse to None just because a
+        // twin table shares a fuzzy token.
+        if let Some(base) = std::path::Path::new(source_ref.trim())
+            .file_name()
+            .and_then(|s| s.to_str())
+        {
+            let base_norm = normalize(base);
+            if let Some(p) = self.by_name.get(&base_norm) {
+                return Some(p);
+            }
+            if let Some(stem) = std::path::Path::new(base)
+                .file_stem()
+                .and_then(|s| s.to_str())
+            {
+                if let Some(p) = self.by_name.get(&normalize(stem)) {
+                    return Some(p);
+                }
+            }
         }
         let tokens: Vec<&str> = needle
             .split_whitespace()
@@ -2666,5 +2693,58 @@ mod tests {
             "{:?}",
             v[0].status
         );
+    }
+
+    #[test]
+    fn cited_exact_name_wins_over_twin_tables() {
+        // Two near-duplicate tables; a claim citing one by its exact file
+        // name must resolve to it, NOT collapse to None (the laundering
+        // case the recall floor closes — F4).
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["de_results.tsv", "de_results_v2.tsv"] {
+            std::fs::write(dir.path().join(name), "gene\tlog2FC\nTP53\t1.0\n").unwrap();
+        }
+        let idx = TableIndex::scan(dir.path());
+        // Exact-name citation resolves deterministically (Step 1).
+        let resolved = idx.resolve("de_results.tsv");
+        assert!(
+            resolved.is_some(),
+            "exact cited name must resolve, not collapse"
+        );
+        assert!(resolved.unwrap().ends_with("de_results.tsv"));
+    }
+
+    #[test]
+    fn cited_stem_wins_over_twin_tables() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["differential_expression.tsv", "differential_expression_alt.tsv"] {
+            std::fs::write(dir.path().join(name), "gene\tlog2FC\nTP53\t1.0\n").unwrap();
+        }
+        let idx = TableIndex::scan(dir.path());
+        // Citing the exact stem must hit Step 2, not the fuzzy collapse.
+        let resolved = idx.resolve("differential_expression");
+        assert!(
+            resolved.is_some(),
+            "exact stem citation must resolve even when a sibling shares the prefix"
+        );
+        assert!(resolved.unwrap().ends_with("differential_expression.tsv"));
+    }
+
+    #[test]
+    fn cited_path_basename_wins_over_twin_tables() {
+        // A claim citing a full relative path whose basename names one of
+        // two fuzzy-token-sharing twins must resolve to that exact file,
+        // never the ≥2-candidate None-collapse (F4 laundering).
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["de_results.tsv", "de_results_v2.tsv"] {
+            std::fs::write(dir.path().join(name), "gene\tlog2FC\nTP53\t1.0\n").unwrap();
+        }
+        let idx = TableIndex::scan(dir.path());
+        let resolved = idx.resolve("results/tables/de_results.tsv");
+        assert!(
+            resolved.is_some(),
+            "cited path basename must resolve, not collapse to None"
+        );
+        assert!(resolved.unwrap().ends_with("de_results.tsv"));
     }
 }
