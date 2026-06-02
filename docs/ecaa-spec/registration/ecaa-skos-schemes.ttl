@@ -1,0 +1,326 @@
+@prefix skos:    <http://www.w3.org/2004/02/skos/core#> .
+@prefix dcterms: <http://purl.org/dc/terms/> .
+@prefix owl:     <http://www.w3.org/2002/07/owl#> .
+@prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
+@prefix ecaa:    <https://w3id.org/ecaa/ns/0.1#> .
+@prefix vocab:   <https://w3id.org/ecaa/vocab/> .
+
+#######################################################################
+# Registered, EXTENSIBLE SKOS concept schemes for the three closed
+# enums. Membership is validated via skos:inScheme (NOT sh:in), so a
+# v0.2+ minor that ADDS a concept is additive: existing packages stay
+# conformant and the membership SHACL keeps passing. skos:notation is
+# the serde wire form (snake_case); it is the canonical token the
+# C/Q/F/A wire JSON carries.
+#######################################################################
+
+# --- BlockerKind (F sub-graph; 47 concepts) --------------------------
+vocab:blocker-kind a skos:ConceptScheme ;
+    dcterms:title "ECAA BlockerKind controlled vocabulary"@en ;
+    dcterms:isVersionOf <https://w3id.org/ecaa/v0.1> ;
+    owl:versionInfo "47" ;     # variant count; pinned by the agreement lint
+    skos:note "Closed-but-extensible: adding a concept is a MINOR change (see v0.2 spec §Conformance & Extension)." .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/data_shape_mismatch> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "data_shape_mismatch" ;
+    skos:prefLabel "Data shape mismatch"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/validation_failed> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "validation_failed" ;
+    skos:prefLabel "Validation failed"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/metric_below_threshold> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "metric_below_threshold" ;
+    skos:prefLabel "Metric below threshold"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/missing_input> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "missing_input" ;
+    skos:prefLabel "Missing input"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/agent_error> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "agent_error" ;
+    skos:prefLabel "Agent error"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/host_error> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "host_error" ;
+    skos:prefLabel "Host error"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/awaiting_sme_selection> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "awaiting_sme_selection" ;
+    skos:prefLabel "Awaiting sme selection"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/pilot_oversize> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "pilot_oversize" ;
+    skos:prefLabel "Pilot oversize"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/stalled> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "stalled" ;
+    skos:prefLabel "Stalled"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/contract_violation> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "contract_violation" ;
+    skos:prefLabel "Contract violation"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/runtime_capability_missing> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "runtime_capability_missing" ;
+    skos:prefLabel "Runtime capability missing"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/awaiting_structured_decision> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "awaiting_structured_decision" ;
+    skos:prefLabel "Awaiting structured decision"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/awaiting_sme_approval> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "awaiting_sme_approval" ;
+    skos:prefLabel "Awaiting sme approval"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/missing_artifact> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "missing_artifact" ;
+    skos:prefLabel "Missing artifact"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/heartbeat_stalled> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "heartbeat_stalled" ;
+    skos:prefLabel "Heartbeat stalled"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/orphaned_by_crash> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "orphaned_by_crash" ;
+    skos:prefLabel "Orphaned by crash"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/tool_error> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "tool_error" ;
+    skos:prefLabel "Tool error"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/image_digest_mismatch> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "image_digest_mismatch" ;
+    skos:prefLabel "Image digest mismatch"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/container_pull_failed> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "container_pull_failed" ;
+    skos:prefLabel "Container pull failed"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/container_start_failed> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "container_start_failed" ;
+    skos:prefLabel "Container start failed"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/runtime_missing> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "runtime_missing" ;
+    skos:prefLabel "Runtime missing"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/sbom_emission_failed> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "sbom_emission_failed" ;
+    skos:prefLabel "Sbom emission failed"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/network_policy_violation> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "network_policy_violation" ;
+    skos:prefLabel "Network policy violation"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/container_cache_corrupted> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "container_cache_corrupted" ;
+    skos:prefLabel "Container cache corrupted"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/memory_exhausted> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "memory_exhausted" ;
+    skos:prefLabel "Memory exhausted"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/time_exceeded> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "time_exceeded" ;
+    skos:prefLabel "Time exceeded"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/replay_corruption> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "replay_corruption" ;
+    skos:prefLabel "Replay corruption"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/image_digest_unresolved> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "image_digest_unresolved" ;
+    skos:prefLabel "Image digest unresolved"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/composition_infeasible> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "composition_infeasible" ;
+    skos:prefLabel "Composition infeasible"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/container_exited_abnormally> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "container_exited_abnormally" ;
+    skos:prefLabel "Container exited abnormally"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/slurm_runtime_unavailable> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "slurm_runtime_unavailable" ;
+    skos:prefLabel "Slurm runtime unavailable"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/iteration_did_not_converge> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "iteration_did_not_converge" ;
+    skos:prefLabel "Iteration did not converge"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/container_hung> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "container_hung" ;
+    skos:prefLabel "Container hung"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/sandbox_refused> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "sandbox_refused" ;
+    skos:prefLabel "Sandbox refused"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/adjudication_required> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "adjudication_required" ;
+    skos:prefLabel "Adjudication required"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/sandbox_required> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "sandbox_required" ;
+    skos:prefLabel "Sandbox required"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/network_policy_mismatch> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "network_policy_mismatch" ;
+    skos:prefLabel "Network policy mismatch"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/provisioning_denied> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "provisioning_denied" ;
+    skos:prefLabel "Provisioning denied"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/schema_version_mismatch> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "schema_version_mismatch" ;
+    skos:prefLabel "Schema version mismatch"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/controlled_access_violation> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "controlled_access_violation" ;
+    skos:prefLabel "Controlled access violation"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/output_size_exceeded> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "output_size_exceeded" ;
+    skos:prefLabel "Output size exceeded"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/patch_unparseable> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "patch_unparseable" ;
+    skos:prefLabel "Patch unparseable"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/clock_skew> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "clock_skew" ;
+    skos:prefLabel "Clock skew"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/wall_clock_exceeded> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "wall_clock_exceeded" ;
+    skos:prefLabel "Wall clock exceeded"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/cancelled_by_amendment> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "cancelled_by_amendment" ;
+    skos:prefLabel "Cancelled by amendment"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/provenance_commit_dropped> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "provenance_commit_dropped" ;
+    skos:prefLabel "Provenance commit dropped"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/turn_budget_exceeded> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "turn_budget_exceeded" ;
+    skos:prefLabel "Turn budget exceeded"@en .
+
+# --- RerunOutcome.class (Q sub-graph; 5 concepts) --------------------
+vocab:rerun-outcome a skos:ConceptScheme ;
+    dcterms:title "ECAA RerunOutcome class controlled vocabulary"@en ;
+    dcterms:isVersionOf <https://w3id.org/ecaa/v0.1> ;
+    owl:versionInfo "5" ;
+    skos:note "Q sub-graph RerunOutcome.class; Rust binding ReexecutionBucket." .
+
+<https://w3id.org/ecaa/vocab/rerun-outcome/byte_identical> a skos:Concept ;
+    skos:inScheme vocab:rerun-outcome ;
+    skos:notation "byte_identical" ;
+    skos:prefLabel "Byte identical"@en .
+
+<https://w3id.org/ecaa/vocab/rerun-outcome/semantic_equivalent> a skos:Concept ;
+    skos:inScheme vocab:rerun-outcome ;
+    skos:notation "semantic_equivalent" ;
+    skos:prefLabel "Semantic equivalent"@en .
+
+<https://w3id.org/ecaa/vocab/rerun-outcome/acknowledged_non_determinism> a skos:Concept ;
+    skos:inScheme vocab:rerun-outcome ;
+    skos:notation "acknowledged_non_determinism" ;
+    skos:prefLabel "Acknowledged non determinism"@en .
+
+<https://w3id.org/ecaa/vocab/rerun-outcome/unavailable> a skos:Concept ;
+    skos:inScheme vocab:rerun-outcome ;
+    skos:notation "unavailable" ;
+    skos:prefLabel "Unavailable"@en .
+
+<https://w3id.org/ecaa/vocab/rerun-outcome/failed> a skos:Concept ;
+    skos:inScheme vocab:rerun-outcome ;
+    skos:notation "failed" ;
+    skos:prefLabel "Failed"@en .
+
+# --- AblationFlag (L3 instrument; 6 concepts) ------------------------
+vocab:ablation-flag a skos:ConceptScheme ;
+    dcterms:title "ECAA AblationFlag controlled vocabulary"@en ;
+    dcterms:isVersionOf <https://w3id.org/ecaa/v0.1> ;
+    owl:versionInfo "6" ;
+    skos:note "The 6-flag ECAA_ABLATE_* contract; one flag toggles exactly one sidecar." .
+
+<https://w3id.org/ecaa/vocab/ablation-flag/decision_records> a skos:Concept ;
+    skos:inScheme vocab:ablation-flag ;
+    skos:notation "decision_records" ;
+    skos:prefLabel "Decision records"@en .
+
+<https://w3id.org/ecaa/vocab/ablation-flag/amendment_provenance> a skos:Concept ;
+    skos:inScheme vocab:ablation-flag ;
+    skos:notation "amendment_provenance" ;
+    skos:prefLabel "Amendment provenance"@en .
+
+<https://w3id.org/ecaa/vocab/ablation-flag/claim_consistency> a skos:Concept ;
+    skos:inScheme vocab:ablation-flag ;
+    skos:notation "claim_consistency" ;
+    skos:prefLabel "Claim consistency"@en .
+
+<https://w3id.org/ecaa/vocab/ablation-flag/typed_blockers> a skos:Concept ;
+    skos:inScheme vocab:ablation-flag ;
+    skos:notation "typed_blockers" ;
+    skos:prefLabel "Typed blockers"@en .
+
+<https://w3id.org/ecaa/vocab/ablation-flag/reexecution_class> a skos:Concept ;
+    skos:inScheme vocab:ablation-flag ;
+    skos:notation "reexecution_class" ;
+    skos:prefLabel "Reexecution class"@en .
+
+<https://w3id.org/ecaa/vocab/ablation-flag/audit_proof> a skos:Concept ;
+    skos:inScheme vocab:ablation-flag ;
+    skos:notation "audit_proof" ;
+    skos:prefLabel "Audit proof"@en .
