@@ -292,10 +292,13 @@ fi
 if [ "${ECAA_AGENT_CACHE_DISABLE:-0}" != "1" ] && [ -n "${ECAA_CHAT_SESSION_ID:-}" ]; then
   CACHE_BASE="${ECAA_AGENT_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}"
   CACHE_DIR="$CACHE_BASE/$ECAA_CHAT_SESSION_ID"
-  mkdir -p "$CACHE_DIR/pip" "$CACHE_DIR/conda" "$CACHE_DIR/apt" "$CACHE_DIR/R-libs" "$CACHE_DIR/python" 2>/dev/null || true
+  mkdir -p "$CACHE_DIR/pip" "$CACHE_DIR/conda" "$CACHE_DIR/conda-envs" "$CACHE_DIR/apt" "$CACHE_DIR/R-libs" "$CACHE_DIR/python" 2>/dev/null || true
   export ECAA_SESSION_CACHE_DIR="$CACHE_DIR"
   export PIP_CACHE_DIR="$CACHE_DIR/pip"
   export CONDA_PKGS_DIRS="$CACHE_DIR/conda"
+  # Read-only rootfs: named conda envs must land in a writable dir, not
+  # the read-only /opt/conda/envs base location.
+  export CONDA_ENVS_DIRS="$CACHE_DIR/conda-envs"
   export R_LIBS_USER="$CACHE_DIR/R-libs"
 fi
 
@@ -478,6 +481,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
       -e "R_LIBS_USER=$ECAA_SESSION_CACHE_DIR/R-libs"
       -e "PIP_CACHE_DIR=$ECAA_SESSION_CACHE_DIR/pip"
       -e "CONDA_PKGS_DIRS=$ECAA_SESSION_CACHE_DIR/conda"
+      -e "CONDA_ENVS_DIRS=$ECAA_SESSION_CACHE_DIR/conda-envs"
       -e "PYTHONUSERBASE=$ECAA_SESSION_CACHE_DIR/python"
       -e "PIP_USER=1"
       -e "PIP_BREAK_SYSTEM_PACKAGES=1"
