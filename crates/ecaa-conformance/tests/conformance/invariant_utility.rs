@@ -479,6 +479,187 @@ fn mutate_cross_graph_integrity(root: &Path) {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Second-branch mutators (a DISTINCT violating shape per invariant)
+//
+// One mutator exercises one branch of one predicate. A real invariant fails in
+// several ways; a second, structurally-different violation per invariant tests
+// that the check is not over-fit to a single corruption shape. Each is wired
+// against the SAME flip + isolation assertions as the first branch.
+// ---------------------------------------------------------------------------
+
+/// Invariant 1 — `claim_completeness` → Warn (branch B).
+/// Distinct from branch A (explicit `status:"verified"`, empty `supported_by`):
+/// here the Claim has NO `status` field at all (so it is not "pending") and NO
+/// `supported_by` key — a missing-fields shape rather than an empty array.
+fn mutate_claim_completeness_b(root: &Path) {
+    let mut claims = read_json(root, "claim-verification.json");
+    let verdicts = claims
+        .get_mut("verdicts")
+        .and_then(|v| v.as_array_mut())
+        .expect("verdicts array");
+    verdicts.push(serde_json::json!({
+        "claim_id": "claim_nostatus_002"
+    }));
+    write_json(root, "claim-verification.json", &claims);
+
+    // Spec-fidelity: a Claim that is neither pending nor supported is present.
+    let claims = read_json(root, "claim-verification.json");
+    assert!(
+        claims["verdicts"].as_array().expect("verdicts").iter().any(|c| {
+            c["claim_id"] == "claim_nostatus_002"
+                && c.get("status").and_then(|s| s.as_str()) != Some("pending")
+                && c.get("supported_by").is_none()
+        }),
+        "branch-B spec §1 violation (Claim, no status, no supported_by) not present"
+    );
+}
+
+/// Invariant 2 — `decision_justification` → Warn (branch B).
+/// Distinct from branch A (`set_intake_method`): the OTHER method-choice
+/// variant the predicate ranges over, `amend_stage`, with no `cites` edge and
+/// `length(rationale) < 30`.
+fn mutate_decision_justification_b(root: &Path) {
+    append_jsonl(
+        root,
+        "decisions.jsonl",
+        &serde_json::json!({
+            "schema_version": "0.1.0",
+            "timestamp": "2026-05-18T00:00:03Z",
+            "session_id": "minimal-session-001",
+            "decision": {
+                "kind": "amend_stage",
+                "stage": "quantification",
+                "method_prose": "salmon"
+            },
+            "rationale": "swap",
+            "actor": "sme"
+        }),
+    );
+
+    // Spec-fidelity: an amend_stage MethodChoice with rationale <30 and no cites.
+    let decisions = read_jsonl(root, "decisions.jsonl");
+    assert!(
+        decisions.iter().any(|d| {
+            d["decision"]["kind"] == "amend_stage"
+                && d["rationale"].as_str().map_or(0, |s| s.chars().count()) < 30
+                && d.get("cites").is_none()
+        }),
+        "branch-B spec §2 violation (amend_stage MethodChoice, rationale <30) not present"
+    );
+}
+
+/// Invariant 3 — `evidence_coverage` → Warn (branch B).
+/// Distinct from branch A (`computed_from` field): the same uncovered-output
+/// predicate reached via the V row's `produces` field (the impl's
+/// `computed_from`-OR-`produces` fallback), an output referenced by no C edge.
+fn mutate_evidence_coverage_b(root: &Path) {
+    append_jsonl(
+        root,
+        "proofs.jsonl",
+        &serde_json::json!({
+            "edge_id": "edge_evidence_002",
+            "produces": "data/outputs/orphan_via_produces.tsv"
+        }),
+    );
+
+    // Spec-fidelity: a `produces` OutputFile is declared and uncovered in C.
+    let proofs = read_jsonl(root, "proofs.jsonl");
+    assert!(
+        proofs.iter().any(|p| p.get("produces").and_then(|v| v.as_str())
+            == Some("data/outputs/orphan_via_produces.tsv")),
+        "branch-B spec §3 setup (produces OutputFile) not present in V sub-graph"
+    );
+}
+
+/// Invariant 4 — `equivalence_failure` → Fail (branch B).
+/// Distinct from branch A (a `failed` RerunOutcome with NO acknowledgement):
+/// here a `failed` RerunOutcome carries an `F.Blocker` of the WRONG kind
+/// (`output_unused`, which is NOT in the `{UnprovableEdge, PolicyException}`
+/// ack set), so the predicate's existential is still unsatisfied → Fail.
+///
+/// SPEC DISCREPANCY / IMPL GAP: the §4 predicate also names the
+/// `acknowledged_non_determinism` outcome class (committed `invariants.md`
+/// spells it with the stale token `"non-deterministic"`). The reference impl
+/// only reads `outcome == "failed"` verifier-decision rows and does NOT read a
+/// `class: acknowledged_non_determinism` field, so that second outcome class
+/// cannot be exercised hermetically against the current implementation. We
+/// therefore drive branch B via a `failed` row with a mis-kinded ack, and
+/// record the unreachable-class gap here rather than asserting a flip the impl
+/// cannot produce.
+fn mutate_equivalence_failure_b(root: &Path) {
+    append_jsonl(
+        root,
+        "verifier-decisions.jsonl",
+        &serde_json::json!({
+            "event": "prove",
+            "outcome": "failed",
+            "edge_id": "edge_miskinded_002"
+        }),
+    );
+    append_jsonl(
+        root,
+        "assumptions.jsonl",
+        &serde_json::json!({
+            "assumption_id": "assume_002",
+            "kind": "output_unused",
+            "detail": "edge_miskinded_002",
+            "stage_id": "x"
+        }),
+    );
+
+    // Spec-fidelity: a failed RerunOutcome exists AND its only F.Blocker is of a
+    // kind NOT in the acknowledging set, so the §4 existential is unsatisfied.
+    let q = read_jsonl(root, "verifier-decisions.jsonl");
+    assert!(
+        q.iter().any(|r| r["outcome"] == "failed" && r["edge_id"] == "edge_miskinded_002"),
+        "branch-B spec §4 setup (failed RerunOutcome) not present in Q sub-graph"
+    );
+    let acked = read_jsonl(root, "assumptions.jsonl").iter().any(|b| {
+        matches!(
+            b.get("kind").and_then(|k| k.as_str()),
+            Some("unprovable_edge" | "policy_exception")
+        ) && b.get("detail").and_then(|d| d.as_str()) == Some("edge_miskinded_002")
+    });
+    assert!(
+        !acked,
+        "branch-B spec §4 violation requires the ack to be of a NON-acknowledging kind"
+    );
+}
+
+/// Invariant 5 — `cross_graph_integrity` → Fail (branch B).
+/// Distinct from branch A (a dangling `C.supported-by` → `V`): here an
+/// `F.Blocker` (assumption) carries an `edge_id` that resolves to NO `V`
+/// `edge_id` — a different cross-graph reference (F→V) that dangles. (The
+/// reference impl reads cross-graph references from claim `supported_by` and
+/// assumption `edge_id`; `decisions.jsonl prov:wasDerivedFrom` is not yet read,
+/// so the assumption-edge_id path is the genuine second dangling shape.)
+fn mutate_cross_graph_integrity_b(root: &Path) {
+    append_jsonl(
+        root,
+        "assumptions.jsonl",
+        &serde_json::json!({
+            "assumption_id": "assume_dangling_002",
+            "kind": "note",
+            "detail": "references a non-existent proof edge",
+            "edge_id": "edge_ghost_999"
+        }),
+    );
+
+    // Spec-fidelity: an F edge_id reference with no matching V edge_id.
+    let known_edges: std::collections::BTreeSet<String> = read_jsonl(root, "proofs.jsonl")
+        .iter()
+        .filter_map(|p| p.get("edge_id").and_then(|s| s.as_str()).map(String::from))
+        .collect();
+    let dangling = read_jsonl(root, "assumptions.jsonl").iter().any(|a| {
+        a.get("edge_id").and_then(|s| s.as_str()) == Some("edge_ghost_999")
+    });
+    assert!(
+        dangling && !known_edges.contains("edge_ghost_999"),
+        "branch-B spec §5 violation (F edge_id with no matching V edge) not present"
+    );
+}
+
 /// Invariant 6 — `substrate_validity` → Fail (gated; runcrate-only).
 ///
 /// Spec predicate (`invariants.md` §6, verbatim — the conjunct this mutator
@@ -512,6 +693,53 @@ fn mutate_substrate_validity(root: &Path) {
         }
     }
     std::fs::write(&path, serde_json::to_string_pretty(&meta).expect("ser")).expect("write");
+}
+
+// ---------------------------------------------------------------------------
+// Boundary (negative-control) mutators
+//
+// The most valuable cases: each applies a near-miss that MUST stay `Pass` — it
+// proves the invariant does NOT over-fire on a legitimately-justified package.
+// These are calibration probes (e.g. rationale of EXACTLY 30 chars, a claim
+// explicitly marked "pending"). Asserted Pass-stays-Pass against the complete
+// fixture.
+// ---------------------------------------------------------------------------
+
+/// Boundary — `decision_justification` MUST stay `Pass`.
+/// A `set_intake_method` MethodChoice whose `rationale` is EXACTLY 30 chars:
+/// the §2 threshold is `length ≥ 30`, so 30 satisfies it (off-by-one guard).
+fn boundary_rationale_exactly_30(root: &Path) {
+    let rationale = "012345678901234567890123456789"; // exactly 30 chars
+    assert_eq!(rationale.chars().count(), 30, "boundary fixture must be 30 chars");
+    append_jsonl(
+        root,
+        "decisions.jsonl",
+        &serde_json::json!({
+            "schema_version": "0.1.0",
+            "timestamp": "2026-05-18T00:00:02Z",
+            "session_id": "minimal-session-001",
+            "decision": {"kind": "set_intake_method", "stage": "x", "method_prose": "y"},
+            "rationale": rationale,
+            "actor": "sme"
+        }),
+    );
+}
+
+/// Boundary — `claim_completeness` MUST stay `Pass`.
+/// A Claim explicitly `status:"pending"` with empty `supported_by`: §1 carves
+/// pending out as a legitimate acknowledged state, so this must NOT warn.
+fn boundary_pending_claim(root: &Path) {
+    let mut claims = read_json(root, "claim-verification.json");
+    let verdicts = claims
+        .get_mut("verdicts")
+        .and_then(|v| v.as_array_mut())
+        .expect("verdicts array");
+    verdicts.push(serde_json::json!({
+        "claim_id": "claim_pending_001",
+        "status": "pending",
+        "supported_by": []
+    }));
+    write_json(root, "claim-verification.json", &claims);
 }
 
 // ---------------------------------------------------------------------------
@@ -610,6 +838,39 @@ fn invariant_utility_specificity_matrix() {
             mutate: mutate_cross_graph_integrity,
             expect: InvariantStatus::Fail,
         },
+        // Second-branch violations: a structurally-distinct corruption per
+        // invariant (different field/shape than branch A) that must still flip
+        // the target while leaving the other five unchanged.
+        Case {
+            label: "claim_completeness #B",
+            target: InvariantId::ClaimCompleteness,
+            mutate: mutate_claim_completeness_b,
+            expect: InvariantStatus::Warn,
+        },
+        Case {
+            label: "decision_justification #B",
+            target: InvariantId::DecisionJustification,
+            mutate: mutate_decision_justification_b,
+            expect: InvariantStatus::Warn,
+        },
+        Case {
+            label: "evidence_coverage #B",
+            target: InvariantId::EvidenceCoverage,
+            mutate: mutate_evidence_coverage_b,
+            expect: InvariantStatus::Warn,
+        },
+        Case {
+            label: "equivalence_failure #B",
+            target: InvariantId::EquivalenceFailure,
+            mutate: mutate_equivalence_failure_b,
+            expect: InvariantStatus::Fail,
+        },
+        Case {
+            label: "cross_graph_integrity #B",
+            target: InvariantId::CrossGraphIntegrity,
+            mutate: mutate_cross_graph_integrity_b,
+            expect: InvariantStatus::Fail,
+        },
     ];
 
     for case in &cases {
@@ -639,6 +900,55 @@ fn invariant_utility_specificity_matrix() {
 
         // (b) the other five invariants are unchanged (specificity/isolation).
         assert_others_unchanged(&baseline, &mutated, case.target);
+    }
+
+    // Boundary (negative-control) rows: a near-miss per invariant that MUST
+    // stay `Pass` — proof the check does not over-fire. The target invariant's
+    // verdict must remain exactly `Pass` (not Warn/Fail), and isolation must
+    // hold (no OTHER invariant perturbed either).
+    println!("{}", "-".repeat(80));
+    struct BoundaryCase {
+        label: &'static str,
+        target: InvariantId,
+        mutate: fn(&Path),
+    }
+    let boundaries = [
+        BoundaryCase {
+            label: "decision rationale==30",
+            target: InvariantId::DecisionJustification,
+            mutate: boundary_rationale_exactly_30,
+        },
+        BoundaryCase {
+            label: "claim pending,no support",
+            target: InvariantId::ClaimCompleteness,
+            mutate: boundary_pending_claim,
+        },
+    ];
+    for bc in &boundaries {
+        let (_g, root) = fresh_package();
+        (bc.mutate)(&root);
+        let probed = run(&root);
+        row(bc.label, &probed);
+        let got = verdict(&probed, bc.target).status;
+        assert_eq!(
+            got,
+            InvariantStatus::Pass,
+            "BOUNDARY {:?}: a legitimate near-miss must stay Pass, got {:?} (detail: {:?})",
+            bc.target,
+            got,
+            verdict(&probed, bc.target).detail
+        );
+        // The boundary perturbs nothing — every invariant matches the baseline.
+        for id in InvariantId::ALL {
+            assert_eq!(
+                verdict(&baseline, id).status,
+                verdict(&probed, id).status,
+                "BOUNDARY {} perturbed {id:?} (baseline={:?}, probed={:?})",
+                bc.label,
+                verdict(&baseline, id).status,
+                verdict(&probed, id).status
+            );
+        }
     }
 
     // Invariant 6 — substrate_validity. Gated; see SUBSTRATE CAVEAT.
