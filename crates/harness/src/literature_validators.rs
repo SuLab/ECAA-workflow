@@ -42,7 +42,16 @@ pub fn collapse_whitespace_lowercase_v1(s: &str) -> String {
 struct ClaimsMatrixRow {
     #[serde(default)]
     pub finding_id: Option<String>,
+    // Optional so the same reader parses BOTH the claims-matrix shape
+    // (entity/entity_kind/pmid) AND the method_landscape shape
+    // (axis/candidate_method/source_ref) survey_method_landscape emits.
+    // Required `String` here made every load_rows-based obligation
+    // (evidence_quote_substring_match, redistributable_or_marked, …) fail to
+    // parse the method_landscape CSV and report a spurious
+    // EvidenceArtifactMissing at row 0.
+    #[serde(default)]
     pub entity: String,
+    #[serde(default)]
     pub entity_kind: String,
     #[serde(default)]
     pub pmid: Option<String>,
@@ -455,11 +464,22 @@ pub fn run_evidence_quote_substring_match(
             },
         )
     })?;
-    let manifest_by_pmid: BTreeMap<String, &EvidenceEntry> = manifest
-        .entries
-        .iter()
-        .map(|e| (e.pmid.clone().unwrap_or_default(), e))
-        .collect();
+    // Key the manifest by every locator an entry exposes (pmid AND the typed
+    // source_ref) so this runner resolves claims-matrix rows (pmid) and
+    // method_landscape rows (source_ref) uniformly.
+    let mut manifest_by_locator: BTreeMap<String, &EvidenceEntry> = BTreeMap::new();
+    for e in &manifest.entries {
+        if let Some(p) = &e.pmid {
+            if !p.is_empty() {
+                manifest_by_locator.insert(p.clone(), e);
+            }
+        }
+        if let Some(sr) = &e.source_ref {
+            if !sr.is_empty() {
+                manifest_by_locator.insert(sr.clone(), e);
+            }
+        }
+    }
     let manifest_dir = manifest_path.parent().unwrap();
 
     for (i, row) in rows.iter().enumerate() {
@@ -468,16 +488,20 @@ pub fn run_evidence_quote_substring_match(
             continue;
         }
 
-        let pmid = row
+        // Resolve the row's locator: pmid (claims-matrix) or the typed
+        // source_ref (method_landscape). Rows with neither are skipped
+        // (handled by other obligations).
+        let locator = row
             .pmid
             .clone()
-            .or_else(|| row.prior_pmids.as_ref().and_then(|v| v.first().cloned()));
-        let pmid = match pmid {
-            Some(p) => p,
-            None => continue, // no_prior_finding edge — handled by concordance_flag validator
+            .or_else(|| row.prior_pmids.as_ref().and_then(|v| v.first().cloned()))
+            .or_else(|| row.source_ref.clone());
+        let locator = match locator {
+            Some(l) if !l.is_empty() => l,
+            _ => continue,
         };
 
-        let entry = manifest_by_pmid.get(&pmid).ok_or_else(|| {
+        let entry = manifest_by_locator.get(&locator).ok_or_else(|| {
             (
                 i as u64,
                 ValidationFailureCause::LiteratureClaim {
@@ -488,7 +512,22 @@ pub fn run_evidence_quote_substring_match(
             )
         })?;
 
-        let evidence_path = manifest_dir.join(&entry.path);
+        // The manifest `path` may be evidence-dir-relative ("pmid_X.xml", the
+        // claims-matrix convention) OR task-dir-relative with an "evidence/"
+        // prefix (what the bundled agent_literature_fetch.py helper writes).
+        // Resolve against both so the read succeeds either way — joining a
+        // prefixed path straight onto the evidence dir doubles it
+        // (evidence/evidence/…) and spuriously reports EvidenceArtifactMissing.
+        let evidence_path = {
+            let direct = manifest_dir.join(&entry.path);
+            if direct.exists() {
+                direct
+            } else if let Some(stripped) = entry.path.strip_prefix("evidence/") {
+                manifest_dir.join(stripped)
+            } else {
+                direct
+            }
+        };
         let raw = fs::read_to_string(&evidence_path).map_err(|_| {
             (
                 i as u64,
@@ -513,19 +552,29 @@ pub fn run_evidence_quote_substring_match(
                 },
             ));
         }
-        // Offset check: if declared offset != actual offset under normalization,
-        // surface as QuoteOffsetWrong (forensic — catches misrecorded rows).
-        let actual_offset = normalized_source.find(&normalized_quote).unwrap_or(0);
-        if (actual_offset as u64).abs_diff(row.evidence_quote_offset) > 1024 {
-            // Tolerance: 1024 chars to accommodate normalization shifts.
-            return Err((
-                i as u64,
-                ValidationFailureCause::LiteratureClaim {
-                    row_index: i as u64,
-                    artifact: artifact.clone(),
-                    kind: LiteratureClaimFailureKind::QuoteOffsetWrong,
-                },
-            ));
+        // Offset check (forensic — catches grossly-misrecorded rows). The
+        // substring match above already proved the quote is verbatim-present;
+        // this only sanity-checks the declared offset. Agents record the
+        // offset in the source's OWN (un-normalized) frame, so compare against
+        // the raw-source offset: `collapse_whitespace_lowercase_v1` shifts the
+        // normalized offset far from the raw one on whitespace/markup-heavy
+        // snapshots (e.g. PMC XML), which is a frame artefact, not a
+        // correctness signal. When the quote can't be located verbatim in the
+        // raw frame (it matched only after normalization), skip the offset
+        // check rather than hard-fail.
+        let raw_lc = raw.to_lowercase();
+        let quote_lc = row.evidence_quote.to_lowercase();
+        if let Some(actual_offset) = raw_lc.find(&quote_lc) {
+            if (actual_offset as u64).abs_diff(row.evidence_quote_offset) > 1024 {
+                return Err((
+                    i as u64,
+                    ValidationFailureCause::LiteratureClaim {
+                        row_index: i as u64,
+                        artifact: artifact.clone(),
+                        kind: LiteratureClaimFailureKind::QuoteOffsetWrong,
+                    },
+                ));
+            }
         }
     }
     Ok(())
@@ -559,13 +608,33 @@ pub fn run_redistributable_or_marked(
         if row.source_kind == "none" {
             continue;
         }
+        // The legal gate stays meaningful: it is keyed by `source_kind`, never
+        // blanket-true. External PDFs stored locally MUST NOT be marked
+        // redistributable; paper-class OA / abstract sources (incl. the
+        // OpenAlex/Crossref-surfaced OA records the canonical helper emits, all
+        // legal in literature_evidence_manifest.schema.json) MUST be marked
+        // redistributable to pass. The earlier table only matched three v1
+        // source_kinds and fell through to a spurious FAIL for the v2 enum
+        // values the producer legitimately uses.
         let consistent = match (row.source_kind.as_str(), row.redistributable) {
+            // External PDFs are stored locally only — true is a contradiction.
             ("external_pdf_local_only", false) => true,
-            ("external_pdf_local_only", true) => false, // contradiction
-            ("pmc_oa_full_text", true) => true,
-            ("pmc_oa_full_text", false) => false, // unmarked OA = inconsistent
-            ("abstract_only", true) => true,
-            ("abstract_only", false) => false,
+            ("external_pdf_local_only", true) => false,
+            // Paper-class OA / abstract / OpenAlex / Crossref records are
+            // genuinely CC/fair-use redistributable and MUST carry the mark.
+            (
+                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only"
+                | "pubmed_abstract",
+                true,
+            ) => true,
+            (
+                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only"
+                | "pubmed_abstract",
+                false,
+            ) => false,
+            // Tool-documentation pages are pages, not redistributed corpus —
+            // either marking is legal.
+            ("doc_page", _) => true,
             _ => false,
         };
         if !consistent {
@@ -1274,6 +1343,36 @@ mod tests {
 
     fn write(p: &Path, s: &str) {
         fs::write(p, s).unwrap();
+    }
+
+    #[test]
+    fn redistributable_accepts_v2_source_kinds_but_keeps_legal_gate() {
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.path().join("evidence/manifest.json"); // unused by this runner
+        let hdr = "entity,entity_kind,pmid,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified";
+        let run = |source_kind: &str, redist: &str| {
+            let csv = dir.path().join("m.csv");
+            write(
+                &csv,
+                &format!("{hdr}\nACAN,gene,28123456,foo,0,{source_kind},sha256:abc,2026-05-14T00:00:00Z,{redist},true\n"),
+            );
+            run_redistributable_or_marked(&csv, &manifest)
+        };
+        // v2 paper-class OA records (incl. OpenAlex/Crossref-surfaced) marked
+        // redistributable are accepted — previously fell through to a spurious FAIL.
+        assert!(run("openalex", "true").is_ok());
+        assert!(run("crossref", "true").is_ok());
+        assert!(run("pmc_oa_full_text", "true").is_ok());
+        assert!(run("abstract_only", "true").is_ok());
+        // Tool-documentation pages: either marking is legal.
+        assert!(run("doc_page", "false").is_ok());
+        assert!(run("doc_page", "true").is_ok());
+        // LEGAL GATE preserved: external local PDFs must NOT claim redistribution.
+        assert!(run("external_pdf_local_only", "true").is_err());
+        assert!(run("external_pdf_local_only", "false").is_ok());
+        // LEGAL GATE preserved: an OA source left UNMARKED still fails.
+        assert!(run("openalex", "false").is_err());
+        assert!(run("pmc_oa_full_text", "false").is_err());
     }
 
     #[test]

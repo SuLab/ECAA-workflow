@@ -129,8 +129,10 @@ pub struct ClaimsEvidenceRow {
 #[derive(Debug, Clone, Serialize, Deserialize, TS, schemars::JsonSchema)]
 #[ts(export)]
 pub struct EvidenceManifestEntry {
-    /// PubMed ID of the source article.
-    pub pmid: String,
+    /// PubMed ID of the source article. Absent for non-PMID sources
+    /// (DOI/arXiv/URL/curated), which anchor via a typed locator instead.
+    #[serde(default)]
+    pub pmid: Option<String>,
     /// Where the evidence text was retrieved from.
     pub source_kind: SourceKind,
     /// Relative path to the evidence file within the bundle.
@@ -530,7 +532,17 @@ struct RawManifest {
 
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 struct RawManifestEntry {
-    pmid: String,
+    // v2 manifest: optional — non-PMID sources (DOI/arXiv/URL/curated) carry a
+    // typed `source_ref` instead. Required `String` here rejected the whole
+    // manifest on the first non-PMID entry.
+    #[serde(default)]
+    pmid: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    source_ref_kind: Option<String>,
+    #[serde(default)]
+    #[allow(dead_code)]
+    source_ref: Option<String>,
     source_kind: String,
     path: String,
     #[serde(default)]

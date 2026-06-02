@@ -7,6 +7,21 @@ bundled retrieval helper. The package `PROMPT.md` above and the per-task
 `task-spec.json` remain authoritative for what this stage must produce; the
 rules here are the cross-cutting retrieval contract.
 
+**Use the bundled helper `scripts/agent_literature_fetch.py` to write
+`method_landscape.csv` and `evidence/manifest.json` — do NOT hand-roll their
+schemas.** The post-task literature validators enforce the exact column set and
+manifest fields documented below; a hand-rolled CSV or a manifest in any other
+shape (e.g. a top-level `sources` array, `artifact_path` keys, or PMID-only
+entries) WILL be rejected and block the task. The helper emits the schema the
+validators expect, including the per-source `sha256`, `license`, and
+`redistributable` provenance fields.
+
+**Corroboration:** for every candidate method you surface, retrieve at least
+TWO independent verified sources (distinct PMIDs/DOIs) where they exist — a
+single-source candidate is flagged `insufficient_corroboration` by the
+post-task validators. If only one source genuinely exists for a candidate,
+retrieve it and proceed; do not fabricate a second.
+
 Your job on this task is to RETRIEVE and RECORD, not to rank, recommend,
 paraphrase, or synthesize. Honour the atom's `claim_boundary`: every row you
 write must be a verbatim quote from one resolvable source, tagged with its
