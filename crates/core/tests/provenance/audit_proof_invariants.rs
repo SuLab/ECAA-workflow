@@ -336,6 +336,58 @@ fn equivalence_failure_passes_when_acknowledged_via_detail_containment() {
     assert_eq!(v.status, InvariantStatus::Pass);
 }
 
+// --- spec §4 predicate over Q.RerunOutcomes (class field), not just prove/failed ---
+
+#[test]
+fn equivalence_failure_fails_on_unacked_acknowledged_non_determinism() {
+    // Spec §4: ∀ r ∈ Q.RerunOutcomes : r.class ∉ {"failed",
+    // "acknowledged_non_determinism"} ∨ ∃ F.Blocker acknowledging r.id.
+    // A re-execution that diverged as acknowledged-non-deterministic with NO
+    // Blocker is the silent-corruption case the invariant must catch.
+    let pkg = pkg_with_q(
+        vec![json!({"class":"acknowledged_non_determinism","id":"rerun-1"})],
+        vec![],
+    );
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Fail);
+}
+
+#[test]
+fn equivalence_failure_fails_on_unacked_failed_rerun_class() {
+    let pkg = pkg_with_q(
+        vec![json!({"class":"failed","id":"rerun-2"})],
+        vec![],
+    );
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Fail);
+}
+
+#[test]
+fn equivalence_failure_passes_when_rerun_divergence_acknowledged() {
+    let pkg = pkg_with_q(
+        vec![json!({"class":"acknowledged_non_determinism","id":"rerun-3"})],
+        vec![json!({"kind":"policy_exception","edge_id":"rerun-3"})],
+    );
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Pass);
+}
+
+#[test]
+fn equivalence_failure_ignores_non_divergent_rerun_classes() {
+    // byte_identical / semantic_equivalent / unavailable are not in the
+    // diverged set and need no acknowledgement.
+    let pkg = pkg_with_q(
+        vec![
+            json!({"class":"byte_identical","id":"r-a"}),
+            json!({"class":"semantic_equivalent","id":"r-b"}),
+            json!({"class":"unavailable","id":"r-c"}),
+        ],
+        vec![],
+    );
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Pass);
+}
+
 use ecaa_workflow_core::audit_proof::invariants::cross_graph_integrity::check_cross_graph_integrity;
 
 #[test]
