@@ -306,6 +306,60 @@ def project_execution_steps(graph_nodes, proofs_rows):
     return list(steps.values())
 
 
+def project_qualified_derivation(metadata):
+    """Upgrade an amendment/branch lineage edge to a reified
+    `prov:qualifiedDerivation` (F7-engineering).
+
+    The reference emitter records lineage as a plain `prov:wasDerivedFrom` on
+    the root Dataset (`./`). This helper ADDITIONALLY synthesizes a reified
+    `prov:Derivation` node (`prov:entity` = the parent) and links the package
+    node to it via `prov:qualifiedDerivation`, so a second-impl can inspect the
+    derivation's structure. The plain `prov:wasDerivedFrom` is retained
+    (additive — RO-Crate-1.1 readers keep working). `prov:qualifiedDerivation`
+    / `prov:Derivation` are RDF projection terms, NOT ECAA closed predicates,
+    so they are bound in a local `@context` here (not in the canonical
+    `ecaa-v0.1.jsonld`). Returns a list of JSON-LD docs (each with its own
+    `@context`), or an empty list when no lineage edge is present.
+    """
+    graph = metadata.get("@graph", []) if isinstance(metadata, dict) else []
+    root = next(
+        (n for n in graph if isinstance(n, dict) and n.get("@id") == "./"),
+        None,
+    )
+    if not root:
+        return None
+    parent = root.get("prov:wasDerivedFrom")
+    if isinstance(parent, dict):
+        parent_id = parent.get("@id")
+    elif isinstance(parent, str):
+        parent_id = parent
+    else:
+        return None
+    if not parent_id:
+        return None
+    prov_ctx = {
+        "prov": "http://www.w3.org/ns/prov#",
+        "id": "@id",
+        "type": "@type",
+        "qualifiedDerivation": {"@id": "prov:qualifiedDerivation", "@type": "@id"},
+        "entity": {"@id": "prov:entity", "@type": "@id"},
+    }
+    derivation_id = f"prov:derivation:{parent_id}"
+    return [
+        {
+            "@context": prov_ctx,
+            "id": "ecaa:package",
+            "qualifiedDerivation": derivation_id,
+        },
+        {
+            "@context": prov_ctx,
+            "id": derivation_id,
+            "type": "prov:Derivation",
+            "entity": parent_id,
+        },
+    ]
+
+
 def conforms_to_iris(metadata):
     """Extract the package-level `conformsTo` profile IRIs from an
     ro-crate-metadata.json document.
@@ -462,6 +516,15 @@ def project(pkg_dir, log=print):
             _to_rdf(projected, node, context_label="ro-crate-metadata.json#WorkflowStep")
         if step_nodes and log is not None:
             log(f"  execution steps: {len(step_nodes)} WorkflowStep nodes (@graph + E)")
+
+        # Amendment/branch lineage: upgrade the plain `prov:wasDerivedFrom` edge
+        # to a reified `prov:qualifiedDerivation` (additive; F7-engineering).
+        derivation_docs = project_qualified_derivation(metadata)
+        if derivation_docs:
+            for doc in derivation_docs:
+                _to_rdf(projected, doc, context_label="ro-crate-metadata.json#qualifiedDerivation")
+            if log is not None:
+                log("  qualified derivation: prov:Derivation + prov:qualifiedDerivation")
     elif log is not None:
         log("  skip (absent): ro-crate-metadata.json (no ecaa:Package focus node)")
 
