@@ -10,20 +10,41 @@
 //! the lens to every verifier choice (proven, refused, ranked,
 //! consulted, accepted, rejected, scope-checked) so post-hoc analysis
 //! can reconstruct *why* the composer produced this DAG instead of an
-//! alternative. The substrate is **append-only**: a process-wide
-//! `Mutex<Vec<_>>` collects events during composition; the emit step
-//! drains the buffer and writes one JSON object per line to
-//! `runtime/verifier-decisions.jsonl`.
+//! alternative. The substrate is **append-only**: events accumulate
+//! during composition; the emit step drains them and writes one JSON
+//! object per line to `runtime/verifier-decisions.jsonl`.
 //!
-//! ## Buffer pattern
+//! ## Buffer pattern (session-scoped)
 //!
-//! A global static `OnceLock<Mutex<Vec<VerifierDecision>>>` keeps the
-//! API call-site-free: `record(d)` from anywhere in core, and the
-//! emit-time `drain()` returns the accumulated batch in insertion
-//! order. Mutex poisoning is treated as a soft-fail (the substrate is
-//! diagnostic, not load-bearing for composition correctness).
+//! A global static `OnceLock<Mutex<BTreeMap<SessionKey, Vec<_>>>>`
+//! partitions events **by session** so two concurrent server sessions
+//! composing at the same time never interleave into one shared buffer
+//! (which previously let the first session to emit scoop both sessions'
+//! decisions). The routing key is an *ambient* per-thread "current
+//! session id" set by a [`SessionScope`] RAII guard — this keeps the
+//! `record(d)` / `drain()` call sites argument-free (they are invoked
+//! from deep inside the compatibility engine, planner, and policy gate
+//! where threading a session id through every signature is impractical).
+//!
+//! - `record(d)` appends into the bucket for the thread's current
+//!   session scope (or the unscoped default bucket when no scope is
+//!   active).
+//! - `drain()` empties the thread's current session scope's bucket; with
+//!   no active scope it drains **and merges** every bucket, preserving
+//!   the historical "drain everything" semantics for unscoped callers.
+//! - `drain_session(id)` empties exactly one session's bucket regardless
+//!   of the thread's ambient scope — the isolation-correct entry point
+//!   for the emit-time writer.
+//!
+//! The composer enters a [`SessionScope`] around its top-level `plan()`
+//! call (see `composer::dispatch`), so all of a session's compose-time
+//! decisions land in that session's bucket. Mutex poisoning is treated
+//! as a soft-fail (the substrate is diagnostic, not load-bearing for
+//! composition correctness).
 
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::sync::{Mutex, OnceLock};
 use ts_rs::TS;
 
@@ -543,43 +564,143 @@ impl IncompatibilityReason {
 // Buffer surface
 // ---------------------------------------------------------------------
 
-/// Process-wide buffer. Compiled-time `OnceLock<Mutex<Vec<_>>>` so we
-/// never need a `static_init`-style crate dependency and the buffer
-/// reset on `drain()` is `Send + Sync`-safe.
-static BUFFER: OnceLock<Mutex<Vec<VerifierDecision>>> = OnceLock::new();
+/// Routing key for the per-session buffer map. `None` is the unscoped
+/// default bucket used by callers that never enter a [`SessionScope`]
+/// (today: the server's repair-proposal endpoints, the `unblock`
+/// breadcrumb path, and the in-crate property/unit tests, which all
+/// serialize through their own mutex and so are not cross-session
+/// concurrent on this bucket).
+type SessionKey = Option<String>;
 
-/// Append a verifier decision. Mutex poisoning is treated as a soft-fail
-/// — the substrate is observational, not load-bearing for composition
-/// correctness, and panicking from a logging helper would mask the
-/// underlying defect the substrate exists to capture.
+/// Session-keyed buffer. `OnceLock<Mutex<BTreeMap<_>>>` so we never need
+/// a `static_init`-style crate dependency, the map is `Send + Sync`-safe,
+/// and concurrent sessions on different OS threads never share a `Vec`.
+/// `BTreeMap` (not `HashMap`) keeps the merge-all `drain()` order stable
+/// for the determinism contract.
+static BUFFER: OnceLock<Mutex<BTreeMap<SessionKey, Vec<VerifierDecision>>>> = OnceLock::new();
+
+thread_local! {
+    /// Ambient "current session id" for this thread. Set by the RAII
+    /// [`SessionScope`] guard around the composer's `plan()` call so
+    /// every `record()` fired transitively from the engine / planner /
+    /// policy gate routes into the right session bucket without
+    /// threading the id through every call signature. Defaults to
+    /// `None` (the unscoped default bucket).
+    static CURRENT_SESSION: RefCell<SessionKey> = const { RefCell::new(None) };
+}
+
+fn buffer() -> &'static Mutex<BTreeMap<SessionKey, Vec<VerifierDecision>>> {
+    BUFFER.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// Read the thread's current session scope (a clone of the key).
+fn current_session_key() -> SessionKey {
+    CURRENT_SESSION.with(|c| c.borrow().clone())
+}
+
+/// RAII guard that sets the thread-local "current session" for the
+/// duration of a composition and restores the previous value on drop
+/// (so nested or sequential compositions on the same thread don't leak
+/// scope into each other). Returned by [`enter_session`].
+///
+/// The guard is intentionally `#[must_use]` and not `Clone`/`Copy`: the
+/// scope is tied to the lexical span of the composition.
+#[must_use = "the session scope ends when this guard is dropped; bind it to a local"]
+pub struct SessionScope {
+    /// The scope value that was active before this guard installed its
+    /// own, restored verbatim on drop.
+    previous: SessionKey,
+}
+
+impl Drop for SessionScope {
+    fn drop(&mut self) {
+        let prev = self.previous.take();
+        CURRENT_SESSION.with(|c| *c.borrow_mut() = prev);
+    }
+}
+
+/// Enter a session scope for the current thread. Every `record()` fired
+/// on this thread until the returned [`SessionScope`] drops routes into
+/// the `session_id` bucket; the matching [`drain_session`] (or a scoped
+/// `drain()`) recovers exactly those rows. Restores the previous scope
+/// on drop.
+///
+/// Composer entry points wrap their top-level `plan()` call in this
+/// guard so a session's compose-time decisions are isolated from any
+/// other session composing concurrently on a different thread.
+pub fn enter_session(session_id: impl Into<String>) -> SessionScope {
+    let previous = CURRENT_SESSION.with(|c| c.replace(Some(session_id.into())));
+    SessionScope { previous }
+}
+
+/// Append a verifier decision into the current thread's session bucket
+/// (or the unscoped default bucket when no [`SessionScope`] is active).
+/// Mutex poisoning is treated as a soft-fail — the substrate is
+/// observational, not load-bearing for composition correctness, and
+/// panicking from a logging helper would mask the underlying defect the
+/// substrate exists to capture.
 pub fn record(d: VerifierDecision) {
-    let buf = BUFFER.get_or_init(|| Mutex::new(Vec::new()));
-    if let Ok(mut g) = buf.lock() {
-        g.push(d);
+    let key = current_session_key();
+    if let Ok(mut g) = buffer().lock() {
+        g.entry(key).or_default().push(d);
     }
 }
 
-/// Drain the buffer and return its contents in insertion order. Called
-/// from the emit step so the buffer is empty for the next session in a
-/// long-running server process. Mutex poisoning yields an empty Vec —
-/// see `record` for the rationale.
+/// Drain decisions in insertion order. When a [`SessionScope`] is active
+/// on this thread, only that session's bucket is emptied — the
+/// isolation-correct behavior for a scoped compose+emit flow. When no
+/// scope is active, every bucket is drained and merged in session-key
+/// order (the historical "drain everything" semantics that unscoped
+/// callers — the emit-time writer, the server repair endpoints, and the
+/// in-crate tests — depend on). Mutex poisoning yields an empty Vec.
+///
+/// For session-isolated emission regardless of the thread's ambient
+/// scope, prefer [`drain_session`].
 pub fn drain() -> Vec<VerifierDecision> {
-    let buf = BUFFER.get_or_init(|| Mutex::new(Vec::new()));
-    match buf.lock() {
-        Ok(mut g) => std::mem::take(&mut *g),
-        Err(_) => Vec::new(),
+    let key = current_session_key();
+    let Ok(mut map) = buffer().lock() else {
+        return Vec::new();
+    };
+    match key {
+        Some(_) => map.remove(&key).unwrap_or_default(),
+        None => {
+            // Unscoped: drain + merge every bucket. `BTreeMap::into_values`
+            // yields buckets in stable session-key order, and each bucket
+            // preserves its own insertion order, so the merged result is
+            // deterministic.
+            std::mem::take(&mut *map).into_values().flatten().collect()
+        }
     }
 }
 
-/// Test/library callers that need to peek at the buffer's current
-/// length without draining (e.g. property tests that assert "at least
-/// one event after prove()" but want subsequent assertions to see the
-/// same events). Soft-fail to 0 on poisoning.
+/// Drain exactly the `session_id` bucket in insertion order, regardless
+/// of the calling thread's ambient [`SessionScope`]. This is the
+/// isolation-correct entry point for the emit-time writer: a session's
+/// substrate file gets only that session's decisions even when a sibling
+/// session's compose-time rows are still buffered in the process. Mutex
+/// poisoning yields an empty Vec.
+pub fn drain_session(session_id: &str) -> Vec<VerifierDecision> {
+    let Ok(mut map) = buffer().lock() else {
+        return Vec::new();
+    };
+    map.remove(&Some(session_id.to_string())).unwrap_or_default()
+}
+
+/// Test/library callers that need to peek at the current thread's
+/// session-bucket length without draining (e.g. property tests that
+/// assert "at least one event after prove()" but want subsequent
+/// assertions to see the same events). Counts the bucket for the
+/// thread's active scope, or — when unscoped — the sum across every
+/// bucket (mirroring the unscoped `drain()` merge semantics). Soft-fail
+/// to 0 on poisoning.
 #[doc(hidden)]
 pub fn len() -> usize {
-    let buf = BUFFER.get_or_init(|| Mutex::new(Vec::new()));
-    match buf.lock() {
-        Ok(g) => g.len(),
+    let key = current_session_key();
+    match buffer().lock() {
+        Ok(map) => match key {
+            Some(_) => map.get(&key).map(|v| v.len()).unwrap_or(0),
+            None => map.values().map(|v| v.len()).sum(),
+        },
         Err(_) => 0,
     }
 }
@@ -610,12 +731,17 @@ mod tests {
     use super::*;
     use std::sync::Mutex;
 
-    /// The substrate buffer is process-wide. These tests serialize
-    /// against the writer's tests in `crates/conversation` via this
-    /// crate-local guard; cross-crate serialization isn't possible
-    /// without a workspace-level mutex, but in practice cargo runs
-    /// each crate's tests in its own binary, so a per-crate guard
-    /// is sufficient.
+    /// The substrate buffer is session-keyed but the *unscoped* default
+    /// bucket is shared across these tests. Tests that record/drain
+    /// without a `SessionScope` serialize against this crate-local guard
+    /// so an unscoped merge-all `drain()` in one test doesn't scoop
+    /// another's default-bucket rows. Cross-crate serialization isn't
+    /// possible without a workspace-level mutex, but cargo runs each
+    /// crate's tests in its own binary, so a per-crate guard is
+    /// sufficient. Tests that scope into a *unique* session id are
+    /// isolated by the session key itself and additionally hold this
+    /// guard so a concurrent unscoped merge-all drain can't steal their
+    /// scoped rows.
     static SUBSTRATE_GUARD: Mutex<()> = Mutex::new(());
 
     #[test]
@@ -690,5 +816,130 @@ mod tests {
             }
             other => panic!("expected FacetMismatch, got {:?}", other),
         }
+    }
+
+    /// A scoped `drain()` empties only the active session's bucket and
+    /// leaves a sibling session's rows untouched; `drain_session`
+    /// recovers the sibling's rows on the same thread regardless of the
+    /// ambient scope.
+    #[test]
+    fn scoped_drain_isolates_per_session() {
+        let _guard = SUBSTRATE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let a = format!("sess-A-{}", std::ptr::addr_of!(SUBSTRATE_GUARD) as usize);
+        let b = format!("sess-B-{}", std::ptr::addr_of!(SUBSTRATE_GUARD) as usize);
+        // Clear any residue for these (unique) keys.
+        let _ = drain_session(&a);
+        let _ = drain_session(&b);
+
+        {
+            let _scope_a = enter_session(a.clone());
+            record(VerifierDecision::UnificationAttempted {
+                id: "a-only".into(),
+                timestamp: timestamp(),
+                producer_port: "pa".into(),
+                consumer_port: "ca".into(),
+                ctx_hash: "ha".into(),
+            });
+        }
+        {
+            let _scope_b = enter_session(b.clone());
+            record(VerifierDecision::UnificationAttempted {
+                id: "b-only".into(),
+                timestamp: timestamp(),
+                producer_port: "pb".into(),
+                consumer_port: "cb".into(),
+                ctx_hash: "hb".into(),
+            });
+        }
+
+        // Scoped drain of A sees only A's row.
+        let drained_a = {
+            let _scope_a = enter_session(a.clone());
+            drain()
+        };
+        assert_eq!(drained_a.len(), 1, "A scope must drain only A's row");
+        assert!(matches!(
+            &drained_a[0],
+            VerifierDecision::UnificationAttempted { id, .. } if id == "a-only"
+        ));
+
+        // B's bucket is untouched; recover it via drain_session.
+        let drained_b = drain_session(&b);
+        assert_eq!(drained_b.len(), 1, "B's bucket must survive A's drain");
+        assert!(matches!(
+            &drained_b[0],
+            VerifierDecision::UnificationAttempted { id, .. } if id == "b-only"
+        ));
+    }
+
+    /// Two concurrent "sessions" on separate OS threads — each entering
+    /// its own [`SessionScope`] and recording N rows — must drain only
+    /// their own decisions. This is the core-01 regression: before the
+    /// session-keyed buffer, both threads pushed into one shared `Vec`
+    /// and the first thread to drain scooped the other thread's rows.
+    #[test]
+    fn concurrent_sessions_drain_only_their_own_decisions() {
+        use std::sync::Barrier;
+        use std::thread;
+
+        let _guard = SUBSTRATE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let tag = std::ptr::addr_of!(SUBSTRATE_GUARD) as usize;
+        let sess_a = format!("concurrent-A-{tag}");
+        let sess_b = format!("concurrent-B-{tag}");
+        let _ = drain_session(&sess_a);
+        let _ = drain_session(&sess_b);
+
+        const ROWS: usize = 200;
+        // A barrier forces both threads to interleave their record()
+        // calls, maximizing the chance a shared-Vec implementation would
+        // cross-contaminate.
+        let barrier = std::sync::Arc::new(Barrier::new(2));
+
+        let spawn = |session: String, prefix: &'static str| {
+            let barrier = barrier.clone();
+            thread::spawn(move || {
+                let _scope = enter_session(session);
+                barrier.wait();
+                for i in 0..ROWS {
+                    record(VerifierDecision::UnificationAttempted {
+                        id: format!("{prefix}-{i}"),
+                        timestamp: timestamp(),
+                        producer_port: prefix.into(),
+                        consumer_port: prefix.into(),
+                        ctx_hash: format!("{i}"),
+                    });
+                }
+                // Drain inside the scope so we exercise the scoped
+                // drain() path that the emit-time writer's
+                // session-isolated entry mirrors.
+                drain()
+            })
+        };
+
+        let ha = spawn(sess_a.clone(), "AAA");
+        let hb = spawn(sess_b.clone(), "BBB");
+        let drained_a = ha.join().expect("thread A joins");
+        let drained_b = hb.join().expect("thread B joins");
+
+        assert_eq!(drained_a.len(), ROWS, "A must drain exactly its rows");
+        assert_eq!(drained_b.len(), ROWS, "B must drain exactly its rows");
+        assert!(
+            drained_a.iter().all(|e| matches!(
+                e,
+                VerifierDecision::UnificationAttempted { id, .. } if id.starts_with("AAA-")
+            )),
+            "A's drain leaked a non-A row (cross-session contamination)"
+        );
+        assert!(
+            drained_b.iter().all(|e| matches!(
+                e,
+                VerifierDecision::UnificationAttempted { id, .. } if id.starts_with("BBB-")
+            )),
+            "B's drain leaked a non-B row (cross-session contamination)"
+        );
+
+        // Both buckets are now empty.
+        assert!(drain_session(&sess_a).is_empty());
+        assert!(drain_session(&sess_b).is_empty());
     }
 }

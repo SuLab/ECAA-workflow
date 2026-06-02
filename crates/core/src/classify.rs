@@ -293,6 +293,22 @@ pub struct Classifier {
     keyword_idf: std::collections::BTreeMap<String, f32>,
 }
 
+/// Defensive synthetic generic-fallback modality for the
+/// theoretically-unreachable case where `classify` runs against a
+/// classifier carrying zero modalities. Every classifier built through
+/// [`Classifier::load`] / [`Classifier::load_with_drift_mode`] is
+/// guaranteed (at load time) to carry a keyword-less generic fallback,
+/// so this only protects in-module test constructions that bypass the
+/// loader — and lets `classify` stay non-panicking and infallible.
+static GENERIC_FALLBACK_ENTRY: std::sync::LazyLock<ModalityEntry> =
+    std::sync::LazyLock::new(|| ModalityEntry {
+        id: "generic_omics".to_string(),
+        taxonomy: String::new(),
+        keywords: Vec::new(),
+        edam_topic: String::new(),
+        edam_operation: String::new(),
+    });
+
 impl Classifier {
     /// Load classifier configuration.
     ///
@@ -406,6 +422,25 @@ impl Classifier {
             })
             .collect();
 
+        // Load-time generic-fallback invariant. `classify` selects a
+        // keyword-less modality as the fallback whenever no keyword-bearing
+        // modality scores (and again for the zero-confidence path); both
+        // sites assume one exists. Enforce it here so the failure surfaces
+        // as a clear config error at load instead of a runtime panic deep
+        // inside `classify`. The generic fallback is `generic_omics`
+        // (empty `keywords:` in its manifest); a registry that lost it is
+        // misconfigured and must not produce a classifier.
+        if !config.modalities.iter().any(|m| m.keywords.is_empty()) {
+            return Err(anyhow!(
+                "modality registry at '{}' has no generic-fallback modality \
+                 (a manifest with an empty `keywords:` list, conventionally \
+                 `generic_omics`); the classifier requires one so out-of-vocabulary \
+                 intake routes somewhere instead of panicking. Add or restore the \
+                 keyword-less fallback manifest.",
+                modalities_dir.display()
+            ));
+        }
+
         // Discriminative IDF weights. For each normalized keyword,
         // count how many modalities use it; the weight is 1/count
         // (clamped to [0.1, 1.0]). The selective scorer in
@@ -508,12 +543,18 @@ impl Classifier {
             .max_by_key(|(_, _, hits, weighted)| (*weighted, *hits))
             .copied()
             .unwrap_or_else(|| {
+                // No keyword-bearing modality scored. Route to the
+                // generic fallback (keyword-less modality). `load`
+                // guarantees one exists; the `unwrap_or` to the synthetic
+                // `GENERIC_FALLBACK_ENTRY` keeps `classify` non-panicking
+                // even for a (loader-bypassing) classifier that somehow
+                // lacks one.
                 let fallback = self
                     .config
                     .modalities
                     .iter()
                     .find(|m| m.keywords.is_empty())
-                    .expect("config must have a generic fallback modality with empty keywords");
+                    .unwrap_or(&GENERIC_FALLBACK_ENTRY);
                 (fallback, 0, 0, 0)
             });
 

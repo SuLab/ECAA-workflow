@@ -1,22 +1,34 @@
 //! v4 P2 / F18 — emit-time writer for `runtime/verifier-decisions.jsonl`.
 //!
 //! Called from `emit_with_conversation_log_tiered` (next to
-//! `write_phase16_sidecars`). Drains the process-wide substrate buffer
+//! `write_phase16_sidecars`). Drains the session-keyed substrate buffer
 //! exposed by `ecaa_workflow_core::decision_substrate` and writes one
 //! JSON object per line.
+//!
+//! Session isolation: prefer [`write_verifier_decisions_for_session`],
+//! which drains only the emitting session's bucket via
+//! `decision_substrate::drain_session` — so a sibling session's
+//! still-buffered compose-time decisions never leak into this session's
+//! sidecar. [`write_verifier_decisions`] is the legacy entry point that
+//! drains the unscoped default bucket (and, when no session scope is
+//! active on the calling thread, every bucket merged) — retained for the
+//! existing `emit/mod.rs` call site and for tests that record into the
+//! default bucket.
 //!
 //! Atomicity: write to `<filename>.tmp` then rename so a panic mid-write
 //! leaves either no file or the previous file, matching the discipline
 //! established by `audit_log::write_jsonl` for the conversation/
 //! decision logs.
 
-use ecaa_workflow_core::decision_substrate::{drain, VerifierDecision};
+use ecaa_workflow_core::decision_substrate::{drain, drain_session, VerifierDecision};
 use std::collections::HashSet;
 use std::path::Path;
 
-/// Drain the substrate buffer and write one JSON line per **distinct**
-/// decision to `<runtime_dir>/verifier-decisions.jsonl`. Returns the
-/// number of rows written (post-dedup).
+/// Dedup + atomically write a batch of substrate decisions to
+/// `<runtime_dir>/verifier-decisions.jsonl`. Returns the number of rows
+/// written (post-dedup). Shared by both the legacy and session-isolated
+/// entry points so the dedup, ordering, and atomic-rename discipline
+/// stay identical.
 ///
 /// Dedup rationale: the v4 proof-carrying planner runs forward/backward
 /// search that re-visits the same producer→consumer port pairs many
@@ -31,18 +43,14 @@ use std::path::Path;
 /// that the ECAA SHACL-projection validator completes inside its
 /// subprocess timeout. First-seen insertion order is preserved so the
 /// file stays byte-deterministic across re-emissions.
-///
-/// The writer is **synchronous** even though `emit/mod.rs` is async;
-/// the substrate file is small (distinct verifier decisions, typically
-/// a few thousand rows per emit) and avoiding tokio's File handle keeps
-/// the call sync-friendly for tests that exercise the function from
-/// `#[cfg(test)]` without an active runtime.
-pub(super) fn write_verifier_decisions(runtime_dir: &Path) -> std::io::Result<usize> {
-    let decisions = drain();
+fn write_decisions_to_dir(
+    runtime_dir: &Path,
+    decisions: &[VerifierDecision],
+) -> std::io::Result<usize> {
     let mut buf = String::new();
     let mut seen: HashSet<String> = HashSet::new();
     let mut written = 0usize;
-    for d in &decisions {
+    for d in decisions {
         match serde_json::to_string(d) {
             Ok(line) => {
                 // Collapse byte-identical rows the planner re-recorded on
@@ -70,6 +78,47 @@ pub(super) fn write_verifier_decisions(runtime_dir: &Path) -> std::io::Result<us
     std::fs::write(&tmp, buf)?;
     std::fs::rename(&tmp, &target)?;
     Ok(written)
+}
+
+/// Drain the unscoped/default substrate bucket (or, with no active
+/// session scope on the calling thread, every bucket merged) and write
+/// one JSON line per **distinct** decision to
+/// `<runtime_dir>/verifier-decisions.jsonl`. Returns the number of rows
+/// written (post-dedup).
+///
+/// Prefer [`write_verifier_decisions_for_session`] on the emit path: this
+/// legacy entry point cannot isolate two sessions that both finished
+/// composing but have not yet emitted, because it has no session id to
+/// key on. It is retained for the current `emit/mod.rs` call site and for
+/// `#[cfg(test)]` callers that record into the default bucket.
+///
+/// The writer is **synchronous** even though `emit/mod.rs` is async;
+/// the substrate file is small (distinct verifier decisions, typically
+/// a few thousand rows per emit) and avoiding tokio's File handle keeps
+/// the call sync-friendly for tests that exercise the function from
+/// `#[cfg(test)]` without an active runtime.
+pub(super) fn write_verifier_decisions(runtime_dir: &Path) -> std::io::Result<usize> {
+    let decisions = drain();
+    write_decisions_to_dir(runtime_dir, &decisions)
+}
+
+/// Session-isolated counterpart to [`write_verifier_decisions`]. Drains
+/// **only** the `session_id` bucket — so even when a sibling session's
+/// compose-time rows are still buffered in the process, this session's
+/// `verifier-decisions.jsonl` carries exactly its own decisions. This is
+/// the cross-session-contamination fix: the composer enters a matching
+/// `decision_substrate::enter_session(session_id)` scope around its
+/// `plan()` call, so every row this drains was recorded under the same
+/// id.
+///
+/// Synchronous for the same reason as [`write_verifier_decisions`].
+#[allow(dead_code)]
+pub(super) fn write_verifier_decisions_for_session(
+    runtime_dir: &Path,
+    session_id: &str,
+) -> std::io::Result<usize> {
+    let decisions = drain_session(session_id);
+    write_decisions_to_dir(runtime_dir, &decisions)
 }
 
 /// Read the substrate file back into a `Vec<VerifierDecision>`. Used
@@ -110,20 +159,25 @@ pub fn read_verifier_decisions(runtime_dir: &Path) -> std::io::Result<Vec<Verifi
 mod tests {
     use super::*;
     use ecaa_workflow_core::decision_substrate::{
-        record, IncompatibilityReason as SubstrateIncompatibility, VerifierDecision,
+        enter_session, record, IncompatibilityReason as SubstrateIncompatibility, VerifierDecision,
     };
     use std::sync::Mutex;
 
-    /// The decision substrate buffer is process-wide; these unit
-    /// tests serialize their (drain, record/write, drain) sequences
-    /// so cargo's parallel test runner doesn't cross-contaminate.
+    /// The decision substrate buffer is session-keyed; tests that
+    /// record/drain the *unscoped default* bucket serialize their
+    /// (drain, record/write, drain) sequences through this guard so
+    /// cargo's parallel test runner doesn't cross-contaminate. Tests
+    /// that scope into a unique session id are isolated by the key and
+    /// additionally hold this guard so a concurrent unscoped merge-all
+    /// drain can't steal their scoped rows.
     static SUBSTRATE_GUARD: Mutex<()> = Mutex::new(());
 
     #[test]
     fn writes_and_reads_back_round_trip() {
         let _guard = SUBSTRATE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         // Drain anything left from earlier tests so this test is
-        // hermetic on the shared process-wide buffer.
+        // hermetic on the shared default substrate bucket (unscoped
+        // `drain()` merges all buckets).
         let _ = ecaa_workflow_core::decision_substrate::drain();
         record(VerifierDecision::UnificationAttempted {
             id: "u1".into(),
@@ -202,5 +256,60 @@ mod tests {
         assert!(p.exists());
         let bytes = std::fs::read(&p).unwrap();
         assert!(bytes.is_empty());
+    }
+
+    /// The session-isolated writer drains only the emitting session's
+    /// bucket: a sibling session that finished composing (its rows still
+    /// buffered) never contaminates this session's sidecar. This mirrors
+    /// the production flow where the composer enters
+    /// `enter_session(session_id)` around `plan()` and the emit step
+    /// drains that same session.
+    #[test]
+    fn session_writer_isolates_concurrent_sessions() {
+        let _guard = SUBSTRATE_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let tag = std::ptr::addr_of!(SUBSTRATE_GUARD) as usize;
+        let sess_emitting = format!("emit-{tag}");
+        let sess_other = format!("other-{tag}");
+
+        // Session "other" composed first and its rows are still buffered.
+        {
+            let _scope = enter_session(sess_other.clone());
+            for i in 0..3 {
+                record(VerifierDecision::UnificationAttempted {
+                    id: format!("other-{i}"),
+                    timestamp: "0".into(),
+                    producer_port: "po".into(),
+                    consumer_port: "co".into(),
+                    ctx_hash: "ho".into(),
+                });
+            }
+        }
+        // Session being emitted recorded its own rows.
+        {
+            let _scope = enter_session(sess_emitting.clone());
+            record(VerifierDecision::UnificationAttempted {
+                id: "mine-0".into(),
+                timestamp: "0".into(),
+                producer_port: "pm".into(),
+                consumer_port: "cm".into(),
+                ctx_hash: "hm".into(),
+            });
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let n = write_verifier_decisions_for_session(dir.path(), &sess_emitting).unwrap();
+        assert_eq!(n, 1, "writer drained only the emitting session's row");
+        let read_back = read_verifier_decisions(dir.path()).unwrap();
+        assert_eq!(read_back.len(), 1);
+        assert!(matches!(
+            &read_back[0],
+            VerifierDecision::UnificationAttempted { id, .. } if id == "mine-0"
+        ));
+
+        // "other" survives untouched and can be drained separately.
+        let other_dir = tempfile::tempdir().unwrap();
+        let other_n =
+            write_verifier_decisions_for_session(other_dir.path(), &sess_other).unwrap();
+        assert_eq!(other_n, 3, "sibling session's buffered rows are intact");
     }
 }
