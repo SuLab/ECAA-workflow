@@ -68,7 +68,7 @@ pub enum SuggestionConfidence {
 
 /// Which deterministic mutation tool the apply endpoint dispatches
 /// to. Read by the UI to set the button label and confirmation
-/// rendering. Always a member of the existing closed 16-tool
+/// rendering. Always a member of the existing closed 22-tool
 /// vocabulary plus two non-tool paths (operator action, manual-only).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
 #[ts(export)]

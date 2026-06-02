@@ -1,5 +1,5 @@
 //! JSON schema emission and user-facing status copy for the closed
-//! 15-tool vocabulary. Split out from `tools.rs` so the dispatch layer
+//! 22-tool vocabulary. Split out from `tools.rs` so the dispatch layer
 //! stays focused on argument validation, session mutation, and audit
 //! logging.
 //!
@@ -326,7 +326,7 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// while still bounding the worst-case load.
 pub const MAX_FREETEXT_LEN: u32 = 16_384;
 
-/// Static JSON schemas for all 20 tools. Use `tool_schemas_for_state`
+/// Static JSON schemas for all 22 tools. Use `tool_schemas_for_state`
 /// to get the state-filtered subset used in live conversation; use
 /// this full list for validation, introspection, and tests.
 pub fn tool_schemas() -> Vec<serde_json::Value> {

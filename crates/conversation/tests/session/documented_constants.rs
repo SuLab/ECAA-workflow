@@ -299,9 +299,16 @@ fn server_chat_route_count_matches_claim() {
 /// ECAA_IMAGE_BUILDER_PATH) consumed by scripts/build-derived-image.sh
 /// + crates/harness/src/executor/local.rs::warm_runtime_image.
 #[test]
-#[ignore = "CLAUDE.md not in OSS repo"]
 fn container_env_vars_documented_in_claude_md() {
-    let claude = read_to_string(&repo_root().join("CLAUDE.md"));
+    // CLAUDE.md is gitignored / absent in a fresh OSS clone. Skip the
+    // drift gate when the file isn't present rather than failing the
+    // whole `cargo test` run; the gate still fires for contributors who
+    // have the internal-dev CLAUDE.md checked out locally.
+    let claude_path = repo_root().join("CLAUDE.md");
+    if !claude_path.exists() {
+        return;
+    }
+    let claude = read_to_string(&claude_path);
     let required = [
         "ECAA_CONTAINER_RUNTIME",
         "ECAA_DEFAULT_CONTAINER_IMAGE",
@@ -347,10 +354,16 @@ fn container_env_vars_documented_in_claude_md() {
 /// asserts the literal "16-tool" / "16 tool" strings are gone from
 /// CLAUDE.md so a copy-paste backslide is caught at CI time.
 #[test]
-#[ignore = "CLAUDE.md not in OSS repo"]
 fn claude_md_does_not_hard_code_tool_count_integer() {
     use ecaa_workflow_conversation::Tool;
-    let claude = read_to_string(&repo_root().join("CLAUDE.md"));
+    // CLAUDE.md is gitignored / absent in a fresh OSS clone. Skip when
+    // the file isn't present; the gate still fires when the
+    // internal-dev CLAUDE.md is checked out locally.
+    let claude_path = repo_root().join("CLAUDE.md");
+    if !claude_path.exists() {
+        return;
+    }
+    let claude = read_to_string(&claude_path);
 
     // The forbidden literals — only these specific phrasings are
     // banned. Other uses of "16" (e.g., "16 MB", "16-bit") are fine.
@@ -392,9 +405,15 @@ fn claude_md_does_not_hard_code_tool_count_integer() {
 /// `ChatAppState::new` threads the resulting `BatcherConfig` into
 /// `HarnessBatcher::new`.
 #[test]
-#[ignore = "CLAUDE.md not in OSS repo"]
 fn harness_batch_window_env_var_documented_in_claude_md() {
-    let claude = read_to_string(&repo_root().join("CLAUDE.md"));
+    // CLAUDE.md is gitignored / absent in a fresh OSS clone. Skip when
+    // the file isn't present; the gate still fires when the
+    // internal-dev CLAUDE.md is checked out locally.
+    let claude_path = repo_root().join("CLAUDE.md");
+    if !claude_path.exists() {
+        return;
+    }
+    let claude = read_to_string(&claude_path);
     assert!(
         claude.contains("ECAA_HARNESS_BATCH_WINDOW_SECS"),
         "CLAUDE.md missing ECAA_HARNESS_BATCH_WINDOW_SECS. Add it to \
@@ -433,9 +452,17 @@ fn harness_batch_window_env_var_documented_in_claude_md() {
 ///   doc folds into a single bullet via the wildcard form are tolerated
 ///   when the wildcard line covers them.
 #[test]
-#[ignore = "docs/env-vars-reference.md not in OSS repo"]
 fn every_ecaa_env_var_documented() {
     use std::collections::BTreeSet;
+
+    // `docs/env-vars-reference.md` is absent in a fresh OSS clone. Skip
+    // the exhaustive doc gate when the reference doc isn't present
+    // rather than failing the whole `cargo test` run; the gate still
+    // fires for contributors who have the internal-dev docs/ checked out.
+    let env_doc_path = repo_root().join("docs").join("env-vars-reference.md");
+    if !env_doc_path.exists() {
+        return;
+    }
 
     // Walk crates/ collecting every ECAA_* identifier reference.
     // Constraints: only inspect `.rs` files so the test isn't sensitive
@@ -521,14 +548,17 @@ fn every_ecaa_env_var_documented() {
 
 // ── State-inspector tab count ─────────────────────────────────────────
 
-/// README.md cites the number of State Inspector tabs in its architecture
-/// summary; the canonical source is the `TABS` array in
+/// The canonical State Inspector tab count is the `TABS` array in
 /// `ui/src/components/state_inspector/index.ts`. This gate counts entries
-/// in that array and asserts README.md cites the same number. When tabs
-/// are added or removed, this test forces a README edit in the same PR
-/// (same docs-as-contract pattern as `server_chat_route_count_matches_claim`).
+/// in that array and — when README.md cites a tab count in its
+/// architecture summary — asserts the doc cites the same number. The
+/// current OSS README's architecture-at-a-glance describes the UI row
+/// without a tab-count integer, so the cross-reference is skipped when
+/// no `N tabs` phrase is present; if a tab count is ever re-introduced
+/// to README.md it must match the live count, forcing a README edit in
+/// the same PR (same docs-as-contract pattern as
+/// `server_chat_route_count_matches_claim`).
 #[test]
-#[ignore = "README.md doc-cross-ref gate retired during OSS split"]
 fn readme_state_inspector_tab_count_matches_source() {
     let tabs_source = read_to_string(
         &repo_root()
@@ -579,10 +609,19 @@ fn readme_state_inspector_tab_count_matches_source() {
     );
 
     let readme = read_to_string(&repo_root().join("README.md"));
+    // The OSS README's architecture summary describes the UI row without
+    // citing a tab-count integer. The cross-reference only applies when
+    // README.md actually quotes a `N tabs` phrase; if it doesn't, there's
+    // nothing to keep in lock-step, so skip. If a tab count is ever
+    // re-added to README.md, the `" tabs"` substring appears and the
+    // exact-count assertion below fires.
+    if !readme.contains(" tabs") {
+        return;
+    }
     let expected_phrase = format!("{} tabs", tab_count);
     assert!(
         readme.contains(&expected_phrase),
-        "README.md does not cite the live State Inspector tab count.\n\
+        "README.md cites a State Inspector tab count that disagrees with the source.\n\
          Live count from ui/src/components/state_inspector/index.ts: {tab_count}\n\
          Expected phrase in README.md: \"{expected_phrase}\"\n\
          Update the architecture-at-a-glance paragraph and re-run."
