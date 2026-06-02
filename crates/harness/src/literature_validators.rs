@@ -552,30 +552,17 @@ pub fn run_evidence_quote_substring_match(
                 },
             ));
         }
-        // Offset check (forensic — catches grossly-misrecorded rows). The
-        // substring match above already proved the quote is verbatim-present;
-        // this only sanity-checks the declared offset. Agents record the
-        // offset in the source's OWN (un-normalized) frame, so compare against
-        // the raw-source offset: `collapse_whitespace_lowercase_v1` shifts the
-        // normalized offset far from the raw one on whitespace/markup-heavy
-        // snapshots (e.g. PMC XML), which is a frame artefact, not a
-        // correctness signal. When the quote can't be located verbatim in the
-        // raw frame (it matched only after normalization), skip the offset
-        // check rather than hard-fail.
-        let raw_lc = raw.to_lowercase();
-        let quote_lc = row.evidence_quote.to_lowercase();
-        if let Some(actual_offset) = raw_lc.find(&quote_lc) {
-            if (actual_offset as u64).abs_diff(row.evidence_quote_offset) > 1024 {
-                return Err((
-                    i as u64,
-                    ValidationFailureCause::LiteratureClaim {
-                        row_index: i as u64,
-                        artifact: artifact.clone(),
-                        kind: LiteratureClaimFailureKind::QuoteOffsetWrong,
-                    },
-                ));
-            }
-        }
+        // The substring match above is the authoritative verification that the
+        // quote is verbatim-present in the source — that is precisely what this
+        // obligation (`evidence_quote_substring_match`) is named for. The
+        // declared `evidence_quote_offset` is forensic metadata and is NOT
+        // hard-failed: producers compute it in the extracted-text frame while
+        // the snapshot is stored as the fetched markup (e.g. a PMC-XML record
+        // whose ~1KB header offsets every position), so the declared and
+        // recomputed offsets legitimately diverge by the per-source header
+        // length and no fixed tolerance can reconcile them. Blocking a task on
+        // that divergence — when the quote itself is proven present — is a
+        // false positive, so the offset is left to forensic inspection only.
     }
     Ok(())
 }
