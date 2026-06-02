@@ -47,15 +47,17 @@ pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
             }
         })
         .collect();
-    if needs_ack.is_empty() {
-        return InvariantVerdict {
-            id: InvariantId::EquivalenceFailure,
-            status: InvariantStatus::Pass,
-            detail: None,
-            n_inspected: 0,
-            n_violations: 0,
-        };
-    }
+    // Re-execution evidence: the spec's Q sub-graph is the set of RerunOutcomes,
+    // each carrying a `class`. Their presence means re-execution was performed;
+    // their total absence means it was not — in which case equivalence cannot be
+    // confirmed and the verdict is `Unverified` (spec §4 verdict table: "Q absent
+    // (no re-execution performed) → Unverified"). A compile-time `prove`/`failed`
+    // row is NOT re-execution evidence; it can only escalate to `Fail` when left
+    // unacknowledged.
+    let rerun_performed = pkg
+        .verifier_decisions
+        .iter()
+        .any(|v| v.get("class").and_then(|s| s.as_str()).is_some());
     // Real v0.1 assumptions carry `{assumption_id, kind, detail, stage_id}`
     // and no `edge_id`. Key the ack set on `edge_id` when present
     // (forward-compatible for when the harness threads it) but fall back
@@ -84,19 +86,24 @@ pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
         .collect();
     let n_inspected = needs_ack.len();
     let n_violations = violators.len();
-    let status = if n_violations == 0 {
-        InvariantStatus::Pass
+    let (status, detail) = if n_violations > 0 {
+        (
+            InvariantStatus::Fail,
+            Some(format!(
+                "{} unacknowledged divergence(s): {}",
+                n_violations,
+                violators.join(", ")
+            )),
+        )
+    } else if rerun_performed {
+        // Re-execution ran and every diverged outcome is acknowledged.
+        (InvariantStatus::Pass, None)
     } else {
-        InvariantStatus::Fail
-    };
-    let detail = if n_violations == 0 {
-        None
-    } else {
-        Some(format!(
-            "{} unacknowledged divergence(s): {}",
-            n_violations,
-            violators.join(", ")
-        ))
+        // No re-execution performed: equivalence cannot be confirmed (spec §4).
+        (
+            InvariantStatus::Unverified,
+            Some("no re-execution performed (Q absent)".to_string()),
+        )
     };
     InvariantVerdict {
         id: InvariantId::EquivalenceFailure,

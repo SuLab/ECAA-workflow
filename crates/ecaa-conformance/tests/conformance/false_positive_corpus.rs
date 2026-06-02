@@ -66,14 +66,14 @@ fn no_spurious_fail_on_valid_emitted_corpus() {
             );
         }
 
-        // (b) The three structural invariants must Pass on every valid package.
-        //     (decision_justification and evidence_coverage are intentionally
-        //     Unverified/Warn on the corpus — see the uniform corpus signature
-        //     (pass, unverified, warn, pass, pass, unverified) — so they are
-        //     excluded from this structural-Pass assertion.)
+        // (b) The structural invariants that must Pass on every valid package.
+        //     decision_justification, evidence_coverage, equivalence_failure and
+        //     substrate_validity are intentionally Unverified/Warn on emit-time
+        //     packages — the uniform corpus signature is now
+        //     (pass, unverified, warn, unverified, pass, unverified) — so only
+        //     claim_completeness and cross_graph_integrity are asserted Pass.
         for id in [
             InvariantId::ClaimCompleteness,
-            InvariantId::EquivalenceFailure,
             InvariantId::CrossGraphIntegrity,
         ] {
             let s = report
@@ -92,7 +92,7 @@ fn no_spurious_fail_on_valid_emitted_corpus() {
     }
 
     println!(
-        "false-positive corpus: {} packages, 0 spurious Fail, 3/3 structural invariants Pass on each",
+        "false-positive corpus: {} packages, 0 spurious Fail, 2/2 structural invariants Pass on each",
         dirs.len()
     );
 }

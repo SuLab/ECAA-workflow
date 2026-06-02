@@ -293,13 +293,15 @@ fn pkg_with_q(
 }
 
 #[test]
-fn equivalence_failure_passes_when_no_failures() {
+fn equivalence_failure_unverified_when_no_reexecution() {
+    // Only compile-time prove rows, no RerunOutcomes (re-execution not performed):
+    // spec §4 verdict table → Unverified, never a coerced Pass.
     let pkg = pkg_with_q(
         vec![json!({"event":"prove","outcome":"succeeded","edge_id":"e-1"})],
         vec![],
     );
     let v = check_equivalence_failure(&pkg);
-    assert_eq!(v.status, InvariantStatus::Pass);
+    assert_eq!(v.status, InvariantStatus::Unverified);
 }
 
 #[test]
@@ -313,19 +315,22 @@ fn equivalence_failure_fails_when_failure_unacknowledged() {
 }
 
 #[test]
-fn equivalence_failure_passes_when_acknowledged_by_edge_id() {
+fn equivalence_failure_acked_prove_failure_no_reexecution_is_unverified() {
+    // An acknowledged compile-time prove-failure is NOT a Fail, but with no
+    // re-execution the equivalence verdict is Unverified (spec §4).
     let pkg = pkg_with_q(
         vec![json!({"event":"prove","outcome":"failed","edge_id":"e-2"})],
         vec![json!({"kind":"unprovable_edge","edge_id":"e-2"})],
     );
     let v = check_equivalence_failure(&pkg);
-    assert_eq!(v.status, InvariantStatus::Pass);
+    assert_eq!(v.status, InvariantStatus::Unverified);
 }
 
 #[test]
-fn equivalence_failure_passes_when_acknowledged_via_detail_containment() {
+fn equivalence_failure_ack_via_detail_containment_no_reexecution_is_unverified() {
     // Real v0.1 assumptions carry `detail`, not `edge_id`. An ack whose
-    // free-text detail mentions the failed edge satisfies the predicate.
+    // free-text detail mentions the failed edge prevents Fail; with no
+    // re-execution the verdict is Unverified (spec §4).
     let pkg = pkg_with_q(
         vec![json!({"event":"prove","outcome":"failed","edge_id":"e-2"})],
         vec![json!({"assumption_id":"a-1","kind":"policy_exception",
@@ -333,7 +338,7 @@ fn equivalence_failure_passes_when_acknowledged_via_detail_containment() {
                     "stage_id":"de"})],
     );
     let v = check_equivalence_failure(&pkg);
-    assert_eq!(v.status, InvariantStatus::Pass);
+    assert_eq!(v.status, InvariantStatus::Unverified);
 }
 
 // --- spec §4 predicate over Q.RerunOutcomes (class field), not just prove/failed ---

@@ -168,7 +168,6 @@ fn complete_fixture_is_all_pass_for_hermetic_invariants() {
         InvariantId::ClaimCompleteness,
         InvariantId::DecisionJustification,
         InvariantId::EvidenceCoverage,
-        InvariantId::EquivalenceFailure,
         InvariantId::CrossGraphIntegrity,
     ] {
         assert_eq!(
@@ -178,11 +177,18 @@ fn complete_fixture_is_all_pass_for_hermetic_invariants() {
             verdict(&report, id).detail
         );
     }
-    // substrate is Unverified under Noop by design (exercised in Task 5).
-    assert_eq!(
-        verdict(&report, InvariantId::SubstrateValidity).status,
-        InvariantStatus::Unverified
-    );
+    // equivalence_failure is Unverified at emit (no re-execution; spec §4) and
+    // substrate is Unverified under Noop (exercised under runcrate) — both by design.
+    for id in [
+        InvariantId::EquivalenceFailure,
+        InvariantId::SubstrateValidity,
+    ] {
+        assert_eq!(
+            verdict(&report, id).status,
+            InvariantStatus::Unverified,
+            "{id:?} should be Unverified at emit"
+        );
+    }
 }
 
 /// Assert every invariant EXCEPT `target` has the same status as in `baseline`.
@@ -765,14 +771,14 @@ fn invariant_utility_specificity_matrix() {
     row("(clean baseline)", &baseline);
 
     // The complete fixture (spec Appendix C) is the non-degenerate baseline:
-    // the five hermetic invariants genuinely `Pass`, so every injection below
-    // is a real `Pass → Warn/Fail` flip rather than `Unverified → Warn`.
-    // Substrate is `Unverified` under Noop (gated; see SUBSTRATE CAVEAT).
+    // four invariants genuinely `Pass`, so every Warn/Fail injection below is a
+    // real `Pass → Warn/Fail` flip rather than `Unverified → Warn`. Equivalence
+    // (no re-execution, spec §4) and substrate (Noop) are `Unverified` at emit by
+    // design; their injections flip `Unverified → Fail`, still genuine non-Pass.
     for id in [
         InvariantId::ClaimCompleteness,
         InvariantId::DecisionJustification,
         InvariantId::EvidenceCoverage,
-        InvariantId::EquivalenceFailure,
         InvariantId::CrossGraphIntegrity,
     ] {
         assert_eq!(
@@ -782,6 +788,11 @@ fn invariant_utility_specificity_matrix() {
             verdict(&baseline, id).detail
         );
     }
+    assert_eq!(
+        verdict(&baseline, InvariantId::EquivalenceFailure).status,
+        InvariantStatus::Unverified,
+        "baseline equivalence_failure should be Unverified at emit (no re-execution)"
+    );
 
     // Each row: (label, target invariant, mutator, expected non-Pass status).
     struct Case {

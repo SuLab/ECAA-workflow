@@ -2,7 +2,7 @@
   "ClaimCompleteness": "pass",
   "CrossGraphIntegrity": "pass",
   "DecisionJustification": "unverified",
-  "EquivalenceFailure": "pass",
+  "EquivalenceFailure": "unverified",
   "EvidenceCoverage": "warn",
   "SubstrateValidity": "unverified"
 }
