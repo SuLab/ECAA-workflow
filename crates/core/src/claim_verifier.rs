@@ -2717,7 +2717,10 @@ mod tests {
     #[test]
     fn cited_stem_wins_over_twin_tables() {
         let dir = tempfile::tempdir().unwrap();
-        for name in ["differential_expression.tsv", "differential_expression_alt.tsv"] {
+        for name in [
+            "differential_expression.tsv",
+            "differential_expression_alt.tsv",
+        ] {
             std::fs::write(dir.path().join(name), "gene\tlog2FC\nTP53\t1.0\n").unwrap();
         }
         let idx = TableIndex::scan(dir.path());
