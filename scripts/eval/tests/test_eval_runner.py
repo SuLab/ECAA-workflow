@@ -177,7 +177,7 @@ def test_two_phase_assembles_scores_from_batch(tmp_path, monkeypatch):
     # Capture write_scorecard so we don't write to the real FS.
     written = []
     monkeypatch.setattr(eval_runner, "write_scorecard",
-                        lambda card, out_dir: written.append(card))
+                        lambda card, out_dir, **_kw: written.append(card))
 
     rc = eval_runner.main(["biomnibench", "--smoke", "--arms", "claude-direct",
                            "--trials", "1"])
@@ -230,7 +230,7 @@ def test_two_phase_fallback_to_sync_score_when_no_judge_requests(tmp_path, monke
 
     written = []
     monkeypatch.setattr(eval_runner, "write_scorecard",
-                        lambda card, out_dir: written.append(card))
+                        lambda card, out_dir, **_kw: written.append(card))
 
     rc = eval_runner.main(["biomnibench", "--smoke", "--arms", "claude-direct", "--trials", "1"])
     assert rc == 0

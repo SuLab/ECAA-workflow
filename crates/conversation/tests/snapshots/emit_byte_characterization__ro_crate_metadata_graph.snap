@@ -190,14 +190,14 @@ expression: value
         "ComputationalWorkflow"
       ],
       "applicationSubCategory": {
-        "@id": "https://edamontology.org/topic:3308"
+        "@id": "https://edamontology.org/topic_3308"
       },
       "conformsTo": {
         "@id": "https://bioschemas.org/profiles/ComputationalWorkflow/1.0-RELEASE"
       },
       "encodingFormat": "application/json",
       "featureList": {
-        "@id": "https://edamontology.org/operation:3432"
+        "@id": "https://edamontology.org/operation_3432"
       },
       "name": "workflow-<ID> DAG",
       "programmingLanguage": {

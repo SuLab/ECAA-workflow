@@ -79,7 +79,13 @@ edam_operation: "operation:2945"
 fn load_rejects_registry_without_generic_fallback() {
     let tmp = make_config(/* include_generic */ false);
     let path = tmp.path().join("modality-keywords.yaml");
-    let err = Classifier::load(&path).expect_err("load must reject a fallback-less registry");
+    // `expect_err` would require `Classifier: Debug` (to render the Ok
+    // value on panic); extract the error via `match` instead so the test
+    // doesn't force a Debug derive onto the public classifier type.
+    let err = match Classifier::load(&path) {
+        Ok(_) => panic!("load must reject a fallback-less registry"),
+        Err(e) => e,
+    };
     let msg = format!("{err:#}");
     assert!(
         msg.contains("generic-fallback") || msg.contains("empty `keywords:`"),

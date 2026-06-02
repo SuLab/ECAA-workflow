@@ -517,7 +517,14 @@ async fn emit_steps(
     // that never reached the compatibility engine). Sync I/O is safe
     // here because the substrate file is tiny.
     let runtime_dir = output_dir.join("runtime");
-    if let Err(e) = decision_substrate_writer::write_verifier_decisions(&runtime_dir) {
+    // Drain only THIS session's bucket (the compose step entered
+    // `enter_session(session.id)` around `plan()`), so a concurrent
+    // sibling session's in-flight decisions never leak into this
+    // package's `verifier-decisions.jsonl`.
+    if let Err(e) = decision_substrate_writer::write_verifier_decisions_for_session(
+        &runtime_dir,
+        &session.id.to_string(),
+    ) {
         // Substrate is observational; a write failure must not abort
         // the emit. Log + continue.
         tracing::warn!(

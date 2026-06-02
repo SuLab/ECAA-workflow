@@ -3,15 +3,15 @@
 /**
  * Evaluator provenance — informative per invariants.md §"audit-proof-report.json shape".
  */
-export type EvaluatorInfo = {
+export type EvaluatorInfo = { 
 /**
  * Implementation identifier.
  */
-impl: string,
+impl: string, 
 /**
  * Evaluator implementation version.
  */
-version: string,
+version: string, 
 /**
  * Warn/fail policy: "warn-only" | "strict" (absent ⇒ normative defaults).
  */

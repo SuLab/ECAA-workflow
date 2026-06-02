@@ -2,36 +2,36 @@
 import type { EvaluatorInfo } from "./EvaluatorInfo";
 import type { InvariantVerdict } from "./InvariantVerdict";
 
-export type AuditProofReport = {
+export type AuditProofReport = { 
 /**
  * On-disk schema version of this report shape.
  */
-schema_version: string,
+schema_version: string, 
 /**
  * ECAA spec version this package conforms to (§9.2). Required.
  */
-ecaa_version: string,
+ecaa_version: string, 
 /**
  * Minimum reader version required to consume the package (§9.2). Required.
  */
-min_reader_version: string,
+min_reader_version: string, 
 /**
  * Maximum reader version, when the emitter pins an upper bound (§9.2).
  */
-max_reader_version?: string,
+max_reader_version?: string, 
 /**
  * IRI (or relative path) of the package's ro-crate-metadata.json.
  */
-package_iri?: string,
+package_iri?: string, 
 /**
  * RFC-3339 timestamp the report was produced. Excluded from the
  * BagIt manifest so it does not break byte-reproducibility.
  */
-evaluated_at?: string,
+evaluated_at?: string, 
 /**
  * Evaluator provenance (informative).
  */
-evaluator: EvaluatorInfo,
+evaluator: EvaluatorInfo, 
 /**
  * Per-invariant verdicts.
  */

@@ -58,9 +58,14 @@ fn normalize(raw: &str, output_dir: &Path) -> String {
     // graph (allowed by the determinism contract). Normalize so it doesn't
     // mask a real content diff.
     let wf = regex::Regex::new(r"workflow-[0-9a-f]{32}").unwrap();
+    // Validation timing is wall-clock and legitimately non-deterministic;
+    // normalize it so `runtime/validation-summary.json`'s deterministic
+    // fields stay covered without the timing field masking a real diff.
+    let dur = regex::Regex::new(r#""duration_ms":\s*\d+"#).unwrap();
     let stripped = raw.replace(&output_dir.display().to_string(), "<PKG>");
     let stripped = ts.replace_all(&stripped, "<TS>").into_owned();
-    wf.replace_all(&stripped, "workflow-<ID>").into_owned()
+    let stripped = wf.replace_all(&stripped, "workflow-<ID>").into_owned();
+    dur.replace_all(&stripped, r#""duration_ms": <DUR>"#).into_owned()
 }
 
 async fn emit_and_read_metadata(dir: &Path) -> String {
@@ -106,13 +111,8 @@ fn is_non_deterministic(rel: &str) -> bool {
 /// The non-deterministic allowlist is filtered out. Paths are
 /// forward-slash-normalized and the map is a `BTreeMap` so iteration order is
 /// stable regardless of host filesystem walk order.
-async fn emit_and_collect_files(dir: &Path) -> std::collections::BTreeMap<String, String> {
+fn collect_emitted_files(dir: &Path) -> std::collections::BTreeMap<String, String> {
     use std::collections::BTreeMap;
-
-    let mut session = boot_session().await;
-    emit_with_conversation_log(&mut session, dir, &config_dir())
-        .await
-        .expect("emit succeeded");
 
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     let mut stack: Vec<PathBuf> = vec![dir.to_path_buf()];
@@ -174,8 +174,19 @@ async fn ro_crate_metadata_is_deterministic_across_emits() {
 async fn all_deterministic_emitted_files_are_byte_identical_across_emits() {
     let a = tempdir().unwrap();
     let b = tempdir().unwrap();
-    let first = emit_and_collect_files(a.path()).await;
-    let second = emit_and_collect_files(b.path()).await;
+    // Emit the SAME session twice (this guard's stated intent). A per-session
+    // id legitimately varies between two `boot_session()`s and is normalized
+    // out of ro-crate-metadata by Guard 1; re-emitting a single session
+    // isolates GENUINE non-determinism (SystemTime / HashMap order / host path).
+    let mut session = boot_session().await;
+    emit_with_conversation_log(&mut session, a.path(), &config_dir())
+        .await
+        .expect("first emit succeeded");
+    emit_with_conversation_log(&mut session, b.path(), &config_dir())
+        .await
+        .expect("second emit succeeded");
+    let first = collect_emitted_files(a.path());
+    let second = collect_emitted_files(b.path());
 
     // The two emits must cover the exact same set of relative paths. A diff in
     // the *file set* (a sidecar that appears in one emit but not the other) is

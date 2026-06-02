@@ -569,7 +569,7 @@ def main(argv: list[str]) -> int:
                                                  "scored": len(scores), "missing": missing}
             print(f"WARNING: scorecard has {len(scores)}/{expected} rows; missing: {missing}",
                   file=sys.stderr)
-        write_scorecard(card, run_dir)
+        write_scorecard(card, run_dir, plugin=plugin)
         print(f"wrote {run_dir}/scorecard.md")
         return 0
 
