@@ -377,18 +377,17 @@ fn mutate_evidence_coverage(root: &Path) {
 /// Spec predicate (`invariants.md` §4, verbatim):
 /// ```text
 /// ∀ r ∈ Q.RerunOutcomes :
-///     r.class ∉ {"failed", "non-deterministic"}
+///     r.class ∉ {"failed", "acknowledged_non_determinism"}
 ///   ∨ ∃ b ∈ F.Blockers :
 ///         b.kind ∈ {"UnprovableEdge", "PolicyException"}
 ///       ∧ b.refs ∋ r.id
 /// ```
-/// NOTE (spec discrepancy): the committed `invariants.md` §4 carries a STALE
-/// token `"non-deterministic"`. The closed `Q.RerunOutcome` class enum is
-/// `byte_identical | semantic_equivalent | acknowledged_non_determinism |
-/// unavailable | failed`; `"non-deterministic"` is the obsolete spelling of
-/// `acknowledged_non_determinism`. This mutator injects the `failed` class
-/// (which the reference impl reads as a `prove`/`failed` verifier-decision row);
-/// the second-branch mutator in Task 3 exercises `acknowledged_non_determinism`.
+/// The reference impl (`equivalence_failure.rs`) reads BOTH shapes from the raw
+/// `verifier-decisions.jsonl`: this branch (A) injects a compile-time
+/// `prove`/`failed` port-unification row, and branch B injects a re-execution
+/// `RerunOutcome` of class `acknowledged_non_determinism`. The §5.6 closed
+/// class enum is `byte_identical | semantic_equivalent |
+/// acknowledged_non_determinism | unavailable | failed`.
 /// Violation injected: a `Q.RerunOutcome` of class `failed` with NO
 /// `F.Blocker` of kind `UnprovableEdge`/`PolicyException` acknowledging it.
 fn mutate_equivalence_failure(root: &Path) {
@@ -573,57 +572,41 @@ fn mutate_evidence_coverage_b(root: &Path) {
 }
 
 /// Invariant 4 — `equivalence_failure` → Fail (branch B).
-/// Distinct from branch A (a `failed` RerunOutcome with NO acknowledgement):
-/// here a `failed` RerunOutcome carries an `F.Blocker` of the WRONG kind
-/// (`output_unused`, which is NOT in the `{UnprovableEdge, PolicyException}`
-/// ack set), so the predicate's existential is still unsatisfied → Fail.
-///
-/// SPEC DISCREPANCY / IMPL GAP: the §4 predicate also names the
-/// `acknowledged_non_determinism` outcome class (committed `invariants.md`
-/// spells it with the stale token `"non-deterministic"`). The reference impl
-/// only reads `outcome == "failed"` verifier-decision rows and does NOT read a
-/// `class: acknowledged_non_determinism` field, so that second outcome class
-/// cannot be exercised hermetically against the current implementation. We
-/// therefore drive branch B via a `failed` row with a mis-kinded ack, and
-/// record the unreachable-class gap here rather than asserting a flip the impl
-/// cannot produce.
+/// Distinct from branch A (a compile-time `prove`/`failed` row): here a
+/// re-execution `Q.RerunOutcome` of class `acknowledged_non_determinism` (the
+/// second class the §4 predicate names) carries NO acknowledging `F.Blocker`,
+/// so the predicate's existential is unsatisfied → Fail. The reference impl
+/// reads the flat `class` field on the raw verifier-decision row (the shape
+/// `ecaa_projection::project_rerun_outcome_row` consumes).
 fn mutate_equivalence_failure_b(root: &Path) {
     append_jsonl(
         root,
         "verifier-decisions.jsonl",
         &serde_json::json!({
-            "event": "prove",
-            "outcome": "failed",
-            "edge_id": "edge_miskinded_002"
-        }),
-    );
-    append_jsonl(
-        root,
-        "assumptions.jsonl",
-        &serde_json::json!({
-            "assumption_id": "assume_002",
-            "kind": "output_unused",
-            "detail": "edge_miskinded_002",
-            "stage_id": "x"
+            "class": "acknowledged_non_determinism",
+            "id": "rerun_b_002"
         }),
     );
 
-    // Spec-fidelity: a failed RerunOutcome exists AND its only F.Blocker is of a
-    // kind NOT in the acknowledging set, so the §4 existential is unsatisfied.
+    // Spec-fidelity: the Q sub-graph holds a diverged RerunOutcome
+    // (class ∈ {failed, acknowledged_non_determinism}) and the F sub-graph holds
+    // no acknowledging Blocker for it.
     let q = read_jsonl(root, "verifier-decisions.jsonl");
     assert!(
-        q.iter().any(|r| r["outcome"] == "failed" && r["edge_id"] == "edge_miskinded_002"),
-        "branch-B spec §4 setup (failed RerunOutcome) not present in Q sub-graph"
+        q.iter()
+            .any(|r| r["class"] == "acknowledged_non_determinism" && r["id"] == "rerun_b_002"),
+        "branch-B spec §4 setup (acknowledged_non_determinism RerunOutcome) not present in Q sub-graph"
     );
     let acked = read_jsonl(root, "assumptions.jsonl").iter().any(|b| {
         matches!(
             b.get("kind").and_then(|k| k.as_str()),
             Some("unprovable_edge" | "policy_exception")
-        ) && b.get("detail").and_then(|d| d.as_str()) == Some("edge_miskinded_002")
+        ) && (b.get("edge_id").and_then(|d| d.as_str()) == Some("rerun_b_002")
+            || b.get("detail").and_then(|d| d.as_str()) == Some("rerun_b_002"))
     });
     assert!(
         !acked,
-        "branch-B spec §4 violation requires the ack to be of a NON-acknowledging kind"
+        "branch-B spec §4 violation requires NO acknowledging Blocker for the diverged outcome"
     );
 }
 
