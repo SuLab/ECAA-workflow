@@ -63,6 +63,36 @@ fn claim_completeness_passes_when_pending() {
 }
 
 #[test]
+fn claim_completeness_unverified_when_verdicts_empty_and_no_coverage() {
+    // B1: an empty `verdicts` array with NO `coverage` block is a vacuous
+    // ∀-over-empty-set. There is nothing to inspect and no signed verdict
+    // sink, so the honest verdict is Unverified — NOT a coerced Pass.
+    let pkg = fixture_loaded(json!({
+        "n_checked": 0, "n_verified": 0, "n_mismatch": 0, "n_unverifiable": 0,
+        "verdicts": []
+    }));
+    let v = check_claim_completeness(&pkg);
+    assert_eq!(v.status, InvariantStatus::Unverified);
+    assert_eq!(v.n_inspected, 0);
+    assert_eq!(v.n_violations, 0);
+}
+
+#[test]
+fn claim_completeness_fails_when_coverage_required_absent() {
+    // F5 recall-gate preserved: even with an empty `verdicts` array, a
+    // `coverage` block reporting a Required entry as absent is a hard Fail.
+    let pkg = fixture_loaded(json!({
+        "n_checked": 0, "n_verified": 0, "n_mismatch": 0, "n_unverifiable": 0,
+        "verdicts": [],
+        "coverage": {"required_absent": 1, "required_unverifiable": 0}
+    }));
+    let v = check_claim_completeness(&pkg);
+    assert_eq!(v.status, InvariantStatus::Fail);
+    assert_eq!(v.n_violations, 1);
+    assert!(v.detail.unwrap().contains("recall gap"));
+}
+
+#[test]
 fn claim_completeness_unverified_when_no_claim_file() {
     let pkg = LoadedPackage {
         intake: vec![],
@@ -286,8 +316,10 @@ fn evidence_coverage_source_is_proofs_not_validation_reports() {
     let pkg = LoadedPackage {
         intake: vec![],
         decisions: vec![],
-        validation_reports: vec![json!({"task_id":"de","obligation_id":"o1","outcome":"passed",
-            "outputs":["SHOULD_BE_IGNORED.csv"]})],
+        validation_reports: vec![
+            json!({"task_id":"de","obligation_id":"o1","outcome":"passed",
+            "outputs":["SHOULD_BE_IGNORED.csv"]}),
+        ],
         proofs: vec![json!({"id":"workflow:de","type":"WorkflowStep",
             "computed_from":"runtime/tables/de.csv"})],
         claims: Some(json!({"verdicts":[{"claim_id":"c-1","status":"verified",
@@ -394,10 +426,7 @@ fn equivalence_failure_fails_on_unacked_acknowledged_non_determinism() {
 
 #[test]
 fn equivalence_failure_fails_on_unacked_failed_rerun_class() {
-    let pkg = pkg_with_q(
-        vec![json!({"class":"failed","id":"rerun-2"})],
-        vec![],
-    );
+    let pkg = pkg_with_q(vec![json!({"class":"failed","id":"rerun-2"})], vec![]);
     let v = check_equivalence_failure(&pkg);
     assert_eq!(v.status, InvariantStatus::Fail);
 }
@@ -580,6 +609,33 @@ fn cross_graph_general_fails_on_dangling_prefixed_ref() {
     let v = check_cross_graph_integrity(&pkg);
     assert_eq!(v.status, InvariantStatus::Fail);
     assert!(v.n_violations >= 1);
+}
+
+#[test]
+fn cross_graph_unverified_when_no_references_present() {
+    // B1: a freshly emitted package carries no cross-graph references — no
+    // claim `supported_by`, no assumption `edge_id`, no prefix-tagged refs.
+    // A ∀-over-empty-set is vacuous, so the honest verdict is Unverified, NOT
+    // a coerced Pass.
+    let pkg = LoadedPackage {
+        intake: vec![],
+        decisions: vec![],
+        validation_reports: vec![json!({"task_id":"de","obligation_id":"o1","outcome":"passed"})],
+        // Proofs declare outputs (computed_from) but those are not cross-graph
+        // references — nothing inspects them in this invariant.
+        proofs: vec![json!({"id":"workflow:de","computed_from":"runtime/tables/de.csv"})],
+        claims: Some(json!({"verdicts":[]})),
+        verifier_decisions: vec![],
+        assumptions: vec![],
+        determinism_shim: None,
+        security_policy: None,
+        plot_affordances: None,
+        claims_tampered: false,
+    };
+    let v = check_cross_graph_integrity(&pkg);
+    assert_eq!(v.n_inspected, 0);
+    assert_eq!(v.status, InvariantStatus::Unverified);
+    assert_eq!(v.n_violations, 0);
 }
 
 use ecaa_workflow_core::audit_proof::invariants::substrate_validity::check_substrate_validity;

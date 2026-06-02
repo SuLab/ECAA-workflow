@@ -1,6 +1,6 @@
 {
-  "ClaimCompleteness": "pass",
-  "CrossGraphIntegrity": "pass",
+  "ClaimCompleteness": "unverified",
+  "CrossGraphIntegrity": "unverified",
   "DecisionJustification": "unverified",
   "EquivalenceFailure": "unverified",
   "EvidenceCoverage": "warn",

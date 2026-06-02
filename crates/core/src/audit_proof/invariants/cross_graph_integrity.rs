@@ -168,9 +168,7 @@ fn collect_node_ids(pkg: &LoadedPackage) -> BTreeMap<char, BTreeSet<String>> {
 fn resolves(target: &str, nodes: &BTreeMap<char, BTreeSet<String>>) -> bool {
     let letter = target.chars().next().expect("prefix-tagged");
     let local = sanitize_id(&target[2..]);
-    nodes
-        .get(&letter)
-        .is_some_and(|set| set.contains(&local))
+    nodes.get(&letter).is_some_and(|set| set.contains(&local))
 }
 
 /// Visit every prefix-tagged value in `row`'s reference-bearing fields (and,
@@ -296,12 +294,20 @@ pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
     }
 
     let n_violations = violators.len();
-    let status = if n_violations == 0 {
+    // A ∀-over-empty-set is vacuous: when the package carries no cross-graph
+    // references at all (a fresh emit, no supported_by / edge_id / prefix-tagged
+    // refs), there is nothing to dereference. Report Unverified rather than a
+    // coerced Pass — the preprint must not certify integrity over an empty set.
+    let status = if n_inspected == 0 {
+        InvariantStatus::Unverified
+    } else if n_violations == 0 {
         InvariantStatus::Pass
     } else {
         InvariantStatus::Fail
     };
-    let detail = if n_violations == 0 {
+    let detail = if n_inspected == 0 {
+        Some("no cross-graph references present".into())
+    } else if n_violations == 0 {
         None
     } else {
         Some(format!(

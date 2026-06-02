@@ -82,6 +82,20 @@ pub fn check_claim_completeness(pkg: &LoadedPackage) -> InvariantVerdict {
     let n_inspected = verdicts.len();
     let support_violations = violators.len();
     let n_violations = support_violations + coverage_gaps;
+    // A ∀-over-empty-set is vacuous: no verdicts to inspect AND no `coverage`
+    // block (the signed verdict sink that would make the recall floor
+    // meaningful) means there is genuinely nothing to certify. Report
+    // Unverified rather than a coerced Pass — saying "Pass" over an empty set
+    // is the vacuous-pass the preprint must not make.
+    if verdicts.is_empty() && claims.get("coverage").is_none() {
+        return InvariantVerdict {
+            id: InvariantId::ClaimCompleteness,
+            status: InvariantStatus::Unverified,
+            detail: Some("no verified claims; signed verdict sink absent".into()),
+            n_inspected: 0,
+            n_violations: 0,
+        };
+    }
     let status = if coverage_gaps > 0 {
         // A Required recall gap is a hard FAIL (blocking-class), distinct
         // from a soft Warn on an empty supported_by.

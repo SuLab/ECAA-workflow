@@ -66,12 +66,14 @@ fn no_spurious_fail_on_valid_emitted_corpus() {
             );
         }
 
-        // (b) The structural invariants that must Pass on every valid package.
-        //     decision_justification, evidence_coverage, equivalence_failure and
-        //     substrate_validity are intentionally Unverified/Warn on emit-time
-        //     packages — the uniform corpus signature is now
-        //     (pass, unverified, warn, unverified, pass, unverified) — so only
-        //     claim_completeness and cross_graph_integrity are asserted Pass.
+        // (b) Emit-time honesty: a freshly emitted (un-executed) package carries
+        //     no verified claims and no cross-graph references, so the
+        //     ∀-over-empty-set verdicts for claim_completeness and
+        //     cross_graph_integrity are Unverified — NOT a vacuous Pass (B1).
+        //     The uniform emit-time corpus signature is therefore
+        //     (unverified, unverified, warn, unverified, unverified, unverified).
+        //     The crucial false-positive property is asserted in (a): no
+        //     invariant spuriously Fails on a valid package.
         for id in [
             InvariantId::ClaimCompleteness,
             InvariantId::CrossGraphIntegrity,
@@ -84,15 +86,16 @@ fn no_spurious_fail_on_valid_emitted_corpus() {
                 .status;
             assert_eq!(
                 s,
-                InvariantStatus::Pass,
-                "{} -> {id:?} expected Pass on a valid package, got {s:?}",
+                InvariantStatus::Unverified,
+                "{} -> {id:?} expected Unverified on an un-executed package \
+                 (no verified claims / no cross-graph refs), got {s:?}",
                 d.display()
             );
         }
     }
 
     println!(
-        "false-positive corpus: {} packages, 0 spurious Fail, 2/2 structural invariants Pass on each",
+        "false-positive corpus: {} packages, 0 spurious Fail, structural invariants Unverified (not vacuous Pass) on each",
         dirs.len()
     );
 }
@@ -129,10 +132,7 @@ fn harvested_violations_reproduce_expected_verdicts() {
         }
         let expected_path = d.join("EXPECTED.json");
         if !expected_path.exists() {
-            panic!(
-                "harvested fixture {} has no EXPECTED.json",
-                d.display()
-            );
+            panic!("harvested fixture {} has no EXPECTED.json", d.display());
         }
         let expected: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(&expected_path)
@@ -162,9 +162,7 @@ fn harvested_violations_reproduce_expected_verdicts() {
     }
 
     if fixtures == 0 {
-        eprintln!(
-            "harvested-violations dir exists but contains 0 fixtures; nothing to reproduce"
-        );
+        eprintln!("harvested-violations dir exists but contains 0 fixtures; nothing to reproduce");
     } else {
         println!("harvested-violations: {fixtures} fixture(s) reproduced their observed verdicts");
     }
