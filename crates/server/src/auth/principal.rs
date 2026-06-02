@@ -16,10 +16,26 @@ use ecaa_workflow_conversation::session::Session;
 use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
-/// Single source of authentication truth for any handler.
+/// Single source of *authentication* truth for any handler.
 ///
 /// Use via `axum::Extension<RequestPrincipal>` in handler signatures.
 /// Constructed once by [`extract_principal`] middleware; never re-derived.
+///
+/// ## This type does not perform *authorization*
+///
+/// The single authorization point for per-session access is the
+/// header-compare middleware [`crate::auth::verify_owner_middleware`],
+/// which compares the upstream `X-Scripps-User` header against the
+/// session's persisted `owner_user` on every `/api/chat/session/:id/*`
+/// and `/api/git/session/:id/*` request, and the read-only share-token
+/// gate [`crate::read_only::read_only_guard`], which rejects mutating
+/// methods carrying a share token. `RequestPrincipal` exposes
+/// [`Self::owner_user`], [`Self::can_read_lineage_parent`], and
+/// [`Self::audit_actor`] for handler-side identity decisions
+/// (lineage-parent reads + DecisionRecord stamping), but it deliberately
+/// carries NO general `can_read` / `can_mutate` predicates: routing those
+/// through a second code path would create two places to keep the access
+/// rules in sync. Add authorization logic to the middleware, not here.
 #[derive(Debug, Clone)]
 pub enum RequestPrincipal {
     /// Request bears no recognized credential. May happen on public
@@ -75,26 +91,6 @@ impl RequestPrincipal {
         match self {
             RequestPrincipal::Owner { user, .. } => Some(user),
             _ => None,
-        }
-    }
-
-    /// True iff this principal is authorized to READ the given session.
-    pub fn can_read(&self, session: &Session) -> bool {
-        match self {
-            RequestPrincipal::Anonymous => false,
-            RequestPrincipal::Owner { user, .. } => user == &session.owner_user,
-            RequestPrincipal::ShareViewer { session_id, .. } => *session_id == session.id,
-            RequestPrincipal::HarnessAgent { session_id } => *session_id == session.id,
-        }
-    }
-
-    /// True iff this principal is authorized to MUTATE the given session.
-    /// Share viewers cannot mutate.
-    pub fn can_mutate(&self, session: &Session) -> bool {
-        match self {
-            RequestPrincipal::Owner { user, .. } => user == &session.owner_user,
-            RequestPrincipal::HarnessAgent { session_id } => *session_id == session.id,
-            RequestPrincipal::Anonymous | RequestPrincipal::ShareViewer { .. } => false,
         }
     }
 
@@ -188,6 +184,15 @@ fn expected_bearer_from_env() -> Option<String> {
         .filter(|t| !t.is_empty())
 }
 
+/// Whether the shared-read-only-URL feature is on. Reads
+/// `ECAA_SHARED_URLS_ENABLED` via the same `env_bool` helper that
+/// `read_only::read_only_guard` and `chat_routes::share` use, so the
+/// share-token resolution sites stay consistent: tokens are honored iff
+/// the feature is enabled.
+fn shared_urls_enabled() -> bool {
+    ecaa_workflow_core::env_helpers::env_bool("ECAA_SHARED_URLS_ENABLED")
+}
+
 /// Middleware: extract `RequestPrincipal` once, stamp into request
 /// extensions. Subsequent handlers read via `axum::Extension<RequestPrincipal>`.
 ///
@@ -204,14 +209,25 @@ pub async fn extract_principal(
     let headers = req.headers().clone();
     let query = req.uri().query().unwrap_or("").to_string();
 
-    // 1. Share-token via query string.
-    if let Some(token) = extract_share_token_from_query(&query) {
-        match resolve_share_token(&state, &token).await {
-            Some(principal) => {
-                req.extensions_mut().insert(principal);
-                return Ok(next.run(req).await);
+    // 1. Share-token via query string. Only attempted when the
+    // shared-URL feature is enabled — mirrors `read_only::read_only_guard`,
+    // which is a no-op when `ECAA_SHARED_URLS_ENABLED` is off. When the
+    // feature is disabled we DON'T treat the query param as a credential
+    // (so a request that merely carries a stale `?share_token=` still
+    // falls through to bearer / harness / anonymous resolution instead
+    // of getting a spurious 403). `resolve_share_token_principal` also
+    // fail-closes internally, so the gate here is the no-op-when-off
+    // posture and the inner check is defense-in-depth for any other
+    // caller.
+    if shared_urls_enabled() {
+        if let Some(token) = extract_share_token_from_query(&query) {
+            match resolve_share_token(&state, &token).await {
+                Some(principal) => {
+                    req.extensions_mut().insert(principal);
+                    return Ok(next.run(req).await);
+                }
+                None => return Err(StatusCode::FORBIDDEN),
             }
-            None => return Err(StatusCode::FORBIDDEN),
         }
     }
 

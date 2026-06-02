@@ -594,17 +594,104 @@ impl GitConfigStore {
 /// guard cost in the happy path.
 pub type GitConfigHandle = Arc<GitConfigStore>;
 
+/// Defense-in-depth bearer guard for the top-level git-admin routes.
+///
+/// ## Why this exists
+///
+/// The top-level admin routes (`/api/git/config`, `/api/git/keys/ssh`,
+/// `/api/git/test-connection`) carry no `/session/:id/` segment, so the
+/// per-session [`crate::auth::verify_owner_middleware`] and the
+/// [`crate::read_only::read_only_guard`] both treat them as non-session
+/// paths and let them through unauthorized. They mutate host state
+/// (write the git config, generate an SSH key pair on disk, probe an
+/// arbitrary remote), so they should never be reachable from an
+/// unauthenticated network peer.
+///
+/// ## Loopback trust assumption (UNCHANGED)
+///
+/// This guard reuses the exact same loopback-vs-token decision as the
+/// global [`crate::auth::auth_middleware`] (via [`AuthConfig::from_env`]):
+///
+/// * `127.0.0.1` / `[::1]` bind **and** no `ECAA_SERVER_AUTH_TOKEN` set
+///   → `require == false` → the guard is a no-op and the request passes
+///   through. A single local user with no token configured keeps using
+///   these routes exactly as before — the server trusts every peer on
+///   the loopback interface.
+/// * Non-loopback bind **or** `ECAA_SERVER_AUTH_TOKEN` set →
+///   `require == true` → a valid `Authorization: Bearer <token>` header
+///   is mandatory; otherwise `401`.
+///
+/// This is intentionally redundant with the global bearer layer in
+/// `lib.rs::run` (which already wraps the whole `/api/*` surface). The
+/// redundancy is the point: it pins authentication to the admin route
+/// group locally so a future layer-ordering change can't silently
+/// expose these mutating endpoints.
+async fn git_admin_auth_guard(
+    State(cfg): State<crate::auth::AuthConfig>,
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    // Loopback + no token → trust the local peer, matching the global
+    // auth model's single-user default. Never break this path.
+    if !cfg.require {
+        return next.run(req).await;
+    }
+    let presented = crate::auth::principal::extract_bearer(req.headers());
+    if crate::auth::principal::constant_time_verify_bearer(
+        presented.as_deref().unwrap_or(""),
+        cfg.token.as_deref(),
+    ) {
+        return next.run(req).await;
+    }
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({"error": "unauthorized"})),
+    )
+        .into_response()
+}
+
 /// Mount git routes onto a new Router. `merge`d into the main chat
 /// router in `main.rs`. Per-package shape: admin routes (`config`,
 /// `keys/ssh`, `test-connection`) at the top level; package-scoped
 /// routes (`init`, `status`, `log`, `commit`, `push`, `remote`) under
 /// `/api/git/session/:id/`.
+///
+/// The MUTATING top-level admin routes (`PUT /api/git/config`,
+/// `POST /api/git/keys/ssh`, `POST /api/git/test-connection`) are
+/// additionally wrapped in [`git_admin_auth_guard`] — a defense-in-depth
+/// bearer check that is a no-op on the loopback-no-token single-user
+/// default and enforces a bearer token whenever the global auth model
+/// would (non-loopback bind or a configured `ECAA_SERVER_AUTH_TOKEN`).
+/// `GET /api/git/config` is read-only and stays ungated. The bind/token
+/// decision is resolved here from env via [`AuthConfig::from_env`] using
+/// the same `ECAA_BIND_ADDR` the boot path reads, so the two sites stay
+/// in sync.
+///
+/// `GET` and `PUT` for `/api/git/config` live in two separate routers
+/// (so the guard wraps only `PUT`); axum merges the non-overlapping
+/// method routers for the shared path into one `GET`+`PUT` entry.
 pub fn router(app: ChatAppState) -> axum::Router {
-    axum::Router::new()
-        .route(
-            "/api/git/config",
-            axum::routing::get(get_config).put(put_config),
-        )
+    // Resolve the same loopback-vs-token posture the global auth layer
+    // uses. The bind host (`ECAA_BIND_ADDR`, default `127.0.0.1`) is the
+    // only field `AuthConfig::from_env` inspects for the loopback
+    // decision; the port is irrelevant to it, so a representative
+    // `host:port` is sufficient. Mirrors `lib.rs::resolve_bind_addr`.
+    let bind_host = std::env::var("ECAA_BIND_ADDR")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "127.0.0.1".to_string());
+    let port: u16 = ecaa_workflow_core::env_helpers::env_parse("ECAA_PORT", 3000u16);
+    let auth_cfg = crate::auth::AuthConfig::from_env(&format!("{bind_host}:{port}"));
+
+    // Mutating top-level admin routes — gated by the defense-in-depth
+    // bearer guard. `GET /api/git/config` is read-only and stays
+    // ungated (the SME must always be able to read the current config,
+    // and the read leaks nothing — `get_config` redacts remote userinfo).
+    let admin_mutating = axum::Router::new()
+        .route("/api/git/config", axum::routing::put(put_config))
         .route(
             "/api/git/keys/ssh",
             axum::routing::post(post_generate_ssh_key),
@@ -613,6 +700,17 @@ pub fn router(app: ChatAppState) -> axum::Router {
             "/api/git/test-connection",
             axum::routing::post(post_test_connection),
         )
+        .layer(axum::middleware::from_fn_with_state(
+            auth_cfg,
+            git_admin_auth_guard,
+        ))
+        .with_state(app.clone());
+
+    let admin_readonly = axum::Router::new()
+        .route("/api/git/config", axum::routing::get(get_config))
+        .with_state(app.clone());
+
+    let session_scoped = axum::Router::new()
         .route(
             "/api/git/session/:id/init",
             axum::routing::post(post_session_init),
@@ -637,7 +735,9 @@ pub fn router(app: ChatAppState) -> axum::Router {
             "/api/git/session/:id/remote",
             axum::routing::post(post_session_remote),
         )
-        .with_state(app)
+        .with_state(app);
+
+    admin_mutating.merge(admin_readonly).merge(session_scoped)
 }
 
 #[cfg(test)]
