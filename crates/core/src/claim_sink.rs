@@ -50,20 +50,34 @@ pub fn build_sink_doc(
     task_id: &str,
     coverage: Option<&CoverageResult>,
 ) -> Value {
+    use crate::ablation::{AblationFlag, AblationFlagExt};
+    // Site 1 of the two-site benchmark toggle (Aim 3A). Under
+    // ECAA_ABLATE_CLAIM_CONSISTENCY the populated signed sink is suppressed:
+    // the doc carries ZERO verdicts, zeroed counts, a suppressed coverage
+    // block, and an explicit `ablated: true` marker — distinct from the
+    // legacy emit-time empty stub (which has no such field). The A-vs-B'
+    // contrast therefore measures the PRESENCE of carried verdicts/coverage
+    // (enforcement), not a status-enum flip on a perpetually-empty file.
+    let ablated = AblationFlag::ClaimConsistency.is_active();
     let mut doc = json!({
         "schema_version": "1",
         "source": "runtime-verifier",
         "task_id": task_id,
         "ecaa_version": ECAA_VERSION,
         "min_reader_version": MIN_READER_VERSION,
-        "n_checked": report.n_checked,
-        "n_verified": report.n_verified,
-        "n_mismatch": report.n_mismatch,
-        "n_unverifiable": report.n_unverifiable,
-        "verdicts": project_verdict_rows(report, task_id),
+        "ablated": ablated,
+        "n_checked": if ablated { 0 } else { report.n_checked },
+        "n_verified": if ablated { 0 } else { report.n_verified },
+        "n_mismatch": if ablated { 0 } else { report.n_mismatch },
+        "n_unverifiable": if ablated { 0 } else { report.n_unverifiable },
+        "verdicts": if ablated { Vec::new() } else { project_verdict_rows(report, task_id) },
     });
-    if let Some(cov) = coverage {
-        doc["coverage"] = serde_json::to_value(cov).unwrap_or(Value::Null);
+    // The coverage block (recall floor) is signed-sink content the reframed
+    // Inv 1 reads; suppress it on the ablated arm alongside the verdicts.
+    if !ablated {
+        if let Some(cov) = coverage {
+            doc["coverage"] = serde_json::to_value(cov).unwrap_or(Value::Null);
+        }
     }
     doc
 }
@@ -276,5 +290,91 @@ mod tests {
         let inner = writer.verify_row(&parsed).expect("valid HMAC");
         assert_eq!(inner["verdicts"].as_array().unwrap().len(), 1);
         assert_eq!(inner["source"], json!("runtime-verifier"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn ablated_sink_doc_is_explicitly_empty_and_marked() {
+        let env = crate::ablation::AblationFlag::ClaimConsistency.env_var();
+        std::env::set_var(env, "1");
+        let report = ClaimVerificationReport {
+            n_checked: 2,
+            n_verified: 2,
+            n_mismatch: 0,
+            n_unverifiable: 0,
+            verdicts: vec![
+                verdict(
+                    claim("TP53", Some("results/tables/de.csv")),
+                    ClaimStatus::Verified,
+                ),
+                verdict(
+                    claim("IL6", Some("results/tables/de.csv")),
+                    ClaimStatus::Verified,
+                ),
+            ],
+            runtime_decision_log_path: None,
+        };
+        let doc = build_sink_doc(&report, "diff_expr", None);
+        std::env::remove_var(env);
+        // Site 1: under ClaimConsistency the populated sink is suppressed —
+        // the doc carries ZERO verdicts and an explicit ablation marker that
+        // is distinct from the legacy emit-time stub (which has no such field).
+        assert_eq!(doc["ablated"], json!(true));
+        assert_eq!(doc["verdicts"].as_array().unwrap().len(), 0);
+        assert_eq!(doc["n_verified"], json!(0));
+        assert_eq!(doc["n_checked"], json!(0));
+        assert_eq!(doc["source"], json!("runtime-verifier"));
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn ablated_sink_doc_suppresses_coverage_block() {
+        use crate::coverage::{CoverageResult, EntityCoverage};
+        use std::collections::BTreeMap;
+        let env = crate::ablation::AblationFlag::ClaimConsistency.env_var();
+        std::env::set_var(env, "1");
+        let report = ClaimVerificationReport::empty();
+        let mut per_entity = BTreeMap::new();
+        per_entity.insert(
+            "differential_expression".to_string(),
+            EntityCoverage::Absent,
+        );
+        let cov = CoverageResult {
+            required_total: 1,
+            required_addressed: 0,
+            required_unverifiable: 0,
+            required_absent: 1,
+            per_entity,
+        };
+        let doc = build_sink_doc(&report, "diff_expr", Some(&cov));
+        std::env::remove_var(env);
+        // The recall floor reads the coverage block from the signed sink; the
+        // ablated arm must not carry it, else the floor sees real content and
+        // the contrast reduces to a status flip.
+        assert_eq!(doc["ablated"], json!(true));
+        assert!(doc.get("coverage").is_none());
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn unablated_sink_doc_has_no_ablated_marker() {
+        // Belt-and-braces: with the flag off, the marker is false and verdicts
+        // populate — proving the contrast is enforcement, not enum.
+        let env = crate::ablation::AblationFlag::ClaimConsistency.env_var();
+        std::env::remove_var(env);
+        let report = ClaimVerificationReport {
+            n_checked: 1,
+            n_verified: 1,
+            n_mismatch: 0,
+            n_unverifiable: 0,
+            verdicts: vec![verdict(
+                claim("TP53", Some("results/tables/de.csv")),
+                ClaimStatus::Verified,
+            )],
+            runtime_decision_log_path: None,
+        };
+        let doc = build_sink_doc(&report, "diff_expr", None);
+        assert_eq!(doc["ablated"], json!(false));
+        assert_eq!(doc["verdicts"].as_array().unwrap().len(), 1);
     }
 }
