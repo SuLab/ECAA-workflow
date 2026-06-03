@@ -1,0 +1,24 @@
+{
+  "atom_count": 93,
+  "modality_count": 22,
+  "modality_total_loc": 774,
+  "archetype_count": 31,
+  "archetype_total_loc": 1811,
+  "tool_count": 22,
+  "blocker_kind_count": 47,
+  "files_to_add_modality": [
+    "config/modalities/<id>.yaml",
+    "config/archetypes/<id>.yaml",
+    "crates/core (classifier or composer test case)"
+  ],
+  "modality_git_history": {
+    "new_modality_commits": 1,
+    "median_added_loc_per_commit": 871
+  },
+  "cross_check": {
+    "atom_count_source": "config/stage-atoms/*.yaml",
+    "tool_count_source": "crates/conversation/src/tools/mod.rs (BatchableTool + HighImpactTool variants)",
+    "blocker_kind_source": "crates/ecaa-types/src/blocker.rs",
+    "note": "atom_count_baseline.rs is #[ignore]'d in OSS (no .github/ci/expected-test-counts.json); cross-check against `ecaa-workflow list atoms --json` length."
+  }
+}

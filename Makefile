@@ -192,6 +192,9 @@ eval-publish: ## Copy the redacted public scorecard from a run into docs/eval-re
 	@test -n "$(RUN)" || { echo "usage: make eval-publish RUN=<run_dir>"; exit 2; }
 	@$(PYTHON) -m scripts.eval.publish "$(RUN)"
 
+schema-burden: ## Offline schema-authoring-burden analyzer -> docs/eval-results/schema-burden.{json,md} (non-gated)
+	@$(PYTHON) -m scripts.eval.schema_burden
+
 eval-biomnibench-dryrun: ## BiomniBench dry-run smoke (--smoke flag; no live API needed beyond ECAA_EVAL_LIVE=1)
 	@$(PYTHON) -m scripts.eval.eval_runner biomnibench --smoke --arms ecaa,claude-direct $(EVAL_ARGS)
 
