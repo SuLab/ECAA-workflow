@@ -14,6 +14,7 @@ pub mod dispatch_wal;
 pub mod ecaa_io;
 pub mod executor;
 pub mod finalize_probe;
+pub mod invocation_log;
 pub mod literature_scope;
 pub mod literature_validators;
 pub mod multiprocess_lock;
