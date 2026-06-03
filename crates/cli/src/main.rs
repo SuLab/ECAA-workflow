@@ -667,9 +667,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     use ecaa_workflow_core::bco::emit_bco;
     use ecaa_workflow_core::builder::{build_dag_from_composition, build_dag_from_workflow_dag};
     use ecaa_workflow_core::classify::Classifier;
-    use ecaa_workflow_core::composer::compose_with_modalities_full;
     use ecaa_workflow_core::emitter::{emit_package, EmitConfig};
-    use ecaa_workflow_core::goal_spec::GoalSpec;
     use ecaa_workflow_core::project_class::ProjectClass;
     use std::collections::BTreeMap;
     use std::path::Path;
@@ -722,16 +720,6 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     let atoms = AtomRegistry::load_from_dir(&config_path.join("stage-atoms"))?;
     let archetypes = ArchetypeRegistry::load_from_dir(&config_path.join("archetypes"))?;
 
-    // Synthesize a goal from the classifier; on bare-modality intake
-    // fall back to a non-archetype goal so the modality-only path
-    // takes over.
-    let goal = clf.goal.clone().unwrap_or_else(|| GoalSpec {
-        edam_data: "data:9999".into(),
-        edam_format: None,
-        modifiers: Default::default(),
-        source_prose: Some("intake bare-modality fallback".into()),
-        confidence: 0.0,
-    });
     // Determine project class via keyword classifier (best-effort).
     let project_class_path = config_path.join("project-class-keywords.yaml");
     let project_class = if project_class_path.exists() {
@@ -747,6 +735,15 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         ProjectClass::ClinicalTrial => "clinical_trial",
         ProjectClass::TimeSeriesForecast => "time_series_forecast",
     };
+    // Synthesize a goal from the classifier; on bare-modality intake
+    // (no `goal_patterns` match), adopt the classified modality's primary
+    // archetype goal so the modality-only path seeds the canonical
+    // pipeline. A non-archetype `data:9999` sentinel here strands the v4
+    // planner in a PartialDag for project-class-routed modalities whose
+    // archetype keys on goal_data (e.g. state-space time-series).
+    let goal = clf.goal.clone().unwrap_or_else(|| {
+        archetypes.bare_modality_fallback_goal(&clf.modality, project_class_str)
+    });
     let modalities: Vec<&str> = std::iter::once(clf.modality.as_str())
         .chain(
             clf.additional_modalities

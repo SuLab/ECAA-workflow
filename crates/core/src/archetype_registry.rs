@@ -10,6 +10,7 @@
 use crate::archetype::{ArchetypeDefinition, CURRENT_ARCHETYPE_SCHEMA_VERSION};
 use crate::blocker::BlockerKind;
 use crate::edam::is_subtype_of;
+use crate::goal_spec::GoalSpec;
 use anyhow::{anyhow, Context, Result};
 use jsonschema::JSONSchema;
 use serde::{Deserialize, Serialize};
@@ -727,6 +728,42 @@ impl ArchetypeRegistry {
             })
     }
 
+    /// Build a fallback [`GoalSpec`] for a bare-modality intake — one
+    /// where classify-time `goal_patterns` matching produced no goal.
+    /// Adopts the modality's primary archetype `goal_data`/`goal_format`
+    /// (via [`Self::find_primary_for_modality`], which covers both
+    /// `modality_hint` archetypes and project-class-routed ones like
+    /// `time_series_forecast` / `clinical_trial_analysis`) so the
+    /// composer's archetype-match path seeds the modality-canonical
+    /// pipeline. Without this the caller's only fallback is an
+    /// unproducible `data:9999` sentinel that no atom produces, leaving
+    /// the v4 planner with a `PartialDag` (the
+    /// `time-series-blood-pressure-statespace` corpus failure). Returns
+    /// the sentinel only when no primary archetype covers the modality,
+    /// so genuinely out-of-catalog modalities still route to the
+    /// search-only / proposal path.
+    pub fn bare_modality_fallback_goal(&self, modality: &str, project_class: &str) -> GoalSpec {
+        if let Some(arch) = self.find_primary_for_modality(modality, project_class) {
+            return GoalSpec {
+                edam_data: arch.goal_data.clone(),
+                edam_format: arch.goal_format.clone(),
+                modifiers: Default::default(),
+                source_prose: Some(format!(
+                    "bare-modality fallback → primary archetype '{}' for modality '{}'",
+                    arch.id, modality
+                )),
+                confidence: 0.0,
+            };
+        }
+        GoalSpec {
+            edam_data: "data:9999".into(),
+            edam_format: None,
+            modifiers: Default::default(),
+            source_prose: Some("intake bare-modality fallback (no primary archetype)".into()),
+            confidence: 0.0,
+        }
+    }
+
     /// Return the smallest single-modality archetype whose
     /// `modality_hint` exactly matches, regardless of project class.
     ///
@@ -1339,5 +1376,55 @@ project_class: bioinformatics
             }
             other => panic!("expected SchemaVersionMismatch, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn bare_modality_fallback_goal_adopts_project_class_routed_archetype() {
+        // A project-class-routed modality (`time_series_forecast`) leaves
+        // `modality_hint` unset; its archetype matches via the
+        // project-class Pass-2 fallback. A bare-modality intake (no goal
+        // pattern matched) MUST adopt that archetype's goal_data, not the
+        // unproducible `data:9999` sentinel that strands the v4 planner in
+        // a PartialDag (the `time-series-blood-pressure-statespace` bug).
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("config/archetypes");
+        if !dir.exists() {
+            return;
+        }
+        let reg = ArchetypeRegistry::load_from_dir(&dir).unwrap();
+        let goal = reg.bare_modality_fallback_goal("time_series_forecast", "time_series_forecast");
+        assert_eq!(
+            goal.edam_data, "data:0951",
+            "fallback goal must adopt the time_series_forecast archetype goal_data, got {}",
+            goal.edam_data
+        );
+        assert_eq!(goal.edam_format.as_deref(), Some("format:3475"));
+    }
+
+    #[test]
+    fn bare_modality_fallback_goal_uses_sentinel_when_no_primary_archetype() {
+        // No archetype covers an unknown modality under an unknown
+        // project class → the helper preserves the search-only sentinel
+        // so genuinely out-of-catalog modalities still route to the
+        // proposal/search path rather than mis-seeding an archetype.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("config/archetypes");
+        if !dir.exists() {
+            return;
+        }
+        let reg = ArchetypeRegistry::load_from_dir(&dir).unwrap();
+        let goal = reg.bare_modality_fallback_goal(
+            "totally_unknown_modality_xyz",
+            "nonexistent_project_class_xyz",
+        );
+        assert_eq!(goal.edam_data, "data:9999");
     }
 }
