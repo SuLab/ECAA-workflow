@@ -361,6 +361,23 @@ async fn emit_steps(
     // is harmless (emit's registry load `.ok()` → no anchoring).
     let stage_atoms_dir = config_dir.join("stage-atoms");
 
+    // Maturity stamp: is the chosen archetype experimental (scaffolded /
+    // not-production-validated, e.g. the cross-omics archetypes)? Look it
+    // up from the catalog by `archetype_id`. A missing archetype_id or an
+    // unreadable catalog yields `false` (no stamp) — the stamp is
+    // additive provenance, never a reason to fail or alter a production
+    // package's byte-baseline.
+    let experimental_archetype = classification
+        .archetype_id
+        .as_deref()
+        .map(|id| {
+            let archetype_dir = config_dir.join("archetypes");
+            ecaa_workflow_core::archetype_registry::ArchetypeRegistry::load_cached(&archetype_dir)
+                .map(|reg| reg.is_archetype_experimental(id))
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
+
     let cfg = EmitConfig {
         output_dir,
         dag,
@@ -377,6 +394,7 @@ async fn emit_steps(
         runtime_prereqs: Some(&runtime_prereqs),
         per_atom_runtime_prereqs: per_atom_prereqs_owned.as_ref(),
         stage_atoms_dir: Some(&stage_atoms_dir),
+        experimental_archetype,
     };
     emit_package(&cfg).context("core emit_package")?;
 

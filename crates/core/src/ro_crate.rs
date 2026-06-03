@@ -428,6 +428,70 @@ pub fn build_metadata(
     })
 }
 
+/// `name` of the experimental-archetype maturity stamp written onto the
+/// root Dataset's `additionalProperty` array.
+pub const ARCHETYPE_MATURITY_PROPERTY: &str = "archetypeMaturity";
+
+/// `value` written when the chosen archetype is experimental
+/// (scaffolded / not-production-validated).
+pub const ARCHETYPE_MATURITY_EXPERIMENTAL: &str = "experimental";
+
+/// Stamp the root Dataset (`@id == "./"`) of an already-built
+/// `ro-crate-metadata.json` graph with an
+/// `archetypeMaturity: experimental` `additionalProperty` PropertyValue,
+/// recording that the package was planned from an *experimental*
+/// (scaffolded / not-production-validated) archetype so a reviewer sees
+/// the maturity.
+///
+/// Matches the `package_run_id` / `additionalProperty` shape in
+/// [`build_metadata`]: appends to the existing array (created by the
+/// `run_id` path) or inserts a fresh one. Idempotent — re-stamping a
+/// graph that already carries the marker is a no-op — and deterministic
+/// (no wall-clock), so re-emits of the same intake stay byte-identical.
+///
+/// Called only when the caller has determined the chosen archetype is
+/// experimental (`EmitConfig::experimental_archetype`); production
+/// archetypes are never stamped, preserving their byte-baseline.
+pub fn stamp_experimental_archetype(metadata: &mut Value) {
+    let Some(graph) = metadata.get_mut("@graph").and_then(|g| g.as_array_mut()) else {
+        return;
+    };
+    let Some(root) = graph
+        .iter_mut()
+        .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("./"))
+    else {
+        return;
+    };
+    let Some(root_obj) = root.as_object_mut() else {
+        return;
+    };
+
+    let stamp = json!({
+        "@type": "PropertyValue",
+        "name": ARCHETYPE_MATURITY_PROPERTY,
+        "value": ARCHETYPE_MATURITY_EXPERIMENTAL
+    });
+
+    match root_obj
+        .entry("additionalProperty".to_string())
+        .or_insert_with(|| Value::Array(Vec::new()))
+    {
+        Value::Array(props) => {
+            let already = props.iter().any(|p| {
+                p.get("name").and_then(|v| v.as_str()) == Some(ARCHETYPE_MATURITY_PROPERTY)
+            });
+            if !already {
+                props.push(stamp);
+            }
+        }
+        // `additionalProperty` exists but isn't an array (shouldn't
+        // happen given `build_metadata`'s shape); normalize to an array.
+        other => {
+            *other = Value::Array(vec![stamp]);
+        }
+    }
+}
+
 /// Emit a WRROC Tier-3 `ParameterConnection` entity
 /// describing one edge between two composed atoms. Each connection
 /// names the source atom's output port + the target atom's input port,

@@ -1,6 +1,10 @@
 schema_version: "0.1"
 id: cross_omics_variant_rnaseq_chipseq
 version: "1.0.0"
+# Paper §10: experimental — scaffolded, not production-validated. This
+# archetype stays selectable by the matcher; emission stamps the
+# package's RO-Crate root with `archetypeMaturity: experimental`.
+production_ready: false
 description: |
   Three-way cross-omics integrating WGS variant calls + bulk RNA-seq
   expression + ChIP-seq active-chromatin marks on the same cohort

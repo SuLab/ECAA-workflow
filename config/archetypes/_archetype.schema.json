@@ -31,6 +31,11 @@
       "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[A-Za-z0-9.]+)?$",
       "description": "Semver. [DEC QX.5] — bump on additive changes so existing sessions don't silently re-route to a refined archetype mid-amendment. The `archetype_snapshot` field on Session pins the version a session committed to (S6.9 Cargo.lock-style pinning)."
     },
+    "production_ready": {
+      "type": "boolean",
+      "default": true,
+      "description": "Paper §10 archetype maturity marker. `true` (default; omit the field) marks a production-validated archetype. `false` marks an *experimental* (scaffolded / not-production-validated) archetype — the five `cross_omics_*` archetypes set this `false`. This is data, not a selection gate: every loaded archetype is selectable by the matcher regardless of this flag. The maturity is surfaced to emission via `ArchetypeRegistry::is_archetype_experimental`, which stamps the emitted RO-Crate root Dataset with an `archetypeMaturity: experimental` additionalProperty so a reviewer sees the package was planned from an experimental archetype. Mirrors `crates/core/src/archetype.rs::ArchetypeDefinition::production_ready`."
+    },
     "description": {
       "type": "string",
       "minLength": 1,

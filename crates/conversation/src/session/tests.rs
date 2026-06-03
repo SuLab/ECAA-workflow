@@ -647,6 +647,7 @@ fn archetype_snapshot_defaults_to_none_and_inherits_through_branch() {
         preferred_container: None,
         runtime_baseline: Default::default(),
         cross_omics_modalities: vec![],
+        production_ready: true,
     };
     parent.archetype_snapshot = Some(snapshot.clone());
 

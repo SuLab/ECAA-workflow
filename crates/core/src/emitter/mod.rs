@@ -109,6 +109,20 @@ pub struct EmitConfig<'a> {
     /// a registry-load failure is non-fatal and also yields no anchoring,
     /// since recall expectations are additive.
     pub stage_atoms_dir: Option<&'a std::path::Path>,
+    /// Maturity stamp for the chosen archetype. `true` when the
+    /// classification's archetype is *experimental* — scaffolded /
+    /// not-production-validated (`production_ready: false`), e.g. the
+    /// cross-omics archetypes. The emitter stamps the RO-Crate root
+    /// Dataset with an `archetypeMaturity: experimental`
+    /// `additionalProperty` so a reviewer sees the maturity. `false`
+    /// (production-validated, or no archetype) writes no stamp, keeping
+    /// the byte-baseline for production packages.
+    ///
+    /// The caller computes this from the archetype registry —
+    /// `ArchetypeRegistry::is_archetype_experimental(archetype_id)` — so
+    /// the maturity data lives with the catalog and only a deterministic
+    /// boolean threads into emission (no wall-clock; byte-stable).
+    pub experimental_archetype: bool,
 }
 
 /// Structured amendment metadata captured at the moment `emit_package`
@@ -433,6 +447,13 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
 
     let mut ro_crate_meta =
         ro_crate::build_metadata(config.dag, config.classification, &emit_clock);
+    // Maturity stamp: when the chosen archetype is experimental
+    // (scaffolded / not-production-validated), record that on the root
+    // Dataset so a reviewer sees it. Deterministic (no wall-clock) and a
+    // no-op for production archetypes, preserving the byte-baseline.
+    if config.experimental_archetype {
+        ro_crate::stamp_experimental_archetype(&mut ro_crate_meta);
+    }
     match (config.amend_context, &parent_link) {
         (Some(ctx), Some(link)) => {
             patch_ro_crate_with_amendment(&mut ro_crate_meta, ctx, link);

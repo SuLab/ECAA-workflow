@@ -263,6 +263,7 @@ fn synth_archetype(
         preferred_container: None,
         runtime_baseline: Default::default(),
         cross_omics_modalities: vec![],
+        production_ready: true,
     }
 }
 

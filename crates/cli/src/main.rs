@@ -498,6 +498,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
         runtime_prereqs: Some(&runtime_prereqs),
         per_atom_runtime_prereqs: Some(&per_atom_prereqs),
         stage_atoms_dir: Some(&stage_atoms_dir),
+        experimental_archetype: !archetype_obj.production_ready,
     })?;
 
     // Opt-in BCO emit alongside the package.
@@ -774,6 +775,9 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         runtime_prereqs: Some(&runtime_prereqs),
         per_atom_runtime_prereqs: Some(&per_atom_prereqs),
         stage_atoms_dir: Some(&stage_atoms_dir),
+        experimental_archetype: archetype_obj
+            .map(|(_, a)| !a.production_ready)
+            .unwrap_or(false),
     })?;
 
     // Opt-in BCO emit alongside the package, plus

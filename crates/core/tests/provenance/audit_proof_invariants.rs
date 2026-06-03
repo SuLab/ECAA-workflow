@@ -1040,6 +1040,7 @@ fn emit_minimal_package(out: &std::path::Path) {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 }

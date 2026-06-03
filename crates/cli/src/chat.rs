@@ -111,6 +111,19 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                     });
                     // Stage-atoms dir for the recall anchor (confirmatory-atom-id set).
                     let stage_atoms_dir = config_path.join("stage-atoms");
+                    // Maturity stamp: is the chosen archetype experimental
+                    // (scaffolded / not-production-validated)? Look it up
+                    // from the catalog by archetype_id; missing id or an
+                    // unreadable catalog yields false (no stamp).
+                    let experimental_archetype = clf
+                        .archetype_id
+                        .as_deref()
+                        .map(|id| {
+                            ArchetypeRegistry::load_cached(&config_path.join("archetypes"))
+                                .map(|reg| reg.is_archetype_experimental(id))
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false);
                     emit_package(&EmitConfig {
                         output_dir: out,
                         dag,
@@ -138,6 +151,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                         // is also None and the /ready handler returns above.
                         per_atom_runtime_prereqs: per_atom_prereqs.as_ref(),
                         stage_atoms_dir: Some(&stage_atoms_dir),
+                        experimental_archetype,
                     })?;
                     println!(
                         "\n{} Package emitted → {}",

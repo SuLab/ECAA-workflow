@@ -117,6 +117,51 @@ fn cross_omics_archetype_has_both_branch_stages() {
     );
 }
 
+/// Experimental-stamp model (supersedes the old production-exclusion
+/// gate): cross-omics archetypes are scaffolded
+/// (`production_ready: false`) but are SELECTABLE BY DEFAULT — no opt-in
+/// required. The maturity marker is retained as data so emission can
+/// stamp the package; it no longer gates selection. The default
+/// production matcher must therefore return a cross-omics archetype for
+/// an intake whose modality set exactly matches one.
+#[test]
+fn production_matcher_selects_cross_omics_by_default() {
+    // The default (and only) constructor — no policy argument — must
+    // select scaffolded cross-omics archetypes with no opt-in.
+    let reg = ArchetypeRegistry::load_from_dir(&config_root().join("archetypes"))
+        .expect("ArchetypeRegistry::load_from_dir must succeed");
+
+    // The cross-omics archetype is loaded and its maturity marker is
+    // retained as data (production_ready: false) so emission can stamp
+    // it — but that marker must NOT exclude it from selection.
+    let arch = reg
+        .get("cross_omics_rnaseq_proteomics")
+        .expect("cross_omics archetype must be loaded into the catalog");
+    assert!(
+        !arch.production_ready,
+        "cross-omics archetype keeps its production_ready: false maturity marker"
+    );
+
+    // The production matcher selects it by default for a matching intake.
+    let matches = reg.find_match_cross_omics(
+        "data:0951",
+        Some("format:3475"),
+        "bioinformatics",
+        &["bulk_rnaseq", "proteomics"],
+        None,
+        false,
+        "rna-seq and proteomics",
+    );
+    assert!(
+        matches
+            .iter()
+            .any(|(a, _)| a.id == "cross_omics_rnaseq_proteomics"),
+        "default matcher must select the scaffolded cross-omics archetype \
+         (selectable by default; no opt-in), got {:?}",
+        matches.iter().map(|(a, _)| &a.id).collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn cross_omics_thematic_comparison_depends_on_both_branches() {
     let reg = ArchetypeRegistry::load_from_dir(&config_root().join("archetypes"))

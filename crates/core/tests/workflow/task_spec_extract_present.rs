@@ -115,6 +115,7 @@ fn task_spec_sidecar_present_for_every_task() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit_package must succeed");
 
@@ -185,6 +186,7 @@ fn task_spec_task_id_matches_map_key() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit_package must succeed");
 

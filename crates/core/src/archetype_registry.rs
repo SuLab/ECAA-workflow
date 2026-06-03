@@ -37,6 +37,12 @@ impl ArchetypeRegistry {
     /// schema sidecars). Returns an empty registry when the directory
     /// is missing — mirrors AtomRegistry's permissive shape so the
     /// composer's legacy fallback continues to work pre-Stage-6.
+    ///
+    /// Cross-omics archetypes carry a `production_ready: false` maturity
+    /// marker (retained as data so emission can stamp the package), but
+    /// that marker does NOT gate selection: every loaded archetype is
+    /// selectable by the matcher. The maturity is surfaced downstream via
+    /// [`Self::is_archetype_experimental`] for the emission stamp.
     pub fn load_from_dir(dir: &Path) -> Result<Self> {
         let schema = Self::compiled_schema()?;
         let mut archetypes = BTreeMap::new();
@@ -160,6 +166,25 @@ impl ArchetypeRegistry {
     /// Get.
     pub fn get(&self, id: &str) -> Option<&ArchetypeDefinition> {
         self.archetypes.get(id)
+    }
+
+    /// Whether the archetype with `id` is *experimental* — i.e.
+    /// scaffolded / not-production-validated (`production_ready: false`).
+    /// Returns `false` for production-validated archetypes and for an
+    /// unknown id (the conservative default: only stamp when we
+    /// positively know the chosen archetype is experimental).
+    ///
+    /// This carries the archetype maturity into the emission stamp (the
+    /// `archetypeMaturity: experimental` additionalProperty on the
+    /// emitted RO-Crate root Dataset) so a reviewer can see that the
+    /// package was planned from an experimental archetype. The maturity
+    /// is data only — it does NOT gate selection; every loaded archetype
+    /// remains selectable by the matcher.
+    pub fn is_archetype_experimental(&self, id: &str) -> bool {
+        self.archetypes
+            .get(id)
+            .map(|a| !a.production_ready)
+            .unwrap_or(false)
     }
 
     /// Len.
@@ -754,6 +779,11 @@ impl ArchetypeRegistry {
     }
 
     /// Process-wide cached load. See `AtomRegistry::load_cached`.
+    ///
+    /// Every loaded archetype is selectable by the matcher regardless of
+    /// its `production_ready` maturity marker; the marker is data only,
+    /// surfaced via [`Self::is_archetype_experimental`] for the emission
+    /// stamp.
     pub fn load_cached(dir: &Path) -> Result<Arc<Self>> {
         use std::collections::HashMap;
         use std::path::PathBuf;
@@ -1132,6 +1162,7 @@ mod tests {
                 preferred_container: None,
                 runtime_baseline: Default::default(),
                 cross_omics_modalities: vec![],
+                production_ready: true,
             },
         );
         archetypes.insert(
@@ -1156,6 +1187,7 @@ mod tests {
                 preferred_container: None,
                 runtime_baseline: Default::default(),
                 cross_omics_modalities: vec![],
+                production_ready: true,
             },
         );
         let reg = ArchetypeRegistry { archetypes };
@@ -1211,6 +1243,7 @@ mod tests {
                     preferred_container: None,
                     runtime_baseline: Default::default(),
                     cross_omics_modalities: vec![],
+                    production_ready: true,
                 },
             );
         }

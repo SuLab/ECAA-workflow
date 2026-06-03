@@ -168,4 +168,24 @@ runtime_baseline: RuntimePrereqs,
  * Unrelated to `modality_hint`, which is the single-modality
  * disambiguator for goal-shape ties.
  */
-cross_omics_modalities: Array<string>, };
+cross_omics_modalities: Array<string>, 
+/**
+ * Archetype maturity marker (paper §10). `true` (default) means the
+ * archetype is production-validated. `false` marks an *experimental*
+ * (scaffolded / not-production-validated) archetype — the five
+ * `cross_omics_*` archetypes set this `false`.
+ *
+ * This is **data, not a selection gate**: every loaded archetype is
+ * selectable by the matcher regardless of this flag. The maturity is
+ * surfaced to emission via
+ * [`crate::archetype_registry::ArchetypeRegistry::is_archetype_experimental`],
+ * which stamps the emitted RO-Crate root Dataset with an
+ * `archetypeMaturity: experimental` `additionalProperty` so a
+ * reviewer sees that the package was planned from an experimental
+ * archetype.
+ *
+ * Defaults to `true` so every existing single-modality archetype is
+ * unaffected and its YAML stays byte-identical (the field is
+ * suppressed from serialized output when `true`).
+ */
+production_ready: boolean, };
