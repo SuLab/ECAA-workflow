@@ -72,6 +72,7 @@ pub mod saga;
 // `runtime/determinism-shim.json` by the conversation crate's
 // `emit::sidecars::write_determinism_shim`.
 pub mod audit_proof;
+pub mod determinism_seeds;
 pub mod determinism_shim;
 pub mod disambiguation;
 pub mod disposition;
