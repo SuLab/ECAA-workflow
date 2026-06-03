@@ -236,31 +236,29 @@ pub(super) async fn write_phase16_sidecars(
     tokio::fs::create_dir_all(&runtime).await?;
 
     // 1. proofs.jsonl — one entry per edge with a CompatibilityProof.
+    // Written present-but-empty when the planner produced no edges, so
+    // the file is uniformly present (the "all eight sub-graphs present"
+    // contract); an empty file means "no proofs", not a substrate gap.
     if let Some(workflow_dag) = session.workflow_dag.as_ref() {
         let proofs_jsonl = build_proofs_jsonl(workflow_dag);
-        if !proofs_jsonl.is_empty() {
-            let redacted = match tier {
-                ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private => proofs_jsonl,
-                _ => ecaa_workflow_core::provenance_tiers::redact_proofs_jsonl(&proofs_jsonl, tier),
-            };
-            let path = runtime.join("proofs.jsonl");
-            tokio::fs::write(&path, redacted)
-                .await
-                .with_context(|| format!("writing {}", path.display()))?;
-        }
+        let redacted = match tier {
+            ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private => proofs_jsonl,
+            _ => ecaa_workflow_core::provenance_tiers::redact_proofs_jsonl(&proofs_jsonl, tier),
+        };
+        let path = runtime.join("proofs.jsonl");
+        tokio::fs::write(&path, redacted)
+            .await
+            .with_context(|| format!("writing {}", path.display()))?;
 
         // 2. assumptions.jsonl — one entry per AssumptionLedger entry.
+        // Also written present-but-empty when the ledger is empty.
         let assumptions_jsonl = build_assumptions_jsonl(workflow_dag);
-        if !assumptions_jsonl.is_empty() {
-            let redacted = ecaa_workflow_core::provenance_tiers::redact_assumptions_jsonl(
-                assumptions_jsonl,
-                tier,
-            );
-            let path = runtime.join("assumptions.jsonl");
-            tokio::fs::write(&path, redacted)
-                .await
-                .with_context(|| format!("writing {}", path.display()))?;
-        }
+        let redacted =
+            ecaa_workflow_core::provenance_tiers::redact_assumptions_jsonl(assumptions_jsonl, tier);
+        let path = runtime.join("assumptions.jsonl");
+        tokio::fs::write(&path, redacted)
+            .await
+            .with_context(|| format!("writing {}", path.display()))?;
     }
 
     // 3. policy-decisions.jsonl — one entry per recorded policy
@@ -749,5 +747,50 @@ mod tests {
         );
         // Callers would surface this as a warning; we just confirm
         // the mismatch is detectable.
+    }
+
+    /// B6 — uniform 8-sidecar presence. When a v4 session carries a
+    /// cached `WorkflowDag` whose planner produced NO compatibility
+    /// proofs (no edges) and NO assumptions, `write_phase16_sidecars`
+    /// must still write `proofs.jsonl` and `assumptions.jsonl`
+    /// present-but-empty. Tested directly against the conversation-crate
+    /// writer (not the full emit path, where core's emit-time sidecars
+    /// would also produce these files) so the guard removal is the only
+    /// thing keeping both files present.
+    #[tokio::test]
+    async fn phase16_sidecars_present_when_proofs_and_assumptions_empty() {
+        use ecaa_workflow_core::provenance_tiers::ProvenanceTier;
+        use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut session = Session::new(false);
+        // Empty WorkflowDag: no edges -> empty proofs, no ledger
+        // entries -> empty assumptions.
+        session.workflow_dag = Some(WorkflowDag::default());
+
+        write_phase16_sidecars(&session, dir.path(), ProvenanceTier::Private)
+            .await
+            .expect("phase16 sidecar write must succeed");
+
+        let proofs = dir.path().join("runtime/proofs.jsonl");
+        let assumptions = dir.path().join("runtime/assumptions.jsonl");
+        assert!(
+            proofs.exists(),
+            "runtime/proofs.jsonl must be present (0 bytes allowed) even with no proofs"
+        );
+        assert!(
+            assumptions.exists(),
+            "runtime/assumptions.jsonl must be present (0 bytes allowed) even with no assumptions"
+        );
+        assert_eq!(
+            tokio::fs::read(&proofs).await.unwrap().len(),
+            0,
+            "no proofs -> 0-byte proofs.jsonl"
+        );
+        assert_eq!(
+            tokio::fs::read(&assumptions).await.unwrap().len(),
+            0,
+            "no assumptions -> 0-byte assumptions.jsonl"
+        );
     }
 }

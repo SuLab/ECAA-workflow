@@ -159,3 +159,85 @@ async fn model_policy_sidecar_emitted_with_prompt_hash() {
     assert!(body["tool_count"].as_u64().unwrap() >= 19, "tool_count");
     assert_eq!(body["provider_id"], "anthropic");
 }
+
+/// Uniform 8-sidecar presence (B6): `runtime/proofs.jsonl` and
+/// `runtime/assumptions.jsonl` must be present on disk after every
+/// emit, even when the v4 planner produced no compatibility proofs and
+/// no assumptions. A 0-byte file is acceptable; absence is not.
+/// Downstream audit-proof loaders treat a present-empty file as
+/// "no rows" and an absent file as a substrate gap — so the file must
+/// always exist.
+///
+/// Exercises the planner-output-empty case directly by clearing the
+/// cached v4 DAG's `edges` (the conversation-crate proofs writer
+/// projects one row per edge) and `assumptions` (one row per ledger
+/// entry) before emit, so `write_phase16_sidecars` receives an empty
+/// string for both. Without the present-but-empty fix the conversation
+/// writer skips the write under those conditions.
+#[tokio::test]
+async fn proofs_and_assumptions_sidecars_present_even_when_empty() {
+    let dir = tempdir().unwrap();
+    let mut session = boot_session_with_dag().await;
+
+    // Force the planner-output-empty case in the conversation writer.
+    {
+        let dag = session
+            .workflow_dag
+            .as_mut()
+            .expect("classifier path must populate workflow_dag");
+        dag.edges.clear();
+        dag.assumptions.entries.clear();
+    }
+
+    emit_with_conversation_log(&mut session, dir.path(), &config_dir())
+        .await
+        .unwrap();
+
+    let proofs = dir.path().join("runtime/proofs.jsonl");
+    let assumptions = dir.path().join("runtime/assumptions.jsonl");
+    assert!(
+        proofs.exists(),
+        "runtime/proofs.jsonl must exist after emit (present-but-empty allowed)"
+    );
+    assert!(
+        assumptions.exists(),
+        "runtime/assumptions.jsonl must exist after emit (present-but-empty allowed)"
+    );
+    // assumptions.jsonl has no other producer in this scenario, so an
+    // empty ledger yields a 0-byte file.
+    assert_eq!(
+        std::fs::read(&assumptions).unwrap().len(),
+        0,
+        "assumptions.jsonl must be 0 bytes when no assumptions produced"
+    );
+}
+
+/// Byte-determinism for the present-but-empty sidecars: re-emitting the
+/// SAME session into two directories yields byte-identical
+/// `proofs.jsonl`, `assumptions.jsonl`, and `ro-crate-metadata.json`.
+/// (Two independently-booted sessions would differ only by their random
+/// session UUID, which the byte-characterization baseline excludes; this
+/// test instead exercises idempotent re-emission of one session.)
+#[tokio::test]
+async fn proofs_and_assumptions_sidecars_byte_deterministic() {
+    let dir_a = tempdir().unwrap();
+    let dir_b = tempdir().unwrap();
+
+    let mut session = boot_session_with_dag().await;
+    emit_with_conversation_log(&mut session, dir_a.path(), &config_dir())
+        .await
+        .unwrap();
+    emit_with_conversation_log(&mut session, dir_b.path(), &config_dir())
+        .await
+        .unwrap();
+
+    for rel in [
+        "runtime/proofs.jsonl",
+        "runtime/assumptions.jsonl",
+        "ro-crate-metadata.json",
+    ] {
+        let a = std::fs::read(dir_a.path().join(rel)).unwrap();
+        let b = std::fs::read(dir_b.path().join(rel)).unwrap();
+        assert_eq!(a, b, "{rel} must be byte-identical across two emits");
+    }
+}
