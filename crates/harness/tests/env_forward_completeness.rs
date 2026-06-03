@@ -16,7 +16,13 @@ fn bootstrap_script() -> String {
 fn determinism_seed_keys_are_in_forward_allowlist() {
     let script = bootstrap_script();
     // These are exactly the keys core::determinism_seeds stamps.
-    for key in ["PYTHONHASHSEED", "SOURCE_DATE_EPOCH", "TZ", "LANG", "LC_ALL"] {
+    for key in [
+        "PYTHONHASHSEED",
+        "SOURCE_DATE_EPOCH",
+        "TZ",
+        "LANG",
+        "LC_ALL",
+    ] {
         assert!(
             script.contains(key),
             "scripts/_agent-blas-bootstrap.sh forward allowlist is missing {key} — \

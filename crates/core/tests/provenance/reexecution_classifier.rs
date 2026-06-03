@@ -104,7 +104,13 @@ fn scenario_byte_identical() {
     write_table(&parent, "de.tsv", content);
     write_table(&replay, "de.tsv", content); // identical
 
-    let report = classify_reexecution(&parent, &replay, None, ecaa_workflow_core::reexecution_bounds::ModalityBounds::default()).unwrap();
+    let report = classify_reexecution(
+        &parent,
+        &replay,
+        None,
+        ecaa_workflow_core::reexecution_bounds::ModalityBounds::default(),
+    )
+    .unwrap();
     assert_eq!(report.per_artifact.len(), 1);
     assert_eq!(
         report.per_artifact[0].bucket,
@@ -131,7 +137,13 @@ fn scenario_semantic_equivalent() {
     // (PYTHONHASHSEED present + random_seed set → deterministic).
     write_shim(&parent, &minimal_shim_with_seed());
 
-    let report = classify_reexecution(&parent, &replay, None, ecaa_workflow_core::reexecution_bounds::ModalityBounds::default()).unwrap();
+    let report = classify_reexecution(
+        &parent,
+        &replay,
+        None,
+        ecaa_workflow_core::reexecution_bounds::ModalityBounds::default(),
+    )
+    .unwrap();
     assert_eq!(report.per_artifact.len(), 1);
     assert_eq!(
         report.per_artifact[0].bucket,
@@ -159,7 +171,13 @@ fn scenario_acknowledged_non_determinism() {
     // Shim with PYTHONHASHSEED absent + no random seed → acknowledged.
     write_shim(&parent, &minimal_shim_no_seed_no_pythonhash());
 
-    let report = classify_reexecution(&parent, &replay, None, ecaa_workflow_core::reexecution_bounds::ModalityBounds::default()).unwrap();
+    let report = classify_reexecution(
+        &parent,
+        &replay,
+        None,
+        ecaa_workflow_core::reexecution_bounds::ModalityBounds::default(),
+    )
+    .unwrap();
     assert_eq!(report.per_artifact.len(), 1);
     assert_eq!(
         report.per_artifact[0].bucket,
@@ -186,7 +204,13 @@ fn scenario_unavailable() {
     write_table(&parent, "de.tsv", "gene\tlog2FC\nGENE1\t2.0\n");
     // replay/results/tables/de.tsv intentionally not created.
 
-    let report = classify_reexecution(&parent, &replay, None, ecaa_workflow_core::reexecution_bounds::ModalityBounds::default()).unwrap();
+    let report = classify_reexecution(
+        &parent,
+        &replay,
+        None,
+        ecaa_workflow_core::reexecution_bounds::ModalityBounds::default(),
+    )
+    .unwrap();
     assert_eq!(report.per_artifact.len(), 1);
     assert_eq!(
         report.per_artifact[0].bucket,
@@ -212,7 +236,13 @@ fn scenario_failed() {
     // Shim with PYTHONHASHSEED present + random_seed set → NOT acknowledged.
     write_shim(&parent, &minimal_shim_with_seed());
 
-    let report = classify_reexecution(&parent, &replay, None, ecaa_workflow_core::reexecution_bounds::ModalityBounds::default()).unwrap();
+    let report = classify_reexecution(
+        &parent,
+        &replay,
+        None,
+        ecaa_workflow_core::reexecution_bounds::ModalityBounds::default(),
+    )
+    .unwrap();
     assert_eq!(report.per_artifact.len(), 1);
     assert_eq!(
         report.per_artifact[0].bucket,
@@ -289,7 +319,13 @@ fn scenario_ablation_engaged_sidecar_empty() {
     // No results/tables dir → classify returns empty report.
     fs::create_dir_all(&parent).unwrap();
     fs::create_dir_all(&replay).unwrap();
-    let report = classify_reexecution(&parent, &replay, None, ecaa_workflow_core::reexecution_bounds::ModalityBounds::default()).unwrap();
+    let report = classify_reexecution(
+        &parent,
+        &replay,
+        None,
+        ecaa_workflow_core::reexecution_bounds::ModalityBounds::default(),
+    )
+    .unwrap();
     assert!(report.per_artifact.is_empty());
     assert!(report.bucket_counts.is_empty());
 
@@ -314,7 +350,8 @@ fn unconfigured_modality_reproduces_old_5pct_band() {
 
 #[test]
 fn configured_modality_tightens_band() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/reexecution-bounds");
+    let dir =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/reexecution-bounds");
     let provider = ecaa_workflow_core::reexecution_bounds::ModalityBoundsProvider::from_dir(&dir);
     let bounds = provider.bounds_for("bulk_rnaseq"); // 2% band
     assert!(bounds.within(100.0, 101.0), "1% within 2% band");

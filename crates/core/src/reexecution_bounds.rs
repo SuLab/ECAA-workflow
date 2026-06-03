@@ -103,7 +103,10 @@ mod tests {
     fn unconfigured_modality_uses_generic_fallback() {
         let provider = ModalityBoundsProvider::default(); // empty registry
         let b = provider.bounds_for("some_unknown_modality");
-        assert_eq!(b.relative_tolerance, 0.05, "fallback is the ±5% placeholder");
+        assert_eq!(
+            b.relative_tolerance, 0.05,
+            "fallback is the ±5% placeholder"
+        );
     }
 
     #[test]
@@ -131,8 +134,7 @@ mod tests {
     #[test]
     fn missing_dir_yields_fallback_only_provider() {
         // Always-emits discipline: a missing config dir must NOT panic.
-        let provider =
-            ModalityBoundsProvider::from_dir(std::path::Path::new("/nonexistent/xyz"));
+        let provider = ModalityBoundsProvider::from_dir(std::path::Path::new("/nonexistent/xyz"));
         assert_eq!(provider.bounds_for("anything").relative_tolerance, 0.05);
     }
 }
