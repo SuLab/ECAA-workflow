@@ -14,4 +14,5 @@ mod method_choice_self_consistency;
 mod parameters_field;
 mod port_schema_seal;
 mod provenance_field;
+mod snapshot_id;
 mod survey_method_landscape_loads;

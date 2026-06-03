@@ -140,6 +140,39 @@ impl AtomRegistry {
         self.atoms.is_empty()
     }
 
+    /// Deterministic content id over the loaded atom set: the
+    /// id-sorted `(id, version)` pairs hashed with SHA-256, truncated
+    /// to 16 hex chars and prefixed `atomreg:sha256:`. Stable across
+    /// loads (the `BTreeMap` keying guarantees sorted iteration), so it
+    /// is byte-reproducible.
+    ///
+    /// M4 stub: Phase 2 (W1) embeds this into the emitted
+    /// `workflow-typed.json` so the typed artifact is self-describing
+    /// against the registry that produced it.
+    // TODO(phase-2-W1): thread snapshot_id() into workflow-typed.json.
+    pub fn snapshot_id(&self) -> String {
+        let mut buf = String::new();
+        for (id, atom) in &self.atoms {
+            buf.push_str(id);
+            buf.push('@');
+            buf.push_str(&atom.version);
+            buf.push('\n');
+        }
+        let hex = crate::hash_utils::sha256_short(buf.as_bytes(), 16);
+        format!("atomreg:sha256:{hex}")
+    }
+
+    /// Build a registry directly from a list of atoms (test helper +
+    /// in-memory composition). Ids must be unique; later duplicates win
+    /// — call sites pass distinct ids.
+    pub fn from_atoms(atoms: Vec<AtomDefinition>) -> Self {
+        let mut map = BTreeMap::new();
+        for atom in atoms {
+            map.insert(atom.id.clone(), atom);
+        }
+        Self { atoms: map }
+    }
+
     /// Return every bare discover axis that `composer_v4::synthesize_discover_companions`
     /// can emit a `discover_<axis>` companion for, sorted for byte-stable output.
     ///
