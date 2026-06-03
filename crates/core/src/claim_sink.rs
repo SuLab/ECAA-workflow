@@ -12,6 +12,24 @@ use std::path::{Path, PathBuf};
 /// Sink path under the BagIt-excluded, never-agent-trusted reports dir.
 pub const SIGNED_SINK_REL: &str = "runtime/verification-reports/claim-verification.signed.json";
 
+/// Build the package-relative Evidence (V) reference for a verified claim's
+/// `source_table`. The runtime verifier records the table it confirmed against
+/// by basename (e.g. `de_results.tsv`); a bare basename is resolved to its
+/// produced location under the task's output dir
+/// (`runtime/outputs/<task>/<file>`) — the SAME `@id`
+/// [`crate::ro_crate::register_produced_output_tables`] assigns — so the C→V
+/// `supported_by` reference resolves in `cross_graph_integrity` (Inv 5) and
+/// `evidence_coverage` (Inv 3) agree on the same link. A reference that already
+/// carries a path separator is treated as an explicit package-relative path and
+/// kept verbatim (e.g. a claim citing `results/tables/de.csv`).
+fn evidence_ref_for(task_id: &str, source_table: &str) -> String {
+    if source_table.contains('/') {
+        source_table.to_string()
+    } else {
+        format!("runtime/outputs/{task_id}/{source_table}")
+    }
+}
+
 /// Project live verdicts into the audit-proof C-graph row shape
 /// (`{claim_id, status, supported_by}`). Deterministic; `claim_id` is
 /// positional (`<task_id>#claim-<i>`) so it is collision-free within a task.
@@ -23,7 +41,13 @@ pub fn project_verdict_rows(report: &ClaimVerificationReport, task_id: &str) -> 
         .map(|(i, v)| {
             let (status, supported_by): (&str, Vec<String>) = match &v.status {
                 ClaimStatus::Verified => {
-                    ("verified", v.claim.source_table.iter().cloned().collect())
+                    let supported = v
+                        .claim
+                        .source_table
+                        .iter()
+                        .map(|t| evidence_ref_for(task_id, t))
+                        .collect();
+                    ("verified", supported)
                 }
                 ClaimStatus::Unverifiable { .. } => ("pending", Vec::new()),
                 ClaimStatus::Mismatch { .. } => ("mismatch", Vec::new()),

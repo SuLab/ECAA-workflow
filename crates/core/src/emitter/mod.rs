@@ -519,6 +519,27 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     Ok(())
 }
 
+/// Re-seal the BagIt payload manifest against the package's CURRENT on-disk
+/// content. Intended for POST-EXECUTION reconciliation: `ro-crate-metadata.json`
+/// and `WORKFLOW.json` are both manifested files, and both are mutated past the
+/// emit-time seal (the conversation emit path patches the descriptor; the
+/// harness rewrites task states on every transition), so the emit manifest is
+/// stale-on-arrival for every live run. Re-sealing brings the at-rest package
+/// back to self-consistency (e.g. for an external `bagit.py --validate`).
+///
+/// Delegates to the SAME [`write_bagit_manifest`] walk used at emit, so the
+/// exclusion set (`runtime/outputs`, `runtime/verification-reports`, the
+/// enumerated runtime sidecars, tag files) is identical and the emit-time
+/// byte-reproducibility surface is unchanged — the re-seal only ever runs on a
+/// post-exec package, which the reproducibility harness (which re-emits into a
+/// fresh tempdir) never observes.
+pub fn regenerate_bagit_manifest(
+    dir: &std::path::Path,
+    clock: &dyn crate::clock::Clock,
+) -> Result<()> {
+    write_bagit_manifest(dir, clock).context("re-sealing BagIt manifest post-execution")
+}
+
 /// Derive a deterministic `FrozenClock` from the session's intake text
 /// so any emit-pipeline artifact that lands in the BagIt manifest
 /// (today: `amendment-lineage.json::created_at`; planned:
