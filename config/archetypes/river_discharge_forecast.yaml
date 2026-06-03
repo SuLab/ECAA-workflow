@@ -1,0 +1,48 @@
+schema_version: "0.1"
+id: river_discharge_forecast
+version: "1.0.0"
+description: |
+  Hydrologic streamflow forecasting from a gauge-station time series.
+  Import the discharge panel, run hydrologic QC (gap-fill + outlier flag),
+  exploratory decomposition + stationarity diagnostics, fit the SME-named
+  model family, produce point forecasts + prediction intervals, and evaluate
+  against a held-out window.
+sme_summary: |
+  Forecast river discharge for a gauge station using the SME-named model
+  family, with prediction intervals over the named horizon.
+goal_data: "data:0951"
+goal_format: "format:3475"
+project_class: time_series_forecast
+atoms:
+  - atom_id: data_import
+    required: true
+  - atom_id: hydrologic_qc
+    required: true
+    depends_on: [data_import]
+  - atom_id: time_series_decompose
+    required: true
+    depends_on: [hydrologic_qc]
+  - atom_id: time_series_model_fit
+    required: true
+    depends_on: [time_series_decompose]
+  - atom_id: time_series_forecast_evaluate
+    required: true
+    depends_on: [time_series_model_fit]
+  - atom_id: reporting
+    required: true
+    depends_on: [time_series_forecast_evaluate]
+  - atom_id: final_reporting
+    required: true
+    depends_on: [reporting]
+slot_mappings:
+  model_family: time_series_model_fit.inputs.model_family
+  forecast_horizon: time_series_forecast_evaluate.inputs.forecast_horizon
+  holdout_period: time_series_forecast_evaluate.inputs.holdout_period
+  series_id: time_series_decompose.inputs.series_id
+claim_boundary: |
+  Report streamflow forecasts and diagnostics as computed by the SME-named
+  model. Do not assert hydrologic causation, performance under unobserved
+  climate regimes, or basin-physical interpretation beyond what the SME stated.
+ordering_only_edges:
+  - { from: data_import, to: hydrologic_qc }
+  - { from: time_series_forecast_evaluate, to: reporting }
