@@ -11,6 +11,7 @@
 pub mod bench_readiness;
 pub mod invariants;
 pub mod loader;
+pub mod output_source;
 
 pub use ecaa_workflow_types::{
     AuditProofReport, EvaluatorInfo, InvariantId, InvariantStatus, InvariantVerdict,

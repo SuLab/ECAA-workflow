@@ -535,19 +535,7 @@ fn sidecar_letter(relpath: &str) -> Option<char> {
 }
 
 fn empty_loaded_package() -> crate::audit_proof::loader::LoadedPackage {
-    crate::audit_proof::loader::LoadedPackage {
-        intake: Vec::new(),
-        decisions: Vec::new(),
-        validation_reports: Vec::new(),
-        proofs: Vec::new(),
-        claims: None,
-        verifier_decisions: Vec::new(),
-        assumptions: Vec::new(),
-        determinism_shim: None,
-        security_policy: None,
-        plot_affordances: None,
-        claims_tampered: false,
-    }
+    crate::audit_proof::loader::LoadedPackage::default()
 }
 
 /// Validate emitted sidecars against the hand-authored spec schemas. As of

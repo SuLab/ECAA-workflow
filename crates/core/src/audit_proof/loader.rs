@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 /// LoadedPackage data.
 pub struct LoadedPackage {
     /// Intake.
@@ -28,6 +28,15 @@ pub struct LoadedPackage {
     pub security_policy: Option<Value>, // security-policy.json
     /// Plot affordances.
     pub plot_affordances: Option<Vec<Value>>, // plot_affordances.jsonl (optional)
+    /// The RO-Crate `@graph` analytical-output entities — the
+    /// `ImageObject`/`schema:Image` figure entities (declared figure
+    /// obligations at emit; produced figures post-execution) plus any
+    /// `Dataset`/`File` entity rooted under `runtime/outputs/`. This is the
+    /// real-output source the Evidence (V) sub-graph projection and Invariant 3
+    /// (`evidence_coverage`) both range over (see
+    /// [`crate::audit_proof::output_source`]). Empty when
+    /// `ro-crate-metadata.json` is absent.
+    pub output_entities: Vec<Value>, // from ro-crate-metadata.json::@graph
     /// True iff a signed verdict sink was present but failed HMAC
     /// verification (tampered or written by an unauthorized writer).
     /// Inv 1 maps this to `Fail`.
@@ -52,6 +61,7 @@ impl LoadedPackage {
     ) -> Result<Self> {
         let rt = root.join("runtime");
         let (claims, claims_tampered) = load_claims(&rt, verifier)?;
+        let output_entities = load_output_entities(root)?;
         Ok(Self {
             intake: load_jsonl_opt(&rt.join("intake-conversation.jsonl"))?.unwrap_or_default(),
             decisions: load_jsonl_opt(&rt.join("decisions.jsonl"))?.unwrap_or_default(),
@@ -66,8 +76,33 @@ impl LoadedPackage {
             determinism_shim: load_json_opt(&rt.join("determinism-shim.json"))?,
             security_policy: load_json_opt(&rt.join("security-policy.json"))?,
             plot_affordances: load_jsonl_opt(&rt.join("plot_affordances.jsonl"))?,
+            output_entities,
         })
     }
+}
+
+/// Read the analytical-output entities from `ro-crate-metadata.json::@graph`.
+/// Filtering to the actual output set (figures + `runtime/outputs/` artifacts)
+/// is done by [`crate::audit_proof::output_source::analytical_outputs`]; this
+/// loader returns every `@graph` entity that carries an `@id` so that single
+/// filter stays the one source of truth. Returns an empty vec when the
+/// descriptor is absent (so a pre-RO-Crate sidecar-only package still loads).
+fn load_output_entities(root: &Path) -> Result<Vec<Value>> {
+    let descriptor = root.join("ro-crate-metadata.json");
+    let Some(meta) = load_json_opt(&descriptor)? else {
+        return Ok(Vec::new());
+    };
+    let entities = meta
+        .get("@graph")
+        .and_then(Value::as_array)
+        .map(|g| {
+            g.iter()
+                .filter(|e| e.get("@id").and_then(Value::as_str).is_some())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(entities)
 }
 
 /// Returns `(claims, claims_tampered)`. Signed sink wins when present and a

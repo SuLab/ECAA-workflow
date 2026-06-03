@@ -711,19 +711,7 @@ fn validate_schemas_pure_rust(pkg_root: &Path) -> SchemaValidationResults {
 /// An all-empty `LoadedPackage` used when the strict loader fails (so the
 /// per-sidecar raw-parse guard owns the precise error).
 fn empty_loaded_package() -> ecaa_workflow_core::audit_proof::loader::LoadedPackage {
-    ecaa_workflow_core::audit_proof::loader::LoadedPackage {
-        intake: Vec::new(),
-        decisions: Vec::new(),
-        validation_reports: Vec::new(),
-        proofs: Vec::new(),
-        claims: None,
-        verifier_decisions: Vec::new(),
-        assumptions: Vec::new(),
-        determinism_shim: None,
-        security_policy: None,
-        plot_affordances: None,
-        claims_tampered: false,
-    }
+    ecaa_workflow_core::audit_proof::loader::LoadedPackage::default()
 }
 
 /// Spin-poll a spawned child to completion or timeout. Returns the child's

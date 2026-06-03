@@ -560,31 +560,54 @@ fn sanitize_id(s: &str) -> String {
     }
 }
 
-/// Project the V (Evidence) sub-graph from `proofs.jsonl`. Each row that
-/// names a `computed_from`/`produces` output becomes a `Table` node (the
-/// generic evidence-bearing artifact) plus a `computed_from` edge to the
-/// E `WorkflowStep` that produced it (§5.4 anchors Invariant 3).
+/// Project the V (Evidence) sub-graph from the package's ACTUAL analytical
+/// outputs — the RO-Crate `@graph` output entities (figure obligations /
+/// produced `runtime/outputs/` artifacts) plus any real-path proofs row — via
+/// the shared [`crate::audit_proof::output_source`] derivation that Invariant 3
+/// (`evidence_coverage`) also uses, so reader and writer AGREE.
+///
+/// This DECOUPLES V from E: the Execution (E) sub-graph stays backed by
+/// `proofs.jsonl` `EdgeContract` → `WorkflowStep` rows (see the `EdgeContract`
+/// [`ProjectToSpec`] impl), while V materializes from the produced/declared
+/// output entities. Each output becomes a `Figure`/`Table`/`File` V node
+/// (§5.4 closed set) with a unique id, plus a `computed_from` edge to the E
+/// `WorkflowStep` that produced it (the producing task, derived from the
+/// `runtime/outputs/<task>/…` path). §5.4 anchors Invariant 3.
 fn project_evidence_subgraph(pkg: &LoadedPackage) -> Vec<Value> {
+    use crate::audit_proof::output_source::analytical_outputs;
+    use std::collections::BTreeMap;
+    // De-dup local ids by basename, disambiguating collisions deterministically
+    // (two `volcano.png` under different tasks would otherwise share an id).
+    let mut seen: BTreeMap<String, u32> = BTreeMap::new();
     let mut out = Vec::new();
-    for (idx, row) in pkg.proofs.iter().enumerate() {
-        let Some(output) = row
-            .get("computed_from")
-            .or_else(|| row.get("produces"))
-            .and_then(Value::as_str)
-        else {
-            continue;
-        };
-        let id = sanitize_id(output.rsplit('/').next().unwrap_or(output));
-        let id = if id.is_empty() {
+    for (idx, output) in analytical_outputs(&pkg.output_entities, &pkg.proofs)
+        .into_iter()
+        .enumerate()
+    {
+        let base = sanitize_id(output.path.rsplit('/').next().unwrap_or(&output.path));
+        let base = if base.is_empty() {
             format!("evidence_{idx:03}")
         } else {
-            id
+            base
         };
-        let node = SpecNode::new(&id, SpecNodeType::Table).with_prop("path", json!(output));
+        let count = seen.entry(base.clone()).or_insert(0);
+        let id = if *count == 0 {
+            base.clone()
+        } else {
+            format!("{base}_{count}")
+        };
+        *count += 1;
+        let node_type = match output.kind {
+            crate::audit_proof::output_source::OutputKind::Figure => SpecNodeType::Figure,
+            crate::audit_proof::output_source::OutputKind::Table => SpecNodeType::Table,
+            crate::audit_proof::output_source::OutputKind::File => SpecNodeType::File,
+        };
+        let node = SpecNode::new(&id, node_type).with_prop("path", json!(output.path));
         out.push(node.to_value('V'));
-        if let Some(step) = row.get("id").and_then(Value::as_str) {
-            // `computed_from` points from the Table to the producing E step.
-            let target = format!("E:{}", sanitize_id(step));
+        if let Some(task) = &output.producer_task {
+            // `computed_from` points from the V evidence node to the producing
+            // E `WorkflowStep` (the §5.4 cardinality requirement).
+            let target = format!("E:{}", sanitize_id(task));
             let edge = SpecEdge::new(&id, target, SpecPredicate::ComputedFrom);
             out.push(edge.to_value('V'));
         }
@@ -961,6 +984,101 @@ mod tests {
     fn audit_proof_jsonld_empty_report_yields_no_nodes() {
         assert!(project_audit_proof_jsonld(&json!({})).is_empty());
         assert!(project_audit_proof_jsonld(&json!({"verdicts": []})).is_empty());
+    }
+
+    /// Build a `LoadedPackage` carrying RO-Crate output entities + bare-EdgeContract
+    /// proofs (the production conversation-path shape).
+    fn pkg_with_outputs_and_proofs(
+        output_entities: Vec<Value>,
+        proofs: Vec<Value>,
+    ) -> LoadedPackage {
+        LoadedPackage {
+            proofs,
+            output_entities,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn evidence_subgraph_materializes_from_output_entities_not_proofs() {
+        // The V sub-graph must come from the RO-Crate output entities (declared
+        // figure obligations / produced files), NOT from the E-backed
+        // proofs.jsonl EdgeContract rows. Here proofs carries a bare
+        // producer→consumer EdgeContract (the production conversation-path
+        // shape, no `computed_from`) — V must still be non-empty because the
+        // RO-Crate declares an ImageObject output.
+        let pkg = pkg_with_outputs_and_proofs(
+            vec![json!({
+                "@id": "runtime/outputs/differential_expression/figures/volcano.png",
+                "@type": ["File", "ImageObject"]
+            })],
+            vec![json!({
+                "from_node": "counts", "from_port": "out",
+                "to_node": "differential_expression", "to_port": "in",
+                "proof": {}
+            })],
+        );
+        let v = project_evidence_subgraph(&pkg);
+        let nodes: Vec<&Value> = v.iter().filter(|x| x.get("type").is_some()).collect();
+        assert_eq!(nodes.len(), 1, "one V node per output entity; got {v:?}");
+        assert_eq!(
+            nodes[0]["type"],
+            json!("Figure"),
+            "ImageObject → Figure node"
+        );
+        assert!(
+            nodes[0]["id"].as_str().unwrap().starts_with("V:"),
+            "V node id prefix-tagged"
+        );
+        // The V node carries a `computed_from` edge to the producing E step.
+        let edges: Vec<&Value> = v.iter().filter(|x| x.get("predicate").is_some()).collect();
+        assert!(
+            edges
+                .iter()
+                .any(|e| e["predicate"] == json!("computed_from")),
+            "each V Figure has a computed_from edge to its E producer; got {v:?}"
+        );
+    }
+
+    #[test]
+    fn evidence_subgraph_not_identical_to_execution_rows() {
+        use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+        // V (Evidence) and E (Execution) must NOT be backed by the same rows:
+        // E projects from the proofs EdgeContract, V from the output entity.
+        let edge = serde_json::to_value(EdgeContract {
+            from_node: "data_acquisition".into(),
+            from_port: "out".into(),
+            to_node: "qc".into(),
+            to_port: "in".into(),
+            proof: CompatibilityProof::default(),
+            chain_of_custody: None,
+        })
+        .unwrap();
+        let pkg = pkg_with_outputs_and_proofs(
+            vec![json!({
+                "@id": "runtime/outputs/qc/figures/per_sample_metric_bar.png",
+                "@type": ["File", "ImageObject"]
+            })],
+            vec![edge],
+        );
+        let v = project_subgraph('V', &pkg);
+        let e = project_subgraph('E', &pkg);
+        assert_ne!(v, e, "V and E must be distinct sub-graphs");
+        // E projects the WorkflowStep; V projects the Figure.
+        assert!(e
+            .iter()
+            .any(|n| n.get("type").and_then(Value::as_str) == Some("WorkflowStep")));
+        assert!(v
+            .iter()
+            .any(|n| n.get("type").and_then(Value::as_str) == Some("Figure")));
+    }
+
+    #[test]
+    fn evidence_subgraph_empty_when_no_output_entities() {
+        // No RO-Crate output entities and no real-path proofs outputs → empty V
+        // (schema-valid; the pre-execution minimal-package case).
+        let pkg = pkg_with_outputs_and_proofs(vec![], vec![]);
+        assert!(project_evidence_subgraph(&pkg).is_empty());
     }
 
     #[test]

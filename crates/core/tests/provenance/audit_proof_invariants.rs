@@ -16,6 +16,7 @@ fn fixture_loaded(claims: serde_json::Value) -> LoadedPackage {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     }
 }
@@ -105,6 +106,7 @@ fn claim_completeness_unverified_when_no_claim_file() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     };
     let v = check_claim_completeness(&pkg);
@@ -125,6 +127,7 @@ fn fixture_with_decisions(decisions: Vec<serde_json::Value>) -> LoadedPackage {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     }
 }
@@ -214,19 +217,110 @@ fn pkg_with(
     assumptions: Vec<serde_json::Value>,
 ) -> LoadedPackage {
     LoadedPackage {
-        intake: vec![],
-        decisions: vec![],
         // Real harness shape: obligation outcomes, no `outputs` field.
         validation_reports: vec![json!({"task_id":"de","obligation_id":"o1","outcome":"passed"})],
         proofs,
         claims,
-        verifier_decisions: vec![],
         assumptions,
-        determinism_shim: None,
-        security_policy: None,
-        plot_affordances: None,
-        claims_tampered: false,
+        ..Default::default()
     }
+}
+
+/// Build a `LoadedPackage` whose analytical outputs come from the RO-Crate
+/// `@graph` output entities (the real-output source for V + Inv 3), with the
+/// given claims + assumptions. `output_entities` carries one `{@id, @type}`
+/// per produced/declared artifact.
+fn pkg_with_outputs(
+    claims: Option<serde_json::Value>,
+    output_entities: Vec<serde_json::Value>,
+    assumptions: Vec<serde_json::Value>,
+) -> LoadedPackage {
+    LoadedPackage {
+        validation_reports: vec![json!({"task_id":"de","obligation_id":"o1","outcome":"passed"})],
+        claims,
+        assumptions,
+        output_entities,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn evidence_coverage_ranges_over_rocrate_output_entities() {
+    // The real-output source is the RO-Crate `@graph` ImageObject / output
+    // File entities — NOT proofs.jsonl dependency edges. A declared figure
+    // referenced by a claim's `supported_by` is covered → Pass.
+    let pkg = pkg_with_outputs(
+        Some(json!({"verdicts":[{"claim_id":"c-1","status":"verified",
+            "supported_by":["runtime/outputs/de/figures/volcano.png"]}]})),
+        vec![json!({"@id":"runtime/outputs/de/figures/volcano.png",
+            "@type":["File","ImageObject"]})],
+        vec![],
+    );
+    let v = check_evidence_coverage(&pkg);
+    assert_eq!(
+        v.n_inspected, 1,
+        "output set must derive from @graph entities"
+    );
+    assert_eq!(v.status, InvariantStatus::Pass);
+}
+
+#[test]
+fn evidence_coverage_warns_on_unreferenced_rocrate_figure() {
+    // A declared figure obligation with empty claims (pre-execution / freshly
+    // emitted) is uncovered → Warn (the honest pre-execution signal when there
+    // ARE declared output entities to range over).
+    let pkg = pkg_with_outputs(
+        Some(json!({"verdicts":[]})),
+        vec![json!({"@id":"runtime/outputs/de/figures/volcano.png",
+            "@type":["File","ImageObject"]})],
+        vec![],
+    );
+    let v = check_evidence_coverage(&pkg);
+    assert_eq!(v.status, InvariantStatus::Warn);
+    assert_eq!(v.n_violations, 1);
+}
+
+#[test]
+fn evidence_coverage_unverified_when_no_output_entities() {
+    // No RO-Crate output entities and no real-path proofs outputs => nothing to
+    // range over => Unverified (honest), not a coerced Pass/Warn.
+    let pkg = pkg_with_outputs(Some(json!({"verdicts":[]})), vec![], vec![]);
+    let v = check_evidence_coverage(&pkg);
+    assert_eq!(v.n_inspected, 0);
+    assert_eq!(v.status, InvariantStatus::Unverified);
+}
+
+#[test]
+fn evidence_coverage_ignores_bogus_workflow_dependency_edges() {
+    // The CLI emit path writes proofs.jsonl rows whose `computed_from` is a DAG
+    // dependency NODE name (`workflow:<dep>`), NOT a produced file. These are E
+    // dependency edges, not V outputs, and must NOT be counted as outputs.
+    let pkg = pkg_with_outputs(
+        Some(json!({"verdicts":[]})),
+        // No RO-Crate output entities; only a bogus dep edge in proofs.
+        vec![],
+        vec![],
+    );
+    let mut pkg = pkg;
+    pkg.proofs = vec![json!({"id":"workflow:de","computed_from":"workflow:data_acquisition"})];
+    let v = check_evidence_coverage(&pkg);
+    assert_eq!(
+        v.n_inspected, 0,
+        "workflow:* dependency edges are not analytical outputs"
+    );
+    assert_eq!(v.status, InvariantStatus::Unverified);
+}
+
+#[test]
+fn evidence_coverage_passes_when_rocrate_output_marked_unused() {
+    let pkg = pkg_with_outputs(
+        Some(json!({"verdicts":[]})),
+        vec![json!({"@id":"runtime/outputs/de/figures/volcano.png",
+            "@type":["File","ImageObject"]})],
+        vec![json!({"kind":"output_unused","detail":"runtime/outputs/de/figures/volcano.png"})],
+    );
+    let v = check_evidence_coverage(&pkg);
+    assert_eq!(v.status, InvariantStatus::Pass);
 }
 
 #[test]
@@ -329,6 +423,7 @@ fn evidence_coverage_source_is_proofs_not_validation_reports() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     };
     let v = check_evidence_coverage(&pkg);
@@ -355,6 +450,7 @@ fn pkg_with_q(
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     }
 }
@@ -475,6 +571,7 @@ fn cross_graph_passes_when_all_refs_resolve() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
@@ -495,6 +592,7 @@ fn cross_graph_resolves_supported_by_against_proofs_outputs() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
@@ -516,6 +614,7 @@ fn cross_graph_fails_when_supported_by_dangling() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
@@ -536,6 +635,7 @@ fn cross_graph_fails_when_assumption_dangling() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
@@ -558,6 +658,7 @@ fn cross_graph_resolves_prefixed_supported_by_into_v() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
@@ -583,6 +684,7 @@ fn cross_graph_general_resolves_prefixed_ref_against_named_subgraph() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
@@ -604,6 +706,7 @@ fn cross_graph_general_fails_on_dangling_prefixed_ref() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);
@@ -630,6 +733,7 @@ fn cross_graph_unverified_when_no_references_present() {
         determinism_shim: None,
         security_policy: None,
         plot_affordances: None,
+        output_entities: vec![],
         claims_tampered: false,
     };
     let v = check_cross_graph_integrity(&pkg);

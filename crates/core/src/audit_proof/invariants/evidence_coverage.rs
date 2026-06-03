@@ -1,15 +1,21 @@
 //! Invariant 3: evidence-coverage.
-//! Every output produced by the execution graph is either referenced
+//! Every analytical output produced by the analysis is either referenced
 //! as Evidence (`claim-verification.json::verdicts[].supported_by`)
 //! or explicitly marked unused (an `output_unused` assumption).
 //!
-//! Outputs are derived from the Evidence (E) graph (`proofs.jsonl`),
-//! which the emitter populates with `produces` / `computed_from`
-//! edges. The harness `validation-reports.jsonl` rows are obligation
-//! outcomes (`{task_id, obligation_id, outcome}`) and carry no
-//! `outputs` field, so they cannot be the source here.
+//! Outputs are derived from the SAME real-output source the Evidence (V)
+//! sub-graph projection uses — the RO-Crate `@graph` output entities (figure
+//! obligations / produced `runtime/outputs/` artifacts), plus any real-path
+//! `computed_from`/`produces` proofs row — via
+//! [`crate::audit_proof::output_source::analytical_outputs`]. Reader and writer
+//! therefore agree (closing the D.5.1 key-mismatch where this reader keyed on
+//! `proofs.jsonl::computed_from`, a field the production conversation writer
+//! never emits). The harness `validation-reports.jsonl` rows are obligation
+//! outcomes (`{task_id, obligation_id, outcome}`) and carry no `outputs` field,
+//! so they cannot be the source here.
 
 use crate::audit_proof::loader::LoadedPackage;
+use crate::audit_proof::output_source::analytical_outputs;
 use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
 use std::collections::BTreeSet;
 
@@ -21,21 +27,19 @@ fn strip_fragment(s: &str) -> String {
 
 /// Check evidence coverage.
 pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
-    let outputs: Vec<String> = pkg
-        .proofs
-        .iter()
-        .filter_map(|p| {
-            p.get("computed_from")
-                .or_else(|| p.get("produces"))
-                .and_then(|v| v.as_str())
-                .map(strip_fragment)
-        })
+    let outputs: Vec<String> = analytical_outputs(&pkg.output_entities, &pkg.proofs)
+        .into_iter()
+        .map(|o| o.path)
         .collect();
     if outputs.is_empty() {
+        // ∀-over-empty-set is vacuous: when the package declares no analytical
+        // outputs to range over (no figure obligations, no produced files),
+        // there is nothing to certify. Report Unverified — not a coerced
+        // Pass/Warn — so the preprint never claims coverage over an empty set.
         return InvariantVerdict {
             id: InvariantId::EvidenceCoverage,
             status: InvariantStatus::Unverified,
-            detail: Some("no execution outputs declared".into()),
+            detail: Some("no analytical outputs declared".into()),
             n_inspected: 0,
             n_violations: 0,
         };
@@ -70,7 +74,8 @@ pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
     // Spec §3: the default verdict on a violation (or on absent claim
     // graph) is `Warn`, never `Fail`. Outputs that exist but are not yet
     // referenced are a soft signal (e.g. a freshly emitted, un-executed
-    // package has no claims yet), not a hard-block condition.
+    // package has declared figure obligations but no claims yet), not a
+    // hard-block condition.
     let status = if pkg.claims.is_none() {
         InvariantStatus::Warn
     } else if n_violations == 0 {
