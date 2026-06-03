@@ -332,3 +332,41 @@ def test_bootstrap_ci_is_deterministic():
 def test_bootstrap_ci_degenerate_inputs():
     assert _bootstrap_ci([]) == (0.0, 0.0)
     assert _bootstrap_ci([4.2]) == (4.2, 4.2)
+
+
+def test_session_metrics_section_renders_for_ecaa_only(tmp_path):
+    from scripts.eval.services.scorecard import (
+        _aggregate_session_metrics, write_scorecard)
+    rows = [
+        Score("t1", "ecaa", 0, 80.0, {}, None, None, "gemini-3.1-pro",
+              extra={"session_metrics": {"followup_count": 2, "time_to_emit_ms": 4000,
+                                         "method_recommendation_requests": 1,
+                                         "is_ambiguous": False}}),
+        Score("t2", "ecaa", 0, 82.0, {}, None, None, "gemini-3.1-pro",
+              extra={"session_metrics": {"followup_count": 4, "time_to_emit_ms": 6000,
+                                         "method_recommendation_requests": 0,
+                                         "is_ambiguous": True}}),
+        Score("t1", "claude-direct", 0, 70.0, {}, None, None, "gemini-3.1-pro"),
+    ]
+    card = Scorecard("biomnibench", rows)
+    per_arm = _aggregate_session_metrics(card)
+    assert "ecaa" in per_arm
+    assert "claude-direct" not in per_arm  # bare arm has no session metrics
+    assert per_arm["ecaa"]["median_followup_count"] == 3.0
+    assert per_arm["ecaa"]["median_time_to_emit_ms"] == 5000.0
+    assert per_arm["ecaa"]["n_sessions"] == 2
+    assert per_arm["ecaa"]["method_recommendation_requests_total"] == 1
+    out = write_scorecard(card, tmp_path)
+    md = (out / "scorecard.md").read_text()
+    assert "## Session metrics (SME friction, harvested from /metrics)" in md
+    data = json.loads((out / "scorecard.json").read_text())
+    assert data["meta"]["session_metrics"]["ecaa"]["n_sessions"] == 2
+
+
+def test_session_metrics_section_absent_when_no_metrics(tmp_path):
+    from scripts.eval.services.scorecard import write_scorecard
+    rows = [Score("t1", "ecaa", 0, 80.0, {}, None, None, "gemini-3.1-pro"),
+            Score("t1", "claude-direct", 0, 70.0, {}, None, None, "gemini-3.1-pro")]
+    out = write_scorecard(Scorecard("biomnibench", rows), tmp_path)
+    md = (out / "scorecard.md").read_text()
+    assert "## Session metrics" not in md
