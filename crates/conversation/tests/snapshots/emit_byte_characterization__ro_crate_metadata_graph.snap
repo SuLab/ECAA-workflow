@@ -1641,6 +1641,60 @@ expression: value
       }
     },
     {
+      "@id": "A:claim_completeness",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "claim_completeness",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:cross_graph_integrity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "cross_graph_integrity",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:decision_justification",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "decision_justification",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:equivalence_failure",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "equivalence_failure",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:evidence_coverage",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "evidence_coverage",
+      "verdict": "warn"
+    },
+    {
+      "@id": "A:substrate_validity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "substrate_validity",
+      "verdict": "unverified"
+    },
+    {
       "@id": "runtime/task-nodes.json",
       "@type": [
         "File",
