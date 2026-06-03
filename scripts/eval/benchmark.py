@@ -14,6 +14,11 @@ from typing import Optional, Literal
 class Arm(str, Enum):
     ECAA_WORKFLOW = "ecaa"            # compiler -> typed package -> harness+agent-claude.sh
     CLAUDE_CODE_DIRECT = "claude-direct"  # same Claude Code agent, bare instruction
+    # E6: ECAA intake with the high-impact confirmation gate disabled, to isolate
+    # the schema gate from the rest of the compiler. OFFLINE SCAFFOLDING: the
+    # ungating itself is a TEST-ONLY server flag honored ONLY under ECAA_EVAL_LIVE
+    # (see crates/server/src/chat_routes/eval_ungate.rs). NEVER a production mode.
+    ECAA_UNGATED = "ecaa-ungated"
 
 
 @dataclass

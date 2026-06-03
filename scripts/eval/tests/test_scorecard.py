@@ -403,3 +403,19 @@ def test_public_scorecard_stamps_provenance_and_redacts_cost(tmp_path):
     md = (out / "scorecard.public.md").read_text()
     assert "git_head: abc1234" in md
     assert "## Session metrics" in md
+
+
+def test_three_arm_card_renders_all_arms(tmp_path):
+    from scripts.eval.services.scorecard import write_scorecard
+    rows = [
+        Score("t1", "ecaa", 0, 80.0, {}, None, None, "gemini-3.1-pro"),
+        Score("t1", "ecaa-ungated", 0, 75.0, {}, None, None, "gemini-3.1-pro"),
+        Score("t1", "claude-direct", 0, 70.0, {}, None, None, "gemini-3.1-pro"),
+    ]
+    out = write_scorecard(Scorecard("biomnibench", rows), tmp_path)
+    md = (out / "scorecard.md").read_text()
+    for arm in ("ecaa", "ecaa-ungated", "claude-direct"):
+        assert arm in md
+    # The arm table has three data rows (plus header + separator).
+    data = json.loads((out / "scorecard.json").read_text())
+    assert len({r["arm"] for r in data["rows"]}) == 3

@@ -6,6 +6,13 @@ def test_arm_values():
     assert Arm.ECAA_WORKFLOW.value == "ecaa"
     assert Arm.CLAUDE_CODE_DIRECT.value == "claude-direct"
 
+def test_ecaa_ungated_arm_exists():
+    from scripts.eval.benchmark import Arm
+    assert Arm.ECAA_UNGATED.value == "ecaa-ungated"
+    # The three arms are distinct.
+    assert len({Arm.ECAA_WORKFLOW.value, Arm.CLAUDE_CODE_DIRECT.value,
+                Arm.ECAA_UNGATED.value}) == 3
+
 def test_dataclasses_roundtrip():
     t = Task(task_id="t1", prompt="do X", inputs={"a": Path("/tmp/a")},
              rubric=None, answer_key=None, meta={})
