@@ -117,22 +117,61 @@ pub(super) async fn write_determinism_shim(output_dir: &Path) -> Result<()> {
 /// container image SHA-256 digests and an optional vulnerability-scan
 /// summary. Always written.
 ///
-/// Today the session's `atoms_in_use()` accessor returns an empty `Vec`
-/// (the per-atom composer wiring is in progress). The aggregator handles
-/// the empty case gracefully — `package_max_safety_level` falls back to
-/// the default `SafetyLevel::Compute`. When the atom registry walk
-/// closes, this sidecar gains content without touching this call site.
-pub(super) async fn write_security_policy(session: &Session, output_dir: &Path) -> Result<()> {
+/// Loads the [`AtomRegistry`] from `config_dir/stage-atoms` once, walks
+/// the session's DAG to resolve the atoms in use, and aggregates their
+/// SafetyPolicy 5-tuples plus the two-tier container digests. Registry
+/// load failure is non-fatal (warn + zero atom policies) so the sidecar
+/// still emits a minimal-but-valid manifest — preserving the
+/// "always emits" contract (mirrors the per-atom-prereqs block in
+/// `emit::mod`).
+///
+/// [`AtomRegistry`]: ecaa_workflow_core::atom_registry::AtomRegistry
+pub async fn write_security_policy(
+    session: &Session,
+    output_dir: &Path,
+    config_dir: &Path,
+) -> Result<()> {
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
     let path = runtime.join("security-policy.json");
 
-    let atoms = session.atoms_in_use();
+    let atoms_dir = config_dir.join("stage-atoms");
+    let atoms = match ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(&atoms_dir) {
+        Ok(registry) => session.atoms_in_use(&registry),
+        Err(e) => {
+            tracing::warn!(
+                "write_security_policy: AtomRegistry load from {} failed: {} \
+                 (continuing emit with zero atom policies)",
+                atoms_dir.display(),
+                e
+            );
+            Vec::new()
+        }
+    };
     let atom_refs: Vec<&ecaa_workflow_core::atom::AtomDefinition> = atoms.iter().collect();
-    let digests = session.container_image_digests();
+    let digests = session.container_image_digests(&atoms);
     let payload = ecaa_workflow_core::atom_safety::aggregate_for_package(&atom_refs, digests);
     let body = serde_json::to_vec_pretty(&payload).context("serializing security-policy.json")?;
 
+    tokio::fs::write(&path, body)
+        .await
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// D5 (requested side) — write `runtime/dependency-lock.json` from the
+/// aggregated package prereqs. Offline + byte-reproducible: the resolved
+/// column is filled at runtime by the install-proxy fold (OPERATOR-GATED).
+/// Always written (empty columns when no language packages declared).
+pub async fn write_dependency_lock(
+    prereqs: &ecaa_workflow_core::runtime_prereqs::RuntimePrereqs,
+    output_dir: &Path,
+) -> Result<()> {
+    let runtime = output_dir.join("runtime");
+    tokio::fs::create_dir_all(&runtime).await?;
+    let path = runtime.join("dependency-lock.json");
+    let lock = ecaa_workflow_core::dependency_lock::RequestedLock::from_prereqs(prereqs);
+    let body = serde_json::to_vec_pretty(&lock).context("serializing dependency-lock.json")?;
     tokio::fs::write(&path, body)
         .await
         .with_context(|| format!("writing {}", path.display()))?;
@@ -184,7 +223,11 @@ pub(super) async fn write_model_policy(session: &Session, output_dir: &Path) -> 
 /// `session.pending_amendment.parent_package_path` is set), the sidecar is
 /// not written. Downstream tooling must treat absence of the file as "no
 /// parent to replay against".
-pub(super) async fn write_reexecution_sidecar(session: &Session, output_dir: &Path) -> Result<()> {
+pub(super) async fn write_reexecution_sidecar(
+    session: &Session,
+    output_dir: &Path,
+    config_dir: &Path,
+) -> Result<()> {
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
     let path = runtime.join("reexecution.json");
@@ -230,11 +273,30 @@ pub(super) async fn write_reexecution_sidecar(session: &Session, output_dir: &Pa
         return Ok(());
     }
 
+    // Resolve per-modality semantic-equivalence bounds from the
+    // classified modality. Load is warn-and-continue (missing dir →
+    // fallback-only provider), so a config-dir typo degrades to the
+    // historical ±5% band rather than blocking emit.
+    let modality = session
+        .classification
+        .as_ref()
+        .map(|c| c.modality.clone())
+        .unwrap_or_default();
+    let bounds = ecaa_workflow_core::reexecution_bounds::ModalityBoundsProvider::from_dir(
+        &config_dir.join("reexecution-bounds"),
+    )
+    .bounds_for(&modality);
+
     // Run the classifier synchronously inside a spawn_blocking to avoid
     // blocking the async executor — all file reads in core are blocking.
     let output_dir_owned = output_dir.to_path_buf();
     let report = tokio::task::spawn_blocking(move || {
-        ecaa_workflow_core::reexecution::classify_reexecution(&parent_path, &output_dir_owned, None)
+        ecaa_workflow_core::reexecution::classify_reexecution(
+            &parent_path,
+            &output_dir_owned,
+            None,
+            bounds,
+        )
     })
     .await
     .context("reexecution classifier task panicked")?

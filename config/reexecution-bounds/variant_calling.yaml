@@ -1,0 +1,7 @@
+# Variant-calling tables. Genotype calls + positions must match exactly
+# (relative_tolerance only bites on numeric QUAL/AF columns). Allelic
+# fraction is the main jitter source across re-runs of the same caller;
+# 1% relative is defensible. POS/REF/ALT are non-numeric so they fall
+# through to the exact-match branch in the classifier.
+relative_tolerance: 0.01
+absolute_tolerance: 0.0

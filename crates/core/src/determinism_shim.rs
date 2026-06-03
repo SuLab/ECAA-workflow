@@ -96,6 +96,12 @@ const REDACTED_ENV_VARS: &[&str] = &[
 /// Snapshot the active determinism environment. Reads from `std::env`
 /// — never opens a file or makes a network call. Pure with respect to
 /// its env-var inputs.
+///
+/// This is the COMPILER-HOST snapshot. Container-resolved determinism
+/// env (what the five seed/locale vars actually were INSIDE the
+/// execution container, recorded per-task by the agent wrapper as
+/// `runtime/outputs/<task_id>/determinism-env.json`) is merged in at
+/// finalize via [`merge_container_env`].
 pub fn serialize_active_settings() -> DeterminismShimSidecar {
     DeterminismShimSidecar {
         schema_version: "1".into(),
@@ -139,6 +145,21 @@ pub fn serialize_active_settings() -> DeterminismShimSidecar {
     }
 }
 
+/// Fold a per-task container's captured determinism env keys into the
+/// package-level (compiler-host) shim's `captured_env_vars`, as a
+/// deterministic `BTreeSet` union (deduped + sorted). The host shim
+/// stays a pure emit-time snapshot; this is the seam where
+/// harness-written runtime evidence
+/// (`runtime/outputs/<task_id>/determinism-env.json`, D4) augments it
+/// at finalize. Byte-stable: identical inputs yield identical output
+/// ordering.
+pub fn merge_container_env(host: &mut DeterminismShimSidecar, container_keys: &[String]) {
+    let mut set: std::collections::BTreeSet<String> =
+        host.env_capture.captured_env_vars.iter().cloned().collect();
+    set.extend(container_keys.iter().cloned());
+    host.env_capture.captured_env_vars = set.into_iter().collect();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +201,28 @@ mod tests {
             Some(v) => env::set_var("TMPDIR", v),
             None => env::remove_var("TMPDIR"),
         }
+    }
+
+    #[test]
+    fn merge_container_env_unions_keys_deterministically() {
+        let mut host = serialize_active_settings();
+        host.env_capture.captured_env_vars = vec!["TZ".to_string()];
+        // Container reported these set inside the container (out of order).
+        let container = vec![
+            "LC_ALL".to_string(),
+            "PYTHONHASHSEED".to_string(),
+            "TZ".to_string(), // duplicate must not double
+        ];
+        merge_container_env(&mut host, &container);
+        assert_eq!(
+            host.env_capture.captured_env_vars,
+            vec![
+                "LC_ALL".to_string(),
+                "PYTHONHASHSEED".to_string(),
+                "TZ".to_string()
+            ],
+            "merge must dedupe + sort (BTreeSet union) for byte-stability"
+        );
     }
 
     #[test]

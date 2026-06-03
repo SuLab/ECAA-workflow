@@ -821,6 +821,22 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # container ships with a parallel BLAS by default.
   docker pull "$CONTAINER_IMAGE" >/dev/null 2>&1 || true
 
+  # Runtime registry-digest resolution (D7). A pinned tag is mutable; the
+  # digest that actually ran is not. When the per-task spec carried no
+  # digest, capture the resolved RepoDigest so the provenance record
+  # reflects the real image. Locally-built images have no RepoDigests
+  # (empty) — fall back silently; D1's content-hash digest covers them.
+  # Pure runtime evidence — never feeds back into byte-reproducible emit.
+  if [ -z "${TASK_CONTAINER_DIGEST:-}" ]; then
+    RESOLVED_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' "$CONTAINER_IMAGE" 2>/dev/null || true)"
+    if [ -n "$RESOLVED_DIGEST" ]; then
+      # RepoDigests entries are "name@sha256:<hex>"; keep the @sha256 tail.
+      TASK_CONTAINER_DIGEST="${RESOLVED_DIGEST##*@}"
+      export TASK_CONTAINER_DIGEST
+      echo "agent-claude.sh: resolved runtime digest for $CONTAINER_IMAGE -> $TASK_CONTAINER_DIGEST" >&2
+    fi
+  fi
+
   # Image-agnostic canonical-interpreter discovery. The python that carries the
   # numpy/pandas/matplotlib substrate the shipped renderers need lives at a
   # different path per image (bio-min: /opt/conda/bin; other images vary), so
@@ -1534,6 +1550,78 @@ if [ "${ECAA_SBOM_EMIT:-1}" = "1" ] \
   syft scan "oci:${TASK_CONTAINER_IMAGE:-}@${TASK_CONTAINER_DIGEST}" \
     -o spdx-json="$SBOM_DIR/$ECAA_TASK_ID.spdx.json" 2>/dev/null \
     || echo "agent-claude.sh: syft scan failed for $ECAA_TASK_ID — SBOM not emitted (non-fatal)" >&2
+fi
+
+# Per-task container determinism evidence (D4). Records which of the
+# five determinism env vars are actually set INSIDE the container (after
+# the harness stamped them per D3) plus the resolved container digest.
+# Runtime evidence only — byte-diff-EXCLUDED; the package finalize folds
+# the captured-key list into the package-level determinism shim via
+# core::determinism_shim::merge_container_env. Always best-effort; never
+# fails the task.
+if [ -n "${ECAA_TASK_ID:-}" ]; then
+  _DET_OUT_DIR="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
+  mkdir -p "$_DET_OUT_DIR" 2>/dev/null || true
+  _DET_CAPTURED=""
+  for _k in PYTHONHASHSEED SOURCE_DATE_EPOCH TZ LANG LC_ALL; do
+    # Read the var named in $_k over a fixed allowlist (no user input).
+    case "$_k" in
+      PYTHONHASHSEED) _v="${PYTHONHASHSEED:-}" ;;
+      SOURCE_DATE_EPOCH) _v="${SOURCE_DATE_EPOCH:-}" ;;
+      TZ) _v="${TZ:-}" ;;
+      LANG) _v="${LANG:-}" ;;
+      LC_ALL) _v="${LC_ALL:-}" ;;
+      *) _v="" ;;
+    esac
+    if [ -n "$_v" ]; then
+      _DET_CAPTURED="$_DET_CAPTURED \"$_k\","
+    fi
+  done
+  _DET_CAPTURED="$(printf '%s' "$_DET_CAPTURED" | sed 's/,$//')"
+  {
+    printf '{\n'
+    printf '  "schema_version": "1",\n'
+    printf '  "captured_env_vars": [%s ],\n' "$_DET_CAPTURED"
+    printf '  "source_date_epoch": "%s",\n' "${SOURCE_DATE_EPOCH:-}"
+    printf '  "lang": "%s",\n' "${LANG:-}"
+    printf '  "lc_all": "%s",\n' "${LC_ALL:-}"
+    printf '  "tz": "%s",\n' "${TZ:-}"
+    printf '  "pythonhashseed": "%s",\n' "${PYTHONHASHSEED:-}"
+    printf '  "task_container_digest": "%s"\n' "${TASK_CONTAINER_DIGEST:-}"
+    printf '}\n'
+  } > "$_DET_OUT_DIR/determinism-env.json" 2>/dev/null || true
+fi
+
+# Per-package dependency-lock resolved-version fold (D5, OPERATOR-GATED).
+# When the agent emitted a runtime/install-log.jsonl of
+# {"registry","package","resolved_version"} lines AND a requested-side
+# runtime/dependency-lock.json exists, patch the matching entries'
+# `resolved` column with the exact installed version. The requested side
+# is written at emit (offline + byte-reproducible); this fold fills the
+# RESOLVED column only at runtime. The lock is byte-diff-EXCLUDED runtime
+# evidence; the fold is additive and `|| true`-guarded so a missing or
+# empty install-log never fails the task. `registry` maps to the lock's
+# r / python / conda columns (cran->r, pip->python).
+if command -v jq >/dev/null 2>&1 \
+   && [ -f "$PACKAGE/runtime/install-log.jsonl" ] \
+   && [ -f "$PACKAGE/runtime/dependency-lock.json" ]; then
+  _LOCK="$PACKAGE/runtime/dependency-lock.json"
+  _LOCK_TMP="$_LOCK.tmp.$$"
+  jq --slurpfile log "$PACKAGE/runtime/install-log.jsonl" '
+    def col(r): if r=="cran" or r=="r" then "r"
+                elif r=="pip" or r=="python" then "python"
+                elif r=="conda" then "conda" else empty end;
+    . as $lock
+    | reduce ($log[] // empty) as $line ($lock;
+        (col($line.registry)) as $c
+        | if $c == null then .
+          else .[$c] |= map(
+              if .name == $line.package and ($line.resolved_version // "") != ""
+              then .resolved = $line.resolved_version else . end)
+          end)
+  ' "$_LOCK" > "$_LOCK_TMP" 2>/dev/null \
+    && mv "$_LOCK_TMP" "$_LOCK" 2>/dev/null \
+    || { rm -f "$_LOCK_TMP" 2>/dev/null; true; }
 fi
 
 # Reconcile contradictory Claude Code outcomes only after all forensic

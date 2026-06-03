@@ -64,6 +64,7 @@ pub mod cross_version_diff;
 pub mod dag;
 pub mod decision_log;
 pub mod decision_substrate;
+pub mod dependency_lock;
 pub mod derived_image;
 pub mod resilient_client;
 pub mod saga;
@@ -72,6 +73,7 @@ pub mod saga;
 // `runtime/determinism-shim.json` by the conversation crate's
 // `emit::sidecars::write_determinism_shim`.
 pub mod audit_proof;
+pub mod determinism_seeds;
 pub mod determinism_shim;
 pub mod disambiguation;
 pub mod disposition;
@@ -138,6 +140,7 @@ pub mod project_class_registry;
 pub mod promotion_gate_policy;
 pub mod provenance_tiers;
 pub mod reexecution;
+pub mod reexecution_bounds;
 pub mod registry;
 pub mod remediation;
 // v4 P5 (D5 / F20) — repair-strategy registry. Planner consults this

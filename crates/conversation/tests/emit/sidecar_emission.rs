@@ -159,3 +159,74 @@ async fn model_policy_sidecar_emitted_with_prompt_hash() {
     assert!(body["tool_count"].as_u64().unwrap() >= 19, "tool_count");
     assert_eq!(body["provider_id"], "anthropic");
 }
+
+// ── D1: real atoms_in_use + content-hash digests ──────────────────
+
+#[test]
+fn atoms_in_use_resolves_dag_nodes_against_registry() {
+    use ecaa_workflow_core::atom_registry::AtomRegistry;
+    let session = Session::test_fixture_two_atom_dag();
+    let registry = AtomRegistry::load_from_dir(config_dir().join("stage-atoms").as_path())
+        .expect("registry loads");
+    let atoms = session.atoms_in_use(&registry);
+    assert_eq!(atoms.len(), 2, "both DAG nodes must resolve to atoms");
+    let ids: Vec<&str> = atoms.iter().map(|a| a.id.as_str()).collect();
+    assert!(ids.contains(&"alignment"), "got {ids:?}");
+    assert!(ids.contains(&"quantification"), "got {ids:?}");
+}
+
+#[tokio::test]
+async fn security_policy_lists_one_atom_policy_per_dag_node_and_digests() {
+    let tmp = tempdir().unwrap();
+    let out = tmp.path();
+    let session = Session::test_fixture_two_atom_dag();
+    let cfg = config_dir();
+    ecaa_workflow_conversation::emit::sidecars::write_security_policy(&session, out, &cfg)
+        .await
+        .expect("writes");
+    let body = std::fs::read(out.join("runtime/security-policy.json")).unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let policies = v.get("atom_policies").and_then(|p| p.as_array()).unwrap();
+    assert_eq!(policies.len(), 2, "one atom policy per DAG node");
+    let digests = v
+        .get("container_image_digests")
+        .and_then(|d| d.as_array())
+        .unwrap();
+    assert!(
+        !digests.is_empty(),
+        "content-hash digests must be populated"
+    );
+
+    // Byte-reproducibility: emit twice, bytes identical.
+    let tmp2 = tempdir().unwrap();
+    ecaa_workflow_conversation::emit::sidecars::write_security_policy(&session, tmp2.path(), &cfg)
+        .await
+        .unwrap();
+    let body2 = std::fs::read(tmp2.path().join("runtime/security-policy.json")).unwrap();
+    assert_eq!(body, body2, "security-policy.json must be byte-reproducible");
+}
+
+// ── D5: per-package dependency lock (requested side) ──────────────
+
+#[tokio::test]
+async fn dependency_lock_requested_side_is_byte_reproducible() {
+    let p = {
+        let mut p = ecaa_workflow_core::runtime_prereqs::RuntimePrereqs::new();
+        p.language_packages.python = ["scanpy>=1.10".into()].into();
+        p
+    };
+    let tmp = tempdir().unwrap();
+    ecaa_workflow_conversation::emit::sidecars::write_dependency_lock(&p, tmp.path())
+        .await
+        .unwrap();
+    let body = std::fs::read(tmp.path().join("runtime/dependency-lock.json")).unwrap();
+    let tmp2 = tempdir().unwrap();
+    ecaa_workflow_conversation::emit::sidecars::write_dependency_lock(&p, tmp2.path())
+        .await
+        .unwrap();
+    let body2 = std::fs::read(tmp2.path().join("runtime/dependency-lock.json")).unwrap();
+    assert_eq!(body, body2);
+    let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(v["python"][0]["name"], "scanpy");
+    assert_eq!(v["python"][0]["requested"], ">=1.10");
+}

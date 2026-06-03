@@ -615,6 +615,30 @@ fn stamp_dispatch_identity(
     }
 }
 
+/// Stamp the deterministic determinism-envelope env (PYTHONHASHSEED,
+/// SOURCE_DATE_EPOCH, TZ, LANG, LC_ALL) derived from the stamped
+/// dispatch identity. Default-on; `enabled=false` (driven by
+/// `ECAA_DETERMINISM_SEEDS=0`) stamps nothing. Only sets keys that
+/// aren't already present so an operator override survives. Values are
+/// deterministic functions of the run id — never `SystemTime::now()`.
+fn stamp_determinism_env(
+    env: &mut std::collections::BTreeMap<String, String>,
+    dispatch: Option<&PickedDispatch>,
+    enabled: bool,
+) {
+    if !enabled {
+        return;
+    }
+    let Some(dispatch) = dispatch else { return };
+    let seeds = ecaa_workflow_core::determinism_seeds::seed_env_from_dispatch(
+        &dispatch.harness_run_id,
+        dispatch.epoch,
+    );
+    for (k, v) in seeds {
+        env.entry(k).or_insert(v);
+    }
+}
+
 /// Stamp the literature-retrieval scope env vars from `ECAA_LIT_*` onto
 /// the per-task envelope. The agent helper
 /// (`scripts/agent_literature_fetch.py`) reads them at task-execution
@@ -2886,6 +2910,13 @@ fn run_loop(
                         };
                         let mut env = render_envelope(path, id, dag_snapshot, &inputs);
                         stamp_dispatch_identity(&mut env, dispatch_by_task.get(id));
+                        stamp_determinism_env(
+                            &mut env,
+                            dispatch_by_task.get(id),
+                            ecaa_workflow_core::determinism_seeds::seeds_enabled(
+                                std::env::var("ECAA_DETERMINISM_SEEDS").ok().as_deref(),
+                            ),
+                        );
                         stamp_literature_scope(&mut env, should_freeze_method_authority(args));
                         stamp_provisioning_policy(&mut env, path, dag_snapshot, id, &declared);
                         stamp_safety_network(&mut env, dag_snapshot, id);
@@ -2900,6 +2931,13 @@ fn run_loop(
                     .map(|id| {
                         let mut env = render_envelope(path, id, dag_snapshot, &inputs);
                         stamp_dispatch_identity(&mut env, dispatch_by_task.get(id));
+                        stamp_determinism_env(
+                            &mut env,
+                            dispatch_by_task.get(id),
+                            ecaa_workflow_core::determinism_seeds::seeds_enabled(
+                                std::env::var("ECAA_DETERMINISM_SEEDS").ok().as_deref(),
+                            ),
+                        );
                         stamp_literature_scope(&mut env, should_freeze_method_authority(args));
                         stamp_provisioning_policy(&mut env, path, dag_snapshot, id, &declared);
                         stamp_safety_network(&mut env, dag_snapshot, id);
@@ -5538,6 +5576,25 @@ mod read_dag_tests {
             env.get("ECAA_TASK_NETWORK").map(String::as_str),
             Some("bridge")
         );
+    }
+
+    #[test]
+    fn stamp_determinism_env_threads_run_id_derived_seeds() {
+        let dispatch = PickedDispatch {
+            task_id: "t".into(),
+            harness_run_id: "run-det".into(),
+            epoch: 3,
+        };
+        let mut env: std::collections::BTreeMap<String, String> = Default::default();
+        // Force-enable regardless of the ambient env in CI.
+        stamp_determinism_env(&mut env, Some(&dispatch), true);
+        assert_eq!(env.get("PYTHONHASHSEED").map(String::as_str), Some("0"));
+        assert_eq!(env.get("LANG").map(String::as_str), Some("C.UTF-8"));
+        assert!(env.contains_key("SOURCE_DATE_EPOCH"));
+        // Disabled => no keys stamped.
+        let mut env_off: std::collections::BTreeMap<String, String> = Default::default();
+        stamp_determinism_env(&mut env_off, Some(&dispatch), false);
+        assert!(env_off.is_empty(), "disabled knob must stamp nothing");
     }
 
     #[test]

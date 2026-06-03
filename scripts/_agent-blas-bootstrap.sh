@@ -93,7 +93,7 @@ __agent_apply_thread_budget
 # stamped vars (network policy, provisioning policy, literature scope)
 # still unforwarded into docker containers — silent behavioral
 # degradation. A test that asserts forward-list >= stamp-set is in
-# crates/harness/tests/env_forward_completeness.rs (TODO).
+# crates/harness/tests/env_forward_completeness.rs.
 
 __agent_env_forward_keys=(
     OMP_NUM_THREADS OPENBLAS_NUM_THREADS GOTO_NUM_THREADS \
@@ -119,6 +119,7 @@ __agent_env_forward_keys=(
     ECAA_PILOT_ENABLED ECAA_PILOT_TASKS ECAA_PILOT_MULTIPLIER \
     ECAA_PILOT_INSTANCE ECAA_PILOT_INTERVAL_SECS \
     ECAA_HARNESS_RUN_ID ECAA_DISPATCH_EPOCH \
+    PYTHONHASHSEED SOURCE_DATE_EPOCH TZ LANG LC_ALL \
     ECAA_TASK_NETWORK ECAA_PROVISIONING_POLICY \
     ECAA_LIT_SOURCE_SCOPE ECAA_LIT_EVIDENCE_MAX_MB \
     ECAA_LIT_NCBI_API_KEY ECAA_LIT_INSTITUTIONAL_ACCESS \

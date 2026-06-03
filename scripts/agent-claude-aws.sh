@@ -251,6 +251,11 @@ if [ -n "${ECAA_TASK_ID:-}" ] \
       fi
     fi
     export TASK_CONTAINER_GPU_REQUIRED="$TC_GPU_REQUIRED"
+    # Exposed for the D7 runtime digest-resolution step below. Empty
+    # when the spec declared only image+tag — D7 then resolves the
+    # actual RepoDigest that ran.
+    export TASK_CONTAINER_IMAGE="$TC_IMAGE"
+    export TASK_CONTAINER_DIGEST="$TC_DIGEST"
   fi
 
   # Per-task GPU target (count + kind + mig_profile).
@@ -435,6 +440,20 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   unset __agent_aws_img_no_scheme __agent_aws_img_host
 
   docker pull "$CONTAINER_IMAGE" >/dev/null 2>&1 || true
+
+  # Runtime registry-digest resolution (D7, mirror of agent-claude.sh).
+  # When the per-task spec carried no digest, capture the resolved
+  # RepoDigest so the provenance record reflects the real image.
+  # Locally-built images have no RepoDigests — fall back silently.
+  if [ -z "${TASK_CONTAINER_DIGEST:-}" ]; then
+    RESOLVED_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' "$CONTAINER_IMAGE" 2>/dev/null || true)"
+    if [ -n "$RESOLVED_DIGEST" ]; then
+      TASK_CONTAINER_DIGEST="${RESOLVED_DIGEST##*@}"
+      export TASK_CONTAINER_DIGEST
+      echo "agent-claude-aws.sh: resolved runtime digest for $CONTAINER_IMAGE -> $TASK_CONTAINER_DIGEST" >&2
+    fi
+  fi
+
   __agent_build_env_forward_pairs
   DOCKER_ENV_ARGS=()
   for __agent_kv in "${_AGENT_ENV_FORWARD_PAIRS[@]}"; do

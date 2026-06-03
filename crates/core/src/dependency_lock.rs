@@ -1,0 +1,152 @@
+//! Per-package dependency lock. Two columns per package: the
+//! human-authored REQUESTED range (from `RuntimePrereqs`, offline +
+//! byte-reproducible) and the RESOLVED exact version (filled at runtime
+//! by the install-proxy fold — never at emit). The requested-side
+//! writer stands alone so emission never blocks on a solver.
+
+use crate::runtime_prereqs::RuntimePrereqs;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeSet;
+
+/// One package row: name, the requested range (None when the spec was a
+/// bare name), and the runtime-resolved exact version (None until the
+/// install-proxy fold runs).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LockEntry {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved: Option<String>,
+}
+
+/// Requested-side lock, derived deterministically from `RuntimePrereqs`.
+/// `Vec`s are built from `BTreeSet` iteration so ordering is byte-stable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestedLock {
+    pub schema_version: String,
+    pub r: Vec<LockEntry>,
+    pub python: Vec<LockEntry>,
+    pub conda: Vec<LockEntry>,
+}
+
+fn split_spec(spec: &str) -> LockEntry {
+    // Split on the first comparison operator. CRAN/pip specs look like
+    // "Seurat>=5.0", "scanpy>=1.10", "numpy==1.26", "pandas".
+    for op in ["==", ">=", "<=", "~=", ">", "<", "="] {
+        if let Some(idx) = spec.find(op) {
+            return LockEntry {
+                name: spec[..idx].trim().to_string(),
+                requested: Some(spec[idx..].trim().to_string()),
+                resolved: None,
+            };
+        }
+    }
+    LockEntry {
+        name: spec.trim().to_string(),
+        requested: None,
+        resolved: None,
+    }
+}
+
+fn entries(set: &BTreeSet<String>) -> Vec<LockEntry> {
+    set.iter().map(|s| split_spec(s)).collect()
+}
+
+impl RequestedLock {
+    /// Build the requested-side lock from aggregated prereqs. Pure,
+    /// offline, byte-reproducible.
+    pub fn from_prereqs(p: &RuntimePrereqs) -> Self {
+        Self {
+            schema_version: "1".to_string(),
+            r: entries(&p.language_packages.r),
+            python: entries(&p.language_packages.python),
+            conda: entries(&p.language_packages.conda),
+        }
+    }
+
+    /// Fold a runtime-resolved exact version into the matching entry.
+    /// `lang` is "r" / "python" / "conda". No-op when the name is absent
+    /// (warn-and-continue at the call site). Used by the install-proxy
+    /// fold (OPERATOR-GATED runtime path).
+    pub fn fold_resolved(&mut self, lang: &str, name: &str, exact: &str) {
+        let col = match lang {
+            "r" => &mut self.r,
+            "python" => &mut self.python,
+            "conda" => &mut self.conda,
+            _ => return,
+        };
+        if let Some(e) = col.iter_mut().find(|e| e.name == name) {
+            e.resolved = Some(exact.to_string());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::runtime_prereqs::{LanguagePackages, RuntimePrereqs};
+
+    fn prereqs() -> RuntimePrereqs {
+        let mut p = RuntimePrereqs::new();
+        p.language_packages = LanguagePackages {
+            r: ["Seurat>=5.0".into(), "BPCells".into()].into(),
+            python: ["scanpy>=1.10".into()].into(),
+            conda: Default::default(),
+        };
+        p
+    }
+
+    #[test]
+    fn requested_lock_is_byte_reproducible() {
+        let a = serde_json::to_vec(&RequestedLock::from_prereqs(&prereqs())).unwrap();
+        let b = serde_json::to_vec(&RequestedLock::from_prereqs(&prereqs())).unwrap();
+        assert_eq!(a, b, "requested lock must be byte-stable");
+    }
+
+    #[test]
+    fn requested_lock_splits_name_and_range() {
+        let lock = RequestedLock::from_prereqs(&prereqs());
+        let seurat = lock
+            .r
+            .iter()
+            .find(|e| e.name == "Seurat")
+            .expect("Seurat present");
+        assert_eq!(seurat.requested.as_deref(), Some(">=5.0"));
+        assert!(seurat.resolved.is_none(), "resolved filled at runtime only");
+        // No range => requested None, name is the whole token.
+        let bpcells = lock
+            .r
+            .iter()
+            .find(|e| e.name == "BPCells")
+            .expect("BPCells present");
+        assert_eq!(bpcells.requested, None);
+    }
+
+    #[test]
+    fn fold_resolved_fills_exact_versions() {
+        let mut lock = RequestedLock::from_prereqs(&prereqs());
+        lock.fold_resolved("r", "Seurat", "5.1.0");
+        let seurat = lock.r.iter().find(|e| e.name == "Seurat").unwrap();
+        assert_eq!(seurat.resolved.as_deref(), Some("5.1.0"));
+    }
+
+    #[test]
+    fn fold_from_install_log_lines_is_order_independent() {
+        let mut lock = RequestedLock::from_prereqs(&{
+            let mut p = crate::runtime_prereqs::RuntimePrereqs::new();
+            p.language_packages.python = ["scanpy>=1.10".into(), "numpy".into()].into();
+            p
+        });
+        // Two install-log lines in arbitrary order resolve deterministically.
+        lock.fold_resolved("python", "numpy", "1.26.4");
+        lock.fold_resolved("python", "scanpy", "1.10.2");
+        let scanpy = lock.python.iter().find(|e| e.name == "scanpy").unwrap();
+        let numpy = lock.python.iter().find(|e| e.name == "numpy").unwrap();
+        assert_eq!(scanpy.resolved.as_deref(), Some("1.10.2"));
+        assert_eq!(numpy.resolved.as_deref(), Some("1.26.4"));
+        // Re-folding the same value is idempotent.
+        lock.fold_resolved("python", "numpy", "1.26.4");
+        assert_eq!(lock.python.iter().filter(|e| e.name == "numpy").count(), 1);
+    }
+}
