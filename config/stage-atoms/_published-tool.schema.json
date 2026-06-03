@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ecaa-workflow/config/stage-atoms/_published-tool.schema.json",
+  "title": "PublishedToolDescriptor",
+  "description": "F5 — an atom's PortContract as the MCP inter-tool data contract. publish output == import input.",
+  "type": "object",
+  "required": ["id", "version", "description", "edam_operation", "inputs", "outputs", "safety"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[A-Za-z0-9.]+)?(?:\\+[A-Za-z0-9.]+)?$" },
+    "description": { "type": "string", "minLength": 1 },
+    "edam_operation": { "type": "string", "pattern": "^((operation|data|format|topic):\\d+|ecaax:[a-z][a-z0-9_]*[a-z0-9])$" },
+    "inputs": { "type": "array", "items": { "type": "object" } },
+    "outputs": { "type": "array", "items": { "type": "object" } },
+    "depends_on": { "type": "array", "items": { "type": "string" } },
+    "safety": { "type": "object" }
+  }
+}

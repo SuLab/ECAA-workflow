@@ -304,6 +304,7 @@ pub(crate) fn synthesize_port_from_data_product(dp: &DataProductContract) -> Por
         cardinality: dp.cardinality.clone(),
         validators: Vec::new(),
         constraints: Vec::new(),
+        parameters: Vec::new(),
         facets: std::collections::BTreeMap::new(),
     }
 }

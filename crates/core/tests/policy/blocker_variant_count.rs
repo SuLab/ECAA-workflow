@@ -21,12 +21,12 @@ use strum::EnumCount;
 
 #[test]
 fn blocker_kind_count_matches_documented() {
-    // CLAUDE.md asserts 47 variants. Bump this number, the CLAUDE.md
+    // CLAUDE.md asserts 48 variants. Bump this number, the CLAUDE.md
     // doc, the `all_variants_roundtrip_serde` fixture, and the
     // recovery-hint dispatch together when adding a variant.
     assert_eq!(
         BlockerKind::COUNT,
-        47,
+        48,
         "BlockerKind variant count drifted from documented total — \
          update CLAUDE.md, `all_variants_roundtrip_serde`, the \
          exhaustive `recovery_hint_for_blocker` arms in \

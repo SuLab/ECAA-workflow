@@ -9,6 +9,7 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
 #[ts(export)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum IncompatibilityReason {
     /// The producer's semantic type cannot be subsumed under the
     /// consumer's. E.g. `data:0863` (BAM) → `data:3917` (count
@@ -45,6 +46,16 @@ pub enum IncompatibilityReason {
         check_kind: String,
         /// Statement.
         statement: String,
+    },
+    /// A producer's declared output parameter contradicts a consumer's
+    /// required input parameter (disjoint `allowed_values`, or a required
+    /// parameter absent on the producer). Hard-refused only under
+    /// `RiskMode::Production`. `parameter` is the parameter name;
+    /// `producer`/`consumer` render the conflicting value sets.
+    ParameterMismatch {
+        parameter: String,
+        producer: String,
+        consumer: String,
     },
     /// Generic free-text fallback for situations that don't fit
     /// the typed reasons above.

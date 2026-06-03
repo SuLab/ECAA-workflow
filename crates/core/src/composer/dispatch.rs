@@ -427,6 +427,32 @@ pub(crate) fn compose_v4_dispatch_full(
     // returns from any of its match arms, restoring the thread's previous
     // ambient session on drop.
     let _substrate_scope = opaque_session_id.map(crate::decision_substrate::enter_session);
+
+    // Federation (F1): merge any external-overlay atoms threaded onto the
+    // planning context into the search registry. Empty overlay ->
+    // byte-identical to the non-federated path. The overlay atoms already
+    // passed `with_external_overlay`'s schema + safety validators upstream;
+    // re-merging here is the single seam where federation reaches the
+    // composer (never fork composer logic across binaries). The rebind
+    // makes every downstream consumer (plan, lower, validate) see the
+    // merged registry.
+    let effective_reg_storage;
+    let atom_reg: &AtomRegistry = if ctx.external_overlay.is_empty() {
+        atom_reg
+    } else {
+        effective_reg_storage = atom_reg
+            .with_external_overlay(
+                ctx.external_overlay.clone(),
+                crate::external_registry::RegistryTier::Community,
+            )
+            .map_err(|e| CompositionError::ComposerV4OutcomeNotExecutable {
+                outcome_kind: "ExternalOverlayMergeFailed".into(),
+                summary: format!("external overlay merge failed: {e}"),
+                gaps: Vec::new(),
+            })?;
+        &effective_reg_storage
+    };
+
     let result = composer_v4::plan(
         &ctx,
         &effective_goal,

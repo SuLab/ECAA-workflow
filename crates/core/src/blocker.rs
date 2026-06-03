@@ -765,15 +765,19 @@ mod tests {
                 trigger: "emit".into(),
                 reason: "pool_saturated".into(),
             },
+            BlockerKind::ExternalImportFailed {
+                registry: "local_cwl".into(),
+                id: "align_reads".into(),
+                reason: "registry snapshot \"x\" not found".into(),
+            },
             BlockerKind::TurnBudgetExceeded,
         ];
 
         assert_eq!(
             variants.len(),
-            47,
-            "expected exactly forty-seven variants \
-             (was 46 pre-TurnBudgetExceeded addition; TurnBudgetExceeded \
-             was added for MAX_TURNS_PER_TASK enforcement — \
+            48,
+            "expected exactly forty-eight variants \
+             (ExternalImportFailed added for the federation import path — \
              matches `BlockerKind::COUNT` compile-time gate in \
              `crates/core/tests/policy/blocker_variant_count.rs` and the doc \
              comment on `BlockerKind` in this file)"

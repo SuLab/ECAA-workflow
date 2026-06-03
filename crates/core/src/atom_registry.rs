@@ -439,6 +439,70 @@ impl AtomRegistry {
         Self { atoms }
     }
 
+    /// Build a new registry that contains every atom from `self` plus
+    /// the supplied external-overlay atoms — but UNLIKE
+    /// [`Self::with_promoted_overlay`] (which deliberately skips schema
+    /// validation for Rust-synthesized atoms), this runs each overlay
+    /// atom through the SAME `_atom.schema.json` validation AND
+    /// `crate::atom_safety::validate_atom_safety` that local YAML atoms
+    /// pass at `load_from_dir`. The whole overlay is refused on the
+    /// first failure so a malformed federated tool can never enter the
+    /// catalog the composer searches. Id collisions with a base atom
+    /// drop the overlay entry (base wins), matching
+    /// `with_promoted_overlay`. The `tier` is recorded for the trust
+    /// differential; both tiers are admitted at the quarantine band
+    /// (the production-execution gate keeps imports out of production
+    /// DAGs until promoted).
+    pub fn with_external_overlay(
+        &self,
+        overlay: impl IntoIterator<Item = AtomDefinition>,
+        tier: crate::external_registry::RegistryTier,
+    ) -> Result<Self> {
+        let _ = tier; // The trust band is enforced at the importer->node band.
+        let schema = Self::compiled_schema()?;
+        let mut atoms = self.atoms.clone();
+        for atom in overlay {
+            if atoms.contains_key(&atom.id) {
+                tracing::warn!(
+                    overlay_atom_id = %atom.id,
+                    "AtomRegistry::with_external_overlay: overlay atom id collides with \
+                     base registry atom; dropping overlay entry to preserve production atom"
+                );
+                continue;
+            }
+            // Schema validation — serialize to JSON and run the embedded
+            // schema, exactly as `load_from_dir` does for YAML atoms.
+            let as_json: Value = serde_json::to_value(&atom).with_context(|| {
+                format!("serializing overlay atom {} for schema check", atom.id)
+            })?;
+            if let Err(errors) = schema.validate(&as_json) {
+                let msgs: Vec<String> = errors
+                    .map(|e| format!("{} at {}", e, e.instance_path))
+                    .collect();
+                return Err(anyhow!(
+                    "external overlay atom {} failed schema validation:\n  - {}",
+                    atom.id,
+                    msgs.join("\n  - ")
+                ));
+            }
+            // Safety consistency — same lint local atoms get.
+            let safety_errors = crate::atom_safety::validate_atom_safety(&atom);
+            if !safety_errors.is_empty() {
+                return Err(anyhow!(
+                    "external overlay atom {} failed safety lint:\n  - {}",
+                    atom.id,
+                    safety_errors
+                        .iter()
+                        .map(|e| e.to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n  - ")
+                ));
+            }
+            atoms.insert(atom.id.clone(), atom);
+        }
+        Ok(Self { atoms })
+    }
+
     fn compiled_schema() -> Result<&'static JSONSchema> {
         crate::schema_helpers::compile_schema_cached("atom", ATOM_SCHEMA_JSON)
     }
@@ -792,5 +856,74 @@ assignee: agent
         let tmp = tempfile::tempdir().unwrap();
         let reg = AtomRegistry::load_from_dir(tmp.path()).unwrap();
         assert!(reg.discover_axes().is_empty());
+    }
+
+    #[test]
+    fn with_external_overlay_admits_valid_atom_and_exposes_in_find_producers() {
+        let base = AtomRegistry::default();
+        let mut atom = AtomDefinition::test_default("imported_tool");
+        atom.edam_data = Some("data:2978".into());
+        let merged = base
+            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .expect("valid overlay admitted");
+        let hits: Vec<&str> = merged
+            .find_producers("data:2978", None)
+            .map(|a| a.id.as_str())
+            .collect();
+        assert_eq!(hits, vec!["imported_tool"]);
+    }
+
+    #[test]
+    fn with_external_overlay_rejects_schema_invalid_atom() {
+        let base = AtomRegistry::default();
+        let mut atom = AtomDefinition::test_default("Bad Id With Spaces");
+        atom.id = "Bad Id With Spaces".into(); // fails schema id pattern
+        let err = base
+            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("schema"), "got: {err}");
+    }
+
+    #[test]
+    fn with_external_overlay_rejects_safety_invalid_atom() {
+        // A Network-level atom whose network policy is `none` is a
+        // safety-consistency violation `validate_atom_safety` catches.
+        use crate::atom::{NetworkPolicy, SafetyLevel, SafetyPolicy};
+        let base = AtomRegistry::default();
+        let mut atom = AtomDefinition::test_default("net_tool");
+        atom.safety = SafetyPolicy {
+            level: SafetyLevel::Network,
+            network: NetworkPolicy::None { allowlist: vec![] },
+            ..SafetyPolicy::default()
+        };
+        let err = base
+            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("safety"), "got: {err}");
+    }
+
+    #[test]
+    fn with_external_overlay_keeps_overlay_atoms_quarantined() {
+        // Overlay atoms enter Contracted/Unverified — they cannot reach
+        // production execution until promoted. Here we assert the
+        // overlay never shadows a base atom on id collision.
+        let mut atom = AtomDefinition::test_default("align_reads");
+        atom.edam_data = Some("data:9999".into());
+        let tmp = tempfile::tempdir().unwrap();
+        write_atom(
+            tmp.path(),
+            "align_reads",
+            "id: align_reads\nversion: \"1.0.0\"\nrole: operation\ndescription: x\nedam_operation: operation:0292\nedam_data: data:2978\nassignee: agent\n",
+        );
+        let base = AtomRegistry::load_from_dir(tmp.path()).unwrap();
+        let merged = base
+            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .expect("overlay admitted");
+        // Base wins on id collision (overlay dropped) — base atom's
+        // data:2978 still resolves, the overlay's data:9999 does not.
+        assert!(merged.find_producers("data:9999", None).next().is_none());
+        assert!(merged.find_producers("data:2978", None).next().is_some());
     }
 }

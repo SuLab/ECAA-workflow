@@ -33,4 +33,4 @@ check_kind: string,
 /**
  * Statement.
  */
-statement: string, } | { "kind": "other", statement: string, };
+statement: string, } | { "kind": "parameter_mismatch", parameter: string, producer: string, consumer: string, } | { "kind": "other", statement: string, };

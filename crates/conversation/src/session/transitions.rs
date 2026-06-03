@@ -282,6 +282,15 @@ fn recovery_hint_for_blocker(kind: &BlockerKind) -> String {
              and re-running. If the task is genuinely complex, consider splitting \
              it into smaller atoms."
         }
+        // An external tool/workflow registry entry failed to import.
+        BlockerKind::ExternalImportFailed { .. } => {
+            "An external tool/workflow registry entry could not be imported \
+             into the catalog. Drop the external reference from intake, pin a \
+             different snapshot version, or have an operator curate the \
+             registry directory, then re-run intake. Imported tools never \
+             reach production execution until promoted, so this blocks \
+             composition only when the goal depends on the failed entry."
+        }
         // The enum is `#[non_exhaustive]`. Every variant currently
         // defined has an explicit arm above; this catch-all is the
         // forward-compatibility safety net for variants added after

@@ -80,6 +80,24 @@ pub fn blocker_for_incompatibility(
                 target_outcome: ProjectedOutcome::DraftDag,
             }],
         ),
+        IncompatibilityReason::ParameterMismatch {
+            parameter,
+            producer,
+            consumer,
+        } => (
+            BlockerKind::AwaitingStructuredDecision {
+                task_id: "compose".into(),
+                decision_points_path: format!("parameter:{parameter}"),
+                summary: format!(
+                    "Declared parameter '{parameter}' clash: producer {producer} vs consumer {consumer}"
+                ),
+            },
+            vec![UnblockPath::ResolveAssumption {
+                assumption_id: format!("parameter:{parameter}"),
+                suggested_resolution: None,
+                target_outcome: ProjectedOutcome::DraftDag,
+            }],
+        ),
         IncompatibilityReason::Other { statement } => (
             BlockerKind::AwaitingStructuredDecision {
                 task_id: "compose".into(),

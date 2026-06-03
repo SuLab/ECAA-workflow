@@ -312,6 +312,11 @@ pub struct Config {
     /// corpus + byte-reproducibility baseline.
     pub compose_strict: bool,
 
+    /// Operator-declared curated external-registry snapshot dirs (F3).
+    /// Colon-separated `ECAA_EXTERNAL_CURATED_DIRS`. Dirs NOT in this
+    /// list resolve at `RegistryTier::Community`. Empty by default.
+    pub external_curated_dirs: Vec<PathBuf>,
+
     // Core classifier policy ---------------------------------------------
     /// `ECAA_MODALITY_DRIFT_MODE`. Controls how `Classifier::load`
     /// reacts to a non-empty legacy `modalities:` block in
@@ -495,6 +500,17 @@ impl Config {
         // default (Draft) so the corpus + byte baseline are unchanged.
         let compose_strict = parse_bool(env, "ECAA_COMPOSE_STRICT", false);
 
+        // `ECAA_EXTERNAL_CURATED_DIRS` (F3) — colon-separated curated
+        // registry dirs. Empties dropped; authored order preserved.
+        let external_curated_dirs: Vec<PathBuf> = env
+            .get("ECAA_EXTERNAL_CURATED_DIRS")
+            .copied()
+            .unwrap_or("")
+            .split(':')
+            .filter(|s| !s.is_empty())
+            .map(PathBuf::from)
+            .collect();
+
         // -- Core classifier policy ------------------------------------
         let modality_drift_mode = match env.get("ECAA_MODALITY_DRIFT_MODE").copied() {
             Some(v) if v.eq_ignore_ascii_case("fail") => ModalityDriftMode::Fail,
@@ -536,6 +552,7 @@ impl Config {
             port,
             git_enabled,
             compose_strict,
+            external_curated_dirs,
             modality_drift_mode,
             ecaa_mode,
         })
@@ -648,6 +665,7 @@ impl Default for ConfigBuilder {
                 port: DEFAULT_PORT,
                 git_enabled: true,
                 compose_strict: false,
+                external_curated_dirs: Vec::new(),
                 modality_drift_mode: ModalityDriftMode::Warn,
                 ecaa_mode: crate::emit_mode::EcaaMode::Full,
             },
@@ -1164,5 +1182,25 @@ mod tests {
             parse_pricing_overrides(&env).is_err(),
             "JSON disallows bare NaN; parser must surface that"
         );
+    }
+
+    #[test]
+    fn parses_external_curated_dirs() {
+        let mut env = HashMap::new();
+        env.insert("ECAA_EXTERNAL_CURATED_DIRS", "/opt/curated-a:/opt/curated-b");
+        let cfg = Config::from_env_map(&env).unwrap();
+        assert_eq!(
+            cfg.external_curated_dirs,
+            vec![
+                PathBuf::from("/opt/curated-a"),
+                PathBuf::from("/opt/curated-b"),
+            ]
+        );
+    }
+
+    #[test]
+    fn external_curated_dirs_default_empty() {
+        let cfg = Config::from_env_map(&HashMap::new()).unwrap();
+        assert!(cfg.external_curated_dirs.is_empty());
     }
 }
