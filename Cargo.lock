@@ -834,6 +834,7 @@ dependencies = [
  "ecaa-workflow-core",
  "ecaa-workflow-harness",
  "ecaa-workflow-types",
+ "jsonschema",
  "pulldown-cmark",
  "regex",
  "serde",
