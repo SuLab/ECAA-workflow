@@ -1,6 +1,8 @@
 id: endpoint_analysis
 version: "1.0.0"
 role: operation
+# Confirmatory result-producing stage: anchors a Required recall expectation.
+confirmatory: true
 description: |
   Evaluate the SAP-named primary or secondary endpoint estimand on the
   configured analysis population. Hands off to a method-specific runner

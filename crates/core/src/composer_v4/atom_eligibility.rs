@@ -99,6 +99,7 @@ mod tests {
             id: id.into(),
             version: "1.0.0".into(),
             role: AtomRole::Operation,
+            confirmatory: false,
             discovery_kind: None,
             description: "test atom".into(),
             edam_operation: "operation:0004".into(),

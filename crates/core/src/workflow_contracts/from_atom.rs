@@ -311,6 +311,7 @@ mod tests {
             id: id.into(),
             version: "1.0.0".into(),
             role: AtomRole::Operation,
+            confirmatory: false,
             discovery_kind: None,
             description: format!("Atom {id}"),
             edam_operation: "operation:0292".into(),

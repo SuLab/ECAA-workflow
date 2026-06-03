@@ -480,6 +480,8 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
         .preferred_container
         .as_ref()
         .map(|c| c.image.clone());
+    // Stage-atoms dir for the recall anchor (confirmatory-atom-id set).
+    let stage_atoms_dir = config_root.join("stage-atoms");
     emit_package(&EmitConfig {
         output_dir: out_path,
         dag: &dag,
@@ -495,6 +497,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
         preferred_container: preferred_container_str.as_deref(),
         runtime_prereqs: Some(&runtime_prereqs),
         per_atom_runtime_prereqs: Some(&per_atom_prereqs),
+        stage_atoms_dir: Some(&stage_atoms_dir),
     })?;
 
     // Opt-in BCO emit alongside the package.
@@ -753,6 +756,8 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         .iter()
         .map(|a| (a.id.clone(), a.runtime_packages.clone()))
         .collect();
+    // Stage-atoms dir for the recall anchor (confirmatory-atom-id set).
+    let stage_atoms_dir = config_path.join("stage-atoms");
     emit_package(&EmitConfig {
         output_dir: out_path,
         dag: &dag,
@@ -768,6 +773,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         preferred_container: preferred_container_str.as_deref(),
         runtime_prereqs: Some(&runtime_prereqs),
         per_atom_runtime_prereqs: Some(&per_atom_prereqs),
+        stage_atoms_dir: Some(&stage_atoms_dir),
     })?;
 
     // Opt-in BCO emit alongside the package, plus

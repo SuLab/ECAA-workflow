@@ -1,6 +1,8 @@
 id: variant_calling
 version: "1.0.0"
 role: operation
+# Confirmatory result-producing stage: anchors a Required recall expectation.
+confirmatory: true
 description: |
   Call germline or somatic SNVs / indels from aligned reads. HaplotypeCaller /
   DeepVariant / Mutect2 / Strelka2 selected at runtime by experimental design
