@@ -7,6 +7,7 @@ mod common;
 
 mod audit_proof_sidecar_emit;
 mod conventional_mode_emission;
+mod description_accuracy;
 mod emit_race;
 mod emit_roundtrip_schema_clean;
 mod emit_validation_smoke;

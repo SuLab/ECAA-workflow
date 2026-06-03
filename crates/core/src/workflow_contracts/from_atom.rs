@@ -337,6 +337,9 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: RuntimePrereqs::default(),
+            parameters: Vec::new(),
+            provenance: None,
+            estimated_duration: None,
             safety: crate::atom::SafetyPolicy::default(),
         }
     }

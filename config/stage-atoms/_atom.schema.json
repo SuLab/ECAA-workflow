@@ -37,6 +37,52 @@
           "required": ["kind"]
         }
       ]
+    },
+    "parameter_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "integer", "boolean", "array", "object", "enum"]
+        },
+        "required": { "type": "boolean" },
+        "default": {},
+        "allowed_values": { "type": "array" },
+        "examples": { "type": "array" },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    },
+    "port_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "semantic_type"],
+      "description": "Mirrors crates/core/src/workflow_contracts/port.rs::PortContract. Sealed (additionalProperties:false) so a typo'd facet key fails at registry load; the `facets` escape hatch stays open inside.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "semantic_type": { "type": "object" },
+        "physical_format": { "type": "object" },
+        "structural_schema": { "type": "object" },
+        "ontology_terms": { "type": "array" },
+        "modality": { "type": "string", "minLength": 1 },
+        "organism": { "type": "string", "minLength": 1 },
+        "genome_build": { "type": "string", "minLength": 1 },
+        "annotation_version": { "type": "string", "minLength": 1 },
+        "coordinate_system": { "type": "string", "minLength": 1 },
+        "units": { "type": "string", "minLength": 1 },
+        "normalization_state": { "type": "string", "minLength": 1 },
+        "statistical_state": { "type": "string", "minLength": 1 },
+        "privacy_class": {
+          "type": "string",
+          "enum": ["public", "internal", "sensitive", "phi", "restricted"]
+        },
+        "cardinality": { "type": "object" },
+        "validators": { "type": "array" },
+        "constraints": { "type": "array" },
+        "facets": { "type": "object", "additionalProperties": true }
+      }
     }
   },
   "properties": {
@@ -121,6 +167,35 @@
       "description": "Free-form attribute map; the discover_* runtime selector reads compatible subsets.",
       "additionalProperties": true
     },
+    "parameters": {
+      "type": "array",
+      "description": "Typed parameter list (paper D.1 parameter axis). Each entry is schema-validated; unknown keys inside an entry are rejected.",
+      "items": { "$ref": "#/definitions/parameter_spec" }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "maintainer"],
+      "description": "Atom provenance (paper D.1 origin/maintainer axis). Author-set.",
+      "properties": {
+        "origin": { "type": "string", "enum": ["builtin", "site_local", "community"] },
+        "maintainer": { "type": "string", "minLength": 1 }
+      }
+    },
+    "estimated_duration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seconds_p50", "basis"],
+      "description": "Machine-readable duration estimate (paper D.1). Pilot-measured values live in runtime sidecars, not atom YAML.",
+      "properties": {
+        "seconds_p50": { "type": "integer", "minimum": 0 },
+        "seconds_p95": { "type": "integer", "minimum": 0 },
+        "basis": {
+          "type": "string",
+          "enum": ["runtime_class_default", "author_estimate", "pilot_measured"]
+        }
+      }
+    },
     "joint_with": {
       "type": "array",
       "description": "Plan §S7.10 — multi-modal joint-source constraints. Each entry pairs two upstream atom ids that must share `attributes.source_atom`. Used by integration atoms (e.g. multi-modal scRNA-seq + CITE-seq).",
@@ -137,18 +212,12 @@
     "inputs": {
       "type": "array",
       "description": "Phase 2 of the DAG composer alignment plan — explicit rich PortContract input ports. Optional and additive: when absent, the compatibility::engine synthesizes coarse ports from edam_data / edam_format. Each entry mirrors crates/core/src/workflow_contracts/port.rs::PortContract.",
-      "items": {
-        "type": "object",
-        "additionalProperties": true
-      }
+      "items": { "$ref": "#/definitions/port_contract" }
     },
     "outputs": {
       "type": "array",
       "description": "Phase 2 of the DAG composer alignment plan — explicit rich PortContract output ports. See `inputs` for the migration story.",
-      "items": {
-        "type": "object",
-        "additionalProperties": true
-      }
+      "items": { "$ref": "#/definitions/port_contract" }
     },
     "method_choice": {
       "type": "object",

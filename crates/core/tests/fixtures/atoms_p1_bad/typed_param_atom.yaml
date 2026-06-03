@@ -1,0 +1,12 @@
+id: typed_param_atom
+version: "1.0.0"
+role: operation
+description: Bad fixture — unknown key inside a parameter entry.
+edam_operation: "operation:3198"
+edam_data: "data:1234"
+edam_format: "format:2572"
+assignee: agent
+parameters:
+  - name: candidate_tools
+    type: enum
+    unexpected: should_be_rejected
