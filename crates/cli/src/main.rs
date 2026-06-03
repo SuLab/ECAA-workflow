@@ -95,6 +95,16 @@ enum Commands {
         #[arg(long)]
         emit_bco: bool,
     },
+    /// Publish the local atom catalog as MCP-shaped descriptors into a
+    /// snapshot dir importable by another node (F5). Operator action.
+    Publish {
+        /// Config dir (atom registry root).
+        #[arg(long, default_value = "config")]
+        config: std::path::PathBuf,
+        /// Output snapshot dir (shape consumed by load_from_dir).
+        #[arg(long)]
+        out: std::path::PathBuf,
+    },
     /// List discoverable archetypes (or atoms) from
     /// `config/archetypes/` and `config/stage-atoms/`. SME tooling
     /// surface for "what can the composer route to?" without firing
@@ -159,6 +169,9 @@ fn main() -> Result<()> {
         } => {
             run_intake(&input, &output, &config, emit_bco)?;
         }
+        Commands::Publish { config, out } => {
+            run_publish(&config, &out)?;
+        }
         Commands::List { kind, config, json } => {
             run_list(kind, &config, json)?;
         }
@@ -166,6 +179,35 @@ fn main() -> Result<()> {
             migrate_sessions::run(args)?;
         }
     }
+    Ok(())
+}
+
+/// `ecaa-workflow publish` (F5) — project every local atom into an
+/// MCP-shaped `PublishedToolDescriptor`, re-wrap it as a `local_cwl`
+/// snapshot, and write one `<registry>/<id>.json` per atom into `out`.
+/// Deterministic (no timestamps); the snapshot shape is byte-identical
+/// to what `ExternalRegistryStore::load_from_dir` consumes so another
+/// node can import the published catalog directly.
+fn run_publish(config: &std::path::Path, out: &std::path::Path) -> Result<()> {
+    let reg = ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(
+        &config.join("stage-atoms"),
+    )?;
+    let reg_dir = out.join("local_cwl");
+    std::fs::create_dir_all(&reg_dir)?;
+    let mut count = 0usize;
+    for (_id, atom) in reg.iter() {
+        let descriptor =
+            ecaa_workflow_core::external_registry::publish::atom_to_published_descriptor(atom);
+        let snapshot = descriptor.into_local_cwl_snapshot();
+        let path = reg_dir.join(format!("{}.json", atom.id));
+        let bytes = serde_json::to_vec_pretty(&snapshot)?;
+        ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, &bytes)?;
+        count += 1;
+    }
+    println!(
+        "published {count} tool descriptors to {}",
+        reg_dir.display()
+    );
     Ok(())
 }
 

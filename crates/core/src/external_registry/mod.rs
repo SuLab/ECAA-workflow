@@ -21,6 +21,7 @@
 //! sync, side-effect-free, and consume already-cached snapshots.
 
 pub mod local_cwl;
+pub mod publish;
 pub mod registry_improvement;
 pub mod to_atom;
 
