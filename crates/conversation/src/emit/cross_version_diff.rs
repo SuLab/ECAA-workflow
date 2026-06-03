@@ -180,6 +180,29 @@ async fn read_ed_cf_assessment(
     serde_json::from_slice(&bytes).ok()
 }
 
+/// Write `runtime/coverage-statement.json` when the session carries a
+/// not-fully-covered `coverage_confidence` (CC1-4). This durably records
+/// the catalog-coverage gap outside the UI so a reviewer reading the
+/// emitted package sees which modalities fell outside the validated
+/// catalog. Fully-covered (or absent) coverage writes no file — a clean
+/// package carries no gap statement. Excluded from the byte-diff baseline.
+pub(super) async fn write_coverage_statement(session: &Session, output_dir: &Path) -> Result<()> {
+    let Some(cov) = session.coverage_confidence.as_ref() else {
+        return Ok(());
+    };
+    if cov.fully_covered {
+        return Ok(());
+    }
+    let runtime = output_dir.join("runtime");
+    tokio::fs::create_dir_all(&runtime).await?;
+    let body = serde_json::to_vec_pretty(cov)?;
+    let path = runtime.join("coverage-statement.json");
+    crate::persistence::atomic_write_bytes_to(&path, &body)
+        .await
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
 async fn load_interpretation_policy(package: &Path) -> Result<serde_json::Value> {
     let p = package.join("policies/interpretation-policy.json");
     let bytes = tokio::fs::read(&p)
@@ -266,6 +289,47 @@ mod ed_cf_delta_tests {
         assert!(
             !child_dir.path().join("runtime/ed-cf-delta.json").exists(),
             "no parent → no delta file"
+        );
+    }
+
+    #[tokio::test]
+    async fn coverage_statement_written_only_when_not_fully_covered() {
+        use crate::session::state::CoverageConfidence;
+        use ecaa_workflow_core::workflow_contracts::outcome::{ComposeOutcome, GapReport};
+        use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
+
+        // Not fully covered → file written with the uncovered modality.
+        let dir = tempfile::tempdir().unwrap();
+        let outcome = ComposeOutcome::PartialDag {
+            dag: WorkflowDag::default(),
+            unresolved_gaps: vec![GapReport {
+                id: "unsatisfiable_modality:cytof".into(),
+                statement: "no satisfier".into(),
+                missing_port: None,
+                suggestions: vec![],
+            }],
+        };
+        let mut session = Session::new(false);
+        session.coverage_confidence = Some(CoverageConfidence::from_outcome(&outcome));
+        write_coverage_statement(&session, dir.path()).await.unwrap();
+        let path = dir.path().join("runtime/coverage-statement.json");
+        assert!(path.exists(), "partial coverage must write a statement");
+        let v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(v["uncovered_modalities"][0], "cytof");
+
+        // Fully covered → no file.
+        let dir2 = tempfile::tempdir().unwrap();
+        let full = ComposeOutcome::ValidatedExecutableDag {
+            dag: WorkflowDag::default(),
+            report: Default::default(),
+        };
+        let mut s2 = Session::new(false);
+        s2.coverage_confidence = Some(CoverageConfidence::from_outcome(&full));
+        write_coverage_statement(&s2, dir2.path()).await.unwrap();
+        assert!(
+            !dir2.path().join("runtime/coverage-statement.json").exists(),
+            "fully-covered package writes no coverage statement"
         );
     }
 }
