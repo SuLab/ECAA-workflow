@@ -18,7 +18,7 @@ use crate::archetype_registry::ArchetypeRegistry;
 use crate::atom_registry::AtomRegistry;
 use crate::composer::{ComposedAtom, CompositionResult};
 use crate::goal_spec::GoalSpec;
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use crate::workflow_contracts::lifecycle::LifecycleState;
 use crate::workflow_contracts::outcome::{ComposeOutcome, GapReport};
 use crate::workflow_contracts::task_node::WorkflowDag;
@@ -244,6 +244,8 @@ fn assemble(
             to_node: "multi_modal_thematic_comparison".into(),
             to_port: String::new(),
             proof: ordering_proof(term, "multi_modal_thematic_comparison"),
+            // Multi-branch join is an author-intended ordering edge.
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         });
     }
@@ -471,6 +473,7 @@ mod tests {
             to_node: to.into(),
             to_port: String::new(),
             proof: CompatibilityProof::default(),
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         }
     }

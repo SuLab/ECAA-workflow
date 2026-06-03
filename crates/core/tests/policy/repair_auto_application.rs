@@ -29,7 +29,7 @@ use ecaa_workflow_core::repair::proposal::{
 };
 use ecaa_workflow_core::repair::registry::RepairRegistry;
 use ecaa_workflow_core::repair::strategy::GapKind;
-use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 use ecaa_workflow_core::workflow_contracts::workflow_intent::WorkflowIntent;
 use std::sync::Mutex;
@@ -101,6 +101,7 @@ fn skeleton_dag_with_edge() -> WorkflowDag {
             to_node: "downstream".into(),
             to_port: "in_data".into(),
             proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
         }],
         ..Default::default()

@@ -35,7 +35,7 @@
 use std::collections::BTreeSet;
 
 use crate::atom_registry::AtomRegistry;
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
 /// Stable id of the synthesized survey task — matches the registry
@@ -116,6 +116,8 @@ pub fn synthesize_survey_method_landscape(dag: &mut WorkflowDag, atom_reg: &Atom
             to_node: d.clone(),
             to_port: String::new(),
             proof: ordering_proof(SURVEY_ID, d),
+            // Survey gates the method-discovery signal: ordering edge.
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         });
     }
@@ -155,6 +157,8 @@ pub fn synthesize_survey_method_landscape(dag: &mut WorkflowDag, atom_reg: &Atom
             to_node: SURVEY_ID.into(),
             to_port: String::new(),
             proof: ordering_proof(producer, SURVEY_ID),
+            // Data-characterization producer gates the survey: ordering edge.
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         });
     }

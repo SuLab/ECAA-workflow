@@ -53,7 +53,7 @@ use crate::composer::{
 };
 use crate::goal_spec::GoalSpec;
 use crate::ids::StageId;
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use crate::workflow_contracts::evidence::AssumptionLedger;
 use crate::workflow_contracts::lifecycle::LifecycleState;
 use crate::workflow_contracts::outcome::{ComposeOutcome, GapReport, ValidationReport};
@@ -1720,8 +1720,12 @@ pub fn lift_to_workflow_dag(
                 .map(|(i, o)| (i.clone(), o.clone()))
                 .unwrap_or_default();
 
-            let (producer_port, consumer_port, proof) =
-                pick_best_port_pair(&engine, &producer_outputs, &consumer_inputs);
+            let (producer_port, consumer_port, proof, kind) = pick_best_port_pair(
+                &engine,
+                &producer_outputs,
+                &consumer_inputs,
+                false, // WG2 replaces with the archetype ordering_only lookup
+            );
 
             edges.push(EdgeContract {
                 from_node: producer_stage,
@@ -1729,6 +1733,7 @@ pub fn lift_to_workflow_dag(
                 to_node: c.stage_id.to_string(),
                 to_port: consumer_port.name.clone(),
                 proof,
+                kind,
                 chain_of_custody: None,
             });
         }
@@ -1819,14 +1824,16 @@ fn pick_best_port_pair(
     engine: &DeterministicCompatibilityEngine,
     producer_outputs: &[PortContract],
     consumer_inputs: &[PortContract],
-) -> (PortContract, PortContract, CompatibilityProof) {
+    declared_ordering: bool,
+) -> (PortContract, PortContract, CompatibilityProof, EdgeKind) {
     let cctx = CompatibilityContext::default();
-    let mut adapter_fallback: Option<(PortContract, PortContract, CompatibilityProof)> = None;
+    let mut adapter_fallback: Option<(PortContract, PortContract, CompatibilityProof, EdgeKind)> =
+        None;
     for in_port in consumer_inputs {
         for out_port in producer_outputs {
             match engine.prove(out_port, in_port, &cctx) {
                 CompatibilityResult::Compatible(proof) => {
-                    return (out_port.clone(), in_port.clone(), proof);
+                    return (out_port.clone(), in_port.clone(), proof, EdgeKind::TypedDataFlow);
                 }
                 CompatibilityResult::CompatibleWithAdapters {
                     mut proof,
@@ -1836,15 +1843,20 @@ fn pick_best_port_pair(
                         for a in &adapters {
                             proof.inserted_adapter_node_ids.push(a.id.clone());
                         }
-                        adapter_fallback = Some((out_port.clone(), in_port.clone(), proof));
+                        adapter_fallback = Some((
+                            out_port.clone(),
+                            in_port.clone(),
+                            proof,
+                            EdgeKind::AdapterMediated,
+                        ));
                     }
                 }
                 _ => {}
             }
         }
     }
-    if let Some(triple) = adapter_fallback {
-        return triple;
+    if let Some(quad) = adapter_fallback {
+        return quad;
     }
     // No compatible pair found — treat the depends_on as a workflow
     // ordering relation rather than a port-typed data-flow edge. This
@@ -1855,34 +1867,45 @@ fn pick_best_port_pair(
     // actual data input is the normalized counts from upstream
     // `normalisation`, satisfied via that atom's own depends_on edge).
     //
-    // Surface the pair with the first-output / first-input names plus
-    // a *non-`incompatible`* warning so `score_dag`'s
-    // `required_contract_unsatisfied` check (which keys on the literal
-    // substring "incompatible") doesn't escalate to `Reject`. The
-    // archetype lift's depends_on is the canonical authoring surface
-    // for ordering; we shouldn't reject the entire composition because
-    // a workflow-ordering edge doesn't unify port types.
+    // The decision is now the typed `EdgeKind`, not a substring-keyed
+    // warning. A non-unifying edge that the archetype author DECLARED
+    // (`ordering_only_edges`) and whose producer type is non-empty is
+    // `OrderingOnly` (non-blocking in Draft). An UNDECLARED non-unifying
+    // edge — or one with an empty producer type — is `Unproven` and the
+    // gate rejects the composition.
     let producer_port = producer_outputs.first().cloned().unwrap_or_default();
     let consumer_port = consumer_inputs.first().cloned().unwrap_or_default();
-    let producer_type = {
-        let stable = producer_port.semantic_type.stable_id();
-        if stable.is_empty() {
+    let stable = producer_port.semantic_type.stable_id();
+    let (kind, producer_type, warning) = if declared_ordering && !stable.is_empty() {
+        (
+            EdgeKind::OrderingOnly,
+            stable,
+            "ordering_only_declared: archetype-declared workflow-ordering edge".to_string(),
+        )
+    } else {
+        // Undeclared non-unifying edge OR empty producer type → Unproven
+        // (the gate rejects). The empty-type defensive signal folds into
+        // the Unproven classification here, where the data is.
+        let pt = if stable.is_empty() {
             "ecaax:workflow_ordering".to_string()
         } else {
             stable
-        }
+        };
+        (
+            EdgeKind::Unproven,
+            pt,
+            "unproven_undeclared_edge: depends_on without port-typed data flow and \
+             no ordering_only declaration"
+                .to_string(),
+        )
     };
     let proof = CompatibilityProof {
         producer_type,
         consumer_type: consumer_port.semantic_type.stable_id(),
-        warnings: vec![
-            "workflow_ordering_edge: archetype depends_on without port-typed \
-                        data flow"
-                .into(),
-        ],
+        warnings: vec![warning],
         ..Default::default()
     };
-    (producer_port, consumer_port, proof)
+    (producer_port, consumer_port, proof, kind)
 }
 
 /// Normalize a modality string into the canonical stage-id prefix
@@ -2100,12 +2123,14 @@ fn score_dag(
     let mut s = ScoringTuple::default();
     // 1. Hard policy violation — slot is wired via PolicyContext.
     // Default is Pass.
-    // 2. Required-contract-unsatisfied: every edge must have a
-    // producer_type set.
-    let any_unsat = dag.edges.iter().any(|e| {
-        e.proof.producer_type.is_empty()
-            || e.proof.warnings.iter().any(|w| w.contains("incompatible"))
-    });
+    // 2. Required-contract-unsatisfied: any edge that did not prove a
+    // typed (or adapter-mediated, or declared-ordering) flow is Unproven
+    // and rejects. The decision is the typed `EdgeKind`, not a substring
+    // scan of the proof's warning text.
+    let any_unsat = dag
+        .edges
+        .iter()
+        .any(|e| matches!(e.kind, EdgeKind::Unproven));
     if any_unsat {
         s.required_contract_unsatisfied = ScoringValue::Reject;
     }
@@ -3143,6 +3168,77 @@ mod tests {
         );
         assert!(matches!(result.primary, ComposeOutcome::PartialDag { .. }));
         assert!(result.alternatives.is_empty());
+    }
+
+    #[test]
+    fn score_dag_rejects_unproven_edge_without_warning_text() {
+        use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+        use crate::workflow_contracts::evidence::AssumptionLedger;
+        use crate::workflow_contracts::task_node::WorkflowDag;
+        // An edge with a NON-empty producer_type and NO "incompatible"
+        // warning — the exact shape the old substring scan let through.
+        let edge = EdgeContract {
+            from_node: "p".into(),
+            from_port: "out".into(),
+            to_node: "c".into(),
+            to_port: "in".into(),
+            proof: CompatibilityProof {
+                producer_type: "data:0863".into(),
+                consumer_type: "data:3917".into(),
+                warnings: vec!["genome build differs".into()], // no "incompatible"
+                ..Default::default()
+            },
+            kind: EdgeKind::Unproven,
+            chain_of_custody: None,
+        };
+        let dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![],
+            edges: vec![edge],
+            assumptions: AssumptionLedger::default(),
+            source_template: None,
+        };
+        let ctx = PlanningContext::default();
+        let reg = ArchetypeRegistry::default();
+        let score = score_dag(&dag, &ctx, &reg);
+        assert!(
+            matches!(score.required_contract_unsatisfied, ScoringValue::Reject),
+            "an Unproven edge must Reject regardless of warning text"
+        );
+    }
+
+    #[test]
+    fn score_dag_accepts_ordering_only_edge_in_draft() {
+        use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+        use crate::workflow_contracts::evidence::AssumptionLedger;
+        use crate::workflow_contracts::task_node::WorkflowDag;
+        let edge = EdgeContract {
+            from_node: "p".into(),
+            from_port: "".into(),
+            to_node: "c".into(),
+            to_port: "".into(),
+            proof: CompatibilityProof {
+                producer_type: "ecaax:method_discovery_signal".into(),
+                consumer_type: "ecaax:method_discovery_signal".into(),
+                ..Default::default()
+            },
+            kind: EdgeKind::OrderingOnly,
+            chain_of_custody: None,
+        };
+        let dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![],
+            edges: vec![edge],
+            assumptions: AssumptionLedger::default(),
+            source_template: None,
+        };
+        let ctx = PlanningContext::default(); // risk_mode = Draft
+        let reg = ArchetypeRegistry::default();
+        let score = score_dag(&dag, &ctx, &reg);
+        assert!(
+            !matches!(score.required_contract_unsatisfied, ScoringValue::Reject),
+            "a declared OrderingOnly edge must NOT Reject in Draft"
+        );
     }
 
     #[test]

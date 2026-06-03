@@ -80,7 +80,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
 /// Walk every analytical node in `dag` and synthesize an edge to the
@@ -358,6 +358,8 @@ pub fn wire_dangling_analytical_atoms_to_reporting(dag: &mut WorkflowDag) {
             to_node: consumer_id,
             to_port: consumer_port,
             proof,
+            // Synthesized strand→reporting wiring: structural ordering edge.
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         });
     }
@@ -501,6 +503,8 @@ fn synthesize_universal_terminal_if_missing(dag: &mut WorkflowDag) {
                 )),
                 ..Default::default()
             },
+            // Synthesized universal-terminal aggregation: ordering edge.
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         });
     }
@@ -838,6 +842,7 @@ mod tests {
             to_node: to.into(),
             to_port: "in".into(),
             proof: CompatibilityProof::default(),
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         }
     }

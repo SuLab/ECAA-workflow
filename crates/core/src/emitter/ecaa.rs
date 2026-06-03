@@ -2,7 +2,7 @@ use crate::ablation::{AblationFlag, AblationFlagExt};
 use crate::classify::ClassificationResult;
 use crate::clock::Clock;
 use crate::dag::DAG;
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use anyhow::{anyhow, Context, Result};
 use jsonschema::JSONSchema;
 use serde_json::{json, Value};
@@ -269,6 +269,9 @@ fn render_dependency_proofs_jsonl(dag: &DAG) -> Result<String> {
                     )),
                     ..CompatibilityProof::default()
                 },
+                // WG4 replaces this placeholder with the lifted EdgeKind
+                // threaded from the composed WorkflowDag.
+                kind: EdgeKind::Unproven,
                 chain_of_custody: None,
             })
             .context("serializing dependency proof edge")?;

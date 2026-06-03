@@ -1967,6 +1967,9 @@ fn prune_excluded_atoms(session: &mut Session) {
                 to_node,
                 to_port: "_excluded_rewire".into(),
                 proof,
+                // Structural re-wire after an SME atom exclusion: an
+                // ordering edge, not a port-typed data flow.
+                kind: ecaa_workflow_core::workflow_contracts::edge::EdgeKind::OrderingOnly,
                 chain_of_custody: None,
             });
     }
@@ -2144,7 +2147,7 @@ fn wire_upstream_edges(
     task_node_id: &str,
     proposal: &ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal,
 ) -> bool {
-    use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+    use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
     let mut dirty = false;
     for upstream_id in &proposal.upstream_atom_ids {
         let upstream_exists = dag.nodes.iter().any(|n| n.id == *upstream_id);
@@ -2178,6 +2181,8 @@ fn wire_upstream_edges(
             to_node: task_node_id.to_string(),
             to_port: "_promoted_input".into(),
             proof,
+            // Promoted hypothesized-node wiring: structural ordering edge.
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         });
         dirty = true;
@@ -2198,7 +2203,7 @@ fn wire_promoted_node(
     task_node_id: &str,
     proposal: &ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal,
 ) -> bool {
-    use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+    use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
     use ecaa_workflow_core::workflow_contracts::evidence::ValidatorRef;
     use ecaa_workflow_core::workflow_contracts::implementation::Implementation;
     use ecaa_workflow_core::workflow_contracts::lifecycle::LifecycleState;
@@ -2238,6 +2243,7 @@ fn wire_promoted_node(
                     to_node: task_node_id.to_string(),
                     to_port: "_promoted_input".into(),
                     proof,
+                    kind: EdgeKind::OrderingOnly,
                     chain_of_custody: None,
                 });
                 dirty = true;
@@ -2273,6 +2279,7 @@ fn wire_promoted_node(
                 to_node: d,
                 to_port: "_promoted_downstream".into(),
                 proof,
+                kind: EdgeKind::OrderingOnly,
                 chain_of_custody: None,
             });
             dirty = true;
@@ -2314,6 +2321,7 @@ fn wire_promoted_node(
             to_node: validate_id,
             to_port: "_validator_input".into(),
             proof,
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         });
         dirty = true;

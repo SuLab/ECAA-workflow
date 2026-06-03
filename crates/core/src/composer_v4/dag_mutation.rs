@@ -16,7 +16,7 @@
 //! (`RepairProposed`) but never reach this helper.
 
 use crate::repair::proposal::DagModification;
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use crate::workflow_contracts::evidence::AssumptionRef;
 use crate::workflow_contracts::task_node::WorkflowDag;
 
@@ -120,6 +120,9 @@ pub fn apply_dag_modification(
                         to_node: converter_node.id.clone(),
                         to_port: converter_in_port,
                         proof: lossless_converter_proof("repair_inserted_converter"),
+                        // Repair-inserted converter is an adapter-mediated edge;
+                        // the post-apply meet-in-the-middle re-run reproves it.
+                        kind: EdgeKind::AdapterMediated,
                         chain_of_custody: None,
                     };
                     dag.edges.push(EdgeContract {
@@ -128,6 +131,7 @@ pub fn apply_dag_modification(
                         to_node: original.to_node,
                         to_port: original.to_port,
                         proof: lossless_converter_proof("repair_inserted_converter"),
+                        kind: EdgeKind::AdapterMediated,
                         chain_of_custody: None,
                     });
                 }
@@ -138,6 +142,7 @@ pub fn apply_dag_modification(
                         to_node: converter_node.id.clone(),
                         to_port: converter_in_port,
                         proof: lossless_converter_proof("repair_inserted_converter"),
+                        kind: EdgeKind::AdapterMediated,
                         chain_of_custody: None,
                     });
                     dag.edges.push(EdgeContract {
@@ -146,6 +151,7 @@ pub fn apply_dag_modification(
                         to_node: sink_port.node_id.clone(),
                         to_port: sink_port.port_name.clone(),
                         proof: lossless_converter_proof("repair_inserted_converter"),
+                        kind: EdgeKind::AdapterMediated,
                         chain_of_custody: None,
                     });
                 }
@@ -208,7 +214,7 @@ fn lossless_converter_proof(label: &str) -> CompatibilityProof {
 mod tests {
     use super::*;
     use crate::repair::proposal::PortRef;
-    use crate::workflow_contracts::edge::EdgeContract;
+    use crate::workflow_contracts::edge::{EdgeContract, EdgeKind};
     use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
     fn skeleton_edge(producer: &str, p_port: &str, consumer: &str, c_port: &str) -> EdgeContract {
@@ -218,6 +224,7 @@ mod tests {
             to_node: consumer.into(),
             to_port: c_port.into(),
             proof: lossless_converter_proof("test"),
+            kind: EdgeKind::AdapterMediated,
             chain_of_custody: None,
         }
     }

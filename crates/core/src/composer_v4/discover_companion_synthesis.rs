@@ -79,7 +79,7 @@ use std::collections::BTreeSet;
 
 use crate::atom::AtomDefinition;
 use crate::atom_registry::AtomRegistry;
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
 /// Walk every node in `dag.nodes` and synthesize a `discover_<axis>`
@@ -238,6 +238,9 @@ pub fn synthesize_discover_companions(
             to_node: node.id.clone(),
             to_port: String::new(),
             proof,
+            // Author-intended ordering edge (method-discovery signal,
+            // no port-typed data flow) — non-blocking in Draft.
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         });
         // Record an OntologyAdapterInserted assumption for the discover

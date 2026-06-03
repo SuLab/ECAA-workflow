@@ -109,7 +109,7 @@ pub(crate) fn evaluate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+    use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
     use crate::workflow_contracts::task_node::TaskNode;
     use std::path::Path;
 
@@ -123,6 +123,7 @@ mod tests {
             to_node: to.into(),
             to_port: String::new(),
             proof: CompatibilityProof::default(),
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         }
     }

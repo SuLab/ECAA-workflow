@@ -71,7 +71,7 @@
 use std::collections::BTreeSet;
 
 use crate::atom_registry::AtomRegistry;
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use crate::workflow_contracts::evidence::{
     Assumption, AssumptionResolution, AssumptionSource, RiskClass,
 };
@@ -164,6 +164,9 @@ pub fn synthesize_validate_companions(dag: &mut WorkflowDag, atom_reg: &AtomRegi
             to_node: validate_id.clone(),
             to_port: consumer_port,
             proof,
+            // Synthesized validator-wrapper post-pass: a structural
+            // ordering edge, not an engine-proven typed data flow.
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         });
         // Record an OntologyAdapterInserted assumption when the companion

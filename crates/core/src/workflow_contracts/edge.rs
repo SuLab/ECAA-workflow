@@ -15,6 +15,51 @@ use ts_rs::TS;
 use super::chain_of_custody::ChainOfCustody;
 use super::evidence::{AssumptionRef, ValidatorRef};
 
+/// Typed discriminant for a composed-DAG edge. Replaces the prior
+/// substring-keyed reject (`warnings.contains("incompatible")`) with a
+/// pass/fail axis the scorer can branch on directly.
+///
+/// `Unproven` is the default so any legacy `runtime/proofs.jsonl` row
+/// or hand-written edge that omits `kind` is treated as the *strictest
+/// failing* case — it is never silently waved through the gate.
+/// Defaulting to `TypedDataFlow` would re-open the loophole.
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema,
+)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum EdgeKind {
+    /// Producer output and consumer input unified losslessly
+    /// (`CompatibilityResult::Compatible`).
+    TypedDataFlow,
+    /// Unification required one or more adapters
+    /// (`CompatibilityResult::CompatibleWithAdapters`).
+    AdapterMediated,
+    /// No port pair unified, but the edge is a workflow-ordering
+    /// relation — either an archetype author declared it via
+    /// `ordering_only_edges`, or it is a synthesis-site structural
+    /// edge (discover/survey/multi-branch/validator/report wiring).
+    /// Non-blocking in `Draft`; rejected in `Production` (WG3).
+    OrderingOnly,
+    /// No port pair unified and the edge is NOT a declared ordering
+    /// exemption (or the producer's stable type is empty). The gate
+    /// rejects any DAG carrying an `Unproven` edge.
+    Unproven,
+}
+
+impl Default for EdgeKind {
+    fn default() -> Self {
+        EdgeKind::Unproven
+    }
+}
+
+/// Serde default for [`EdgeContract::kind`]. A named fn (not the derive)
+/// so the strictest case applies to legacy rows missing the field.
+fn default_edge_kind() -> EdgeKind {
+    EdgeKind::Unproven
+}
+
 /// One edge in a `WorkflowDag`. Connects a producer port to a
 /// consumer port and carries the compatibility proof or report
 /// explaining why the edge exists.
@@ -34,6 +79,11 @@ pub struct EdgeContract {
     /// Compatibility proof. Carried inline so consumers don't need
     /// a side lookup to render "why this edge exists."
     pub proof: CompatibilityProof,
+    /// Typed edge classification. Defaults to [`EdgeKind::Unproven`] so
+    /// legacy proofs.jsonl rows (and any edge constructed before this
+    /// field existed) deserialize to the strictest failing case.
+    #[serde(default = "default_edge_kind")]
+    pub kind: EdgeKind,
     /// Chain-of-custody for the edge when one or both
     /// endpoints carry suppressed content. `None` for ordinary
     /// non-suppressed edges. Older records without the field
@@ -68,6 +118,9 @@ impl EdgeContract {
                 ),
                 ..CompatibilityProof::default()
             },
+            // A splice is a structural reachability bridge, not a typed
+            // data flow, so it is an ordering-only edge.
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         }
     }
@@ -239,6 +292,7 @@ mod tests {
             to_node: "call_variants".into(),
             to_port: "bam".into(),
             proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
         };
         let json = serde_json::to_string(&e).unwrap();
@@ -256,10 +310,55 @@ mod tests {
             to_node: "call_variants".into(),
             to_port: "bam".into(),
             proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
         };
         let json = serde_json::to_string(&e).unwrap();
         assert!(!json.contains("chain_of_custody"), "got: {json}");
+    }
+
+    #[test]
+    fn edge_kind_round_trips_each_variant() {
+        for k in [
+            EdgeKind::TypedDataFlow,
+            EdgeKind::AdapterMediated,
+            EdgeKind::OrderingOnly,
+            EdgeKind::Unproven,
+        ] {
+            let json = serde_json::to_string(&k).unwrap();
+            let back: EdgeKind = serde_json::from_str(&json).unwrap();
+            assert_eq!(k, back);
+        }
+    }
+
+    #[test]
+    fn edge_kind_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&EdgeKind::TypedDataFlow).unwrap(),
+            "\"typed_data_flow\""
+        );
+        assert_eq!(
+            serde_json::to_string(&EdgeKind::OrderingOnly).unwrap(),
+            "\"ordering_only\""
+        );
+    }
+
+    #[test]
+    fn edge_kind_default_is_unproven() {
+        assert_eq!(EdgeKind::default(), EdgeKind::Unproven);
+    }
+
+    /// A legacy proofs.jsonl row without a `kind` field deserializes to
+    /// the strictest failing case (`Unproven`), never silently passing.
+    #[test]
+    fn edge_contract_legacy_row_defaults_kind_to_unproven() {
+        let legacy = r#"{
+            "from_node": "a", "from_port": "out",
+            "to_node": "b", "to_port": "in",
+            "proof": {"producer_type": "data:0863", "consumer_type": "data:0863"}
+        }"#;
+        let edge: EdgeContract = serde_json::from_str(legacy).unwrap();
+        assert_eq!(edge.kind, EdgeKind::Unproven);
     }
 
     /// v3 P5 — `chain_of_custody` round-trips when populated.
@@ -272,6 +371,7 @@ mod tests {
             to_node: "classify_intake".into(),
             to_port: "prose".into(),
             proof: CompatibilityProof::default(),
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: Some(ChainOfCustody::new(
                 SuppressionClass::UserSuppliedFreeText,
                 "ingestion_safety::quarantine",
