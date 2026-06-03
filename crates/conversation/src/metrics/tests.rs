@@ -1444,3 +1444,27 @@ fn completion_stats_empty_is_zeroed() {
     assert_eq!(stats.emitted, 0);
     assert_eq!(stats.completion_rate, 0.0);
 }
+
+/// record_coverage_gap increments coverage_gap_events per call.
+#[tokio::test]
+async fn coverage_gap_events_increment() {
+    let store = MetricsStore::new();
+    let id = Uuid::new_v4();
+    store.record_coverage_gap(id).await;
+    store.record_coverage_gap(id).await;
+    let snap = store.snapshot(id).await.unwrap();
+    assert_eq!(snap.coverage_gap_events, 2);
+}
+
+/// A sidecar written before the field existed deserializes with 0.
+#[test]
+fn coverage_gap_events_defaults_for_legacy_sidecar() {
+    // A minimal legacy SessionCounters JSON with no coverage_gap_events key.
+    let legacy = r#"{"turn_count":1,"tool_call_count":0,"turn_durations_ms":[],
+        "per_model":{},"instance_seconds":{},"running_task_starts":{},
+        "high_water_exceeded_count":0,"batch_dropped_events":0}"#;
+    let counters: SessionCounters =
+        serde_json::from_str(legacy).expect("legacy sidecar must deserialize");
+    let snap = counters.snapshot();
+    assert_eq!(snap.coverage_gap_events, 0);
+}

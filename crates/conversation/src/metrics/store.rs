@@ -197,6 +197,12 @@ pub(crate) struct SessionCounters {
     // by `record_method_recommendation_request`.
     #[serde(default)]
     pub(crate) method_recommendation_requests: u64,
+    // Count of session-scoped catalog-gap events: each
+    // `propose_hypothesized_node` / `propose_hypothesized_renderer` dispatch
+    // is one event where the closed atom/renderer catalog could not express
+    // the SME's request. Set by `record_coverage_gap`.
+    #[serde(default)]
+    pub(crate) coverage_gap_events: u32,
 }
 
 // Custom deserialize that accepts BOTH the new `per_model` shape AND the
@@ -295,6 +301,8 @@ impl<'de> Deserialize<'de> for SessionCounters {
             claim_mismatches: u64,
             #[serde(default)]
             method_recommendation_requests: u64,
+            #[serde(default)]
+            coverage_gap_events: u32,
         }
         let raw = Raw::deserialize(deserializer)?;
         let mut per_model = raw.per_model;
@@ -354,6 +362,7 @@ impl<'de> Deserialize<'de> for SessionCounters {
             claims_checked: raw.claims_checked,
             claim_mismatches: raw.claim_mismatches,
             method_recommendation_requests: raw.method_recommendation_requests,
+            coverage_gap_events: raw.coverage_gap_events,
         })
     }
 }
@@ -662,6 +671,7 @@ impl SessionCounters {
                 Some(self.claim_mismatches as f64 / self.claims_checked as f64)
             },
             method_recommendation_requests: self.method_recommendation_requests,
+            coverage_gap_events: self.coverage_gap_events,
         }
     }
 }
@@ -1567,6 +1577,20 @@ impl MetricsStore {
             let counters = guard.entry(id).or_default();
             counters.method_recommendation_requests =
                 counters.method_recommendation_requests.saturating_add(1);
+            counters.clone()
+        };
+        self.persist_one(id, &counters).await;
+    }
+
+    /// Record a session-scoped catalog-gap event. Called by the service
+    /// layer when a `propose_hypothesized_node` / `propose_hypothesized_renderer`
+    /// tool was dispatched this turn — each is one event where the closed
+    /// catalog could not express the SME's request. Saturating increment.
+    pub async fn record_coverage_gap(&self, id: SessionId) {
+        let counters = {
+            let mut guard = self.inner.write().await;
+            let counters = guard.entry(id).or_default();
+            counters.coverage_gap_events = counters.coverage_gap_events.saturating_add(1);
             counters.clone()
         };
         self.persist_one(id, &counters).await;
