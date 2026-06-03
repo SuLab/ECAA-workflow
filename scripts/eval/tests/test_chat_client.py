@@ -19,18 +19,27 @@ from scripts.eval.services.chat_client import ChatIntakeError, drive_chat_intake
 class _Script:
     """Programmable server behavior shared with the request handler."""
     def __init__(self, *, state_kinds, pkg_path="/emitted/pkg",
-                 turn_429_first=False):
+                 turn_429_first=False, proposals=None):
         # state_kinds is the sequence returned by successive GET /state calls.
         self.state_kinds = list(state_kinds)
         self.pkg_path = pkg_path
         self.turn_429_first = turn_429_first
+        # Proposals served by GET /proposals; signoff/reject flip lifecycle.
+        self.proposals = [dict(p) for p in (proposals or [])]
         # Captured for assertions.
         self.turn_messages: list[str] = []
         self.sme_named_calls: list[str] = []
+        self.signoff_calls: list[str] = []
+        self.reject_calls: list[str] = []
         self.confirm_calls = 0
         self.idempotency_keys: list[str] = []
         self._state_idx = 0
         self._turn_count = 0
+
+    def _set_lifecycle(self, pid, kind):
+        for p in self.proposals:
+            if p.get("id") == pid:
+                p["lifecycle"] = {"kind": kind}
 
     def next_state(self):
         idx = min(self._state_idx, len(self.state_kinds) - 1)
@@ -91,12 +100,24 @@ def _make_handler_capturing(script: _Script):
                 if key:
                     script.idempotency_keys.append(key)
                 self._send_empty(204)
+            elif "/proposal/" in path and path.endswith("/signoff"):
+                pid = path.split("/proposal/")[1].split("/")[0]
+                script.signoff_calls.append(pid)
+                script._set_lifecycle(pid, "promoted")
+                self._send_empty(204)
+            elif "/proposal/" in path and path.endswith("/reject"):
+                pid = path.split("/proposal/")[1].split("/")[0]
+                script.reject_calls.append(pid)
+                script._set_lifecycle(pid, "rejected")
+                self._send_empty(204)
             else:
                 self._send_empty(404)
 
         def do_GET(self):
             if self.path.endswith("/state"):
                 self._send_json(200, script.next_state())
+            elif self.path.endswith("/proposals"):
+                self._send_json(200, script.proposals)
             else:
                 self._send_empty(404)
 
@@ -160,6 +181,88 @@ def test_locked_methods_post_sme_named_before_first_turn():
     # The first turn names the locked methods so the LLM is permitted to lock.
     assert "bwa for alignment" in script.turn_messages[0]
     assert "lofreq for variant_calling" in script.turn_messages[0]
+
+
+def test_signoff_policy_resolves_pending_proposal():
+    # The LLM proposes a hypothesized node on turn 1 (awaiting_signoff), which
+    # blocks propose_summary_confirmation server-side. With proposal_policy=
+    # "signoff" the driver must POST .../signoff to clear the gate so intake
+    # can converge to pending_confirmation, then emit.
+    script = _Script(
+        state_kinds=["intake_followup", "pending_confirmation", "emitted"],
+        proposals=[{"id": "proposal-1", "node_id": "cross_sample_variant_table",
+                    "lifecycle": {"kind": "awaiting_signoff"}}],
+    )
+    httpd, base = _serve(script)
+    try:
+        sid, pkg = drive_chat_intake(base, "Call variants",
+                                     proposal_policy="signoff",
+                                     intake_turn_budget=8)
+    finally:
+        httpd.shutdown()
+    assert str(pkg) == "/emitted/pkg"
+    assert script.signoff_calls == ["proposal-1"]
+    assert script.reject_calls == []
+
+
+def test_reject_policy_resolves_pending_proposal():
+    # proposal_policy="reject" declines the hypothesized node (recipe fidelity):
+    # the gate clears via .../reject, NOT .../signoff.
+    script = _Script(
+        state_kinds=["intake_followup", "pending_confirmation", "emitted"],
+        proposals=[{"id": "proposal-7", "node_id": "cross_sample_variant_table",
+                    "lifecycle": {"kind": "awaiting_signoff"}}],
+    )
+    httpd, base = _serve(script)
+    try:
+        drive_chat_intake(base, "Call variants", proposal_policy="reject",
+                          intake_turn_budget=8)
+    finally:
+        httpd.shutdown()
+    assert script.reject_calls == ["proposal-7"]
+    assert script.signoff_calls == []
+
+
+def test_signoff_policy_rejects_gate_blocked_proposal():
+    # Under a strict sandbox bundle (clinical_trial/phi_strict) a node proposal
+    # can land in lifecycle "blocked" — unpromotable, so signoff would 409. The
+    # gate (is_pending_sme covers Blocked) stays closed, so the signoff-policy
+    # driver must REJECT a blocked proposal to clear it; skipping it deadlocks.
+    script = _Script(
+        state_kinds=["intake_followup", "pending_confirmation", "emitted"],
+        proposals=[{"id": "proposal-b", "node_id": "x",
+                    "lifecycle": {"kind": "blocked"}}],
+    )
+    httpd, base = _serve(script)
+    try:
+        drive_chat_intake(base, "instr", proposal_policy="signoff",
+                          intake_turn_budget=8)
+    finally:
+        httpd.shutdown()
+    assert script.reject_calls == ["proposal-b"]
+    assert script.signoff_calls == []
+
+
+def test_default_policy_is_reject():
+    # No explicit policy → reject (a plugin without an override must not silently
+    # expand its emitted DAG with unvetted hypothesized nodes).
+    script = _Script(
+        state_kinds=["intake_followup", "pending_confirmation", "emitted"],
+        proposals=[{"id": "proposal-9",
+                    "lifecycle": {"kind": "awaiting_signoff"}}],
+    )
+    httpd, base = _serve(script)
+    try:
+        drive_chat_intake(base, "instr", intake_turn_budget=8)
+    finally:
+        httpd.shutdown()
+    assert script.reject_calls == ["proposal-9"]
+    assert script.signoff_calls == []
+
+
+def test_invalid_proposal_policy_raises():
+    with pytest.raises(ChatIntakeError, match="unknown proposal_policy"):
+        drive_chat_intake("http://127.0.0.1:1", "instr", proposal_policy="maybe")
 
 
 def test_already_emitted_skips_confirm():

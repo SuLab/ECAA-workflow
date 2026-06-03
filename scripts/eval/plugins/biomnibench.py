@@ -47,6 +47,12 @@ class BiomniBench(Benchmark):
     def contamination_directive(self) -> str:
         return _CONTAMINATION_DIRECTIVE
 
+    def proposal_policy(self, task, arm):
+        """Open eval: sign off (promote) the LLM's gap-fill nodes so the ECAA
+        arm exercises its full compose-and-extend behavior rather than emitting
+        a clipped DAG — there's no pinned recipe to preserve here."""
+        return "signoff"
+
     def fetch(self, cache_dir: Path) -> Path:
         from scripts.eval.services.datasets import load_lock, ensure
         lock = Path(__file__).resolve().parents[1] / "datasets.lock"

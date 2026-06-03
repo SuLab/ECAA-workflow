@@ -47,6 +47,33 @@ def test_chat_intake_sets_session_and_package(monkeypatch, tmp_path):
     assert seen["locked"] == [("alignment", "bwa")]
 
 
+def test_chat_intake_passes_proposal_policy(monkeypatch, tmp_path):
+    monkeypatch.setenv("ECAA_EVAL_INTAKE", "chat")
+    emitted = tmp_path / "emitted-pkg"
+    emitted.mkdir()
+    seen = {}
+
+    def fake_drive(base_url, instruction, *, locked_methods=None,
+                   proposal_policy="reject", **kw):
+        seen["policy"] = proposal_policy
+        return "sid-1", emitted
+
+    monkeypatch.setattr(eval_runner, "drive_chat_intake", fake_drive)
+    monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
+    monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate", lambda *a, **k: None)
+
+    class _Server:
+        base_url = "http://127.0.0.1:9999"
+
+    class _PolicyPlugin(_EcaaPlugin):
+        def proposal_policy(self, task, arm):
+            return "signoff"
+
+    eval_runner._chat_intake_or_cli(
+        _PolicyPlugin(), _task(), Arm.ECAA_WORKFLOW, tmp_path / "wd", _Server())
+    assert seen["policy"] == "signoff"
+
+
 def test_cli_fallback_uses_intake_subprocess(monkeypatch, tmp_path):
     monkeypatch.setenv("ECAA_EVAL_INTAKE", "cli")
     calls = {}

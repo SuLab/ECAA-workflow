@@ -44,6 +44,13 @@ _NUDGE = (
 # Terminal kinds that mean intake converged enough to stop looping.
 _READY_KINDS = {"pending_confirmation", "ready_to_emit", "emitting", "emitted"}
 
+# Per-benchmark policy for hypothesized-node proposals the LLM raises during
+# intake (the v4 composer's gap-fill). "signoff" approves (promotes into the
+# DAG); "reject" declines (keeps the composed plan as-is).
+_PROPOSAL_POLICIES = {"signoff", "reject"}
+# Proposal lifecycle kinds that need no SME action (already decided).
+_TERMINAL_PROPOSAL_KINDS = {"promoted", "rejected"}
+
 
 class ChatIntakeError(Exception):
     """Any unrecoverable failure driving chat intake. The eval treats this
@@ -116,9 +123,57 @@ def _send_turn(base_url: str, sid: str, message: str) -> None:
         return
 
 
+def _resolve_pending_proposals(base_url: str, sid: str, policy: str) -> int:
+    """Approve (signoff) or reject every proposal awaiting SME action.
+
+    The v4 composer's gap-detection prompts the LLM to call
+    `propose_hypothesized_node` during intake; the resulting proposal sits in
+    `awaiting_signoff` and the server REFUSES `propose_summary_confirmation`
+    (and `emit_package`) until every proposal is `promoted` or `rejected`. A
+    headless eval has no UI to click the proposal card, so without this drain
+    the session is pinned in `intake_followup` until the turn budget runs out.
+    Returns the number of proposals acted on this call."""
+    r = _get(base_url, f"/api/chat/session/{sid}/proposals", timeout=_STATE_TIMEOUT)
+    if r.status_code != 200:
+        raise ChatIntakeError(f"GET /proposals -> {r.status_code}: {r.text[:300]}")
+    acted = 0
+    for p in r.json():
+        kind = (p.get("lifecycle") or {}).get("kind", "")
+        pid = p.get("id")
+        if not pid or kind in _TERMINAL_PROPOSAL_KINDS:
+            continue
+        # "signoff" promotes an `awaiting_signoff` proposal. A `blocked`
+        # proposal is unpromotable (it failed a sandbox/policy gate, so signoff
+        # 409s) yet still holds the confirmation gate closed (is_pending_sme is
+        # true for Blocked), so it MUST be rejected to let intake converge.
+        # Other pre-signoff kinds (pending validation/sandbox) advance
+        # synchronously and are re-checked next turn. "reject" declines every
+        # non-terminal proposal outright.
+        if policy == "signoff" and kind == "awaiting_signoff":
+            resp = _post(base_url,
+                         f"/api/chat/session/{sid}/proposal/{pid}/signoff",
+                         json_body={"sme_initials": "eval"},
+                         timeout=_SME_NAMED_TIMEOUT)
+        elif policy == "signoff" and kind != "blocked":
+            continue
+        else:
+            resp = _post(base_url,
+                         f"/api/chat/session/{sid}/proposal/{pid}/reject",
+                         json_body={"rationale": "eval: declining hypothesized "
+                                    "node to let intake converge"},
+                         timeout=_SME_NAMED_TIMEOUT)
+        if resp.status_code != 204:
+            raise ChatIntakeError(
+                f"proposal action({pid}, policy={policy}, kind={kind}) -> "
+                f"{resp.status_code}: {resp.text[:200]}")
+        acted += 1
+    return acted
+
+
 def drive_chat_intake(base_url: str, instruction: str, *,
                       careful_mode: bool = False,
                       locked_methods: list[tuple[str, str]] | None = None,
+                      proposal_policy: str = "reject",
                       intake_turn_budget: int = 8) -> tuple[str, Path]:
     """Drive a session from create → confirm → emitted; return (session_id, pkg).
 
@@ -127,7 +182,28 @@ def drive_chat_intake(base_url: str, instruction: str, *,
     in the opening instruction context so the LLM is permitted to lock it.
     Empty / None leaves all methods free (the production default — the execution
     agent picks methods at runtime).
+
+    `proposal_policy` decides hypothesized-node proposals the LLM raises during
+    intake: "signoff" approves (promotes the node into the DAG), "reject"
+    declines (keeps the composed plan). Either way the server-side gate that
+    blocks confirmation while a proposal is undecided is cleared so intake can
+    converge.
+
+    Known residual (bounded, by design): reaching PendingConfirmation is
+    LLM-mediated — only the assistant's propose_summary_confirmation advances the
+    session there; no deterministic server lever exists to raise the summary
+    card, and `discover_*` axes stay unresolved at intake (method choice is
+    delegated to the runtime agent, never pinned here). Draining proposals above
+    clears the only hard convergence blocker; the remaining dependence on the LLM
+    emitting the summary within `intake_turn_budget` is covered by the server's
+    intake-followup streak nudge. If a future run exhausts the budget without a
+    blocking proposal, raise `intake_turn_budget` rather than trying to resolve
+    discovery here (there is no method-neutral way to do so pre-emission).
     """
+    if proposal_policy not in _PROPOSAL_POLICIES:
+        raise ChatIntakeError(
+            f"unknown proposal_policy {proposal_policy!r}; "
+            f"expected one of {sorted(_PROPOSAL_POLICIES)}")
     locked = locked_methods or []
 
     # 1. Create the session.
@@ -159,6 +235,10 @@ def drive_chat_intake(base_url: str, instruction: str, *,
     for i in range(intake_turn_budget):
         message = first_message if i == 0 else _NUDGE
         _send_turn(base_url, sid, message)
+        # Decide any proposal the LLM raised this turn before checking state —
+        # an undecided proposal pins the session in `intake_followup` (the
+        # server refuses propose_summary_confirmation until it's cleared).
+        _resolve_pending_proposals(base_url, sid, proposal_policy)
         kind, _ = _state_kind(base_url, sid)
         if kind == "blocked":
             raise ChatIntakeError(

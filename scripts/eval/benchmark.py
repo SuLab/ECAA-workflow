@@ -110,6 +110,18 @@ class Benchmark(ABC):
         """
         return []
 
+    def proposal_policy(self, task: "Task", arm: "Arm") -> str:
+        """How chat-intake decides hypothesized-node proposals the LLM raises
+        during intake (the v4 composer's gap-fill).
+
+        The server refuses `propose_summary_confirmation`/`emit_package` while
+        any proposal is undecided; a headless eval has no card to click, so the
+        driver must approve or reject each one. "signoff" promotes the node into
+        the DAG; "reject" declines it. Default "reject" — a benchmark must opt in
+        to letting the ECAA arm expand its emitted DAG with unvetted nodes.
+        """
+        return "reject"
+
     def contamination_directive(self) -> "Optional[str]":
         """Optional package-wide anti-contamination instruction injected into BOTH
         arms (bare-arm prompt + ECAA `PROMPT.md`). Default None (opt-in): override

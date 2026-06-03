@@ -164,6 +164,12 @@ class Nekrutenko(Benchmark):
             return [("alignment", "bwa"), ("variant_calling", "lofreq")]
         return []
 
+    def proposal_policy(self, task, arm):
+        """Recipe fidelity: reject any hypothesized gap-fill node so the emitted
+        DAG stays the pinned bwa+lofreq reference recipe (the flat-pool VCF
+        scorer needs only the per-sample calls, not added aggregation nodes)."""
+        return "reject"
+
     def collect(self, spec, run_dir):
         # rglob pulls every VCF anywhere under the run dir, including cohort /
         # annotated / per-sample outputs in nested stage dirs. score() pools all

@@ -210,9 +210,13 @@ def _chat_intake_or_cli(plugin, task, arm: Arm, workdir: Path,
     if _intake_mode() == "chat":
         if server is None:
             raise RuntimeError("chat intake requested but no ChatServer started")
+        # proposal_policy is a Benchmark hook (default "reject"); resolve it
+        # defensively so duck-typed/minimal plugins without the method are fine.
+        _policy_fn = getattr(plugin, "proposal_policy", lambda _t, _a: "reject")
         sid, pkg = drive_chat_intake(
             server.base_url, spec.instruction,
-            locked_methods=plugin.locked_methods(task, arm))
+            locked_methods=plugin.locked_methods(task, arm),
+            proposal_policy=_policy_fn(task, arm))
         spec.session_id = sid
         spec.package_dir = pkg
     else:

@@ -32,3 +32,14 @@ def test_biomnibench_locks_nothing_either_arm():
     plug = BiomniBench()
     assert plug.locked_methods(_biomni_task(), Arm.ECAA_WORKFLOW) == []
     assert plug.locked_methods(_biomni_task(), Arm.CLAUDE_CODE_DIRECT) == []
+
+
+def test_nekrutenko_rejects_hypothesized_proposals_for_recipe_fidelity():
+    # Recipe eval: decline gap-fill nodes so the emitted DAG stays the pinned
+    # bwa+lofreq reference recipe.
+    assert Nekrutenko().proposal_policy(_nekrut_task(), Arm.ECAA_WORKFLOW) == "reject"
+
+
+def test_biomnibench_signs_off_hypothesized_proposals():
+    # Open eval: accept the LLM's gap-fill so ECAA's full compose behavior runs.
+    assert BiomniBench().proposal_policy(_biomni_task(), Arm.ECAA_WORKFLOW) == "signoff"
