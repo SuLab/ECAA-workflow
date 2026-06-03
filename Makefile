@@ -12,7 +12,8 @@
         bio-min dev-server dev-ui clean doctor lint deny install-hooks \
         eval eval-dryrun eval-e2e eval-full \
         eval-biomnibench eval-biomnibench-smoke eval-nekrutenko eval-nekrutenko-smoke eval-tests \
-        eval-biomnibench-dryrun eval-nekrutenko-dryrun
+        eval-biomnibench-dryrun eval-nekrutenko-dryrun \
+        eval-publish schema-burden eval-campaign
 
 help: ## Print this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -186,6 +187,10 @@ eval-nekrutenko-smoke: ## Nekrutenko smoke (1 trial)
 
 eval-tests: ## Offline unit tests for the eval harness (no live API)
 	@$(PYTHON) -m pytest scripts/eval/tests -q
+
+eval-publish: ## Copy the redacted public scorecard from a run into docs/eval-results/ (non-gated). Usage: make eval-publish RUN=<run_dir>
+	@test -n "$(RUN)" || { echo "usage: make eval-publish RUN=<run_dir>"; exit 2; }
+	@$(PYTHON) -m scripts.eval.publish "$(RUN)"
 
 eval-biomnibench-dryrun: ## BiomniBench dry-run smoke (--smoke flag; no live API needed beyond ECAA_EVAL_LIVE=1)
 	@$(PYTHON) -m scripts.eval.eval_runner biomnibench --smoke --arms ecaa,claude-direct $(EVAL_ARGS)

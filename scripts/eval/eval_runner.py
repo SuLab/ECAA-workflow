@@ -34,6 +34,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = {"biomnibench": BiomniBench, "nekrutenko": Nekrutenko}
 
 
+def _git_head() -> str:
+    """Resolve HEAD for the public scorecard's provenance stamp. Best-effort."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT),
+            text=True).strip()
+    except (subprocess.CalledProcessError, OSError):
+        return "unknown"
+
+
 def _isolated_pkg_copy(src_pkg: Path, dest: Path) -> Path:
     """Copy an emitted package tree to a fresh dir so each error-matrix cell
     runs on a clean, re-runnable package (avoids completed-task state bleed)."""
@@ -655,6 +665,18 @@ def main(argv: list[str]) -> int:
         )
         write_scorecard(card, run_dir, plugin=plugin, package_dir=ref_pkg)
         print(f"wrote {run_dir}/scorecard.md")
+        # E2: also emit the cost-redacted, provenance-stamped public copy that
+        # `make eval-publish` commits under docs/eval-results/.
+        from scripts.eval.services.scorecard import write_public_scorecard
+        from scripts.eval.services.datasets import datasets_lock_revisions
+        write_public_scorecard(
+            card, run_dir,
+            git_head=_git_head(),
+            datasets_lock=datasets_lock_revisions(),
+            seed=1729,  # mirrors scorecard._BOOTSTRAP_SEED
+            arms=[a.value for a in arms],
+            trials=trials)
+        print(f"wrote {run_dir}/scorecard.public.md")
         return 0
 
     try:
