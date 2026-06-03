@@ -2,16 +2,26 @@
 //! Every re-execution divergence must be acknowledged by an F Blocker
 //! (`unprovable_edge` / `policy_exception`). Per spec §4, the predicate ranges
 //! over `Q.RerunOutcomes`: any outcome whose `class` is `failed` or
-//! `acknowledged_non_determinism` requires a corresponding Blocker. The
-//! reference impl reads the raw `verifier-decisions.jsonl`, which carries BOTH
-//! re-execution `RerunOutcome` rows (a flat `class` field, populated post-emit
-//! by the harness classifier) AND the compile-time port-unification trace
-//! (`event:"prove"` / `outcome:"failed"` rows). Both an unacknowledged diverged
-//! `RerunOutcome` and an unacknowledged compile-time prove-failure are silent-
-//! corruption cases this invariant catches.
+//! `acknowledged_non_determinism` requires a corresponding Blocker.
+//!
+//! The five-class `RerunOutcome` typing
+//! (`byte_identical` / `semantic_equivalent` / `acknowledged_non_determinism` /
+//! `unavailable` / `failed`) is materialized by the harness re-execution
+//! classifier into `runtime/reexecution.json` and surfaced as
+//! [`LoadedPackage::reexecution`]. Each `per_artifact[]` row carries the class
+//! in its `bucket` field and the outcome id in `artifact_path`. This invariant
+//! ranges over that file — NOT over `verifier-decisions.jsonl`, which carries
+//! only the compile-time port-unification trace.
+//!
+//! Two silent-corruption shapes flip the verdict to `Fail`:
+//!   (a) a diverged `RerunOutcome` (`bucket ∈ {failed, acknowledged_non_determinism}`)
+//!       from `reexecution.json` with no acknowledging F.Blocker, and
+//!   (b) an unacknowledged compile-time `prove`/`failed` port-unification row
+//!       from `verifier-decisions.jsonl`.
 
 use crate::audit_proof::loader::LoadedPackage;
 use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
+use serde_json::Value;
 use std::collections::BTreeSet;
 
 /// `Q.RerunOutcome.class` values that count as a divergence requiring
@@ -20,44 +30,68 @@ use std::collections::BTreeSet;
 /// `semantic_equivalent` and `unavailable` are non-divergent and need no ack.)
 const DIVERGED_CLASSES: [&str; 2] = ["failed", "acknowledged_non_determinism"];
 
+/// Extract the `per_artifact[]` rows from the loaded `reexecution.json`
+/// document. Returns an empty slice-equivalent when the file is absent or
+/// carries no `per_artifact` array (present-but-empty first-emit shape).
+fn rerun_outcomes(pkg: &LoadedPackage) -> &[Value] {
+    pkg.reexecution
+        .as_ref()
+        .and_then(|doc| doc.get("per_artifact"))
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+}
+
 /// Check equivalence failure.
 pub fn check_equivalence_failure(pkg: &LoadedPackage) -> InvariantVerdict {
-    // Collect every verifier-decision that requires acknowledgement:
-    //   (a) a re-execution `RerunOutcome` whose `class` is in the diverged set, or
-    //   (b) a compile-time `prove`/`failed` port-unification row.
-    // Each is keyed by its outcome/edge id; a prove row carries `edge_id`, a
-    // RerunOutcome row carries `id` (falling back to `edge_id`).
-    let needs_ack: Vec<String> = pkg
-        .verifier_decisions
+    let outcomes = rerun_outcomes(pkg);
+
+    // Collect every Q.RerunOutcome that requires acknowledgement: a diverged
+    // re-execution outcome read from `reexecution.json::per_artifact[]`. The
+    // class lives in `bucket` (canonical `ReexecutionBucket` serialization),
+    // and the outcome id is `artifact_path`. (`class`/`id` are accepted as
+    // forward-compatible aliases for hand-authored rows.)
+    let mut needs_ack: Vec<String> = outcomes
         .iter()
-        .filter_map(|v| {
-            let is_prove_failed = v.get("event").and_then(|s| s.as_str()) == Some("prove")
-                && v.get("outcome").and_then(|s| s.as_str()) == Some("failed");
-            let is_diverged_rerun = v
-                .get("class")
-                .and_then(|s| s.as_str())
-                .is_some_and(|c| DIVERGED_CLASSES.contains(&c));
-            if is_prove_failed || is_diverged_rerun {
-                v.get("id")
-                    .and_then(|s| s.as_str())
-                    .or_else(|| v.get("edge_id").and_then(|s| s.as_str()))
+        .filter_map(|o| {
+            let class = o
+                .get("bucket")
+                .and_then(Value::as_str)
+                .or_else(|| o.get("class").and_then(Value::as_str));
+            if class.is_some_and(|c| DIVERGED_CLASSES.contains(&c)) {
+                o.get("artifact_path")
+                    .and_then(Value::as_str)
+                    .or_else(|| o.get("id").and_then(Value::as_str))
                     .map(String::from)
             } else {
                 None
             }
         })
         .collect();
-    // Re-execution evidence: the spec's Q sub-graph is the set of RerunOutcomes,
-    // each carrying a `class`. Their presence means re-execution was performed;
-    // their total absence means it was not — in which case equivalence cannot be
-    // confirmed and the verdict is `Unverified` (spec §4 verdict table: "Q absent
-    // (no re-execution performed) → Unverified"). A compile-time `prove`/`failed`
-    // row is NOT re-execution evidence; it can only escalate to `Fail` when left
-    // unacknowledged.
-    let rerun_performed = pkg
-        .verifier_decisions
-        .iter()
-        .any(|v| v.get("class").and_then(|s| s.as_str()).is_some());
+    // The compile-time port-unification trace (`event:"prove"`/`outcome:"failed"`)
+    // stays in `verifier-decisions.jsonl`. An unacknowledged prove-failure is the
+    // second silent-corruption shape this invariant escalates to `Fail`. It is
+    // NOT re-execution evidence — it cannot, on its own, make Q "present".
+    needs_ack.extend(pkg.verifier_decisions.iter().filter_map(|v| {
+        let is_prove_failed = v.get("event").and_then(Value::as_str) == Some("prove")
+            && v.get("outcome").and_then(Value::as_str) == Some("failed");
+        if is_prove_failed {
+            v.get("edge_id")
+                .and_then(Value::as_str)
+                .or_else(|| v.get("id").and_then(Value::as_str))
+                .map(String::from)
+        } else {
+            None
+        }
+    }));
+    // Re-execution evidence: the spec's Q sub-graph is the set of RerunOutcomes
+    // in `reexecution.json::per_artifact[]`. A non-empty list means re-execution
+    // was performed; an absent file OR a present-but-empty `per_artifact` means
+    // it was not — in which case equivalence cannot be confirmed and the verdict
+    // is `Unverified` (spec §4 verdict table: "Q absent (no re-execution
+    // performed) → Unverified"). A compile-time `prove`/`failed` row is NOT
+    // re-execution evidence; it can only escalate to `Fail` when unacknowledged.
+    let rerun_performed = !outcomes.is_empty();
     // Real v0.1 assumptions carry `{assumption_id, kind, detail, stage_id}`
     // and no `edge_id`. Key the ack set on `edge_id` when present
     // (forward-compatible for when the harness threads it) but fall back

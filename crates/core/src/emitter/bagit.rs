@@ -230,6 +230,12 @@ fn walk_for_manifest(
             || rel == std::path::Path::new("runtime/validation-reports.jsonl")
             || rel == std::path::Path::new("runtime/determinism-shim.json")
             || rel == std::path::Path::new("runtime/security-policy.json")
+            // reexecution.json: core writes it present-but-empty at emit; the
+            // conversation pipeline overwrites it with classified re-execution
+            // buckets on an amend/branch re-emit AFTER the manifest is sealed.
+            // Manifesting it would make every such re-emit produce a stale
+            // payload checksum — same rationale as security-policy.json above.
+            || rel == std::path::Path::new("runtime/reexecution.json")
             || rel == std::path::Path::new("runtime/audit-proof-report.json")
             || rel == std::path::Path::new("runtime/validation-summary.json")
             || rel == std::path::Path::new("runtime/policy-decisions.jsonl")

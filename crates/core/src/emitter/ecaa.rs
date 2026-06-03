@@ -100,6 +100,21 @@ pub(super) fn write_emit_time_sidecars(
     write_text(&runtime.join("assumptions.jsonl"), "")?;
     write_text(&runtime.join("validation-reports.jsonl"), "")?;
 
+    // `reexecution.json` — the five-class re-execution `RerunOutcome` Q
+    // sub-graph (Invariant 4's source). Written present-but-empty at every
+    // emit so the file is uniformly present and the invariant has a defined
+    // source; an empty `per_artifact` means "no re-execution performed" →
+    // Inv 4 `Unverified`. The conversation emit path overwrites this with the
+    // classified buckets on an amend/branch re-emit that has a parent package.
+    write_pretty_json(
+        &runtime.join("reexecution.json"),
+        &json!({
+            "schema_version": "0.1",
+            "bucket_counts": {},
+            "per_artifact": [],
+        }),
+    )?;
+
     // `determinism-shim.json` is a forensic env capture (TZ/LANG/locale
     // presence, seed policy). It is intentionally on the BagIt manifest
     // exclusion list (see `emitter::bagit`, `runtime/determinism-shim.json`)

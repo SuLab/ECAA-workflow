@@ -107,3 +107,125 @@ fn loader_post_execution_evidence_coverage_flip_is_reachable() {
     assert_eq!(v.status, InvariantStatus::Pass, "referenced figure → Pass");
     assert_eq!(v.n_violations, 0);
 }
+
+// ---------------------------------------------------------------------------
+// Inv 4 (equivalence_failure) sources its five-class `RerunOutcome` rows from
+// `runtime/reexecution.json` (the real production file), not from
+// `verifier-decisions.jsonl`. These tests exercise the full loader → invariant
+// path on a real on-disk package.
+// ---------------------------------------------------------------------------
+
+fn write_reexecution(rt: &std::path::Path, doc: &serde_json::Value) {
+    std::fs::write(
+        rt.join("reexecution.json"),
+        serde_json::to_string_pretty(doc).unwrap(),
+    )
+    .unwrap();
+}
+
+#[test]
+fn loader_inv4_fails_on_failed_reexecution_with_no_blocker() {
+    use ecaa_workflow_core::audit_proof::invariants::equivalence_failure::check_equivalence_failure;
+    use ecaa_workflow_core::audit_proof::InvariantStatus;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let rt = tmp.path().join("runtime");
+    std::fs::create_dir_all(&rt).unwrap();
+    write_reexecution(
+        &rt,
+        &serde_json::json!({
+            "schema_version": "0.1",
+            "bucket_counts": {"failed": 1},
+            "per_artifact": [
+                {"artifact_path": "results/tables/de.tsv", "bucket": "failed"}
+            ],
+        }),
+    );
+    let pkg = LoadedPackage::from_root(tmp.path()).unwrap();
+    assert!(
+        pkg.reexecution.is_some(),
+        "loader must read runtime/reexecution.json"
+    );
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(
+        v.status,
+        InvariantStatus::Fail,
+        "a failed re-execution outcome with no acknowledging blocker must Fail"
+    );
+}
+
+#[test]
+fn loader_inv4_not_fail_when_failed_reexecution_acknowledged() {
+    use ecaa_workflow_core::audit_proof::invariants::equivalence_failure::check_equivalence_failure;
+    use ecaa_workflow_core::audit_proof::InvariantStatus;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let rt = tmp.path().join("runtime");
+    std::fs::create_dir_all(&rt).unwrap();
+    write_reexecution(
+        &rt,
+        &serde_json::json!({
+            "schema_version": "0.1",
+            "bucket_counts": {"failed": 1},
+            "per_artifact": [
+                {"artifact_path": "results/tables/de.tsv", "bucket": "failed"}
+            ],
+        }),
+    );
+    // F.Blocker acknowledging the diverged artifact (keyed on artifact_path).
+    std::fs::write(
+        rt.join("assumptions.jsonl"),
+        "{\"kind\":\"unprovable_edge\",\"edge_id\":\"results/tables/de.tsv\"}\n",
+    )
+    .unwrap();
+    let pkg = LoadedPackage::from_root(tmp.path()).unwrap();
+    let v = check_equivalence_failure(&pkg);
+    assert_ne!(
+        v.status,
+        InvariantStatus::Fail,
+        "an acknowledged divergence must NOT Fail"
+    );
+    assert_eq!(v.status, InvariantStatus::Pass);
+}
+
+#[test]
+fn loader_inv4_unverified_when_reexecution_absent() {
+    use ecaa_workflow_core::audit_proof::invariants::equivalence_failure::check_equivalence_failure;
+    use ecaa_workflow_core::audit_proof::InvariantStatus;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let rt = tmp.path().join("runtime");
+    std::fs::create_dir_all(&rt).unwrap();
+    // No reexecution.json at all.
+    let pkg = LoadedPackage::from_root(tmp.path()).unwrap();
+    assert!(pkg.reexecution.is_none());
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Unverified);
+}
+
+#[test]
+fn loader_inv4_unverified_when_reexecution_present_but_empty() {
+    use ecaa_workflow_core::audit_proof::invariants::equivalence_failure::check_equivalence_failure;
+    use ecaa_workflow_core::audit_proof::InvariantStatus;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let rt = tmp.path().join("runtime");
+    std::fs::create_dir_all(&rt).unwrap();
+    // Present-but-empty (the first-emit shape).
+    write_reexecution(
+        &rt,
+        &serde_json::json!({
+            "schema_version": "0.1",
+            "bucket_counts": {},
+            "per_artifact": [],
+        }),
+    );
+    let pkg = LoadedPackage::from_root(tmp.path()).unwrap();
+    assert!(pkg.reexecution.is_some());
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(
+        v.status,
+        InvariantStatus::Unverified,
+        "present-but-empty reexecution.json means no re-execution performed → Unverified"
+    );
+}

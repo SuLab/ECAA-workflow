@@ -18,6 +18,7 @@ fn fixture_loaded(claims: serde_json::Value) -> LoadedPackage {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     }
 }
 
@@ -108,6 +109,7 @@ fn claim_completeness_unverified_when_no_claim_file() {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     };
     let v = check_claim_completeness(&pkg);
     assert_eq!(v.status, InvariantStatus::Unverified);
@@ -129,6 +131,7 @@ fn fixture_with_decisions(decisions: Vec<serde_json::Value>) -> LoadedPackage {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     }
 }
 
@@ -425,6 +428,7 @@ fn evidence_coverage_source_is_proofs_not_validation_reports() {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     };
     let v = check_evidence_coverage(&pkg);
     // Exactly the one proofs-derived output is inspected; the fabricated
@@ -435,24 +439,35 @@ fn evidence_coverage_source_is_proofs_not_validation_reports() {
 
 use ecaa_workflow_core::audit_proof::invariants::equivalence_failure::check_equivalence_failure;
 
+/// Build a `LoadedPackage` whose:
+///   - `verifier_decisions` holds the compile-time port-unification trace
+///     (`event:"prove"` rows) — the ONLY thing Inv 4 still reads from there;
+///   - `reexecution` holds the five-class `RerunOutcome` rows (the real
+///     `runtime/reexecution.json` shape: `{schema_version, bucket_counts,
+///     per_artifact:[{artifact_path, bucket}]}`). Pass `None` for an absent
+///     `reexecution.json` (no re-execution performed → Q absent).
 fn pkg_with_q(
     verifier: Vec<serde_json::Value>,
+    reexecution: Option<serde_json::Value>,
     assumptions: Vec<serde_json::Value>,
 ) -> LoadedPackage {
     LoadedPackage {
-        intake: vec![],
-        decisions: vec![],
-        validation_reports: vec![],
-        proofs: vec![],
-        claims: None,
         verifier_decisions: verifier,
+        reexecution,
         assumptions,
-        determinism_shim: None,
-        security_policy: None,
-        plot_affordances: None,
-        output_entities: vec![],
-        claims_tampered: false,
+        ..Default::default()
     }
+}
+
+/// Wrap a list of `RerunOutcome` rows into the real `reexecution.json`
+/// document shape so the loader-equivalent in-memory `pkg.reexecution`
+/// matches what `write_reexecution_sidecar` serializes.
+fn reexecution_doc(per_artifact: Vec<serde_json::Value>) -> serde_json::Value {
+    json!({
+        "schema_version": "0.1",
+        "bucket_counts": {},
+        "per_artifact": per_artifact,
+    })
 }
 
 #[test]
@@ -461,8 +476,18 @@ fn equivalence_failure_unverified_when_no_reexecution() {
     // spec §4 verdict table → Unverified, never a coerced Pass.
     let pkg = pkg_with_q(
         vec![json!({"event":"prove","outcome":"succeeded","edge_id":"e-1"})],
+        None,
         vec![],
     );
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Unverified);
+}
+
+#[test]
+fn equivalence_failure_unverified_when_reexecution_present_but_empty() {
+    // A present-but-empty `reexecution.json` (the first-emit shape) means no
+    // re-execution was performed: Q is empty → Unverified (spec §4).
+    let pkg = pkg_with_q(vec![], Some(reexecution_doc(vec![])), vec![]);
     let v = check_equivalence_failure(&pkg);
     assert_eq!(v.status, InvariantStatus::Unverified);
 }
@@ -471,6 +496,7 @@ fn equivalence_failure_unverified_when_no_reexecution() {
 fn equivalence_failure_fails_when_failure_unacknowledged() {
     let pkg = pkg_with_q(
         vec![json!({"event":"prove","outcome":"failed","edge_id":"e-2"})],
+        None,
         vec![],
     );
     let v = check_equivalence_failure(&pkg);
@@ -483,6 +509,7 @@ fn equivalence_failure_acked_prove_failure_no_reexecution_is_unverified() {
     // re-execution the equivalence verdict is Unverified (spec §4).
     let pkg = pkg_with_q(
         vec![json!({"event":"prove","outcome":"failed","edge_id":"e-2"})],
+        None,
         vec![json!({"kind":"unprovable_edge","edge_id":"e-2"})],
     );
     let v = check_equivalence_failure(&pkg);
@@ -496,6 +523,7 @@ fn equivalence_failure_ack_via_detail_containment_no_reexecution_is_unverified()
     // re-execution the verdict is Unverified (spec §4).
     let pkg = pkg_with_q(
         vec![json!({"event":"prove","outcome":"failed","edge_id":"e-2"})],
+        None,
         vec![json!({"assumption_id":"a-1","kind":"policy_exception",
                     "detail":"edge e-2 left unproved per reviewer-approved policy exception",
                     "stage_id":"de"})],
@@ -504,16 +532,21 @@ fn equivalence_failure_ack_via_detail_containment_no_reexecution_is_unverified()
     assert_eq!(v.status, InvariantStatus::Unverified);
 }
 
-// --- spec §4 predicate over Q.RerunOutcomes (class field), not just prove/failed ---
+// --- spec §4 predicate over Q.RerunOutcomes, sourced from reexecution.json ---
 
 #[test]
 fn equivalence_failure_fails_on_unacked_acknowledged_non_determinism() {
     // Spec §4: ∀ r ∈ Q.RerunOutcomes : r.class ∉ {"failed",
     // "acknowledged_non_determinism"} ∨ ∃ F.Blocker acknowledging r.id.
     // A re-execution that diverged as acknowledged-non-deterministic with NO
-    // Blocker is the silent-corruption case the invariant must catch.
+    // Blocker is the silent-corruption case the invariant must catch. The
+    // five-class typing now lives in reexecution.json::per_artifact[].bucket.
     let pkg = pkg_with_q(
-        vec![json!({"class":"acknowledged_non_determinism","id":"rerun-1"})],
+        vec![],
+        Some(reexecution_doc(vec![json!({
+            "artifact_path": "results/tables/de.tsv",
+            "bucket": "acknowledged_non_determinism"
+        })])),
         vec![],
     );
     let v = check_equivalence_failure(&pkg);
@@ -522,16 +555,28 @@ fn equivalence_failure_fails_on_unacked_acknowledged_non_determinism() {
 
 #[test]
 fn equivalence_failure_fails_on_unacked_failed_rerun_class() {
-    let pkg = pkg_with_q(vec![json!({"class":"failed","id":"rerun-2"})], vec![]);
+    let pkg = pkg_with_q(
+        vec![],
+        Some(reexecution_doc(vec![json!({
+            "artifact_path": "results/tables/de.tsv",
+            "bucket": "failed"
+        })])),
+        vec![],
+    );
     let v = check_equivalence_failure(&pkg);
     assert_eq!(v.status, InvariantStatus::Fail);
 }
 
 #[test]
 fn equivalence_failure_passes_when_rerun_divergence_acknowledged() {
+    // The acknowledging F.Blocker keys on the artifact_path (the RerunOutcome id).
     let pkg = pkg_with_q(
-        vec![json!({"class":"acknowledged_non_determinism","id":"rerun-3"})],
-        vec![json!({"kind":"policy_exception","edge_id":"rerun-3"})],
+        vec![],
+        Some(reexecution_doc(vec![json!({
+            "artifact_path": "results/tables/de.tsv",
+            "bucket": "acknowledged_non_determinism"
+        })])),
+        vec![json!({"kind":"policy_exception","edge_id":"results/tables/de.tsv"})],
     );
     let v = check_equivalence_failure(&pkg);
     assert_eq!(v.status, InvariantStatus::Pass);
@@ -540,17 +585,44 @@ fn equivalence_failure_passes_when_rerun_divergence_acknowledged() {
 #[test]
 fn equivalence_failure_ignores_non_divergent_rerun_classes() {
     // byte_identical / semantic_equivalent / unavailable are not in the
-    // diverged set and need no acknowledgement.
+    // diverged set and need no acknowledgement. Their presence still means
+    // re-execution was performed, so the verdict is Pass (not Unverified).
     let pkg = pkg_with_q(
-        vec![
-            json!({"class":"byte_identical","id":"r-a"}),
-            json!({"class":"semantic_equivalent","id":"r-b"}),
-            json!({"class":"unavailable","id":"r-c"}),
-        ],
+        vec![],
+        Some(reexecution_doc(vec![
+            json!({"artifact_path":"a.tsv","bucket":"byte_identical"}),
+            json!({"artifact_path":"b.tsv","bucket":"semantic_equivalent"}),
+            json!({"artifact_path":"c.tsv","bucket":"unavailable"}),
+        ])),
         vec![],
     );
     let v = check_equivalence_failure(&pkg);
     assert_eq!(v.status, InvariantStatus::Pass);
+}
+
+#[test]
+fn equivalence_failure_prove_failed_in_verifier_decisions_still_fails() {
+    // The compile-time port-unification trace stays in verifier-decisions.jsonl.
+    // An unacknowledged prove/failed row is still a Fail even though no
+    // re-execution was performed (the spec's two silent-corruption shapes).
+    let pkg = pkg_with_q(
+        vec![json!({"event":"prove","outcome":"failed","edge_id":"edge-x"})],
+        Some(reexecution_doc(vec![])),
+        vec![],
+    );
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Fail);
+}
+
+#[test]
+fn equivalence_failure_ignores_class_rows_in_verifier_decisions() {
+    // Class-bearing rows must NO LONGER be read from verifier-decisions.jsonl;
+    // a stray `class` row there is part of the compile-time trace and must not
+    // be mistaken for a re-execution divergence (regression guard for the source
+    // migration). With no reexecution.json and only this stray row → Unverified.
+    let pkg = pkg_with_q(vec![json!({"class":"failed","id":"stray-1"})], None, vec![]);
+    let v = check_equivalence_failure(&pkg);
+    assert_eq!(v.status, InvariantStatus::Unverified);
 }
 
 use ecaa_workflow_core::audit_proof::invariants::cross_graph_integrity::check_cross_graph_integrity;
@@ -573,6 +645,7 @@ fn cross_graph_passes_when_all_refs_resolve() {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert_eq!(v.status, InvariantStatus::Pass);
@@ -594,6 +667,7 @@ fn cross_graph_resolves_supported_by_against_proofs_outputs() {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert!(v.n_inspected >= 1);
@@ -616,6 +690,7 @@ fn cross_graph_fails_when_supported_by_dangling() {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert_eq!(v.status, InvariantStatus::Fail);
@@ -637,6 +712,7 @@ fn cross_graph_fails_when_assumption_dangling() {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert_eq!(v.status, InvariantStatus::Fail);
@@ -660,6 +736,7 @@ fn cross_graph_resolves_prefixed_supported_by_into_v() {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert!(v.n_inspected >= 1);
@@ -686,6 +763,7 @@ fn cross_graph_general_resolves_prefixed_ref_against_named_subgraph() {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert!(v.n_inspected >= 1);
@@ -708,6 +786,7 @@ fn cross_graph_general_fails_on_dangling_prefixed_ref() {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert_eq!(v.status, InvariantStatus::Fail);
@@ -735,6 +814,7 @@ fn cross_graph_unverified_when_no_references_present() {
         plot_affordances: None,
         output_entities: vec![],
         claims_tampered: false,
+        reexecution: None,
     };
     let v = check_cross_graph_integrity(&pkg);
     assert_eq!(v.n_inspected, 0);
@@ -767,6 +847,7 @@ fn cross_graph_resolves_supported_by_against_rocrate_output_entities() {
         output_entities: vec![json!({"@id":"runtime/outputs/de/figures/volcano.png",
             "@type":["File","ImageObject"]})],
         claims_tampered: false,
+        reexecution: None,
     };
     // Inv 5: the C→V reference resolves against the @graph-derived output set.
     let v5 = check_cross_graph_integrity(&pkg);
@@ -811,6 +892,7 @@ fn cross_graph_resolves_supported_by_against_real_path_table_output() {
         output_entities: vec![json!({"@id":"runtime/outputs/de/de.csv",
             "@type":["File","Dataset"]})],
         claims_tampered: false,
+        reexecution: None,
     };
     let v5 = check_cross_graph_integrity(&pkg);
     assert!(v5.n_inspected >= 1);

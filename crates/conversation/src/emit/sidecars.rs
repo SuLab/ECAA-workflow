@@ -14,11 +14,12 @@
 //! - **D2 (determinism-shim)** — always written; the
 //!   `ablation_engaged` field records `ECAA_ABLATE_REEXECUTION_CLASS`
 //!   state per Subsystem B6.
-//! - **D5 (reexecution)** — written as an empty report under
-//!   `ECAA_ABLATE_REEXECUTION_CLASS` (file present, `per_artifact` empty)
-//!   so downstream tooling always finds the path; skipped entirely when
-//!   no parent package exists (first emit). See
-//!   [`write_reexecution_sidecar`] for the full ablation contract.
+//! - **D5 (reexecution)** — ALWAYS written (uniform presence). Under
+//!   `ECAA_ABLATE_REEXECUTION_CLASS` and on a first emit (no parent package)
+//!   it is present-but-empty (`per_artifact: []`); with a parent it carries
+//!   the classified re-execution buckets. Invariant 4 reads this file as its
+//!   Q sub-graph source (empty → `Unverified`). See
+//!   [`write_reexecution_sidecar`] for the full contract.
 //! - **D3 (security-policy)** + **D4 (model-policy)** — always
 //!   written; not ablation-gated (security + model-version disclosure
 //!   are load-bearing regardless of arm).
@@ -179,34 +180,46 @@ pub(super) async fn write_model_policy(session: &Session, output_dir: &Path) -> 
 /// content suppression lives here — `determinism_shim.rs` records the bool flip
 /// for historical-session readers but does not suppress any content itself.
 ///
-/// **First-emit skip:** when the session carries no parent package path (first
-/// emit — neither `session.lineage.parent_emitted_package_path` nor
-/// `session.pending_amendment.parent_package_path` is set), the sidecar is
-/// not written. Downstream tooling must treat absence of the file as "no
-/// parent to replay against".
+/// **Uniform presence (first emit):** `reexecution.json` is ALWAYS written. On
+/// a first emit — when the session carries no parent package path (neither
+/// `session.lineage.parent_emitted_package_path` nor
+/// `session.pending_amendment.parent_package_path` is set) — the sidecar is
+/// written present-but-empty (`per_artifact: []`). A present-but-empty file
+/// means "no re-execution performed"; Invariant 4 (`equivalence_failure`) reads
+/// this file as its Q sub-graph source and maps the empty case to `Unverified`.
+/// This gives the invariant a defined, always-present source rather than
+/// branching on file absence.
 pub(super) async fn write_reexecution_sidecar(session: &Session, output_dir: &Path) -> Result<()> {
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
     let path = runtime.join("reexecution.json");
 
+    // Helper: write a present-but-empty report. Used for both the ablation
+    // path and the first-emit (no-parent) path so the file is uniformly
+    // present with a stable, deterministic shape.
+    let write_empty = |ablation_engaged: bool| -> Result<Vec<u8>> {
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "schema_version": "0.1",
+            "bucket_counts": {},
+            "per_artifact": [],
+            "ablation_engaged": ablation_engaged,
+        }))
+        .context("serializing empty reexecution.json")
+    };
+
     // Ablation engaged: write an empty-but-present sidecar. The file
     // presence preserves downstream tooling assumptions; the empty
     // per_artifact list is the Arm B′ suppression signal.
     if AblationFlag::ReexecutionClass.is_active() {
-        let body = serde_json::to_vec_pretty(&serde_json::json!({
-            "schema_version": "0.1",
-            "bucket_counts": {},
-            "per_artifact": [],
-            "ablation_engaged": true,
-        }))
-        .context("serializing empty reexecution.json (ablation)")?;
+        let body = write_empty(true)?;
         tokio::fs::write(&path, body)
             .await
             .with_context(|| format!("writing {}", path.display()))?;
         return Ok(());
     }
 
-    // Resolve the parent package path. First-emit → no parent → skip.
+    // Resolve the parent package path. First-emit → no parent → write the
+    // present-but-empty report (uniform presence; Inv 4 reads empty → Unverified).
     let parent_path: std::path::PathBuf = match (
         session
             .lineage
@@ -220,13 +233,21 @@ pub(super) async fn write_reexecution_sidecar(session: &Session, output_dir: &Pa
         (Some(p), _) => p,
         (None, Some(p)) => p,
         (None, None) => {
-            // No parent to replay against — sidecar intentionally absent.
+            // No parent to replay against — present-but-empty (not absent).
+            let body = write_empty(false)?;
+            tokio::fs::write(&path, body)
+                .await
+                .with_context(|| format!("writing {}", path.display()))?;
             return Ok(());
         }
     };
 
     if !parent_path.exists() {
-        // Parent path recorded but directory missing; skip gracefully.
+        // Parent path recorded but directory missing; write present-but-empty.
+        let body = write_empty(false)?;
+        tokio::fs::write(&path, body)
+            .await
+            .with_context(|| format!("writing {}", path.display()))?;
         return Ok(());
     }
 

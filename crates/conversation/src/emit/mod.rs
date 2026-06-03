@@ -478,11 +478,12 @@ async fn emit_steps(
     // up automatically (presence-gated registration loop).
     sidecars::write_claim_verification(output_dir).await?;
     sidecars::write_determinism_shim(output_dir).await?;
-    // D5 — 5-bucket re-execution classification sidecar. Written when a
-    // parent package exists; suppressed (empty file) under
-    // ECAA_ABLATE_REEXECUTION_CLASS; absent on first emit. Uses the
-    // `output_dir` (staging) as the replay side and the session's
-    // parent_package_path as the source side.
+    // D5 — 5-bucket re-execution classification sidecar. ALWAYS written
+    // (uniform presence): classified buckets when a parent package exists;
+    // present-but-empty on first emit and under ECAA_ABLATE_REEXECUTION_CLASS.
+    // Invariant 4 reads this file as its Q sub-graph source (empty →
+    // Unverified). Uses the `output_dir` (staging) as the replay side and the
+    // session's parent_package_path as the source side.
     sidecars::write_reexecution_sidecar(session, output_dir).await?;
     sidecars::write_security_policy(session, output_dir).await?;
     sidecars::write_model_policy(session, output_dir).await?;
@@ -1813,5 +1814,4 @@ mod tests {
             }
         }
     }
-
 }

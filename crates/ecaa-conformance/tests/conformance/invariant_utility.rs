@@ -112,8 +112,11 @@ fn append_jsonl(root: &Path, name: &str, value: &Value) {
 /// Overwrite `runtime/<name>` (a single JSON document) with `value`.
 fn write_json(root: &Path, name: &str, value: &Value) {
     let path = runtime(root).join(name);
-    std::fs::write(&path, serde_json::to_string_pretty(value).expect("serialize json"))
-        .expect("write json");
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(value).expect("serialize json"),
+    )
+    .expect("write json");
 }
 
 fn read_json(root: &Path, name: &str) -> Value {
@@ -283,9 +286,7 @@ fn mutate_claim_completeness(root: &Path) {
     let v = claims["verdicts"].as_array().expect("verdicts array");
     assert!(
         v.iter().any(|c| c["status"] == "verified"
-            && c["supported_by"]
-                .as_array()
-                .map_or(true, |a| a.is_empty())),
+            && c["supported_by"].as_array().map_or(true, |a| a.is_empty())),
         "spec §1 violation (verified Claim with no supported-by) not present in C sub-graph"
     );
 }
@@ -357,7 +358,9 @@ fn mutate_evidence_coverage(root: &Path) {
     // un-referenced OutputFile the §3 predicate ranges over.
     let proofs = read_jsonl(root, "proofs.jsonl");
     let declared = proofs.iter().any(|p| {
-        p.get("computed_from").or_else(|| p.get("produces")).and_then(|v| v.as_str())
+        p.get("computed_from")
+            .or_else(|| p.get("produces"))
+            .and_then(|v| v.as_str())
             == Some("data/outputs/orphan_result.tsv")
     });
     assert!(
@@ -369,8 +372,10 @@ fn mutate_evidence_coverage(root: &Path) {
         vs.iter()
             .filter_map(|c| c["supported_by"].as_array())
             .flatten()
-            .any(|r| r.as_str().map(|s| s.split('#').next().unwrap_or(s))
-                == Some("data/outputs/orphan_result.tsv"))
+            .any(|r| {
+                r.as_str().map(|s| s.split('#').next().unwrap_or(s))
+                    == Some("data/outputs/orphan_result.tsv")
+            })
     });
     assert!(
         !covered,
@@ -388,14 +393,17 @@ fn mutate_evidence_coverage(root: &Path) {
 ///         b.kind ∈ {"UnprovableEdge", "PolicyException"}
 ///       ∧ b.refs ∋ r.id
 /// ```
-/// The reference impl (`equivalence_failure.rs`) reads BOTH shapes from the raw
-/// `verifier-decisions.jsonl`: this branch (A) injects a compile-time
-/// `prove`/`failed` port-unification row, and branch B injects a re-execution
-/// `RerunOutcome` of class `acknowledged_non_determinism`. The §5.6 closed
-/// class enum is `byte_identical | semantic_equivalent |
-/// acknowledged_non_determinism | unavailable | failed`.
-/// Violation injected: a `Q.RerunOutcome` of class `failed` with NO
-/// `F.Blocker` of kind `UnprovableEdge`/`PolicyException` acknowledging it.
+/// The reference impl (`equivalence_failure.rs`) reads the two silent-corruption
+/// shapes from DIFFERENT sources: this branch (A) injects a compile-time
+/// `prove`/`failed` port-unification row into `verifier-decisions.jsonl` (the
+/// only thing Inv 4 still reads from there), and branch B injects a re-execution
+/// `RerunOutcome` of class `acknowledged_non_determinism` into the real
+/// `runtime/reexecution.json` Q sub-graph source. The §5.6 closed class enum is
+/// `byte_identical | semantic_equivalent | acknowledged_non_determinism |
+/// unavailable | failed`.
+/// Violation injected here (branch A): an unacknowledged compile-time
+/// `prove`/`failed` row with NO `F.Blocker` of kind
+/// `UnprovableEdge`/`PolicyException` acknowledging it.
 fn mutate_equivalence_failure(root: &Path) {
     append_jsonl(
         root,
@@ -511,11 +519,15 @@ fn mutate_claim_completeness_b(root: &Path) {
     // Spec-fidelity: a Claim that is neither pending nor supported is present.
     let claims = read_json(root, "claim-verification.json");
     assert!(
-        claims["verdicts"].as_array().expect("verdicts").iter().any(|c| {
-            c["claim_id"] == "claim_nostatus_002"
-                && c.get("status").and_then(|s| s.as_str()) != Some("pending")
-                && c.get("supported_by").is_none()
-        }),
+        claims["verdicts"]
+            .as_array()
+            .expect("verdicts")
+            .iter()
+            .any(|c| {
+                c["claim_id"] == "claim_nostatus_002"
+                    && c.get("status").and_then(|s| s.as_str()) != Some("pending")
+                    && c.get("supported_by").is_none()
+            }),
         "branch-B spec §1 violation (Claim, no status, no supported_by) not present"
     );
 }
@@ -571,44 +583,54 @@ fn mutate_evidence_coverage_b(root: &Path) {
     // Spec-fidelity: a `produces` OutputFile is declared and uncovered in C.
     let proofs = read_jsonl(root, "proofs.jsonl");
     assert!(
-        proofs.iter().any(|p| p.get("produces").and_then(|v| v.as_str())
-            == Some("data/outputs/orphan_via_produces.tsv")),
+        proofs
+            .iter()
+            .any(|p| p.get("produces").and_then(|v| v.as_str())
+                == Some("data/outputs/orphan_via_produces.tsv")),
         "branch-B spec §3 setup (produces OutputFile) not present in V sub-graph"
     );
 }
 
 /// Invariant 4 — `equivalence_failure` → Fail (branch B).
-/// Distinct from branch A (a compile-time `prove`/`failed` row): here a
-/// re-execution `Q.RerunOutcome` of class `acknowledged_non_determinism` (the
-/// second class the §4 predicate names) carries NO acknowledging `F.Blocker`,
-/// so the predicate's existential is unsatisfied → Fail. The reference impl
-/// reads the flat `class` field on the raw verifier-decision row (the shape
-/// `ecaa_projection::project_rerun_outcome_row` consumes).
+/// Distinct from branch A (a compile-time `prove`/`failed` row in
+/// `verifier-decisions.jsonl`): here a re-execution `Q.RerunOutcome` of class
+/// `acknowledged_non_determinism` (the second class the §4 predicate names)
+/// carries NO acknowledging `F.Blocker`, so the predicate's existential is
+/// unsatisfied → Fail. The five-class `RerunOutcome` typing is the real
+/// `runtime/reexecution.json` shape (`per_artifact[].bucket` carries the class,
+/// `artifact_path` the outcome id) — NOT `verifier-decisions.jsonl`, which the
+/// reference impl now reads only for the compile-time port-unification trace.
 fn mutate_equivalence_failure_b(root: &Path) {
-    append_jsonl(
+    write_json(
         root,
-        "verifier-decisions.jsonl",
+        "reexecution.json",
         &serde_json::json!({
-            "class": "acknowledged_non_determinism",
-            "id": "rerun_b_002"
+            "schema_version": "0.1",
+            "bucket_counts": {"acknowledged_non_determinism": 1},
+            "per_artifact": [
+                {"artifact_path": "results/tables/rerun_b_002.tsv",
+                 "bucket": "acknowledged_non_determinism"}
+            ],
         }),
     );
 
-    // Spec-fidelity: the Q sub-graph holds a diverged RerunOutcome
-    // (class ∈ {failed, acknowledged_non_determinism}) and the F sub-graph holds
-    // no acknowledging Blocker for it.
-    let q = read_jsonl(root, "verifier-decisions.jsonl");
+    // Spec-fidelity: the Q sub-graph (reexecution.json::per_artifact) holds a
+    // diverged RerunOutcome (bucket ∈ {failed, acknowledged_non_determinism})
+    // and the F sub-graph holds no acknowledging Blocker for it.
+    let q = read_json(root, "reexecution.json");
     assert!(
-        q.iter()
-            .any(|r| r["class"] == "acknowledged_non_determinism" && r["id"] == "rerun_b_002"),
+        q["per_artifact"].as_array().expect("per_artifact array").iter().any(|r| {
+            r["bucket"] == "acknowledged_non_determinism"
+                && r["artifact_path"] == "results/tables/rerun_b_002.tsv"
+        }),
         "branch-B spec §4 setup (acknowledged_non_determinism RerunOutcome) not present in Q sub-graph"
     );
     let acked = read_jsonl(root, "assumptions.jsonl").iter().any(|b| {
         matches!(
             b.get("kind").and_then(|k| k.as_str()),
             Some("unprovable_edge" | "policy_exception")
-        ) && (b.get("edge_id").and_then(|d| d.as_str()) == Some("rerun_b_002")
-            || b.get("detail").and_then(|d| d.as_str()) == Some("rerun_b_002"))
+        ) && (b.get("edge_id").and_then(|d| d.as_str()) == Some("results/tables/rerun_b_002.tsv")
+            || b.get("detail").and_then(|d| d.as_str()) == Some("results/tables/rerun_b_002.tsv"))
     });
     assert!(
         !acked,
@@ -640,9 +662,9 @@ fn mutate_cross_graph_integrity_b(root: &Path) {
         .iter()
         .filter_map(|p| p.get("edge_id").and_then(|s| s.as_str()).map(String::from))
         .collect();
-    let dangling = read_jsonl(root, "assumptions.jsonl").iter().any(|a| {
-        a.get("edge_id").and_then(|s| s.as_str()) == Some("edge_ghost_999")
-    });
+    let dangling = read_jsonl(root, "assumptions.jsonl")
+        .iter()
+        .any(|a| a.get("edge_id").and_then(|s| s.as_str()) == Some("edge_ghost_999"));
     assert!(
         dangling && !known_edges.contains("edge_ghost_999"),
         "branch-B spec §5 violation (F edge_id with no matching V edge) not present"
@@ -699,7 +721,11 @@ fn mutate_substrate_validity(root: &Path) {
 /// the §2 threshold is `length ≥ 30`, so 30 satisfies it (off-by-one guard).
 fn boundary_rationale_exactly_30(root: &Path) {
     let rationale = "012345678901234567890123456789"; // exactly 30 chars
-    assert_eq!(rationale.chars().count(), 30, "boundary fixture must be 30 chars");
+    assert_eq!(
+        rationale.chars().count(),
+        30,
+        "boundary fixture must be 30 chars"
+    );
     append_jsonl(
         root,
         "decisions.jsonl",
@@ -876,7 +902,8 @@ fn invariant_utility_specificity_matrix() {
         // (a) target invariant flips to the predicted non-Pass status.
         let got = verdict(&mutated, case.target).status;
         assert_eq!(
-            got, case.expect,
+            got,
+            case.expect,
             "TARGET {:?}: expected {:?} after its own injection, got {:?} (detail: {:?})",
             case.target,
             case.expect,

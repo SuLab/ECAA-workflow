@@ -18,8 +18,17 @@ pub struct LoadedPackage {
     pub proofs: Vec<Value>, // proofs.jsonl
     /// Claims.
     pub claims: Option<Value>, // claim-verification.json
-    /// Verifier decisions.
+    /// Verifier decisions. The compile-time port-unification trace
+    /// (`event:"prove"` rows) ONLY — the five-class re-execution `RerunOutcome`
+    /// rows live in [`Self::reexecution`], not here.
     pub verifier_decisions: Vec<Value>, // verifier-decisions.jsonl
+    /// The re-execution report (`runtime/reexecution.json`): the real
+    /// five-class `RerunOutcome` Q sub-graph
+    /// (`{schema_version, bucket_counts, per_artifact:[{artifact_path, bucket}]}`).
+    /// `None` when the file is absent (no parent to replay against);
+    /// present-but-empty `per_artifact` means re-execution was not performed.
+    /// Inv 4 (`equivalence_failure`) ranges over this, not `verifier_decisions`.
+    pub reexecution: Option<Value>, // reexecution.json
     /// Assumptions.
     pub assumptions: Vec<Value>, // assumptions.jsonl
     /// Determinism shim.
@@ -72,6 +81,7 @@ impl LoadedPackage {
             claims_tampered,
             verifier_decisions: load_jsonl_opt(&rt.join("verifier-decisions.jsonl"))?
                 .unwrap_or_default(),
+            reexecution: load_json_opt(&rt.join("reexecution.json"))?,
             assumptions: load_jsonl_opt(&rt.join("assumptions.jsonl"))?.unwrap_or_default(),
             determinism_shim: load_json_opt(&rt.join("determinism-shim.json"))?,
             security_policy: load_json_opt(&rt.join("security-policy.json"))?,
