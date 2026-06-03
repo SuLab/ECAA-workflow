@@ -1,0 +1,20 @@
+schema_version: "0.1"
+id: river_discharge_forecast
+display_name: River discharge forecast
+keywords:
+  - "river discharge"
+  - "streamflow"
+  - "hydrology"
+  - "hydrologic forecast"
+  - "runoff"
+  - "rainfall-runoff"
+  - "gauge station"
+  - "flood forecast"
+  - "water level"
+  - "catchment"
+  - "watershed"
+  - "discharge prediction"
+  - "stage-discharge"
+edam_topic: "topic:3392"
+edam_operation: "operation:2945"
+archetype_id: river_discharge_forecast
