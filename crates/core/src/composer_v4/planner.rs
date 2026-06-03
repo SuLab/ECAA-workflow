@@ -1851,7 +1851,7 @@ pub fn lift_to_workflow_dag(
 ///
 /// Iteration order is deterministic (input then output index, sorted)
 /// so the lift is byte-stable.
-fn pick_best_port_pair(
+pub(crate) fn pick_best_port_pair(
     engine: &DeterministicCompatibilityEngine,
     producer_outputs: &[PortContract],
     consumer_inputs: &[PortContract],

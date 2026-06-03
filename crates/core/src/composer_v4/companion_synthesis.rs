@@ -71,7 +71,9 @@
 use std::collections::BTreeSet;
 
 use crate::atom_registry::AtomRegistry;
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+use crate::compatibility::engine::DeterministicCompatibilityEngine;
+use crate::composer_v4::planner::pick_best_port_pair;
+use crate::workflow_contracts::edge::{EdgeContract, EdgeKind};
 use crate::workflow_contracts::evidence::{
     Assumption, AssumptionResolution, AssumptionSource, RiskClass,
 };
@@ -126,47 +128,40 @@ pub fn synthesize_validate_companions(dag: &mut WorkflowDag, atom_reg: &AtomRegi
         // when none) as the port names — `lower_to_workflow_json` only
         // reads `from_node` / `to_node` for `depends_on`, so the port
         // strings are mostly diagnostic.
-        let producer_port = node
-            .outputs
-            .first()
-            .map(|p| p.name.clone())
-            .unwrap_or_default();
-        let consumer_port = validator_node
-            .inputs
-            .first()
-            .map(|p| p.name.clone())
-            .unwrap_or_default();
-
-        let proof = CompatibilityProof {
-            producer_type: node
-                .outputs
-                .first()
-                .map(|p| p.semantic_type.stable_id())
-                .unwrap_or_default(),
-            consumer_type: validator_node
-                .inputs
-                .first()
-                .map(|p| p.semantic_type.stable_id())
-                .unwrap_or_default(),
-            rationale: Some(format!(
-                "validate_companion: synthesized validator for {} (mirrors v2 builder's \
-                 emit_stage validate-task post-pass)",
-                node.id
-            )),
-            ..Default::default()
-        };
-
+        // WG3 strict-mode: a synthesized validator has no authored input
+        // ports, so give it one that consumes the producer's output (the
+        // artifact it validates). Registry `validate_*` atoms keep their
+        // authored inputs. The producer-output / validator-input pair is
+        // then proven through the compatibility engine so the edge lands
+        // as TypedDataFlow / AdapterMediated — accepted under
+        // RiskMode::Production — instead of a hardcoded OrderingOnly.
+        if validator_node.inputs.is_empty() {
+            if let Some(out) = node.outputs.first() {
+                let mut validated_in = out.clone();
+                validated_in.name = "validated_artifact".into();
+                validator_node.inputs = vec![validated_in];
+            }
+        }
+        let engine = DeterministicCompatibilityEngine::new();
+        let (out_port, in_port, proof, kind) = pick_best_port_pair(
+            &engine,
+            &node.outputs,
+            &validator_node.inputs,
+            // The validate companion is an author-intended downstream
+            // (v2-parity post-pass); `declared_ordering` preserves a clean
+            // OrderingOnly fallback only if a registry validator's input
+            // genuinely cannot consume the producer's output.
+            true,
+        );
         let from_iri = proof.producer_type.clone();
         let to_iri = proof.consumer_type.clone();
         new_edges.push(EdgeContract {
             from_node: node.id.clone(),
-            from_port: producer_port,
+            from_port: out_port.name.clone(),
             to_node: validate_id.clone(),
-            to_port: consumer_port,
+            to_port: in_port.name.clone(),
             proof,
-            // Synthesized validator-wrapper post-pass: a structural
-            // ordering edge, not an engine-proven typed data flow.
-            kind: EdgeKind::OrderingOnly,
+            kind,
             chain_of_custody: None,
         });
         // Record an OntologyAdapterInserted assumption when the companion
@@ -434,6 +429,34 @@ mod tests {
             dag.nodes.len(),
             1,
             "zero-output atom received a companion despite having no observable outputs"
+        );
+    }
+
+    /// WG3 strict-mode: the validate-companion edge must be engine-proven
+    /// (`TypedDataFlow`), not a hardcoded `OrderingOnly`. The synthesized
+    /// validator consumes the producer's output, so the producer-output /
+    /// validator-input pair unifies losslessly — and Production/strict
+    /// compose then accepts the edge instead of rejecting it.
+    #[test]
+    fn synthesize_validate_companion_edge_is_proven_not_ordering_only() {
+        let mut dag =
+            dummy_dag_with_node("differential_expression", crate::atom::AtomRole::Operation);
+        let reg = AtomRegistry::default();
+        synthesize_validate_companions(&mut dag, &reg);
+        let edge = dag
+            .edges
+            .iter()
+            .find(|e| e.to_node == "validate_differential_expression")
+            .expect("validate companion edge present");
+        assert_ne!(
+            edge.kind,
+            EdgeKind::OrderingOnly,
+            "validate-companion edge must be engine-proven, not OrderingOnly (WG3 strict-mode)"
+        );
+        assert_eq!(
+            edge.kind,
+            EdgeKind::TypedDataFlow,
+            "producer output and validator input share a type → lossless TypedDataFlow"
         );
     }
 }
