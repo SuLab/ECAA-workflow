@@ -57,6 +57,29 @@ pub(super) fn set_intake_field(
     value: &serde_json::Value,
     config_dir: &Path,
 ) -> ToolResult {
+    // Anthropic's strict tool schema rejects union-typed inputs (oneOf,
+    // anyOf, multi-`type` arrays), so the schema declares `value` as a
+    // string and asks the LLM to JSON-encode anything richer. Recover
+    // the structured form here when the string parses as JSON; pass
+    // through unchanged for plain strings (organism names, accessions).
+    let parsed = decode_field_value(value);
+
+    // G3 / M6: route the decoded value through the shared chokepoint
+    // BEFORE any precondition check so an injection signal is refused
+    // independently of taxonomy state. Recurses into nested string
+    // leaves so SME/LLM free text can't reach the executor agent's
+    // intake.txt / CONTEXT.md unchecked.
+    if ecaa_workflow_core::intake_sanitize::reject_if_unsafe_json(&parsed).is_err() {
+        return ToolResult::err(ToolError::ValidationFailure {
+            reason: "field value contains markup, control characters, or internal tool-name tokens"
+                .into(),
+            valid_alternatives: vec![],
+            hint: "Provide plain text. Don't include XML/HTML tags, ANSI escape \
+                   sequences, control characters, or internal system identifiers."
+                .into(),
+        });
+    }
+
     // Stage id validation previously keyed off `taxonomy.stages[*].id`.
     // With the legacy YAML loader removed, `taxonomy.stages` is empty on
     // new sessions, so validation now keys off the composed DAG's task list.
@@ -77,13 +100,6 @@ pub(super) fn set_intake_field(
                 .into(),
         });
     }
-
-    // Anthropic's strict tool schema rejects union-typed inputs (oneOf,
-    // anyOf, multi-`type` arrays), so the schema declares `value` as a
-    // string and asks the LLM to JSON-encode anything richer. Recover
-    // the structured form here when the string parses as JSON; pass
-    // through unchanged for plain strings (organism names, accessions).
-    let parsed = decode_field_value(value);
 
     session
         .intake_methods
@@ -342,6 +358,21 @@ pub(super) fn set_intake_method(
             "Provide the SME's method description verbatim.",
         ));
     }
+    // G3 / M6: same chokepoint on the method string. Runs BEFORE the
+    // no_taxonomy precondition and the SME-signal gate so an injection
+    // never even reaches the method-neutrality check; method-neutrality
+    // itself is unchanged.
+    if ecaa_workflow_core::intake_sanitize::reject_if_unsafe(method_prose).is_err() {
+        return ToolResult::err(ToolError::ValidationFailure {
+            reason:
+                "method_prose contains markup, control characters, or internal tool-name tokens"
+                    .into(),
+            valid_alternatives: vec![],
+            hint: "Provide plain prose describing the method. No XML/HTML tags, \
+                   ANSI escapes, control characters, or internal identifiers."
+                .into(),
+        });
+    }
     if session.taxonomy.is_none() {
         return ToolResult::err(ToolError::no_taxonomy());
     }
@@ -570,17 +601,16 @@ fn validate_prose_input(prose: &str) -> Result<(), ToolResult> {
     }
 
     // Input-side prompt-injection sanitizer (grant v19 §C.0.1, E2
-    // follow-up). `sanitize_for_session_prose` strips XML/HTML-like
+    // follow-up). The shared M6 chokepoint
+    // `core::intake_sanitize::reject_if_unsafe` strips XML/HTML-like
     // tags, ASCII control characters, and whole-word internal
-    // tool-name tokens. When any of those are present the sanitized
-    // output differs from the input — that's our signal to refuse.
+    // tool-name tokens; when any of those are present the sanitized
+    // output differs from the input — that's the signal to refuse.
     // Legitimate SME prose (gene symbols, accessions, plain English)
     // round-trips unchanged. See
-    // `tests/tool_boundary_adversarial.rs::all_75_adversarial_cases_refused`
-    // for the five `redirection_injection` / `recursive` cases this
-    // gate covers.
-    let sanitized = crate::sme_text::sanitize_for_session_prose(prose);
-    if sanitized != prose {
+    // `tests/tools/tool_boundary_adversarial.rs` for the
+    // `redirection_injection` / `recursive` cases this gate covers.
+    if ecaa_workflow_core::intake_sanitize::reject_if_unsafe(prose).is_err() {
         return Err(ToolResult::err(ToolError::ValidationFailure {
             reason: "prose contains markup, control characters, or internal tool-name tokens"
                 .into(),

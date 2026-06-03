@@ -8,6 +8,7 @@ mod common;
 mod agents_md_tool_count_parity;
 mod auto_title_inflight_gate;
 mod heuristic_batch_proptest;
+mod intake_sanitiser_chokepoint;
 mod list_atoms;
 mod literature_context_disabled;
 mod proposal_gate;
