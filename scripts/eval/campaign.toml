@@ -1,0 +1,33 @@
+# Operator-run empirical-evaluation campaign manifest (E5).
+#
+# This is the REVIEWABLE spec of the deployed-PoC campaign. The RUN is
+# operator-gated (ECAA_EVAL_LIVE=1 + GEMINI_API_KEY + ECAA_ANTHROPIC_API_KEY +
+# AWS/harness authority); this file + scripts/eval/verify_campaign.py are
+# code-only and committed so any reviewer can audit and re-derive the run.
+
+[campaign]
+# Deterministic bootstrap seed — MUST mirror scorecard._BOOTSTRAP_SEED (1729) so
+# a re-rendered scorecard's CI is reproducible.
+seed = 1729
+# Paired-observation floor. Below this, scorecard.paired_delta_summary flags
+# `underpowered`. Mirrors scorecard._MIN_POWER_PAIRS (10). Nekrutenko's single
+# task caps n at the trial count, so trials >= 10 there to clear the flag.
+min_paired_pairs = 10
+arms = ["ecaa", "claude-direct"]
+# Datasets are pinned via scripts/eval/datasets.lock (revision-stamped into the
+# public scorecard's provenance block).
+datasets_lock = "scripts/eval/datasets.lock"
+
+[[benchmarks]]
+name = "nekrutenko"
+judge = "deterministic"          # no LLM judge; Jaccard vs canonical VCF
+error_matrix = true              # 36-cell PATH-shim fault table
+trials = 10                      # single task -> trials cap the paired n
+tasks = 1
+
+[[benchmarks]]
+name = "biomnibench"
+judge = "gemini-3.1-pro"
+error_matrix = false
+public_tasks = 50                # 50 public HF tasks (held-out 50 excluded)
+trials = 3

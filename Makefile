@@ -195,6 +195,17 @@ eval-publish: ## Copy the redacted public scorecard from a run into docs/eval-re
 schema-burden: ## Offline schema-authoring-burden analyzer -> docs/eval-results/schema-burden.{json,md} (non-gated)
 	@$(PYTHON) -m scripts.eval.schema_burden
 
+eval-campaign: ## Print the exact operator-gated commands for the committed campaign (does NOT run them)
+	@echo "Campaign spec: scripts/eval/campaign.toml + docs/eval-results/CAMPAIGN.md"
+	@echo ""
+	@echo "OPERATOR-GATED commands (need ECAA_EVAL_LIVE=1 + GEMINI_API_KEY + ECAA_ANTHROPIC_API_KEY + AWS/harness authority):"
+	@echo "  ECAA_EVAL_LIVE=1 $(PYTHON) -m scripts.eval.eval_runner nekrutenko --error-matrix --trials 10 --max-parallel $(NEK_PARALLEL)"
+	@echo "  ECAA_EVAL_LIVE=1 $(PYTHON) -m scripts.eval.eval_runner biomnibench --trials 3 --max-parallel $(BBENCH_PARALLEL)"
+	@echo ""
+	@echo "Then (code-only):"
+	@echo "  $(PYTHON) -m scripts.eval.verify_campaign <run_dir>"
+	@echo "  make eval-publish RUN=<run_dir>"
+
 eval-biomnibench-dryrun: ## BiomniBench dry-run smoke (--smoke flag; no live API needed beyond ECAA_EVAL_LIVE=1)
 	@$(PYTHON) -m scripts.eval.eval_runner biomnibench --smoke --arms ecaa,claude-direct $(EVAL_ARGS)
 
