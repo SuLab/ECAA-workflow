@@ -110,6 +110,7 @@ pub mod hypothesized_proposal;
 pub mod ingestion_safety;
 pub mod intake_facts;
 pub mod intake_port_mapper;
+pub mod intake_sanitize;
 // v3 P8 — lifecycle adversarial cases (design §7).
 // Encodes the six non-monotonic lifecycle edges + the
 // session-scoped adjudication queue surfaced through
