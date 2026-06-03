@@ -907,3 +907,84 @@ def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None, package_dir=
     (out_dir / "scorecard.json").write_text(json.dumps(payload, indent=2, default=str))
     (out_dir / "scorecard.md").write_text(_markdown(render_card))
     return out_dir
+
+
+# Keys redacted from the public scorecard (operator-private spend + wall-clock).
+_REDACTED_META_KEYS = ("cost", "total_cost_usd", "wall_secs", "instance_seconds",
+                       "agent_cost_usd", "scorer_cost_usd", "side_call_cost_usd")
+
+
+def _redact(obj):
+    """Recursively drop redacted keys from a meta dict/list tree. Returns a copy."""
+    if isinstance(obj, dict):
+        return {k: _redact(v) for k, v in obj.items()
+                if k not in _REDACTED_META_KEYS}
+    if isinstance(obj, list):
+        return [_redact(v) for v in obj]
+    return obj
+
+
+def _score_from_meta_row(r: dict) -> "Score":
+    """Rebuild a Score from a public-row dict for re-rendering the markdown."""
+    from scripts.eval.benchmark import Score
+    return Score(r["task_id"], r["arm"], r["trial"], r["overall"],
+                 r.get("dimensions", {}), r.get("jaccard"), r.get("error_cells"),
+                 r.get("judge_id", ""), r.get("extra", {}))
+
+
+def write_public_scorecard(card: Scorecard, out_dir: Path, *, git_head: str,
+                           datasets_lock: str, seed: int, arms: list[str],
+                           trials: int) -> Path:
+    """Emit a cost-redacted, provenance-stamped public copy of the scorecard
+    (`scorecard.public.json` + `scorecard.public.md`). This is the DURABLE
+    evidence committed under docs/eval-results/. Carries enough provenance
+    (git HEAD, datasets.lock revs, seed, arms, trials) that any reader can
+    re-derive the run; strips raw spend + wall-clock so the public artifact
+    exposes no operator-private cost."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Build the same derived meta the private scorecard does (paired delta,
+    # guard outcomes, session metrics, locked methods, benchmarkable set) by
+    # round-tripping through write_scorecard into a temp dir, then redacting.
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        write_scorecard(card, Path(td))
+        private = json.loads((Path(td) / "scorecard.json").read_text())
+    meta = _redact(private.get("meta", {}))
+    provenance = {
+        "git_head": git_head,
+        "datasets_lock": datasets_lock,
+        "seed": seed,
+        "arms": list(arms),
+        "trials": trials,
+        "benchmark": card.benchmark,
+    }
+    # Public rows keep substantive scoring fields but drop any per-row extra
+    # cost keys that leaked in (judge_cost_usd etc.).
+    pub_rows = []
+    for r in private.get("rows", []):
+        extra = _redact({k: v for k, v in (r.get("extra") or {}).items()
+                         if "cost" not in k})
+        pub_rows.append({**{k: v for k, v in r.items() if k != "extra"},
+                         "extra": extra})
+    payload = {"benchmark": card.benchmark, "provenance": provenance,
+               "meta": meta, "rows": pub_rows}
+    (out_dir / "scorecard.public.json").write_text(
+        json.dumps(payload, indent=2, default=str))
+    # Markdown: a provenance preamble + the redacted private markdown.
+    redacted_card = Scorecard(benchmark=card.benchmark,
+                              rows=[_score_from_meta_row(r) for r in pub_rows],
+                              meta=meta)
+    preamble = [
+        f"# {card.benchmark} public scorecard", "",
+        "> **PROVENANCE — re-derivable run.** Raw spend + wall-clock redacted.",
+        "",
+        f"- git_head: {git_head}",
+        f"- datasets_lock: {datasets_lock}",
+        f"- seed: {seed}",
+        f"- arms: {', '.join(arms)}",
+        f"- trials: {trials}",
+        "",
+    ]
+    body = _markdown(redacted_card)
+    (out_dir / "scorecard.public.md").write_text("\n".join(preamble) + body)
+    return out_dir
