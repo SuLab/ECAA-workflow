@@ -98,12 +98,27 @@ const NON_DETERMINISTIC_ALLOWLIST: &[&str] = &[
     // keyed by the session's per-emit `OsRng` secret, so it is non-deterministic
     // across two freshly-booted sessions even though the signed content is.
     "runtime/decisions.jsonl.mac",
+    // M2 — written by the harness at runtime; carries dispatch-time
+    // `started_at` + per-run `epoch`, so it is not byte-reproducible
+    // across emits. Excluded from the cross-emit determinism diff.
+    "runtime/invocations.jsonl",
 ];
 
 /// True when `rel` is on the documented non-deterministic allowlist and must
 /// be skipped by the cross-emit determinism diff.
 fn is_non_deterministic(rel: &str) -> bool {
     NON_DETERMINISTIC_ALLOWLIST.contains(&rel)
+}
+
+/// M2 — runtime/invocations.jsonl carries dispatch-time timestamps + a
+/// per-run epoch, so it must be on the non-deterministic allowlist and
+/// never enter the cross-emit byte-diff.
+#[test]
+fn invocations_jsonl_is_on_non_deterministic_allowlist() {
+    assert!(
+        is_non_deterministic("runtime/invocations.jsonl"),
+        "invocations.jsonl must be excluded from the byte-diff baseline"
+    );
 }
 
 /// Emit the fixture session into `dir` and return a stable, normalized map of
