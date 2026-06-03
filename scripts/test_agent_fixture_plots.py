@@ -69,6 +69,14 @@ def assert_figure(pkg: Path, task_id: str, figure_id: str) -> None:
     assert not manifest["errors"], manifest["errors"]
 
 
+def assert_structured_claim(pkg: Path, task_id: str, evidence_name: str) -> None:
+    result = json.loads((pkg / "runtime" / "outputs" / task_id / "result.json").read_text())
+    claims = result.get("claims")
+    assert isinstance(claims, list) and claims, f"{task_id} result must include claims[]"
+    assert any(claim.get("evidence") == evidence_name for claim in claims), claims
+    assert (pkg / "runtime" / "outputs" / task_id / evidence_name).exists()
+
+
 def test_fixture_agent_executes_pasilla_plot_tasks(tmp_path: Path) -> None:
     pkg = tmp_path / "pkg"
     runtime = pkg / "runtime"
@@ -190,3 +198,5 @@ def test_fixture_agent_executes_pasilla_plot_tasks(tmp_path: Path) -> None:
     assert_figure(pkg, "reporting", "concordance_heatmap")
     assert_figure(pkg, "reporting", "pathway_overlap_bar")
     assert_figure(pkg, "final_reporting", "summary_dashboard")
+    assert_structured_claim(pkg, "differential_expression", "differential_expression.tsv")
+    assert_structured_claim(pkg, "pathway_enrichment", "pathway_enrichment.tsv")

@@ -1411,13 +1411,26 @@ def differential_expression(task_id: str, spec: dict) -> dict:
         for row, padj in adjusted:
             gene, base_mean, log2fc, pvalue = row
             writer.writerow([gene, f"{base_mean:.6f}", f"{log2fc:.6f}", f"{pvalue:.8g}", f"{padj:.8g}"])
-    significant = sum(1 for row, padj in adjusted if abs(row[2]) >= 1.0 and padj <= 0.05)
+    claim_table = out / "differential_expression.tsv"
+    shutil.copy2(table, claim_table)
+    significant = sum(1 for _row, padj in adjusted if padj < 0.05)
     write_json(
         out / "manifest.json",
         {"comparisons": [{"id": "treated_vs_untreated", "table_path": "de_table.tsv"}]},
     )
     rendered = render_required(task_id, spec)
-    return {"status": "completed", "n_features": len(rows), "n_significant": significant, **rendered}
+    return {
+        "status": "completed",
+        "n_features": len(rows),
+        "n_significant": significant,
+        "claims": [
+            {
+                "claim": f"{significant} genes are differentially expressed at padj < 0.05",
+                "evidence": "differential_expression.tsv",
+            }
+        ],
+        **rendered,
+    }
 
 
 def pathway_enrichment(task_id: str, spec: dict) -> dict:
@@ -1488,8 +1501,20 @@ def pathway_enrichment(task_id: str, spec: dict) -> dict:
                     row["n_overlap"],
                 ]
             )
+    shutil.copy2(out / "enrichment.tsv", out / "pathway_enrichment.tsv")
+    significant = sum(1 for row in enrichments if row["adj_p_value"] < 0.05)
     rendered = render_required(task_id, spec)
-    return {"status": "completed", "n_enriched_terms": len(enrichments), **rendered}
+    return {
+        "status": "completed",
+        "n_enriched_terms": len(enrichments),
+        "claims": [
+            {
+                "claim": f"{significant} pathways are enriched at adj_p_value < 0.05",
+                "evidence": "pathway_enrichment.tsv",
+            }
+        ],
+        **rendered,
+    }
 
 
 def reporting(task_id: str, spec: dict) -> dict:
