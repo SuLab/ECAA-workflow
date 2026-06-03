@@ -28,6 +28,10 @@ colored = "2"
 anyhow.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# `ecaa-workflow-audit-proof --secret <HEX>` decodes the 64-hex per-session
+# HMAC secret into the 32-byte key for `AuditWriter::with_secret`. Pinned to
+# match `crates/core` (the workspace doesn't promote `hex`).
+hex = "0.4"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 sha2.workspace = true
 # v3 P7 — `migrate-sessions` subcommand reads/writes a `Version`

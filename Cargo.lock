@@ -815,6 +815,7 @@ dependencies = [
  "ecaa-workflow-conversation",
  "ecaa-workflow-core",
  "ecaa-workflow-harness",
+ "hex",
  "predicates",
  "rustyline",
  "semver",
