@@ -742,6 +742,86 @@ fn cross_graph_unverified_when_no_references_present() {
     assert_eq!(v.n_violations, 0);
 }
 
+#[test]
+fn cross_graph_resolves_supported_by_against_rocrate_output_entities() {
+    // B4b: post-execution / production shape. `proofs.jsonl` is a BARE
+    // `EdgeContract` (no `computed_from`/`produces`), while the produced
+    // evidence is registered in the RO-Crate `@graph` as an output entity and a
+    // verified claim's `supported_by` references its real path. Inv 5 must
+    // resolve the C→V reference against the SAME `output_source::analytical_outputs`
+    // derivation Inv 3 uses — so both agree (Pass), not contradict.
+    let pkg = LoadedPackage {
+        intake: vec![],
+        decisions: vec![],
+        validation_reports: vec![json!({"task_id":"de","obligation_id":"o1","outcome":"passed"})],
+        // Bare EdgeContract: producer→consumer with NO computed_from/produces.
+        proofs: vec![json!({"edge_id":"e-1","from_node":"counts","to_node":"de"})],
+        claims: Some(json!({"verdicts":[{"claim_id":"c-1","status":"verified",
+            "supported_by":["runtime/outputs/de/figures/volcano.png"]}]})),
+        verifier_decisions: vec![],
+        assumptions: vec![],
+        determinism_shim: None,
+        security_policy: None,
+        plot_affordances: None,
+        // The produced figure is carried as an RO-Crate @graph output entity.
+        output_entities: vec![json!({"@id":"runtime/outputs/de/figures/volcano.png",
+            "@type":["File","ImageObject"]})],
+        claims_tampered: false,
+    };
+    // Inv 5: the C→V reference resolves against the @graph-derived output set.
+    let v5 = check_cross_graph_integrity(&pkg);
+    assert!(
+        v5.n_inspected >= 1,
+        "the supported_by ref must be inspected"
+    );
+    assert_eq!(
+        v5.status,
+        InvariantStatus::Pass,
+        "C→V ref to a real @graph output must resolve (detail: {:?})",
+        v5.detail
+    );
+    // Inv 3: the same output is covered by the same claim — no contradiction.
+    let v3 = check_evidence_coverage(&pkg);
+    assert_eq!(
+        v3.status,
+        InvariantStatus::Pass,
+        "evidence_coverage must agree the output is covered (detail: {:?})",
+        v3.detail
+    );
+}
+
+#[test]
+fn cross_graph_resolves_supported_by_against_real_path_table_output() {
+    // Companion shape: a `results/tables/de.csv` Dataset output entity (the
+    // claim_sink.rs real-path form) referenced by a claim's `supported_by`.
+    // Under the old proofs-keyed V registry this dangled; under output_source
+    // it resolves.
+    let pkg = LoadedPackage {
+        intake: vec![],
+        decisions: vec![],
+        validation_reports: vec![json!({"task_id":"de","obligation_id":"o1","outcome":"passed"})],
+        proofs: vec![json!({"edge_id":"e-1","from_node":"counts","to_node":"de"})],
+        claims: Some(json!({"verdicts":[{"claim_id":"c-1","status":"verified",
+            "supported_by":["runtime/outputs/de/de.csv#row_TP53"]}]})),
+        verifier_decisions: vec![],
+        assumptions: vec![],
+        determinism_shim: None,
+        security_policy: None,
+        plot_affordances: None,
+        output_entities: vec![json!({"@id":"runtime/outputs/de/de.csv",
+            "@type":["File","Dataset"]})],
+        claims_tampered: false,
+    };
+    let v5 = check_cross_graph_integrity(&pkg);
+    assert!(v5.n_inspected >= 1);
+    assert_eq!(
+        v5.status,
+        InvariantStatus::Pass,
+        "C→V ref (with #fragment) to a real Dataset output must resolve (detail: {:?})",
+        v5.detail
+    );
+}
+
 use ecaa_workflow_core::audit_proof::invariants::substrate_validity::check_substrate_validity;
 use ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
 

@@ -8,10 +8,17 @@
 //!
 //! This is the sidecar-level realization of that projected-graph predicate.
 //! The audit framework reads the `runtime/` sidecars (not the projected
-//! RO-Crate `@graph`), so we build a per-sub-graph node-id registry from the
-//! sidecars — deriving local ids the same way the projector
-//! (`emitter::ecaa_projection`) does — and resolve every cross-graph
-//! reference against the set named by its letter prefix.
+//! RO-Crate `@graph`), so we build a per-sub-graph node-id registry deriving
+//! local ids the same way the projector (`emitter::ecaa_projection`) does, and
+//! resolve every cross-graph reference against the set named by its letter
+//! prefix. The Evidence (V) set is derived from the SAME shared source the V
+//! projection and Invariant 3 (`evidence_coverage`) use —
+//! [`crate::audit_proof::output_source::analytical_outputs`] (the RO-Crate
+//! `@graph` output entities + real-path proofs rows) — so a C→V `supported_by`
+//! reference resolves consistently with Inv 3. The two invariants therefore
+//! never disagree about the same C→V evidence link on a production/executed
+//! package, where the produced output is an `@graph` entity and `proofs.jsonl`
+//! is a bare `EdgeContract` with no `computed_from`.
 //!
 //! Two reference encodings are checked:
 //!   * the concrete forms emitted today — a Claim verdict's `supported_by`
@@ -23,6 +30,7 @@
 //!     named sub-graph's node-id set.
 
 use crate::audit_proof::loader::LoadedPackage;
+use crate::audit_proof::output_source::analytical_outputs;
 use crate::audit_proof::{InvariantId, InvariantStatus, InvariantVerdict};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -119,15 +127,35 @@ fn collect_node_ids(pkg: &LoadedPackage) -> BTreeMap<char, BTreeSet<String>> {
             }
         }
     }
-    // V — Evidence nodes: one per `computed_from`/`produces` output, keyed by
-    // the output basename (mirrors `project_evidence_subgraph`).
-    for r in &pkg.proofs {
-        if let Some(output) = r
-            .get("computed_from")
-            .or_else(|| r.get("produces"))
-            .and_then(Value::as_str)
+    // V — Evidence nodes. Derived from the SAME shared source the V projection
+    // and Inv 3 (`evidence_coverage`) use — `output_source::analytical_outputs`
+    // (the RO-Crate `@graph` output entities + real-path proofs rows, rejecting
+    // `workflow:*` dependency-node edges) — so a `V:<id>` reference resolves
+    // against the same ids `project_evidence_subgraph` assigns: the sanitized
+    // output basename, with the same deterministic collision-disambiguation
+    // suffix (`<base>_<n>`). Keying on `proofs.jsonl::computed_from` alone left
+    // this empty on production/executed packages, where the produced evidence is
+    // carried as an `@graph` entity and proofs are bare `EdgeContract`s.
+    {
+        let mut seen: BTreeMap<String, u32> = BTreeMap::new();
+        for (idx, output) in analytical_outputs(&pkg.output_entities, &pkg.proofs)
+            .into_iter()
+            .enumerate()
         {
-            add('V', output.rsplit('/').next().unwrap_or(output));
+            let base = sanitize_id(output.path.rsplit('/').next().unwrap_or(&output.path));
+            let base = if base.is_empty() {
+                format!("evidence_{idx:03}")
+            } else {
+                base
+            };
+            let count = seen.entry(base.clone()).or_insert(0);
+            let id = if *count == 0 {
+                base.clone()
+            } else {
+                format!("{base}_{count}")
+            };
+            *count += 1;
+            add('V', &id);
         }
     }
     // C — Claim nodes (one per verdict).
@@ -212,19 +240,17 @@ fn for_each_prefixed_ref(row: &Value, visit: &mut dyn FnMut(&str)) {
 pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
     let nodes = collect_node_ids(pkg);
 
-    // Concrete sidecar reference forms emitted today. Known outputs come from
-    // the Evidence (V) graph (`proofs.jsonl`), matching evidence_coverage; the
-    // harness `validation-reports.jsonl` rows are obligation outcomes and carry
-    // no `outputs` field.
-    let known_outputs: BTreeSet<String> = pkg
-        .proofs
-        .iter()
-        .filter_map(|p| {
-            p.get("computed_from")
-                .or_else(|| p.get("produces"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.split('#').next().unwrap_or(s).to_string())
-        })
+    // Concrete sidecar reference forms emitted today. Known V outputs derive
+    // from the SAME `output_source::analytical_outputs` derivation Inv 3
+    // (`evidence_coverage`) uses — the RO-Crate `@graph` output entities plus
+    // any real-path proofs row — so a claim's un-prefixed `supported_by` path
+    // (e.g. `runtime/outputs/de/de.csv` or a produced `.png`) resolves
+    // consistently with Inv 3, and the two invariants never contradict each
+    // other about the same C→V link. (The output paths already have any
+    // `#fragment` stripped by `analytical_outputs`.)
+    let known_outputs: BTreeSet<String> = analytical_outputs(&pkg.output_entities, &pkg.proofs)
+        .into_iter()
+        .map(|o| o.path)
         .collect();
     let known_edges: BTreeSet<String> = pkg
         .proofs
