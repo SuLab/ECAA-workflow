@@ -205,7 +205,7 @@ fn for_each_prefixed_ref(row: &Value, visit: &mut dyn FnMut(&str)) {
     let Some(obj) = row.as_object() else {
         return;
     };
-    let mut scan = |v: &Value, visit: &mut dyn FnMut(&str)| match v {
+    let scan = |v: &Value, visit: &mut dyn FnMut(&str)| match v {
         Value::String(s) if is_prefix_tagged(s) => visit(s),
         Value::Array(arr) => {
             for x in arr {
