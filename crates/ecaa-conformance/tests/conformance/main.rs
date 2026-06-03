@@ -17,6 +17,7 @@ mod shacl_non_vacuous;
 mod skos_membership_shacl;
 mod skos_scheme_agreement;
 mod spec_consistency;
+mod typed_workflow_schema;
 mod wrroc_runcrate;
 mod wrroc_v05_conformance;
 mod benchmark_readiness;
