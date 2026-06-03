@@ -172,11 +172,85 @@ impl ExternalRegistryStore {
     pub fn iter(&self) -> impl Iterator<Item = ((&String, &String), &RegistrySnapshot)> {
         self.snapshots.iter().map(|((r, i), s)| ((r, i), s))
     }
+
+    /// Walk `dir` for `<registry>/<id>.json` snapshot files and load
+    /// them into a deterministic in-memory store. Subdirectory names
+    /// are registry kinds; each `*.json` file is one `RegistrySnapshot`.
+    /// A missing `dir` yields an empty store (mirrors
+    /// `AtomRegistry::load_from_dir`). Entries are read in sorted path
+    /// order so two loads over the same tree are byte-identical. No
+    /// network access — these are pre-cached bytes (honors the module
+    /// doc's offline contract).
+    pub fn load_from_dir(dir: &std::path::Path) -> anyhow::Result<Self> {
+        use anyhow::Context;
+        let mut snapshots: BTreeMap<(String, String), RegistrySnapshot> = BTreeMap::new();
+        if !dir.exists() {
+            return Ok(Self { snapshots });
+        }
+        let mut registry_dirs: Vec<std::path::PathBuf> = std::fs::read_dir(dir)
+            .with_context(|| format!("reading external-snapshots dir {}", dir.display()))?
+            .filter_map(|r| r.ok())
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        registry_dirs.sort();
+        for reg_dir in registry_dirs {
+            let mut files: Vec<std::path::PathBuf> = std::fs::read_dir(&reg_dir)
+                .with_context(|| format!("reading registry dir {}", reg_dir.display()))?
+                .filter_map(|r| r.ok())
+                .map(|e| e.path())
+                .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("json"))
+                .collect();
+            files.sort();
+            for path in files {
+                let raw = crate::fs_helpers::read_to_string_ctx(&path)?;
+                let snap: RegistrySnapshot = serde_json::from_str(&raw)
+                    .with_context(|| format!("parsing snapshot {}", path.display()))?;
+                snapshots.insert((snap.registry.clone(), snap.id.clone()), snap);
+            }
+        }
+        Ok(Self { snapshots })
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn load_from_dir_is_id_sorted_and_deterministic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let reg_dir = tmp.path().join("local_cwl");
+        std::fs::create_dir_all(&reg_dir).unwrap();
+        for id in ["zebra", "alpha", "mango"] {
+            let snap = RegistrySnapshot {
+                snapshot_id: "2026-05-08T12:00:00Z".into(),
+                registry: "local_cwl".into(),
+                id: id.into(),
+                metadata: serde_json::json!({"id": id}),
+            };
+            std::fs::write(
+                reg_dir.join(format!("{id}.json")),
+                serde_json::to_vec_pretty(&snap).unwrap(),
+            )
+            .unwrap();
+        }
+        let store_a = ExternalRegistryStore::load_from_dir(tmp.path()).unwrap();
+        let store_b = ExternalRegistryStore::load_from_dir(tmp.path()).unwrap();
+        let ids_a: Vec<&String> = store_a.iter().map(|((_, i), _)| i).collect();
+        assert_eq!(ids_a, vec!["alpha", "mango", "zebra"]);
+        // Determinism: two loads serialize identically.
+        let a: Vec<_> = store_a.iter().map(|(k, _)| k.clone()).collect();
+        let b: Vec<_> = store_b.iter().map(|(k, _)| k.clone()).collect();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn load_from_dir_missing_dir_is_empty() {
+        let store = ExternalRegistryStore::load_from_dir(Path::new("/nonexistent/x")).unwrap();
+        assert_eq!(store.iter().count(), 0);
+    }
 
     #[test]
     fn store_round_trips_snapshot() {
