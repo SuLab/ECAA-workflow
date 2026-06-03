@@ -545,6 +545,12 @@ async fn emit_steps(
     // the harness pre_dispatch_check. No-op when the session has
     // no active_policy_bundle / no cached workflow_dag.
     audit_log::write_phase14_sidecars(session, output_dir).await?;
+    // M5 — durable goal-branch coverage statement (catalog vs proposal).
+    // No-op without a cached WorkflowDag. The RO-Crate patcher below
+    // registers it via the presence-gated semantic_sidecars loop.
+    audit_log::write_coverage_statement(session, output_dir)
+        .await
+        .context("writing runtime/coverage-statement.json (M5)")?;
     // Phase A1–A3 (flexible-plotting resolver wiring) — resolve a
     // PlotAffordance per output port for every task in the DAG, write
     // runtime/plot_affordances.jsonl + runtime/affordance_fallbacks.jsonl,

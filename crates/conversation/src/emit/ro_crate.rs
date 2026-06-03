@@ -673,6 +673,17 @@ pub(super) async fn patch_ro_crate_metadata(
             "One validated-invocation record per dispatched task, written by the harness at the dispatch site. Binds {source atom id, resolved container image, port-typed inputs satisfied, sandbox profile, network policy} as a single provenance object — the runtime mirror of the compile-time per-edge proofs.jsonl. Absent until a harness has dispatched at least one task; presence-gated like validation-reports.jsonl. Excluded from the byte-diff baseline (carries dispatch-time timestamps).",
             "application/jsonl",
         ),
+        // M5 — goal-branch coverage statement. Written at emit time by
+        // `audit_log::write_coverage_statement` whenever the session has a
+        // cached WorkflowDag; absent on legacy / pre-compose sessions, so
+        // the presence gate below skips it there. Deterministic and IN the
+        // byte-diff baseline.
+        (
+            "runtime/coverage-statement.json",
+            "Goal-branch coverage statement (M5)",
+            "Declares which emitted goal branches were satisfied by catalog atoms vs covered by session proposals (propose_hypothesized_node + composer-synthesized unsatisfiable-modality proposals). The durable, auditable analog of the transient coverage-gap UI banner. Deterministic; byte-reproducible.",
+            "application/json",
+        ),
         // ── Grant v19 §Authentication of Key Resources (D1-D4) ──────
         // Four runtime/*.json sidecars cited as live disclosure
         // surfaces. D1 is suppressed under ECAA_ABLATE_CLAIM_CONSISTENCY;
