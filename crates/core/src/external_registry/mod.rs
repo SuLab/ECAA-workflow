@@ -56,6 +56,44 @@ impl Default for RegistryTier {
     }
 }
 
+impl RegistryTier {
+    /// Trust band a freshly-imported entry of this tier may enter at.
+    /// Community always Unverified; Curated still enters Unverified but
+    /// MAY be lifted to StaticChecked once it passes
+    /// `LocalCwlImporter::validate_for_executable` (see `allows_static_checked`).
+    pub fn entry_trust(self) -> crate::workflow_contracts::lifecycle::TrustLevel {
+        crate::workflow_contracts::lifecycle::TrustLevel::Unverified
+    }
+
+    /// True when an entry of this tier may be promoted to
+    /// `TrustLevel::StaticChecked` after schema + safety + executable
+    /// validation. Community caps below this so community tools cannot
+    /// reach production execution without explicit human promotion.
+    pub fn allows_static_checked(self) -> bool {
+        matches!(self, RegistryTier::Curated)
+    }
+
+    /// Promotion authority recorded on the imported node's provenance.
+    pub fn promotion_authority(
+        self,
+        registry_id: &str,
+    ) -> crate::workflow_contracts::lifecycle::PromotionAuthority {
+        crate::workflow_contracts::lifecycle::PromotionAuthority {
+            kind: "external_registry".into(),
+            id: format!("{}:{}", self.canonical_name(), registry_id),
+            at: String::new(), // Clock-free: federation provenance carries no timestamp.
+        }
+    }
+
+    /// Stable snake_case key for provenance.
+    pub fn canonical_name(self) -> &'static str {
+        match self {
+            RegistryTier::Community => "community",
+            RegistryTier::Curated => "curated",
+        }
+    }
+}
+
 /// Stable reference to an external registry entry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
 #[ts(export)]
@@ -311,7 +349,26 @@ impl ExternalRegistryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::workflow_contracts::lifecycle::TrustLevel;
     use std::path::Path;
+
+    #[test]
+    fn tier_defaults_to_community_on_tierless_ref() {
+        assert_eq!(RegistryTier::default(), RegistryTier::Community);
+    }
+
+    #[test]
+    fn community_tier_entry_band_is_unverified() {
+        assert_eq!(RegistryTier::Community.entry_trust(), TrustLevel::Unverified);
+    }
+
+    #[test]
+    fn curated_tier_may_reach_static_checked() {
+        // Curated is the only tier whose entry band is allowed to lift
+        // to StaticChecked after validate_for_executable passes.
+        assert!(RegistryTier::Curated.allows_static_checked());
+        assert!(!RegistryTier::Community.allows_static_checked());
+    }
 
     #[test]
     fn load_from_dir_is_id_sorted_and_deterministic() {
