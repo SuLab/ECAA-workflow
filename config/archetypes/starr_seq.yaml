@@ -49,3 +49,6 @@ claim_boundary: |
   the activity score does not directly map to a gene target.
   Cross-validate with H3K27ac / DNase peaks at the same coordinates
   and with orthogonal reporter assays before naming target genes.
+ordering_only_edges:
+  - { from: enhancer_activity_calling, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }

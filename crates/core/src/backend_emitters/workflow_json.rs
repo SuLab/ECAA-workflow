@@ -745,7 +745,7 @@ pub fn workflow_dag_from_artifact(artifact: &BackendArtifact) -> WorkflowDag {
 /// topology but losing port-level information that wasn't emitted
 /// into the DAG.
 pub fn dag_to_workflow_dag(dag: &DAG) -> WorkflowDag {
-    use crate::workflow_contracts::edge::CompatibilityProof;
+    use crate::workflow_contracts::edge::{CompatibilityProof, EdgeKind};
     use crate::workflow_contracts::evidence::AssumptionLedger;
     use crate::workflow_contracts::task_node::TaskNode;
 
@@ -826,6 +826,9 @@ pub fn dag_to_workflow_dag(dag: &DAG) -> WorkflowDag {
                 to_node: id.to_string(),
                 to_port: "in".into(),
                 proof: CompatibilityProof::default(),
+                // Back-projected from depends_on: port-level typing was
+                // lost at lowering, so this is an unproven edge.
+                kind: EdgeKind::Unproven,
                 chain_of_custody: None,
             });
         }
@@ -893,7 +896,7 @@ impl WorkflowJsonEmitter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow_contracts::edge::CompatibilityProof;
+    use crate::workflow_contracts::edge::{CompatibilityProof, EdgeKind};
     use crate::workflow_contracts::evidence::{
         Assumption, AssumptionLedger, AssumptionResolution, AssumptionSource, RiskClass,
     };
@@ -942,6 +945,7 @@ mod tests {
                     consumer_type: "data:0863".into(),
                     ..Default::default()
                 },
+                kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
             }],
             assumptions: AssumptionLedger::default(),

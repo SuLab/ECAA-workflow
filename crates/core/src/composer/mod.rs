@@ -57,7 +57,8 @@ mod slot_fill;
 mod validation;
 pub use dispatch::{
     compose, compose_with_modalities, compose_with_modalities_full,
-    compose_with_modalities_full_pref, compose_with_modality,
+    compose_with_modalities_full_pref, compose_with_modalities_full_pref_strict,
+    compose_with_modality,
 };
 pub use errors::CompositionError;
 pub use inheritance::{

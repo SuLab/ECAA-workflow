@@ -2944,7 +2944,9 @@ mod state_machine_centralization {
     #[test]
     fn intake_fact_gate_prunes_authoritative_workflow_dag_and_cache() {
         use crate::session::Session;
-        use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+        use ecaa_workflow_core::workflow_contracts::edge::{
+            CompatibilityProof, EdgeContract, EdgeKind,
+        };
         use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         fn edge(from: &str, to: &str) -> EdgeContract {
@@ -2954,6 +2956,7 @@ mod state_machine_centralization {
                 to_node: to.into(),
                 to_port: "in".into(),
                 proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
             }
         }
@@ -3074,7 +3077,9 @@ mod state_machine_centralization {
     #[test]
     fn workflow_dag_prune_splices_chain_middle_drops() {
         use crate::session::Session;
-        use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+        use ecaa_workflow_core::workflow_contracts::edge::{
+            CompatibilityProof, EdgeContract, EdgeKind,
+        };
         use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
         fn edge(from: &str, to: &str) -> EdgeContract {
@@ -3084,6 +3089,7 @@ mod state_machine_centralization {
                 to_node: to.into(),
                 to_port: "in".into(),
                 proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
             }
         }
@@ -3415,7 +3421,7 @@ async fn rebuild_dag_populates_archetype_id_from_matched_archetype() {
 /// bridge exclusion, so the whole FASTQ block is pruned.
 #[test]
 fn counts_level_entry_from_exclusion_prunes_fastq_block() {
-    use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+    use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
     use ecaa_workflow_core::workflow_contracts::evidence::AssumptionLedger;
     use ecaa_workflow_core::workflow_contracts::port::PortContract;
     use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
@@ -3441,6 +3447,7 @@ fn counts_level_entry_from_exclusion_prunes_fastq_block() {
             to_node: to.into(),
             to_port: "in".into(),
             proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
         }
     }

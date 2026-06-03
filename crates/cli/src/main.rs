@@ -671,7 +671,12 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         ecaa_workflow_core::preferred_methods::PreferredMethods::from_method_specs(
             &clf.methods_specified,
         );
-    let output_compose = ecaa_workflow_core::composer::compose_with_modalities_full_pref(
+    // WG3 — honor ECAA_COMPOSE_STRICT (RiskMode::Production) at the CLI
+    // intake entry. Default off keeps the byte-reproducible baseline.
+    let compose_strict = ecaa_workflow_core::config::Config::from_env()
+        .map(|c| c.compose_strict)
+        .unwrap_or(false);
+    let output_compose = ecaa_workflow_core::composer::compose_with_modalities_full_pref_strict(
         &goal,
         project_class_str,
         &atoms,
@@ -683,6 +688,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         None,
         None,
         &preferred_methods,
+        compose_strict,
     )
     .map_err(|e| anyhow::anyhow!("v4 composer dispatch failed: {:?}", e))?;
     let dag = if let Some(workflow_dag) = output_compose.workflow_dag.as_ref() {

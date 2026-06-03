@@ -45,3 +45,6 @@ claim_boundary: |
   mechanism. Report PP.H4, credible-set size, and assumed prior for every
   locus. Do not extrapolate across ancestries unless run with a matched
   LD reference.
+ordering_only_edges:
+  - { from: colocalization, to: reporting }
+  - { from: data_acquisition, to: gwas_summary_harmonization }

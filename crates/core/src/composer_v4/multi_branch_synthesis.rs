@@ -18,7 +18,7 @@ use crate::archetype_registry::ArchetypeRegistry;
 use crate::atom_registry::AtomRegistry;
 use crate::composer::{ComposedAtom, CompositionResult};
 use crate::goal_spec::GoalSpec;
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use crate::workflow_contracts::lifecycle::LifecycleState;
 use crate::workflow_contracts::outcome::{ComposeOutcome, GapReport};
 use crate::workflow_contracts::task_node::WorkflowDag;
@@ -174,6 +174,7 @@ fn build_join_subdag(
     ctx: &crate::composer_v4::PlanningContext,
     goal: &GoalSpec,
     atom_reg: &AtomRegistry,
+    archetype_reg: &ArchetypeRegistry,
 ) -> Option<WorkflowDag> {
     let comparison_atom = atom_reg.get("reporting")?.clone();
     let final_atom = atom_reg.get("final_reporting")?.clone();
@@ -205,7 +206,8 @@ fn build_join_subdag(
         atom_rationales: Default::default(),
         resource_estimate,
     };
-    let mut dag = crate::composer_v4::planner::lift_to_workflow_dag(&result, ctx, goal);
+    let mut dag =
+        crate::composer_v4::planner::lift_to_workflow_dag(&result, ctx, goal, archetype_reg);
     for n in &mut dag.nodes {
         n.lifecycle_state = LifecycleState::Production;
     }
@@ -221,6 +223,7 @@ fn assemble(
     ctx: &crate::composer_v4::PlanningContext,
     goal: &GoalSpec,
     atom_reg: &AtomRegistry,
+    archetype_reg: &ArchetypeRegistry,
 ) -> Option<WorkflowDag> {
     let mut nodes: Vec<crate::workflow_contracts::task_node::TaskNode> = Vec::new();
     let mut edges: Vec<EdgeContract> = Vec::new();
@@ -231,7 +234,7 @@ fn assemble(
         edges.extend(dag.edges);
     }
 
-    let join = build_join_subdag(ctx, goal, atom_reg)?;
+    let join = build_join_subdag(ctx, goal, atom_reg, archetype_reg)?;
     nodes.extend(join.nodes);
     edges.extend(join.edges);
 
@@ -244,6 +247,8 @@ fn assemble(
             to_node: "multi_modal_thematic_comparison".into(),
             to_port: String::new(),
             proof: ordering_proof(term, "multi_modal_thematic_comparison"),
+            // Multi-branch join is an author-intended ordering edge.
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         });
     }
@@ -396,7 +401,15 @@ pub(crate) fn compose_branches(
         }
     }
 
-    let dag = assemble(branch_dags, terminals_per_branch, ctx, goal, atom_reg).unwrap_or_else(|| {
+    let dag = assemble(
+        branch_dags,
+        terminals_per_branch,
+        ctx,
+        goal,
+        atom_reg,
+        archetype_reg,
+    )
+    .unwrap_or_else(|| {
         WorkflowDag {
             id: format!("composed:{}", ctx.intent.id),
             nodes: Vec::new(),
@@ -471,6 +484,7 @@ mod tests {
             to_node: to.into(),
             to_port: String::new(),
             proof: CompatibilityProof::default(),
+            kind: EdgeKind::OrderingOnly,
             chain_of_custody: None,
         }
     }
@@ -539,7 +553,7 @@ mod tests {
 
     #[test]
     fn assemble_joins_two_prefixed_branches_at_real_reporting_atoms() {
-        let (atoms, _archs) = registries();
+        let (atoms, archs) = registries();
         let goal = de_goal();
         let ctx = planning_context_for_goal_with_modalities(
             "test-assemble",
@@ -574,7 +588,7 @@ mod tests {
             vec!["bulk_rnaseq_differential_expression".to_string()],
             vec!["proteomics_differential_abundance".to_string()],
         ];
-        let dag = assemble(vec![b1, b2], terms, &ctx, &goal, &atoms)
+        let dag = assemble(vec![b1, b2], terms, &ctx, &goal, &atoms, &archs)
             .expect("reporting + final_reporting atoms must exist in the registry");
 
         let ids: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();

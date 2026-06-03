@@ -3,6 +3,7 @@ import type { ArchetypeAtomRef } from "./ArchetypeAtomRef";
 import type { ComposeRef } from "./ComposeRef";
 import type { ContainerSpec } from "./ContainerSpec";
 import type { CrossDependency } from "./CrossDependency";
+import type { OrderingOnlyEdge } from "./OrderingOnlyEdge";
 import type { RuntimePrereqs } from "./RuntimePrereqs";
 import type { SlotManifest } from "./SlotManifest";
 
@@ -92,6 +93,13 @@ slots?: SlotManifest,
  * doesn't consume the discovery's output directly).
  */
 cross_dependencies: Array<CrossDependency>, 
+/**
+ * Edges the author certifies as workflow-ordering-only (no
+ * port-typed data flow). The gate exempts these from the
+ * typed-flow requirement; every OTHER non-unifying `depends_on`
+ * edge is `Unproven` and rejects. Additive-optional; default empty.
+ */
+ordering_only_edges: Array<OrderingOnlyEdge>, 
 /**
  * `claim_boundary` directive carried into the emitted package's
  * interpretation policy. Mirrors the field on `AtomDefinition`

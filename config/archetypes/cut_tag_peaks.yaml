@@ -71,3 +71,10 @@ claim_boundary: |
   metrics (FRiP, IgG ratio, fragment-size distribution) must be
   reported alongside every peak set. Differential binding between
   conditions is statistical association, not mechanistic causation.
+ordering_only_edges:
+  - { from: differential_accessibility, to: reporting }
+  - { from: motif_enrichment, to: reporting }
+  - { from: pathway_enrichment, to: reporting }
+  - { from: peak_annotation, to: reporting }
+  - { from: peak_calling, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }

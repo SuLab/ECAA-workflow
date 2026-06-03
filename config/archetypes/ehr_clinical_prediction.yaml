@@ -51,3 +51,7 @@ atoms:
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
+ordering_only_edges:
+  - { from: calibration_audit, to: reporting }
+  - { from: external_validation, to: reporting }
+  - { from: fairness_audit, to: reporting }

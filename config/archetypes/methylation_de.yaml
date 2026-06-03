@@ -66,3 +66,8 @@ claim_boundary: |
   adjusted p-value + the reference factor level + the methylation
   assay (WGBS / RRBS / EM-seq / array); prefer "associated with" /
   "differentially methylated in" over mechanistic language.
+ordering_only_edges:
+  - { from: differential_expression, to: pathway_enrichment }
+  - { from: differential_expression, to: reporting }
+  - { from: pathway_enrichment, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }

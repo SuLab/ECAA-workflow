@@ -259,6 +259,7 @@ fn synth_archetype(
         compose: vec![],
         slots: None,
         cross_dependencies: vec![],
+        ordering_only_edges: vec![],
         claim_boundary: None,
         project_class: project_class.into(),
         modality_hint: None,

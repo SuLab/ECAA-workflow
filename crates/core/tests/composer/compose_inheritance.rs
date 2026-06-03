@@ -37,6 +37,7 @@ fn arch(id: &str, atoms: Vec<ArchetypeAtomRef>, compose: Vec<ComposeRef>) -> Arc
         compose,
         slots: None,
         cross_dependencies: vec![],
+        ordering_only_edges: vec![],
         claim_boundary: None,
         project_class: "bioinformatics".into(),
         modality_hint: None,

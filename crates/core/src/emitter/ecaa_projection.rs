@@ -849,13 +849,14 @@ mod tests {
 
     #[test]
     fn edge_contract_projects_workflow_step_and_consumes() {
-        use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+        use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
         let ec = EdgeContract {
             from_node: "counts".into(),
             from_port: "output".into(),
             to_node: "differential_expression".into(),
             to_port: "input".into(),
             proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
         };
         let (nodes, edges) = ec.project();

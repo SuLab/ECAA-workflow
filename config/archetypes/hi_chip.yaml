@@ -63,3 +63,10 @@ claim_boundary: |
   association, not mechanistic causation. Anchor-to-gene
   inferences require integrating with expression / ChIP /
   perturbation evidence.
+ordering_only_edges:
+  - { from: chromatin_loop_calling, to: reporting }
+  - { from: differential_loop_analysis, to: reporting }
+  - { from: pathway_enrichment, to: reporting }
+  - { from: peak_calling, to: chromatin_loop_calling }
+  - { from: peak_calling, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }
