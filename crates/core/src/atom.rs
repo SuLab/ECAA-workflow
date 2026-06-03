@@ -298,11 +298,75 @@ pub struct AtomDefinition {
     #[serde(default, skip_serializing_if = "is_empty_runtime_prereqs")]
     pub runtime_packages: crate::runtime_prereqs::RuntimePrereqs,
 
+    /// Typed parameter list — the paper-D.1 parameter axis.
+    /// Schema-validated at load. Additive: the legacy `attributes`
+    /// bag is retained; atoms migrate to `parameters` incrementally.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<ParameterSpec>,
+
     /// Unifying safety classification. Composes with the
     /// fine-grained `crate::sandbox_policy::SandboxPolicy` when
     /// `sandbox != None`.
     #[serde(default, skip_serializing_if = "SafetyPolicy::is_default")]
     pub safety: SafetyPolicy,
+}
+
+/// One typed parameter on an atom — the paper-D.1 parameter axis.
+/// Schema-validated at registry load (unlike the legacy untyped
+/// `attributes` bag). Optional and additive: atoms that declare a
+/// `parameters:` block get typed validation; legacy atoms keep
+/// `attributes`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct ParameterSpec {
+    /// Parameter name (stable key the agent/runtime reads).
+    pub name: String,
+    /// Declared type. `Enum` means the legal set is `allowed_values`.
+    pub r#type: ParameterType,
+    /// Whether the parameter must be supplied. Default false.
+    #[serde(default)]
+    pub required: bool,
+    /// Default value applied when the parameter is omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    #[ts(type = "unknown")]
+    pub default: Option<serde_json::Value>,
+    /// Closed legal value set (load-bearing for `ParameterType::Enum`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(type = "Array<unknown>")]
+    pub allowed_values: Vec<serde_json::Value>,
+    /// Illustrative example values; never enforced.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(type = "Array<unknown>")]
+    pub examples: Vec<serde_json::Value>,
+    /// Human description; surfaces in CONTEXT.md, never machine-parsed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub description: Option<String>,
+}
+
+/// Declared parameter type. `#[non_exhaustive]` so adding a future
+/// type (e.g. a `Duration` scalar) is a non-breaking minor change for
+/// downstream `ts-rs` / RO-Crate consumers.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ParameterType {
+    /// String scalar.
+    String,
+    /// JSON number (float).
+    Number,
+    /// Integer scalar.
+    Integer,
+    /// Boolean scalar.
+    Boolean,
+    /// JSON array.
+    Array,
+    /// JSON object.
+    Object,
+    /// Closed enumeration — legal set is `allowed_values`.
+    Enum,
 }
 
 impl AtomDefinition {
@@ -345,6 +409,7 @@ impl AtomDefinition {
             required_artifacts: Vec::new(),
             validators: Vec::new(),
             runtime_packages: crate::runtime_prereqs::RuntimePrereqs::default(),
+            parameters: Vec::new(),
             safety: SafetyPolicy::default(),
         }
     }
@@ -1204,6 +1269,7 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
             safety: Default::default(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).expect("serialize");
@@ -1248,6 +1314,7 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
             safety: Default::default(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
@@ -1296,6 +1363,7 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
             safety: Default::default(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
@@ -1418,6 +1486,7 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
             safety: Default::default(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();

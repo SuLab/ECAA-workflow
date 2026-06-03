@@ -1,0 +1,15 @@
+id: typed_param_atom
+version: "1.0.0"
+role: operation
+description: Fixture atom exercising the typed parameters block.
+edam_operation: "operation:3198"
+edam_data: "data:1234"
+edam_format: "format:2572"
+assignee: agent
+parameters:
+  - name: candidate_tools
+    type: enum
+    required: true
+    allowed_values: ["star", "hisat2"]
+    examples: ["star"]
+    description: Aligner candidate set

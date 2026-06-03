@@ -529,6 +529,7 @@ pub fn promoted_proposal_to_atom_definition(
         required_artifacts: Vec::new(),
         validators: proposal.validation_tests.clone(),
         runtime_packages: crate::runtime_prereqs::RuntimePrereqs::default(),
+        parameters: Vec::new(),
         safety: crate::atom::SafetyPolicy::default(),
     })
 }

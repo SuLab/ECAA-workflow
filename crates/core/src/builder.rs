@@ -937,6 +937,7 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
             safety: Default::default(),
         };
         let downstream = AtomDefinition {
@@ -974,6 +975,7 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
             safety: Default::default(),
         };
         let composition = CompositionResult {
@@ -1076,6 +1078,7 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
             safety: Default::default(),
         };
         let discover_b = AtomDefinition {
@@ -1113,6 +1116,7 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
             safety: Default::default(),
         };
         let composition = CompositionResult {
@@ -1209,6 +1213,7 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
             safety: Default::default(),
         };
         let composition = CompositionResult {
@@ -1288,6 +1293,7 @@ mod tests {
             }],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
             safety: Default::default(),
         };
         let composition = CompositionResult {
@@ -1408,6 +1414,7 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
             safety: Default::default(),
         };
         let composition = CompositionResult {

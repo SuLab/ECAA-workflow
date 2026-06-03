@@ -6,6 +6,7 @@ import type { FigureExempt } from "./FigureExempt";
 import type { IterateSpec } from "./IterateSpec";
 import type { JointlyWithConstraint } from "./JointlyWithConstraint";
 import type { MethodChoiceRef } from "./MethodChoiceRef";
+import type { ParameterSpec } from "./ParameterSpec";
 import type { PortContract } from "./PortContract";
 import type { ResourceProfile } from "./ResourceProfile";
 import type { RuntimePrereqs } from "./RuntimePrereqs";
@@ -262,6 +263,12 @@ validators: Array<string>,
  * every legacy atom unaffected.
  */
 runtime_packages: RuntimePrereqs, 
+/**
+ * Typed parameter list — the paper-D.1 parameter axis.
+ * Schema-validated at load. Additive: the legacy `attributes`
+ * bag is retained; atoms migrate to `parameters` incrementally.
+ */
+parameters: Array<ParameterSpec>, 
 /**
  * Unifying safety classification. Composes with the
  * fine-grained `crate::sandbox_policy::SandboxPolicy` when

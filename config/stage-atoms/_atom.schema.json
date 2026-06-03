@@ -37,6 +37,23 @@
           "required": ["kind"]
         }
       ]
+    },
+    "parameter_spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "integer", "boolean", "array", "object", "enum"]
+        },
+        "required": { "type": "boolean" },
+        "default": {},
+        "allowed_values": { "type": "array" },
+        "examples": { "type": "array" },
+        "description": { "type": "string", "minLength": 1 }
+      }
     }
   },
   "properties": {
@@ -120,6 +137,11 @@
       "type": "object",
       "description": "Free-form attribute map; the discover_* runtime selector reads compatible subsets.",
       "additionalProperties": true
+    },
+    "parameters": {
+      "type": "array",
+      "description": "Typed parameter list (paper D.1 parameter axis). Each entry is schema-validated; unknown keys inside an entry are rejected.",
+      "items": { "$ref": "#/definitions/parameter_spec" }
     },
     "joint_with": {
       "type": "array",

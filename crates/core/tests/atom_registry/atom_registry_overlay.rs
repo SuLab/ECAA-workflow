@@ -88,6 +88,7 @@ fn overlay_atom(id: &str) -> AtomDefinition {
         required_artifacts: Vec::new(),
         validators: Vec::new(),
         runtime_packages: Default::default(),
+        parameters: Vec::new(),
         safety: Default::default(),
     }
 }
