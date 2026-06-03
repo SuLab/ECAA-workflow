@@ -152,6 +152,7 @@ pub mod repair;
 pub mod retrieval_routes;
 /// Ro crate module.
 pub mod ro_crate;
+pub mod rubric_self_assessment;
 pub mod runtime_prereqs;
 pub mod sandbox_policy;
 pub mod sandbox_refusal_category;
