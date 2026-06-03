@@ -54,6 +54,52 @@ impl Default for EdgeKind {
     }
 }
 
+impl EdgeKind {
+    /// Strength rank for merging multiple port-level edges that share the
+    /// same `(from_node, to_node)` pair into the single node-pair edge the
+    /// core proofs.jsonl emits. A higher rank is a stronger compatibility
+    /// claim: if ANY port between two nodes is a typed data flow, the
+    /// node-level dependency is at least that well-typed, so the strongest
+    /// port-kind wins. Total order: `TypedDataFlow > AdapterMediated >
+    /// OrderingOnly > Unproven`.
+    pub fn strength_rank(self) -> u8 {
+        match self {
+            EdgeKind::TypedDataFlow => 3,
+            EdgeKind::AdapterMediated => 2,
+            EdgeKind::OrderingOnly => 1,
+            EdgeKind::Unproven => 0,
+        }
+    }
+
+    /// Fold another kind in, keeping the stronger of the two.
+    pub fn merge_strongest(self, other: EdgeKind) -> EdgeKind {
+        if other.strength_rank() > self.strength_rank() {
+            other
+        } else {
+            self
+        }
+    }
+}
+
+/// Project a `WorkflowDag`'s port-level edge kinds onto a node-pair map
+/// (`(from_node, to_node) -> strongest EdgeKind`). The core emit path holds
+/// only a `DAG` (no typed edges), so callers that DO have a `WorkflowDag`
+/// (CLI build/intake, conversation) pass this map through `EmitConfig` so
+/// `runtime/proofs.jsonl`'s synthesized dependency edges carry the real
+/// lifted kind instead of the strict `Unproven` placeholder (WG4b).
+pub fn edge_kind_map_from_edges(
+    edges: &[EdgeContract],
+) -> std::collections::BTreeMap<(String, String), EdgeKind> {
+    let mut map: std::collections::BTreeMap<(String, String), EdgeKind> =
+        std::collections::BTreeMap::new();
+    for e in edges {
+        let key = (e.from_node.clone(), e.to_node.clone());
+        let entry = map.entry(key).or_insert(EdgeKind::Unproven);
+        *entry = entry.merge_strongest(e.kind);
+    }
+    map
+}
+
 /// Serde default for [`EdgeContract::kind`]. A named fn (not the derive)
 /// so the strictest case applies to legacy rows missing the field.
 fn default_edge_kind() -> EdgeKind {
@@ -346,6 +392,53 @@ mod tests {
     #[test]
     fn edge_kind_default_is_unproven() {
         assert_eq!(EdgeKind::default(), EdgeKind::Unproven);
+    }
+
+    /// WG4b — `merge_strongest` keeps the stronger compatibility claim so a
+    /// node pair with any typed-data-flow port lifts to TypedDataFlow.
+    #[test]
+    fn edge_kind_merge_strongest_keeps_stronger() {
+        assert_eq!(
+            EdgeKind::Unproven.merge_strongest(EdgeKind::TypedDataFlow),
+            EdgeKind::TypedDataFlow
+        );
+        assert_eq!(
+            EdgeKind::TypedDataFlow.merge_strongest(EdgeKind::OrderingOnly),
+            EdgeKind::TypedDataFlow
+        );
+        assert_eq!(
+            EdgeKind::OrderingOnly.merge_strongest(EdgeKind::AdapterMediated),
+            EdgeKind::AdapterMediated
+        );
+        assert_eq!(
+            EdgeKind::OrderingOnly.merge_strongest(EdgeKind::Unproven),
+            EdgeKind::OrderingOnly
+        );
+    }
+
+    /// WG4b — projecting port-level edges onto a node-pair map collapses
+    /// multiple ports between the same pair to the strongest kind.
+    #[test]
+    fn edge_kind_map_collapses_to_strongest_per_pair() {
+        let mk = |fp: &str, kind: EdgeKind| EdgeContract {
+            from_node: "a".into(),
+            from_port: fp.into(),
+            to_node: "b".into(),
+            to_port: "in".into(),
+            proof: CompatibilityProof::default(),
+            kind,
+            chain_of_custody: None,
+        };
+        let edges = vec![
+            mk("ordering", EdgeKind::OrderingOnly),
+            mk("bam", EdgeKind::TypedDataFlow),
+        ];
+        let map = edge_kind_map_from_edges(&edges);
+        assert_eq!(
+            map.get(&("a".to_string(), "b".to_string())).copied(),
+            Some(EdgeKind::TypedDataFlow),
+            "the strongest port kind must win for the node pair"
+        );
     }
 
     /// A legacy proofs.jsonl row without a `kind` field deserializes to

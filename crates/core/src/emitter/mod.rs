@@ -109,6 +109,17 @@ pub struct EmitConfig<'a> {
     /// a registry-load failure is non-fatal and also yields no anchoring,
     /// since recall expectations are additive.
     pub stage_atoms_dir: Option<&'a std::path::Path>,
+    /// WG4b — node-pair → lifted `EdgeKind` map projected from the composed
+    /// `WorkflowDag` (via `edge::edge_kind_map_from_edges`). The core emit
+    /// path holds only a `&DAG` (no typed edges), so callers that DO have a
+    /// `WorkflowDag` (CLI build/intake, conversation overwrite) pass the
+    /// real lifted kinds here. `runtime/proofs.jsonl` looks up
+    /// `(from_node, to_node)` and writes the real kind; a missing entry (or
+    /// `None`, the legacy/test path) falls back to the strict
+    /// `EdgeKind::Unproven` placeholder so behavior is unchanged when no
+    /// typed-edge data is available.
+    pub edge_kinds:
+        Option<&'a std::collections::BTreeMap<(String, String), crate::workflow_contracts::edge::EdgeKind>>,
 }
 
 /// Structured amendment metadata captured at the moment `emit_package`
@@ -315,6 +326,39 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     )
     .context("writing WORKFLOW.json")?;
 
+    // W1 — additive D.2 companion. Reconstruct a WorkflowDag from the
+    // lowered DAG (port info degrades to "out"/"in" on this path — the
+    // documented graceful degrade; the conversation emit path overwrites
+    // with full-fidelity ports). The projection is the SINGLE source of
+    // truth shared with the conversation emit path — never forked. Written
+    // BEFORE the BagIt manifest so the byte-deterministic companion stays
+    // IN the manifest (unlike the post-manifest jsonl sidecars).
+    //
+    // M4 — pin the atom-registry snapshot id when the caller passed a
+    // stage-atoms dir. Best-effort: a missing/unreadable catalog yields
+    // `None` (the artifact stays byte-reproducible and self-describing only
+    // when a snapshot is actually available).
+    let atom_snapshot_id = config.stage_atoms_dir.and_then(|d| {
+        crate::atom_registry::AtomRegistry::load_cached(d)
+            .ok()
+            .map(|reg| reg.snapshot_id())
+    });
+    let typed_ctx = crate::backend_emitters::typed_workflow::TypedWorkflowContext {
+        classification: Some(config.classification),
+        intake_facts: config.intake_facts,
+        atom_snapshot_id,
+    };
+    let wf_dag = crate::backend_emitters::workflow_json::dag_to_workflow_dag(config.dag);
+    let typed_wf =
+        crate::backend_emitters::typed_workflow::lower_to_typed_workflow(&wf_dag, &typed_ctx);
+    let typed_payload =
+        serde_json::to_string_pretty(&typed_wf).context("serializing workflow-typed.json")?;
+    crate::fs_helpers::atomic_write_bytes_sync(
+        &dir.join("runtime/workflow-typed.json"),
+        typed_payload.as_bytes(),
+    )
+    .context("writing runtime/workflow-typed.json")?;
+
     let context_payload = render_context(config.dag, config.classification);
     crate::fs_helpers::atomic_write_bytes_sync(&dir.join("CONTEXT.md"), context_payload.as_bytes())
         .context("writing CONTEXT.md")?;
@@ -480,8 +524,14 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     // the manifest to detect drift without re-hashing every file.
     write_bagit_manifest(dir, &emit_clock).context("writing BagIt manifest")?;
 
-    ecaa::write_emit_time_sidecars(dir, config.dag, config.classification, &emit_clock)
-        .context("emitting ECAA sidecars")?;
+    ecaa::write_emit_time_sidecars(
+        dir,
+        config.dag,
+        config.classification,
+        config.edge_kinds,
+        &emit_clock,
+    )
+    .context("emitting ECAA sidecars")?;
     ecaa::write_audit_proof_report(dir).context("emitting ECAA audit-proof report")?;
     ecaa::write_validation_summary(dir).context("emitting ECAA validation summary")?;
 

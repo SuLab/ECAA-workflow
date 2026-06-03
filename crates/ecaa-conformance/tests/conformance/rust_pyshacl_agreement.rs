@@ -134,6 +134,7 @@ fn emit_into(out: &Path) {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        edge_kinds: None,
     })
     .expect("emit_package");
 }

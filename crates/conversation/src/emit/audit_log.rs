@@ -280,6 +280,47 @@ pub(super) async fn write_phase16_sidecars(
     Ok(())
 }
 
+/// W1 — overwrite the core-written `runtime/workflow-typed.json` with the
+/// FULL-FIDELITY typed artifact built from the session's live `WorkflowDag`
+/// (real port names, not the core path's `out`/`in` degrade). Uses the SAME
+/// `lower_to_typed_workflow` projection as the core path — never forked. The
+/// W3/W4/M4 inputs (classification, intake facts, atom snapshot id) are
+/// passed by the caller, which holds them in scope. No-op for sessions
+/// without a cached `WorkflowDag` (v1/v2/v3); the core-written companion
+/// (degraded ports) then stands.
+pub(super) async fn write_workflow_typed(
+    session: &Session,
+    output_dir: &Path,
+    classification: Option<&ecaa_workflow_core::classify::ClassificationResult>,
+    intake_facts: Option<&ecaa_workflow_core::intake_facts::IntakeFacts>,
+    atom_snapshot_id: Option<String>,
+) -> Result<()> {
+    let Some(workflow_dag) = session.workflow_dag.as_ref() else {
+        return Ok(());
+    };
+    let typed_ctx = ecaa_workflow_core::backend_emitters::typed_workflow::TypedWorkflowContext {
+        classification,
+        intake_facts,
+        atom_snapshot_id,
+    };
+    let typed_wf = ecaa_workflow_core::backend_emitters::typed_workflow::lower_to_typed_workflow(
+        workflow_dag,
+        &typed_ctx,
+    );
+    // Match the core path's `to_string_pretty` exactly (no trailing
+    // newline) so the single-projection contract produces identical
+    // serialization conventions on both write sites.
+    let typed_payload =
+        serde_json::to_vec_pretty(&typed_wf).context("serializing workflow-typed.json")?;
+    let runtime = output_dir.join("runtime");
+    tokio::fs::create_dir_all(&runtime).await?;
+    let typed_path = runtime.join("workflow-typed.json");
+    tokio::fs::write(&typed_path, typed_payload)
+        .await
+        .with_context(|| format!("writing {}", typed_path.display()))?;
+    Ok(())
+}
+
 /// Write `runtime/task-nodes.json` (typed `TaskNode`
 /// list) and `runtime/sandbox-policy.json` (active `SandboxPolicy`)
 /// when the session has both. Consumed by the harness's

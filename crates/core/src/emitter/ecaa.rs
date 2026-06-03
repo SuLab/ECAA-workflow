@@ -6,7 +6,7 @@ use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind
 use anyhow::{anyhow, Context, Result};
 use jsonschema::JSONSchema;
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 const INTENT_SCHEMA: &str = include_str!(concat!(
@@ -69,6 +69,7 @@ pub(super) fn write_emit_time_sidecars(
     output_dir: &Path,
     dag: &DAG,
     classification: &ClassificationResult,
+    edge_kinds: Option<&BTreeMap<(String, String), EdgeKind>>,
     clock: &dyn Clock,
 ) -> Result<()> {
     let runtime = output_dir.join("runtime");
@@ -83,7 +84,7 @@ pub(super) fn write_emit_time_sidecars(
     }
     write_text(
         &runtime.join("proofs.jsonl"),
-        &render_dependency_proofs_jsonl(dag)?,
+        &render_dependency_proofs_jsonl(dag, edge_kinds)?,
     )?;
     write_pretty_json(
         &runtime.join("claim-verification.json"),
@@ -248,13 +249,27 @@ fn render_intake_conversation_jsonl(
     Ok(line)
 }
 
-fn render_dependency_proofs_jsonl(dag: &DAG) -> Result<String> {
+fn render_dependency_proofs_jsonl(
+    dag: &DAG,
+    edge_kinds: Option<&BTreeMap<(String, String), EdgeKind>>,
+) -> Result<String> {
     let mut out = String::new();
     for (to_node, task) in &dag.tasks {
         let mut deps = task.depends_on.clone();
         deps.sort();
         deps.dedup();
         for from_node in deps {
+            // WG4b — lift the real composer-assigned EdgeKind for this
+            // node pair when the caller threaded a map from the composed
+            // WorkflowDag. The core emit path holds only the depends_on
+            // graph (no typed edges), so a missing entry (or no map at all
+            // — the legacy/test path) falls back to the strict `Unproven`
+            // placeholder, leaving behavior unchanged when no typed-edge
+            // data is available.
+            let kind = edge_kinds
+                .and_then(|m| m.get(&(from_node.to_string(), to_node.to_string())))
+                .copied()
+                .unwrap_or(EdgeKind::Unproven);
             let edge = serde_json::to_value(EdgeContract {
                 from_node: from_node.to_string(),
                 from_port: "output".to_string(),
@@ -269,9 +284,7 @@ fn render_dependency_proofs_jsonl(dag: &DAG) -> Result<String> {
                     )),
                     ..CompatibilityProof::default()
                 },
-                // WG4 replaces this placeholder with the lifted EdgeKind
-                // threaded from the composed WorkflowDag.
-                kind: EdgeKind::Unproven,
+                kind,
                 chain_of_custody: None,
             })
             .context("serializing dependency proof edge")?;

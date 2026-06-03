@@ -361,6 +361,27 @@ async fn emit_steps(
     // is harmless (emit's registry load `.ok()` → no anchoring).
     let stage_atoms_dir = config_dir.join("stage-atoms");
 
+    // WG4b — lift the live session WorkflowDag's typed edge kinds into a
+    // node-pair map so the core-written runtime/proofs.jsonl carries the
+    // real EdgeKind. (The conversation path also overwrites proofs.jsonl
+    // below from the full-fidelity edges in `write_phase16_sidecars`, which
+    // already serializes the real per-port kind; this keeps the core-written
+    // version consistent for the window before that overwrite.)
+    let edge_kinds_owned = session.workflow_dag.as_ref().map(|wd| {
+        ecaa_workflow_core::workflow_contracts::edge::edge_kind_map_from_edges(&wd.edges)
+    });
+
+    // M4 — derive the atom-registry snapshot id from the on-disk catalog so
+    // the full-fidelity workflow-typed.json overwrite is self-describing.
+    // Best-effort: a missing/unreadable catalog yields `None` (matches the
+    // core path's behavior).
+    let atom_snapshot_id = {
+        let atoms_dir = config_dir.join("stage-atoms");
+        ecaa_workflow_core::atom_registry::AtomRegistry::load_cached(&atoms_dir)
+            .ok()
+            .map(|reg| reg.snapshot_id())
+    };
+
     let cfg = EmitConfig {
         output_dir,
         dag,
@@ -377,6 +398,7 @@ async fn emit_steps(
         runtime_prereqs: Some(&runtime_prereqs),
         per_atom_runtime_prereqs: per_atom_prereqs_owned.as_ref(),
         stage_atoms_dir: Some(&stage_atoms_dir),
+        edge_kinds: edge_kinds_owned.as_ref(),
     };
     emit_package(&cfg).context("core emit_package")?;
 
@@ -477,6 +499,19 @@ async fn emit_steps(
     // runtime/policy-decisions.jsonl. The RO-Crate registration
     // below picks them up automatically (presence-gated).
     audit_log::write_phase16_sidecars(session, output_dir, tier).await?;
+    // W1 — overwrite the core-written runtime/workflow-typed.json with the
+    // full-fidelity typed artifact (real ports from the session's
+    // WorkflowDag). SAME projection as the core path — never forked. No-op
+    // for sessions without a cached WorkflowDag (the core degraded-port
+    // companion then stands).
+    audit_log::write_workflow_typed(
+        session,
+        output_dir,
+        Some(&classification),
+        Some(&intake_facts),
+        atom_snapshot_id.clone(),
+    )
+    .await?;
     // Grant v19 §Authentication of Key Resources (D1-D4) — emit the
     // four runtime/*.json sidecars cited as live disclosure surfaces.
     // D1 (claim-verification) is suppressed under

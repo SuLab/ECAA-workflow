@@ -482,6 +482,12 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
         .map(|c| c.image.clone());
     // Stage-atoms dir for the recall anchor (confirmatory-atom-id set).
     let stage_atoms_dir = config_root.join("stage-atoms");
+    // WG4b — lift the composed WorkflowDag's typed edge kinds into a
+    // node-pair map so runtime/proofs.jsonl carries the real EdgeKind
+    // instead of the strict Unproven placeholder.
+    let edge_kinds = output_compose.workflow_dag.as_ref().map(|wd| {
+        ecaa_workflow_core::workflow_contracts::edge::edge_kind_map_from_edges(&wd.edges)
+    });
     emit_package(&EmitConfig {
         output_dir: out_path,
         dag: &dag,
@@ -498,6 +504,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
         runtime_prereqs: Some(&runtime_prereqs),
         per_atom_runtime_prereqs: Some(&per_atom_prereqs),
         stage_atoms_dir: Some(&stage_atoms_dir),
+        edge_kinds: edge_kinds.as_ref(),
     })?;
 
     // Opt-in BCO emit alongside the package.
@@ -764,6 +771,11 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         .collect();
     // Stage-atoms dir for the recall anchor (confirmatory-atom-id set).
     let stage_atoms_dir = config_path.join("stage-atoms");
+    // WG4b — lift the composed WorkflowDag's typed edge kinds into a
+    // node-pair map so runtime/proofs.jsonl carries the real EdgeKind.
+    let edge_kinds = output_compose.workflow_dag.as_ref().map(|wd| {
+        ecaa_workflow_core::workflow_contracts::edge::edge_kind_map_from_edges(&wd.edges)
+    });
     emit_package(&EmitConfig {
         output_dir: out_path,
         dag: &dag,
@@ -780,6 +792,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         runtime_prereqs: Some(&runtime_prereqs),
         per_atom_runtime_prereqs: Some(&per_atom_prereqs),
         stage_atoms_dir: Some(&stage_atoms_dir),
+        edge_kinds: edge_kinds.as_ref(),
     })?;
 
     // Opt-in BCO emit alongside the package, plus
