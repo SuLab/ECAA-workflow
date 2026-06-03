@@ -1456,6 +1456,17 @@ async fn coverage_gap_events_increment() {
     assert_eq!(snap.coverage_gap_events, 2);
 }
 
+/// The proposal-tool name classifier recognizes exactly the two coverage-gap
+/// tools and nothing else.
+#[test]
+fn proposal_tool_names_classified_as_coverage_gaps() {
+    use crate::service::send_turn::is_coverage_gap_tool;
+    assert!(is_coverage_gap_tool("propose_hypothesized_node"));
+    assert!(is_coverage_gap_tool("propose_hypothesized_renderer"));
+    assert!(!is_coverage_gap_tool("emit_package"));
+    assert!(!is_coverage_gap_tool("classify_intake"));
+}
+
 /// A sidecar written before the field existed deserializes with 0.
 #[test]
 fn coverage_gap_events_defaults_for_legacy_sidecar() {
