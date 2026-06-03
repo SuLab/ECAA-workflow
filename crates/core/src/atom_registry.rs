@@ -46,7 +46,10 @@ impl AtomRegistry {
     /// not recursed (per ADR / plan §3.1 row "Flat
     /// `config/stage-atoms/*.yaml`").
     pub fn load_from_dir(dir: &Path) -> Result<Self> {
-        let schema = Self::compiled_schema()?;
+        // Eagerly compile the schema so a malformed `_atom.schema.json`
+        // fails the load before we walk the directory; `validate_one`
+        // re-fetches the same cached compiled schema per atom.
+        Self::compiled_schema()?;
         let mut atoms = BTreeMap::new();
         if !dir.exists() {
             // An empty dir is allowed (the composer fallback
@@ -81,18 +84,8 @@ impl AtomRegistry {
             // Schema validate first; serde_yaml_ng::from_str on a
             // missing-field shape would panic at deserialize time
             // with a message that doesn't point at the source line.
-            if let Err(errors) = schema.validate(&parsed) {
-                let msgs: Vec<String> = errors
-                    .map(|e| format!("{} at {}", e, e.instance_path))
-                    .collect();
-                return Err(anyhow!(
-                    "atom {} failed schema validation:\n  - {}",
-                    path.display(),
-                    msgs.join("\n  - ")
-                ));
-            }
-            let atom: AtomDefinition = serde_json::from_value(parsed)
-                .with_context(|| format!("deserializing atom {}", path.display()))?;
+            let atom: AtomDefinition =
+                Self::validate_one(&parsed, &format!("atom {}", path.display()))?;
             // Filename stem must match the atom id for byte-
             // deterministic registry iteration; otherwise a future
             // atom rename could leave a stale file name picked up by
@@ -507,6 +500,40 @@ impl AtomRegistry {
         crate::schema_helpers::compile_schema_cached("atom", ATOM_SCHEMA_JSON)
     }
 
+    /// Schema-validate a single atom JSON `Value` against the embedded
+    /// `_atom.schema.json`, then deserialize into [`AtomDefinition`].
+    /// Shared by `load_from_dir` (one call per file) and
+    /// [`Self::validate_candidate`] (in-memory drafted atoms). `ctx` is a
+    /// caller label used in error messages ("atom <path>" or
+    /// "drafted candidate").
+    fn validate_one(parsed: &Value, ctx: &str) -> Result<AtomDefinition> {
+        let schema = Self::compiled_schema()?;
+        if let Err(errors) = schema.validate(parsed) {
+            let msgs: Vec<String> = errors
+                .map(|e| format!("{} at {}", e, e.instance_path))
+                .collect();
+            return Err(anyhow!(
+                "{} failed schema validation:\n  - {}",
+                ctx,
+                msgs.join("\n  - ")
+            ));
+        }
+        serde_json::from_value(parsed.clone()).with_context(|| format!("deserializing {ctx}"))
+    }
+
+    /// Validate an in-memory candidate atom (e.g. a drafted atom from the
+    /// `atom_drafter` side-call) through the SAME schema + deserialize
+    /// path a YAML file hits in `load_from_dir`. Does NOT run
+    /// `validate_consistency` (that needs the full registry for
+    /// dependency resolution); callers that splice the candidate into a
+    /// registry overlay run `validate_consistency` on the merged registry.
+    ///
+    /// This is the single gate that guarantees an LLM-drafted atom is held
+    /// to the identical validator as hand-authored content.
+    pub fn validate_candidate(value: &Value) -> Result<AtomDefinition> {
+        Self::validate_one(value, "drafted candidate")
+    }
+
     /// Process-wide cached load. Subsequent calls with the same
     /// canonicalized `dir` return the same `Arc<AtomRegistry>` without
     /// re-reading or re-validating the YAML files. `load_from_dir`
@@ -542,6 +569,43 @@ mod tests {
         let p = dir.join(format!("{}.yaml", name));
         let mut f = std::fs::File::create(&p).unwrap();
         f.write_all(body.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn validate_candidate_accepts_well_formed_in_memory_atom() {
+        let candidate = serde_json::json!({
+            "id": "draft_align",
+            "version": "1.0.0",
+            "role": "operation",
+            "description": "Align short reads to a reference.",
+            "edam_operation": "operation:0292",
+            "edam_data": "data:2978",
+            "edam_format": "format:2572",
+            "assignee": "agent"
+        });
+        let atom = AtomRegistry::validate_candidate(&candidate)
+            .expect("well-formed candidate must validate");
+        assert_eq!(atom.id, "draft_align");
+        assert_eq!(atom.edam_operation, "operation:0292");
+    }
+
+    #[test]
+    fn candidate_failing_schema_is_rejected() {
+        // Missing the required `role` field — the SAME schema a YAML file hits.
+        let candidate = serde_json::json!({
+            "id": "draft_bad",
+            "version": "1.0.0",
+            "description": "no role field",
+            "edam_operation": "operation:0292",
+            "assignee": "agent"
+        });
+        let err = AtomRegistry::validate_candidate(&candidate)
+            .expect_err("missing-role candidate must fail schema")
+            .to_string();
+        assert!(
+            err.contains("schema") || err.contains("role"),
+            "expected schema-validation failure, got: {err}"
+        );
     }
 
     #[test]
