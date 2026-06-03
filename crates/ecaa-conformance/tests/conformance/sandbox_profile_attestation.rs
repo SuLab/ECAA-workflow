@@ -101,6 +101,7 @@ fn exec_atoms_satisfy_full_sandbox_attestation() {
             sandbox: SandboxRequirement::None,
             network: NetworkPolicy::None { allowlist: vec![] },
             kind: "local",
+            forwards_to_external_llm: true,
         };
         assert!(
             matches!(

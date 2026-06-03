@@ -1,0 +1,42 @@
+id: controlled_access_data_acquisition
+version: "1.0.0"
+role: operation
+description: |
+  Acquire raw experimental data from controlled-access repositories
+  (dbGaP phs* / EGA EGA*) under a data-use agreement. Genotypes and
+  phenotypes from these sources must NOT be forwarded to a third-party
+  LLM inference endpoint; the harness refuses dispatch on any
+  LLM-forwarding executor (BlockerKind::ControlledAccessViolation) and
+  permits it only on an operator-declared on-prem no-egress backend.
+edam_operation: "operation:2422"
+edam_data: "data:2531"
+edam_format: "format:3915"
+assignee: agent
+governance:
+  status: reviewed
+  reviewed_by: "ecaa-governance"
+  review_date: "2026-06-02"
+expected_artifacts:
+  - cohort_manifest.tsv
+  - per_accession_summary.json
+  - manifest.json
+  - result.json
+required_figures:
+  - samples_per_study
+attributes:
+  data_sources:
+    - dbgap
+    - egastudy
+outputs:
+  - name: cohort_manifest
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2531"
+      label: "Experiment annotation"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+    privacy_class: restricted
+safety:
+  controlled_access: true

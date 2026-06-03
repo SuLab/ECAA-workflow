@@ -26,3 +26,4 @@ mod positive_treatment_control;
 // Phase 5 (governance) — appended at end to minimize cross-phase
 // conflict with Phase 8's additions to this registry.
 mod sandbox_profile_attestation;
+mod controlled_access_egress;
