@@ -217,6 +217,7 @@ mod config;
 mod dashboard;
 mod decision_substrate;
 pub(crate) mod dispositions;
+mod eval_ungate;
 mod event_sink;
 mod events;
 mod execution;
