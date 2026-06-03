@@ -37,6 +37,17 @@ atoms:
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
+ordering_only_edges:
+  # Proteomics produces protein abundance, not RNA-seq normalized counts;
+  # the shared differential_expression atom consumes normalized_counts. The
+  # depends_on is a workflow-ordering relation — the agent reconciles the
+  # typed boundary at runtime against runtime/inputs/.
+  - { from: protein_quantification, to: differential_expression }
+  # DE results feed enrichment and reporting as ordering relations; the
+  # consumers' actual typed inputs are resolved at runtime.
+  - { from: differential_expression, to: pathway_enrichment }
+  - { from: differential_expression, to: reporting }
+  - { from: pathway_enrichment, to: reporting }
 slot_mappings:
   contrast: differential_expression.inputs.contrast
   reference_level: differential_expression.inputs.reference_level
