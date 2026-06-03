@@ -548,6 +548,167 @@ pub fn inject_audit_proof_verdict_nodes(metadata: &mut Value, report: &Value) ->
     Ok(())
 }
 
+/// Register produced result tables as Evidence (V) `@graph` entities.
+///
+/// Runs POST-EXECUTION, after the agent has written result tables under
+/// `runtime/outputs/<task>/`. At emit time only `required_figures` become
+/// `@graph` entities (see [`build_metadata`]); result tables have no
+/// declarative obligation and so were never carried as V nodes. Without this
+/// pass a *verified* claim whose `supported_by` names a result table — the
+/// common case for quantitative DE / significance claims — dangles in
+/// `cross_graph_integrity` (Inv 5), because the cited table is not an
+/// analytical-output entity. (This is the executed-Pasilla-package defect:
+/// `supported_by: differential_expression.tsv` with no matching V node.)
+///
+/// Scans each `runtime/outputs/<task>/` directory one level deep (NOT the
+/// `figures/` / `view_data/` sub-dirs — those are ImageObjects / render inputs,
+/// not V `Table`s) for `*.tsv` / `*.csv` / `*.parquet` files and adds,
+/// idempotently, one `["File", "Dataset"]` entity per table at its
+/// package-relative `@id` (`runtime/outputs/<task>/<file>`), linked from the
+/// root Dataset's `hasPart`. [`crate::audit_proof::output_source::analytical_outputs`]
+/// then surfaces the table as a V `Table` under `runtime/outputs/`, so the
+/// claim's path-form `supported_by` (see
+/// [`crate::claim_sink::project_verdict_rows`]) resolves and Inv 3 / Inv 5
+/// agree on the same C→V link.
+///
+/// Idempotent: an `@id` already present is left untouched, so re-running after
+/// further task completions never duplicates entities. Deterministic order
+/// (tasks then files sorted). Returns the number of newly-registered tables;
+/// a no-op `Ok(0)` when the package has no `ro-crate-metadata.json`, no
+/// `runtime/outputs/`, or every produced table is already registered.
+pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::io::Result<usize> {
+    let descriptor = package_root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(0);
+    };
+    let Ok(mut doc) = serde_json::from_slice::<Value>(&bytes) else {
+        return Ok(0);
+    };
+    let Some(graph) = doc.get_mut("@graph").and_then(Value::as_array_mut) else {
+        return Ok(0);
+    };
+
+    // Existing @ids — registration is idempotent.
+    let existing: std::collections::BTreeSet<String> = graph
+        .iter()
+        .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
+        .collect();
+
+    // Discover produced tables, deterministically ordered (tasks then files).
+    let outputs_root = package_root.join("runtime").join("outputs");
+    let mut rels: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&outputs_root) {
+        let mut task_dirs: Vec<std::path::PathBuf> =
+            entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        task_dirs.sort();
+        for task_dir in task_dirs {
+            let task = task_dir
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            if task.is_empty() {
+                continue;
+            }
+            let Ok(files) = std::fs::read_dir(&task_dir) else {
+                continue;
+            };
+            let mut names: Vec<String> = files
+                .flatten()
+                .filter(|e| e.path().is_file())
+                .filter_map(|e| e.file_name().to_str().map(String::from))
+                .filter(|n| {
+                    n.ends_with(".tsv") || n.ends_with(".csv") || n.ends_with(".parquet")
+                })
+                .collect();
+            names.sort();
+            for name in names {
+                rels.push(format!("runtime/outputs/{task}/{name}"));
+            }
+        }
+    }
+
+    let mut new_parts: Vec<Value> = Vec::new();
+    for rel in &rels {
+        if existing.contains(rel) {
+            continue;
+        }
+        let (task, file) = rel
+            .strip_prefix("runtime/outputs/")
+            .and_then(|r| r.split_once('/'))
+            .unwrap_or(("", rel.as_str()));
+        let fmt = if rel.ends_with(".csv") {
+            "text/csv"
+        } else if rel.ends_with(".parquet") {
+            "application/vnd.apache.parquet"
+        } else {
+            "text/tab-separated-values"
+        };
+        graph.push(json!({
+            "@id": rel,
+            "@type": ["File", "Dataset"],
+            "name": format!("{task} — {file}"),
+            "description": format!("Analytical result table produced by stage '{task}'."),
+            "encodingFormat": fmt,
+            "schema:about": {"@id": format!("#step-{task}")},
+        }));
+        new_parts.push(json!({"@id": rel}));
+    }
+
+    let added = new_parts.len();
+    if added == 0 {
+        return Ok(0);
+    }
+
+    // Link new tables from the root Dataset's hasPart so walkers find them.
+    if let Some(root) = graph
+        .iter_mut()
+        .find(|e| e.get("@id").and_then(Value::as_str) == Some("./"))
+    {
+        if let Some(obj) = root.as_object_mut() {
+            let parts = obj
+                .entry("hasPart")
+                .or_insert_with(|| Value::Array(Vec::new()));
+            if let Some(arr) = parts.as_array_mut() {
+                arr.extend(new_parts);
+            }
+        }
+    }
+
+    let serialized = serde_json::to_vec_pretty(&doc)?;
+    std::fs::write(&descriptor, serialized)?;
+    Ok(added)
+}
+
+/// Post-execution finalize: register agent-produced result tables as V `@graph`
+/// entities ([`register_produced_output_tables`]) and then re-seal the BagIt
+/// payload manifest ([`crate::emitter::regenerate_bagit_manifest`]).
+///
+/// `ro-crate-metadata.json` is a manifested file, so registering tables (which
+/// mutates the descriptor) would otherwise leave `manifest-sha512.txt` stale.
+/// The re-seal runs UNCONDITIONALLY — even when no new table is registered —
+/// because by post-exec time the descriptor and `WORKFLOW.json` have already
+/// drifted from the emit-time seal (the conversation emit path patches the
+/// descriptor; the harness rewrites task states), so the package needs
+/// reconciling regardless. Idempotent and deterministic: the verify-finalize
+/// fires once per task, and repeated invocation converges to identical manifest
+/// bytes (registration is idempotent; the re-seal walk is sorted). Returns the
+/// count of newly-registered tables.
+///
+/// Call AFTER the agent's tables are on disk and BEFORE regenerating the
+/// at-rest `audit-proof-report.json`, so `cross_graph_integrity` (Inv 5) sees
+/// the freshly-registered Evidence node and the report records the resolved
+/// C→V link rather than a stale dangling `Fail`.
+pub fn finalize_evidence_registration(
+    root: &std::path::Path,
+    clock: &dyn crate::clock::Clock,
+) -> std::io::Result<usize> {
+    let added = register_produced_output_tables(root)?;
+    crate::emitter::regenerate_bagit_manifest(root, clock)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    Ok(added)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

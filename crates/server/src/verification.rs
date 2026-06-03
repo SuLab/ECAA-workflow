@@ -381,6 +381,28 @@ pub async fn reverify_and_block_on_mismatch(
                 );
             }
 
+            // Register agent-produced result tables as V `@graph` Evidence
+            // entities and re-seal the BagIt manifest — BEFORE regenerating the
+            // at-rest audit-proof report below, so cross_graph_integrity (Inv 5)
+            // resolves the verified claim's C→V `supported_by` to the
+            // just-registered Evidence node instead of recording a dangling
+            // `Fail`. The descriptor is a manifested file, so the re-seal keeps
+            // the at-rest package self-consistent; it runs on a post-exec
+            // package only, so the emit byte-reproducibility surface is
+            // untouched. Best-effort: a finalize failure must not fail the
+            // request (consistent with the audit-proof rewrite below).
+            if let Err(e) = ecaa_workflow_core::ro_crate::finalize_evidence_registration(
+                &root,
+                &ecaa_workflow_core::clock::WallClock,
+            ) {
+                tracing::warn!(
+                    target: "ecaa::verify",
+                    error = %e,
+                    task_id,
+                    "evidence table registration / BagIt manifest reconcile failed"
+                );
+            }
+
             // Regenerate the at-rest audit-proof report so claim_completeness
             // / cross_graph_integrity reflect the just-persisted verdicts +
             // coverage. The report is BagIt-excluded (carries the spec-excluded
