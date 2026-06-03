@@ -90,6 +90,9 @@ expression: value
           "@id": "runtime/audit-proof-report.json"
         },
         {
+          "@id": "runtime/ed-cf-self-assessment.json"
+        },
+        {
           "@id": "runtime/validation-summary.json"
         },
         {
@@ -460,6 +463,13 @@ expression: value
       "description": "ECAA audit-proof invariant verdicts.",
       "encodingFormat": "application/json",
       "name": "Audit-proof invariant report"
+    },
+    {
+      "@id": "runtime/ed-cf-self-assessment.json",
+      "@type": "CreativeWork",
+      "description": "Deterministic self-location of the system in the Extensibility-Dimension / Counterfactual-Floor design space. Informational — locates, does not validate.",
+      "encodingFormat": "application/json",
+      "name": "ED/CF rubric self-assessment"
     },
     {
       "@id": "runtime/validation-summary.json",
