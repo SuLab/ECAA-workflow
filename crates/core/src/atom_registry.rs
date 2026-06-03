@@ -35,10 +35,6 @@ const ATOM_SCHEMA_JSON: &str = include_str!("../../../config/stage-atoms/_atom.s
 /// the numeric compare — consistent with the load-time shape check. Used by
 /// the registry-lifecycle diff (`registry::lifecycle::AtomCatalogDiff`) and
 /// the duplicate-id-lower-version guard.
-// Consumed by `registry::lifecycle::AtomCatalogDiff` (RL1-2, the
-// immediately-following commit); the allow keeps this intermediate
-// commit warning-clean.
-#[allow(dead_code)]
 pub(crate) fn semver_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     fn parts(v: &str) -> [u64; 3] {
         let mut out = [0u64; 3];
