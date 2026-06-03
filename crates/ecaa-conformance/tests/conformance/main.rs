@@ -22,3 +22,4 @@ mod wrroc_v05_conformance;
 mod benchmark_readiness;
 mod null_treatment_control;
 mod positive_treatment_control;
+mod schema_compliance;
