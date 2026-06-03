@@ -108,6 +108,7 @@ fn emit_creates_required_files() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit should succeed");
 
@@ -156,6 +157,7 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 
@@ -246,6 +248,7 @@ fn emitted_audit_proof_report_carries_version_declaration() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
     let raw = std::fs::read_to_string(tmp.path().join("runtime/audit-proof-report.json"))
@@ -288,6 +291,7 @@ fn emit_copies_plotting_library_into_runtime() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 
@@ -364,6 +368,7 @@ fn emit_package_deterministic_contents_across_repeated_emissions() {
             runtime_prereqs: None,
             per_atom_runtime_prereqs: None,
             stage_atoms_dir: None,
+            experimental_archetype: false,
         })
         .expect("emit");
         vec![
@@ -503,6 +508,7 @@ fn emit_plotting_library_is_idempotent_on_reemit() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     };
     emit_package(&cfg).expect("first emit");
     // Introduce a stray file that must get cleaned up on re-emit
@@ -547,6 +553,7 @@ fn workflow_json_round_trips() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 
@@ -580,6 +587,7 @@ fn workflow_json_round_trips() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("re-emit");
     let content2 = std::fs::read_to_string(tmp.path().join("WORKFLOW.json")).unwrap();
@@ -684,6 +692,7 @@ fn compute_resource_policy_carries_phase_1_fields() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 
@@ -747,6 +756,7 @@ fn gpu_capability_policy_is_emitted() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 
@@ -816,6 +826,7 @@ fn gpu_capability_schema_violation_fails_emission() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .unwrap_err();
     let msg = format!("{:#}", err);
@@ -851,6 +862,7 @@ fn no_compute_profiles_dir_skips_both_policies() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 
@@ -892,6 +904,7 @@ fn ro_crate_is_valid_json_ld() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 
@@ -1237,6 +1250,7 @@ fn emit_plain(dir: &std::path::Path, policies_dir: &std::path::Path) {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 }
@@ -1293,6 +1307,7 @@ fn emit_writes_runtime_prereqs_with_passed_baseline() {
         runtime_prereqs: Some(&prereqs),
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 
@@ -1343,6 +1358,7 @@ fn emit_writes_dockerfile_when_manifest_is_buildable() {
         runtime_prereqs: Some(&prereqs),
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 
@@ -1407,6 +1423,7 @@ fn emit_copies_install_proxy_when_manifest_is_buildable() {
         runtime_prereqs: Some(&prereqs),
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
 
@@ -1626,6 +1643,7 @@ fn emit_package_writes_atom_prereqs_when_map_provided() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: Some(&map),
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
     assert!(
@@ -1717,6 +1735,7 @@ fn emit_writes_container_spec_with_declared_image() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("emit");
     let spec: serde_json::Value =
@@ -1851,6 +1870,7 @@ fn emit_package_rejects_unpinned_container_digest() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     });
     let err = result.expect_err("emit must reject unpinned digests");
     let msg = format!("{:#}", err);
@@ -1886,6 +1906,135 @@ fn policies_dir() -> std::path::PathBuf {
 fn load_ro_crate(dir: &std::path::Path) -> serde_json::Value {
     let s = std::fs::read_to_string(dir.join("ro-crate-metadata.json")).unwrap();
     serde_json::from_str(&s).unwrap()
+}
+
+/// Return the root Dataset (`@id == "./"`) entity from an emitted
+/// ro-crate metadata graph.
+fn root_dataset(meta: &serde_json::Value) -> &serde_json::Value {
+    meta.get("@graph")
+        .and_then(|g| g.as_array())
+        .and_then(|g| {
+            g.iter()
+                .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("./"))
+        })
+        .expect("root Dataset entity")
+}
+
+/// Whether the root Dataset carries the experimental-archetype maturity
+/// stamp as an `additionalProperty` PropertyValue.
+fn has_experimental_stamp(meta: &serde_json::Value) -> bool {
+    root_dataset(meta)
+        .get("additionalProperty")
+        .and_then(|p| p.as_array())
+        .map(|props| {
+            props.iter().any(|p| {
+                p.get("name").and_then(|v| v.as_str()) == Some("archetypeMaturity")
+                    && p.get("value").and_then(|v| v.as_str()) == Some("experimental")
+            })
+        })
+        .unwrap_or(false)
+}
+
+/// When the chosen archetype is experimental (scaffolded /
+/// not-production-validated), emission STAMPS the root Dataset with an
+/// `archetypeMaturity: experimental` additionalProperty so a reviewer
+/// sees the maturity. The stamp is deterministic (no wall-clock) — two
+/// emits of the same inputs produce byte-identical metadata.
+#[test]
+fn emit_stamps_experimental_archetype_maturity() {
+    let tmp = TempDir::new().unwrap();
+    let dag = rnaseq_dag();
+    let mut clf = test_classification();
+    clf.archetype_id = Some("cross_omics_rnaseq_proteomics".into());
+    emit_package(&EmitConfig {
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir(),
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: true,
+    })
+    .expect("emit should succeed");
+
+    let meta = load_ro_crate(tmp.path());
+    assert!(
+        has_experimental_stamp(&meta),
+        "experimental archetype must stamp the root Dataset with \
+         archetypeMaturity: experimental; root = {:#}",
+        root_dataset(&meta)
+    );
+
+    // Determinism: a second emit of the same inputs is byte-identical.
+    let tmp2 = TempDir::new().unwrap();
+    emit_package(&EmitConfig {
+        output_dir: tmp2.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir(),
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: true,
+    })
+    .expect("second emit should succeed");
+    let a = std::fs::read_to_string(tmp.path().join("ro-crate-metadata.json")).unwrap();
+    let b = std::fs::read_to_string(tmp2.path().join("ro-crate-metadata.json")).unwrap();
+    assert_eq!(a, b, "stamped metadata must be byte-deterministic");
+}
+
+/// A normal (production-validated) archetype must NOT stamp the root
+/// Dataset with the experimental marker.
+#[test]
+fn emit_does_not_stamp_production_archetype() {
+    let tmp = TempDir::new().unwrap();
+    let dag = rnaseq_dag();
+    let mut clf = test_classification();
+    clf.archetype_id = Some("bulk_rnaseq_de".into());
+    emit_package(&EmitConfig {
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir(),
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+    })
+    .expect("emit should succeed");
+
+    let meta = load_ro_crate(tmp.path());
+    assert!(
+        !has_experimental_stamp(&meta),
+        "production archetype must NOT carry the experimental maturity stamp; \
+         root = {:#}",
+        root_dataset(&meta)
+    );
 }
 
 #[test]
@@ -1940,6 +2089,7 @@ fn amend_from_some_writes_lineage_policy() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("amend emit");
 
@@ -1993,6 +2143,7 @@ fn amend_from_some_adds_wasDerivedFrom_and_updateAction() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("amend emit");
 
@@ -2054,6 +2205,7 @@ fn branch_emit_adds_wasDerivedFrom_without_updateAction() {
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
+        experimental_archetype: false,
     })
     .expect("branch emit");
 
@@ -2220,6 +2372,7 @@ fn emit_package_whole_package_byte_reproducible() {
             runtime_prereqs: None,
             per_atom_runtime_prereqs: None,
             stage_atoms_dir: None,
+            experimental_archetype: false,
         })
         .expect("emit");
         // Keep the dir alive past the closure so the post-walk reads
@@ -2392,6 +2545,7 @@ fn amend_emit_is_byte_reproducible() {
             runtime_prereqs: None,
             per_atom_runtime_prereqs: None,
             stage_atoms_dir: None,
+            experimental_archetype: false,
         })
         .expect("amend emit");
         child_tmp.keep()

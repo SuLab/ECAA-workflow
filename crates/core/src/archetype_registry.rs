@@ -25,30 +25,11 @@ use ts_rs::TS;
 const ARCHETYPE_SCHEMA_JSON: &str =
     include_str!("../../../config/archetypes/_archetype.schema.json");
 
-/// Env-var name for the scaffolded-archetype production opt-in.
-/// When truthy, the production match/selection path is permitted to
-/// return archetypes whose `production_ready` is `false` (paper §10).
-/// Mirrors the `ECAA_`-prefixed catalog read once via
-/// [`crate::config::Config`]; this constant is the single point of
-/// truth for the flag name across the registry + Config surfaces.
-pub const ALLOW_SCAFFOLDED_ARCHETYPES_ENV: &str = "ECAA_ALLOW_SCAFFOLDED_ARCHETYPES";
-
 /// In-memory archetype catalog. Keyed by id; BTreeMap for deterministic
 /// iteration order across runs.
 #[derive(Debug, Clone, Default)]
 pub struct ArchetypeRegistry {
     archetypes: BTreeMap<String, ArchetypeDefinition>,
-    /// Production-exclusion policy (paper §10). When `false`
-    /// (production default), the match/selection path refuses to return
-    /// any archetype with `production_ready == false` — see
-    /// [`ArchetypeRegistry::is_selectable`]. When `true`, the operator
-    /// has engaged the [`ALLOW_SCAFFOLDED_ARCHETYPES_ENV`] opt-in and
-    /// scaffolded archetypes become selectable.
-    ///
-    /// Scaffolded archetypes are still LOADED into the catalog
-    /// regardless of this flag (so the UI / `iter` / `get` can surface
-    /// them); the flag only gates *selection by the matcher*.
-    allow_scaffolded: bool,
 }
 
 impl ArchetypeRegistry {
@@ -57,33 +38,16 @@ impl ArchetypeRegistry {
     /// is missing — mirrors AtomRegistry's permissive shape so the
     /// composer's legacy fallback continues to work pre-Stage-6.
     ///
-    /// This constructor is the **explicit-policy / developer** entry
-    /// point: it leaves the scaffolded-archetype gate OPEN
-    /// (`allow_scaffolded = true`) so the CLI, dev tooling, and the test
-    /// suite keep matching cross-omics archetypes without ceremony. The
-    /// **production** conversation path uses [`Self::load_cached`], which
-    /// defaults the gate CLOSED unless the
-    /// [`ALLOW_SCAFFOLDED_ARCHETYPES_ENV`] opt-in is set. Use
-    /// [`Self::load_from_dir_with_policy`] to pin the policy explicitly.
+    /// Cross-omics archetypes carry a `production_ready: false` maturity
+    /// marker (retained as data so emission can stamp the package), but
+    /// that marker does NOT gate selection: every loaded archetype is
+    /// selectable by the matcher. The maturity is surfaced downstream via
+    /// [`Self::is_archetype_experimental`] for the emission stamp.
     pub fn load_from_dir(dir: &Path) -> Result<Self> {
-        Self::load_from_dir_with_policy(dir, true)
-    }
-
-    /// Policy-explicit sibling of [`Self::load_from_dir`].
-    ///
-    /// `allow_scaffolded = false` is the production-safe posture: the
-    /// match/selection path refuses to return `production_ready: false`
-    /// archetypes (paper §10). `true` engages the opt-in. Scaffolded
-    /// archetypes are loaded into the catalog either way; only the
-    /// matcher gate changes.
-    pub fn load_from_dir_with_policy(dir: &Path, allow_scaffolded: bool) -> Result<Self> {
         let schema = Self::compiled_schema()?;
         let mut archetypes = BTreeMap::new();
         if !dir.exists() {
-            return Ok(Self {
-                archetypes,
-                allow_scaffolded,
-            });
+            return Ok(Self { archetypes });
         }
         let mut entries: Vec<_> = std::fs::read_dir(dir)
             .with_context(|| format!("reading archetype dir {}", dir.display()))?
@@ -179,10 +143,7 @@ impl ArchetypeRegistry {
                 ));
             }
         }
-        Ok(Self {
-            archetypes,
-            allow_scaffolded,
-        })
+        Ok(Self { archetypes })
     }
 
     /// Iterate archetypes in id-sorted order.
@@ -199,12 +160,7 @@ impl ArchetypeRegistry {
         for a in archetypes {
             map.insert(a.id.clone(), a);
         }
-        // Test constructor mirrors `load_from_dir`'s permissive posture
-        // so synthetic-archetype tests can match without ceremony.
-        Self {
-            archetypes: map,
-            allow_scaffolded: true,
-        }
+        Self { archetypes: map }
     }
 
     /// Get.
@@ -212,29 +168,23 @@ impl ArchetypeRegistry {
         self.archetypes.get(id)
     }
 
-    /// Whether this registry's match/selection path may return
-    /// scaffolded (`production_ready: false`) archetypes. `false` is the
-    /// production-safe posture (paper §10); `true` means the
-    /// [`ALLOW_SCAFFOLDED_ARCHETYPES_ENV`] opt-in is engaged. See
-    /// [`ArchetypeRegistry::is_selectable`].
-    pub fn allow_scaffolded(&self) -> bool {
-        self.allow_scaffolded
-    }
-
-    /// Production-exclusion gate (paper §10). Returns `true` when the
-    /// archetype may be returned by the match/selection path: either it
-    /// is production-validated (`production_ready == true`) or the
-    /// operator engaged the scaffolded opt-in (`allow_scaffolded`).
+    /// Whether the archetype with `id` is *experimental* — i.e.
+    /// scaffolded / not-production-validated (`production_ready: false`).
+    /// Returns `false` for production-validated archetypes and for an
+    /// unknown id (the conservative default: only stamp when we
+    /// positively know the chosen archetype is experimental).
     ///
-    /// This is the single point of truth every selection path consults —
-    /// the registry's own [`find_match_cross_omics`](Self::find_match_cross_omics)
-    /// matcher *and* the inline cross-omics filters in the v3/v4
-    /// planners + the intake snapshot pinner, which iterate
-    /// [`iter`](Self::iter) directly. Keeping the predicate here means a
-    /// scaffolded archetype can never leak into a production plan via a
-    /// bypass path.
-    pub fn is_selectable(&self, archetype: &ArchetypeDefinition) -> bool {
-        self.allow_scaffolded || archetype.production_ready
+    /// This carries the archetype maturity into the emission stamp (the
+    /// `archetypeMaturity: experimental` additionalProperty on the
+    /// emitted RO-Crate root Dataset) so a reviewer can see that the
+    /// package was planned from an experimental archetype. The maturity
+    /// is data only — it does NOT gate selection; every loaded archetype
+    /// remains selectable by the matcher.
+    pub fn is_archetype_experimental(&self, id: &str) -> bool {
+        self.archetypes
+            .get(id)
+            .map(|a| !a.production_ready)
+            .unwrap_or(false)
     }
 
     /// Len.
@@ -496,9 +446,6 @@ impl ArchetypeRegistry {
         let mut scored: Vec<(&ArchetypeDefinition, u32)> = self
             .archetypes
             .values()
-            // Production-exclusion gate (paper §10): a scaffolded
-            // archetype is never selectable unless the opt-in is set.
-            .filter(|a| self.is_selectable(a))
             .filter(|a| !a.cross_omics_modalities.is_empty())
             .filter(|a| {
                 let have: std::collections::BTreeSet<&str> = a
@@ -550,8 +497,6 @@ impl ArchetypeRegistry {
             let mut subset_scored: Vec<(&ArchetypeDefinition, usize, usize, u32)> = self
                 .archetypes
                 .values()
-                // Production-exclusion gate (paper §10).
-                .filter(|a| self.is_selectable(a))
                 .filter(|a| !a.cross_omics_modalities.is_empty())
                 .filter_map(|a| {
                     let have: std::collections::BTreeSet<&str> = a
@@ -655,9 +600,6 @@ impl ArchetypeRegistry {
         let mut superset_scored: Vec<(&ArchetypeDefinition, usize, usize, usize, u32)> = self
             .archetypes
             .values()
-            // Production-exclusion gate (paper §10): a scaffolded
-            // archetype is never selectable unless the opt-in is set.
-            .filter(|a| self.is_selectable(a))
             .filter(|a| !a.cross_omics_modalities.is_empty())
             .filter_map(|a| {
                 let have: std::collections::BTreeSet<&str> = a
@@ -836,70 +778,30 @@ impl ArchetypeRegistry {
         crate::schema_helpers::compile_schema_cached("archetype", ARCHETYPE_SCHEMA_JSON)
     }
 
-    /// Process-wide cached load — the **production** constructor.
-    /// See `AtomRegistry::load_cached`.
+    /// Process-wide cached load. See `AtomRegistry::load_cached`.
     ///
-    /// Unlike [`Self::load_from_dir`] (dev/CLI/test; gate open), this
-    /// applies the production-exclusion policy (paper §10): scaffolded
-    /// (`production_ready: false`) archetypes are NOT selectable unless
-    /// the operator engages the [`ALLOW_SCAFFOLDED_ARCHETYPES_ENV`]
-    /// opt-in. The opt-in is read here (once per dir+policy, then
-    /// cached) — this is the registry's single env-read site for the
-    /// flag; the same value is also surfaced on the typed
-    /// [`crate::config::Config::allow_scaffolded_archetypes`] for
-    /// callers that thread a `Config`.
+    /// Every loaded archetype is selectable by the matcher regardless of
+    /// its `production_ready` maturity marker; the marker is data only,
+    /// surfaced via [`Self::is_archetype_experimental`] for the emission
+    /// stamp.
     pub fn load_cached(dir: &Path) -> Result<Arc<Self>> {
-        Self::load_cached_with_policy(dir, allow_scaffolded_from_env())
-    }
-
-    /// Policy-explicit cached load. Lets a caller that already holds a
-    /// typed [`crate::config::Config`] pass
-    /// `config.allow_scaffolded_archetypes` directly instead of
-    /// re-reading the env. Cache entries are keyed on
-    /// `(dir, allow_scaffolded)` so the two policies never alias.
-    pub fn load_cached_with_policy(dir: &Path, allow_scaffolded: bool) -> Result<Arc<Self>> {
         use std::collections::HashMap;
         use std::path::PathBuf;
         use std::sync::OnceLock;
-        /// Cache keyed on `(canonical dir, allow_scaffolded)` so the
-        /// production (deny) and opt-in (allow) policies never alias.
-        type Cache = std::sync::Mutex<HashMap<(PathBuf, bool), Arc<ArchetypeRegistry>>>;
-        static CACHE: OnceLock<Cache> = OnceLock::new();
+        static CACHE: OnceLock<std::sync::Mutex<HashMap<PathBuf, Arc<ArchetypeRegistry>>>> =
+            OnceLock::new();
         let cache = CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
-        let key = (
-            dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf()),
-            allow_scaffolded,
-        );
+        let key = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
         if let Ok(guard) = cache.lock() {
             if let Some(reg) = guard.get(&key) {
                 return Ok(reg.clone());
             }
         }
-        let reg = Arc::new(Self::load_from_dir_with_policy(dir, allow_scaffolded)?);
+        let reg = Arc::new(Self::load_from_dir(dir)?);
         if let Ok(mut guard) = cache.lock() {
             guard.insert(key, reg.clone());
         }
         Ok(reg)
-    }
-}
-
-/// Read the [`ALLOW_SCAFFOLDED_ARCHETYPES_ENV`] opt-in. Defaults to
-/// `false` (production-safe). Accepts the canonical truthy table used by
-/// [`crate::config`] (`1`/`true`/`yes`/`on`/`t`/`y`, case-insensitive).
-///
-/// This is one of core's intentional direct env reads (the typed-Config
-/// migration documented in `config.rs` is incremental and the
-/// disallowed-methods lint is not yet active in this crate; the same
-/// flag is mirrored on `Config` for callers that thread it). Centralized
-/// here so there is exactly one read site for the registry's gate.
-#[allow(clippy::disallowed_methods)]
-fn allow_scaffolded_from_env() -> bool {
-    match std::env::var(ALLOW_SCAFFOLDED_ARCHETYPES_ENV) {
-        Ok(v) => matches!(
-            v.to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on" | "t" | "y"
-        ),
-        Err(_) => false,
     }
 }
 
@@ -1288,10 +1190,7 @@ mod tests {
                 production_ready: true,
             },
         );
-        let reg = ArchetypeRegistry {
-            archetypes,
-            allow_scaffolded: true,
-        };
+        let reg = ArchetypeRegistry { archetypes };
         let m = reg.find_match_with_evidence("data:0951", Some("format:3475"), "bioinformatics");
         assert_eq!(m.len(), 2, "exact + class-only both score > 0");
         assert_eq!(m[0].archetype.id, "exact_match", "exact match ranks first");
@@ -1348,10 +1247,7 @@ mod tests {
                 },
             );
         }
-        let reg = ArchetypeRegistry {
-            archetypes,
-            allow_scaffolded: true,
-        };
+        let reg = ArchetypeRegistry { archetypes };
         let m = reg.find_match_with_evidence("data:0951", Some("format:3475"), "bioinformatics");
         let close = ArchetypeRegistry::candidates_within_tie_window(&m, 0.05);
         assert_eq!(close.len(), 2, "exact tie surfaces both candidates");

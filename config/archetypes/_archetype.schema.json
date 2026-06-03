@@ -34,7 +34,7 @@
     "production_ready": {
       "type": "boolean",
       "default": true,
-      "description": "Paper §10 production-exclusion gate. `true` (default; omit the field) means the archetype is production-validated and the registry's match/selection path may select it. `false` marks a *scaffolded* archetype — authored and loadable so the catalogue/UI can see it, but NOT production-validated: the matcher refuses to return it unless the operator sets `ECAA_ALLOW_SCAFFOLDED_ARCHETYPES`. The five `cross_omics_*` archetypes set this `false`. Mirrors `crates/core/src/archetype.rs::ArchetypeDefinition::production_ready`."
+      "description": "Paper §10 archetype maturity marker. `true` (default; omit the field) marks a production-validated archetype. `false` marks an *experimental* (scaffolded / not-production-validated) archetype — the five `cross_omics_*` archetypes set this `false`. This is data, not a selection gate: every loaded archetype is selectable by the matcher regardless of this flag. The maturity is surfaced to emission via `ArchetypeRegistry::is_archetype_experimental`, which stamps the emitted RO-Crate root Dataset with an `archetypeMaturity: experimental` additionalProperty so a reviewer sees the package was planned from an experimental archetype. Mirrors `crates/core/src/archetype.rs::ArchetypeDefinition::production_ready`."
     },
     "description": {
       "type": "string",

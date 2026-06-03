@@ -1,9 +1,9 @@
 schema_version: "0.1"
 id: cross_omics_rnaseq_atac_chip
 version: "1.0.0"
-# Paper §10: scaffolded, not production-validated. The registry's
-# match/selection path excludes this archetype from production use
-# unless the ECAA_ALLOW_SCAFFOLDED_ARCHETYPES opt-in is engaged.
+# Paper §10: experimental — scaffolded, not production-validated. This
+# archetype stays selectable by the matcher; emission stamps the
+# package's RO-Crate root with `archetypeMaturity: experimental`.
 production_ready: false
 description: |
   Plan §B.M7 — ternary (N=3) cross-omics analysis covering the chromatin-

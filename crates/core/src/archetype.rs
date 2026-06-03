@@ -199,19 +199,23 @@ pub struct ArchetypeDefinition {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cross_omics_modalities: Vec<String>,
 
-    /// Production-readiness gate (paper §10). `true` (default) means the
-    /// archetype is production-validated and the production matcher may
-    /// select it. `false` marks a *scaffolded* archetype — authored and
-    /// loadable (so the catalog + UI can see it) but NOT
-    /// production-validated; the registry's match/selection path refuses
-    /// to return it unless the operator engages the
-    /// `ECAA_ALLOW_SCAFFOLDED_ARCHETYPES` opt-in (see
-    /// [`crate::archetype_registry::ArchetypeRegistry`]'s policy field).
+    /// Archetype maturity marker (paper §10). `true` (default) means the
+    /// archetype is production-validated. `false` marks an *experimental*
+    /// (scaffolded / not-production-validated) archetype — the five
+    /// `cross_omics_*` archetypes set this `false`.
+    ///
+    /// This is **data, not a selection gate**: every loaded archetype is
+    /// selectable by the matcher regardless of this flag. The maturity is
+    /// surfaced to emission via
+    /// [`crate::archetype_registry::ArchetypeRegistry::is_archetype_experimental`],
+    /// which stamps the emitted RO-Crate root Dataset with an
+    /// `archetypeMaturity: experimental` `additionalProperty` so a
+    /// reviewer sees that the package was planned from an experimental
+    /// archetype.
     ///
     /// Defaults to `true` so every existing single-modality archetype is
     /// unaffected and its YAML stays byte-identical (the field is
-    /// suppressed from serialized output when `true`). The five
-    /// `cross_omics_*` archetypes set this `false`.
+    /// suppressed from serialized output when `true`).
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub production_ready: bool,
 }

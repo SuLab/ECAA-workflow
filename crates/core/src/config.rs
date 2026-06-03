@@ -316,19 +316,6 @@ pub struct Config {
     /// `std::env::var` read at `classify.rs:266`).
     pub modality_drift_mode: ModalityDriftMode,
 
-    // Archetype catalog policy -------------------------------------------
-    /// `ECAA_ALLOW_SCAFFOLDED_ARCHETYPES`. Production-exclusion opt-in
-    /// (paper §10). Default `false`: the archetype registry's
-    /// match/selection path refuses to return scaffolded
-    /// (`production_ready: false`) archetypes — the five `cross_omics_*`
-    /// archetypes. Set truthy to engage the scaffolded archetypes for
-    /// non-production / evaluation use. Mirrors the registry's own
-    /// single env-read site
-    /// (`archetype_registry::ALLOW_SCAFFOLDED_ARCHETYPES_ENV`); a caller
-    /// that threads a `Config` can pass this to
-    /// `ArchetypeRegistry::load_cached_with_policy` instead.
-    pub allow_scaffolded_archetypes: bool,
-
     // ECAA emission mode (Aim 3A Arm B″) ---------------------------------
     /// `ECAA_ECAA_MODE`. Default `Full` (current behavior — full ECAA
     /// package shape with every typed sidecar materialized).
@@ -511,10 +498,6 @@ impl Config {
             }
         };
 
-        // -- Archetype catalog policy ----------------------------------
-        let allow_scaffolded_archetypes =
-            parse_bool(env, "ECAA_ALLOW_SCAFFOLDED_ARCHETYPES", false);
-
         // -- ECAA emission mode ----------------------------------------
         let ecaa_mode =
             crate::emit_mode::EcaaMode::from_env_str(env.get("ECAA_ECAA_MODE").copied());
@@ -543,7 +526,6 @@ impl Config {
             port,
             git_enabled,
             modality_drift_mode,
-            allow_scaffolded_archetypes,
             ecaa_mode,
         })
     }
@@ -596,10 +578,6 @@ impl std::fmt::Debug for Config {
             .field("port", &self.port)
             .field("git_enabled", &self.git_enabled)
             .field("modality_drift_mode", &self.modality_drift_mode)
-            .field(
-                "allow_scaffolded_archetypes",
-                &self.allow_scaffolded_archetypes,
-            )
             .field("ecaa_mode", &self.ecaa_mode)
             .finish()
     }
@@ -658,7 +636,6 @@ impl Default for ConfigBuilder {
                 port: DEFAULT_PORT,
                 git_enabled: true,
                 modality_drift_mode: ModalityDriftMode::Warn,
-                allow_scaffolded_archetypes: false,
                 ecaa_mode: crate::emit_mode::EcaaMode::Full,
             },
         }
@@ -803,13 +780,6 @@ impl ConfigBuilder {
     /// Modality drift mode.
     pub fn modality_drift_mode(mut self, m: ModalityDriftMode) -> Self {
         self.inner.modality_drift_mode = m;
-        self
-    }
-
-    /// Allow scaffolded (`production_ready: false`) archetypes to be
-    /// selected by the matcher (paper §10 production-exclusion opt-in).
-    pub fn allow_scaffolded_archetypes(mut self, v: bool) -> Self {
-        self.inner.allow_scaffolded_archetypes = v;
         self
     }
 

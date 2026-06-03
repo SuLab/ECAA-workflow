@@ -117,62 +117,32 @@ fn cross_omics_archetype_has_both_branch_stages() {
     );
 }
 
-/// Production-exclusion gate (paper §10): cross-omics archetypes are
-/// scaffolded (`production_ready: false`) and MUST NOT be selected by
-/// the production matcher unless the `ECAA_ALLOW_SCAFFOLDED_ARCHETYPES`
-/// opt-in is engaged. The default-policy registry (production) must
-/// refuse to return a cross-omics archetype even for an intake whose
-/// modality set exactly matches one.
+/// Experimental-stamp model (supersedes the old production-exclusion
+/// gate): cross-omics archetypes are scaffolded
+/// (`production_ready: false`) but are SELECTABLE BY DEFAULT — no opt-in
+/// required. The maturity marker is retained as data so emission can
+/// stamp the package; it no longer gates selection. The default
+/// production matcher must therefore return a cross-omics archetype for
+/// an intake whose modality set exactly matches one.
 #[test]
-fn production_matcher_excludes_scaffolded_cross_omics_by_default() {
-    // Default `load_from_dir` is the explicit-policy / dev constructor
-    // and stays permissive; the production constructor denies scaffolded
-    // archetypes. Exercise the production policy directly.
-    let reg = ArchetypeRegistry::load_from_dir_with_policy(
-        &config_root().join("archetypes"),
-        /* allow_scaffolded = */ false,
-    )
-    .expect("ArchetypeRegistry::load_from_dir_with_policy must succeed");
+fn production_matcher_selects_cross_omics_by_default() {
+    // The default (and only) constructor — no policy argument — must
+    // select scaffolded cross-omics archetypes with no opt-in.
+    let reg = ArchetypeRegistry::load_from_dir(&config_root().join("archetypes"))
+        .expect("ArchetypeRegistry::load_from_dir must succeed");
 
-    // The cross-omics archetype is still LOADED (so the catalog + UI can
-    // see it), but it must be marked not-production-ready ...
+    // The cross-omics archetype is loaded and its maturity marker is
+    // retained as data (production_ready: false) so emission can stamp
+    // it — but that marker must NOT exclude it from selection.
     let arch = reg
         .get("cross_omics_rnaseq_proteomics")
-        .expect("scaffolded archetype is still loaded into the catalog");
+        .expect("cross_omics archetype must be loaded into the catalog");
     assert!(
         !arch.production_ready,
-        "cross-omics archetype must be marked production_ready: false"
+        "cross-omics archetype keeps its production_ready: false maturity marker"
     );
 
-    // ... and the production matcher must NOT select it for an intake
-    // whose modality set exactly matches.
-    let matches = reg.find_match_cross_omics(
-        "data:0951",
-        Some("format:3475"),
-        "bioinformatics",
-        &["bulk_rnaseq", "proteomics"],
-        None,
-        false,
-        "rna-seq and proteomics",
-    );
-    assert!(
-        matches.is_empty(),
-        "production matcher (allow_scaffolded=false) must not return a \
-         scaffolded cross-omics archetype, got {:?}",
-        matches.iter().map(|(a, _)| &a.id).collect::<Vec<_>>()
-    );
-}
-
-/// With the explicit opt-in engaged, the production matcher DOES select
-/// the scaffolded cross-omics archetype.
-#[test]
-fn production_matcher_includes_scaffolded_cross_omics_with_opt_in() {
-    let reg = ArchetypeRegistry::load_from_dir_with_policy(
-        &config_root().join("archetypes"),
-        /* allow_scaffolded = */ true,
-    )
-    .expect("ArchetypeRegistry::load_from_dir_with_policy must succeed");
-
+    // The production matcher selects it by default for a matching intake.
     let matches = reg.find_match_cross_omics(
         "data:0951",
         Some("format:3475"),
@@ -186,7 +156,8 @@ fn production_matcher_includes_scaffolded_cross_omics_with_opt_in() {
         matches
             .iter()
             .any(|(a, _)| a.id == "cross_omics_rnaseq_proteomics"),
-        "with opt-in, matcher must return the cross-omics archetype, got {:?}",
+        "default matcher must select the scaffolded cross-omics archetype \
+         (selectable by default; no opt-in), got {:?}",
         matches.iter().map(|(a, _)| &a.id).collect::<Vec<_>>()
     );
 }

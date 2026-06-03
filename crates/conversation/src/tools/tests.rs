@@ -2,7 +2,6 @@
 
 use super::*;
 use crate::session::SessionState;
-use serial_test::serial;
 // Bring the bucket-enum variants directly into scope so the tests can
 // continue to write `Tool::Batchable(BatchableTool::X { .. })` etc. via
 // the shorter `bt!` / `hi!` macros below. The bucket types themselves
@@ -28,36 +27,6 @@ macro_rules! hi {
     ($variant:ident $({ $($body:tt)* })?) => {
         Tool::HighImpact(HighImpactTool::$variant $({ $($body)* })?)
     };
-}
-
-/// RAII guard that engages the paper §10 scaffolded-archetype opt-in for
-/// a single test, then restores the prior environment on drop.
-///
-/// The production archetype path (`ArchetypeRegistry::load_cached`)
-/// excludes the five `cross_omics_*` archetypes (`production_ready:
-/// false`) unless `ECAA_ALLOW_SCAFFOLDED_ARCHETYPES` is set. The
-/// cross-omics end-to-end tests below assert that the scaffolds *do*
-/// produce both branches, so they opt in. Pair with `#[serial]` because
-/// the flag is process-global.
-struct ScaffoldedArchetypesOptIn {
-    prev: Option<String>,
-}
-
-impl ScaffoldedArchetypesOptIn {
-    fn engage() -> Self {
-        let prev = std::env::var("ECAA_ALLOW_SCAFFOLDED_ARCHETYPES").ok();
-        std::env::set_var("ECAA_ALLOW_SCAFFOLDED_ARCHETYPES", "1");
-        Self { prev }
-    }
-}
-
-impl Drop for ScaffoldedArchetypesOptIn {
-    fn drop(&mut self) {
-        match &self.prev {
-            Some(v) => std::env::set_var("ECAA_ALLOW_SCAFFOLDED_ARCHETYPES", v),
-            None => std::env::remove_var("ECAA_ALLOW_SCAFFOLDED_ARCHETYPES"),
-        }
-    }
 }
 
 #[test]
@@ -1902,9 +1871,7 @@ async fn append_intake_prose_resolves_bulk_de_tie_via_modality_hint() {
 /// `archetype_snapshot` and discovers cross-omics archetypes via the
 /// shared `ArchetypeRegistry::find_match_cross_omics`.
 #[tokio::test]
-#[serial]
 async fn cross_omics_autism_pms_intake_emits_both_branches() {
-    let _opt_in = ScaffoldedArchetypesOptIn::engage();
     let mut s = crate::session::Session::new(false);
     let res = dispatch_one(
         &Tool::Batchable(BatchableTool::AppendIntakeProse {
@@ -1988,9 +1955,7 @@ async fn cross_omics_autism_pms_intake_emits_both_branches() {
 /// modality set and route to the ternary archetype instead of falling
 /// back to a generic/single-branch DAG.
 #[tokio::test]
-#[serial]
 async fn tri_omics_branch_goal_routes_to_cross_omics_archetype() {
-    let _opt_in = ScaffoldedArchetypesOptIn::engage();
     let mut s = crate::session::Session::new(false);
     let prose = "We're doing a three-way analysis on a cohort of around twenty \
         patient-matched samples: bulk RNA-seq, bulk ATAC-seq, and ChIP-seq for \
@@ -2093,9 +2058,7 @@ async fn tri_omics_branch_goal_routes_to_cross_omics_archetype() {
 /// once explicit cross-omics intent is captured, rebuild must either
 /// emit a cross-omics DAG or fail instead of downgrading to proteomics.
 #[tokio::test]
-#[serial]
 async fn live_session_cross_omics_sequence_does_not_downgrade_to_proteomics() {
-    let _opt_in = ScaffoldedArchetypesOptIn::engage();
     let mut s = crate::session::Session::new(false);
     let turns = [
         "Cross-omics study comparing three groups: healthy controls, autism spectrum disorder \
@@ -2191,9 +2154,7 @@ async fn live_session_cross_omics_sequence_does_not_downgrade_to_proteomics() {
 }
 
 #[tokio::test]
-#[serial]
 async fn user_gene_expression_proteomics_text_builds_full_multiomics_dag() {
-    let _opt_in = ScaffoldedArchetypesOptIn::engage();
     let mut s = crate::session::Session::new(false);
     // "cross-omics" is a strong marker that lowers the companion-modality
     // min_hits threshold from 3 → 1; without it, the "bulk_rnaseq+proteomics"
