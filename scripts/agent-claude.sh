@@ -1576,6 +1576,38 @@ if [ -n "${ECAA_TASK_ID:-}" ]; then
   } > "$_DET_OUT_DIR/determinism-env.json" 2>/dev/null || true
 fi
 
+# Per-package dependency-lock resolved-version fold (D5, OPERATOR-GATED).
+# When the agent emitted a runtime/install-log.jsonl of
+# {"registry","package","resolved_version"} lines AND a requested-side
+# runtime/dependency-lock.json exists, patch the matching entries'
+# `resolved` column with the exact installed version. The requested side
+# is written at emit (offline + byte-reproducible); this fold fills the
+# RESOLVED column only at runtime. The lock is byte-diff-EXCLUDED runtime
+# evidence; the fold is additive and `|| true`-guarded so a missing or
+# empty install-log never fails the task. `registry` maps to the lock's
+# r / python / conda columns (cran->r, pip->python).
+if command -v jq >/dev/null 2>&1 \
+   && [ -f "$PACKAGE/runtime/install-log.jsonl" ] \
+   && [ -f "$PACKAGE/runtime/dependency-lock.json" ]; then
+  _LOCK="$PACKAGE/runtime/dependency-lock.json"
+  _LOCK_TMP="$_LOCK.tmp.$$"
+  jq --slurpfile log "$PACKAGE/runtime/install-log.jsonl" '
+    def col(r): if r=="cran" or r=="r" then "r"
+                elif r=="pip" or r=="python" then "python"
+                elif r=="conda" then "conda" else empty end;
+    . as $lock
+    | reduce ($log[] // empty) as $line ($lock;
+        (col($line.registry)) as $c
+        | if $c == null then .
+          else .[$c] |= map(
+              if .name == $line.package and ($line.resolved_version // "") != ""
+              then .resolved = $line.resolved_version else . end)
+          end)
+  ' "$_LOCK" > "$_LOCK_TMP" 2>/dev/null \
+    && mv "$_LOCK_TMP" "$_LOCK" 2>/dev/null \
+    || { rm -f "$_LOCK_TMP" 2>/dev/null; true; }
+fi
+
 # Reconcile contradictory Claude Code outcomes only after all forensic
 # sidecars have been written. A nonzero CLI status remains nonzero unless
 # the terminal JSON says success and the task produced a parseable patch.

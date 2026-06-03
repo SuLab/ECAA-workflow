@@ -159,6 +159,25 @@ pub async fn write_security_policy(
     Ok(())
 }
 
+/// D5 (requested side) — write `runtime/dependency-lock.json` from the
+/// aggregated package prereqs. Offline + byte-reproducible: the resolved
+/// column is filled at runtime by the install-proxy fold (OPERATOR-GATED).
+/// Always written (empty columns when no language packages declared).
+pub async fn write_dependency_lock(
+    prereqs: &ecaa_workflow_core::runtime_prereqs::RuntimePrereqs,
+    output_dir: &Path,
+) -> Result<()> {
+    let runtime = output_dir.join("runtime");
+    tokio::fs::create_dir_all(&runtime).await?;
+    let path = runtime.join("dependency-lock.json");
+    let lock = ecaa_workflow_core::dependency_lock::RequestedLock::from_prereqs(prereqs);
+    let body = serde_json::to_vec_pretty(&lock).context("serializing dependency-lock.json")?;
+    tokio::fs::write(&path, body)
+        .await
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
 /// D4 — write `runtime/model-policy.json`.
 ///
 /// Records the active Anthropic model (Sonnet 4.6 default; Opus 4.8 on

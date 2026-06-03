@@ -205,3 +205,28 @@ async fn security_policy_lists_one_atom_policy_per_dag_node_and_digests() {
     let body2 = std::fs::read(tmp2.path().join("runtime/security-policy.json")).unwrap();
     assert_eq!(body, body2, "security-policy.json must be byte-reproducible");
 }
+
+// ── D5: per-package dependency lock (requested side) ──────────────
+
+#[tokio::test]
+async fn dependency_lock_requested_side_is_byte_reproducible() {
+    let p = {
+        let mut p = ecaa_workflow_core::runtime_prereqs::RuntimePrereqs::new();
+        p.language_packages.python = ["scanpy>=1.10".into()].into();
+        p
+    };
+    let tmp = tempdir().unwrap();
+    ecaa_workflow_conversation::emit::sidecars::write_dependency_lock(&p, tmp.path())
+        .await
+        .unwrap();
+    let body = std::fs::read(tmp.path().join("runtime/dependency-lock.json")).unwrap();
+    let tmp2 = tempdir().unwrap();
+    ecaa_workflow_conversation::emit::sidecars::write_dependency_lock(&p, tmp2.path())
+        .await
+        .unwrap();
+    let body2 = std::fs::read(tmp2.path().join("runtime/dependency-lock.json")).unwrap();
+    assert_eq!(body, body2);
+    let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(v["python"][0]["name"], "scanpy");
+    assert_eq!(v["python"][0]["requested"], ">=1.10");
+}

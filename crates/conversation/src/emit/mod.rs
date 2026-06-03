@@ -494,6 +494,7 @@ async fn emit_steps(
     // parent_package_path as the source side.
     sidecars::write_reexecution_sidecar(session, output_dir).await?;
     sidecars::write_security_policy(session, output_dir, config_dir).await?;
+    sidecars::write_dependency_lock(&runtime_prereqs, output_dir).await?;
     sidecars::write_model_policy(session, output_dir).await?;
     // D5 — typed-blocker sidecar. Suppressed under
     // ECAA_ABLATE_TYPED_BLOCKERS (ablation moves from the SSE broadcaster
