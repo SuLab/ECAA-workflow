@@ -73,3 +73,8 @@ claim_boundary: |
   a single aggregate call unless the SME asked for it. A novel isoform
   requires orthogonal support (spike-in, matched short-read, or
   curated-annotation corroboration).
+ordering_only_edges:
+  - { from: differential_transcript_usage, to: reporting }
+  - { from: isoform_discovery, to: differential_transcript_usage }
+  - { from: normalisation, to: isoform_discovery }
+  - { from: raw_qc, to: sequence_trimming }

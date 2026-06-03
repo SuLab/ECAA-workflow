@@ -44,3 +44,6 @@ claim_boundary: |
   groupings, not antigen-specificity assignments. Report sampling
   depth + per-cell recovery + clustering parameters alongside every
   diversity / clonotype output.
+ordering_only_edges:
+  - { from: cdr3_clonotype_clustering, to: reporting }
+  - { from: repertoire_diversity, to: reporting }

@@ -79,3 +79,14 @@ claim_boundary: |
   reference / panel / marker set used alongside every label. Differential
   expression is statistical association across cells of the same called
   type; do not infer mechanism.
+ordering_only_edges:
+  # DE runs *after* cell-type calling, but its actual data input is the
+  # normalized counts from upstream `normalisation` (satisfied via that
+  # atom's own edge). The depends_on here is a sequencing relation, not a
+  # port-typed data flow.
+  - { from: cell_type_annotation, to: differential_expression }
+  - { from: clustering, to: cell_type_annotation }
+  - { from: differential_expression, to: pathway_enrichment }
+  - { from: differential_expression, to: reporting }
+  - { from: pathway_enrichment, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }

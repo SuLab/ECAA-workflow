@@ -65,3 +65,10 @@ claim_boundary: |
   centers identify TF binding positions but do not directly
   prove the bound TF — motif validation under the
   consensus binding center is supportive evidence only.
+ordering_only_edges:
+  - { from: differential_accessibility, to: reporting }
+  - { from: motif_enrichment, to: reporting }
+  - { from: pathway_enrichment, to: reporting }
+  - { from: peak_annotation, to: reporting }
+  - { from: peak_calling, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }

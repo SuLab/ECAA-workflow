@@ -57,6 +57,7 @@ use ts_rs::TS;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
 #[ts(export)]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum VerifierDecision {
     /// The compatibility engine entered `prove()` for an edge. Emitted
     /// at function entry so every prove call has at least one substrate
@@ -336,6 +337,29 @@ pub enum VerifierDecision {
         queue_entry_id: String,
         /// Transition kind.
         transition_kind: String,
+    },
+    /// A composed-DAG edge that did not prove a typed data flow was
+    /// waved through as workflow-ordering-only. Recorded once per
+    /// `EdgeKind::OrderingOnly` classification so an auditor can see
+    /// which edges entered an executable DAG untyped. `declared`
+    /// distinguishes an archetype-author exemption from a synthesis-
+    /// site ordering edge; `risk_mode` records the strictness band in
+    /// force (an OrderingOnly edge in Production would have rejected).
+    OrderingEdgeExempted {
+        /// Id.
+        id: String,
+        /// Timestamp.
+        timestamp: String,
+        /// Producer node id.
+        producer_node: String,
+        /// Consumer node id.
+        consumer_node: String,
+        /// True when the exemption came from an archetype
+        /// `ordering_only_edges` declaration; false for synthesis-site
+        /// ordering edges.
+        declared: bool,
+        /// Strictness band string (`"draft"` / `"production"`).
+        risk_mode: String,
     },
 }
 
@@ -743,6 +767,37 @@ mod tests {
     /// guard so a concurrent unscoped merge-all drain can't steal their
     /// scoped rows.
     static SUBSTRATE_GUARD: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn ordering_edge_exempted_round_trips() {
+        let d = VerifierDecision::OrderingEdgeExempted {
+            id: "ord:p:c".into(),
+            timestamp: timestamp(),
+            producer_node: "p".into(),
+            consumer_node: "c".into(),
+            declared: true,
+            risk_mode: "draft".into(),
+        };
+        let json = serde_json::to_string(&d).unwrap();
+        assert!(
+            json.contains("\"kind\":\"ordering_edge_exempted\""),
+            "got {json}"
+        );
+        let back: VerifierDecision = serde_json::from_str(&json).unwrap();
+        assert_eq!(d, back);
+    }
+
+    /// A historical substrate row (a pre-existing variant) still
+    /// deserializes after the additive variant + #[non_exhaustive].
+    #[test]
+    fn legacy_unification_attempted_row_still_round_trips() {
+        let legacy = r#"{"kind":"unification_attempted","id":"x","timestamp":"0","producer_port":"a","consumer_port":"b","ctx_hash":"h"}"#;
+        let back: VerifierDecision = serde_json::from_str(legacy).unwrap();
+        assert!(matches!(
+            back,
+            VerifierDecision::UnificationAttempted { .. }
+        ));
+    }
 
     #[test]
     fn record_and_drain_round_trip() {

@@ -405,3 +405,23 @@ fn builder_overrides_modality_drift_mode() {
         .build();
     assert_eq!(cfg.modality_drift_mode, ModalityDriftMode::Fail);
 }
+
+#[test]
+fn compose_strict_parses_truthy_and_defaults_false() {
+    let mut on: HashMap<&str, &str> = HashMap::new();
+    on.insert("ECAA_COMPOSE_STRICT", "1");
+    assert!(Config::from_env_map(&on).unwrap().compose_strict);
+
+    let empty: HashMap<&str, &str> = HashMap::new();
+    assert!(
+        !Config::from_env_map(&empty).unwrap().compose_strict,
+        "default is false"
+    );
+
+    let mut garbage: HashMap<&str, &str> = HashMap::new();
+    garbage.insert("ECAA_COMPOSE_STRICT", "banana");
+    assert!(
+        !Config::from_env_map(&garbage).unwrap().compose_strict,
+        "garbage -> false"
+    );
+}

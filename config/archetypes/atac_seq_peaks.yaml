@@ -57,3 +57,9 @@ claim_boundary: |
   observed TSS-enrichment + mitochondrial-fraction QC values alongside
   every peak set. ATAC peaks differ from ChIP-seq peaks in that they
   reflect open chromatin, not TF-specific binding.
+ordering_only_edges:
+  - { from: differential_accessibility, to: reporting }
+  - { from: motif_enrichment, to: reporting }
+  - { from: peak_annotation, to: reporting }
+  - { from: peak_calling, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }

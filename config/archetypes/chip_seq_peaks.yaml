@@ -66,3 +66,10 @@ claim_boundary: |
   claim direct binding without orthogonal validation; report the called
   caller, mark type (narrow / broad), and FDR threshold alongside every
   peak set.
+ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: motif_enrichment, to: reporting }
+  - { from: peak_annotation, to: reporting }
+  - { from: peak_calling, to: contextualize_findings_with_literature }
+  - { from: peak_calling, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }

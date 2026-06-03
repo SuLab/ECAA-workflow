@@ -65,3 +65,7 @@ claim_boundary: |
   curator-assigned and may lag literature. Report the caller, filter
   strategy, and annotation source for every variant. Do not assert
   clinical interpretation beyond what the cited annotation source supports.
+ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }
+  - { from: variant_annotation, to: reporting }

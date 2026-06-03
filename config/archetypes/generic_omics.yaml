@@ -41,3 +41,5 @@ claim_boundary: |
   Report QC metrics and summary counts as computed. Do not assert
   modality-specific biological interpretation; the archetype is a
   catch-all and downstream typed analysis is up to the SME.
+ordering_only_edges:
+  - { from: generic_summary, to: reporting }

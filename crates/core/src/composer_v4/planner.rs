@@ -329,7 +329,7 @@ pub fn plan(
         .map(|seed| is_definitive_archetype_match(&seed.evidence))
         .unwrap_or(false);
     if let Some(seed) = archetype_seed {
-        let mut dag = lift_to_workflow_dag(&seed.composition, ctx, goal);
+        let mut dag = lift_to_workflow_dag(&seed.composition, ctx, goal, archetype_reg);
         // Synthesize `validate_*` companions for
         // result-producing atoms. Mirrors v2's `emit_stage` post-pass
         // so v4 emissions reach parity with the v2 baseline.
@@ -1573,7 +1573,15 @@ pub fn lift_to_workflow_dag(
     result: &CompositionResult,
     ctx: &PlanningContext,
     _goal: &GoalSpec,
+    archetype_reg: &ArchetypeRegistry,
 ) -> WorkflowDag {
+    // Resolve the matched archetype once so the lift loop can honor its
+    // `ordering_only_edges` declarations. `None` (ad-hoc composition or
+    // unknown id) → every non-unifying depends_on edge stays Unproven.
+    let matched_archetype = result
+        .matched_archetype
+        .as_deref()
+        .and_then(|id| archetype_reg.get(id));
     let mut nodes: Vec<TaskNode> = Vec::with_capacity(result.atoms.len());
     let mut node_ports: BTreeMap<String, (Vec<PortContract>, Vec<PortContract>)> = BTreeMap::new();
     for c in &result.atoms {
@@ -1720,12 +1728,35 @@ pub fn lift_to_workflow_dag(
                 .map(|(i, o)| (i.clone(), o.clone()))
                 .unwrap_or_default();
 
+            let declared_ordering = matched_archetype
+                .map(|a| a.is_ordering_only(&producer_stage, c.stage_id.as_str()))
+                .unwrap_or(false);
             let (producer_port, consumer_port, proof, kind) = pick_best_port_pair(
                 &engine,
                 &producer_outputs,
                 &consumer_inputs,
-                false, // WG2 replaces with the archetype ordering_only lookup
+                declared_ordering,
             );
+
+            // Record one substrate row per OrderingOnly edge so an
+            // auditor can see which edges entered an executable DAG
+            // untyped, and whether the exemption was archetype-declared.
+            if matches!(kind, EdgeKind::OrderingOnly) {
+                crate::decision_substrate::record(
+                    crate::decision_substrate::VerifierDecision::OrderingEdgeExempted {
+                        id: crate::decision_substrate::stable_id(
+                            "ord",
+                            &producer_stage,
+                            c.stage_id.as_str(),
+                        ),
+                        timestamp: crate::decision_substrate::timestamp(),
+                        producer_node: producer_stage.clone(),
+                        consumer_node: c.stage_id.to_string(),
+                        declared: declared_ordering,
+                        risk_mode: format!("{:?}", ctx.risk_mode).to_lowercase(),
+                    },
+                );
+            }
 
             edges.push(EdgeContract {
                 from_node: producer_stage,
@@ -2123,14 +2154,16 @@ fn score_dag(
     let mut s = ScoringTuple::default();
     // 1. Hard policy violation — slot is wired via PolicyContext.
     // Default is Pass.
-    // 2. Required-contract-unsatisfied: any edge that did not prove a
-    // typed (or adapter-mediated, or declared-ordering) flow is Unproven
-    // and rejects. The decision is the typed `EdgeKind`, not a substring
+    // 2. Required-contract-unsatisfied. Draft rejects only Unproven
+    // edges; Production (ECAA_COMPOSE_STRICT, WG3) additionally rejects
+    // declared/synthesized OrderingOnly edges — the first real branch on
+    // risk_mode. The decision is the typed `EdgeKind`, not a substring
     // scan of the proof's warning text.
-    let any_unsat = dag
-        .edges
-        .iter()
-        .any(|e| matches!(e.kind, EdgeKind::Unproven));
+    use crate::compatibility::engine::RiskMode;
+    let any_unsat = dag.edges.iter().any(|e| match ctx.risk_mode {
+        RiskMode::Production => matches!(e.kind, EdgeKind::Unproven | EdgeKind::OrderingOnly),
+        RiskMode::Draft => matches!(e.kind, EdgeKind::Unproven),
+    });
     if any_unsat {
         s.required_contract_unsatisfied = ScoringValue::Reject;
     }
@@ -3238,6 +3271,50 @@ mod tests {
         assert!(
             !matches!(score.required_contract_unsatisfied, ScoringValue::Reject),
             "a declared OrderingOnly edge must NOT Reject in Draft"
+        );
+    }
+
+    #[test]
+    fn production_rejects_ordering_only_but_draft_accepts() {
+        use crate::compatibility::engine::RiskMode;
+        use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+        use crate::workflow_contracts::evidence::AssumptionLedger;
+        use crate::workflow_contracts::task_node::WorkflowDag;
+        let mk = || WorkflowDag {
+            id: "t".into(),
+            nodes: vec![],
+            edges: vec![EdgeContract {
+                from_node: "p".into(),
+                from_port: "".into(),
+                to_node: "c".into(),
+                to_port: "".into(),
+                proof: CompatibilityProof::default(),
+                kind: EdgeKind::OrderingOnly,
+                chain_of_custody: None,
+            }],
+            assumptions: AssumptionLedger::default(),
+            source_template: None,
+        };
+        let reg = ArchetypeRegistry::default();
+
+        let mut draft = PlanningContext::default();
+        draft.risk_mode = RiskMode::Draft;
+        assert!(
+            !matches!(
+                score_dag(&mk(), &draft, &reg).required_contract_unsatisfied,
+                ScoringValue::Reject
+            ),
+            "Draft accepts OrderingOnly"
+        );
+
+        let mut prod = PlanningContext::default();
+        prod.risk_mode = RiskMode::Production;
+        assert!(
+            matches!(
+                score_dag(&mk(), &prod, &reg).required_contract_unsatisfied,
+                ScoringValue::Reject
+            ),
+            "Production rejects OrderingOnly"
         );
     }
 

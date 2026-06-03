@@ -36,3 +36,14 @@ atoms:
   - { atom_id: reporting, depends_on: [differential_expression, differential_accessibility, peak_to_gene_linking], required: true }
   - { atom_id: final_reporting, depends_on: [reporting], required: true }
 slot_mappings: {}
+ordering_only_edges:
+  - { from: cell_type_annotation, to: differential_accessibility }
+  - { from: cell_type_annotation, to: differential_expression }
+  - { from: cell_type_annotation, to: peak_to_gene_linking }
+  - { from: clustering, to: cell_type_annotation }
+  - { from: data_acquisition, to: qc_preprocessing }
+  - { from: differential_accessibility, to: reporting }
+  - { from: differential_expression, to: pathway_enrichment }
+  - { from: differential_expression, to: reporting }
+  - { from: joint_wnn_integration, to: differential_accessibility }
+  - { from: peak_to_gene_linking, to: reporting }

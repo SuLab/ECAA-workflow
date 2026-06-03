@@ -305,6 +305,13 @@ pub struct Config {
     /// (including unset) is enabled (default `true`).
     pub git_enabled: bool,
 
+    /// `ECAA_COMPOSE_STRICT`. When true, the v4 planner runs in
+    /// `RiskMode::Production`: any edge that is not `TypedDataFlow` or
+    /// `AdapterMediated` rejects — including declared `OrderingOnly`
+    /// edges. Default false (`RiskMode::Draft`) preserves the passing
+    /// corpus + byte-reproducibility baseline.
+    pub compose_strict: bool,
+
     // Core classifier policy ---------------------------------------------
     /// `ECAA_MODALITY_DRIFT_MODE`. Controls how `Classifier::load`
     /// reacts to a non-empty legacy `modalities:` block in
@@ -484,6 +491,9 @@ impl Config {
             Some("0") => false,
             _ => true,
         };
+        // `ECAA_COMPOSE_STRICT` — RiskMode::Production band (WG3). Off by
+        // default (Draft) so the corpus + byte baseline are unchanged.
+        let compose_strict = parse_bool(env, "ECAA_COMPOSE_STRICT", false);
 
         // -- Core classifier policy ------------------------------------
         let modality_drift_mode = match env.get("ECAA_MODALITY_DRIFT_MODE").copied() {
@@ -525,6 +535,7 @@ impl Config {
             bind_addr,
             port,
             git_enabled,
+            compose_strict,
             modality_drift_mode,
             ecaa_mode,
         })
@@ -577,6 +588,7 @@ impl std::fmt::Debug for Config {
             .field("bind_addr", &self.bind_addr)
             .field("port", &self.port)
             .field("git_enabled", &self.git_enabled)
+            .field("compose_strict", &self.compose_strict)
             .field("modality_drift_mode", &self.modality_drift_mode)
             .field("ecaa_mode", &self.ecaa_mode)
             .finish()
@@ -635,6 +647,7 @@ impl Default for ConfigBuilder {
                 bind_addr: DEFAULT_BIND_ADDR.to_string(),
                 port: DEFAULT_PORT,
                 git_enabled: true,
+                compose_strict: false,
                 modality_drift_mode: ModalityDriftMode::Warn,
                 ecaa_mode: crate::emit_mode::EcaaMode::Full,
             },

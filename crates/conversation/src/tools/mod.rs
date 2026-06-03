@@ -3078,7 +3078,14 @@ fn try_build_via_composer(
     let preferred_methods =
         ecaa_workflow_core::preferred_methods::PreferredMethods::from_intake_methods(&methods);
 
-    let output = match ecaa_workflow_core::composer::compose_with_modalities_full_pref(
+    // WG3 — honor ECAA_COMPOSE_STRICT (RiskMode::Production) on the chat
+    // rebuild_dag path. Default off keeps Draft behavior + the corpus
+    // baseline; clinical-tier sessions that want ordering exemptions
+    // re-justified set the env var.
+    let compose_strict = ecaa_workflow_core::config::Config::from_env()
+        .map(|c| c.compose_strict)
+        .unwrap_or(false);
+    let output = match ecaa_workflow_core::composer::compose_with_modalities_full_pref_strict(
         &goal,
         project_class_str,
         &atoms,
@@ -3088,6 +3095,7 @@ fn try_build_via_composer(
         Some(opaque_sink),
         Some(session_id_str.as_str()),
         &preferred_methods,
+        compose_strict,
     ) {
         Ok(c) => c,
         Err(e) => {

@@ -72,3 +72,10 @@ claim_boundary: |
   contrast, not biological causation. Report effect size + adjusted p-value
   + the reference factor level; prefer "associated with" / "enriched in"
   over mechanistic language.
+ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: differential_expression, to: contextualize_findings_with_literature }
+  - { from: differential_expression, to: pathway_enrichment }
+  - { from: differential_expression, to: reporting }
+  - { from: pathway_enrichment, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }

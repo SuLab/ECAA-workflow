@@ -67,3 +67,8 @@ claim_boundary: |
   contrast — mechanistic translation-control claims require
   orthogonal validation. Report effect size + adjusted p-value +
   the RPF / mRNA pairing used.
+ordering_only_edges:
+  - { from: normalisation, to: translation_efficiency_de }
+  - { from: pathway_enrichment, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }
+  - { from: translation_efficiency_de, to: reporting }

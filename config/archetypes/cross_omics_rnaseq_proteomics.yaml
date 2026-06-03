@@ -56,3 +56,23 @@ claim_boundary: |
   integration. Report each branch's effect size + adjusted p-value
   independently; the join surfaces overlap and discordance, not
   causation.
+ordering_only_edges:
+  - { from: proteomics_differential_abundance, to: cross_omics_thematic_comparison }
+  - { from: proteomics_differential_abundance, to: proteomics_pathway_enrichment }
+  - { from: proteomics_pathway_enrichment, to: cross_omics_thematic_comparison }
+  - { from: proteomics_protein_quantification, to: proteomics_differential_abundance }
+  - { from: rnaseq_differential_expression, to: cross_omics_thematic_comparison }
+  - { from: rnaseq_differential_expression, to: rnaseq_pathway_enrichment }
+  - { from: rnaseq_pathway_enrichment, to: cross_omics_thematic_comparison }
+  - { from: rnaseq_raw_qc, to: rnaseq_sequence_trimming }
+  # Integrator-slot (DIABLO / MOFA / SNF) edges: sample-alignment
+  # validation gate + the integration atom feed are ordering relations,
+  # not port-typed data flow. Inert when the slot is inactive.
+  - { from: rnaseq_quantification, to: cross_omics_alignment_check }
+  - { from: proteomics_protein_quantification, to: cross_omics_alignment_check }
+  - { from: cross_omics_alignment_check, to: cross_omics_diablo_integration }
+  - { from: cross_omics_diablo_integration, to: cross_omics_diablo_final_reporting }
+  - { from: rnaseq_quantification, to: validate_sample_alignment_n_way }
+  - { from: proteomics_protein_quantification, to: validate_sample_alignment_n_way }
+  - { from: validate_sample_alignment_n_way, to: integrate_multi_omics_mofa }
+  - { from: validate_sample_alignment_n_way, to: integrate_multi_omics_snf }
