@@ -42,18 +42,33 @@ pub struct CoverageResult {
 }
 
 /// Reduce a (possibly path-bearing) table token to its normalized basename
-/// stem: last path component, single trailing extension stripped, lowercased.
-/// `results/tables/De_Results.tsv` → `de_results`. The manifest auto-generates
+/// stem: last path component, a trailing compression suffix plus one data
+/// extension stripped, lowercased. `results/tables/De_Results.tsv` →
+/// `de_results`; `de.tsv.gz` → `de`. The manifest auto-generates
 /// `expected_output_table` as a bare atom-id stem (no extension) while a
 /// structured verdict's `source_table` is the on-disk basename *with* its
 /// extension (`table_label`), so an extension-tolerant stem is what lets the
-/// two legitimately coincide for confirmatory stages.
+/// two legitimately coincide for confirmatory stages. A COMPOSITE compression
+/// suffix (`.tsv.gz`/`.csv.gz`) is stripped before the single data extension
+/// so a gzipped result table normalizes the same as its uncompressed form —
+/// without that, a single-extension strip left `de.tsv` (≠ `de`) and a
+/// legitimate gzipped confirmatory table would falsely read as an unaddressed
+/// recall gap. Stripping is still EXACT-stem (not substring), so twins
+/// (`de_results` vs `de_results_v2.tsv`) remain rejected.
 fn table_stem(token: &str) -> String {
-    let base = token
+    let mut base = token
         .rsplit(['/', '\\'])
         .next()
         .unwrap_or(token)
         .to_ascii_lowercase();
+    // Strip a trailing compression suffix first (composite extensions like
+    // `.tsv.gz`); the data extension below then reduces `de.tsv` → `de`.
+    for comp in [".gz", ".bz2", ".xz", ".zst", ".zip"] {
+        if let Some(stripped) = base.strip_suffix(comp) {
+            base = stripped.to_string();
+            break;
+        }
+    }
     match base.rsplit_once('.') {
         // Only strip a real, non-empty extension (keep dot-prefixed names and
         // bare stems intact).
@@ -302,6 +317,40 @@ mod tests {
         let exact = vec![verdict("tp53", Some("de_results.tsv"), ClaimStatus::Verified)];
         let cov_exact = reconcile_coverage(&m, &exact);
         assert_eq!(cov_exact.required_addressed, 1);
+    }
+
+    #[test]
+    fn compressed_composite_extension_table_still_matches_stem() {
+        // F4 follow-up: stem-equality must still resolve a LEGITIMATE gzipped /
+        // composite-extension confirmatory table. A single-extension strip left
+        // `differential_expression.tsv` (≠ the bare stem) and falsely scored the
+        // entity Absent → a spurious recall gap → Inv 1 Fail on a CORRECT package.
+        let m = manifest(&[("differential_expression", Requirement::Required)]);
+        for table in [
+            "differential_expression.tsv.gz",
+            "results/tables/differential_expression.csv.gz",
+            "Differential_Expression.TSV.GZ",
+        ] {
+            let v = vec![verdict("tp53", Some(table), ClaimStatus::Verified)];
+            let cov = reconcile_coverage(&m, &v);
+            assert_eq!(
+                cov.required_addressed, 1,
+                "gzipped/composite-extension table `{table}` must resolve to the bare stem"
+            );
+        }
+        // Compression must NOT re-open twin laundering: a gzipped twin is still
+        // a distinct stem and stays Absent.
+        let m2 = manifest(&[("de_results", Requirement::Required)]);
+        let twin = vec![verdict(
+            "tp53",
+            Some("de_results_v2.tsv.gz"),
+            ClaimStatus::Verified,
+        )];
+        let cov = reconcile_coverage(&m2, &twin);
+        assert_eq!(
+            cov.required_absent, 1,
+            "a gzipped substring-twin must remain Absent (compression must not loosen the match)"
+        );
     }
 
     #[test]

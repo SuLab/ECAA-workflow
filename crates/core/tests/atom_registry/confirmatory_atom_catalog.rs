@@ -83,6 +83,14 @@ fn canonical_confirmatory_atoms_are_present_and_marked() {
         "pathway_enrichment",
         "endpoint_analysis",
         "clinical_endpoint_analysis",
+        // operation:3223 differential-testing family — same confirmatory class
+        // as differential_expression (per-feature log2FC/p-value/FDR tables the
+        // verifier recomputes); marked for consistency so a package using an
+        // ATAC / loop / translation-efficiency differential stage anchors a
+        // recall expectation exactly as an RNA-seq one does.
+        "differential_accessibility",
+        "differential_loop_analysis",
+        "translation_efficiency_de",
     ];
     let reg = load_catalog();
     for id in FLOOR {

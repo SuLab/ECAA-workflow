@@ -1,6 +1,9 @@
 id: differential_loop_analysis
 version: "1.0.0"
 role: operation
+# Confirmatory result-producing stage (operation:3223, same class as
+# differential_expression): anchors a Required recall expectation.
+confirmatory: true
 description: |
   Test for differential chromatin-loop strength between conditions.
   Takes per-condition loop call sets (BEDPE) + raw contact-matrix
