@@ -62,6 +62,7 @@ fn overlay_atom(id: &str) -> AtomDefinition {
         id: id.to_string(),
         version: "0.0.0".to_string(),
         role: AtomRole::Operation,
+        confirmatory: false,
         discovery_kind: None,
         description: format!("Synthesized overlay atom for {id}"),
         edam_operation: "ecaax:proposal_test".to_string(),

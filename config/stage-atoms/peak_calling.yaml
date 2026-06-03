@@ -1,6 +1,8 @@
 id: peak_calling
 version: "1.0.0"
 role: operation
+# Confirmatory result-producing stage: anchors a Required recall expectation.
+confirmatory: true
 description: |
   Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /
   CUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime

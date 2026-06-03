@@ -1,6 +1,9 @@
 id: translation_efficiency_de
 version: "1.0.0"
 role: operation
+# Confirmatory result-producing stage (operation:3223, same class as
+# differential_expression): anchors a Required recall expectation.
+confirmatory: true
 description: |
   Differential translation-efficiency testing between conditions
   using paired ribosome-protected-fragment counts and matched

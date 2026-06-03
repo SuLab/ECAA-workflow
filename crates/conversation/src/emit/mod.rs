@@ -353,6 +353,14 @@ async fn emit_steps(
         None
     };
 
+    // Stage-atoms dir for the recall anchor: emit loads the AtomRegistry
+    // here to derive the catalog-declared confirmatory-atom-id set that
+    // anchors `verifiableEntities.expected`. Recomputed (rather than
+    // reusing the `atoms_dir` scoped inside the per-atom-prereqs block
+    // above) so it is always in scope/lifetime-valid; a non-existent path
+    // is harmless (emit's registry load `.ok()` → no anchoring).
+    let stage_atoms_dir = config_dir.join("stage-atoms");
+
     let cfg = EmitConfig {
         output_dir,
         dag,
@@ -368,6 +376,7 @@ async fn emit_steps(
         preferred_container: taxonomy.preferred_container.as_deref(),
         runtime_prereqs: Some(&runtime_prereqs),
         per_atom_runtime_prereqs: per_atom_prereqs_owned.as_ref(),
+        stage_atoms_dir: Some(&stage_atoms_dir),
     };
     emit_package(&cfg).context("core emit_package")?;
 

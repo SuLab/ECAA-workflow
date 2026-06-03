@@ -1,6 +1,9 @@
 id: differential_accessibility
 version: "1.0.0"
 role: operation
+# Confirmatory result-producing stage (operation:3223, same class as
+# differential_expression): anchors a Required recall expectation.
+confirmatory: true
 description: |
   Test for differential chromatin accessibility between sample groups
   from ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-

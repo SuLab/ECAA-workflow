@@ -1,6 +1,8 @@
 id: differential_expression
 version: "1.0.0"
 role: operation
+# Confirmatory result-producing stage: anchors a Required recall expectation.
+confirmatory: true
 description: |
   Test for differentially expressed genes between conditions / cell types.
   DESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on

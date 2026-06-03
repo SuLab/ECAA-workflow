@@ -115,21 +115,73 @@ SIGNED_SINK_REL = "runtime/verification-reports/claim-verification.signed.json"
 CLAIM_STUB_REL = "runtime/claim-verification.json"
 
 
+def _union_claim_docs(docs):
+    """Union per-task signed-sink rows into one C-graph document, mirroring the
+    Rust loader's `union_signed_rows` (`audit_proof::loader`). Verdicts are
+    concatenated (claim ids embed the task id, so they do not collide across
+    tasks); coverage is unioned per-entity by BEST outcome
+    (`addressed` > `unverifiable` > `absent`), so a later task addressing an
+    entity resolves an earlier gap while a coverage-less row contributes
+    nothing. The `coverage` key is omitted when no row carried one."""
+    verdicts = []
+    for d in docs:
+        verdicts.extend(d.get("verdicts") or [])
+    rank = {"addressed": 2, "unverifiable": 1}
+    best = {}
+    any_coverage = False
+    for d in docs:
+        cov = d.get("coverage")
+        if not isinstance(cov, dict):
+            continue
+        per = cov.get("per_entity")
+        if not isinstance(per, dict):
+            continue
+        any_coverage = True
+        for entity, outcome in per.items():
+            r = rank.get(outcome, 0)  # "absent"/unknown ⇒ worst, never erases a gap
+            if r > best.get(entity, 0):
+                best[entity] = r
+    out = {"schema_version": "1", "source": "runtime-verifier", "verdicts": verdicts}
+    if any_coverage:
+        label = {2: "addressed", 1: "unverifiable"}
+        per_entity = {e: label.get(r, "absent") for e, r in best.items()}
+        out["coverage"] = {
+            "required_total": len(best),
+            "required_addressed": sum(1 for r in best.values() if r == 2),
+            "required_unverifiable": sum(1 for r in best.values() if r == 1),
+            "required_absent": sum(1 for r in best.values() if r == 0),
+            "per_entity": per_entity,
+        }
+    return out
+
+
 def load_claim_doc(pkg_dir):
     """Load the C-graph claim document, preferring the host-signed verdict
     sink over the agent-writable stub.
 
-    The signed sink is a single JSON object carrying the verdicts in the clear
-    plus an `_mac` HMAC field; the projection reads the cleartext `verdicts`
-    (the host already verified the signature — the projector does not re-verify
-    here). Returns the parsed document (a dict) or `None` when neither file is
-    present. The `_mac` field, if present, is left in place (harmless; no shape
-    targets it)."""
+    The signed sink is APPEND-ONLY signed JSONL: one HMAC-signed row per task
+    verification (`claim_sink::persist_signed_verdicts`). The projection reads
+    the cleartext `verdicts`/`coverage` (the host already verified the
+    signature — the projector does not re-verify). A single row is returned
+    as-is (`_mac` left in place; no shape targets it); multiple rows are
+    unioned exactly as the Rust loader does, so the SHACL projection sees the
+    same cross-task C-graph the Rust invariants do — without this, a 2+-row
+    sink threw `ValueError` here and silently fell back to the empty stub,
+    diverging from the Rust union. Returns the parsed document (a dict) or
+    `None` when neither file is present."""
     pkg_dir = Path(pkg_dir)
     signed = pkg_dir / SIGNED_SINK_REL
     if signed.exists():
         try:
-            return json.loads(signed.read_text().strip())
+            rows = [
+                json.loads(ln)
+                for ln in signed.read_text().splitlines()
+                if ln.strip()
+            ]
+            if len(rows) == 1:
+                return rows[0]
+            if rows:
+                return _union_claim_docs(rows)
         except (ValueError, OSError):
             pass
     stub = pkg_dir / CLAIM_STUB_REL

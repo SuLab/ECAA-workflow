@@ -107,6 +107,7 @@ fn emit_creates_required_files() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit should succeed");
 
@@ -154,6 +155,7 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
 
@@ -243,6 +245,7 @@ fn emitted_audit_proof_report_carries_version_declaration() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
     let raw = std::fs::read_to_string(tmp.path().join("runtime/audit-proof-report.json"))
@@ -284,6 +287,7 @@ fn emit_copies_plotting_library_into_runtime() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
 
@@ -359,6 +363,7 @@ fn emit_package_deterministic_contents_across_repeated_emissions() {
             preferred_container: None,
             runtime_prereqs: None,
             per_atom_runtime_prereqs: None,
+            stage_atoms_dir: None,
         })
         .expect("emit");
         vec![
@@ -497,6 +502,7 @@ fn emit_plotting_library_is_idempotent_on_reemit() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     };
     emit_package(&cfg).expect("first emit");
     // Introduce a stray file that must get cleaned up on re-emit
@@ -540,6 +546,7 @@ fn workflow_json_round_trips() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
 
@@ -572,6 +579,7 @@ fn workflow_json_round_trips() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("re-emit");
     let content2 = std::fs::read_to_string(tmp.path().join("WORKFLOW.json")).unwrap();
@@ -675,6 +683,7 @@ fn compute_resource_policy_carries_phase_1_fields() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
 
@@ -737,6 +746,7 @@ fn gpu_capability_policy_is_emitted() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
 
@@ -805,6 +815,7 @@ fn gpu_capability_schema_violation_fails_emission() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .unwrap_err();
     let msg = format!("{:#}", err);
@@ -839,6 +850,7 @@ fn no_compute_profiles_dir_skips_both_policies() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
 
@@ -879,6 +891,7 @@ fn ro_crate_is_valid_json_ld() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
 
@@ -1223,6 +1236,7 @@ fn emit_plain(dir: &std::path::Path, policies_dir: &std::path::Path) {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
 }
@@ -1278,6 +1292,7 @@ fn emit_writes_runtime_prereqs_with_passed_baseline() {
         preferred_container: None,
         runtime_prereqs: Some(&prereqs),
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
 
@@ -1327,6 +1342,7 @@ fn emit_writes_dockerfile_when_manifest_is_buildable() {
         preferred_container: None,
         runtime_prereqs: Some(&prereqs),
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
 
@@ -1390,6 +1406,7 @@ fn emit_copies_install_proxy_when_manifest_is_buildable() {
         preferred_container: None,
         runtime_prereqs: Some(&prereqs),
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
 
@@ -1608,6 +1625,7 @@ fn emit_package_writes_atom_prereqs_when_map_provided() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: Some(&map),
+        stage_atoms_dir: None,
     })
     .expect("emit");
     assert!(
@@ -1698,6 +1716,7 @@ fn emit_writes_container_spec_with_declared_image() {
         preferred_container: Some("scripps/clinical-trial:1.0"),
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("emit");
     let spec: serde_json::Value =
@@ -1831,6 +1850,7 @@ fn emit_package_rejects_unpinned_container_digest() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     });
     let err = result.expect_err("emit must reject unpinned digests");
     let msg = format!("{:#}", err);
@@ -1919,6 +1939,7 @@ fn amend_from_some_writes_lineage_policy() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("amend emit");
 
@@ -1971,6 +1992,7 @@ fn amend_from_some_adds_wasDerivedFrom_and_updateAction() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("amend emit");
 
@@ -2031,6 +2053,7 @@ fn branch_emit_adds_wasDerivedFrom_without_updateAction() {
         preferred_container: None,
         runtime_prereqs: None,
         per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
     })
     .expect("branch emit");
 
@@ -2196,6 +2219,7 @@ fn emit_package_whole_package_byte_reproducible() {
             preferred_container: None,
             runtime_prereqs: None,
             per_atom_runtime_prereqs: None,
+            stage_atoms_dir: None,
         })
         .expect("emit");
         // Keep the dir alive past the closure so the post-walk reads
@@ -2367,6 +2391,7 @@ fn amend_emit_is_byte_reproducible() {
             preferred_container: None,
             runtime_prereqs: None,
             per_atom_runtime_prereqs: None,
+            stage_atoms_dir: None,
         })
         .expect("amend emit");
         child_tmp.keep()
