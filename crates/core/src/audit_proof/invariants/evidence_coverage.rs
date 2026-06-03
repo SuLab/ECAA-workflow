@@ -57,6 +57,20 @@ pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
                 .collect()
         })
         .unwrap_or_default();
+    // Basename index of the supported references. A verified claim's
+    // `supported_by` is recorded by the runtime verifier as a BASENAME and then
+    // path-reconstructed by `claim_sink::evidence_ref_for` assuming a direct
+    // child of the task output dir; a nested table (e.g. `…/<task>/tables/de.tsv`)
+    // therefore yields a reconstructed path that differs from the registered
+    // output `@id` even though the SAME basename is referenced. Matching on
+    // basename as a FALLBACK keeps this reader consistent with Inv 5
+    // (`cross_graph_integrity`), which applies the identical fallback, WITHOUT
+    // weakening it: an output whose basename is referenced by no claim still
+    // counts as uncovered.
+    let supported_basenames: BTreeSet<String> = supported
+        .iter()
+        .map(|s| s.rsplit('/').next().unwrap_or(s).to_string())
+        .collect();
     let unused: BTreeSet<String> = pkg
         .assumptions
         .iter()
@@ -65,7 +79,11 @@ pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
         .collect();
     let mut violators = Vec::new();
     for o in &outputs {
-        if !supported.contains(o) && !unused.contains(o) {
+        let basename = o.rsplit('/').next().unwrap_or(o);
+        if !supported.contains(o)
+            && !supported_basenames.contains(basename)
+            && !unused.contains(o)
+        {
             violators.push(o.clone());
         }
     }

@@ -560,16 +560,20 @@ pub fn inject_audit_proof_verdict_nodes(metadata: &mut Value, report: &Value) ->
 /// analytical-output entity. (This is the executed-Pasilla-package defect:
 /// `supported_by: differential_expression.tsv` with no matching V node.)
 ///
-/// Scans each `runtime/outputs/<task>/` directory one level deep (NOT the
+/// Scans each `runtime/outputs/<task>/` directory RECURSIVELY (NOT the
 /// `figures/` / `view_data/` sub-dirs — those are ImageObjects / render inputs,
 /// not V `Table`s) for `*.tsv` / `*.csv` / `*.parquet` files and adds,
-/// idempotently, one `["File", "Dataset"]` entity per table at its
-/// package-relative `@id` (`runtime/outputs/<task>/<file>`), linked from the
-/// root Dataset's `hasPart`. [`crate::audit_proof::output_source::analytical_outputs`]
+/// idempotently, one `["File", "Dataset"]` entity per table at its REAL
+/// package-relative `@id` (`runtime/outputs/<task>/…/<file>`, preserving any
+/// nesting), linked from the root Dataset's `hasPart`. Walking recursively
+/// matters because agents commonly nest result tables a level down (e.g.
+/// `runtime/outputs/<task>/tables/de.tsv`); a direct-children-only scan left
+/// those unregistered, so a verified claim citing such a table dangled in
+/// `cross_graph_integrity` (Inv 5). [`crate::audit_proof::output_source::analytical_outputs`]
 /// then surfaces the table as a V `Table` under `runtime/outputs/`, so the
-/// claim's path-form `supported_by` (see
-/// [`crate::claim_sink::project_verdict_rows`]) resolves and Inv 3 / Inv 5
-/// agree on the same C→V link.
+/// claim's `supported_by` (see [`crate::claim_sink::project_verdict_rows`])
+/// resolves — by basename, in Inv 3 / Inv 5 — and the two invariants agree on
+/// the same C→V link.
 ///
 /// Idempotent: an `@id` already present is left untouched, so re-running after
 /// further task completions never duplicates entities. Deterministic order
@@ -594,7 +598,12 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         .filter_map(|e| e.get("@id").and_then(Value::as_str).map(String::from))
         .collect();
 
-    // Discover produced tables, deterministically ordered (tasks then files).
+    // Discover produced tables, deterministically ordered (tasks, then nested
+    // files in sorted path order). Each `runtime/outputs/<task>/` is walked
+    // RECURSIVELY so tables the agent nested (e.g. `…/<task>/tables/de.tsv`)
+    // are registered at their real relative `@id`. The `figures/` and
+    // `view_data/` sub-trees are pruned wholesale — they hold ImageObjects /
+    // render inputs, not V `Table`s.
     let outputs_root = package_root.join("runtime").join("outputs");
     let mut rels: Vec<String> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&outputs_root) {
@@ -610,23 +619,10 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
             if task.is_empty() {
                 continue;
             }
-            let Ok(files) = std::fs::read_dir(&task_dir) else {
-                continue;
-            };
-            let mut names: Vec<String> = files
-                .flatten()
-                .filter(|e| e.path().is_file())
-                .filter_map(|e| e.file_name().to_str().map(String::from))
-                .filter(|n| {
-                    n.ends_with(".tsv") || n.ends_with(".csv") || n.ends_with(".parquet")
-                })
-                .collect();
-            names.sort();
-            for name in names {
-                rels.push(format!("runtime/outputs/{task}/{name}"));
-            }
+            collect_output_tables(&task_dir, &format!("runtime/outputs/{task}"), &mut rels);
         }
     }
+    rels.sort();
 
     let mut new_parts: Vec<Value> = Vec::new();
     for rel in &rels {
@@ -675,9 +671,44 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
         }
     }
 
+    // Atomic, crash-safe descriptor write (write-tmp -> fsync -> rename). The
+    // descriptor is also touched by the harness / conversation emit writers, so
+    // a non-atomic `std::fs::write` here raced a concurrent writer and could
+    // leave a half-written or torn `ro-crate-metadata.json`. The shared
+    // [`crate::fs_helpers::atomic_write_bytes_sync`] gives durable rename
+    // semantics matching every other package-surface write.
     let serialized = serde_json::to_vec_pretty(&doc)?;
-    std::fs::write(&descriptor, serialized)?;
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serialized)?;
     Ok(added)
+}
+
+/// Recursively collect produced result-table relative paths under `dir`,
+/// rooted at the package-relative `rel_prefix` (e.g. `runtime/outputs/<task>`).
+/// Prunes the `figures/` and `view_data/` sub-trees (ImageObjects / render
+/// inputs, not V `Table`s). Only `*.tsv` / `*.csv` / `*.parquet` files are
+/// kept. Paths accumulate into `out` (the caller sorts for determinism).
+fn collect_output_tables(dir: &std::path::Path, rel_prefix: &str, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = entry.file_name().to_str().map(String::from) else {
+            continue;
+        };
+        let rel = format!("{rel_prefix}/{name}");
+        if path.is_dir() {
+            // Prune the non-table sub-trees wholesale.
+            if name == "figures" || name == "view_data" {
+                continue;
+            }
+            collect_output_tables(&path, &rel, out);
+        } else if path.is_file()
+            && (name.ends_with(".tsv") || name.ends_with(".csv") || name.ends_with(".parquet"))
+        {
+            out.push(rel);
+        }
+    }
 }
 
 /// Post-execution finalize: register agent-produced result tables as V `@graph`
@@ -703,10 +734,101 @@ pub fn finalize_evidence_registration(
     root: &std::path::Path,
     clock: &dyn crate::clock::Clock,
 ) -> std::io::Result<usize> {
+    finalize_evidence_registration_with_verifier(root, clock, None)
+}
+
+/// As [`finalize_evidence_registration`], plus — when a `verifier` is supplied —
+/// a C-subgraph BACK-FILL: read the HMAC-signed verdict sink
+/// (`runtime/verification-reports/claim-verification.signed.json`), project its
+/// verdicts into spec `Claim` `@graph` nodes (+ `supported_by` edges to the V
+/// table entities) via [`inject_claim_verdict_nodes`], and inject them into the
+/// descriptor's `@graph` idempotently — BEFORE the manifest re-seal, so the
+/// re-seal covers the updated descriptor.
+///
+/// Why: post-exec the `@graph` carries ZERO `Claim` (C) nodes even when the
+/// signed sink has verified claims, because the at-emit C-subgraph projection
+/// reads the EMPTY agent-writable plaintext `claim-verification.json` and the
+/// `@graph` is never re-projected post-exec. The verdicts that matter live only
+/// in the signed sink. Without a `verifier` (the 2-arg back-compat path) the
+/// back-fill is skipped — the sink's HMAC cannot be verified without the
+/// session secret, so projecting it would be unsound.
+pub fn finalize_evidence_registration_with_verifier(
+    root: &std::path::Path,
+    clock: &dyn crate::clock::Clock,
+    verifier: Option<&crate::audit_writer::AuditWriter>,
+) -> std::io::Result<usize> {
     let added = register_produced_output_tables(root)?;
+    if let Some(verifier) = verifier {
+        if let Err(e) = backfill_claim_subgraph(root, verifier) {
+            // Best-effort: a back-fill failure must not abort the
+            // register + re-seal (the manifest must still reconcile).
+            tracing::warn!(
+                target: "ecaa::ro_crate",
+                error = %e,
+                "C-subgraph back-fill from signed sink failed"
+            );
+        }
+    }
     crate::emitter::regenerate_bagit_manifest(root, clock)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        .map_err(std::io::Error::other)?;
     Ok(added)
+}
+
+/// Read the signed verdict sink and inject its projected `Claim` nodes into the
+/// descriptor `@graph`. No-op (Ok) when the sink is absent, empty, tampered, or
+/// carries no verdicts, and when the descriptor is missing.
+fn backfill_claim_subgraph(
+    root: &std::path::Path,
+    verifier: &crate::audit_writer::AuditWriter,
+) -> anyhow::Result<()> {
+    let pkg = crate::audit_proof::loader::LoadedPackage::from_root_with_verifier(
+        root,
+        Some(verifier),
+    )?;
+    // `claims` is the unioned signed-sink doc (`{verdicts:[…]}`) when the sink
+    // verified; None / tampered ⇒ nothing trustworthy to project.
+    let Some(claims) = pkg.claims.as_ref() else {
+        return Ok(());
+    };
+    let nodes = crate::emitter::ecaa_projection::project_claim_jsonld(claims);
+    if nodes.is_empty() {
+        return Ok(());
+    }
+    let descriptor = root.join("ro-crate-metadata.json");
+    let Ok(bytes) = std::fs::read(&descriptor) else {
+        return Ok(());
+    };
+    let mut doc: Value = serde_json::from_slice(&bytes)?;
+    inject_claim_verdict_nodes(&mut doc, nodes)?;
+    let serialized = serde_json::to_vec_pretty(&doc)?;
+    crate::fs_helpers::atomic_write_bytes_sync(&descriptor, &serialized)?;
+    Ok(())
+}
+
+/// Inject projected `Claim` `@graph` nodes into `metadata`'s `@graph`
+/// idempotently: a node whose `@id` already exists is REPLACED (so a re-run with
+/// updated verdicts converges), not duplicated. Mirrors
+/// [`inject_audit_proof_verdict_nodes`].
+pub fn inject_claim_verdict_nodes(metadata: &mut Value, nodes: Vec<Value>) -> Result<()> {
+    if nodes.is_empty() {
+        return Ok(());
+    }
+    let graph = metadata
+        .get_mut("@graph")
+        .and_then(|g| g.as_array_mut())
+        .ok_or_else(|| anyhow::anyhow!("ro-crate-metadata.json missing @graph array"))?;
+    for node in nodes {
+        let id = node.get("@id").and_then(Value::as_str).map(str::to_string);
+        match id.and_then(|id| {
+            graph
+                .iter()
+                .position(|e| e.get("@id").and_then(Value::as_str) == Some(id.as_str()))
+        }) {
+            Some(pos) => graph[pos] = node,
+            None => graph.push(node),
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

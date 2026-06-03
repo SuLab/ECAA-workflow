@@ -787,6 +787,86 @@ pub fn project_audit_proof_jsonld(report: &Value) -> Vec<Value> {
     nodes.into_values().collect()
 }
 
+/// Project the C (Claim) sub-graph into RO-Crate JSON-LD `@graph` node form so
+/// the runtime verifier's verdicts live as FIRST-CLASS typed `Claim` triples
+/// inside `ro-crate-metadata.json` — not merely behind the file-reference to
+/// `runtime/claim-verification.json` (which is the empty agent-writable stub
+/// post-exec). The verdicts are fed from the SIGNED sink
+/// (`runtime/verification-reports/claim-verification.signed.json`), passed here
+/// already unioned into the `{verdicts:[…]}` `claims` shape the loader returns.
+///
+/// REUSES [`project_claim_subgraph`] verbatim (which owns the `claim_id`
+/// sanitization, the `verified|pending|contradicted` [`map_claim_status`]
+/// mapping, and the `supported_by → V:` [`evidence_local_id`] edge derivation)
+/// by handing it a minimal [`LoadedPackage`] carrying only the claims; the spec
+/// node/edge output is then RESHAPED into `@graph` nodes with the
+/// `supported_by` edge FOLDED onto its `Claim` node as a JSON-LD object
+/// reference (idiomatic in an RO-Crate `@graph`, mirroring
+/// [`project_audit_proof_jsonld`]'s `evaluated_against` fold).
+///
+/// Each verdict becomes one node:
+///
+/// ```json
+/// { "@id": "C:differential_expression_claim-0",
+///   "@type": "Claim",
+///   "status": "verified",
+///   "text": "",
+///   "supported_by": [ { "@id": "V:differential_expression_tsv" } ] }
+/// ```
+///
+/// Deterministic: node `@id`s derive from the verdict `claim_id`; no wall-clock
+/// value enters, so re-injection keeps `ro-crate-metadata.json` reproducible.
+pub fn project_claim_jsonld(claims: &Value) -> Vec<Value> {
+    let pkg = LoadedPackage {
+        claims: Some(claims.clone()),
+        ..LoadedPackage::default()
+    };
+    // Reuse the canonical projector. It returns interleaved spec node values
+    // (`{id, type, props}`) and spec edge values (`{source_id, target_id,
+    // predicate}`); fold the edges onto their source node.
+    let spec = project_claim_subgraph(&pkg);
+    let mut nodes: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
+    let mut edges: Vec<(String, String, String)> = Vec::new();
+    for item in spec {
+        if let (Some(id), Some(ty)) = (
+            item.get("id").and_then(Value::as_str),
+            item.get("type").and_then(Value::as_str),
+        ) {
+            // A node: `{id, type, props}`. Reshape to `@graph` form, lifting the
+            // structural props (text, status) to top-level keys.
+            let mut node = json!({ "@id": id, "@type": ty });
+            if let Some(props) = item.get("props").and_then(Value::as_object) {
+                for (k, v) in props {
+                    node[k] = v.clone();
+                }
+            }
+            nodes.insert(id.to_string(), node);
+        } else if let (Some(src), Some(tgt), Some(pred)) = (
+            item.get("source_id").and_then(Value::as_str),
+            item.get("target_id").and_then(Value::as_str),
+            item.get("predicate").and_then(Value::as_str),
+        ) {
+            edges.push((src.to_string(), tgt.to_string(), pred.to_string()));
+        }
+    }
+    // Fold each edge onto its source node as a JSON-LD object reference under
+    // the predicate key (e.g. `supported_by: [{ "@id": "V:…" }]`).
+    for (src, tgt, pred) in edges {
+        let Some(node) = nodes.get_mut(&src) else {
+            continue;
+        };
+        let arr = node
+            .as_object_mut()
+            .expect("node is an object literal")
+            .entry(pred)
+            .or_insert_with(|| Value::Array(Vec::new()));
+        if let Some(a) = arr.as_array_mut() {
+            a.push(json!({ "@id": tgt }));
+        }
+    }
+    nodes.into_values().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

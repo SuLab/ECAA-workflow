@@ -248,9 +248,23 @@ pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
     // consistently with Inv 3, and the two invariants never contradict each
     // other about the same C→V link. (The output paths already have any
     // `#fragment` stripped by `analytical_outputs`.)
-    let known_outputs: BTreeSet<String> = analytical_outputs(&pkg.output_entities, &pkg.proofs)
-        .into_iter()
-        .map(|o| o.path)
+    let outputs = analytical_outputs(&pkg.output_entities, &pkg.proofs);
+    let known_outputs: BTreeSet<String> = outputs.iter().map(|o| o.path.clone()).collect();
+    // Basename index of the same outputs. A verified claim's `supported_by` is
+    // recorded by the runtime verifier as a BASENAME (SME-path-safety: see
+    // `claim_verifier::table_label`), then path-reconstructed by
+    // `claim_sink::evidence_ref_for` ASSUMING the table is a direct child of the
+    // task output dir. When the agent nested the table (e.g.
+    // `…/<task>/tables/de.tsv`), the reconstructed direct-child path does not
+    // equal the real registered `@id`, even though the SAME basename is a
+    // registered analytical output. Matching on basename as a FALLBACK resolves
+    // that link WITHOUT weakening genuinely-dangling refs: a reference whose
+    // basename is absent from every analytical output still fails. Inv 3
+    // (`evidence_coverage`) applies the identical fallback, so the two never
+    // disagree about the same C→V link.
+    let known_basenames: BTreeSet<String> = outputs
+        .iter()
+        .map(|o| o.path.rsplit('/').next().unwrap_or(&o.path).to_string())
         .collect();
     let known_edges: BTreeSet<String> = pkg
         .proofs
@@ -273,7 +287,12 @@ pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
                         }
                         n_inspected += 1;
                         let path = r.split('#').next().unwrap_or(r);
-                        if !known_outputs.contains(path) {
+                        let basename = path.rsplit('/').next().unwrap_or(path);
+                        // Exact path first; basename fallback for the nested-table
+                        // / direct-child-reconstruction mismatch (see above).
+                        if !known_outputs.contains(path)
+                            && !known_basenames.contains(basename)
+                        {
                             violators.push(format!("supported_by: {r}"));
                         }
                     }

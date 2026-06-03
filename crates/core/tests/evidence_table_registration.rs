@@ -85,6 +85,37 @@ fn persist_verified_table_claim(root: &Path, task: &str, table: &str, w: &AuditW
     persist_signed_verdicts(root, task, &rep, None, w).unwrap();
 }
 
+/// Build a package whose `@graph` registers a figure but writes the produced
+/// result table into a SUBDIR of the task output dir
+/// (`runtime/outputs/<task>/tables/<file>`) — the shape that the direct-children
+/// scanner misses. Mirrors an agent that nests its result tables one level down.
+fn write_package_with_subdir_table(root: &Path, table_basename: &str, task: &str) {
+    let fig = format!("runtime/outputs/{task}/figures/volcano.png");
+    let graph = json!({
+        "@context": "https://w3id.org/ro/crate/1.1/context",
+        "@graph": [
+            {"@id": "ro-crate-metadata.json", "@type": "CreativeWork", "about": {"@id": "./"}},
+            {"@id": "./", "@type": "Dataset", "hasPart": [{"@id": fig}]},
+            {"@id": fig, "@type": ["File", "ImageObject"], "name": "volcano"}
+        ]
+    });
+    fs::write(
+        root.join("ro-crate-metadata.json"),
+        serde_json::to_vec_pretty(&graph).unwrap(),
+    )
+    .unwrap();
+
+    // The produced result table lives one directory deeper than the scanner's
+    // historical direct-children level.
+    let tables_dir = root.join(format!("runtime/outputs/{task}/tables"));
+    fs::create_dir_all(&tables_dir).unwrap();
+    fs::write(
+        tables_dir.join(table_basename),
+        "gene\tlog2FC\tpadj\nTGFB1\t2.1\t0.001\n",
+    )
+    .unwrap();
+}
+
 fn cross_graph_status(root: &Path, w: &AuditWriter) -> (InvariantStatus, Option<String>) {
     let validator = ecaa_workflow_core::wrroc_validator::NoopWrrocValidator;
     let clock = ecaa_workflow_core::clock::WallClock;
@@ -203,5 +234,149 @@ fn finalize_is_idempotent_and_manifest_stable() {
     assert_eq!(
         m1, m2,
         "re-seal must be deterministic: identical payload-manifest bytes on repeat"
+    );
+}
+
+/// (1) Atomic descriptor write: registering tables round-trips through the
+/// atomic writer (write-tmp -> fsync -> rename). The regression we guard is
+/// that the descriptor stays parseable JSON with the new entity present and
+/// no `.tmp` siblings linger after the crash-safe rename.
+#[test]
+fn register_tables_round_trips_via_atomic_write() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let task = "differential_expression";
+    write_production_shaped_package(root, "differential_expression.tsv", task);
+
+    let added = ecaa_workflow_core::ro_crate::register_produced_output_tables(root).unwrap();
+    assert_eq!(added, 1, "the produced table is registered");
+
+    // The atomic writer renames a `.<uuid>.tmp` into place: no temp sibling of
+    // the descriptor may survive.
+    let lingering: Vec<_> = fs::read_dir(root)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("ro-crate-metadata.json.") && n.ends_with(".tmp"))
+        .collect();
+    assert!(
+        lingering.is_empty(),
+        "atomic write must leave no .tmp sibling; found {lingering:?}"
+    );
+
+    // The descriptor still round-trips to JSON with the table entity present.
+    let doc: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("ro-crate-metadata.json")).unwrap()).unwrap();
+    let graph = doc["@graph"].as_array().unwrap();
+    assert!(
+        graph.iter().any(|e| e["@id"]
+            == json!("runtime/outputs/differential_expression/differential_expression.tsv")),
+        "the registered table entity must round-trip in @graph"
+    );
+}
+
+/// (2) Subdirectory-robust registration + matching: a verified, table-backed
+/// claim whose table the agent wrote in a SUBDIR of the task output dir must
+/// still resolve in `cross_graph_integrity` (Inv 5) after finalize. The runtime
+/// verifier records `source_table` by basename, so the C->V `supported_by`
+/// reference must resolve against the table registered at its real (nested)
+/// relative `@id`.
+#[test]
+fn verified_claim_with_subdir_table_resolves_after_finalize() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let task = "differential_expression";
+    let table = "differential_expression.tsv";
+    write_package_with_subdir_table(root, table, task);
+
+    let clock = ecaa_workflow_core::clock::WallClock;
+    let added =
+        ecaa_workflow_core::ro_crate::finalize_evidence_registration(root, &clock).unwrap();
+    assert_eq!(
+        added, 1,
+        "the table nested under runtime/outputs/<task>/tables/ must be registered"
+    );
+
+    // The table must be registered at its REAL nested relative @id.
+    let doc: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("ro-crate-metadata.json")).unwrap()).unwrap();
+    let graph = doc["@graph"].as_array().unwrap();
+    assert!(
+        graph.iter().any(|e| e["@id"]
+            == json!("runtime/outputs/differential_expression/tables/differential_expression.tsv")),
+        "the nested table must be registered at its real relative @id; @graph=\n{graph:#?}"
+    );
+    // The figures/ subdir must NOT be walked as a table (it is an ImageObject).
+    assert!(
+        !graph.iter().any(|e| e["@id"]
+            .as_str()
+            .is_some_and(|s| s.starts_with("runtime/outputs/differential_expression/figures/")
+                && (s.ends_with(".tsv") || s.ends_with(".csv")))),
+        "figures/ must stay excluded from table registration"
+    );
+
+    let w = AuditWriter::for_session();
+    persist_verified_table_claim(root, task, table, &w);
+    let (status, detail) = cross_graph_status(root, &w);
+    assert_eq!(
+        status,
+        InvariantStatus::Pass,
+        "a verified claim whose table lives in a subdir must resolve C->V in Inv 5; \
+         got {status:?} (detail: {detail:?})"
+    );
+}
+
+/// (3) C-subgraph back-fill: after finalize on a package with a verified,
+/// table-backed claim in the SIGNED sink, `ro-crate-metadata.json`'s @graph must
+/// carry a Claim (C) node AND a `supported_by` edge to the registered V table
+/// entity — projected from the signed sink, not the empty plaintext stub.
+#[test]
+fn finalize_backfills_claim_nodes_into_graph_from_signed_sink() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let task = "differential_expression";
+    let table = "differential_expression.tsv";
+    write_production_shaped_package(root, table, task);
+
+    // The signed sink carries the verified verdict (the plaintext
+    // claim-verification.json is never written, mirroring production).
+    let w = AuditWriter::for_session();
+    persist_verified_table_claim(root, task, table, &w);
+
+    // Production passes the session writer so the back-fill can HMAC-verify and
+    // project the signed-sink verdicts into the @graph.
+    let clock = ecaa_workflow_core::clock::WallClock;
+    ecaa_workflow_core::ro_crate::finalize_evidence_registration_with_verifier(
+        root,
+        &clock,
+        Some(&w),
+    )
+    .unwrap();
+
+    let doc: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("ro-crate-metadata.json")).unwrap()).unwrap();
+    let graph = doc["@graph"].as_array().unwrap();
+
+    // A first-class Claim node was projected from the signed-sink verdict.
+    let claim_node = graph
+        .iter()
+        .find(|e| e["@type"] == json!("Claim"))
+        .unwrap_or_else(|| panic!("@graph must carry a Claim node; @graph=\n{graph:#?}"));
+    assert_eq!(
+        claim_node["status"],
+        json!("verified"),
+        "the back-filled Claim node must carry the verified status"
+    );
+
+    // ... and a supported_by edge to a V evidence node.
+    let has_supported_by_edge = graph.iter().any(|e| {
+        e.get("supported_by").is_some()
+            && e["@type"] == json!("Claim")
+            || e["predicate"] == json!("supported_by")
+    });
+    assert!(
+        has_supported_by_edge,
+        "@graph must carry a supported_by edge from the Claim to a V table entity; \
+         @graph=\n{graph:#?}"
     );
 }

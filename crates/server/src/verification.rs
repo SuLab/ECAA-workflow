@@ -382,19 +382,25 @@ pub async fn reverify_and_block_on_mismatch(
             }
 
             // Register agent-produced result tables as V `@graph` Evidence
-            // entities and re-seal the BagIt manifest — BEFORE regenerating the
-            // at-rest audit-proof report below, so cross_graph_integrity (Inv 5)
-            // resolves the verified claim's C→V `supported_by` to the
-            // just-registered Evidence node instead of recording a dangling
-            // `Fail`. The descriptor is a manifested file, so the re-seal keeps
-            // the at-rest package self-consistent; it runs on a post-exec
+            // entities, back-fill the C-subgraph `Claim` nodes from the just-
+            // written signed sink (passing the session `writer` so the sink's
+            // HMAC verifies), and re-seal the BagIt manifest — BEFORE
+            // regenerating the at-rest audit-proof report below, so
+            // cross_graph_integrity (Inv 5) resolves the verified claim's C→V
+            // `supported_by` to the just-registered Evidence node instead of
+            // recording a dangling `Fail`, and the `@graph` carries first-class
+            // Claim triples. The descriptor is a manifested file, so the re-seal
+            // keeps the at-rest package self-consistent; it runs on a post-exec
             // package only, so the emit byte-reproducibility surface is
             // untouched. Best-effort: a finalize failure must not fail the
             // request (consistent with the audit-proof rewrite below).
-            if let Err(e) = ecaa_workflow_core::ro_crate::finalize_evidence_registration(
-                &root,
-                &ecaa_workflow_core::clock::WallClock,
-            ) {
+            if let Err(e) =
+                ecaa_workflow_core::ro_crate::finalize_evidence_registration_with_verifier(
+                    &root,
+                    &ecaa_workflow_core::clock::WallClock,
+                    Some(&writer),
+                )
+            {
                 tracing::warn!(
                     target: "ecaa::verify",
                     error = %e,
