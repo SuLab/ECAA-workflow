@@ -1,3 +1,4 @@
+import json
 import os
 import stat
 from pathlib import Path
@@ -107,6 +108,60 @@ def test_run_ecaa_package_capture_true_enables_capture(tmp_path, monkeypatch):
 
     assert seen["capture_output"] is True, "capture=True must set capture_output"
     assert res.exit_ok is True
+
+
+def test_blocked_guard_tasks_detects_blocked(tmp_path):
+    """_blocked_guard_tasks returns (task_id, reason) for every WORKFLOW.json task
+    the harness left in state.status=='blocked'; completed/ready tasks are ignored."""
+    (tmp_path / "WORKFLOW.json").write_text(json.dumps({"tasks": {
+        "a": {"state": {"status": "completed"}},
+        "survey_method_landscape": {"state": {"status": "blocked",
+            "record": {"reason": "[validation_failed] 4/10 passed"}}},
+    }}))
+    assert agent_runner._blocked_guard_tasks(tmp_path) == [
+        ("survey_method_landscape", "[validation_failed] 4/10 passed")]
+
+
+def test_run_ecaa_package_single_shot_by_default(tmp_path, monkeypatch):
+    """Default (ECAA_EVAL_MAX_RELAUNCH unset) stays single-shot even with a blocked
+    task — preserves current behavior + the guard-outcome scoring."""
+    monkeypatch.delenv("ECAA_EVAL_MAX_RELAUNCH", raising=False)
+    (tmp_path / "WORKFLOW.json").write_text(json.dumps({"tasks": {
+        "t": {"state": {"status": "blocked", "record": {"reason": "[validation_failed] x"}}}}}))
+    calls = {"n": 0}
+
+    def fake_run(cmd, **kw):
+        calls["n"] += 1
+        return _FakeProc()
+
+    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+    res = run_ecaa_package(tmp_path)
+    assert calls["n"] == 1, "default must not relaunch"
+    assert not (tmp_path / "runtime/outputs/t/sme-decisions.json").exists()
+    assert res.resolved_blocks == []
+
+
+def test_run_ecaa_package_relaunches_and_resolves_guard_block(tmp_path, monkeypatch):
+    """ECAA_EVAL_MAX_RELAUNCH>=1: after the harness exits with a guard-blocked task,
+    write the skip sme-decisions.json, flip blocked->ready, and relaunch (bounded)."""
+    monkeypatch.setenv("ECAA_EVAL_MAX_RELAUNCH", "1")
+    (tmp_path / "WORKFLOW.json").write_text(json.dumps({"tasks": {
+        "survey_method_landscape": {"state": {"status": "blocked",
+            "record": {"reason": "[validation_failed] 4/10 passed"}}}}}))
+    calls = {"n": 0}
+
+    def fake_run(cmd, **kw):
+        calls["n"] += 1
+        return _FakeProc()
+
+    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+    res = run_ecaa_package(tmp_path)
+    assert calls["n"] == 2, "should relaunch once after resolving the block"
+    dec = json.loads((tmp_path / "runtime/outputs/survey_method_landscape/sme-decisions.json").read_text())
+    assert dec["decisions"][0]["chosen"] == "emit_skip_sentinel_row"
+    wf = json.loads((tmp_path / "WORKFLOW.json").read_text())
+    assert wf["tasks"]["survey_method_landscape"]["state"]["status"] == "ready"
+    assert res.resolved_blocks == ["survey_method_landscape"]
 
 
 def test_run_bare_sets_default_container_image(tmp_path, monkeypatch):

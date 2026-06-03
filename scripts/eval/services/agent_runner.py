@@ -6,13 +6,18 @@ run_bare        -> Claude Code inside bio-min:local via agent-claude.sh's
 Both return where outputs landed; the plugin's collect() reads them.
 """
 from __future__ import annotations
+import json
 import os
 import subprocess
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+# Skip option the harness's sme_skip::detect_intent honors — accept a documented
+# deviation instead of re-blocking (crates/harness/src/sme_skip.rs SKIP_OPTION_IDS).
+_EVAL_SKIP_OPTION = "emit_skip_sentinel_row"
 
 
 @dataclass
@@ -21,6 +26,79 @@ class RunResult:
     wall_secs: float
     run_dir: Path
     stdout: str = ""
+    resolved_blocks: list = field(default_factory=list)
+
+
+def _eval_max_relaunch() -> int:
+    """Bounded harness relaunches to auto-resolve guard-blocked tasks in an
+    unattended run. Default 0 = single-shot (preserve current behavior AND the
+    guard-outcome scoring); opt in with ECAA_EVAL_MAX_RELAUNCH=N."""
+    try:
+        return max(0, int(os.environ.get("ECAA_EVAL_MAX_RELAUNCH", "0")))
+    except ValueError:
+        return 0
+
+
+def _blocked_guard_tasks(package_dir: Path) -> list[tuple[str, str]]:
+    """Tasks the harness left Blocked on a guard (WORKFLOW.json state.status ==
+    'blocked'), with their reason. Mirrors the block parse in
+    scorecard.collect_guard_outcomes."""
+    try:
+        data = json.loads((package_dir / "WORKFLOW.json").read_text())
+    except (OSError, ValueError):
+        return []
+    tasks = data.get("tasks", {})
+    items = tasks.items() if isinstance(tasks, dict) else [
+        (t.get("id"), t) for t in tasks]
+    out: list[tuple[str, str]] = []
+    for tid, t in items:
+        st = t.get("state") if isinstance(t, dict) else None
+        status = st.get("status") if isinstance(st, dict) else st
+        if status == "blocked":
+            rec = st.get("record") or {} if isinstance(st, dict) else {}
+            out.append((str(tid), str(rec.get("reason") or "")))
+    return out
+
+
+def _auto_resolve_guard_block(package_dir: Path, task_id: str, reason: str) -> None:
+    """Unattended eval: accept a guard-blocked task as a documented deviation so
+    execution can continue. The guard already RAN and recorded its catch (e.g.
+    runtime/validation-reports.jsonl) in the run that produced the block — this
+    clears the block AFTER that catch, so it does not suppress the measurement
+    (pre-writing the skip WOULD, since detect_intent short-circuits the
+    validators; we never do that). Writes the sme-decisions.json the harness
+    honors + flips the task blocked->ready in WORKFLOW.json (mirrors the server's
+    resume_blocked_tasks_in_workflow) + appends a transparency record."""
+    dec_dir = package_dir / "runtime" / "outputs" / task_id
+    dec_dir.mkdir(parents=True, exist_ok=True)
+    (dec_dir / "sme-decisions.json").write_text(json.dumps({
+        "task_id": task_id,
+        "decisions": [{"id": "eval_auto", "chosen": _EVAL_SKIP_OPTION}],
+        "rationale": (
+            "eval unattended auto-resolve: the guard already recorded its catch "
+            "in the run that blocked this task; accepting a documented deviation "
+            f"so the workflow can complete (reason: {reason[:160]})"),
+    }, indent=2))
+    # Flip blocked->ready so the relaunched harness re-dispatches it.
+    wf = package_dir / "WORKFLOW.json"
+    data = json.loads(wf.read_text())
+    tasks = data.get("tasks", {})
+    t = tasks.get(task_id) if isinstance(tasks, dict) else next(
+        (x for x in tasks if x.get("id") == task_id), None)
+    if t is not None:
+        t["state"] = {"status": "ready"}
+    tmp = wf.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(wf)
+    # On-disk transparency record (for the scorecard meta / post-hoc audit).
+    rec_path = package_dir / "runtime" / ".eval-auto-resolved-blocks.json"
+    try:
+        existing = json.loads(rec_path.read_text()) if rec_path.exists() else []
+    except (OSError, ValueError):
+        existing = []
+    existing.append({"task_id": task_id, "reason": reason})
+    rec_path.parent.mkdir(parents=True, exist_ok=True)
+    rec_path.write_text(json.dumps(existing, indent=2))
 
 
 def eval_model() -> str:
@@ -81,11 +159,33 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
     # available as the reference's exec.log for diagnose scoring (offline cells
     # don't stream to a session anyway). Base runs leave capture=False to keep
     # live console/session streaming intact.
-    proc = subprocess.run(cmd, cwd=str(REPO_ROOT), timeout=harness_timeout,
-                          env=effective_env,
-                          capture_output=capture, text=True if capture else None)
-    captured = ((proc.stdout or "") + (proc.stderr or "")) if capture else ""
-    return RunResult(proc.returncode == 0, time.time() - t0, package_dir, captured)
+    # Single subprocess by default. With ECAA_EVAL_MAX_RELAUNCH>=1, after the
+    # harness exits with guard-blocked tasks (e.g. an upstream survey_method_
+    # landscape failing Phase-13 obligations strands the whole DAG), resolve each
+    # block (skip sme-decision + blocked->ready) and relaunch, bounded — so an
+    # unattended run completes instead of stranding while the guard-catch stays
+    # measured (the validators already ran + reported before the block).
+    max_relaunch = _eval_max_relaunch()
+    relaunches = 0
+    resolved: list[str] = []
+    captured = ""
+    while True:
+        proc = subprocess.run(cmd, cwd=str(REPO_ROOT), timeout=harness_timeout,
+                              env=effective_env,
+                              capture_output=capture, text=True if capture else None)
+        if capture:
+            captured += (proc.stdout or "") + (proc.stderr or "")
+        if relaunches >= max_relaunch:
+            break
+        blocked = _blocked_guard_tasks(package_dir)
+        if not blocked:
+            break
+        for tid, reason in blocked:
+            _auto_resolve_guard_block(package_dir, tid, reason)
+            resolved.append(tid)
+        relaunches += 1
+    return RunResult(proc.returncode == 0, time.time() - t0, package_dir,
+                     captured, resolved_blocks=resolved)
 
 
 def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,
