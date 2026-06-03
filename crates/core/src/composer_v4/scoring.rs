@@ -55,6 +55,12 @@ pub enum ScoringValue {
     TS,
     schemars::JsonSchema,
 )]
+// Forward-compat: a session persisted before a newer scoring component
+// was added (e.g. `goal_relevance_penalty`) must still deserialize — any
+// field absent on disk falls back to its `Default` (the tuple is recomputed
+// at plan time, so a defaulted load value is never authoritative). Matches
+// the "forward-compat-by-serde-default" upcast convention in persistence.rs.
+#[serde(default)]
 #[ts(export)]
 pub struct ScoringTuple {
     /// 1. Hard policy violation.
