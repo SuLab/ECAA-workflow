@@ -485,9 +485,11 @@ pub(crate) fn coverage_should_block(cov: &ecaa_workflow_core::coverage::Coverage
 
 /// Compute the structured-claims-only CoverageResult for a task. Reads the
 /// emitted `policies/interpretation-policy.json`'s `verifiableEntities.
-/// expected` block (the manifest the emitter injected), reconciles it
-/// against the task's structured `result.json claims[]` verdicts, and
-/// returns the coverage. `None` when no manifest is present (un-anchored).
+/// expected` block (the manifest the emitter injected), narrows it to entries
+/// relevant to the current task/source atom, reconciles it against the task's
+/// structured `result.json claims[]` verdicts, and returns the coverage.
+/// `None` when no manifest is present or no manifest entry belongs to this
+/// task.
 fn compute_task_coverage(
     package_root: &Path,
     task_id: &str,
@@ -501,8 +503,10 @@ fn compute_task_coverage(
         .get("verifiableEntities")
         .and_then(|v| v.get("expected"))
         .cloned()?;
-    let entries: Vec<ecaa_workflow_core::expected_claim::ExpectedClaim> =
+    let mut entries: Vec<ecaa_workflow_core::expected_claim::ExpectedClaim> =
         serde_json::from_value(expected).ok()?;
+    let task_stems = task_expected_claim_stems(package_root, task_id);
+    entries.retain(|entry| expected_claim_matches_task(entry, &task_stems));
     if entries.is_empty() {
         return None;
     }
@@ -516,6 +520,58 @@ fn compute_task_coverage(
     Some(ecaa_workflow_core::coverage::reconcile_coverage(
         &manifest, &verdicts,
     ))
+}
+
+fn expected_claim_matches_task(
+    entry: &ecaa_workflow_core::expected_claim::ExpectedClaim,
+    task_stems: &std::collections::BTreeSet<String>,
+) -> bool {
+    if task_stems.contains(&expected_claim_stem(&entry.entity)) {
+        return true;
+    }
+    entry
+        .expected_output_table
+        .as_deref()
+        .map(expected_claim_stem)
+        .is_some_and(|stem| task_stems.contains(&stem))
+}
+
+fn task_expected_claim_stems(
+    package_root: &Path,
+    task_id: &str,
+) -> std::collections::BTreeSet<String> {
+    let mut stems = std::collections::BTreeSet::from([expected_claim_stem(task_id)]);
+    if let Some(dir) = resolve_task_runtime_dir_local(package_root, task_id) {
+        let path = dir.join("task-spec.json");
+        if let Ok(raw) = std::fs::read_to_string(path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Some(source_atom_id) =
+                    value.get("source_atom_id").and_then(|v| v.as_str())
+                {
+                    stems.insert(expected_claim_stem(source_atom_id));
+                }
+            }
+        }
+    }
+    stems
+}
+
+fn expected_claim_stem(token: &str) -> String {
+    let mut base = token
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(token)
+        .to_ascii_lowercase();
+    for suffix in [".gz", ".bz2", ".xz", ".zst", ".zip"] {
+        if let Some(stripped) = base.strip_suffix(suffix) {
+            base = stripped.to_string();
+            break;
+        }
+    }
+    match base.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => stem.to_string(),
+        _ => base,
+    }
 }
 
 // Canonical task-outputs layout is `runtime/outputs/<task_id>/`; legacy
@@ -1387,6 +1443,36 @@ mod recall_gate_end_to_end_tests {
             inv1.detail
         );
 
+        std::env::remove_var("ECAA_CONFIG_DIR");
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn required_manifest_for_other_stage_does_not_verify_empty_non_confirmatory_task() {
+        // A package-level manifest can contain Required entries for later
+        // confirmatory result stages. Completing an earlier operational task
+        // must not trigger a recall gap for those future outputs.
+        let cfg = config_dir();
+        std::env::set_var("ECAA_CONFIG_DIR", &cfg);
+        std::env::remove_var("ECAA_ABLATE_CLAIM_CONSISTENCY");
+
+        let pkg = tempfile::tempdir().unwrap();
+        scaffold_package_with_required_manifest_and_empty_result(pkg.path(), "data_acquisition");
+
+        let out = verify_task_with_context(
+            pkg.path(),
+            "data_acquisition",
+            &cfg,
+            ProjectClass::Bioinformatics,
+            &[],
+            false,
+        );
+        assert!(
+            matches!(out, VerifyOutcome::Disabled),
+            "manifest entries for differential_expression must not force \
+             data_acquisition into claim coverage verification, got {}",
+            out.label()
+        );
         std::env::remove_var("ECAA_CONFIG_DIR");
     }
 
