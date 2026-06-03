@@ -53,6 +53,7 @@ pub mod config;
 pub mod container_state;
 pub mod cost;
 pub mod coverage;
+pub mod coverage_statement;
 pub mod cross_version_diff;
 // Saga: rollback for non-atomic transitions.
 // ResilientClient: HTTPS-only client wrapper with scheme guards.

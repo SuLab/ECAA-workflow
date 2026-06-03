@@ -326,6 +326,34 @@ pub(super) async fn write_phase14_sidecars(session: &Session, output_dir: &Path)
     Ok(())
 }
 
+/// M5 — write `runtime/coverage-statement.json` declaring which emitted
+/// goal branches were satisfied by catalog atoms vs covered by session
+/// proposals (`propose_hypothesized_node` + composer-synthesized
+/// unsatisfiable-modality proposals). No-op when the session has no
+/// cached `WorkflowDag` (legacy / pre-compose), matching the
+/// presence-gated sidecar convention. Deterministic (BTreeMap + sorted
+/// Vec, no timestamps) so it stays byte-reproducible.
+pub(super) async fn write_coverage_statement(session: &Session, output_dir: &Path) -> Result<()> {
+    use ecaa_workflow_core::coverage_statement::build_coverage_statement;
+    let Some(dag) = session.workflow_dag.as_ref() else {
+        return Ok(());
+    };
+    let node_ids: Vec<String> = dag.nodes.iter().map(|n| n.id.clone()).collect();
+    let proposal_node_ids: Vec<String> =
+        session.proposals.values().map(|p| p.node_id.clone()).collect();
+    let stmt = build_coverage_statement(&node_ids, &proposal_node_ids);
+
+    let runtime = output_dir.join("runtime");
+    tokio::fs::create_dir_all(&runtime).await?;
+    let bytes = serde_json::to_vec_pretty(&stmt)
+        .context("serializing runtime/coverage-statement.json")?;
+    let path = runtime.join("coverage-statement.json");
+    tokio::fs::write(&path, bytes)
+        .await
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
 /// Derive a `SandboxPolicy` from a session's active
 /// policy bundle id. Today's mapping:
 /// - `clinical_trial` → `SandboxPolicy::default_strict()`
@@ -749,5 +777,65 @@ mod tests {
         );
         // Callers would surface this as a warning; we just confirm
         // the mismatch is detectable.
+    }
+
+    /// M5 — write_coverage_statement emits coverage-statement.json from
+    /// the session's DAG node ids and proposal node ids. A session with a
+    /// DAG and a proposal yields a statement attributing the proposal node
+    /// to Proposal coverage.
+    #[tokio::test]
+    async fn coverage_statement_written_from_dag_and_proposals() {
+        use ecaa_workflow_core::coverage_statement::CoverageStatement;
+        use ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal;
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        let dir = tempfile::tempdir().unwrap();
+        let pkg = dir.path();
+
+        let mut session = Session::new(false);
+        session.workflow_dag = Some(WorkflowDag {
+            nodes: vec![
+                TaskNode::skeleton("de", "Differential expression"),
+                TaskNode::skeleton("cytof_pipeline", "CyTOF analysis"),
+            ],
+            ..Default::default()
+        });
+        let proposal = HypothesizedProposal::new(
+            "cytof_pipeline",
+            "CyTOF analysis",
+            vec![],
+            "no catalog atom for CyTOF",
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        );
+        session.proposals.insert(proposal.id.clone(), proposal);
+
+        write_coverage_statement(&session, pkg).await.unwrap();
+
+        let body = tokio::fs::read_to_string(pkg.join("runtime/coverage-statement.json"))
+            .await
+            .unwrap();
+        let stmt: CoverageStatement = serde_json::from_str(&body).unwrap();
+        assert_eq!(stmt.total_branches, 2);
+        assert_eq!(stmt.proposal_covered, 1);
+        assert_eq!(stmt.catalog_covered, 1);
+        assert_eq!(stmt.proposal_branches, vec!["cytof_pipeline".to_string()]);
+        assert!(!stmt.fully_catalog_covered);
+    }
+
+    /// M5 — no DAG ⇒ no file written (legacy / pre-compose sessions),
+    /// matching the presence-gated sidecar convention.
+    #[tokio::test]
+    async fn coverage_statement_absent_without_dag() {
+        let dir = tempfile::tempdir().unwrap();
+        let pkg = dir.path();
+        let session = Session::new(false);
+        write_coverage_statement(&session, pkg).await.unwrap();
+        assert!(
+            !pkg.join("runtime/coverage-statement.json").exists(),
+            "no DAG => no coverage-statement.json"
+        );
     }
 }

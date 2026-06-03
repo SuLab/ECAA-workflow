@@ -2722,6 +2722,58 @@ fn run_loop(
                         "dispatch record append failed"
                     );
                 }
+                // M2 — write one validated-invocation record per dispatched
+                // task, paired 1:1 with the dispatch WAL entry by
+                // (harness_run_id, epoch). Reads the per-task atom id +
+                // safety profile + container pin + prerequisites off the
+                // just-pre-marked DAG. Best-effort: a write failure logs +
+                // continues (the WAL + WORKFLOW.json remain authoritative;
+                // a missing invocation row is an audit gap, never a
+                // dispatch blocker — "always emits" / "never block
+                // dispatch" both hold).
+                if let Some(t) = dag_mut.tasks.get(id.as_str()) {
+                    let prereqs: Vec<String> =
+                        t.depends_on.iter().map(|d| d.to_string()).collect();
+                    // The harness only ever pre-marks Ready tasks, whose
+                    // deps are all Completed — so port-typed inputs are
+                    // satisfied at dispatch by construction. Recorded
+                    // explicitly so auditors read it directly.
+                    let inputs_satisfied = prereqs.iter().all(|p| {
+                        dag_mut
+                            .tasks
+                            .get(p.as_str())
+                            .map(|pt| {
+                                matches!(
+                                    pt.state,
+                                    ecaa_workflow_core::dag::TaskState::Completed { .. }
+                                )
+                            })
+                            .unwrap_or(false)
+                    });
+                    let container_image = t.container.as_ref().map(|c| c.image.clone());
+                    let inv = ecaa_workflow_harness::invocation_log::InvocationRecord::new(
+                        id.as_str(),
+                        t.source_atom_id.as_deref(),
+                        epoch,
+                        harness_run_id,
+                        &now.to_rfc3339(),
+                        &prereqs,
+                        inputs_satisfied,
+                        &t.safety,
+                        container_image.as_deref(),
+                    );
+                    if let Err(e) =
+                        ecaa_workflow_harness::invocation_log::append_invocation(path, &inv)
+                    {
+                        tracing::warn!(
+                            target: "harness",
+                            task_id = %id,
+                            epoch = epoch,
+                            error = %e,
+                            "invocation-record append failed (continuing; WAL + WORKFLOW.json remain authoritative)"
+                        );
+                    }
+                }
                 picked_dispatches.push(PickedDispatch {
                     task_id: id.clone().into(),
                     harness_run_id: harness_run_id.to_string(),

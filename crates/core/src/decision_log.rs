@@ -55,6 +55,44 @@ pub enum DecisionActor {
     Harness,
 }
 
+/// Whether a decision was a behaviour-defining *validated-execution*
+/// action that passed a deterministic server-side gate, or a
+/// *conversational* action that merely reduced overhead.
+///
+/// This is the session-level analog of "validated invocation as the
+/// unit of provenance/approval": a reviewer can mechanically prove that
+/// no behaviour-defining action bypassed the gate by filtering the
+/// decision log on `authority == SchemaValidated`.
+///
+/// **Set deterministically by the dispatcher/handler** in
+/// `record_decision_with_ip`, derived from [`DecisionActor`]. The LLM
+/// never sets this — a `DecisionActor::Llm` tool-dispatch is always
+/// `Conversational` because the behaviour-defining gate (the SME button
+/// click that flips `session.user_confirmed`, the harness mirror) is the
+/// `Sme`/`Harness` actor.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DecisionAuthority {
+    /// A conversational / overhead-reducing action (LLM tool dispatch,
+    /// intake field-setting). Did not pass a deterministic execution gate.
+    Conversational,
+    /// A behaviour-defining action authorised by deterministic server
+    /// state: an SME REST checkpoint (`/confirm`, `/reject`, `/unblock`,
+    /// `/branch`, sme-selection) or a harness-recorded transition.
+    SchemaValidated,
+}
+
+impl Default for DecisionAuthority {
+    /// Conservative default: a record whose origin is unknown is treated
+    /// as conversational (the weaker claim). Matches the on-disk
+    /// `#[serde(default)]` for legacy records.
+    fn default() -> Self {
+        DecisionAuthority::Conversational
+    }
+}
+
 /// Closed taxonomy of decisions worth auditing. Internally-tagged so the
 /// Serialized JSON is flat (`{"kind":"amend_stage",...}`). Adding a new
 /// variant requires a plan amendment — the decision log is part of the
@@ -700,6 +738,15 @@ pub struct DecisionRecord {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub source_ip: Option<String>,
+    /// Whether this decision was a behaviour-defining
+    /// validated-execution action (`SchemaValidated`) or a
+    /// conversational/overhead-reducing one (`Conversational`). Set
+    /// deterministically from [`DecisionActor`] by the dispatcher/handler
+    /// in `record_decision_with_ip`, never inferred by the LLM.
+    /// `#[serde(default)]` keeps legacy on-disk records loading as
+    /// `Conversational`.
+    #[serde(default)]
+    pub authority: DecisionAuthority,
 }
 
 impl DecisionRecord {
@@ -719,6 +766,7 @@ impl DecisionRecord {
             actor,
             chain_of_custody: None,
             source_ip: None,
+            authority: DecisionAuthority::default(),
         }
     }
 }
@@ -1128,5 +1176,45 @@ mod tests {
             semver::Version::new(0, 1, 0),
             "missing schema_version must default to 0.1.0"
         );
+    }
+
+    /// M1 — `authority` defaults to `Conversational` on `DecisionRecord::new`
+    /// (the dispatcher/handler overrides it deterministically; the
+    /// constructor must not guess from the actor).
+    #[test]
+    fn authority_defaults_to_conversational_on_new() {
+        let r = DecisionRecord::new("s1", DecisionType::Unblock, DecisionActor::Sme, None);
+        assert_eq!(r.authority, DecisionAuthority::Conversational);
+    }
+
+    /// M1 — `authority` serializes as a flat snake_case top-level string
+    /// and round-trips through deserialization.
+    #[test]
+    fn authority_round_trips_when_set() {
+        let mut r = DecisionRecord::new("s1", DecisionType::Unblock, DecisionActor::Sme, None);
+        r.authority = DecisionAuthority::SchemaValidated;
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(
+            json.contains("\"authority\":\"schema_validated\""),
+            "authority must serialize flat snake_case; got: {json}"
+        );
+        let back: DecisionRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.authority, DecisionAuthority::SchemaValidated);
+    }
+
+    /// M1 — legacy on-disk records (predating the `authority` field) must
+    /// load with the `#[serde(default)]` value `Conversational` so existing
+    /// `decisions.jsonl` files keep deserializing.
+    #[test]
+    fn legacy_record_without_authority_defaults_conversational() {
+        let legacy = r#"{
+            "timestamp": "2026-05-13T18:00:00Z",
+            "session_id": "22222222-2222-2222-2222-222222222222",
+            "decision": {"kind": "unblock"},
+            "actor": "sme"
+        }"#;
+        let parsed: DecisionRecord =
+            serde_json::from_str(legacy).expect("legacy record without authority parses");
+        assert_eq!(parsed.authority, DecisionAuthority::Conversational);
     }
 }

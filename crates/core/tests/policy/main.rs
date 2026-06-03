@@ -3,6 +3,7 @@
 // verbatim relocation; #[test] behavior is unchanged.
 mod assumption_policy_loader;
 mod assumption_policy_schema;
+mod authority_provenance;
 mod blocker_variant_count;
 mod compatibility_proof_evidence;
 mod config_parse;

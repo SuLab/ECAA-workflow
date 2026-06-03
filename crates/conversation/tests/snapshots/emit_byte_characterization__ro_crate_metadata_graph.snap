@@ -174,6 +174,9 @@ expression: value
           "@id": "runtime/schema-versions.json"
         },
         {
+          "@id": "runtime/coverage-statement.json"
+        },
+        {
           "@id": "runtime/model-policy.json"
         }
       ],
@@ -1669,6 +1672,16 @@ expression: value
       "description": "v3 P7 — per-package manifest listing the SemVer of every IR type (`WorkflowIntent`, `Session`, `WorkflowDag`, `SessionLineage`, `DispatchRecord`) the package was emitted with. Replay consumers diff this against their own `SchemaVersionsManifest::current()` to detect which migrations they need to run (`core::migration::replay_provenance`).",
       "encodingFormat": "application/json",
       "name": "Schema versions manifest (v3 P7)"
+    },
+    {
+      "@id": "runtime/coverage-statement.json",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "description": "Declares which emitted goal branches were satisfied by catalog atoms vs covered by session proposals (propose_hypothesized_node + composer-synthesized unsatisfiable-modality proposals). The durable, auditable analog of the transient coverage-gap UI banner. Deterministic; byte-reproducible.",
+      "encodingFormat": "application/json",
+      "name": "Goal-branch coverage statement (M5)"
     },
     {
       "@id": "runtime/model-policy.json",

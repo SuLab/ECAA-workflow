@@ -1,4 +1,5 @@
 mod dag_patch_concurrent_agents;
+mod invocation_record_emitted;
 mod required_artifact_pathjail;
 mod scheduler_session_pause_test;
 mod sme_skip_guard_bypass;
