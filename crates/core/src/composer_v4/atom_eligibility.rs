@@ -126,6 +126,7 @@ mod tests {
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
+            provenance: None,
             safety: Default::default(),
         }
     }

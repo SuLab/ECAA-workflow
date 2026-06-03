@@ -304,6 +304,12 @@ pub struct AtomDefinition {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parameters: Vec<ParameterSpec>,
 
+    /// Atom provenance (paper-D.1 origin/maintainer axis). Optional;
+    /// author-set in YAML, never inferred.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub provenance: Option<AtomProvenance>,
+
     /// Unifying safety classification. Composes with the
     /// fine-grained `crate::sandbox_policy::SandboxPolicy` when
     /// `sandbox != None`.
@@ -369,6 +375,33 @@ pub enum ParameterType {
     Enum,
 }
 
+/// Atom provenance — the paper-D.1 `provenance(origin, maintainer)`
+/// axis. Author-set in YAML, never inferred (so emission stays
+/// deterministic). Optional and additive.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct AtomProvenance {
+    /// Where this atom came from.
+    pub origin: AtomOrigin,
+    /// Responsible maintainer (team or handle). Free-form string.
+    pub maintainer: String,
+}
+
+/// Provenance origin class. `#[non_exhaustive]` — adding a future
+/// origin (e.g. `Vendor`) is a non-breaking minor change.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AtomOrigin {
+    /// Shipped in the built-in catalog.
+    Builtin,
+    /// Authored by the deploying site.
+    SiteLocal,
+    /// Contributed by the community.
+    Community,
+}
+
 impl AtomDefinition {
     /// Construct a minimal valid `AtomDefinition` for tests and Tier F
     /// property generators. All optional fields default to their
@@ -410,6 +443,7 @@ impl AtomDefinition {
             validators: Vec::new(),
             runtime_packages: crate::runtime_prereqs::RuntimePrereqs::default(),
             parameters: Vec::new(),
+            provenance: None,
             safety: SafetyPolicy::default(),
         }
     }
@@ -1270,6 +1304,7 @@ mod tests {
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
+            provenance: None,
             safety: Default::default(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).expect("serialize");
@@ -1315,6 +1350,7 @@ mod tests {
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
+            provenance: None,
             safety: Default::default(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
@@ -1364,6 +1400,7 @@ mod tests {
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
+            provenance: None,
             safety: Default::default(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
@@ -1487,6 +1524,7 @@ mod tests {
             validators: vec![],
             runtime_packages: Default::default(),
             parameters: Vec::new(),
+            provenance: None,
             safety: Default::default(),
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();

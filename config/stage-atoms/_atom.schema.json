@@ -143,6 +143,16 @@
       "description": "Typed parameter list (paper D.1 parameter axis). Each entry is schema-validated; unknown keys inside an entry are rejected.",
       "items": { "$ref": "#/definitions/parameter_spec" }
     },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "maintainer"],
+      "description": "Atom provenance (paper D.1 origin/maintainer axis). Author-set.",
+      "properties": {
+        "origin": { "type": "string", "enum": ["builtin", "site_local", "community"] },
+        "maintainer": { "type": "string", "minLength": 1 }
+      }
+    },
     "joint_with": {
       "type": "array",
       "description": "Plan §S7.10 — multi-modal joint-source constraints. Each entry pairs two upstream atom ids that must share `attributes.source_atom`. Used by integration atoms (e.g. multi-modal scRNA-seq + CITE-seq).",

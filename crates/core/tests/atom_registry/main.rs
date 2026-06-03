@@ -11,4 +11,5 @@ mod integrators_atom_loads;
 mod live_configs;
 mod method_choice_self_consistency;
 mod parameters_field;
+mod provenance_field;
 mod survey_method_landscape_loads;

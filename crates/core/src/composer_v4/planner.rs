@@ -3092,6 +3092,7 @@ fn placeholder_atom(node: &TaskNode) -> AtomDefinition {
         validators: Vec::new(),
         runtime_packages: crate::runtime_prereqs::RuntimePrereqs::default(),
         parameters: Vec::new(),
+        provenance: None,
         safety: crate::atom::SafetyPolicy::default(),
     }
 }
