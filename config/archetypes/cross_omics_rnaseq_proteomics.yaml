@@ -1,6 +1,10 @@
 schema_version: "0.1"
 id: cross_omics_rnaseq_proteomics
 version: "1.0.0"
+# Paper §10: scaffolded, not production-validated. The registry's
+# match/selection path excludes this archetype from production use
+# unless the ECAA_ALLOW_SCAFFOLDED_ARCHETYPES opt-in is engaged.
+production_ready: false
 description: |
   Cross-omics analysis comparing transcriptomics + proteomics across
   SME-named groups. Two parallel evidence streams — bulk RNA-seq DE

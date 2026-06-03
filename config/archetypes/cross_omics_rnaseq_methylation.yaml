@@ -1,6 +1,10 @@
 schema_version: "0.1"
 id: cross_omics_rnaseq_methylation
 version: "1.0.0"
+# Paper §10: scaffolded, not production-validated. The registry's
+# match/selection path excludes this archetype from production use
+# unless the ECAA_ALLOW_SCAFFOLDED_ARCHETYPES opt-in is engaged.
+production_ready: false
 description: |
   Two-way cross-omics integrating bulk RNA-seq + DNA methylation
   (WGBS / RRBS / EM-seq / arrays) on the same samples. Aliased

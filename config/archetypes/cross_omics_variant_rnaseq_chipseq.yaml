@@ -1,6 +1,10 @@
 schema_version: "0.1"
 id: cross_omics_variant_rnaseq_chipseq
 version: "1.0.0"
+# Paper §10: scaffolded, not production-validated. The registry's
+# match/selection path excludes this archetype from production use
+# unless the ECAA_ALLOW_SCAFFOLDED_ARCHETYPES opt-in is engaged.
+production_ready: false
 description: |
   Three-way cross-omics integrating WGS variant calls + bulk RNA-seq
   expression + ChIP-seq active-chromatin marks on the same cohort

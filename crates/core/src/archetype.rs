@@ -198,6 +198,35 @@ pub struct ArchetypeDefinition {
     /// disambiguator for goal-shape ties.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cross_omics_modalities: Vec<String>,
+
+    /// Production-readiness gate (paper §10). `true` (default) means the
+    /// archetype is production-validated and the production matcher may
+    /// select it. `false` marks a *scaffolded* archetype — authored and
+    /// loadable (so the catalog + UI can see it) but NOT
+    /// production-validated; the registry's match/selection path refuses
+    /// to return it unless the operator engages the
+    /// `ECAA_ALLOW_SCAFFOLDED_ARCHETYPES` opt-in (see
+    /// [`crate::archetype_registry::ArchetypeRegistry`]'s policy field).
+    ///
+    /// Defaults to `true` so every existing single-modality archetype is
+    /// unaffected and its YAML stays byte-identical (the field is
+    /// suppressed from serialized output when `true`). The five
+    /// `cross_omics_*` archetypes set this `false`.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub production_ready: bool,
+}
+
+/// `serde(default)` for [`ArchetypeDefinition::production_ready`].
+/// Existing archetypes (and any future production-validated one) omit
+/// the field and inherit `true`.
+fn default_true() -> bool {
+    true
+}
+
+/// `skip_serializing_if` for [`ArchetypeDefinition::production_ready`] so
+/// the common `true` case never widens existing YAML / JSON output.
+fn is_true(b: &bool) -> bool {
+    *b
 }
 
 /// `skip_serializing_if` predicate for archetype-level
@@ -400,6 +429,7 @@ mod tests {
             preferred_container: None,
             runtime_baseline: Default::default(),
             cross_omics_modalities: vec![],
+            production_ready: true,
         };
         let yaml = serde_yaml_ng::to_string(&arch).unwrap();
         let back: ArchetypeDefinition = serde_yaml_ng::from_str(&yaml).unwrap();
@@ -443,6 +473,7 @@ mod tests {
             }),
             runtime_baseline: Default::default(),
             cross_omics_modalities: vec![],
+            production_ready: true,
         };
         let yaml = serde_yaml_ng::to_string(&arch).unwrap();
         assert!(yaml.contains("preferred_container"));
@@ -477,6 +508,7 @@ mod tests {
             preferred_container: None,
             runtime_baseline: Default::default(),
             cross_omics_modalities: vec!["bulk_rnaseq".into(), "proteomics".into()],
+            production_ready: true,
         };
         let yaml = serde_yaml_ng::to_string(&arch).unwrap();
         assert!(
@@ -497,6 +529,59 @@ mod tests {
             !single_yaml.contains("cross_omics_modalities"),
             "empty list should be suppressed from YAML"
         );
+    }
+
+    /// `production_ready` defaults to `true`, is suppressed from
+    /// serialized output in the common `true` case (so existing YAML
+    /// stays byte-identical), and round-trips when set `false` (the
+    /// scaffolded-archetype case). An archetype YAML that omits the
+    /// field deserializes with `production_ready == true`.
+    #[test]
+    fn production_ready_defaults_true_and_suppressed_when_true() {
+        let arch = ArchetypeDefinition {
+            schema_version: CURRENT_ARCHETYPE_SCHEMA_VERSION.into(),
+            id: "single_cell_de".into(),
+            version: "1.0.0".into(),
+            description: "scRNA-seq DE.".into(),
+            sme_summary: "x".into(),
+            goal_data: "data:3917".into(),
+            goal_format: None,
+            atoms: vec![],
+            slot_mappings: BTreeMap::new(),
+            compose: vec![],
+            slots: None,
+            cross_dependencies: vec![],
+            claim_boundary: None,
+            project_class: "bioinformatics".into(),
+            modality_hint: None,
+            goal_kind_hint: None,
+            preferred_container: None,
+            runtime_baseline: Default::default(),
+            cross_omics_modalities: vec![],
+            production_ready: true,
+        };
+        let yaml = serde_yaml_ng::to_string(&arch).unwrap();
+        assert!(
+            !yaml.contains("production_ready"),
+            "production_ready: true must be suppressed, got:\n{yaml}"
+        );
+        // A YAML that omits the field deserializes as production_ready=true.
+        let back: ArchetypeDefinition = serde_yaml_ng::from_str(&yaml).unwrap();
+        assert!(back.production_ready);
+        assert_eq!(arch, back);
+
+        // Scaffolded case: false survives the round-trip and serializes.
+        let scaffolded = ArchetypeDefinition {
+            production_ready: false,
+            ..arch
+        };
+        let scaffolded_yaml = serde_yaml_ng::to_string(&scaffolded).unwrap();
+        assert!(
+            scaffolded_yaml.contains("production_ready: false"),
+            "production_ready: false must serialize, got:\n{scaffolded_yaml}"
+        );
+        let back2: ArchetypeDefinition = serde_yaml_ng::from_str(&scaffolded_yaml).unwrap();
+        assert!(!back2.production_ready);
     }
 
     #[test]

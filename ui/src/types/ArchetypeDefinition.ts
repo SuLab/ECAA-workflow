@@ -168,4 +168,20 @@ runtime_baseline: RuntimePrereqs,
  * Unrelated to `modality_hint`, which is the single-modality
  * disambiguator for goal-shape ties.
  */
-cross_omics_modalities: Array<string>, };
+cross_omics_modalities: Array<string>, 
+/**
+ * Production-readiness gate (paper §10). `true` (default) means the
+ * archetype is production-validated and the production matcher may
+ * select it. `false` marks a *scaffolded* archetype — authored and
+ * loadable (so the catalog + UI can see it) but NOT
+ * production-validated; the registry's match/selection path refuses
+ * to return it unless the operator engages the
+ * `ECAA_ALLOW_SCAFFOLDED_ARCHETYPES` opt-in (see
+ * [`crate::archetype_registry::ArchetypeRegistry`]'s policy field).
+ *
+ * Defaults to `true` so every existing single-modality archetype is
+ * unaffected and its YAML stays byte-identical (the field is
+ * suppressed from serialized output when `true`). The five
+ * `cross_omics_*` archetypes set this `false`.
+ */
+production_ready: boolean, };

@@ -1,6 +1,10 @@
 schema_version: "0.1"
 id: cross_omics_rnaseq_atac_chip
 version: "1.0.0"
+# Paper §10: scaffolded, not production-validated. The registry's
+# match/selection path excludes this archetype from production use
+# unless the ECAA_ALLOW_SCAFFOLDED_ARCHETYPES opt-in is engaged.
+production_ready: false
 description: |
   Plan §B.M7 — ternary (N=3) cross-omics analysis covering the chromatin-
   RNA triad: bulk RNA-seq differential expression, ATAC-seq peak calling,

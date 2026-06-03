@@ -117,6 +117,80 @@ fn cross_omics_archetype_has_both_branch_stages() {
     );
 }
 
+/// Production-exclusion gate (paper §10): cross-omics archetypes are
+/// scaffolded (`production_ready: false`) and MUST NOT be selected by
+/// the production matcher unless the `ECAA_ALLOW_SCAFFOLDED_ARCHETYPES`
+/// opt-in is engaged. The default-policy registry (production) must
+/// refuse to return a cross-omics archetype even for an intake whose
+/// modality set exactly matches one.
+#[test]
+fn production_matcher_excludes_scaffolded_cross_omics_by_default() {
+    // Default `load_from_dir` is the explicit-policy / dev constructor
+    // and stays permissive; the production constructor denies scaffolded
+    // archetypes. Exercise the production policy directly.
+    let reg = ArchetypeRegistry::load_from_dir_with_policy(
+        &config_root().join("archetypes"),
+        /* allow_scaffolded = */ false,
+    )
+    .expect("ArchetypeRegistry::load_from_dir_with_policy must succeed");
+
+    // The cross-omics archetype is still LOADED (so the catalog + UI can
+    // see it), but it must be marked not-production-ready ...
+    let arch = reg
+        .get("cross_omics_rnaseq_proteomics")
+        .expect("scaffolded archetype is still loaded into the catalog");
+    assert!(
+        !arch.production_ready,
+        "cross-omics archetype must be marked production_ready: false"
+    );
+
+    // ... and the production matcher must NOT select it for an intake
+    // whose modality set exactly matches.
+    let matches = reg.find_match_cross_omics(
+        "data:0951",
+        Some("format:3475"),
+        "bioinformatics",
+        &["bulk_rnaseq", "proteomics"],
+        None,
+        false,
+        "rna-seq and proteomics",
+    );
+    assert!(
+        matches.is_empty(),
+        "production matcher (allow_scaffolded=false) must not return a \
+         scaffolded cross-omics archetype, got {:?}",
+        matches.iter().map(|(a, _)| &a.id).collect::<Vec<_>>()
+    );
+}
+
+/// With the explicit opt-in engaged, the production matcher DOES select
+/// the scaffolded cross-omics archetype.
+#[test]
+fn production_matcher_includes_scaffolded_cross_omics_with_opt_in() {
+    let reg = ArchetypeRegistry::load_from_dir_with_policy(
+        &config_root().join("archetypes"),
+        /* allow_scaffolded = */ true,
+    )
+    .expect("ArchetypeRegistry::load_from_dir_with_policy must succeed");
+
+    let matches = reg.find_match_cross_omics(
+        "data:0951",
+        Some("format:3475"),
+        "bioinformatics",
+        &["bulk_rnaseq", "proteomics"],
+        None,
+        false,
+        "rna-seq and proteomics",
+    );
+    assert!(
+        matches
+            .iter()
+            .any(|(a, _)| a.id == "cross_omics_rnaseq_proteomics"),
+        "with opt-in, matcher must return the cross-omics archetype, got {:?}",
+        matches.iter().map(|(a, _)| &a.id).collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn cross_omics_thematic_comparison_depends_on_both_branches() {
     let reg = ArchetypeRegistry::load_from_dir(&config_root().join("archetypes"))

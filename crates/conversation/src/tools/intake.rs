@@ -786,6 +786,12 @@ fn select_cross_omics_winner(
             archetype.project_class == project_class_str
                 && !archetype.cross_omics_modalities.is_empty()
         })
+        // Production-exclusion gate (paper §10): this inline exact-match
+        // filter bypasses `find_match_cross_omics`, so it must consult
+        // the registry selectability predicate too. Otherwise a
+        // scaffolded archetype could still be pinned onto the session
+        // snapshot through this path.
+        .filter(|archetype| reg.is_selectable(archetype))
         .filter(|archetype| {
             let have: std::collections::BTreeSet<&str> = archetype
                 .cross_omics_modalities

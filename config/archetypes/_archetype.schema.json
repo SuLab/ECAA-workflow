@@ -31,6 +31,11 @@
       "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[A-Za-z0-9.]+)?$",
       "description": "Semver. [DEC QX.5] — bump on additive changes so existing sessions don't silently re-route to a refined archetype mid-amendment. The `archetype_snapshot` field on Session pins the version a session committed to (S6.9 Cargo.lock-style pinning)."
     },
+    "production_ready": {
+      "type": "boolean",
+      "default": true,
+      "description": "Paper §10 production-exclusion gate. `true` (default; omit the field) means the archetype is production-validated and the registry's match/selection path may select it. `false` marks a *scaffolded* archetype — authored and loadable so the catalogue/UI can see it, but NOT production-validated: the matcher refuses to return it unless the operator sets `ECAA_ALLOW_SCAFFOLDED_ARCHETYPES`. The five `cross_omics_*` archetypes set this `false`. Mirrors `crates/core/src/archetype.rs::ArchetypeDefinition::production_ready`."
+    },
     "description": {
       "type": "string",
       "minLength": 1,

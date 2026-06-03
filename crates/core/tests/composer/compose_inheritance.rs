@@ -44,6 +44,7 @@ fn arch(id: &str, atoms: Vec<ArchetypeAtomRef>, compose: Vec<ComposeRef>) -> Arc
         preferred_container: None,
         runtime_baseline: Default::default(),
         cross_omics_modalities: vec![],
+        production_ready: true,
     }
 }
 
