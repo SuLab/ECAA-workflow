@@ -82,10 +82,17 @@ pub fn build_sink_doc(
     doc
 }
 
-/// Build the sink doc for `task_id`, HMAC-sign it with `writer`, and write
-/// it atomically to
+/// Build the sink doc for `task_id`, HMAC-sign it with `writer`, and APPEND
+/// it as one signed JSONL row to
 /// `<package_root>/runtime/verification-reports/claim-verification.signed.json`.
 /// Returns the written path.
+///
+/// The sink is append-only: one independently-signed row per task
+/// verification. The loader (`audit_proof::loader::load_claims`) unions all
+/// rows so a recall gap recorded by an earlier task can never be erased by a
+/// later coverage-less task — a last-writer REPLACE silently dropped it (the
+/// F2 at-rest erasure). Because each row carries its own HMAC, appending
+/// needs no rewrite of prior rows.
 ///
 /// The reports dir is already excluded from the BagIt manifest
 /// (`emitter/bagit.rs`) and is never trusted from the agent side
@@ -99,6 +106,7 @@ pub fn persist_signed_verdicts(
     coverage: Option<&CoverageResult>,
     writer: &AuditWriter,
 ) -> std::io::Result<PathBuf> {
+    use std::io::Write;
     let path = package_root.join(SIGNED_SINK_REL);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -107,9 +115,14 @@ pub fn persist_signed_verdicts(
     let mut buf = Vec::new();
     writer.write_signed_row(&mut buf, &doc)?;
 
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, &buf)?;
-    std::fs::rename(&tmp, &path)?;
+    // `buf` already ends in '\n' (write_signed_row uses writeln!). Host writes
+    // are sequential and post-execution, so a single appended line per call
+    // accumulates one row per task verification.
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)?;
+    f.write_all(&buf)?;
     Ok(path)
 }
 
