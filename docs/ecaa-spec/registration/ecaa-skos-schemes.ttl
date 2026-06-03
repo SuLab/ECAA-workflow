@@ -18,7 +18,7 @@
 vocab:blocker-kind a skos:ConceptScheme ;
     dcterms:title "ECAA BlockerKind controlled vocabulary"@en ;
     dcterms:isVersionOf <https://w3id.org/ecaa/v0.1> ;
-    owl:versionInfo "47" ;     # variant count; pinned by the agreement lint
+    owl:versionInfo "48" ;     # variant count; pinned by the agreement lint
     skos:note "Closed-but-extensible: adding a concept is a MINOR change (see v0.2 spec §Conformance & Extension)." .
 
 <https://w3id.org/ecaa/vocab/blocker-kind/data_shape_mismatch> a skos:Concept ;
@@ -250,6 +250,11 @@ vocab:blocker-kind a skos:ConceptScheme ;
     skos:inScheme vocab:blocker-kind ;
     skos:notation "provenance_commit_dropped" ;
     skos:prefLabel "Provenance commit dropped"@en .
+
+<https://w3id.org/ecaa/vocab/blocker-kind/external_import_failed> a skos:Concept ;
+    skos:inScheme vocab:blocker-kind ;
+    skos:notation "external_import_failed" ;
+    skos:prefLabel "External import failed"@en .
 
 <https://w3id.org/ecaa/vocab/blocker-kind/turn_budget_exceeded> a skos:Concept ;
     skos:inScheme vocab:blocker-kind ;

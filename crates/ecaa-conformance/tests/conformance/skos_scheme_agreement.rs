@@ -116,11 +116,11 @@ fn blocker_kind_enum_matches_scheme() {
     let skos = scheme_notations(&schemes_ttl(), "blocker-kind");
     assert_eq!(
         rust.len(),
-        47,
-        "source-parsed BlockerKind variant count drifted from 47 (sync the SKOS scheme + pinned tests)"
+        48,
+        "source-parsed BlockerKind variant count drifted from 48 (sync the SKOS scheme + pinned tests)"
     );
     // Cross-check the strum::EnumCount pin so all three couplings agree.
-    assert_eq!(ecaa_workflow_core::blocker::BlockerKind::COUNT, 47);
+    assert_eq!(ecaa_workflow_core::blocker::BlockerKind::COUNT, 48);
     assert_eq!(
         rust, skos,
         "BlockerKind variants ≠ blocker-kind SKOS notations.\n  only in Rust: {:?}\n  only in SKOS: {:?}",
@@ -165,7 +165,7 @@ fn ablation_flag_enum_matches_scheme() {
 fn scheme_versioninfo_pins_match_counts() {
     let ttl = schemes_ttl();
     // owl:versionInfo on each scheme must equal the variant count.
-    for (scheme, count) in [("blocker-kind", "47"), ("rerun-outcome", "5"), ("ablation-flag", "6")] {
+    for (scheme, count) in [("blocker-kind", "48"), ("rerun-outcome", "5"), ("ablation-flag", "6")] {
         let head = ttl
             .split(&format!("vocab:{scheme} a skos:ConceptScheme"))
             .nth(1)
