@@ -9,6 +9,7 @@ mod boundary_actionability_coverage;
 mod compatibility_proof_evidence;
 mod config_parse;
 mod cost_arithmetic;
+mod default_deny_safety;
 mod interpretation_policy_expected_schema;
 mod ontology_scope_loader;
 mod ontology_scope_schema;
