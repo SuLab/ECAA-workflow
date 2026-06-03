@@ -834,6 +834,11 @@ impl Executor for SlurmExecutor {
             sandbox,
             network: ecaa_workflow_core::atom::NetworkPolicy::None { allowlist: vec![] },
             kind: "slurm",
+            // SLURM dispatch launches the Claude agent wrapper, which
+            // forwards task context to an Anthropic inference endpoint.
+            // Fail-closed default; an operator declaring an on-prem
+            // no-egress backend would flip this to false out of band.
+            forwards_to_external_llm: true,
         }
     }
 

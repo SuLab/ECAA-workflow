@@ -520,11 +520,14 @@ fn collect_safety_policy_refusals(
             continue;
         }
         // Controlled-access guard: tasks marked `controlled_access: true`
-        // must not be dispatched to an LLM-backed executor. The mock
-        // executor is exempt (test-only, no real data). All real backends
-        // (local, aws, slurm) launch the Claude agent wrapper and thereby
-        // forward task context to an Anthropic inference endpoint.
-        if task.safety.controlled_access && caps.kind != "mock" {
+        // must not be dispatched to an executor that forwards task
+        // context to a third-party LLM inference endpoint. Gated on the
+        // declared capability (fail-closed default `true`) rather than
+        // the backend kind, so an operator-declared on-prem no-egress
+        // backend may run controlled data while every LLM-forwarding
+        // backend (and any future one) is refused. The mock executor
+        // sets `forwards_to_external_llm: false` and stays exempt.
+        if task.safety.controlled_access && caps.forwards_to_external_llm {
             let port_name = task
                 .spec
                 .as_ref()
@@ -546,6 +549,77 @@ fn collect_safety_policy_refusals(
         }
     }
     refusals
+}
+
+#[cfg(test)]
+mod controlled_access_gate_tests {
+    use super::*;
+    use ecaa_workflow_core::atom::{NetworkPolicy, SandboxRequirement};
+    use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState, DAG};
+    use ecaa_workflow_harness::executor::ExecutorCapabilities;
+
+    fn controlled_access_dag() -> DAG {
+        let mut dag = DAG {
+            version: "1".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "controlled_access_test".into(),
+            current_task: None,
+            tasks: std::collections::BTreeMap::new(),
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+        };
+        let mut task = Task {
+            kind: TaskKind::Computation,
+            state: TaskState::Pending,
+            depends_on: vec![],
+            assignee: Assignee::Agent,
+            description: "controlled-access acquisition".into(),
+            spec: None,
+            resolution: None,
+            result_ref: None,
+            resource_class: ResourceClass::CpuHeavy,
+            requires_sme_review: false,
+            required_artifacts: vec![],
+            container: None,
+            source_atom_id: Some("controlled_access_data_acquisition".into()),
+            safety: Default::default(),
+        };
+        task.safety.controlled_access = true;
+        dag.tasks.insert("ca1".into(), task);
+        dag
+    }
+
+    #[test]
+    fn controlled_access_refused_on_llm_forwarding_executor_only() {
+        let dag = controlled_access_dag();
+        let picks = vec!["ca1".to_string()];
+
+        // LLM-forwarding executor (the production default) => refused.
+        let caps_llm = ExecutorCapabilities {
+            sandbox: SandboxRequirement::None,
+            network: NetworkPolicy::Bridge,
+            kind: "local",
+            forwards_to_external_llm: true,
+        };
+        let refusals = collect_safety_policy_refusals(&dag, &picks, &caps_llm);
+        assert!(
+            refusals.contains_key("ca1"),
+            "controlled-access must be refused on an LLM-forwarding executor"
+        );
+
+        // On-prem no-LLM-egress executor => NOT refused.
+        let caps_local = ExecutorCapabilities {
+            sandbox: SandboxRequirement::None,
+            network: NetworkPolicy::Bridge,
+            kind: "slurm",
+            forwards_to_external_llm: false,
+        };
+        let refusals2 = collect_safety_policy_refusals(&dag, &picks, &caps_local);
+        assert!(
+            !refusals2.contains_key("ca1"),
+            "an on-prem no-LLM-egress executor may run controlled-access data"
+        );
+    }
 }
 
 /// Append per-task validator results to

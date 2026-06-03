@@ -576,6 +576,9 @@ impl Executor for AwsExecutor {
             sandbox: ecaa_workflow_core::atom::SandboxRequirement::ProcessIsolation,
             network,
             kind: "aws",
+            // Remote dispatch launches the Claude agent wrapper, which
+            // forwards task context to an Anthropic inference endpoint.
+            forwards_to_external_llm: true,
         }
     }
 

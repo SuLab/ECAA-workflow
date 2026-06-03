@@ -71,6 +71,12 @@ pub struct ExecutorCapabilities {
     /// "slurm", "mock"). Carried for diagnostics; not used by the
     /// compatibility check itself.
     pub kind: &'static str,
+    /// Whether this executor routes task context to a third-party LLM
+    /// inference endpoint (the Claude agent wrapper). Default `true`
+    /// (fail-closed): controlled-access data is refused unless an
+    /// operator declares an on-prem no-egress backend (`false`). The
+    /// mock executor sets `false` (test-only, no real data forwarded).
+    pub forwards_to_external_llm: bool,
 }
 
 /// Returns `Some(BlockerKind)` when the executor cannot dispatch the
@@ -186,6 +192,11 @@ pub trait Executor: Send {
             sandbox: SandboxRequirement::ProcessIsolation,
             network: NetworkPolicy::Bridge,
             kind: self.name(),
+            // The default impl backs the mock + test executors, which
+            // run no real agent and forward no task context to an LLM.
+            // The three production backends override this method and set
+            // `forwards_to_external_llm: true`.
+            forwards_to_external_llm: false,
         }
     }
 
@@ -969,6 +980,7 @@ mod safety_tests {
             sandbox: SandboxRequirement::None,
             network: NetworkPolicy::Bridge,
             kind: "local",
+            forwards_to_external_llm: true,
         };
         let blocker = enforce_safety_policy(&task, &caps);
         match blocker {
@@ -992,6 +1004,7 @@ mod safety_tests {
             sandbox: SandboxRequirement::ProcessIsolation,
             network: NetworkPolicy::Bridge,
             kind: "local",
+            forwards_to_external_llm: true,
         };
         assert!(enforce_safety_policy(&task, &caps).is_none());
     }
@@ -1008,6 +1021,7 @@ mod safety_tests {
             sandbox: SandboxRequirement::None,
             network: NetworkPolicy::None { allowlist: vec![] },
             kind: "local",
+            forwards_to_external_llm: true,
         };
         let blocker = enforce_safety_policy(&task, &caps);
         assert!(
@@ -1024,6 +1038,7 @@ mod safety_tests {
             sandbox: SandboxRequirement::None,
             network: NetworkPolicy::None { allowlist: vec![] },
             kind: "local",
+            forwards_to_external_llm: true,
         };
         assert!(enforce_safety_policy(&task, &caps).is_none());
     }
@@ -1038,6 +1053,7 @@ mod safety_tests {
             sandbox: SandboxRequirement::None,
             network: NetworkPolicy::None { allowlist: vec![] }, // deny-all
             kind: "slurm",
+            forwards_to_external_llm: true,
         };
         let blocker = enforce_safety_policy(&task, &caps);
         assert!(
@@ -1057,6 +1073,7 @@ mod safety_tests {
             sandbox: SandboxRequirement::None,
             network: NetworkPolicy::Bridge,
             kind: "local",
+            forwards_to_external_llm: true,
         };
         assert!(enforce_safety_policy(&task, &caps).is_none());
     }
@@ -1103,6 +1120,7 @@ mod safety_threading_tests {
             sandbox: SandboxRequirement::ProcessIsolation,
             network: NetworkPolicy::None { allowlist: vec![] },
             kind: "test",
+            forwards_to_external_llm: true,
         };
         let blocker = enforce_safety_policy(task, &caps);
         assert!(
