@@ -24,6 +24,9 @@ pub mod audit_writer;
 pub mod backend_emitters;
 pub mod bco;
 pub mod blocker;
+/// M3 — maps every compatibility/validation boundary failure to a
+/// typed BlockerKind plus at least one populated UnblockPath.
+pub mod boundary_actionability;
 /// Builder module.
 pub mod builder;
 pub mod checkpoint_mode;
