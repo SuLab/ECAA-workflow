@@ -421,6 +421,11 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
         }
         _ => {}
     }
+    // Initial write so the audit-proof report's `package_iri` resolves to
+    // an existing `ro-crate-metadata.json`. The file is rewritten below once
+    // the projected `InvariantVerdict` nodes are folded into the in-memory
+    // `@graph`; the BagIt manifest (sealed AFTER that rewrite) therefore
+    // hashes the FINAL metadata.
     let ro_crate_payload =
         serde_json::to_string_pretty(&ro_crate_meta).context("serializing RO-Crate metadata")?;
     crate::fs_helpers::atomic_write_bytes_sync(
@@ -442,10 +447,39 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     crate::provenance_tiers::scrub_agent_trace_logs(dir)
         .context("scrubbing agent-trace.log files for secrets")?;
 
+    // ECAA sidecars + audit-proof report. These feed the audit-proof
+    // invariant checks, so they must land BEFORE the report is generated.
+    // None of them are in the BagIt payload manifest (`emitter::bagit`),
+    // so producing them ahead of the manifest below does not perturb it.
+    ecaa::write_emit_time_sidecars(dir, config.dag, config.classification, &emit_clock)
+        .context("emitting ECAA sidecars")?;
+    let audit_proof_report =
+        ecaa::write_audit_proof_report(dir).context("emitting ECAA audit-proof report")?;
+
+    // Fold the audit-proof verdicts into the RO-Crate `@graph` as
+    // first-class `InvariantVerdict` triples (keeping the report file-ref
+    // `CreativeWork`), then re-write `ro-crate-metadata.json`. The
+    // projection is deterministic (node `@id`s derive from the invariant
+    // id; the report's wall-clock `evaluated_at` is dropped), so this
+    // rewrite stays byte-reproducible. Re-writing here — before the BagIt
+    // manifest — guarantees the manifest hashes the metadata WITH the
+    // verdict nodes.
+    if let Some(report) = &audit_proof_report {
+        ro_crate::inject_audit_proof_verdict_nodes(&mut ro_crate_meta, report)
+            .context("injecting audit-proof InvariantVerdict nodes into the RO-Crate @graph")?;
+        let ro_crate_payload = serde_json::to_string_pretty(&ro_crate_meta)
+            .context("serializing RO-Crate metadata (with audit-proof verdicts)")?;
+        crate::fs_helpers::atomic_write_bytes_sync(
+            &dir.join("ro-crate-metadata.json"),
+            ro_crate_payload.as_bytes(),
+        )
+        .context("re-writing ro-crate-metadata.json with audit-proof verdicts")?;
+    }
+
     // BagIt 1.0-style manifest. Walks every file committed to the
     // package's deterministic surface and writes <sha512>
     // <relative-path> per line. ECAA runtime sidecars are intentionally
-    // written after this call: the conversation emit path may overwrite
+    // EXCLUDED from this manifest: the conversation emit path may overwrite
     // them with richer session logs after core emit_package returns, so
     // hashing them here would create a stale manifest on live emits.
     //
@@ -455,9 +489,6 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     // the manifest to detect drift without re-hashing every file.
     write_bagit_manifest(dir, &emit_clock).context("writing BagIt manifest")?;
 
-    ecaa::write_emit_time_sidecars(dir, config.dag, config.classification, &emit_clock)
-        .context("emitting ECAA sidecars")?;
-    ecaa::write_audit_proof_report(dir).context("emitting ECAA audit-proof report")?;
     ecaa::write_validation_summary(dir).context("emitting ECAA validation summary")?;
 
     Ok(())

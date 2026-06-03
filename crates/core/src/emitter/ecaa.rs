@@ -126,9 +126,15 @@ pub(super) fn write_emit_time_sidecars(
     Ok(())
 }
 
-pub(super) fn write_audit_proof_report(output_dir: &Path) -> Result<()> {
+/// Generate the audit-proof report, persist it to
+/// `runtime/audit-proof-report.json`, and return the report JSON so the
+/// emit pipeline can project its verdicts into the RO-Crate `@graph` as
+/// first-class `InvariantVerdict` nodes (see
+/// `ro_crate::inject_audit_proof_verdict_nodes`). Returns `Ok(None)` when
+/// the AuditProof ablation flag suppresses the report.
+pub(super) fn write_audit_proof_report(output_dir: &Path) -> Result<Option<Value>> {
     if AblationFlag::AuditProof.is_active() {
-        return Ok(());
+        return Ok(None);
     }
     let validator = crate::wrroc_validator::NoopWrrocValidator;
     // The `WallClock` here stamps the report's `evaluated_at` field with the
@@ -141,13 +147,20 @@ pub(super) fn write_audit_proof_report(output_dir: &Path) -> Result<()> {
     // manifest exclusion list (`emitter::bagit`), so its per-emit timestamp
     // never perturbs payload checksums and is never mistaken for a
     // determinism regression by the byte-characterization harness.
+    //
+    // The projected `@graph` verdict nodes (`inject_audit_proof_verdict_nodes`)
+    // intentionally drop `evaluated_at`, so the wall-clock value here never
+    // reaches `ro-crate-metadata.json` (which IS in the byte-determinism
+    // baseline).
     let report =
         crate::audit_proof::run_audit_proof(output_dir, &validator, &crate::clock::WallClock)
             .context("running audit-proof invariants")?;
+    let report = serde_json::to_value(&report).context("serializing audit-proof report")?;
     write_pretty_json(
         &output_dir.join("runtime").join("audit-proof-report.json"),
         &report,
-    )
+    )?;
+    Ok(Some(report))
 }
 
 pub(super) fn write_validation_summary(output_dir: &Path) -> Result<()> {

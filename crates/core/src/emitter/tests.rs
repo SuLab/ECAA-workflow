@@ -2249,6 +2249,78 @@ fn emit_package_whole_package_byte_reproducible() {
 }
 
 #[test]
+fn ro_crate_graph_carries_typed_invariant_verdict_nodes() {
+    // The audit-proof verdicts must be FIRST-CLASS typed nodes inside the
+    // RO-Crate @graph (preprint claim: "first-class triples inside the
+    // package"), not merely a file-reference to runtime/audit-proof-report.json.
+    // Emit a package, parse ro-crate-metadata.json, and assert:
+    //   (a) the @graph carries one InvariantVerdict node per audit-proof
+    //       invariant (the 6-invariant report), each with a verdict status
+    //       and an evaluated_against edge to the package IRI; and
+    //   (b) the file-reference CreativeWork for the report is STILL present.
+    let tmp = TempDir::new().unwrap();
+    emit_plain(tmp.path(), &policies_dir());
+
+    let content = std::fs::read_to_string(tmp.path().join("ro-crate-metadata.json")).unwrap();
+    let meta: serde_json::Value = serde_json::from_str(&content).expect("valid JSON");
+    let graph = meta
+        .get("@graph")
+        .expect("@graph required")
+        .as_array()
+        .unwrap();
+
+    // (a) Typed InvariantVerdict nodes.
+    let verdict_nodes: Vec<&serde_json::Value> = graph
+        .iter()
+        .filter(|e| e.get("@type").and_then(|t| t.as_str()) == Some("InvariantVerdict"))
+        .collect();
+    assert!(
+        verdict_nodes.len() >= 6,
+        "expected >= 6 InvariantVerdict nodes in @graph, found {}",
+        verdict_nodes.len()
+    );
+    for node in &verdict_nodes {
+        assert!(
+            node.get("@id")
+                .and_then(|v| v.as_str())
+                .map(|s| s.starts_with("A:"))
+                .unwrap_or(false),
+            "InvariantVerdict node must carry a deterministic A:<id> @id, got {:?}",
+            node.get("@id")
+        );
+        assert!(
+            node.get("verdict").and_then(|v| v.as_str()).is_some(),
+            "InvariantVerdict node must carry a verdict status property, got {node:?}"
+        );
+        // No wall-clock / uuid value may leak into the graph node body.
+        assert!(
+            node.get("evaluated_at").is_none(),
+            "InvariantVerdict node must NOT carry evaluated_at (determinism hazard): {node:?}"
+        );
+        let evaluated_against = node
+            .get("evaluated_against")
+            .and_then(|v| v.get("@id"))
+            .and_then(|v| v.as_str());
+        assert_eq!(
+            evaluated_against,
+            Some("ro-crate-metadata.json"),
+            "InvariantVerdict node must carry an evaluated_against edge to the package IRI"
+        );
+    }
+
+    // (b) The file-reference CreativeWork pointer is still present.
+    let file_ref = graph
+        .iter()
+        .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("runtime/audit-proof-report.json"));
+    let file_ref = file_ref.expect("file-ref CreativeWork for the report must remain in @graph");
+    assert_eq!(
+        file_ref.get("@type").and_then(|v| v.as_str()),
+        Some("CreativeWork"),
+        "report file-ref must stay a CreativeWork"
+    );
+}
+
+#[test]
 fn amend_emit_is_byte_reproducible() {
     // Regression guard for D1: the amend/branch hashed payload must not
     // embed the parent's absolute on-disk path (which is host-rooted and

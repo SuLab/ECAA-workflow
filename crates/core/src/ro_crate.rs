@@ -17,10 +17,7 @@ use std::collections::HashMap;
 /// (`https://edamontology.org/topic:3308`) yields a 404. Replace every
 /// `:` with `_` so the emitted IRI always dereferences.
 fn edam_iri(local_id: &str) -> String {
-    format!(
-        "https://edamontology.org/{}",
-        local_id.replace(':', "_")
-    )
+    format!("https://edamontology.org/{}", local_id.replace(':', "_"))
 }
 
 /// Build the complete ro-crate-metadata.json JSON-LD graph.
@@ -517,6 +514,40 @@ pub fn append_prov_entities(metadata: &mut Value, prov_activities: Vec<Value>) -
     Ok(())
 }
 
+/// Inject the audit-proof report's projected `InvariantVerdict` nodes
+/// (`evaluated_against` edge folded onto each node) into the RO-Crate
+/// `@graph` so the audit-proof verdicts are FIRST-CLASS typed triples
+/// inside the package — not just the `runtime/audit-proof-report.json`
+/// file-reference `CreativeWork` (which is kept).
+///
+/// The projection is deterministic (node `@id`s derive from the invariant
+/// id; the report's wall-clock `evaluated_at` is intentionally dropped), so
+/// re-injection keeps `ro-crate-metadata.json` byte-reproducible. Idempotent:
+/// nodes whose `@id` already exists in `@graph` are replaced, not duplicated,
+/// so a second emit / a conversation-path re-emit converges.
+pub fn inject_audit_proof_verdict_nodes(metadata: &mut Value, report: &Value) -> Result<()> {
+    let nodes = crate::emitter::ecaa_projection::project_audit_proof_jsonld(report);
+    if nodes.is_empty() {
+        return Ok(());
+    }
+    let graph = metadata
+        .get_mut("@graph")
+        .and_then(|g| g.as_array_mut())
+        .ok_or_else(|| anyhow::anyhow!("ro-crate-metadata.json missing @graph array"))?;
+    for node in nodes {
+        let id = node.get("@id").and_then(Value::as_str).map(str::to_string);
+        match id.and_then(|id| {
+            graph
+                .iter()
+                .position(|e| e.get("@id").and_then(Value::as_str) == Some(id.as_str()))
+        }) {
+            Some(pos) => graph[pos] = node,
+            None => graph.push(node),
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -617,14 +648,8 @@ mod tests {
 
         // Exactly one topic_ IRI and two operation_ IRIs (featureList +
         // per-step instrument both come from edam_operation).
-        assert_eq!(
-            edam_ids.iter().filter(|i| topic_re.is_match(i)).count(),
-            1
-        );
-        assert_eq!(
-            edam_ids.iter().filter(|i| op_re.is_match(i)).count(),
-            2
-        );
+        assert_eq!(edam_ids.iter().filter(|i| topic_re.is_match(i)).count(), 1);
+        assert_eq!(edam_ids.iter().filter(|i| op_re.is_match(i)).count(), 2);
     }
 
     /// Recursively gather every `@id` value whose string points at

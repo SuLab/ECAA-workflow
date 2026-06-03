@@ -700,6 +700,70 @@ pub fn project_audit_proof(report: &Value) -> Vec<Value> {
     project_audit_proof_subgraph(report)
 }
 
+/// Project the A (Audit-proof) sub-graph into RO-Crate JSON-LD `@graph`
+/// node form so the audit-proof verdicts live as FIRST-CLASS typed triples
+/// inside `ro-crate-metadata.json` (not merely as a file-reference to
+/// `runtime/audit-proof-report.json`).
+///
+/// Each verdict becomes one JSON-LD node:
+///
+/// ```json
+/// { "@id": "A:claim_completeness",
+///   "@type": "InvariantVerdict",
+///   "invariant_id": "claim_completeness",
+///   "verdict": "<status>",
+///   "evaluated_against": { "@id": "ro-crate-metadata.json" } }
+/// ```
+///
+/// The `evaluated_against` edge is folded onto the node as a JSON-LD object
+/// reference (idiomatic in an RO-Crate `@graph`, where edges are properties
+/// rather than standalone triple objects). The node `@id` is derived from
+/// the invariant id — deterministic, no wall-clock / uuid value — so two
+/// emits of the same package produce byte-identical nodes. The report's
+/// `evaluated_at` timestamp is INTENTIONALLY dropped here (it is the
+/// spec-documented byte-reproducibility exclusion and must never enter the
+/// determinism baseline that `ro-crate-metadata.json` belongs to).
+///
+/// Returns the nodes sorted by `@id` for deterministic graph order.
+pub fn project_audit_proof_jsonld(report: &Value) -> Vec<Value> {
+    let Some(verdicts) = report.get("verdicts").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let pkg_iri = report
+        .get("package_iri")
+        .and_then(Value::as_str)
+        .unwrap_or("ro-crate-metadata.json");
+    // BTreeMap keyed on the prefix-tagged @id gives deterministic ordering
+    // and de-duplicates any (theoretically impossible) repeated invariant id.
+    let mut nodes: std::collections::BTreeMap<String, Value> = std::collections::BTreeMap::new();
+    for (idx, v) in verdicts.iter().enumerate() {
+        let invariant_id = v.get("id").and_then(Value::as_str).unwrap_or("");
+        let local_id = if invariant_id.is_empty() {
+            format!("verdict_{idx:03}")
+        } else {
+            sanitize_id(invariant_id)
+        };
+        let at_id = format!("A:{local_id}");
+        let status = v
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("unverified");
+        nodes.insert(
+            at_id.clone(),
+            json!({
+                "@id": at_id,
+                "@type": SpecNodeType::InvariantVerdict.as_str(),
+                "invariant_id": invariant_id,
+                "verdict": status,
+                // `evaluated_against` (§5.8) folded onto the node as a
+                // JSON-LD object reference to the package IRI.
+                SpecPredicate::EvaluatedAgainst.as_str(): { "@id": pkg_iri },
+            }),
+        );
+    }
+    nodes.into_values().collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -865,6 +929,38 @@ mod tests {
         assert_eq!(edges.len(), 1);
         assert_eq!(edges[0].predicate, SpecPredicate::Consumes);
         assert_eq!(edges[0].target_id, "counts");
+    }
+
+    #[test]
+    fn audit_proof_jsonld_projects_typed_verdict_nodes() {
+        let report = json!({
+            "package_iri": "ro-crate-metadata.json",
+            "evaluated_at": "2026-06-02T00:00:00Z",
+            "verdicts": [
+                {"id": "claim_completeness", "status": "pass"},
+                {"id": "decision_justification", "status": "fail"},
+            ],
+        });
+        let nodes = project_audit_proof_jsonld(&report);
+        assert_eq!(nodes.len(), 2);
+        // Sorted by @id (claim_completeness < decision_justification).
+        assert_eq!(nodes[0]["@id"], json!("A:claim_completeness"));
+        assert_eq!(nodes[0]["@type"], json!("InvariantVerdict"));
+        assert_eq!(nodes[0]["verdict"], json!("pass"));
+        assert_eq!(nodes[0]["invariant_id"], json!("claim_completeness"));
+        assert_eq!(
+            nodes[0]["evaluated_against"],
+            json!({"@id": "ro-crate-metadata.json"})
+        );
+        // The non-deterministic evaluated_at MUST NOT leak into the node body.
+        assert!(nodes[0].get("evaluated_at").is_none());
+        assert_eq!(nodes[1]["verdict"], json!("fail"));
+    }
+
+    #[test]
+    fn audit_proof_jsonld_empty_report_yields_no_nodes() {
+        assert!(project_audit_proof_jsonld(&json!({})).is_empty());
+        assert!(project_audit_proof_jsonld(&json!({"verdicts": []})).is_empty());
     }
 
     #[test]

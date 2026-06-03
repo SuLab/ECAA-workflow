@@ -821,6 +821,23 @@ pub(super) async fn patch_ro_crate_metadata(
     ];
     scan_sidecars_for_phi(output_dir, scanned_sidecars, target_tier).await?;
 
+    // Re-fold the audit-proof verdicts into the `@graph` as first-class
+    // `InvariantVerdict` triples. `core::emit_package` already injected them,
+    // but the conversation emit path re-runs `run_audit_proof` over the
+    // richer session sidecars (see `emit/mod.rs`), so the report on disk may
+    // now carry different verdict statuses. Re-injection (idempotent —
+    // replaces nodes by `@id`, never duplicates) keeps the graph consistent
+    // with the package's FINAL report while preserving the report file-ref
+    // `CreativeWork`. The projection drops the report's wall-clock
+    // `evaluated_at`, so determinism is preserved.
+    let report_path = output_dir.join("runtime").join("audit-proof-report.json");
+    if let Ok(report_bytes) = tokio::fs::read(&report_path).await {
+        if let Ok(report) = serde_json::from_slice::<serde_json::Value>(&report_bytes) {
+            ecaa_workflow_core::ro_crate::inject_audit_proof_verdict_nodes(&mut metadata, &report)
+                .context("re-injecting audit-proof InvariantVerdict nodes into the @graph")?;
+        }
+    }
+
     let new_bytes = serde_json::to_vec_pretty(&metadata)?;
     tokio::fs::write(&path, new_bytes).await?;
     Ok(())
