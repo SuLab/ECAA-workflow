@@ -244,6 +244,76 @@ async fn all_deterministic_emitted_files_are_byte_identical_across_emits() {
     }
 }
 
+/// W1 — the conversation emit path writes runtime/workflow-typed.json
+/// with FULL-FIDELITY ports from session.workflow_dag (real port names,
+/// not the core path's `out`/`in` degrade).
+#[tokio::test]
+async fn conversation_emit_writes_full_fidelity_workflow_typed() {
+    let mut session = boot_session().await;
+    let dir = tempdir().unwrap();
+    emit_with_conversation_log(&mut session, dir.path(), &config_dir())
+        .await
+        .unwrap();
+    let path = dir.path().join("runtime/workflow-typed.json");
+    assert!(
+        path.exists(),
+        "workflow-typed.json missing on conversation path"
+    );
+    let v: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let edges = v.get("edges").and_then(|e| e.as_array()).unwrap();
+    assert!(!edges.is_empty(), "expected at least one typed edge");
+    // Full-fidelity: at least one edge carries a real (non-placeholder)
+    // port name. The core degrade collapses every port to "out"/"in"; the
+    // conversation path preserves the composer's typed port names.
+    let has_real_port = edges.iter().any(|e| {
+        let so = e.get("source_output").and_then(|s| s.as_str()).unwrap_or("");
+        let ti = e.get("target_input").and_then(|s| s.as_str()).unwrap_or("");
+        (so != "out" && !so.is_empty()) || (ti != "in" && !ti.is_empty())
+    });
+    assert!(
+        has_real_port,
+        "expected at least one full-fidelity (non-out/in) typed port on the conversation path; edges={edges:?}"
+    );
+}
+
+/// W1 — workflow-typed.json is registered as an RO-Crate CreativeWork.
+#[tokio::test]
+async fn workflow_typed_registered_in_ro_crate() {
+    let mut session = boot_session().await;
+    let dir = tempdir().unwrap();
+    emit_with_conversation_log(&mut session, dir.path(), &config_dir())
+        .await
+        .unwrap();
+    let meta: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap(),
+    )
+    .unwrap();
+    let graph = meta.get("@graph").and_then(|g| g.as_array()).unwrap();
+    assert!(
+        graph.iter().any(|n| n.get("@id").and_then(|i| i.as_str())
+            == Some("runtime/workflow-typed.json")),
+        "workflow-typed.json not registered as CreativeWork"
+    );
+}
+
+/// W1 — byte-deterministic artifact stays IN the BagIt manifest (unlike
+/// the jsonl sidecars in the exclusion list).
+#[tokio::test]
+async fn workflow_typed_included_in_bagit_manifest() {
+    let mut session = boot_session().await;
+    let dir = tempdir().unwrap();
+    emit_with_conversation_log(&mut session, dir.path(), &config_dir())
+        .await
+        .unwrap();
+    let manifest =
+        std::fs::read_to_string(dir.path().join("manifest-sha512.txt")).unwrap();
+    assert!(
+        manifest.contains("runtime/workflow-typed.json"),
+        "workflow-typed.json should be IN the BagIt manifest (it is byte-deterministic)"
+    );
+}
+
 /// Guard 2: golden snapshot of the normalized graph. Pins the exact content +
 /// ordering emitted by `patch_ro_crate_metadata` and the entity-registration
 /// helpers.

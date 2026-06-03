@@ -578,6 +578,15 @@ pub(super) async fn patch_ro_crate_metadata(
     // existence-gated registration loop covers it without a
     // dedicated branch.
     let semantic_sidecars: &[(&str, &str, &str, &str)] = &[
+        // W1 — first-class, schema-validated D.2 projection of the composed
+        // DAG. Byte-reproducible companion to WORKFLOW.json; validated
+        // against _workflow-typed.schema.json in `make conformance`.
+        (
+            "runtime/workflow-typed.json",
+            "Typed workflow (paper D.2 shape)",
+            "W1 — first-class, schema-validated D.2 projection of the composed DAG: typed steps (tool_id, parameters, dependencies, estimated_duration), typed edges with port-level source_output/target_input, parameter_mappings, top-level typed parameters + validation_rules, and deterministic metadata. Byte-reproducible companion to WORKFLOW.json; validated against _workflow-typed.schema.json in `make conformance`.",
+            "application/json",
+        ),
         (
             "runtime/proofs.jsonl",
             "Compatibility proofs",

@@ -165,6 +165,9 @@ expression: value
           "@id": "runtime/outputs/sequence_trimming/figures/retention_bar.png"
         },
         {
+          "@id": "runtime/workflow-typed.json"
+        },
+        {
           "@id": "runtime/task-nodes.json"
         },
         {
@@ -1642,6 +1645,16 @@ expression: value
       "targetParameter": {
         "@id": "#step-validate_sequence_trimming#input"
       }
+    },
+    {
+      "@id": "runtime/workflow-typed.json",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "description": "W1 — first-class, schema-validated D.2 projection of the composed DAG: typed steps (tool_id, parameters, dependencies, estimated_duration), typed edges with port-level source_output/target_input, parameter_mappings, top-level typed parameters + validation_rules, and deterministic metadata. Byte-reproducible companion to WORKFLOW.json; validated against _workflow-typed.schema.json in `make conformance`.",
+      "encodingFormat": "application/json",
+      "name": "Typed workflow (paper D.2 shape)"
     },
     {
       "@id": "runtime/task-nodes.json",
