@@ -1536,6 +1536,46 @@ if [ "${ECAA_SBOM_EMIT:-1}" = "1" ] \
     || echo "agent-claude.sh: syft scan failed for $ECAA_TASK_ID — SBOM not emitted (non-fatal)" >&2
 fi
 
+# Per-task container determinism evidence (D4). Records which of the
+# five determinism env vars are actually set INSIDE the container (after
+# the harness stamped them per D3) plus the resolved container digest.
+# Runtime evidence only — byte-diff-EXCLUDED; the package finalize folds
+# the captured-key list into the package-level determinism shim via
+# core::determinism_shim::merge_container_env. Always best-effort; never
+# fails the task.
+if [ -n "${ECAA_TASK_ID:-}" ]; then
+  _DET_OUT_DIR="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
+  mkdir -p "$_DET_OUT_DIR" 2>/dev/null || true
+  _DET_CAPTURED=""
+  for _k in PYTHONHASHSEED SOURCE_DATE_EPOCH TZ LANG LC_ALL; do
+    # Read the var named in $_k over a fixed allowlist (no user input).
+    case "$_k" in
+      PYTHONHASHSEED) _v="${PYTHONHASHSEED:-}" ;;
+      SOURCE_DATE_EPOCH) _v="${SOURCE_DATE_EPOCH:-}" ;;
+      TZ) _v="${TZ:-}" ;;
+      LANG) _v="${LANG:-}" ;;
+      LC_ALL) _v="${LC_ALL:-}" ;;
+      *) _v="" ;;
+    esac
+    if [ -n "$_v" ]; then
+      _DET_CAPTURED="$_DET_CAPTURED \"$_k\","
+    fi
+  done
+  _DET_CAPTURED="$(printf '%s' "$_DET_CAPTURED" | sed 's/,$//')"
+  {
+    printf '{\n'
+    printf '  "schema_version": "1",\n'
+    printf '  "captured_env_vars": [%s ],\n' "$_DET_CAPTURED"
+    printf '  "source_date_epoch": "%s",\n' "${SOURCE_DATE_EPOCH:-}"
+    printf '  "lang": "%s",\n' "${LANG:-}"
+    printf '  "lc_all": "%s",\n' "${LC_ALL:-}"
+    printf '  "tz": "%s",\n' "${TZ:-}"
+    printf '  "pythonhashseed": "%s",\n' "${PYTHONHASHSEED:-}"
+    printf '  "task_container_digest": "%s"\n' "${TASK_CONTAINER_DIGEST:-}"
+    printf '}\n'
+  } > "$_DET_OUT_DIR/determinism-env.json" 2>/dev/null || true
+fi
+
 # Reconcile contradictory Claude Code outcomes only after all forensic
 # sidecars have been written. A nonzero CLI status remains nonzero unless
 # the terminal JSON says success and the task produced a parseable patch.
