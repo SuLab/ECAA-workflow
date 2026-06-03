@@ -22,8 +22,10 @@
 
 pub mod local_cwl;
 pub mod registry_improvement;
+pub mod to_atom;
 
 pub use local_cwl::LocalCwlImporter;
+pub use to_atom::imported_node_to_atom;
 pub use registry_improvement::{
     aggregate_unknowns, aggregate_unknowns_from_inputs, AggregatorInput, RegistryImprovementSignal,
 };
@@ -34,6 +36,25 @@ use ts_rs::TS;
 
 use crate::ingestion_safety::IngestionSafetyReport;
 use crate::workflow_contracts::task_node::TaskNode;
+
+/// Trust tier of an external registry. `Community` is the conservative
+/// default; `Curated` is operator-declared (see `ECAA_EXTERNAL_CURATED_DIRS`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum RegistryTier {
+    /// Community-sourced; caps at Unverified/Contracted.
+    Community,
+    /// Operator-curated; may reach StaticChecked after validation.
+    Curated,
+}
+
+impl Default for RegistryTier {
+    fn default() -> Self {
+        RegistryTier::Community
+    }
+}
 
 /// Stable reference to an external registry entry.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]

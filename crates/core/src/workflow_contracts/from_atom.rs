@@ -191,6 +191,17 @@ fn preserve_attributes(atom: &AtomDefinition) -> BTreeMap<String, serde_json::Va
         serde_json::to_value(atom.role).unwrap_or(serde_json::Value::Null),
     );
 
+    // EDAM operation has no first-class home on `TaskNode`, so stash it
+    // in the attributes bag. This makes the federation reverse adapter
+    // (`external_registry::to_atom::imported_node_to_atom`) able to
+    // recover the exact operation IRI rather than synthesizing an
+    // `ecaax:` placeholder, keeping the atom->node->atom round trip
+    // stable on the load-bearing EDAM operation field.
+    a.insert(
+        "edam_operation".into(),
+        serde_json::Value::String(atom.edam_operation.clone()),
+    );
+
     if let Some(kind) = &atom.discovery_kind {
         a.insert(
             "discovery_kind".into(),

@@ -173,6 +173,14 @@ pub struct PlanningContext {
     /// Consumed by `discover_companion_synthesis::synthesize_discover_companions`
     /// to stamp `spec_preferred_methods` + augment the candidate pool.
     pub preferred_methods: crate::preferred_methods::PreferredMethods,
+    /// Federation (F1) — external-overlay atoms merged into the search
+    /// registry before planning. Empty for non-federated callers (CLI
+    /// `intake`, eval, tests) so emission is byte-identical. Populated by
+    /// `compose_v4_dispatch_full` from resolved external snapshots. These
+    /// atoms entered through `AtomRegistry::with_external_overlay`, so
+    /// they already passed the same schema + safety validators as local
+    /// atoms and carry `LifecycleState::Contracted` / `TrustLevel::Unverified`.
+    pub external_overlay: Vec<crate::atom::AtomDefinition>,
 }
 
 impl PlanningContext {
