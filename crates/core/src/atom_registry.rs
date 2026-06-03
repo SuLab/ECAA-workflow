@@ -30,6 +30,31 @@ use std::sync::Arc;
 /// ships with the binary; no runtime path-resolution required.
 const ATOM_SCHEMA_JSON: &str = include_str!("../../../config/stage-atoms/_atom.schema.json");
 
+/// Compare two version strings by numeric MAJOR.MINOR.PATCH. Pre-release /
+/// build suffixes on the patch field (`-rc1`, `+build`) are stripped before
+/// the numeric compare — consistent with the load-time shape check. Used by
+/// the registry-lifecycle diff (`registry::lifecycle::AtomCatalogDiff`) and
+/// the duplicate-id-lower-version guard.
+// Consumed by `registry::lifecycle::AtomCatalogDiff` (RL1-2, the
+// immediately-following commit); the allow keeps this intermediate
+// commit warning-clean.
+#[allow(dead_code)]
+pub(crate) fn semver_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    fn parts(v: &str) -> [u64; 3] {
+        let mut out = [0u64; 3];
+        for (i, p) in v.split('.').take(3).enumerate() {
+            let core = if i == 2 {
+                p.split(['-', '+']).next().unwrap_or(p)
+            } else {
+                p
+            };
+            out[i] = core.parse().unwrap_or(0);
+        }
+        out
+    }
+    parts(a).cmp(&parts(b))
+}
+
 /// In-memory atom catalog. Keyed by `id`; `BTreeMap` so iteration is
 /// deterministic.
 #[derive(Debug, Clone, Default)]
@@ -569,6 +594,16 @@ mod tests {
         let p = dir.join(format!("{}.yaml", name));
         let mut f = std::fs::File::create(&p).unwrap();
         f.write_all(body.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn semver_cmp_orders_correctly() {
+        use super::semver_cmp;
+        assert_eq!(semver_cmp("1.2.0", "1.10.0"), std::cmp::Ordering::Less);
+        assert_eq!(semver_cmp("2.0.0", "1.9.9"), std::cmp::Ordering::Greater);
+        assert_eq!(semver_cmp("1.0.0", "1.0.0"), std::cmp::Ordering::Equal);
+        // Pre-release suffix on patch is stripped for the numeric compare.
+        assert_eq!(semver_cmp("1.0.0-rc1", "1.0.0"), std::cmp::Ordering::Equal);
     }
 
     #[test]
