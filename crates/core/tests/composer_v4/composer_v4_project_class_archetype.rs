@@ -389,8 +389,15 @@ fn matcher_filters_by_project_class() {
         "clinical_trial target must match only clinical_trial_analysis archetype; got {ids:?}"
     );
 
-    // Target: time_series_forecast. Should ONLY match
-    // time_series_forecast.
+    // Target: time_series_forecast. Two archetypes share this
+    // project_class: the bio `time_series_forecast` and the
+    // cross-domain `river_discharge_forecast` (CD1). With no modality
+    // hint the project-class partition admits both. The bio archetype
+    // ranks first because its `goal_format` matches the queried
+    // `format:3475` (+2); `river_discharge_forecast` intentionally
+    // omits `goal_format` (it differentiates via `modality_hint`), so
+    // it earns only the goal_data + project_class points and sorts
+    // after.
     let matches = archetype_reg.find_match_with_evidence_modality_kind(
         "data:0951",
         Some("format:3475"),
@@ -401,8 +408,8 @@ fn matcher_filters_by_project_class() {
     let ids: Vec<&str> = matches.iter().map(|m| m.archetype.id.as_str()).collect();
     assert_eq!(
         ids,
-        vec!["time_series_forecast"],
-        "time_series_forecast target must match only time_series_forecast archetype; got {ids:?}"
+        vec!["time_series_forecast", "river_discharge_forecast"],
+        "time_series_forecast target must match the archetypes sharing that project_class; got {ids:?}"
     );
 
     // Target: bioinformatics. Must NOT match clinical_trial_analysis
