@@ -652,6 +652,86 @@ mod tests {
         );
     }
 
+    /// W6 — the typed artifact's edges are EXACTLY the proofs.jsonl edges
+    /// (same lowering, no second drifting source of truth).
+    #[test]
+    fn typed_edges_equal_proofs_edge_set() {
+        use crate::backend_emitters::workflow_json::EmitContext;
+        let wf = simple_dag();
+        // EmitContext::defaults() sets emit_proofs=true so proofs_jsonl is
+        // populated; the bare Default has emit_proofs=false (empty sidecar).
+        let artifact = lower_to_workflow_json(&wf, &EmitContext::defaults()).unwrap();
+        let typed = lower_to_typed_workflow(&wf, &TypedWorkflowContext::default());
+
+        let proof_set: std::collections::BTreeSet<(String, String, String, String)> = artifact
+            .proofs_jsonl
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str::<EdgeContract>(l).unwrap())
+            .map(|e| (e.from_node, e.from_port, e.to_node, e.to_port))
+            .collect();
+        let typed_set: std::collections::BTreeSet<(String, String, String, String)> = typed
+            .edges
+            .iter()
+            .map(|e| {
+                (
+                    e.source_node_id.clone(),
+                    e.source_output.clone(),
+                    e.target_node_id.clone(),
+                    e.target_input.clone(),
+                )
+            })
+            .collect();
+        assert!(!typed_set.is_empty(), "fixture must have at least one edge");
+        assert_eq!(typed_set, proof_set, "typed edges diverged from proofs.jsonl");
+    }
+
+    /// W6 — typed step ids equal the WorkflowDag node ids; each step's
+    /// dependencies equal the lowered WORKFLOW.json depends_on.
+    #[test]
+    fn typed_steps_equal_node_ids_and_depends_on() {
+        let wf = simple_dag();
+        let artifact = lower_to_workflow_json(&wf, &Default::default()).unwrap();
+        let typed = lower_to_typed_workflow(&wf, &TypedWorkflowContext::default());
+
+        let node_ids: std::collections::BTreeSet<String> =
+            wf.nodes.iter().map(|n| n.id.clone()).collect();
+        let step_ids: std::collections::BTreeSet<String> =
+            typed.steps.iter().map(|s| s.step_id.clone()).collect();
+        assert_eq!(step_ids, node_ids, "step ids diverged from WorkflowDag nodes");
+
+        for step in &typed.steps {
+            let depends_on: Vec<String> = artifact
+                .dag
+                .tasks
+                .get(step.step_id.as_str())
+                .unwrap()
+                .depends_on
+                .iter()
+                .map(|t| t.to_string())
+                .collect();
+            assert_eq!(
+                step.dependencies, depends_on,
+                "dependencies for {} diverged from WORKFLOW.json depends_on",
+                step.step_id
+            );
+        }
+    }
+
+    /// W2 — the committed schema is byte-equal to schemars's rendering of
+    /// the Rust type, so the schema can never silently diverge.
+    #[test]
+    fn committed_schema_matches_schemars() {
+        let generated = schemars::schema_for!(TypedWorkflow);
+        let generated_json = serde_json::to_string_pretty(&generated).unwrap();
+        let committed = include_str!("_workflow-typed.schema.json");
+        assert_eq!(
+            committed.trim_end(),
+            generated_json.trim_end(),
+            "schema drift: regenerate _workflow-typed.schema.json from schema_for!(TypedWorkflow)"
+        );
+    }
+
     #[test]
     fn typed_workflow_serializes_d2_top_level_keys() {
         let wf = TypedWorkflow {

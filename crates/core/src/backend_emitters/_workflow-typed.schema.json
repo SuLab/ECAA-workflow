@@ -1,0 +1,274 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TypedWorkflow",
+  "description": "Paper §D.2 top-level workflow object. Byte-deterministic projection of `WorkflowDag`. The authoritative on-disk graph stays `WORKFLOW.json`; this is an additive, machine-checkable companion at `runtime/workflow-typed.json`.",
+  "type": "object",
+  "required": [
+    "edges",
+    "metadata",
+    "name",
+    "parameter_mappings",
+    "parameters",
+    "steps",
+    "validation_rules",
+    "workflow_id"
+  ],
+  "properties": {
+    "atom_registry_snapshot_id": {
+      "description": "M4 — self-describing registry pin: the atom-registry snapshot id the composer planned against (`AtomRegistry::snapshot_id`). `None` when the producing path did not pin a snapshot (legacy / unpinned sessions). Never fabricated — a missing pin stays `None` so the artifact remains byte-reproducible across hosts.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "edges": {
+      "description": "One per `EdgeContract`, sorted by `edge_id`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TypedEdge"
+      }
+    },
+    "metadata": {
+      "description": "Deterministic metadata (W3).",
+      "allOf": [
+        {
+          "$ref": "#/definitions/WorkflowMetadata"
+        }
+      ]
+    },
+    "name": {
+      "description": "Human-facing name. Today equals `workflow_id`; reserved for a distinct display label.",
+      "type": "string"
+    },
+    "parameter_mappings": {
+      "description": "Port-level wiring projected from edges, sorted by `(target_step, target_input)`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ParameterMapping"
+      }
+    },
+    "parameters": {
+      "description": "Top-level typed parameters (W4 — intake facts only), sorted by `name`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/WorkflowParameter"
+      }
+    },
+    "steps": {
+      "description": "One per `TaskNode`, sorted by `step_id`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/TypedStep"
+      }
+    },
+    "validation_rules": {
+      "description": "Top-level validation rules (W4 — port/node constraints), sorted by `rule_id`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/ValidationRule"
+      }
+    },
+    "workflow_id": {
+      "description": "Stable workflow id (mirrors `WorkflowDag.id` / `DAG.workflow_id`).",
+      "type": "string"
+    }
+  },
+  "definitions": {
+    "ParameterMapping": {
+      "description": "Port wiring projected from an edge. Mirrors the edge endpoints but keyed for consumption (\"what feeds this step's input\").",
+      "type": "object",
+      "required": [
+        "source_output",
+        "source_step",
+        "target_input",
+        "target_step"
+      ],
+      "properties": {
+        "source_output": {
+          "description": "Producing output port.",
+          "type": "string"
+        },
+        "source_step": {
+          "description": "Producing step id.",
+          "type": "string"
+        },
+        "target_input": {
+          "description": "Consuming input port.",
+          "type": "string"
+        },
+        "target_step": {
+          "description": "Consuming step id.",
+          "type": "string"
+        }
+      }
+    },
+    "TypedEdge": {
+      "description": "Paper §D.2 edge with full port-level endpoints (the data `lower_to_workflow_json` collapses into `depends_on`).",
+      "type": "object",
+      "required": [
+        "edge_id",
+        "source_node_id",
+        "source_output",
+        "target_input",
+        "target_node_id"
+      ],
+      "properties": {
+        "edge_id": {
+          "description": "Deterministic id: `\"{from_node}.{from_port}->{to_node}.{to_port}\"`.",
+          "type": "string"
+        },
+        "source_node_id": {
+          "description": "`EdgeContract.from_node`.",
+          "type": "string"
+        },
+        "source_output": {
+          "description": "`EdgeContract.from_port` — the producer port name preserved.",
+          "type": "string"
+        },
+        "target_input": {
+          "description": "`EdgeContract.to_port` — the consumer port name preserved.",
+          "type": "string"
+        },
+        "target_node_id": {
+          "description": "`EdgeContract.to_node`.",
+          "type": "string"
+        }
+      }
+    },
+    "TypedStep": {
+      "description": "Paper §D.2 step. `tool_id` is the source atom; `parameters` is a curated subset of `TaskNode.attributes` (method axes / required figures), NEVER a synthesized method choice (method-neutrality).",
+      "type": "object",
+      "required": [
+        "dependencies",
+        "estimated_duration",
+        "parameters",
+        "step_id"
+      ],
+      "properties": {
+        "dependencies": {
+          "description": "Incoming `from_node`s, sorted + deduped. Equals the lowered `Task.depends_on` for this step (W6 asserts equality).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "estimated_duration": {
+          "description": "Static `ResourceClass`-derived estimate in seconds. Deterministic lookup, NOT wall-clock.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0.0
+        },
+        "parameters": {
+          "description": "Curated step parameters (sorted-key map). Empty for steps with no method/figure attributes.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "step_id": {
+          "description": "`TaskNode.id`.",
+          "type": "string"
+        },
+        "tool_id": {
+          "description": "`TaskNode.attributes[\"atom_id\"]` (the key the lowering reads). `None` when the node carries no atom id.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ValidationRule": {
+      "description": "Top-level validation rule (W4). Strictly richer than the paper: preserves the opaque CEL `expression` and the Hard/Soft/Warn `severity`. The compiler does NOT compile the expression — downstream consumers must not assume it is pre-validated.",
+      "type": "object",
+      "required": [
+        "rule_id",
+        "severity",
+        "target_step"
+      ],
+      "properties": {
+        "expression": {
+          "description": "Opaque CEL/schema expression (uncompiled). `None` when the constraint declared no expression.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "rule_id": {
+          "description": "Composite stable id: `\"{target_step}:{constraint_id}\"`.",
+          "type": "string"
+        },
+        "severity": {
+          "description": "`\"hard\"` / `\"soft\"` / `\"warn\"`.",
+          "type": "string"
+        },
+        "target_step": {
+          "description": "Step this rule constrains.",
+          "type": "string"
+        }
+      }
+    },
+    "WorkflowMetadata": {
+      "description": "Paper §D.2 metadata (W3). All fields deterministic from compiler state.",
+      "type": "object",
+      "required": [
+        "categories",
+        "complexity",
+        "tags",
+        "use_cases"
+      ],
+      "properties": {
+        "categories": {
+          "description": "`[modality_stratum]` when known, else empty.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "complexity": {
+          "description": "Deterministic bucket from step count: `<5 simple / 5..=15 moderate / >15 complex`. NOT a calibrated metric — purely a size band.",
+          "type": "string"
+        },
+        "tags": {
+          "description": "Sorted+deduped tag set (modality, project class, distinct TaskKind labels).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "use_cases": {
+          "description": "Intake goal-pattern modifiers (sorted keys), e.g. `per-sample`, `with_pathway_enrichment`. Empty when no goal modifiers were captured.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "WorkflowParameter": {
+      "description": "Top-level typed parameter (W4). Sourced ONLY from intake facts the SME supplied — organism/genome/sample counts — never a synthesized method.",
+      "type": "object",
+      "required": [
+        "name",
+        "source",
+        "type",
+        "value"
+      ],
+      "properties": {
+        "name": {
+          "description": "Parameter name (e.g. `organism`, `sample_count`, `cell_count`).",
+          "type": "string"
+        },
+        "source": {
+          "description": "Provenance of the value. Always `\"intake\"` for now.",
+          "type": "string"
+        },
+        "type": {
+          "description": "JSON-schema-ish type tag (`string` / `integer`).",
+          "type": "string"
+        },
+        "value": {
+          "description": "The intake value (canonicalized; no timestamps)."
+        }
+      }
+    }
+  }
+}
