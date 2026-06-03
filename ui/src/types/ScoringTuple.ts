@@ -2,7 +2,7 @@
 import type { ScoringValue } from "./ScoringValue";
 
 /**
- * 16-component scoring tuple. Lower is better; comparison is
+ * 17-component scoring tuple. Lower is better; comparison is
  * lexicographic.
  *
  * Shape is stable; the planner computes each component at plan time.
@@ -27,52 +27,65 @@ user_constraint_violation: ScoringValue,
  */
 scientific_appropriateness_penalty: number, 
 /**
- * 5. Production-trust ratio (lower count of trusted nodes is
+ * 5. Goal/modality-relevance penalty (Pillar B). Count of
+ *    goal-IRRELEVANT nodes: nodes whose backing atom is
+ *    affiliated (via the archetype catalog) with a modality
+ *    that the request never asked for and that are not
+ *    synthesis/companion/terminal nodes. Placed AFTER the
+ *    hard-reject / user-constraint / scientific terms and
+ *    BEFORE `untrusted_node_count` so a semantically-aligned
+ *    DAG outranks a structurally-cheaper but off-modality one,
+ *    without masking genuine hard defects. Designed to be `0`
+ *    on every coherent DAG.
+ */
+goal_relevance_penalty: number, 
+/**
+ * 6. Production-trust ratio (lower count of trusted nodes is
  *    worse). Stored as `u32::MAX - count` so lower is better
  *    after sort.
  */
 untrusted_node_count: number, 
 /**
- * 6. Unresolved blocking-assumption count.
+ * 7. Unresolved blocking-assumption count.
  */
 unresolved_assumptions: number, 
 /**
- * 7. Risky-adapter count.
+ * 8. Risky-adapter count.
  */
 risky_adapter_count: number, 
 /**
- * 8. Total adapter count (lossless + lossy + risky).
+ * 9. Total adapter count (lossless + lossy + risky).
  */
 total_adapter_count: number, 
 /**
- * 9. Validation coverage score (lower-is-better encoding).
+ * 10. Validation coverage score (lower-is-better encoding).
  */
 validation_coverage_penalty: number, 
 /**
- * 10. Evidence quality (lower-is-better encoding).
+ * 11. Evidence quality (lower-is-better encoding).
  */
 evidence_quality_penalty: number, 
 /**
- * 11. Reproducibility score penalty.
+ * 12. Reproducibility score penalty.
  */
 reproducibility_penalty: number, 
 /**
- * 12. Explainability score penalty (Opaque types penalize).
+ * 13. Explainability score penalty (Opaque types penalize).
  */
 explainability_penalty: number, 
 /**
- * 13. Backend availability penalty.
+ * 14. Backend availability penalty.
  */
 backend_availability_penalty: number, 
 /**
- * 14. Runtime cost estimate (compute hours).
+ * 15. Runtime cost estimate (compute hours).
  */
 runtime_cost_estimate: number, 
 /**
- * 15. Data movement cost.
+ * 16. Data movement cost.
  */
 data_movement_cost: number, 
 /**
- * 16. Stable lexical tie-breaker (sorted TaskNodeId chain).
+ * 17. Stable lexical tie-breaker (sorted TaskNodeId chain).
  */
 stable_lexical_id: string, };
