@@ -234,6 +234,80 @@ impl ExternalRegistryStore {
     }
 }
 
+/// Map of `registry_kind -> importer`. Built-in registers the
+/// `LocalCwlImporter`; sites add others. Deterministic iteration
+/// (BTreeMap-keyed by kind).
+#[derive(Default)]
+pub struct ImporterRegistry {
+    importers: BTreeMap<&'static str, Box<dyn ExternalImporter>>,
+}
+
+impl ImporterRegistry {
+    /// Empty.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register the built-in importers (local CWL today).
+    pub fn with_builtin() -> Self {
+        let mut me = Self::new();
+        me.register(Box::new(LocalCwlImporter::default()));
+        me
+    }
+
+    /// Register an importer under its `registry_kind`.
+    pub fn register(&mut self, importer: Box<dyn ExternalImporter>) {
+        self.importers.insert(importer.registry_kind(), importer);
+    }
+
+    /// Look up the importer for a registry kind.
+    pub fn get(&self, kind: &str) -> Option<&dyn ExternalImporter> {
+        self.importers.get(kind).map(|b| b.as_ref())
+    }
+}
+
+impl ExternalRegistryStore {
+    /// Resolve a batch of external refs into validated-on-import
+    /// `AtomDefinition`s. Each ref's snapshot is dispatched through the
+    /// matching `ExternalImporter` (by `registry`), then F1's
+    /// `imported_node_to_atom`. Returns partials: one `AtomDefinition`
+    /// per importable snapshot plus a typed `ExternalImportError` per
+    /// failure, so one bad snapshot does not sink the batch. Sync,
+    /// side-effect-free (no network). Caller passes the returned atoms
+    /// to `AtomRegistry::with_external_overlay` for the schema + safety
+    /// gate before composition.
+    pub fn resolve(
+        &self,
+        refs: &[ExternalRegistryRef],
+        importers: &ImporterRegistry,
+    ) -> (Vec<crate::atom::AtomDefinition>, Vec<ExternalImportError>) {
+        let mut atoms = Vec::new();
+        let mut errors = Vec::new();
+        for r in refs {
+            let Some(snapshot) = self.get(&r.registry, &r.id) else {
+                errors.push(ExternalImportError::SnapshotNotFound {
+                    snapshot_id: format!("{}:{}", r.registry, r.id),
+                });
+                continue;
+            };
+            let Some(importer) = importers.get(&r.registry) else {
+                errors.push(ExternalImportError::Other {
+                    message: format!("no importer registered for registry kind {}", r.registry),
+                });
+                continue;
+            };
+            match importer.import(snapshot) {
+                Ok(node) => match crate::external_registry::imported_node_to_atom(&node, r) {
+                    Ok(atom) => atoms.push(atom),
+                    Err(e) => errors.push(e),
+                },
+                Err(e) => errors.push(e),
+            }
+        }
+        (atoms, errors)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,6 +380,46 @@ mod tests {
         let json = serde_json::to_string(&e).unwrap();
         let back: ExternalImportError = serde_json::from_str(&json).unwrap();
         assert_eq!(e, back);
+    }
+
+    #[test]
+    fn resolve_returns_atoms_for_importable_and_errors_for_rest() {
+        let mut store = ExternalRegistryStore::new();
+        store.insert(RegistrySnapshot {
+            snapshot_id: "s1".into(),
+            registry: "local_cwl".into(),
+            id: "good".into(),
+            metadata: serde_json::json!({
+                "id": "good", "label": "Good tool",
+                "outputs": [{"id": "bam", "type": "edam:data_0863"}]
+            }),
+        });
+        store.insert(RegistrySnapshot {
+            snapshot_id: "s2".into(),
+            registry: "local_cwl".into(),
+            id: "bad".into(),
+            metadata: serde_json::json!({}), // missing id -> MissingField
+        });
+        let importers = ImporterRegistry::with_builtin();
+        let refs = [
+            ExternalRegistryRef {
+                registry: "local_cwl".into(),
+                id: "good".into(),
+                version: None,
+                url: None,
+            },
+            ExternalRegistryRef {
+                registry: "local_cwl".into(),
+                id: "bad".into(),
+                version: None,
+                url: None,
+            },
+        ];
+        let (atoms, errors) = store.resolve(&refs, &importers);
+        assert_eq!(atoms.len(), 1);
+        assert_eq!(atoms[0].id, "good");
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0], ExternalImportError::MissingField { .. }));
     }
 
     #[test]
