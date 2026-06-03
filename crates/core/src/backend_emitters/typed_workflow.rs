@@ -118,6 +118,7 @@ pub fn lower_to_typed_workflow(dag: &WorkflowDag, ctx: &TypedWorkflowContext) ->
             .then_with(|| a.source_step.cmp(&b.source_step))
     });
 
+    let metadata = build_metadata(dag, &steps, ctx.classification);
     TypedWorkflow {
         workflow_id: dag.id.clone(),
         name: dag.id.clone(),
@@ -125,10 +126,127 @@ pub fn lower_to_typed_workflow(dag: &WorkflowDag, ctx: &TypedWorkflowContext) ->
         steps,
         edges,
         parameter_mappings,
-        parameters: Vec::new(),               // W4 — Task 5
-        validation_rules: Vec::new(),         // W4 — Task 5
-        metadata: WorkflowMetadata::default(), // W3 — Task 5
+        parameters: build_parameters(ctx.intake_facts),
+        validation_rules: build_validation_rules(dag),
+        metadata,
     }
+}
+
+/// W3 — deterministic metadata from compiler state. NOT calibrated.
+fn build_metadata(
+    dag: &WorkflowDag,
+    steps: &[TypedStep],
+    classification: Option<&crate::classify::ClassificationResult>,
+) -> WorkflowMetadata {
+    let complexity = match steps.len() {
+        0..=4 => "simple",
+        5..=15 => "moderate",
+        _ => "complex",
+    }
+    .to_string();
+
+    let mut categories: Vec<String> = Vec::new();
+    let mut tags: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut use_cases: Vec<String> = Vec::new();
+    if let Some(cls) = classification {
+        if !cls.modality.is_empty() {
+            tags.insert(cls.modality.clone());
+        }
+        if let Some(stratum) = crate::strata::modality_stratum(&cls.modality) {
+            categories.push(stratum);
+        }
+        if let Some(goal) = &cls.goal {
+            for k in goal.modifiers.keys() {
+                use_cases.push(k.clone());
+            }
+        }
+    }
+    // Distinct role labels via node role attribute.
+    for n in &dag.nodes {
+        if let Some(role) = n.attributes.get("role").and_then(|v| v.as_str()) {
+            tags.insert(role.to_string());
+        }
+    }
+    use_cases.sort();
+    use_cases.dedup();
+    WorkflowMetadata {
+        complexity,
+        tags: tags.into_iter().collect(), // BTreeSet → already sorted+unique
+        categories,
+        use_cases,
+    }
+}
+
+/// W4 — top-level parameters from intake facts ONLY (SME-named). No method
+/// synthesis (method-neutrality): we never emit a parameter the SME did not
+/// supply. Sorted by name for byte-stability.
+fn build_parameters(
+    intake_facts: Option<&crate::intake_facts::IntakeFacts>,
+) -> Vec<WorkflowParameter> {
+    let mut out: Vec<WorkflowParameter> = Vec::new();
+    let Some(f) = intake_facts else { return out };
+    let mut push_str = |name: &str, val: &Option<String>| {
+        if let Some(v) = val {
+            out.push(WorkflowParameter {
+                name: name.to_string(),
+                r#type: "string".into(),
+                value: serde_json::Value::String(v.clone()),
+                source: "intake".into(),
+            });
+        }
+    };
+    push_str("organism", &f.organism_name);
+    let mut push_u32 = |name: &str, val: Option<u32>| {
+        if let Some(v) = val {
+            out.push(WorkflowParameter {
+                name: name.to_string(),
+                r#type: "integer".into(),
+                value: serde_json::json!(v),
+                source: "intake".into(),
+            });
+        }
+    };
+    push_u32("sample_count", f.sample_count);
+    push_u32("coverage_depth", f.coverage_depth);
+    push_u32("cell_count", f.cell_count);
+    // `f.methods` is SME-named methods — included verbatim, never invented.
+    for (i, m) in f.methods.iter().enumerate() {
+        out.push(WorkflowParameter {
+            name: format!("sme_method_{i}"),
+            r#type: "string".into(),
+            value: serde_json::Value::String(m.clone()),
+            source: "intake".into(),
+        });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// W4 — validation rules from each node's pre/postcondition Constraints.
+/// Preserves the opaque CEL `expression` and Hard/Soft/Warn severity.
+/// Sorted by rule_id.
+fn build_validation_rules(dag: &WorkflowDag) -> Vec<ValidationRule> {
+    use crate::workflow_contracts::port::ConstraintSeverity;
+    let sev = |s: &ConstraintSeverity| match s {
+        ConstraintSeverity::Hard => "hard",
+        ConstraintSeverity::Soft => "soft",
+        ConstraintSeverity::Warn => "warn",
+    };
+    let mut out: Vec<ValidationRule> = Vec::new();
+    let mut sorted_nodes: Vec<&TaskNode> = dag.nodes.iter().collect();
+    sorted_nodes.sort_by(|a, b| a.id.cmp(&b.id));
+    for n in sorted_nodes {
+        for c in n.preconditions.iter().chain(n.postconditions.iter()) {
+            out.push(ValidationRule {
+                rule_id: format!("{}:{}", n.id, c.id),
+                target_step: n.id.clone(),
+                expression: c.expression.clone(),
+                severity: sev(&c.severity).to_string(),
+            });
+        }
+    }
+    out.sort_by(|a, b| a.rule_id.cmp(&b.rule_id));
+    out
 }
 
 /// Curate a step's parameter map from `TaskNode.attributes`. ONLY surfaces
@@ -439,6 +557,99 @@ mod tests {
             .unwrap();
             assert_eq!(first, json, "byte-stability lost at iteration {i}");
         }
+    }
+
+    use crate::workflow_contracts::port::{Constraint, ConstraintSeverity};
+
+    fn classification_fixture() -> crate::classify::ClassificationResult {
+        let mut c = crate::classify::ClassificationResult::default();
+        c.modality = "single_cell_rnaseq".into();
+        c.edam_topic = "topic:3170".into();
+        c
+    }
+
+    #[test]
+    fn metadata_complexity_buckets() {
+        // 2-node dag → simple.
+        let wf = simple_dag();
+        let cls = classification_fixture();
+        let ctx = TypedWorkflowContext {
+            classification: Some(&cls),
+            ..Default::default()
+        };
+        let out = lower_to_typed_workflow(&wf, &ctx);
+        assert_eq!(out.metadata.complexity, "simple");
+        // tags sorted + deduped
+        let mut sorted = out.metadata.tags.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(out.metadata.tags, sorted, "tags must be sorted+deduped");
+    }
+
+    #[test]
+    fn w4_validation_rules_preserve_cel_and_severity() {
+        let mut wf = simple_dag();
+        wf.nodes[0].preconditions.push(Constraint {
+            id: "min_reads".into(),
+            statement: "at least 1M reads".into(),
+            expression: Some("input.reads >= 1000000".into()),
+            severity: ConstraintSeverity::Hard,
+        });
+        let out = lower_to_typed_workflow(&wf, &TypedWorkflowContext::default());
+        let rule = out
+            .validation_rules
+            .iter()
+            .find(|r| r.rule_id == "align_reads:min_reads")
+            .expect("expected validation rule for hard precondition");
+        assert_eq!(rule.target_step, "align_reads");
+        assert_eq!(rule.severity, "hard");
+        assert_eq!(rule.expression.as_deref(), Some("input.reads >= 1000000"));
+    }
+
+    #[test]
+    fn w4_parameters_from_intake_facts_no_method_synthesis() {
+        let wf = simple_dag(); // nodes carry NO SME-pinned method
+        let mut facts = crate::intake_facts::IntakeFacts::default();
+        facts.organism_name = Some("Homo sapiens".into());
+        facts.sample_count = Some(12);
+        let ctx = TypedWorkflowContext {
+            intake_facts: Some(&facts),
+            ..Default::default()
+        };
+        let out = lower_to_typed_workflow(&wf, &ctx);
+        assert!(out.parameters.iter().any(|p| p.name == "organism"
+            && p.value == serde_json::json!("Homo sapiens")
+            && p.source == "intake"));
+        assert!(out
+            .parameters
+            .iter()
+            .any(|p| p.name == "sample_count" && p.value == serde_json::json!(12)));
+        // method-neutrality: no parameter named after an aligner/method axis.
+        assert!(
+            !out.parameters
+                .iter()
+                .any(|p| p.name == "aligner" || p.name == "method"),
+            "must not synthesize a method choice"
+        );
+        // sorted by name (byte-stability).
+        let names: Vec<&str> = out.parameters.iter().map(|p| p.name.as_str()).collect();
+        let mut sorted = names.clone();
+        sorted.sort();
+        assert_eq!(names, sorted, "parameters must be sorted by name");
+    }
+
+    #[test]
+    fn m4_snapshot_id_threads_when_present() {
+        let wf = simple_dag();
+        let ctx = TypedWorkflowContext {
+            atom_snapshot_id: Some("atoms-v89-20260515T1200Z".into()),
+            ..Default::default()
+        };
+        let out = lower_to_typed_workflow(&wf, &ctx);
+        assert_eq!(
+            out.atom_registry_snapshot_id.as_deref(),
+            Some("atoms-v89-20260515T1200Z")
+        );
     }
 
     #[test]

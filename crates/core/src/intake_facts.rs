@@ -7,7 +7,7 @@ use crate::project_class::ProjectClass;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, schemars::JsonSchema)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, TS, schemars::JsonSchema)]
 #[ts(export)]
 /// IntakeFacts data.
 pub struct IntakeFacts {
