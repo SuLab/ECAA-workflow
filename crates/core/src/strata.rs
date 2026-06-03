@@ -112,11 +112,12 @@ mod tests {
     #[test]
     fn embedded_yaml_parses() {
         let reg = StrataRegistry::from_embedded();
-        // Eight strata must be present.
+        // Nine strata must be present (eight bio + physical_sciences for
+        // the cross-domain proof).
         assert_eq!(
             reg.definitions.len(),
-            8,
-            "expected 8 strata, got {:?}",
+            9,
+            "expected 9 strata, got {:?}",
             reg.definitions.keys().collect::<Vec<_>>()
         );
     }
@@ -154,6 +155,11 @@ mod tests {
                 id
             );
         }
+        // Cross-domain proof modality (CD1) resolves to its own stratum.
+        assert!(
+            reg.stratum_for("river_discharge_forecast").is_some(),
+            "CD1 modality has no stratum"
+        );
     }
 
     #[test]
@@ -167,6 +173,10 @@ mod tests {
         assert_eq!(reg.stratum_for("proteomics"), Some("proteomics"));
         assert_eq!(reg.stratum_for("metagenomics"), Some("metagenomics"));
         assert_eq!(reg.stratum_for("ehr_clinical_prediction"), Some("clinical"));
+        assert_eq!(
+            reg.stratum_for("river_discharge_forecast"),
+            Some("physical_sciences")
+        );
     }
 
     #[test]

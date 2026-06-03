@@ -1,8 +1,10 @@
 # Modality-to-stratum mapping for grant stratification and corpus balancing.
 #
 # Each stratum groups related sequencing / measurement modalities into a
-# coherent analysis family. The eight strata cover the 21 keyword-routable
-# modalities and are injected into WORKFLOW.json::meta.modality_stratum at
+# coherent analysis family. The eight bioinformatics strata cover the 21
+# keyword-routable bio modalities; the ninth (physical_sciences) carries the
+# cross-domain proof modality. Strata are injected into
+# WORKFLOW.json::meta.modality_stratum at
 # emit time so downstream consumers (scorer, cross-version diff, eval harness)
 # can partition results without re-reading the modality manifest.
 #
@@ -75,3 +77,9 @@ strata:
     modalities:
       - ehr_clinical_prediction
       - generic_omics
+
+  physical_sciences:
+    display_name: "Physical Sciences"
+    description: "Non-bioinformatics analytic domains proving cross-domain generality (e.g. hydrology / environmental time-series)"
+    modalities:
+      - river_discharge_forecast
