@@ -704,8 +704,8 @@ pub(super) async fn patch_ro_crate_metadata(
         ),
         (
             "runtime/security-policy.json",
-            "Per-atom SafetyPolicy aggregate + container digests + scan summary",
-            "Aggregates the SafetyPolicy 5-tuple (SafetyLevel x NetworkPolicy x CodeExecution x SandboxRequirement x ProvisioningPolicy) for every atom in the package. Container image content-hash digests are populated when atoms declare pinned images; runtime registry digests are recorded in the per-task SBOM. Always written.",
+            "Per-atom SafetyPolicy aggregate + two-tier container digests + scan summary",
+            "Aggregates the SafetyPolicy 5-tuple (SafetyLevel x NetworkPolicy x CodeExecution x SandboxRequirement x ProvisioningPolicy) for every atom in the package. Container digests are two-tier: emit-time content-hash digests (content-hash:sha256:<16hex>, deterministic + offline, populated for atoms that derive their image) and pinned registry digests (@sha256:<hex>) when an atom declares a preferred_container digest. Runtime-resolved registry digests (tag->@sha256) are recorded separately in per-task evidence, never in this byte-reproducible record. Always written.",
             "application/json",
         ),
         (

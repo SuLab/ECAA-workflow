@@ -117,19 +117,39 @@ pub(super) async fn write_determinism_shim(output_dir: &Path) -> Result<()> {
 /// container image SHA-256 digests and an optional vulnerability-scan
 /// summary. Always written.
 ///
-/// Today the session's `atoms_in_use()` accessor returns an empty `Vec`
-/// (the per-atom composer wiring is in progress). The aggregator handles
-/// the empty case gracefully — `package_max_safety_level` falls back to
-/// the default `SafetyLevel::Compute`. When the atom registry walk
-/// closes, this sidecar gains content without touching this call site.
-pub(super) async fn write_security_policy(session: &Session, output_dir: &Path) -> Result<()> {
+/// Loads the [`AtomRegistry`] from `config_dir/stage-atoms` once, walks
+/// the session's DAG to resolve the atoms in use, and aggregates their
+/// SafetyPolicy 5-tuples plus the two-tier container digests. Registry
+/// load failure is non-fatal (warn + zero atom policies) so the sidecar
+/// still emits a minimal-but-valid manifest — preserving the
+/// "always emits" contract (mirrors the per-atom-prereqs block in
+/// `emit::mod`).
+///
+/// [`AtomRegistry`]: ecaa_workflow_core::atom_registry::AtomRegistry
+pub async fn write_security_policy(
+    session: &Session,
+    output_dir: &Path,
+    config_dir: &Path,
+) -> Result<()> {
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
     let path = runtime.join("security-policy.json");
 
-    let atoms = session.atoms_in_use();
+    let atoms_dir = config_dir.join("stage-atoms");
+    let atoms = match ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(&atoms_dir) {
+        Ok(registry) => session.atoms_in_use(&registry),
+        Err(e) => {
+            tracing::warn!(
+                "write_security_policy: AtomRegistry load from {} failed: {} \
+                 (continuing emit with zero atom policies)",
+                atoms_dir.display(),
+                e
+            );
+            Vec::new()
+        }
+    };
     let atom_refs: Vec<&ecaa_workflow_core::atom::AtomDefinition> = atoms.iter().collect();
-    let digests = session.container_image_digests();
+    let digests = session.container_image_digests(&atoms);
     let payload = ecaa_workflow_core::atom_safety::aggregate_for_package(&atom_refs, digests);
     let body = serde_json::to_vec_pretty(&payload).context("serializing security-policy.json")?;
 

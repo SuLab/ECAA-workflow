@@ -19,7 +19,7 @@ mod cross_version_diff;
 mod decision_substrate_writer;
 mod model_policy_sidecar;
 mod ro_crate;
-mod sidecars;
+pub mod sidecars;
 mod sme_intake_methods;
 pub mod validation;
 
@@ -493,7 +493,7 @@ async fn emit_steps(
     // `output_dir` (staging) as the replay side and the session's
     // parent_package_path as the source side.
     sidecars::write_reexecution_sidecar(session, output_dir).await?;
-    sidecars::write_security_policy(session, output_dir).await?;
+    sidecars::write_security_policy(session, output_dir, config_dir).await?;
     sidecars::write_model_policy(session, output_dir).await?;
     // D5 — typed-blocker sidecar. Suppressed under
     // ECAA_ABLATE_TYPED_BLOCKERS (ablation moves from the SSE broadcaster
