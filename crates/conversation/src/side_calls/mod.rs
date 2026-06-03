@@ -34,6 +34,7 @@
 //!   `session.title.is_some()` rather than re-invoking this helper, so
 //!   a retry loop can't accidentally double-bill.
 
+pub mod atom_drafter;
 pub mod explain;
 pub mod remediation_proposer;
 pub mod renderer_drafter;
