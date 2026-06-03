@@ -13,6 +13,7 @@ sme_summary: |
 goal_data: "data:0951"
 goal_format: "format:3475"
 project_class: time_series_forecast
+modality_hint: river_discharge_forecast
 atoms:
   - atom_id: data_import
     required: true
