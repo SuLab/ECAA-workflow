@@ -533,6 +533,8 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     )
     .context("emitting ECAA sidecars")?;
     ecaa::write_audit_proof_report(dir).context("emitting ECAA audit-proof report")?;
+    ecaa::write_ed_cf_self_assessment(dir, config.stage_atoms_dir)
+        .context("emitting ED/CF self-assessment sidecar")?;
     ecaa::write_validation_summary(dir).context("emitting ECAA validation summary")?;
 
     Ok(())

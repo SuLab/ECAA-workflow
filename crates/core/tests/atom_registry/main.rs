@@ -1,6 +1,7 @@
 // Consolidated integration-test binary: groups several former top-level
 // tests/*.rs files into one target to cut link time. Each module is a
 // verbatim relocation; #[test] behavior is unchanged.
+mod atom_contract_lint;
 mod atom_count_baseline;
 mod atom_registry_overlay;
 mod confirmatory_atom_catalog;

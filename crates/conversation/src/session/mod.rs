@@ -284,6 +284,8 @@ impl Session {
             // `clear_disambiguation_on_selection` when the SME picks
             // a quick-reply chip.
             pending_disambiguation: None,
+            // Populated by the compose path; None until a v4 composition runs.
+            coverage_confidence: None,
         }
     }
 }

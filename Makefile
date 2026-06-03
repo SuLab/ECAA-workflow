@@ -91,6 +91,7 @@ lint: ## Run architectural-invariant + ts-binding + supply-chain gates
 	bash scripts/check-no-hashmap-in-emitter.sh
 	bash scripts/check-ts-bindings-fresh.sh
 	bash scripts/check-no-lock-unwrap.sh
+	bash scripts/check-atom-contracts.sh
 	cargo deny check
 
 deny: ## cargo-deny supply-chain gate (advisories/bans/licenses/sources)
@@ -225,3 +226,4 @@ doctor: ## Print toolchain readiness summary
 	@echo "node:  $$(node --version 2>/dev/null || echo 'MISSING')"
 	@echo "npm:   $$(npm --version 2>/dev/null || echo 'MISSING')"
 	@echo "python:$$(python3 --version 2>/dev/null || echo 'MISSING')"
+	@echo "extensions: $$(ecaa-workflow doctor-extensions 2>/dev/null || echo 'run after make install')"

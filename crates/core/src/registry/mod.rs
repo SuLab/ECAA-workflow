@@ -9,4 +9,5 @@
 //! This module hosts the generic version; existing registries will
 //! migrate onto it incrementally.
 
+pub mod lifecycle;
 pub mod yaml_dir_registry;

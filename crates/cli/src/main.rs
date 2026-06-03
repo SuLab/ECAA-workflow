@@ -127,6 +127,15 @@ enum Commands {
     /// `schema_version: u32` values to the canonical SemVer string.
     /// `--dry-run` reports counts without writing back.
     MigrateSessions(migrate_sessions::MigrateSessionsArgs),
+    /// Report how many session-scoped local extensions have crossed the
+    /// graduation thresholds and are ripe for promotion into the catalog.
+    /// One line, surfaced by `make doctor`. Reads
+    /// `$ECAA_CHAT_SESSIONS_DIR` (or `$HOME/.ecaa-workflow/sessions`).
+    DoctorExtensions {
+        /// Sessions directory; defaults to the env/`$HOME` resolution.
+        #[arg(long)]
+        sessions_dir: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]
@@ -178,6 +187,39 @@ fn main() -> Result<()> {
         Commands::MigrateSessions(args) => {
             migrate_sessions::run(args)?;
         }
+        Commands::DoctorExtensions { sessions_dir } => {
+            run_doctor_extensions(sessions_dir)?;
+        }
+    }
+    Ok(())
+}
+
+/// `ecaa-workflow doctor-extensions` (RL1) — count graduation-eligible
+/// local extensions and print one `make doctor`-friendly line. The
+/// threshold math lives in the cross-session aggregator; this is a thin
+/// surfacing.
+fn run_doctor_extensions(sessions_dir: Option<String>) -> Result<()> {
+    let dir = match sessions_dir {
+        Some(d) => std::path::PathBuf::from(d),
+        None => {
+            if let Ok(d) = std::env::var("ECAA_CHAT_SESSIONS_DIR") {
+                std::path::PathBuf::from(d)
+            } else {
+                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                std::path::PathBuf::from(home).join(".ecaa-workflow/sessions")
+            }
+        }
+    };
+    let n = ecaa_workflow_conversation::session::cross_session_aggregator::count_graduation_eligible(
+        &dir,
+    );
+    if n == 0 {
+        println!("local-extensions: 0 graduation-eligible");
+    } else {
+        println!(
+            "local-extensions: {n} graduation-eligible \
+             (promote to catalog: hand-author config/stage-atoms/<id>.yaml + a crates/core test)"
+        );
     }
     Ok(())
 }

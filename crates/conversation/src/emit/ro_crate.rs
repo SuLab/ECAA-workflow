@@ -729,6 +729,18 @@ pub(super) async fn patch_ro_crate_metadata(
             "Per-invariant verdicts (claim-completeness, decision-justification, evidence-coverage, equivalence-failure, cross-graph-integrity, substrate-validity). Warn-only at emission time; the verdicts surface in the UI Verifier tab. Suppressed under ECAA_ABLATE_AUDIT_PROOF (Arm B' control).",
             "application/json",
         ),
+        (
+            "runtime/ed-cf-delta.json",
+            "Longitudinal ED/CF re-assessment delta (RS2)",
+            "Per-axis delta between this package's ED/CF self-location and its lineage parent's (gained/lost extensibility + counterfactual mechanisms). Written only when this emission has a lineage parent with its own self-assessment. Informational — locates, does not validate.",
+            "application/json",
+        ),
+        (
+            "runtime/coverage-statement.json",
+            "Catalog-coverage statement (CC1)",
+            "SME-legible record of which requested modalities fell outside the validated catalog (uncovered_modalities) and the unresolved gap count, projected from the composer's gap signal. Written only when the package is not fully covered. Informational — communicates coverage uncertainty, does not validate.",
+            "application/json",
+        ),
         // ECAA emit-time validation summary written by
         // `emit::validation::write_validation_summary` after the
         // pure-Rust + optional external validators run. Carries the

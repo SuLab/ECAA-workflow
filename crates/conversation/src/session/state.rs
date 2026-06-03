@@ -743,6 +743,82 @@ pub struct Session {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub pending_disambiguation: Option<String>,
+
+    /// SME-legible catalog-coverage confidence, derived purely from the
+    /// composer's `ComposeOutcome` gap set at compose time (CC1). When
+    /// `Some` and not fully covered, `CoverageConfidenceCard` renders the
+    /// uncovered-modality message + inline propose affordance before the
+    /// confirmation gate, and the emit wrapper writes
+    /// `runtime/coverage-statement.json`. `None` for sessions composed
+    /// before this field existed or that never ran the v4 composer.
+    /// `#[ts(skip)]` on the field; the struct itself is `#[ts(export)]`
+    /// so the UI imports the type, and `get_session_state` surfaces the
+    /// value so the LLM observes coverage rather than inventing it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub coverage_confidence: Option<CoverageConfidence>,
+}
+
+/// SME-legible projection of catalog-coverage confidence. Derived purely
+/// from the composer's `ComposeOutcome` gap set — no new compose logic, no
+/// new tool. Rendered by `CoverageConfidenceCard` before the confirmation
+/// gate; also written to a durable `coverage-statement.json` (CC1-4) so the
+/// signal survives outside the UI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[non_exhaustive]
+pub struct CoverageConfidence {
+    /// True when the composition is a fully validated executable DAG.
+    pub fully_covered: bool,
+    /// Modalities with partial catalog coverage (drafted but with gaps).
+    pub partially_covered_modalities: Vec<String>,
+    /// Modalities with NO catalog satisfier (from unsatisfiable-modality gaps).
+    pub uncovered_modalities: Vec<String>,
+    /// Total unresolved gap count.
+    pub gap_count: usize,
+}
+
+const UNSAT_MODALITY_PREFIX: &str = "unsatisfiable_modality:";
+
+impl CoverageConfidence {
+    /// Project a `ComposeOutcome` into an SME-legible coverage object.
+    pub fn from_outcome(
+        outcome: &ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome,
+    ) -> Self {
+        use ecaa_workflow_core::workflow_contracts::outcome::ComposeOutcome;
+        match outcome {
+            ComposeOutcome::ValidatedExecutableDag { .. } => Self {
+                fully_covered: true,
+                partially_covered_modalities: Vec::new(),
+                uncovered_modalities: Vec::new(),
+                gap_count: 0,
+            },
+            ComposeOutcome::PartialDag {
+                unresolved_gaps, ..
+            } => {
+                let mut uncovered: Vec<String> = unresolved_gaps
+                    .iter()
+                    .filter_map(|g| g.id.strip_prefix(UNSAT_MODALITY_PREFIX).map(str::to_string))
+                    .filter(|m| !m.is_empty())
+                    .collect();
+                uncovered.sort();
+                uncovered.dedup();
+                Self {
+                    fully_covered: false,
+                    partially_covered_modalities: Vec::new(),
+                    uncovered_modalities: uncovered,
+                    gap_count: unresolved_gaps.len(),
+                }
+            }
+            // Draft / NovelNodeSpec / Refusal: not fully covered, gaps unknown.
+            _ => Self {
+                fully_covered: false,
+                partially_covered_modalities: Vec::new(),
+                uncovered_modalities: Vec::new(),
+                gap_count: 0,
+            },
+        }
+    }
 }
 
 /// Default factory used by `#[serde(default)]` when loading a session
@@ -1257,7 +1333,39 @@ impl Turn {
 
 #[cfg(test)]
 mod tests {
-    use super::Session;
+    use super::{CoverageConfidence, Session};
+
+    #[test]
+    fn coverage_confidence_from_partial_dag_outcome() {
+        use ecaa_workflow_core::workflow_contracts::outcome::{ComposeOutcome, GapReport};
+        use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
+        let outcome = ComposeOutcome::PartialDag {
+            dag: WorkflowDag::default(),
+            unresolved_gaps: vec![GapReport {
+                id: "unsatisfiable_modality:cytof".into(),
+                statement: "no catalog satisfier for cytof".into(),
+                missing_port: None,
+                suggestions: vec![],
+            }],
+        };
+        let cc = CoverageConfidence::from_outcome(&outcome);
+        assert!(!cc.fully_covered);
+        assert_eq!(cc.gap_count, 1);
+        assert_eq!(cc.uncovered_modalities, vec!["cytof".to_string()]);
+    }
+
+    #[test]
+    fn coverage_confidence_fully_covered_on_validated_dag() {
+        use ecaa_workflow_core::workflow_contracts::outcome::{ComposeOutcome, ValidationReport};
+        use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
+        let outcome = ComposeOutcome::ValidatedExecutableDag {
+            dag: WorkflowDag::default(),
+            report: ValidationReport::default(),
+        };
+        let cc = CoverageConfidence::from_outcome(&outcome);
+        assert!(cc.fully_covered);
+        assert_eq!(cc.gap_count, 0);
+    }
 
     #[test]
     fn session_json_with_legacy_composer_version_field_still_deserializes() {

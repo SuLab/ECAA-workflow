@@ -3239,6 +3239,11 @@ fn try_build_via_composer(
             // only on `session.proposals`; no DAG mutation.
             if let Some(outcome) = output.compose_outcome.as_ref() {
                 gap_proposals::surface_unsatisfiable_modality_proposals(session, outcome);
+                // CC1 — project catalog-coverage confidence from the same
+                // gap signal so the UI + get_session_state can surface it.
+                session.coverage_confidence = Some(
+                    crate::session::state::CoverageConfidence::from_outcome(outcome),
+                );
             }
             session.ranked_alternatives = output.ranked_alternatives.clone();
             session.policy_decisions = output.policy_decisions.clone();
