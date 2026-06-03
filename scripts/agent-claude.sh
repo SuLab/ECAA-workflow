@@ -821,6 +821,22 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # container ships with a parallel BLAS by default.
   docker pull "$CONTAINER_IMAGE" >/dev/null 2>&1 || true
 
+  # Runtime registry-digest resolution (D7). A pinned tag is mutable; the
+  # digest that actually ran is not. When the per-task spec carried no
+  # digest, capture the resolved RepoDigest so the provenance record
+  # reflects the real image. Locally-built images have no RepoDigests
+  # (empty) — fall back silently; D1's content-hash digest covers them.
+  # Pure runtime evidence — never feeds back into byte-reproducible emit.
+  if [ -z "${TASK_CONTAINER_DIGEST:-}" ]; then
+    RESOLVED_DIGEST="$(docker image inspect --format '{{index .RepoDigests 0}}' "$CONTAINER_IMAGE" 2>/dev/null || true)"
+    if [ -n "$RESOLVED_DIGEST" ]; then
+      # RepoDigests entries are "name@sha256:<hex>"; keep the @sha256 tail.
+      TASK_CONTAINER_DIGEST="${RESOLVED_DIGEST##*@}"
+      export TASK_CONTAINER_DIGEST
+      echo "agent-claude.sh: resolved runtime digest for $CONTAINER_IMAGE -> $TASK_CONTAINER_DIGEST" >&2
+    fi
+  fi
+
   # Image-agnostic canonical-interpreter discovery. The python that carries the
   # numpy/pandas/matplotlib substrate the shipped renderers need lives at a
   # different path per image (bio-min: /opt/conda/bin; other images vary), so
