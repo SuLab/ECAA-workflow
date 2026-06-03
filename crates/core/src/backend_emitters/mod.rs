@@ -31,6 +31,7 @@
 //! external emitter ships.
 
 pub mod capability_report;
+pub mod typed_workflow;
 pub mod workflow_json;
 
 pub use capability_report::{
