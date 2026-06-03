@@ -480,6 +480,10 @@ async fn emit_steps(
     // Mutates `session.decisions` so `write_decision_log` below picks
     // up the new CrossVersionDiff record.
     let diff_written = cross_version_diff::write_cross_version_diff(session, output_dir).await?;
+    // Longitudinal ED/CF delta against the same parent package (RS2).
+    // Best-effort: soft-skips when there is no lineage parent or no parent
+    // assessment. Excluded from the byte-diff baseline.
+    cross_version_diff::write_ed_cf_delta(session, output_dir).await?;
     // Per-figure diff against the same parent. Writes
     // `runtime/figure-diff.json` when a parent emit exists; soft-skips
     // otherwise. Hash-only — no decoding, no LLM, sub-second on

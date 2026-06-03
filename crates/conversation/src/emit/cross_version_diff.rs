@@ -126,6 +126,60 @@ pub(super) async fn write_cross_version_diff(
     Ok(table_names)
 }
 
+/// Write `runtime/ed-cf-delta.json` when this emission has a lineage
+/// parent. Reads BOTH packages' `runtime/ed-cf-self-assessment.json`,
+/// computes `EdCfDelta::between(parent, child)`, and writes the delta.
+/// Best-effort: a missing parent (or missing parent assessment) returns
+/// `Ok(())` with no file — never fails emit. Uses the SAME parent-path
+/// resolution as `write_cross_version_diff` (branch lineage OR pending
+/// amendment). Excluded from the byte-diff baseline.
+pub(super) async fn write_ed_cf_delta(session: &Session, output_dir: &Path) -> Result<()> {
+    let parent_path: std::path::PathBuf = match (
+        session
+            .lineage
+            .as_ref()
+            .and_then(|l| l.parent_emitted_package_path.clone()),
+        session
+            .pending_amendment
+            .as_ref()
+            .map(|a| a.parent_package_path.clone()),
+    ) {
+        (Some(p), _) => p,
+        (None, Some(p)) => p,
+        (None, None) => return Ok(()),
+    };
+
+    let parent = match read_ed_cf_assessment(&parent_path).await {
+        Some(a) => a,
+        None => return Ok(()), // parent has no assessment; nothing to diff
+    };
+    let child = match read_ed_cf_assessment(output_dir).await {
+        Some(a) => a,
+        None => return Ok(()), // child assessment not emitted; skip
+    };
+
+    let delta = ecaa_workflow_core::rubric_self_assessment::EdCfDelta::between(&parent, &child);
+    let runtime = output_dir.join("runtime");
+    tokio::fs::create_dir_all(&runtime).await?;
+    let body = serde_json::to_vec_pretty(&delta)?;
+    let path = runtime.join("ed-cf-delta.json");
+    crate::persistence::atomic_write_bytes_to(&path, &body)
+        .await
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Read + parse a package's `runtime/ed-cf-self-assessment.json` into an
+/// `EdCfSelfAssessment`. Returns `None` when the file is absent or
+/// unparseable (best-effort — the delta is informational).
+async fn read_ed_cf_assessment(
+    package: &Path,
+) -> Option<ecaa_workflow_core::rubric_self_assessment::EdCfSelfAssessment> {
+    let p = package.join("runtime/ed-cf-self-assessment.json");
+    let bytes = tokio::fs::read(&p).await.ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 async fn load_interpretation_policy(package: &Path) -> Result<serde_json::Value> {
     let p = package.join("policies/interpretation-policy.json");
     let bytes = tokio::fs::read(&p)
@@ -144,4 +198,74 @@ fn sanitize_filename(s: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod ed_cf_delta_tests {
+    use super::*;
+    use crate::session::Session;
+    use ecaa_workflow_core::rubric_self_assessment::{AssessmentInputs, EdCfSelfAssessment};
+
+    async fn write_assessment(dir: &Path, a: &EdCfSelfAssessment) {
+        let runtime = dir.join("runtime");
+        tokio::fs::create_dir_all(&runtime).await.unwrap();
+        let body = serde_json::to_vec_pretty(a).unwrap();
+        tokio::fs::write(runtime.join("ed-cf-self-assessment.json"), body)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn writes_delta_when_parent_assessment_present() {
+        let parent_dir = tempfile::tempdir().unwrap();
+        let child_dir = tempfile::tempdir().unwrap();
+
+        // Parent lacks the LLM-assisted-authoring ED mechanism; child has it.
+        let parent_assessment = EdCfSelfAssessment::from_inputs(&{
+            let mut i = AssessmentInputs::from_package_facts(93, 21, 22, 6);
+            i.llm_assisted_authoring_present = false;
+            i
+        });
+        let child_assessment =
+            EdCfSelfAssessment::from_inputs(&AssessmentInputs::from_package_facts(93, 21, 22, 6));
+        write_assessment(parent_dir.path(), &parent_assessment).await;
+        write_assessment(child_dir.path(), &child_assessment).await;
+
+        // Seed a child session whose lineage points at the parent dir.
+        let mut session = Session::new(false);
+        let mut lineage = session.lineage.clone().unwrap_or_else(|| {
+            // Build a minimal lineage from a fresh parent branch.
+            let parent = Session::new(false);
+            Session::branch_from(&parent, false)
+                .lineage
+                .expect("branch sets lineage")
+        });
+        lineage.parent_emitted_package_path = Some(parent_dir.path().to_path_buf());
+        session.lineage = Some(lineage);
+
+        write_ed_cf_delta(&session, child_dir.path()).await.unwrap();
+
+        let delta_path = child_dir.path().join("runtime/ed-cf-delta.json");
+        assert!(delta_path.exists(), "ed-cf-delta.json must be written");
+        let v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&delta_path).unwrap()).unwrap();
+        assert!(
+            v["extensibility_delta"].as_f64().unwrap() > 0.0,
+            "child gained an ED mechanism → positive delta"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_delta_without_lineage_parent() {
+        let child_dir = tempfile::tempdir().unwrap();
+        let child_assessment =
+            EdCfSelfAssessment::from_inputs(&AssessmentInputs::from_package_facts(93, 21, 22, 6));
+        write_assessment(child_dir.path(), &child_assessment).await;
+        let session = Session::new(false); // no lineage, no pending amendment
+        write_ed_cf_delta(&session, child_dir.path()).await.unwrap();
+        assert!(
+            !child_dir.path().join("runtime/ed-cf-delta.json").exists(),
+            "no parent → no delta file"
+        );
+    }
 }
