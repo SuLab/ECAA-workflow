@@ -4,6 +4,7 @@
 mod cross_omics_archetype_loads;
 mod dag_error_missing_stage;
 mod dag_error_orphaned_task;
+mod from_atom_generated_code;
 mod hypothesized_proposal;
 mod ids_atomid_roundtrip;
 mod ids_stageid_roundtrip;

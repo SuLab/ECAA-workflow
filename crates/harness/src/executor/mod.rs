@@ -997,6 +997,27 @@ mod safety_tests {
     }
 
     #[test]
+    fn exec_task_blocks_when_executor_has_no_sandbox() {
+        // G1 fail-closed contract for the shipped agent_generated_analysis
+        // Exec atom: with ECAA_LOCAL_SANDBOX=off the executor advertises
+        // sandbox: None, so the Exec task must Block (SandboxRequired),
+        // never run unsandboxed.
+        let mut task = task_with_safety(SafetyLevel::Exec, SandboxRequirement::ProcessIsolation);
+        task.source_atom_id = Some("agent_generated_analysis".into());
+        let caps = ExecutorCapabilities {
+            sandbox: SandboxRequirement::None,
+            network: NetworkPolicy::None { allowlist: vec![] },
+            kind: "local",
+        };
+        let blocker = enforce_safety_policy(&task, &caps);
+        assert!(
+            matches!(blocker, Some(BlockerKind::SandboxRequired { .. })),
+            "Exec + no-sandbox executor must Block, never run unsandboxed: {:?}",
+            blocker
+        );
+    }
+
+    #[test]
     fn compute_atom_passes_anywhere() {
         let task = task_with_safety(SafetyLevel::Compute, SandboxRequirement::None);
         let caps = ExecutorCapabilities {

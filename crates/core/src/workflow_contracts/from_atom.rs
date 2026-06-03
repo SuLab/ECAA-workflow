@@ -50,7 +50,7 @@ use std::collections::BTreeMap;
 
 use crate::atom::{AtomAssignee, AtomDefinition, AtomRole, ContainerSpec};
 
-use super::implementation::{Implementation, OciImageRef};
+use super::implementation::{Implementation, OciImageRef, ReviewStatus};
 use super::port::PortContract;
 use super::task_node::{Provenance, SemVer, TaskNode};
 
@@ -141,9 +141,24 @@ fn synthesize_outputs(atom: &AtomDefinition) -> Vec<PortContract> {
 /// become `ContainerCommand`; everything else becomes
 /// `Unimplemented` and is filled in by the harness/agent.
 fn synthesize_implementation(atom: &AtomDefinition) -> Implementation {
+    use crate::atom::CodeExecution;
     if matches!(atom.assignee, AtomAssignee::Sme) {
         return Implementation::ManualProtocol {
             sop_ref: format!("sme:{}", atom.id),
+        };
+    }
+    // Agent-generated code (Exec atoms): lower to GeneratedCode so the
+    // harness routes it through the bubblewrap sandbox enforcer
+    // (`sandbox_enforcer` only wraps GeneratedCode nodes). Seed
+    // AutoReviewed (static-analysis-only) so the strict planner sweep
+    // does not refuse it; a human-review unblock path can promote to
+    // HumanReviewed later. Checked before `preferred_container` so an
+    // Exec atom routes on code_execution, not on a pinned image.
+    if atom.safety.code_execution == CodeExecution::GeneratedByAgent {
+        return Implementation::GeneratedCode {
+            repository_ref: format!("agent-generated:{}", atom.id),
+            review_status: ReviewStatus::AutoReviewed,
+            artifact_digest: None,
         };
     }
     if let Some(container) = &atom.preferred_container {
