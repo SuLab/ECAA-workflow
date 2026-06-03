@@ -429,6 +429,34 @@ pub fn proposal_to_materialized_task_node(
     node
 }
 
+/// Lower a promoted proposal to a DAG node — DESCOPED non-executable
+/// variant (HE1). The executable hybrid escape hatch — auto-running
+/// model-generated Python under a default-strict sandbox — is DEFERRED and
+/// OFF-BY-DEFAULT: executing model-generated code is the highest-risk
+/// surface and is only safe behind `SandboxRequirement::Required` +
+/// `ECAA_ALLOW_GENERATIVE_NODES=1` + an airtight sandbox runtime that does
+/// not yet exist.
+///
+/// Until that runtime ships, a promoted proposal lowers to
+/// `Implementation::Unimplemented` (Contracted) so the harness
+/// `enforce_safety_policy` REFUSES dispatch. The escape hatch the system
+/// actually offers today is the atom DRAFT (LA1) routed through
+/// `propose_hypothesized_node` + SME signoff — a non-executable proposal,
+/// never auto-execution.
+///
+/// This helper exists so a future phase can flip the implementation to a
+/// `GeneratedCode` variant behind the env gate; the signature + DAG shape
+/// are fixed here so that change is localized. It is identical in shape to
+/// [`proposal_to_materialized_task_node`] minus the promotion-authority
+/// append — deliberately non-dispatchable.
+pub fn proposal_to_generated_code_node(p: &HypothesizedProposal) -> TaskNode {
+    // Identical shape to proposal_to_transient_task_node: Unimplemented,
+    // Contracted. NO GeneratedCode lowering (deferred/off-by-default).
+    let mut node = proposal_to_transient_task_node(p);
+    node.lifecycle_state = LifecycleState::Contracted;
+    node
+}
+
 /// Synthesize an [`crate::atom::AtomDefinition`]
 /// overlay row from a Promoted proposal so the v4 composer's
 /// [`crate::atom_registry::AtomRegistry`] overlay surfaces the proposed
@@ -757,6 +785,16 @@ mod tests {
         let with_none = promoted_proposal_to_atom_definition_with_draft(&p, None);
         let legacy = promoted_proposal_to_atom_definition(&p);
         assert_eq!(with_none, legacy);
+    }
+
+    #[test]
+    fn proposal_to_generated_code_node_is_non_dispatchable_by_default() {
+        let p = promoted_proposal("doublet_score");
+        let node = proposal_to_generated_code_node(&p);
+        // DESCOPED: default lowering stays Unimplemented so the harness refuses
+        // dispatch. The executable GeneratedCode variant is deferred/off-by-default.
+        assert!(matches!(node.implementation, Implementation::Unimplemented));
+        assert_eq!(node.lifecycle_state, LifecycleState::Contracted);
     }
 
     #[test]
