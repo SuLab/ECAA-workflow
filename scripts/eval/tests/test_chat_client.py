@@ -24,6 +24,8 @@ class _Script:
         self.state_kinds = list(state_kinds)
         self.pkg_path = pkg_path
         self.turn_429_first = turn_429_first
+        # /metrics body: {} (default) serves 200 + empty dict; None serves 404.
+        self.metrics_body: dict | None = {}
         # Captured for assertions.
         self.turn_messages: list[str] = []
         self.sme_named_calls: list[str] = []
@@ -95,7 +97,13 @@ def _make_handler_capturing(script: _Script):
                 self._send_empty(404)
 
         def do_GET(self):
-            if self.path.endswith("/state"):
+            if self.path.endswith("/metrics"):
+                body = getattr(script, "metrics_body", {})
+                if body is None:
+                    self._send_empty(404)
+                else:
+                    self._send_json(200, body)
+            elif self.path.endswith("/state"):
                 self._send_json(200, script.next_state())
             else:
                 self._send_empty(404)
@@ -210,3 +218,55 @@ def test_429_retry_does_not_consume_budget():
     assert str(pkg) == "/emitted/pkg"
     # Only ONE successful turn recorded despite the 429 retry.
     assert len(script.turn_messages) == 1
+
+
+def test_drive_with_metrics_harvests_metrics_snapshot():
+    # After emitted, the client GETs /metrics and returns it as a third element.
+    script = _Script(state_kinds=["pending_confirmation", "emitted"])
+    script.metrics_body = {
+        "followup_count": 2,
+        "time_to_emit_ms": 4200,
+        "task_success_rate": None,
+        "method_recommendation_requests": 1,
+        "is_ambiguous": False,
+        "blockers_encountered": [],
+        "affordance_fallbacks": [{"semantic_type": "data:2603", "primitive": "scatter", "count": 3}],
+        "coverage_gap_events": 1,
+    }
+    httpd, base = _serve(script)
+    try:
+        from scripts.eval.services.chat_client import drive_chat_intake_with_metrics
+        sid, pkg, metrics = drive_chat_intake_with_metrics(base, "Do an analysis")
+    finally:
+        httpd.shutdown()
+    assert sid == "sid-123"
+    assert str(pkg) == "/emitted/pkg"
+    assert metrics["followup_count"] == 2
+    assert metrics["time_to_emit_ms"] == 4200
+    assert metrics["coverage_gap_events"] == 1
+
+
+def test_drive_with_metrics_tolerates_missing_metrics_endpoint():
+    # A 404 / null /metrics (fresh session, or older server) yields {} not a raise.
+    script = _Script(state_kinds=["emitted"])
+    script.metrics_body = None  # signals: respond 404 to /metrics
+    httpd, base = _serve(script)
+    try:
+        from scripts.eval.services.chat_client import drive_chat_intake_with_metrics
+        sid, pkg, metrics = drive_chat_intake_with_metrics(base, "instr")
+    finally:
+        httpd.shutdown()
+    assert metrics == {}
+
+
+def test_drive_chat_intake_still_returns_two_tuple():
+    # The legacy 2-tuple entry point keeps working (callers not yet migrated).
+    script = _Script(state_kinds=["emitted"])
+    httpd, base = _serve(script)
+    try:
+        result = drive_chat_intake(base, "instr")
+    finally:
+        httpd.shutdown()
+    assert isinstance(result, tuple) and len(result) == 2
+    sid, pkg = result
+    assert str(pkg) == "/emitted/pkg"
