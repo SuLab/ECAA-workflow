@@ -726,6 +726,7 @@ mod tests {
             cardinality: Cardinality::default(),
             validators: Vec::new(),
             constraints: Vec::new(),
+            parameters: Vec::new(),
             facets: std::collections::BTreeMap::new(),
         });
         composed.atom.outputs.push(PortContract {
@@ -746,6 +747,7 @@ mod tests {
             cardinality: Cardinality::default(),
             validators: Vec::new(),
             constraints: Vec::new(),
+            parameters: Vec::new(),
             facets: std::collections::BTreeMap::new(),
         });
         let intake = sample_intake();

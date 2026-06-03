@@ -7,7 +7,7 @@ use crate::adapter_registry::{AdapterRegistry, AdapterSafety, AdapterSpec};
 use crate::edam::edam_subtype_edges;
 use crate::policy_context::{PolicyCheck, PolicyCheckKind, PolicyContext};
 use crate::workflow_contracts::edge::CompatibilityProof;
-use crate::workflow_contracts::port::PortContract;
+use crate::workflow_contracts::port::{PortContract, PortParameter};
 use crate::workflow_contracts::semantic_type::SemanticType;
 use crate::workflow_contracts::task_node::TaskNode;
 
@@ -909,6 +909,85 @@ impl DeterministicCompatibilityEngine {
             ));
         }
 
+        // Step 3.5: parameter unification (P6). Default-permissive: when
+        // neither port declares parameters, this is a no-op and behavior
+        // is byte-identical to pre-P6 (the `determinism_replay` test must
+        // still pass). Hard refusal ONLY under `RiskMode::Production`;
+        // `Draft` defers a clash to `Unknown` (a warning, not a wall).
+        // Method-neutral: we check *declared* compatibility, never select.
+        if !producer.parameters.is_empty() || !consumer.parameters.is_empty() {
+            // BTreeMap-index the producer params for deterministic lookup.
+            let producer_by_name: std::collections::BTreeMap<&str, &PortParameter> = producer
+                .parameters
+                .iter()
+                .map(|p| (p.name.as_str(), p))
+                .collect();
+            let mut param_mismatches: Vec<IncompatibilityReason> = Vec::new();
+            // Iterate consumer params in declared order (deterministic).
+            for cp in &consumer.parameters {
+                match producer_by_name.get(cp.name.as_str()) {
+                    None => {
+                        if cp.required {
+                            param_mismatches.push(IncompatibilityReason::ParameterMismatch {
+                                parameter: cp.name.clone(),
+                                producer: "<absent>".into(),
+                                consumer: render_allowed(&cp.allowed_values),
+                            });
+                        }
+                    }
+                    Some(pp) => {
+                        // Disjoint allowed_values when BOTH constrain.
+                        if !pp.allowed_values.is_empty()
+                            && !cp.allowed_values.is_empty()
+                            && !pp
+                                .allowed_values
+                                .iter()
+                                .any(|v| cp.allowed_values.contains(v))
+                        {
+                            param_mismatches.push(IncompatibilityReason::ParameterMismatch {
+                                parameter: cp.name.clone(),
+                                producer: render_allowed(&pp.allowed_values),
+                                consumer: render_allowed(&cp.allowed_values),
+                            });
+                        }
+                    }
+                }
+            }
+            if !param_mismatches.is_empty() {
+                match ctx.risk_mode {
+                    RiskMode::Production => {
+                        return CompatibilityResult::Incompatible(IncompatibilityReport::new(
+                            param_mismatches,
+                        ));
+                    }
+                    RiskMode::Draft => {
+                        // Surface as Unknown so the planner downgrades to
+                        // DraftDag instead of hard-refusing.
+                        return CompatibilityResult::Unknown(ClarificationOrValidationNeeded {
+                            id: format!("param:{}:{}", producer.name, consumer.name),
+                            statement: format!(
+                                "Declared parameter clash on {}",
+                                param_mismatches
+                                    .iter()
+                                    .filter_map(|r| match r {
+                                        IncompatibilityReason::ParameterMismatch {
+                                            parameter,
+                                            ..
+                                        } => Some(parameter.clone()),
+                                        _ => None,
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            ),
+                            suggestion: "Confirm the parameter values are compatible or re-emit \
+                                         in Production mode for a hard check."
+                                .into(),
+                        });
+                    }
+                }
+            }
+        }
+
         // Policy gate.
         // Active PolicyContext bundles can refuse the edge or record
         // positive policy decisions in the proof.
@@ -1176,10 +1255,24 @@ fn coordinate_system_facets_consistent(from: &str, to: &str) -> bool {
     }
 }
 
+/// Render an allowed-value set as a deterministic, sorted, comma-joined
+/// string for a `ParameterMismatch` reason.
+fn render_allowed(values: &[serde_json::Value]) -> String {
+    let mut rendered: Vec<String> = values
+        .iter()
+        .map(|v| match v {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        })
+        .collect();
+    rendered.sort();
+    rendered.join(",")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow_contracts::port::PortContract;
+    use crate::workflow_contracts::port::{PortContract, PortParameter};
 
     fn p(iri: &str) -> PortContract {
         PortContract {
@@ -1187,6 +1280,104 @@ mod tests {
             semantic_type: SemanticType::edam(iri, ""),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn absent_parameters_is_compatible_byte_identical() {
+        // No declared parameters -> no parameter check -> Compatible.
+        let producer = PortContract::from_edam("out", Some("data:2978"), None);
+        let consumer = PortContract::from_edam("in", Some("data:2978"), None);
+        let engine = DeterministicCompatibilityEngine::new();
+        let ctx = PlanningContext {
+            risk_mode: RiskMode::Production,
+            ..Default::default()
+        };
+        assert!(matches!(
+            engine.prove(&producer, &consumer, &ctx),
+            CompatibilityResult::Compatible(_)
+        ));
+    }
+
+    #[test]
+    fn contradictory_allowed_values_is_incompatible_in_production() {
+        let mut producer = PortContract::from_edam("out", Some("data:2978"), None);
+        producer.parameters.push(PortParameter {
+            name: "assembly".into(),
+            allowed_values: vec![serde_json::json!("GRCh38")],
+            required: false,
+        });
+        let mut consumer = PortContract::from_edam("in", Some("data:2978"), None);
+        consumer.parameters.push(PortParameter {
+            name: "assembly".into(),
+            allowed_values: vec![serde_json::json!("GRCm39")],
+            required: true,
+        });
+        let engine = DeterministicCompatibilityEngine::new();
+        let ctx = PlanningContext {
+            risk_mode: RiskMode::Production,
+            ..Default::default()
+        };
+        match engine.prove(&producer, &consumer, &ctx) {
+            CompatibilityResult::Incompatible(report) => {
+                assert!(report.reasons.iter().any(|r| matches!(
+                    r,
+                    IncompatibilityReason::ParameterMismatch { parameter, .. } if parameter == "assembly"
+                )));
+            }
+            other => panic!("expected Incompatible(ParameterMismatch), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn contradictory_parameters_in_draft_is_not_hard_refused() {
+        // Default-permissive in Draft: a parameter clash surfaces as
+        // Unknown (warning), never a hard refusal.
+        let mut producer = PortContract::from_edam("out", Some("data:2978"), None);
+        producer.parameters.push(PortParameter {
+            name: "assembly".into(),
+            allowed_values: vec![serde_json::json!("GRCh38")],
+            required: false,
+        });
+        let mut consumer = PortContract::from_edam("in", Some("data:2978"), None);
+        consumer.parameters.push(PortParameter {
+            name: "assembly".into(),
+            allowed_values: vec![serde_json::json!("GRCm39")],
+            required: true,
+        });
+        let engine = DeterministicCompatibilityEngine::new();
+        let ctx = PlanningContext {
+            risk_mode: RiskMode::Draft,
+            ..Default::default()
+        };
+        assert!(!matches!(
+            engine.prove(&producer, &consumer, &ctx),
+            CompatibilityResult::Incompatible(_)
+        ));
+    }
+
+    #[test]
+    fn matching_allowed_values_is_compatible() {
+        let mut producer = PortContract::from_edam("out", Some("data:2978"), None);
+        producer.parameters.push(PortParameter {
+            name: "assembly".into(),
+            allowed_values: vec![serde_json::json!("GRCh38")],
+            required: false,
+        });
+        let mut consumer = PortContract::from_edam("in", Some("data:2978"), None);
+        consumer.parameters.push(PortParameter {
+            name: "assembly".into(),
+            allowed_values: vec![serde_json::json!("GRCh38"), serde_json::json!("GRCm39")],
+            required: true,
+        });
+        let engine = DeterministicCompatibilityEngine::new();
+        let ctx = PlanningContext {
+            risk_mode: RiskMode::Production,
+            ..Default::default()
+        };
+        assert!(matches!(
+            engine.prove(&producer, &consumer, &ctx),
+            CompatibilityResult::Compatible(_)
+        ));
     }
 
     #[test]

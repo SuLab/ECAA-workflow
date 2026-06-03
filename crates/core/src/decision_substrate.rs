@@ -489,6 +489,7 @@ pub enum RejectingComponent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
 #[ts(export, rename = "SubstrateIncompatibilityReason")]
 #[serde(tag = "kind", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum IncompatibilityReason {
     /// SemanticTypeMismatch variant.
     SemanticTypeMismatch {
@@ -530,6 +531,15 @@ pub enum IncompatibilityReason {
         check_kind: String,
         /// Statement.
         statement: String,
+    },
+    /// ParameterMismatch variant.
+    ParameterMismatch {
+        /// Parameter.
+        parameter: String,
+        /// Producer.
+        producer: String,
+        /// Consumer.
+        consumer: String,
     },
     /// Other variant.
     Other {
@@ -576,6 +586,15 @@ impl IncompatibilityReason {
                 bundle_id: bundle_id.clone(),
                 check_kind: check_kind.clone(),
                 statement: statement.clone(),
+            },
+            Engine::ParameterMismatch {
+                parameter,
+                producer,
+                consumer,
+            } => Self::ParameterMismatch {
+                parameter: parameter.clone(),
+                producer: producer.clone(),
+                consumer: consumer.clone(),
             },
             Engine::Other { statement } => Self::Other {
                 statement: statement.clone(),

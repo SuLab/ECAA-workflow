@@ -38,6 +38,11 @@ fn every_incompatibility_reason_maps_to_an_actionable_blocker() {
             check_kind: "k".into(),
             statement: "s".into(),
         },
+        IncompatibilityReason::ParameterMismatch {
+            parameter: "assembly".into(),
+            producer: "GRCh38".into(),
+            consumer: "GRCm39".into(),
+        },
         IncompatibilityReason::Other {
             statement: "s".into(),
         },
