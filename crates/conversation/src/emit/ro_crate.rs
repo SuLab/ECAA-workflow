@@ -662,6 +662,17 @@ pub(super) async fn patch_ro_crate_metadata(
             "Per-package install log written by the install-proxy shims (apt/pip/conda/cran/npm/rubygems) every time an agent install request passes the per-task provisioning.json policy. Each line records timestamp, atom_id, package, registry, and source=agent_runtime so auditors can distinguish runtime installs from compile-time-vendored ones.",
             "application/jsonl",
         ),
+        // M2 — validated-invocation log. Written one record per line by
+        // the HARNESS at the dispatch site (sync, no tokio). Absent until
+        // a harness has dispatched at least one task, so the presence
+        // gate below skips it on pre-execution first emits — exactly the
+        // pattern install-log.jsonl + validation-reports.jsonl follow.
+        (
+            "runtime/invocations.jsonl",
+            "Validated invocation log (M2)",
+            "One validated-invocation record per dispatched task, written by the harness at the dispatch site. Binds {source atom id, resolved container image, port-typed inputs satisfied, sandbox profile, network policy} as a single provenance object — the runtime mirror of the compile-time per-edge proofs.jsonl. Absent until a harness has dispatched at least one task; presence-gated like validation-reports.jsonl. Excluded from the byte-diff baseline (carries dispatch-time timestamps).",
+            "application/jsonl",
+        ),
         // ── Grant v19 §Authentication of Key Resources (D1-D4) ──────
         // Four runtime/*.json sidecars cited as live disclosure
         // surfaces. D1 is suppressed under ECAA_ABLATE_CLAIM_CONSISTENCY;

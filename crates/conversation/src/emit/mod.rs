@@ -1213,6 +1213,118 @@ mod tests {
         );
     }
 
+    /// M2 — when the harness has written `runtime/invocations.jsonl`,
+    /// the emitter's RO-Crate patcher must register it as a
+    /// File + CreativeWork entity and link it from the root `hasPart`,
+    /// exactly like the install-log presence-gated registration.
+    #[tokio::test]
+    async fn invocations_jsonl_registered_when_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = tmp.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        // Plant the invocation log as the harness does at the dispatch site.
+        std::fs::write(
+            runtime.join("invocations.jsonl"),
+            "{\"task_id\":\"qc\",\"epoch\":1,\"harness_run_id\":\"run-abc\",\"started_at\":\"2026-06-02T00:00:00Z\",\"port_typed_inputs_satisfied\":true,\"sandbox\":\"none\",\"sandbox_required\":false,\"network_policy\":null}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path().join("ro-crate-metadata.json"),
+            r#"{
+              "@context": "https://w3id.org/ro/crate/1.1/context",
+              "@graph": [
+                {
+                  "@id": "./",
+                  "@type": "Dataset",
+                  "hasPart": []
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        ro_crate::patch_ro_crate_metadata(
+            tmp.path(),
+            vec![],
+            vec![],
+            ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private,
+        )
+        .await
+        .unwrap();
+
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(tmp.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph = metadata["@graph"].as_array().unwrap();
+        let entity = graph
+            .iter()
+            .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("runtime/invocations.jsonl"))
+            .expect("invocations.jsonl entity missing from RO-Crate graph");
+        let types: Vec<&str> = entity["@type"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(
+            types.contains(&"File") && types.contains(&"CreativeWork"),
+            "expected @type to include File + CreativeWork, got {:?}",
+            types
+        );
+        assert_eq!(entity["encodingFormat"], "application/jsonl");
+
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let parts = root["hasPart"].as_array().unwrap();
+        assert!(
+            parts.iter().any(|p| p.get("@id").and_then(|v| v.as_str())
+                == Some("runtime/invocations.jsonl")),
+            "invocations.jsonl missing from root hasPart array"
+        );
+    }
+
+    /// M2 — a pre-execution first emit (no harness dispatch yet) has no
+    /// `runtime/invocations.jsonl`, so the entity must be absent from the
+    /// RO-Crate graph (presence-gated).
+    #[tokio::test]
+    async fn invocations_jsonl_absent_when_file_not_written() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("ro-crate-metadata.json"),
+            r#"{
+              "@context": "https://w3id.org/ro/crate/1.1/context",
+              "@graph": [
+                {
+                  "@id": "./",
+                  "@type": "Dataset",
+                  "hasPart": []
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        ro_crate::patch_ro_crate_metadata(
+            tmp.path(),
+            vec![],
+            vec![],
+            ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private,
+        )
+        .await
+        .unwrap();
+
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(tmp.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph = metadata["@graph"].as_array().unwrap();
+        assert!(
+            !graph.iter().any(|e| e.get("@id").and_then(|v| v.as_str())
+                == Some("runtime/invocations.jsonl")),
+            "invocations.jsonl entity must not appear when the file does not exist"
+        );
+    }
+
     /// Sessions without runtime installs (the
     /// common case: sealed atoms, declared_only with everything
     /// already vendored) must NOT carry a stray install-log entry in
