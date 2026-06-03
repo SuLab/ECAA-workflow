@@ -11,7 +11,13 @@ sme_summary: |
   Forecast river discharge for a gauge station using the SME-named model
   family, with prediction intervals over the named horizon.
 goal_data: "data:0951"
-goal_format: "format:3475"
+# NB: goal_format intentionally omitted. The bio `time_series_forecast`
+# archetype shares goal_data:0951 + format:3475 + project_class; declaring
+# the format here would tie the two archetypes at score 6 for generic
+# time-series prose and (by the id tie-break) misroute it to this hydrology
+# archetype. Omitting the format keeps this archetype's data-only score
+# below the bio sibling's for non-hydrology prose, while hydrology intake
+# still routes here via `modality_hint` through find_primary_for_modality.
 project_class: time_series_forecast
 modality_hint: river_discharge_forecast
 atoms:

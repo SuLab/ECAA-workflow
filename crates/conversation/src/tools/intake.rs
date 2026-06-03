@@ -1126,11 +1126,21 @@ fn build_taxonomy_metadata_for_modality(
     });
     // Fallback: any archetype matching project_class (covers
     // clinical_trial / time_series_forecast where modality is the
-    // class id itself).
+    // class id itself). Exclude archetypes that declare a NON-matching
+    // `modality_hint`: a project-class-routed archetype leaves the hint
+    // unset, so an archetype that pins a different modality (e.g. the
+    // hydrology `river_discharge_forecast` archetype, modality_hint set)
+    // must not be picked for a generic time-series modality just because
+    // it sorts earlier in the id-ordered registry iteration.
     let matched = matched.or_else(|| {
-        registry
-            .iter()
-            .find(|(_id, a)| a.project_class == class_str && a.cross_omics_modalities.is_empty())
+        registry.iter().find(|(_id, a)| {
+            a.project_class == class_str
+                && a.cross_omics_modalities.is_empty()
+                && a.modality_hint
+                    .as_deref()
+                    .map(|h| h == modality_id)
+                    .unwrap_or(true)
+        })
     });
     let Some((_id, archetype)) = matched else {
         return Err(anyhow!(
