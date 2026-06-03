@@ -536,6 +536,42 @@ pub fn promoted_proposal_to_atom_definition(
     })
 }
 
+/// Draft-aware overlay synthesis. When `drafted` is `Some`, the drafted
+/// atom's rich fields (description, edam_data/format, role, outputs)
+/// replace the minimal hand-synthesized stub — but the proposal stays
+/// the authority on identity + provenance: `id` is forced to
+/// `proposal.node_id`, `assignee` is forced to `Agent`, `method_choice`
+/// is cleared, `depends_on` is unioned with `proposal.upstream_atom_ids`,
+/// and the `_proposal_overlay` marker is set. When `drafted` is `None`
+/// this is byte-identical to the legacy minimal overlay.
+///
+/// The drafted atom MUST already have passed
+/// `AtomRegistry::validate_candidate` (the drafter enforces this); this
+/// fn does NOT re-validate the schema — it only harmonizes identity +
+/// method-neutrality invariants the overlay path owns.
+pub fn promoted_proposal_to_atom_definition_with_draft(
+    proposal: &HypothesizedProposal,
+    drafted: Option<crate::atom::AtomDefinition>,
+) -> Option<crate::atom::AtomDefinition> {
+    let base = promoted_proposal_to_atom_definition(proposal)?;
+    let Some(mut atom) = drafted else {
+        return Some(base);
+    };
+    // Identity + provenance owned by the proposal/overlay path.
+    atom.id = proposal.node_id.clone();
+    atom.assignee = crate::atom::AtomAssignee::Agent;
+    atom.method_choice = None;
+    // Union upstream ids (drafter may add more; proposal's are authoritative).
+    for dep in &proposal.upstream_atom_ids {
+        if !atom.depends_on.contains(dep) {
+            atom.depends_on.push(dep.clone());
+        }
+    }
+    atom.attributes
+        .insert("_proposal_overlay".to_string(), serde_json::json!(true));
+    Some(atom)
+}
+
 /// Mint a fresh `tentative` [`HypothesizedProposal`] from a literature-surfaced
 /// method-landscape candidate that is NOT in the axis's curated pool.
 ///
@@ -676,6 +712,52 @@ pub fn intents_describe_same_capability(a: &str, b: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn promoted_proposal(node_id: &str) -> HypothesizedProposal {
+        let mut p = HypothesizedProposal::new(
+            node_id,
+            "intent",
+            vec!["operation:0292".into()],
+            "rationale",
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+        );
+        p.lifecycle = ProposalLifecycle::Promoted {
+            task_node_id: node_id.to_string(),
+        };
+        p
+    }
+
+    #[test]
+    fn promoted_with_drafted_overlay_prefers_drafted_fields() {
+        let p = promoted_proposal("doublet_score");
+        let mut drafted = crate::atom::AtomDefinition::test_default("doublet_score");
+        drafted.description = "richer drafted description".into();
+        drafted.edam_data = Some("data:2603".into());
+        drafted.edam_format = Some("format:3475".into());
+        let overlay = promoted_proposal_to_atom_definition_with_draft(&p, Some(drafted))
+            .expect("promoted proposal yields overlay");
+        assert_eq!(overlay.description, "richer drafted description");
+        assert_eq!(overlay.edam_data.as_deref(), Some("data:2603"));
+        // Method neutrality preserved.
+        assert_eq!(overlay.assignee, crate::atom::AtomAssignee::Agent);
+        assert!(overlay.method_choice.is_none());
+        // The overlay marker is still set so downstream code distinguishes it.
+        assert_eq!(
+            overlay.attributes.get("_proposal_overlay"),
+            Some(&serde_json::json!(true))
+        );
+    }
+
+    #[test]
+    fn promoted_without_draft_matches_legacy_minimal_overlay() {
+        let p = promoted_proposal("doublet_score");
+        let with_none = promoted_proposal_to_atom_definition_with_draft(&p, None);
+        let legacy = promoted_proposal_to_atom_definition(&p);
+        assert_eq!(with_none, legacy);
+    }
 
     #[test]
     fn intent_similarity_catches_observed_comparison_duplicate() {
