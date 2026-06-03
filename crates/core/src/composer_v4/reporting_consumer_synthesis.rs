@@ -608,6 +608,115 @@ fn collect_leaf_analytical_nodes(dag: &WorkflowDag) -> Vec<String> {
 /// and per-branch `<modality>_reporting` / `<modality>_final_reporting`.
 /// Used to decide whether a node is a "reporting-class" candidate at
 /// all — strand detection uses the narrower `is_universal_terminal`.
+/// WG3 strict-mode (C2/C3): type the fan-in edges into reporting-class
+/// aggregators (`reporting` / `*_reporting` / `*_thematic_comparison` /
+/// `*_final_reporting` / `generic_summary`). A report/comparison
+/// genuinely consumes ALL of its upstream producers' artifacts, so the
+/// aggregator's primary input is set to a [`SemanticType::Union`] of its
+/// *actual* producers' output types — computed per-DAG, so it auto-covers
+/// whatever feeds the report in this archetype with no static
+/// enumeration — and the incoming edges are re-proven through the
+/// compatibility engine. `OrderingOnly` fan-in edges then land as
+/// `TypedDataFlow` (Union membership), which `RiskMode::Production`
+/// accepts. Mutates `dag` in place; idempotent (re-running re-derives the
+/// same Union and the same edge kinds). Validators / discoverers are
+/// never treated as aggregators.
+pub(crate) fn type_aggregator_fan_in_edges(dag: &mut WorkflowDag) {
+    use crate::compatibility::engine::DeterministicCompatibilityEngine;
+    use crate::composer_v4::planner::pick_best_port_pair;
+    use crate::workflow_contracts::port::PortContract;
+    use crate::workflow_contracts::semantic_type::SemanticType;
+
+    let is_aggregator =
+        |id: &str| is_reporting_terminal(id) && !is_validator(id) && !is_discoverer(id);
+
+    // Snapshot producer outputs by node id (immutable borrow released
+    // before the node/edge mutations below).
+    let outputs_by_id: BTreeMap<String, Vec<PortContract>> = dag
+        .nodes
+        .iter()
+        .map(|n| (n.id.clone(), n.outputs.clone()))
+        .collect();
+
+    let agg_ids: Vec<String> = dag
+        .nodes
+        .iter()
+        .map(|n| n.id.clone())
+        .filter(|id| is_aggregator(id))
+        .collect();
+
+    // Set each aggregator's primary input to a deterministic Union of its
+    // actual producers' first-output semantic types so every fan-in edge
+    // unifies via Union membership.
+    for agg_id in &agg_ids {
+        let mut members: Vec<SemanticType> = dag
+            .edges
+            .iter()
+            .filter(|e| &e.to_node == agg_id)
+            .filter_map(|e| outputs_by_id.get(&e.from_node))
+            .filter_map(|outs| outs.first())
+            .map(|p| p.semantic_type.clone())
+            .collect();
+        if members.is_empty() {
+            continue;
+        }
+        members.sort_by(|a, b| a.stable_id().cmp(&b.stable_id()));
+        members.dedup_by(|a, b| a.stable_id() == b.stable_id());
+        let union = if members.len() == 1 {
+            members.into_iter().next().expect("len checked == 1 above")
+        } else {
+            SemanticType::Union { members }
+        };
+        if let Some(node) = dag.nodes.iter_mut().find(|n| &n.id == agg_id) {
+            match node.inputs.first_mut() {
+                Some(inp) => inp.semantic_type = union,
+                None => {
+                    node.inputs = vec![PortContract {
+                        name: "aggregated_inputs".into(),
+                        semantic_type: union,
+                        ..Default::default()
+                    }];
+                }
+            }
+        }
+    }
+
+    // Re-prove every fan-in edge into an aggregator now that the
+    // aggregator input accepts its producers.
+    let inputs_by_id: BTreeMap<String, Vec<PortContract>> = dag
+        .nodes
+        .iter()
+        .map(|n| (n.id.clone(), n.inputs.clone()))
+        .collect();
+    let engine = DeterministicCompatibilityEngine::new();
+    for edge in &mut dag.edges {
+        if !is_aggregator(&edge.to_node) {
+            continue;
+        }
+        let prod_outs = outputs_by_id
+            .get(&edge.from_node)
+            .cloned()
+            .unwrap_or_default();
+        let cons_ins = inputs_by_id.get(&edge.to_node).cloned().unwrap_or_default();
+        let (out_port, in_port, proof, kind) =
+            pick_best_port_pair(&engine, &prod_outs, &cons_ins, true);
+        edge.from_port = out_port.name;
+        edge.to_port = in_port.name;
+        edge.proof = proof;
+        edge.kind = kind;
+    }
+
+    // Re-sort edges to keep the WorkflowDag byte-stable (port names may
+    // have changed above). Same key as the other synthesis passes.
+    dag.edges.sort_by(|a, b| {
+        a.from_node
+            .cmp(&b.from_node)
+            .then_with(|| a.from_port.cmp(&b.from_port))
+            .then_with(|| a.to_node.cmp(&b.to_node))
+            .then_with(|| a.to_port.cmp(&b.to_port))
+    });
+}
+
 fn is_reporting_terminal(id: &str) -> bool {
     id == "reporting"
         || id == "final_reporting"
@@ -833,6 +942,58 @@ mod tests {
             Some("format:1915"),
         )];
         n
+    }
+
+    /// WG3 strict-mode (C2): fan-in edges into a reporting aggregator are
+    /// retyped from OrderingOnly to engine-proven TypedDataFlow, and the
+    /// aggregator's input becomes a Union of its actual producers' types.
+    #[test]
+    fn aggregator_fan_in_edges_are_typed_not_ordering_only() {
+        use crate::workflow_contracts::edge::CompatibilityProof;
+        let mut reporting = TaskNode::skeleton("reporting", "assemble report");
+        reporting.inputs = vec![PortContract::from_edam(
+            "aggregated_results",
+            Some("data:2048"),
+            Some("format:3464"),
+        )];
+        let mut de = TaskNode::skeleton("differential_expression", "DE");
+        de.outputs = vec![PortContract::from_edam("out", Some("data:3917"), Some("format:3475"))];
+        let mut peaks = TaskNode::skeleton("peak_calling", "peaks");
+        peaks.outputs = vec![PortContract::from_edam("out", Some("data:0863"), Some("format:3475"))];
+        let mk = |from: &str| EdgeContract {
+            from_node: from.into(),
+            from_port: "out".into(),
+            to_node: "reporting".into(),
+            to_port: "aggregated_results".into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::OrderingOnly,
+            chain_of_custody: None,
+        };
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![reporting, de, peaks],
+            edges: vec![mk("differential_expression"), mk("peak_calling")],
+            assumptions: AssumptionLedger::default(),
+            source_template: None,
+        };
+        type_aggregator_fan_in_edges(&mut dag);
+        for e in &dag.edges {
+            assert_ne!(
+                e.kind,
+                EdgeKind::OrderingOnly,
+                "fan-in edge {}->{} must be engine-proven (WG3 C2), not OrderingOnly",
+                e.from_node,
+                e.to_node
+            );
+        }
+        let rep = dag.nodes.iter().find(|n| n.id == "reporting").unwrap();
+        assert!(
+            matches!(
+                rep.inputs.first().map(|p| &p.semantic_type),
+                Some(crate::workflow_contracts::semantic_type::SemanticType::Union { .. })
+            ),
+            "reporting input should be a Union of its producers' types"
+        );
     }
 
     fn simple_edge(from: &str, to: &str) -> EdgeContract {

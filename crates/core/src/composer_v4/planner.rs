@@ -371,6 +371,9 @@ pub fn plan(
         // visible as terminal nodes and don't count as a reporting
         // path on their own.
         super::reporting_consumer_synthesis::wire_dangling_analytical_atoms_to_reporting(&mut dag);
+        // WG3 strict-mode (C2/C3): type the report/comparison fan-in edges
+        // (producer -> reporting terminal) so they prove under Production.
+        super::reporting_consumer_synthesis::type_aggregator_fan_in_edges(&mut dag);
         let score = score_dag(&dag, ctx, archetype_reg);
         let summary = summarize_dag(&dag, &score);
         alternatives.push(RankedAlternative {
@@ -486,6 +489,8 @@ pub fn plan(
             super::reporting_consumer_synthesis::wire_dangling_analytical_atoms_to_reporting(
                 &mut dag,
             );
+            // WG3 strict-mode (C2/C3): type the report/comparison fan-in edges.
+            super::reporting_consumer_synthesis::type_aggregator_fan_in_edges(&mut dag);
             let mut score = score_dag(&dag, ctx, archetype_reg);
             // When an archetype seed presents a
             // definitive canonical match (modality_hint + goal_data +
