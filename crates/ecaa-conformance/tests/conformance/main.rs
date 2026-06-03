@@ -23,3 +23,6 @@ mod wrroc_v05_conformance;
 mod benchmark_readiness;
 mod null_treatment_control;
 mod positive_treatment_control;
+// Phase 5 (governance) — appended at end to minimize cross-phase
+// conflict with Phase 8's additions to this registry.
+mod sandbox_profile_attestation;
