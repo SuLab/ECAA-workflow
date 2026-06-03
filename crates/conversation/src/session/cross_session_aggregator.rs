@@ -278,10 +278,42 @@ struct RegistryEntry {
     outcomes: Vec<bool>,
 }
 
+/// Count local extensions that have crossed the default graduation
+/// thresholds in `sessions_dir`. Thin wrapper over
+/// [`CrossSessionAggregator::list_graduation_candidates`] with
+/// [`GraduationThresholds::default`] — the count `make doctor` surfaces so
+/// an operator knows how many session-scoped extensions are ripe for
+/// promotion into the catalog. Does NOT duplicate the threshold math; the
+/// aggregator owns it.
+pub fn count_graduation_eligible(sessions_dir: &std::path::Path) -> usize {
+    let agg = CrossSessionAggregator::new(sessions_dir.to_path_buf());
+    agg.list_graduation_candidates(&GraduationThresholds::default(), &[])
+        .len()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn counts_graduation_eligible_extensions() {
+        let dir = tempdir().unwrap();
+        let agg = CrossSessionAggregator::new(dir.path().to_path_buf());
+        // One extension over thresholds: 5 usages across 3 sessions, all ok.
+        for sid in &["s1", "s2", "s3"] {
+            agg.record_usage("ecaax:grad", "G", "g", &[], "m", sid, true)
+                .unwrap();
+        }
+        agg.record_usage("ecaax:grad", "G", "g", &[], "m", "s1", true)
+            .unwrap();
+        agg.record_usage("ecaax:grad", "G", "g", &[], "m", "s2", true)
+            .unwrap();
+        // One extension UNDER thresholds (1 usage, 1 session) — excluded.
+        agg.record_usage("ecaax:thin", "T", "t", &[], "m", "s1", true)
+            .unwrap();
+        assert_eq!(count_graduation_eligible(dir.path()), 1);
+    }
 
     #[test]
     fn record_usage_creates_entry_on_first_call() {

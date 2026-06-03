@@ -226,3 +226,4 @@ doctor: ## Print toolchain readiness summary
 	@echo "node:  $$(node --version 2>/dev/null || echo 'MISSING')"
 	@echo "npm:   $$(npm --version 2>/dev/null || echo 'MISSING')"
 	@echo "python:$$(python3 --version 2>/dev/null || echo 'MISSING')"
+	@echo "extensions: $$(ecaa-workflow doctor-extensions 2>/dev/null || echo 'run after make install')"
