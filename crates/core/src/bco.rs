@@ -443,6 +443,7 @@ mod tests {
             runtime_packages: Default::default(),
             parameters: Vec::new(),
             provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
         }
     }
@@ -819,6 +820,7 @@ mod tests {
             runtime_packages: Default::default(),
             parameters: Vec::new(),
             provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
         };
         composition.atoms.insert(

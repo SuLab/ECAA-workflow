@@ -939,6 +939,7 @@ mod tests {
             runtime_packages: Default::default(),
             parameters: Vec::new(),
             provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
         };
         let downstream = AtomDefinition {
@@ -978,6 +979,7 @@ mod tests {
             runtime_packages: Default::default(),
             parameters: Vec::new(),
             provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
         };
         let composition = CompositionResult {
@@ -1082,6 +1084,7 @@ mod tests {
             runtime_packages: Default::default(),
             parameters: Vec::new(),
             provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
         };
         let discover_b = AtomDefinition {
@@ -1121,6 +1124,7 @@ mod tests {
             runtime_packages: Default::default(),
             parameters: Vec::new(),
             provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
         };
         let composition = CompositionResult {
@@ -1219,6 +1223,7 @@ mod tests {
             runtime_packages: Default::default(),
             parameters: Vec::new(),
             provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
         };
         let composition = CompositionResult {
@@ -1300,6 +1305,7 @@ mod tests {
             runtime_packages: Default::default(),
             parameters: Vec::new(),
             provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
         };
         let composition = CompositionResult {
@@ -1422,6 +1428,7 @@ mod tests {
             runtime_packages: Default::default(),
             parameters: Vec::new(),
             provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
         };
         let composition = CompositionResult {

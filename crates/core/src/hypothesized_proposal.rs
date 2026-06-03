@@ -531,6 +531,7 @@ pub fn promoted_proposal_to_atom_definition(
         runtime_packages: crate::runtime_prereqs::RuntimePrereqs::default(),
         parameters: Vec::new(),
         provenance: None,
+        estimated_duration: None,
         safety: crate::atom::SafetyPolicy::default(),
     })
 }

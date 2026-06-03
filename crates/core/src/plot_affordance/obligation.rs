@@ -275,6 +275,7 @@ mod tests {
             runtime_packages: Default::default(),
             parameters: Vec::new(),
             provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
         }
     }

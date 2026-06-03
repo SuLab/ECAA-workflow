@@ -3,6 +3,7 @@ import type { AtomAssignee } from "./AtomAssignee";
 import type { AtomProvenance } from "./AtomProvenance";
 import type { AtomRole } from "./AtomRole";
 import type { ContainerSpec } from "./ContainerSpec";
+import type { DurationEstimate } from "./DurationEstimate";
 import type { FigureExempt } from "./FigureExempt";
 import type { IterateSpec } from "./IterateSpec";
 import type { JointlyWithConstraint } from "./JointlyWithConstraint";
@@ -275,6 +276,12 @@ parameters: Array<ParameterSpec>,
  * author-set in YAML, never inferred.
  */
 provenance?: AtomProvenance, 
+/**
+ * Machine-readable duration estimate (paper-D.1 estimated_duration
+ * axis). Optional; coarse `resource_profile.runtime_class` remains
+ * the fallback via `runtime_class_to_seconds`.
+ */
+estimated_duration?: DurationEstimate, 
 /**
  * Unifying safety classification. Composes with the
  * fine-grained `crate::sandbox_policy::SandboxPolicy` when

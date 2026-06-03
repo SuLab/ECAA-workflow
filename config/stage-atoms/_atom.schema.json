@@ -182,6 +182,20 @@
         "maintainer": { "type": "string", "minLength": 1 }
       }
     },
+    "estimated_duration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seconds_p50", "basis"],
+      "description": "Machine-readable duration estimate (paper D.1). Pilot-measured values live in runtime sidecars, not atom YAML.",
+      "properties": {
+        "seconds_p50": { "type": "integer", "minimum": 0 },
+        "seconds_p95": { "type": "integer", "minimum": 0 },
+        "basis": {
+          "type": "string",
+          "enum": ["runtime_class_default", "author_estimate", "pilot_measured"]
+        }
+      }
+    },
     "joint_with": {
       "type": "array",
       "description": "Plan §S7.10 — multi-modal joint-source constraints. Each entry pairs two upstream atom ids that must share `attributes.source_atom`. Used by integration atoms (e.g. multi-modal scRNA-seq + CITE-seq).",
