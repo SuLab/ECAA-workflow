@@ -116,6 +116,33 @@ pub enum ExternalImportError {
     Other { message: String },
 }
 
+impl ExternalImportError {
+    /// Lift this import failure into the SME-facing `BlockerKind`,
+    /// tagged with the registry + entry id the session referenced.
+    /// `IngestionRefused` folds the firing injection-pattern detections
+    /// into the reason so the BlockerCard surfaces the offending field.
+    pub fn into_blocker(self, registry: &str, id: &str) -> crate::blocker::BlockerKind {
+        let reason = match &self {
+            ExternalImportError::IngestionRefused { report } => format!(
+                "ingestion refused by injection scan: {} detection(s) [{}]",
+                report.detections.len(),
+                report
+                    .detections
+                    .iter()
+                    .map(|d| d.pattern_id.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            other => other.to_string(),
+        };
+        crate::blocker::BlockerKind::ExternalImportFailed {
+            registry: registry.to_string(),
+            id: id.to_string(),
+            reason,
+        }
+    }
+}
+
 /// Minimal in-memory cache of registry snapshots.
 /// Real on-disk snapshot loading is wired separately; today the
 /// store is API-stable and tests inject fixtures.
@@ -184,5 +211,21 @@ mod tests {
         let json = serde_json::to_string(&e).unwrap();
         let back: ExternalImportError = serde_json::from_str(&json).unwrap();
         assert_eq!(e, back);
+    }
+
+    #[test]
+    fn import_error_maps_to_blocker() {
+        let e = ExternalImportError::SnapshotNotFound {
+            snapshot_id: "snap-1".into(),
+        };
+        let blocker = e.into_blocker("local_cwl", "align_reads");
+        match blocker {
+            crate::blocker::BlockerKind::ExternalImportFailed { registry, id, reason } => {
+                assert_eq!(registry, "local_cwl");
+                assert_eq!(id, "align_reads");
+                assert!(reason.contains("snap-1"));
+            }
+            other => panic!("expected ExternalImportFailed, got {other:?}"),
+        }
     }
 }

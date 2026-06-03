@@ -67,7 +67,7 @@ pub enum LiteratureClaimFailureKind {
     VersionContextMissing,
 }
 
-/// Why a task or session is blocked. Closed taxonomy (47 variants;
+/// Why a task or session is blocked. Closed taxonomy (48 variants;
 /// see test `all_variants_roundtrip_serde` for the canonical count and
 /// the `BlockerKind::COUNT` compile-time gate in
 /// `crates/core/tests/blocker_variant_count.rs`).
@@ -643,6 +643,23 @@ pub enum BlockerKind {
     /// ("emit", "amend", "branch", …); `reason` is either
     /// `"pool_saturated"` or `"timeout_secs=<n>"`.
     ProvenanceCommitDropped { trigger: String, reason: String },
+
+    /// An external-registry snapshot referenced by the session failed
+    /// to import into the atom catalog (missing snapshot, missing
+    /// metadata field, unacceptable license, container digest absent,
+    /// or an ingestion-time injection scan `Refuse` verdict). `registry`
+    /// and `id` identify the failed entry; `reason` carries the typed
+    /// `ExternalImportError` message — for an `IngestionRefused` verdict
+    /// the firing injection-pattern detections are folded into the text.
+    /// SME affordance: drop the external ref, pick a different snapshot
+    /// version, or curate the registry dir. Honors the contract
+    /// `ExternalImportError`'s doc comment already claims (the federation
+    /// skeleton named this variant before it existed).
+    ExternalImportFailed {
+        registry: String,
+        id: String,
+        reason: String,
+    },
 
     /// Executor agent exceeded the per-task turn budget
     /// (`MAX_TURNS_PER_TASK`, default 40). Indicates probable runaway
