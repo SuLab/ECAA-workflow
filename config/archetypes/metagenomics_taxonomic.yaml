@@ -44,3 +44,7 @@ claim_boundary: |
   and reference completeness. Diversity statistics are sample-level
   associations, not causal effects. Report the classifier, reference DB
   build, and read depth alongside every diversity statistic.
+ordering_only_edges:
+  - { from: diversity_analysis, to: reporting }
+  - { from: raw_qc, to: sequence_trimming }
+  - { from: taxonomic_classification, to: diversity_analysis }

@@ -25,6 +25,7 @@ _TURN_TIMEOUT = 180
 _STATE_TIMEOUT = 30
 _CONFIRM_TIMEOUT = 120
 _SME_NAMED_TIMEOUT = 30
+_METRICS_TIMEOUT = 30
 
 _EMIT_POLL_DEADLINE = 60.0
 _EMIT_POLL_INTERVAL = 0.5
@@ -106,6 +107,24 @@ def _state_kind(base_url: str, sid: str) -> tuple[str, dict]:
     return kind, state
 
 
+def _harvest_metrics(base_url: str, sid: str) -> dict:
+    """GET the per-session metrics snapshot. Best-effort: a 404 (older server),
+    a 200-null (fresh session), or any non-dict body yields {}. NEVER raises —
+    a missing snapshot must not fail an otherwise-successful intake. Reads keys
+    positionally only via .get on the CALLER side; this just returns the raw dict."""
+    try:
+        r = _get(base_url, f"/api/chat/session/{sid}/metrics", timeout=_METRICS_TIMEOUT)
+    except ChatIntakeError:
+        return {}
+    if r.status_code != 200:
+        return {}
+    try:
+        body = r.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
 def _send_turn(base_url: str, sid: str, message: str) -> None:
     """Send one intake turn. A fresh user_turn_id per call makes the turn
     idempotent server-side. On HTTP 429 (per-session rate-limit) sleep and
@@ -170,12 +189,13 @@ def _resolve_pending_proposals(base_url: str, sid: str, policy: str) -> int:
     return acted
 
 
-def drive_chat_intake(base_url: str, instruction: str, *,
-                      careful_mode: bool = False,
-                      locked_methods: list[tuple[str, str]] | None = None,
-                      proposal_policy: str = "reject",
-                      intake_turn_budget: int = 8) -> tuple[str, Path]:
-    """Drive a session from create → confirm → emitted; return (session_id, pkg).
+def drive_chat_intake_with_metrics(base_url: str, instruction: str, *,
+                                   careful_mode: bool = False,
+                                   locked_methods: list[tuple[str, str]] | None = None,
+                                   proposal_policy: str = "reject",
+                                   intake_turn_budget: int = 8) -> tuple[str, Path, dict]:
+    """Drive a session from create → confirm → emitted; return
+    (session_id, pkg, metrics_snapshot).
 
     `locked_methods` is a list of (stage_id, method) pairs. For each, the eval
     POSTs the SME-named-method flag BEFORE the first turn, then names the method
@@ -270,7 +290,8 @@ def drive_chat_intake(base_url: str, instruction: str, *,
         kind, state = _state_kind(base_url, sid)
         pkg = state.get("emitted_package_path")
         if pkg and kind == "emitted":
-            return sid, Path(pkg)
+            metrics = _harvest_metrics(base_url, sid)
+            return sid, Path(pkg), metrics
         if kind == "blocked":
             raise ChatIntakeError(
                 f"session {sid} blocked after confirm (no SME to resolve)")
@@ -278,3 +299,10 @@ def drive_chat_intake(base_url: str, instruction: str, *,
     raise ChatIntakeError(
         f"session {sid} package not emitted after confirm "
         f"(last kind={kind!r})")
+
+
+def drive_chat_intake(base_url: str, instruction: str, **kwargs) -> tuple[str, Path]:
+    """Back-compat 2-tuple wrapper around `drive_chat_intake_with_metrics`.
+    Existing callers that don't want the metrics snapshot stay unchanged."""
+    sid, pkg, _metrics = drive_chat_intake_with_metrics(base_url, instruction, **kwargs)
+    return sid, pkg

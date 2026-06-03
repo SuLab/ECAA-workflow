@@ -3,7 +3,7 @@
 /**
  * Which deterministic mutation tool the apply endpoint dispatches
  * to. Read by the UI to set the button label and confirmation
- * rendering. Always a member of the existing closed 16-tool
+ * rendering. Always a member of the existing closed 22-tool
  * vocabulary plus two non-tool paths (operator action, manual-only).
  */
 export type ToolBinding = "rerun_task" | "amend_stage_method" | "set_intake_field" | "rerun_upstream_task" | "operator_action" | "manual_only";

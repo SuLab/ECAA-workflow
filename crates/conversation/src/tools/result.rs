@@ -139,6 +139,10 @@ pub(super) fn get_session_state(session: &Session) -> ToolResult {
         "intake_prose_len": session.intake_prose.len(),
         "inputs": inputs_summary,
         "pending_input_hints": pending_input_hints,
+        // CC1 — catalog-coverage confidence so the LLM OBSERVES which
+        // modalities fell outside the validated catalog rather than
+        // inventing coverage. Null until a v4 composition has run.
+        "coverage_confidence": session.coverage_confidence,
     });
     ToolResult::ok(body)
 }
@@ -440,5 +444,39 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("Compare TAD boundaries"));
+    }
+
+    /// CC1 — `get_session_state` must surface `coverage_confidence` so the
+    /// LLM observes catalog coverage rather than inventing it. Populated
+    /// from the composer's gap signal at compose time.
+    #[test]
+    fn get_session_state_exposes_coverage_confidence() {
+        use crate::session::state::CoverageConfidence;
+        use crate::session::Session;
+        use ecaa_workflow_core::workflow_contracts::outcome::{ComposeOutcome, GapReport};
+        use ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag;
+
+        let mut s = Session::new(false);
+        // No coverage yet → field is null.
+        let before = get_session_state(&s);
+        assert!(before.content["coverage_confidence"].is_null());
+
+        // Populate from a PartialDag outcome naming an out-of-catalog modality.
+        let outcome = ComposeOutcome::PartialDag {
+            dag: WorkflowDag::default(),
+            unresolved_gaps: vec![GapReport {
+                id: "unsatisfiable_modality:cytof".into(),
+                statement: "no catalog satisfier for cytof".into(),
+                missing_port: None,
+                suggestions: vec![],
+            }],
+        };
+        s.coverage_confidence = Some(CoverageConfidence::from_outcome(&outcome));
+
+        let out = get_session_state(&s);
+        let cc = &out.content["coverage_confidence"];
+        assert_eq!(cc["fully_covered"], false);
+        assert_eq!(cc["gap_count"], 1);
+        assert_eq!(cc["uncovered_modalities"][0], "cytof");
     }
 }

@@ -14,7 +14,7 @@ use ecaa_workflow_core::backend_emitters::{
     lower_to_workflow_json, workflow_dag_from_artifact, EmitContext,
 };
 use ecaa_workflow_core::workflow_contracts::edge::{
-    CompatibilityProof, EdgeContract, FacetMatch, FacetMatchKind, ProofEvidence,
+    CompatibilityProof, EdgeContract, EdgeKind, FacetMatch, FacetMatchKind, ProofEvidence,
 };
 use ecaa_workflow_core::workflow_contracts::evidence::{
     Assumption, AssumptionLedger, AssumptionResolution, AssumptionSource, RiskClass,
@@ -108,6 +108,7 @@ fn make_dag_with_sidecars() -> WorkflowDag {
             to_node: "quantify_features".into(),
             to_port: "bam".into(),
             proof,
+            kind: EdgeKind::TypedDataFlow,
             chain_of_custody: None,
         }],
         assumptions: ledger,

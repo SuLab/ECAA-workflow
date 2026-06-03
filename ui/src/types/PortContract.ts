@@ -4,6 +4,7 @@ import type { Constraint } from "./Constraint";
 import type { FormatRef } from "./FormatRef";
 import type { JsonSchemaRef } from "./JsonSchemaRef";
 import type { OntologyTermRef } from "./OntologyTermRef";
+import type { PortParameter } from "./PortParameter";
 import type { PortPrivacyClass } from "./PortPrivacyClass";
 import type { SemanticType } from "./SemanticType";
 import type { ValidatorRef } from "./ValidatorRef";
@@ -106,6 +107,11 @@ validators: Array<ValidatorRef>,
  * through this port, evaluated as part of the compatibility proof.
  */
 constraints: Array<Constraint>, 
+/**
+ * Declared parameter constraints (P6). Default-empty so absent
+ * parameters produce byte-identical engine behavior.
+ */
+parameters: Array<PortParameter>, 
 /**
  * Extensible facet map. Stable facets graduate to typed
  * fields above; this map carries the long tail without

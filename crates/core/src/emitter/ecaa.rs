@@ -2,11 +2,11 @@ use crate::ablation::{AblationFlag, AblationFlagExt};
 use crate::classify::ClassificationResult;
 use crate::clock::Clock;
 use crate::dag::DAG;
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use anyhow::{anyhow, Context, Result};
 use jsonschema::JSONSchema;
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 const INTENT_SCHEMA: &str = include_str!(concat!(
@@ -69,6 +69,7 @@ pub(super) fn write_emit_time_sidecars(
     output_dir: &Path,
     dag: &DAG,
     classification: &ClassificationResult,
+    edge_kinds: Option<&BTreeMap<(String, String), EdgeKind>>,
     clock: &dyn Clock,
 ) -> Result<()> {
     let runtime = output_dir.join("runtime");
@@ -83,7 +84,7 @@ pub(super) fn write_emit_time_sidecars(
     }
     write_text(
         &runtime.join("proofs.jsonl"),
-        &render_dependency_proofs_jsonl(dag)?,
+        &render_dependency_proofs_jsonl(dag, edge_kinds)?,
     )?;
     write_pretty_json(
         &runtime.join("claim-verification.json"),
@@ -176,6 +177,72 @@ pub(super) fn write_audit_proof_report(output_dir: &Path) -> Result<Option<Value
         &report,
     )?;
     Ok(Some(report))
+}
+
+/// Core-side baseline for the closed tool-vocabulary size. The conversation
+/// crate owns the authoritative `Tool::COUNT`; core cannot depend on it, so
+/// the core emit path records this documented baseline. The conversation
+/// emit path may re-emit the sidecar with the live count.
+const ED_CF_TOOL_COUNT_BASELINE: usize = 22;
+/// Core-side baseline for the high-impact alone-in-turn tool count.
+const ED_CF_HIGH_IMPACT_TOOL_BASELINE: usize = 6;
+
+/// Emit the ED/CF self-assessment sidecar to
+/// `runtime/ed-cf-self-assessment.json`. Deterministic, warn-only,
+/// informational — never blocks emission. Excluded from the BagIt
+/// manifest (like the audit-proof report) because the conversation
+/// emit path may re-emit it with the live tool counts.
+///
+/// `atom_count` / `modality_count` are derived from the config dirs when
+/// available (atom registry dir + sibling `modalities/` dir); the tool
+/// counts use the core-side baseline constants.
+pub(super) fn write_ed_cf_self_assessment(
+    output_dir: &Path,
+    stage_atoms_dir: Option<&Path>,
+) -> Result<()> {
+    let atom_count = stage_atoms_dir
+        .and_then(|d| crate::atom_registry::AtomRegistry::load_from_dir(d).ok())
+        .map(|r| r.len())
+        .unwrap_or(0);
+    // The modality manifests live in a sibling `modalities/` dir of the
+    // config root (stage-atoms' parent).
+    let modality_count = stage_atoms_dir
+        .and_then(|d| d.parent())
+        .map(|cfg| cfg.join("modalities"))
+        .map(|md| count_modality_manifests(&md))
+        .unwrap_or(0);
+    let inputs = crate::rubric_self_assessment::AssessmentInputs::from_package_facts(
+        atom_count,
+        modality_count,
+        ED_CF_TOOL_COUNT_BASELINE,
+        ED_CF_HIGH_IMPACT_TOOL_BASELINE,
+    );
+    let report = crate::rubric_self_assessment::EdCfSelfAssessment::from_inputs(&inputs);
+    let value = serde_json::to_value(&report).context("serializing ED/CF self-assessment")?;
+    write_pretty_json(
+        &output_dir.join("runtime").join("ed-cf-self-assessment.json"),
+        &value,
+    )
+}
+
+/// Count `<id>.yaml` modality manifests in `dir` (excluding `_*.yaml`
+/// schema sidecars). Returns 0 when the dir is absent/unreadable.
+fn count_modality_manifests(dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let p = e.path();
+            p.extension().and_then(|s| s.to_str()) == Some("yaml")
+                && !p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with('_'))
+                    .unwrap_or(false)
+        })
+        .count()
 }
 
 pub(super) fn write_validation_summary(output_dir: &Path) -> Result<()> {
@@ -276,13 +343,27 @@ fn render_intake_conversation_jsonl(
     Ok(line)
 }
 
-fn render_dependency_proofs_jsonl(dag: &DAG) -> Result<String> {
+fn render_dependency_proofs_jsonl(
+    dag: &DAG,
+    edge_kinds: Option<&BTreeMap<(String, String), EdgeKind>>,
+) -> Result<String> {
     let mut out = String::new();
     for (to_node, task) in &dag.tasks {
         let mut deps = task.depends_on.clone();
         deps.sort();
         deps.dedup();
         for from_node in deps {
+            // WG4b — lift the real composer-assigned EdgeKind for this
+            // node pair when the caller threaded a map from the composed
+            // WorkflowDag. The core emit path holds only the depends_on
+            // graph (no typed edges), so a missing entry (or no map at all
+            // — the legacy/test path) falls back to the strict `Unproven`
+            // placeholder, leaving behavior unchanged when no typed-edge
+            // data is available.
+            let kind = edge_kinds
+                .and_then(|m| m.get(&(from_node.to_string(), to_node.to_string())))
+                .copied()
+                .unwrap_or(EdgeKind::Unproven);
             let edge = serde_json::to_value(EdgeContract {
                 from_node: from_node.to_string(),
                 from_port: "output".to_string(),
@@ -297,6 +378,7 @@ fn render_dependency_proofs_jsonl(dag: &DAG) -> Result<String> {
                     )),
                     ..CompatibilityProof::default()
                 },
+                kind,
                 chain_of_custody: None,
             })
             .context("serializing dependency proof edge")?;

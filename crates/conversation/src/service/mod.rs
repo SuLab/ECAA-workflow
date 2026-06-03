@@ -15,7 +15,7 @@
 
 mod greeting;
 mod retry;
-mod send_turn;
+pub(crate) mod send_turn;
 mod tool_loop;
 mod transitions;
 

@@ -95,6 +95,16 @@ enum Commands {
         #[arg(long)]
         emit_bco: bool,
     },
+    /// Publish the local atom catalog as MCP-shaped descriptors into a
+    /// snapshot dir importable by another node (F5). Operator action.
+    Publish {
+        /// Config dir (atom registry root).
+        #[arg(long, default_value = "config")]
+        config: std::path::PathBuf,
+        /// Output snapshot dir (shape consumed by load_from_dir).
+        #[arg(long)]
+        out: std::path::PathBuf,
+    },
     /// List discoverable archetypes (or atoms) from
     /// `config/archetypes/` and `config/stage-atoms/`. SME tooling
     /// surface for "what can the composer route to?" without firing
@@ -117,6 +127,15 @@ enum Commands {
     /// `schema_version: u32` values to the canonical SemVer string.
     /// `--dry-run` reports counts without writing back.
     MigrateSessions(migrate_sessions::MigrateSessionsArgs),
+    /// Report how many session-scoped local extensions have crossed the
+    /// graduation thresholds and are ripe for promotion into the catalog.
+    /// One line, surfaced by `make doctor`. Reads
+    /// `$ECAA_CHAT_SESSIONS_DIR` (or `$HOME/.ecaa-workflow/sessions`).
+    DoctorExtensions {
+        /// Sessions directory; defaults to the env/`$HOME` resolution.
+        #[arg(long)]
+        sessions_dir: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, clap::ValueEnum)]
@@ -159,13 +178,78 @@ fn main() -> Result<()> {
         } => {
             run_intake(&input, &output, &config, emit_bco)?;
         }
+        Commands::Publish { config, out } => {
+            run_publish(&config, &out)?;
+        }
         Commands::List { kind, config, json } => {
             run_list(kind, &config, json)?;
         }
         Commands::MigrateSessions(args) => {
             migrate_sessions::run(args)?;
         }
+        Commands::DoctorExtensions { sessions_dir } => {
+            run_doctor_extensions(sessions_dir)?;
+        }
     }
+    Ok(())
+}
+
+/// `ecaa-workflow doctor-extensions` (RL1) — count graduation-eligible
+/// local extensions and print one `make doctor`-friendly line. The
+/// threshold math lives in the cross-session aggregator; this is a thin
+/// surfacing.
+fn run_doctor_extensions(sessions_dir: Option<String>) -> Result<()> {
+    let dir = match sessions_dir {
+        Some(d) => std::path::PathBuf::from(d),
+        None => {
+            if let Ok(d) = std::env::var("ECAA_CHAT_SESSIONS_DIR") {
+                std::path::PathBuf::from(d)
+            } else {
+                let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+                std::path::PathBuf::from(home).join(".ecaa-workflow/sessions")
+            }
+        }
+    };
+    let n = ecaa_workflow_conversation::session::cross_session_aggregator::count_graduation_eligible(
+        &dir,
+    );
+    if n == 0 {
+        println!("local-extensions: 0 graduation-eligible");
+    } else {
+        println!(
+            "local-extensions: {n} graduation-eligible \
+             (promote to catalog: hand-author config/stage-atoms/<id>.yaml + a crates/core test)"
+        );
+    }
+    Ok(())
+}
+
+/// `ecaa-workflow publish` (F5) — project every local atom into an
+/// MCP-shaped `PublishedToolDescriptor`, re-wrap it as a `local_cwl`
+/// snapshot, and write one `<registry>/<id>.json` per atom into `out`.
+/// Deterministic (no timestamps); the snapshot shape is byte-identical
+/// to what `ExternalRegistryStore::load_from_dir` consumes so another
+/// node can import the published catalog directly.
+fn run_publish(config: &std::path::Path, out: &std::path::Path) -> Result<()> {
+    let reg = ecaa_workflow_core::atom_registry::AtomRegistry::load_from_dir(
+        &config.join("stage-atoms"),
+    )?;
+    let reg_dir = out.join("local_cwl");
+    std::fs::create_dir_all(&reg_dir)?;
+    let mut count = 0usize;
+    for (_id, atom) in reg.iter() {
+        let descriptor =
+            ecaa_workflow_core::external_registry::publish::atom_to_published_descriptor(atom);
+        let snapshot = descriptor.into_local_cwl_snapshot();
+        let path = reg_dir.join(format!("{}.json", atom.id));
+        let bytes = serde_json::to_vec_pretty(&snapshot)?;
+        ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, &bytes)?;
+        count += 1;
+    }
+    println!(
+        "published {count} tool descriptors to {}",
+        reg_dir.display()
+    );
     Ok(())
 }
 
@@ -482,6 +566,12 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
         .map(|c| c.image.clone());
     // Stage-atoms dir for the recall anchor (confirmatory-atom-id set).
     let stage_atoms_dir = config_root.join("stage-atoms");
+    // WG4b — lift the composed WorkflowDag's typed edge kinds into a
+    // node-pair map so runtime/proofs.jsonl carries the real EdgeKind
+    // instead of the strict Unproven placeholder.
+    let edge_kinds = output_compose.workflow_dag.as_ref().map(|wd| {
+        ecaa_workflow_core::workflow_contracts::edge::edge_kind_map_from_edges(&wd.edges)
+    });
     emit_package(&EmitConfig {
         output_dir: out_path,
         dag: &dag,
@@ -499,6 +589,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
         per_atom_runtime_prereqs: Some(&per_atom_prereqs),
         stage_atoms_dir: Some(&stage_atoms_dir),
         experimental_archetype: !archetype_obj.production_ready,
+        edge_kinds: edge_kinds.as_ref(),
     })?;
 
     // Opt-in BCO emit alongside the package.
@@ -672,7 +763,12 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         ecaa_workflow_core::preferred_methods::PreferredMethods::from_method_specs(
             &clf.methods_specified,
         );
-    let output_compose = ecaa_workflow_core::composer::compose_with_modalities_full_pref(
+    // WG3 — honor ECAA_COMPOSE_STRICT (RiskMode::Production) at the CLI
+    // intake entry. Default off keeps the byte-reproducible baseline.
+    let compose_strict = ecaa_workflow_core::config::Config::from_env()
+        .map(|c| c.compose_strict)
+        .unwrap_or(false);
+    let output_compose = ecaa_workflow_core::composer::compose_with_modalities_full_pref_strict(
         &goal,
         project_class_str,
         &atoms,
@@ -684,6 +780,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         None,
         None,
         &preferred_methods,
+        compose_strict,
     )
     .map_err(|e| anyhow::anyhow!("v4 composer dispatch failed: {:?}", e))?;
     let dag = if let Some(workflow_dag) = output_compose.workflow_dag.as_ref() {
@@ -759,6 +856,11 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         .collect();
     // Stage-atoms dir for the recall anchor (confirmatory-atom-id set).
     let stage_atoms_dir = config_path.join("stage-atoms");
+    // WG4b — lift the composed WorkflowDag's typed edge kinds into a
+    // node-pair map so runtime/proofs.jsonl carries the real EdgeKind.
+    let edge_kinds = output_compose.workflow_dag.as_ref().map(|wd| {
+        ecaa_workflow_core::workflow_contracts::edge::edge_kind_map_from_edges(&wd.edges)
+    });
     emit_package(&EmitConfig {
         output_dir: out_path,
         dag: &dag,
@@ -778,6 +880,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         experimental_archetype: archetype_obj
             .map(|(_, a)| !a.production_ready)
             .unwrap_or(false),
+        edge_kinds: edge_kinds.as_ref(),
     })?;
 
     // Opt-in BCO emit alongside the package, plus

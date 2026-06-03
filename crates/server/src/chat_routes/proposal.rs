@@ -190,7 +190,7 @@ pub(super) async fn signoff_proposal(
                 // subsumption to prove — the SME authored the
                 // dependency via propose_hypothesized_node.
                 use ecaa_workflow_core::workflow_contracts::edge::{
-                    CompatibilityProof, EdgeContract,
+                    CompatibilityProof, EdgeContract, EdgeKind,
                 };
                 for upstream in &proposal.upstream_atom_ids {
                     if !dag.nodes.iter().any(|n| n.id.as_str() == upstream.as_str()) {
@@ -218,6 +218,8 @@ pub(super) async fn signoff_proposal(
                             )),
                             ..CompatibilityProof::default()
                         },
+                        // SME-declared structural dependency: ordering edge.
+                        kind: EdgeKind::OrderingOnly,
                         chain_of_custody: None,
                     });
                 }
@@ -259,6 +261,7 @@ pub(super) async fn signoff_proposal(
                                     )),
                                     ..CompatibilityProof::default()
                                 },
+                                kind: EdgeKind::OrderingOnly,
                                 chain_of_custody: None,
                             });
                         }
@@ -305,6 +308,7 @@ pub(super) async fn signoff_proposal(
                                 )),
                                 ..CompatibilityProof::default()
                             },
+                            kind: EdgeKind::OrderingOnly,
                             chain_of_custody: None,
                         });
                     }
@@ -365,6 +369,7 @@ pub(super) async fn signoff_proposal(
                             ),
                             ..CompatibilityProof::default()
                         },
+                        kind: EdgeKind::OrderingOnly,
                         chain_of_custody: None,
                     });
                 }

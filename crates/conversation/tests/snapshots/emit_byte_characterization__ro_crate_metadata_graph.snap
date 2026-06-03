@@ -90,6 +90,9 @@ expression: value
           "@id": "runtime/audit-proof-report.json"
         },
         {
+          "@id": "runtime/ed-cf-self-assessment.json"
+        },
+        {
           "@id": "runtime/validation-summary.json"
         },
         {
@@ -165,6 +168,9 @@ expression: value
           "@id": "runtime/outputs/sequence_trimming/figures/retention_bar.png"
         },
         {
+          "@id": "runtime/workflow-typed.json"
+        },
+        {
           "@id": "runtime/task-nodes.json"
         },
         {
@@ -172,6 +178,9 @@ expression: value
         },
         {
           "@id": "runtime/schema-versions.json"
+        },
+        {
+          "@id": "runtime/coverage-statement.json"
         },
         {
           "@id": "runtime/model-policy.json"
@@ -454,6 +463,13 @@ expression: value
       "description": "ECAA audit-proof invariant verdicts.",
       "encodingFormat": "application/json",
       "name": "Audit-proof invariant report"
+    },
+    {
+      "@id": "runtime/ed-cf-self-assessment.json",
+      "@type": "CreativeWork",
+      "description": "Deterministic self-location of the system in the Extensibility-Dimension / Counterfactual-Floor design space. Informational — locates, does not validate.",
+      "encodingFormat": "application/json",
+      "name": "ED/CF rubric self-assessment"
     },
     {
       "@id": "runtime/validation-summary.json",
@@ -1695,6 +1711,16 @@ expression: value
       "verdict": "unverified"
     },
     {
+      "@id": "runtime/workflow-typed.json",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "description": "W1 — first-class, schema-validated D.2 projection of the composed DAG: typed steps (tool_id, parameters, dependencies, estimated_duration), typed edges with port-level source_output/target_input, parameter_mappings, top-level typed parameters + validation_rules, and deterministic metadata. Byte-reproducible companion to WORKFLOW.json; validated against _workflow-typed.schema.json in `make conformance`.",
+      "encodingFormat": "application/json",
+      "name": "Typed workflow (paper D.2 shape)"
+    },
+    {
       "@id": "runtime/task-nodes.json",
       "@type": [
         "File",
@@ -1723,6 +1749,16 @@ expression: value
       "description": "v3 P7 — per-package manifest listing the SemVer of every IR type (`WorkflowIntent`, `Session`, `WorkflowDag`, `SessionLineage`, `DispatchRecord`) the package was emitted with. Replay consumers diff this against their own `SchemaVersionsManifest::current()` to detect which migrations they need to run (`core::migration::replay_provenance`).",
       "encodingFormat": "application/json",
       "name": "Schema versions manifest (v3 P7)"
+    },
+    {
+      "@id": "runtime/coverage-statement.json",
+      "@type": [
+        "File",
+        "CreativeWork"
+      ],
+      "description": "Declares which emitted goal branches were satisfied by catalog atoms vs covered by session proposals (propose_hypothesized_node + composer-synthesized unsatisfiable-modality proposals). The durable, auditable analog of the transient coverage-gap UI banner. Deterministic; byte-reproducible.",
+      "encodingFormat": "application/json",
+      "name": "Goal-branch coverage statement (M5)"
     },
     {
       "@id": "runtime/model-policy.json",

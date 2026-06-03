@@ -12,7 +12,8 @@
         bio-min dev-server dev-ui clean doctor lint deny install-hooks \
         eval eval-dryrun eval-e2e eval-full \
         eval-biomnibench eval-biomnibench-smoke eval-nekrutenko eval-nekrutenko-smoke eval-tests \
-        eval-biomnibench-dryrun eval-nekrutenko-dryrun
+        eval-biomnibench-dryrun eval-nekrutenko-dryrun \
+        eval-publish schema-burden eval-campaign
 
 help: ## Print this help.
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-22s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -90,6 +91,7 @@ lint: ## Run architectural-invariant + ts-binding + supply-chain gates
 	bash scripts/check-no-hashmap-in-emitter.sh
 	bash scripts/check-ts-bindings-fresh.sh
 	bash scripts/check-no-lock-unwrap.sh
+	bash scripts/check-atom-contracts.sh
 	cargo deny check
 
 deny: ## cargo-deny supply-chain gate (advisories/bans/licenses/sources)
@@ -187,6 +189,24 @@ eval-nekrutenko-smoke: ## Nekrutenko smoke (1 trial)
 eval-tests: ## Offline unit tests for the eval harness (no live API)
 	@$(PYTHON) -m pytest scripts/eval/tests -q
 
+eval-publish: ## Copy the redacted public scorecard from a run into docs/eval-results/ (non-gated). Usage: make eval-publish RUN=<run_dir>
+	@test -n "$(RUN)" || { echo "usage: make eval-publish RUN=<run_dir>"; exit 2; }
+	@$(PYTHON) -m scripts.eval.publish "$(RUN)"
+
+schema-burden: ## Offline schema-authoring-burden analyzer -> docs/eval-results/schema-burden.{json,md} (non-gated)
+	@$(PYTHON) -m scripts.eval.schema_burden
+
+eval-campaign: ## Print the exact operator-gated commands for the committed campaign (does NOT run them)
+	@echo "Campaign spec: scripts/eval/campaign.toml + docs/eval-results/CAMPAIGN.md"
+	@echo ""
+	@echo "OPERATOR-GATED commands (need ECAA_EVAL_LIVE=1 + GEMINI_API_KEY + ECAA_ANTHROPIC_API_KEY + AWS/harness authority):"
+	@echo "  ECAA_EVAL_LIVE=1 $(PYTHON) -m scripts.eval.eval_runner nekrutenko --error-matrix --trials 10 --max-parallel $(NEK_PARALLEL)"
+	@echo "  ECAA_EVAL_LIVE=1 $(PYTHON) -m scripts.eval.eval_runner biomnibench --trials 3 --max-parallel $(BBENCH_PARALLEL)"
+	@echo ""
+	@echo "Then (code-only):"
+	@echo "  $(PYTHON) -m scripts.eval.verify_campaign <run_dir>"
+	@echo "  make eval-publish RUN=<run_dir>"
+
 eval-biomnibench-dryrun: ## BiomniBench dry-run smoke (--smoke flag; no live API needed beyond ECAA_EVAL_LIVE=1)
 	@$(PYTHON) -m scripts.eval.eval_runner biomnibench --smoke --arms ecaa,claude-direct $(EVAL_ARGS)
 
@@ -206,3 +226,4 @@ doctor: ## Print toolchain readiness summary
 	@echo "node:  $$(node --version 2>/dev/null || echo 'MISSING')"
 	@echo "npm:   $$(npm --version 2>/dev/null || echo 'MISSING')"
 	@echo "python:$$(python3 --version 2>/dev/null || echo 'MISSING')"
+	@echo "extensions: $$(ecaa-workflow doctor-extensions 2>/dev/null || echo 'run after make install')"

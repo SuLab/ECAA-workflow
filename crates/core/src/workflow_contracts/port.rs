@@ -128,6 +128,29 @@ pub enum ConstraintSeverity {
     Warn,
 }
 
+/// A declared parameter constraint on a port. The compatibility engine
+/// (P6) checks `required` satisfaction + `allowed_values` intersection
+/// between a producer output parameter and a consumer input parameter.
+/// Port-level (not atom-level) so the engine stays port-pure. The engine
+/// checks *declared* compatibility only — it never selects a method
+/// (method neutrality).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, Default, schemars::JsonSchema)]
+#[ts(export)]
+pub struct PortParameter {
+    /// Parameter name (matched by name across producer/consumer).
+    pub name: String,
+    /// Permitted values. Empty = unconstrained. The engine refuses an
+    /// edge when producer and consumer both constrain a same-named
+    /// parameter and the value sets are disjoint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(type = "Array<unknown>")]
+    pub allowed_values: Vec<serde_json::Value>,
+    /// When true the consumer requires this parameter be declared by
+    /// the producer; an unmet required parameter is incompatible.
+    #[serde(default)]
+    pub required: bool,
+}
+
 /// Privacy class — propagates along edges. Set on the consuming
 /// port's input contract; the compatibility engine refuses an edge
 /// where the producer's privacy class is "wider" than the
@@ -256,6 +279,11 @@ pub struct PortContract {
     /// through this port, evaluated as part of the compatibility proof.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub constraints: Vec<Constraint>,
+
+    /// Declared parameter constraints (P6). Default-empty so absent
+    /// parameters produce byte-identical engine behavior.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<PortParameter>,
 
     /// Extensible facet map. Stable facets graduate to typed
     /// fields above; this map carries the long tail without

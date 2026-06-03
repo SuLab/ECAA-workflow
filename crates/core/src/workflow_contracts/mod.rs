@@ -41,7 +41,7 @@ pub use data_product::{
     IdentifierSystem, JsonSchemaRef, PhysicalRepresentation, PrivacyClass, QualityMetricContract,
     StatisticalState,
 };
-pub use edge::{CompatibilityProof, EdgeContract, FacetMatch, ProofEvidence};
+pub use edge::{CompatibilityProof, EdgeContract, EdgeKind, FacetMatch, ProofEvidence};
 pub use evidence::{
     AssumptionLedger, AssumptionRef, AssumptionResolution, AssumptionSource, EvidenceSet,
     RiskClass, ValidatorRef,

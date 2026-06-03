@@ -273,7 +273,11 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
+            provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         }
     }
 

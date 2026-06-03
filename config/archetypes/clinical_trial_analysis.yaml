@@ -88,3 +88,8 @@ claim_boundary: |
   any deviation from the SAP-defined method is post-hoc and must be flagged.
   Do not make regulatory, efficacy, or safety-signal claims beyond what
   the SME has already asserted.
+ordering_only_edges:
+  - { from: clinical_endpoint_analysis, to: reporting }
+  - { from: clinical_safety_summary, to: reporting }
+  - { from: clinical_sensitivity_analysis, to: reporting }
+  - { from: clinical_subgroup_analysis, to: reporting }

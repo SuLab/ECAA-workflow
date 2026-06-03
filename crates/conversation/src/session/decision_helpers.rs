@@ -48,8 +48,24 @@ impl Session {
         rationale: Option<String>,
         source_ip: Option<String>,
     ) {
+        // M1 — authority is a deterministic function of the actor, set
+        // here by the dispatcher/handler. SME REST checkpoints and
+        // harness-recorded transitions are behaviour-defining
+        // validated-execution actions (SchemaValidated); LLM tool
+        // dispatches are conversational/overhead-reducing
+        // (Conversational). The LLM never sets this field. Derived
+        // before `actor` is moved into the record.
+        let authority = match actor {
+            DecisionActor::Sme | DecisionActor::Harness => {
+                ecaa_workflow_core::decision_log::DecisionAuthority::SchemaValidated
+            }
+            DecisionActor::Llm => {
+                ecaa_workflow_core::decision_log::DecisionAuthority::Conversational
+            }
+        };
         let mut record = DecisionRecord::new(self.id.to_string(), decision, actor, rationale);
         record.source_ip = source_ip;
+        record.authority = authority;
         // Persist BEFORE pushing to memory so a partial state on
         // crash is still recoverable from the file. If the write
         // fails, fall through to the memory append — log-level only.
@@ -97,5 +113,55 @@ impl Session {
             }
         }
         self.decisions.push(record);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::session::Session;
+    use ecaa_workflow_core::decision_log::{DecisionActor, DecisionAuthority, DecisionType};
+
+    /// M1 — an SME REST checkpoint records `SchemaValidated`: the SME
+    /// button click is the deterministic gate.
+    #[test]
+    fn sme_actor_records_schema_validated() {
+        let mut s = Session::new(false);
+        s.record_decision(DecisionType::Unblock, DecisionActor::Sme, None);
+        assert_eq!(
+            s.decisions.last().unwrap().authority,
+            DecisionAuthority::SchemaValidated
+        );
+    }
+
+    /// M1 — a harness-recorded transition is also `SchemaValidated`
+    /// (deterministic orchestrator action, not conversational).
+    #[test]
+    fn harness_actor_records_schema_validated() {
+        let mut s = Session::new(false);
+        s.record_decision(DecisionType::Unblock, DecisionActor::Harness, None);
+        assert_eq!(
+            s.decisions.last().unwrap().authority,
+            DecisionAuthority::SchemaValidated
+        );
+    }
+
+    /// M1 — an LLM tool dispatch records `Conversational`. The LLM never
+    /// authors a behaviour-defining gate; its mutations are authorised by
+    /// a prior SME action recorded as a separate `Sme` decision.
+    #[test]
+    fn llm_actor_records_conversational() {
+        let mut s = Session::new(false);
+        s.record_decision(
+            DecisionType::SetIntakeMethod {
+                stage: "integration".into(),
+                method_prose: "use Harmony".into(),
+            },
+            DecisionActor::Llm,
+            None,
+        );
+        assert_eq!(
+            s.decisions.last().unwrap().authority,
+            DecisionAuthority::Conversational
+        );
     }
 }

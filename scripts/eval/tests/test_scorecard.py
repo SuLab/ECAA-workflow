@@ -332,3 +332,90 @@ def test_bootstrap_ci_is_deterministic():
 def test_bootstrap_ci_degenerate_inputs():
     assert _bootstrap_ci([]) == (0.0, 0.0)
     assert _bootstrap_ci([4.2]) == (4.2, 4.2)
+
+
+def test_session_metrics_section_renders_for_ecaa_only(tmp_path):
+    from scripts.eval.services.scorecard import (
+        _aggregate_session_metrics, write_scorecard)
+    rows = [
+        Score("t1", "ecaa", 0, 80.0, {}, None, None, "gemini-3.1-pro",
+              extra={"session_metrics": {"followup_count": 2, "time_to_emit_ms": 4000,
+                                         "method_recommendation_requests": 1,
+                                         "is_ambiguous": False}}),
+        Score("t2", "ecaa", 0, 82.0, {}, None, None, "gemini-3.1-pro",
+              extra={"session_metrics": {"followup_count": 4, "time_to_emit_ms": 6000,
+                                         "method_recommendation_requests": 0,
+                                         "is_ambiguous": True}}),
+        Score("t1", "claude-direct", 0, 70.0, {}, None, None, "gemini-3.1-pro"),
+    ]
+    card = Scorecard("biomnibench", rows)
+    per_arm = _aggregate_session_metrics(card)
+    assert "ecaa" in per_arm
+    assert "claude-direct" not in per_arm  # bare arm has no session metrics
+    assert per_arm["ecaa"]["median_followup_count"] == 3.0
+    assert per_arm["ecaa"]["median_time_to_emit_ms"] == 5000.0
+    assert per_arm["ecaa"]["n_sessions"] == 2
+    assert per_arm["ecaa"]["method_recommendation_requests_total"] == 1
+    out = write_scorecard(card, tmp_path)
+    md = (out / "scorecard.md").read_text()
+    assert "## Session metrics (SME friction, harvested from /metrics)" in md
+    data = json.loads((out / "scorecard.json").read_text())
+    assert data["meta"]["session_metrics"]["ecaa"]["n_sessions"] == 2
+
+
+def test_session_metrics_section_absent_when_no_metrics(tmp_path):
+    from scripts.eval.services.scorecard import write_scorecard
+    rows = [Score("t1", "ecaa", 0, 80.0, {}, None, None, "gemini-3.1-pro"),
+            Score("t1", "claude-direct", 0, 70.0, {}, None, None, "gemini-3.1-pro")]
+    out = write_scorecard(Scorecard("biomnibench", rows), tmp_path)
+    md = (out / "scorecard.md").read_text()
+    assert "## Session metrics" not in md
+
+
+def test_public_scorecard_stamps_provenance_and_redacts_cost(tmp_path):
+    from scripts.eval.services.scorecard import write_public_scorecard
+    rows = [
+        Score("t1", "ecaa", 0, 80.0, {}, None, None, "gemini-3.1-pro",
+              extra={"session_metrics": {"followup_count": 2, "time_to_emit_ms": 4000}}),
+        Score("t1", "claude-direct", 0, 70.0, {}, None, None, "gemini-3.1-pro"),
+    ]
+    card = Scorecard("biomnibench", rows,
+                     meta={"cost": {"judge_usd": 1.23, "total_cost_usd": 99.0},
+                           "total_cost_usd": 99.0, "wall_secs": 4242.0})
+    out = write_public_scorecard(card, tmp_path, git_head="abc1234",
+                                 datasets_lock="nek=rev1;bbench=rev2",
+                                 seed=1729, arms=["ecaa", "claude-direct"], trials=3)
+    pub = json.loads((out / "scorecard.public.json").read_text())
+    # Provenance present.
+    assert pub["provenance"]["git_head"] == "abc1234"
+    assert pub["provenance"]["datasets_lock"] == "nek=rev1;bbench=rev2"
+    assert pub["provenance"]["seed"] == 1729
+    assert pub["provenance"]["arms"] == ["ecaa", "claude-direct"]
+    assert pub["provenance"]["trials"] == 3
+    # Cost + wall-clock redacted everywhere.
+    blob = json.dumps(pub)
+    assert "total_cost_usd" not in blob
+    assert "wall_secs" not in blob
+    assert "99.0" not in blob
+    # Substantive sections retained.
+    assert pub["meta"]["session_metrics"]["ecaa"]["n_sessions"] == 1
+    assert (out / "scorecard.public.md").exists()
+    md = (out / "scorecard.public.md").read_text()
+    assert "git_head: abc1234" in md
+    assert "## Session metrics" in md
+
+
+def test_three_arm_card_renders_all_arms(tmp_path):
+    from scripts.eval.services.scorecard import write_scorecard
+    rows = [
+        Score("t1", "ecaa", 0, 80.0, {}, None, None, "gemini-3.1-pro"),
+        Score("t1", "ecaa-ungated", 0, 75.0, {}, None, None, "gemini-3.1-pro"),
+        Score("t1", "claude-direct", 0, 70.0, {}, None, None, "gemini-3.1-pro"),
+    ]
+    out = write_scorecard(Scorecard("biomnibench", rows), tmp_path)
+    md = (out / "scorecard.md").read_text()
+    for arm in ("ecaa", "ecaa-ungated", "claude-direct"):
+        assert arm in md
+    # The arm table has three data rows (plus header + separator).
+    data = json.loads((out / "scorecard.json").read_text())
+    assert len({r["arm"] for r in data["rows"]}) == 3

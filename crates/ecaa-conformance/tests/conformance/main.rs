@@ -17,9 +17,14 @@ mod shacl_non_vacuous;
 mod skos_membership_shacl;
 mod skos_scheme_agreement;
 mod spec_consistency;
+mod typed_workflow_schema;
 mod wrroc_runcrate;
 mod wrroc_v05_conformance;
 mod benchmark_readiness;
 mod null_treatment_control;
 mod positive_treatment_control;
 mod schema_compliance;
+// Phase 5 (governance) — appended at end to minimize cross-phase
+// conflict with Phase 8's additions to this registry.
+mod sandbox_profile_attestation;
+mod controlled_access_egress;

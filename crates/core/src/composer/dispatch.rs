@@ -213,6 +213,10 @@ pub(crate) fn compose_v4_dispatch_full(
     // classifier (`methods_specified`) or chat `set_intake_method` so the
     // discover-companion synthesis can stamp `spec_preferred_methods`.
     preferred_methods: &crate::preferred_methods::PreferredMethods,
+    // `ECAA_COMPOSE_STRICT` (WG3). `true` runs the planner in
+    // `RiskMode::Production` (declared OrderingOnly edges also reject);
+    // `false` keeps `RiskMode::Draft`. Bare/test callers pass `false`.
+    compose_strict: bool,
 ) -> Result<ComposerOutput, CompositionError> {
     use crate::composer_v4;
 
@@ -404,6 +408,14 @@ pub(crate) fn compose_v4_dispatch_full(
     ctx.opaque_observation_sink = opaque_sink;
     ctx.opaque_session_id = opaque_session_id.map(String::from);
     ctx.preferred_methods = preferred_methods.clone();
+    // WG3 — the first real branch on risk_mode. Production rejects every
+    // non-TypedDataFlow / non-AdapterMediated edge (including declared
+    // OrderingOnly); Draft (the default) keeps the corpus baseline.
+    ctx.risk_mode = if compose_strict {
+        crate::compatibility::engine::RiskMode::Production
+    } else {
+        crate::compatibility::engine::RiskMode::Draft
+    };
     // Session-scope every verifier-substrate row recorded for the rest
     // of this dispatch (the engine + planner rows fired inside `plan()`
     // below, plus the policy-gate rows fired by `collect_policy_decisions`)
@@ -415,6 +427,32 @@ pub(crate) fn compose_v4_dispatch_full(
     // returns from any of its match arms, restoring the thread's previous
     // ambient session on drop.
     let _substrate_scope = opaque_session_id.map(crate::decision_substrate::enter_session);
+
+    // Federation (F1): merge any external-overlay atoms threaded onto the
+    // planning context into the search registry. Empty overlay ->
+    // byte-identical to the non-federated path. The overlay atoms already
+    // passed `with_external_overlay`'s schema + safety validators upstream;
+    // re-merging here is the single seam where federation reaches the
+    // composer (never fork composer logic across binaries). The rebind
+    // makes every downstream consumer (plan, lower, validate) see the
+    // merged registry.
+    let effective_reg_storage;
+    let atom_reg: &AtomRegistry = if ctx.external_overlay.is_empty() {
+        atom_reg
+    } else {
+        effective_reg_storage = atom_reg
+            .with_external_overlay(
+                ctx.external_overlay.clone(),
+                crate::external_registry::RegistryTier::Community,
+            )
+            .map_err(|e| CompositionError::ComposerV4OutcomeNotExecutable {
+                outcome_kind: "ExternalOverlayMergeFailed".into(),
+                summary: format!("external overlay merge failed: {e}"),
+                gaps: Vec::new(),
+            })?;
+        &effective_reg_storage
+    };
+
     let result = composer_v4::plan(
         &ctx,
         &effective_goal,
@@ -672,8 +710,45 @@ pub fn compose_with_modalities_full(
 /// synthesis stamps onto discover task specs. The two capture sources —
 /// the CLI classifier and chat `set_intake_method` — fold into one
 /// [`crate::preferred_methods::PreferredMethods`] before calling here.
+///
+/// Delegates to [`compose_with_modalities_full_pref_strict`] with
+/// `compose_strict = false` so every existing caller (the ~40 tests +
+/// bare CLI build path) stays byte-identical. The two production capture
+/// sites that honor `ECAA_COMPOSE_STRICT` (chat `rebuild_dag`, CLI
+/// `intake`) call the `_strict` variant directly.
 #[allow(clippy::too_many_arguments)]
 pub fn compose_with_modalities_full_pref(
+    goal: &GoalSpec,
+    project_class: &str,
+    atom_reg: &AtomRegistry,
+    archetype_reg: &ArchetypeRegistry,
+    target_modalities: &[&str],
+    policy_ctx: Option<&crate::policy_context::PolicyContext>,
+    opaque_sink: Option<
+        std::sync::Arc<dyn crate::compatibility::engine::OpaqueObservationSink + Send + Sync>,
+    >,
+    opaque_session_id: Option<&str>,
+    preferred_methods: &crate::preferred_methods::PreferredMethods,
+) -> Result<ComposerOutput, CompositionError> {
+    compose_with_modalities_full_pref_strict(
+        goal,
+        project_class,
+        atom_reg,
+        archetype_reg,
+        target_modalities,
+        policy_ctx,
+        opaque_sink,
+        opaque_session_id,
+        preferred_methods,
+        false,
+    )
+}
+
+/// As [`compose_with_modalities_full_pref`], plus the `ECAA_COMPOSE_STRICT`
+/// band (WG3). `compose_strict = true` runs the planner in
+/// `RiskMode::Production`; `false` keeps `RiskMode::Draft`.
+#[allow(clippy::too_many_arguments)]
+pub fn compose_with_modalities_full_pref_strict(
     goal: &GoalSpec,
     project_class: &str,
     atom_reg: &AtomRegistry,
@@ -693,6 +768,7 @@ pub fn compose_with_modalities_full_pref(
     >,
     opaque_session_id: Option<&str>,
     preferred_methods: &crate::preferred_methods::PreferredMethods,
+    compose_strict: bool,
 ) -> Result<ComposerOutput, CompositionError> {
     // Atypical-shape fall-through. The v4 dispatch jumps straight to
     // `compose_v4_dispatch_full` for the normal path, so flex-shape /
@@ -744,6 +820,7 @@ pub fn compose_with_modalities_full_pref(
             opaque_sink,
             opaque_session_id,
             preferred_methods,
+            compose_strict,
         );
     }
     // v4 dispatch already takes the policy context; for multi-modality
@@ -762,5 +839,6 @@ pub fn compose_with_modalities_full_pref(
         opaque_sink,
         opaque_session_id,
         preferred_methods,
+        compose_strict,
     )
 }

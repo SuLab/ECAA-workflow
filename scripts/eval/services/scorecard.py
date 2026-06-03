@@ -9,7 +9,7 @@ import math
 import random
 from dataclasses import asdict
 from pathlib import Path
-from statistics import mean, pstdev
+from statistics import mean, median, pstdev
 from scripts.eval.benchmark import Scorecard
 
 # Deterministic bootstrap so a re-rendered scorecard's CI is reproducible.
@@ -351,6 +351,94 @@ def _render_guard_outcomes(per_arm: dict) -> list[str]:
     return lines
 
 
+def _p95(vals: list[float]) -> float:
+    """Nearest-rank 95th percentile. Empty -> 0.0. Deterministic.
+    For median use statistics.median (true average-of-middle, so [2,4] -> 3.0)."""
+    if not vals:
+        return 0.0
+    s = sorted(vals)
+    if len(s) == 1:
+        return float(s[0])
+    rank = max(1, math.ceil(0.95 * len(s)))
+    return float(s[min(rank, len(s)) - 1])
+
+
+# E1: per-arm rollup of the harvested SME-friction metrics. Sourced from
+# Score.extra["session_metrics"] (only ECAA rows carry it). Returns {} when no
+# row carries a session-metrics snapshot, so non-ECAA / older cards don't grow
+# an empty section.
+def _aggregate_session_metrics(card: Scorecard) -> dict:
+    per_arm: dict[str, dict] = {}
+    buckets: dict[str, dict] = {}
+    for r in card.rows:
+        sm = (r.extra or {}).get("session_metrics")
+        if not isinstance(sm, dict) or not sm:
+            continue
+        b = buckets.setdefault(r.arm, {"followup": [], "tte": [],
+                                       "method_req": 0, "ambiguous": 0,
+                                       "coverage_gap": 0, "n": 0})
+        b["n"] += 1
+        fc = sm.get("followup_count")
+        if isinstance(fc, (int, float)):
+            b["followup"].append(float(fc))
+        tte = sm.get("time_to_emit_ms")
+        if isinstance(tte, (int, float)):
+            b["tte"].append(float(tte))
+        b["method_req"] += int(sm.get("method_recommendation_requests") or 0)
+        if sm.get("is_ambiguous") is True:
+            b["ambiguous"] += 1
+        b["coverage_gap"] += int(sm.get("coverage_gap_events") or 0)
+    for arm, b in buckets.items():
+        per_arm[arm] = {
+            "n_sessions": b["n"],
+            "median_followup_count": (float(median(b["followup"]))
+                                      if b["followup"] else None),
+            "p95_followup_count": (_p95(b["followup"])
+                                   if b["followup"] else None),
+            "median_time_to_emit_ms": (float(median(b["tte"]))
+                                       if b["tte"] else None),
+            "p95_time_to_emit_ms": (_p95(b["tte"])
+                                    if b["tte"] else None),
+            "method_recommendation_requests_total": b["method_req"],
+            "method_recommendation_request_rate": (b["method_req"] / b["n"]
+                                                   if b["n"] else None),
+            "ambiguous_session_count": b["ambiguous"],
+            "coverage_gap_events_total": b["coverage_gap"],
+        }
+    return per_arm
+
+
+def _render_session_metrics(per_arm: dict) -> list[str]:
+    lines = ["", "## Session metrics (SME friction, harvested from /metrics)", ""]
+    lines.append(
+        "Per-session conversational + parameter-completion friction, harvested "
+        "from `GET /api/chat/session/:id/metrics` (computed Rust-side, not "
+        "inferred). Only arms that drove a chat session appear — the bare arm "
+        "has no session."
+    )
+    lines.append("")
+    lines.append(
+        "| arm | sessions | median followups | p95 followups | "
+        "median time-to-emit ms | p95 time-to-emit ms | method-rec requests | "
+        "ambiguous | coverage-gap events |"
+    )
+    lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- |")
+
+    def _fmt(v):
+        return "" if v is None else (f"{v:.1f}" if isinstance(v, float) else str(v))
+
+    for arm in sorted(per_arm):
+        a = per_arm[arm]
+        lines.append(
+            f"| {arm} | {a['n_sessions']} | "
+            f"{_fmt(a['median_followup_count'])} | {_fmt(a['p95_followup_count'])} | "
+            f"{_fmt(a['median_time_to_emit_ms'])} | {_fmt(a['p95_time_to_emit_ms'])} | "
+            f"{a['method_recommendation_requests_total']} | "
+            f"{a['ambiguous_session_count']} | {a['coverage_gap_events_total']} |"
+        )
+    return lines
+
+
 # ── eval-03: method-lock asymmetry (recipe arms pin canonical tools) ─────────
 #
 # Recipe benchmarks (Nekrutenko) hard-pin the paper's canonical tools — bwa for
@@ -684,7 +772,7 @@ def _markdown(card: Scorecard) -> str:
                   # surfaced via the partial-judging caveat block, not a bullet.
                   "partial_judging_excluded", "dimension_caveat",
                   # F12: rendered as its own readiness-gate section, not bullets.
-                  "benchmarkable_set"}
+                  "benchmarkable_set", "session_metrics"}
     if card.meta:
         for k, v in card.meta.items():
             if k not in _RICH_KEYS:
@@ -720,6 +808,11 @@ def _markdown(card: Scorecard) -> str:
     guard = _aggregate_guard_outcomes(card)
     if guard:
         lines += _render_guard_outcomes(guard)
+
+    # E1: session-metrics dimension (SME friction, harvested from /metrics).
+    session = _aggregate_session_metrics(card)
+    if session:
+        lines += _render_session_metrics(session)
 
     # Optional rich sections.
     if card.meta:
@@ -773,6 +866,10 @@ def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None, package_dir=
     guard = _aggregate_guard_outcomes(card)
     if guard and "guard_outcomes" not in meta:
         meta["guard_outcomes"] = guard
+    # E1: surface the per-arm session-metrics rollup in the machine scorecard.
+    session = _aggregate_session_metrics(card)
+    if session and "session_metrics" not in meta:
+        meta["session_metrics"] = session
     # eval-03: record the (stage, method) pairs locked at intake, per arm, so the
     # method-lock asymmetry (ECAA arm pinned, bare arm free) is auditable from
     # the output. Sourced from the plugin's locked_methods contract.
@@ -809,4 +906,85 @@ def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None, package_dir=
                "rows": [asdict(r) for r in card.rows]}
     (out_dir / "scorecard.json").write_text(json.dumps(payload, indent=2, default=str))
     (out_dir / "scorecard.md").write_text(_markdown(render_card))
+    return out_dir
+
+
+# Keys redacted from the public scorecard (operator-private spend + wall-clock).
+_REDACTED_META_KEYS = ("cost", "total_cost_usd", "wall_secs", "instance_seconds",
+                       "agent_cost_usd", "scorer_cost_usd", "side_call_cost_usd")
+
+
+def _redact(obj):
+    """Recursively drop redacted keys from a meta dict/list tree. Returns a copy."""
+    if isinstance(obj, dict):
+        return {k: _redact(v) for k, v in obj.items()
+                if k not in _REDACTED_META_KEYS}
+    if isinstance(obj, list):
+        return [_redact(v) for v in obj]
+    return obj
+
+
+def _score_from_meta_row(r: dict) -> "Score":
+    """Rebuild a Score from a public-row dict for re-rendering the markdown."""
+    from scripts.eval.benchmark import Score
+    return Score(r["task_id"], r["arm"], r["trial"], r["overall"],
+                 r.get("dimensions", {}), r.get("jaccard"), r.get("error_cells"),
+                 r.get("judge_id", ""), r.get("extra", {}))
+
+
+def write_public_scorecard(card: Scorecard, out_dir: Path, *, git_head: str,
+                           datasets_lock: str, seed: int, arms: list[str],
+                           trials: int) -> Path:
+    """Emit a cost-redacted, provenance-stamped public copy of the scorecard
+    (`scorecard.public.json` + `scorecard.public.md`). This is the DURABLE
+    evidence committed under docs/eval-results/. Carries enough provenance
+    (git HEAD, datasets.lock revs, seed, arms, trials) that any reader can
+    re-derive the run; strips raw spend + wall-clock so the public artifact
+    exposes no operator-private cost."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Build the same derived meta the private scorecard does (paired delta,
+    # guard outcomes, session metrics, locked methods, benchmarkable set) by
+    # round-tripping through write_scorecard into a temp dir, then redacting.
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        write_scorecard(card, Path(td))
+        private = json.loads((Path(td) / "scorecard.json").read_text())
+    meta = _redact(private.get("meta", {}))
+    provenance = {
+        "git_head": git_head,
+        "datasets_lock": datasets_lock,
+        "seed": seed,
+        "arms": list(arms),
+        "trials": trials,
+        "benchmark": card.benchmark,
+    }
+    # Public rows keep substantive scoring fields but drop any per-row extra
+    # cost keys that leaked in (judge_cost_usd etc.).
+    pub_rows = []
+    for r in private.get("rows", []):
+        extra = _redact({k: v for k, v in (r.get("extra") or {}).items()
+                         if "cost" not in k})
+        pub_rows.append({**{k: v for k, v in r.items() if k != "extra"},
+                         "extra": extra})
+    payload = {"benchmark": card.benchmark, "provenance": provenance,
+               "meta": meta, "rows": pub_rows}
+    (out_dir / "scorecard.public.json").write_text(
+        json.dumps(payload, indent=2, default=str))
+    # Markdown: a provenance preamble + the redacted private markdown.
+    redacted_card = Scorecard(benchmark=card.benchmark,
+                              rows=[_score_from_meta_row(r) for r in pub_rows],
+                              meta=meta)
+    preamble = [
+        f"# {card.benchmark} public scorecard", "",
+        "> **PROVENANCE — re-derivable run.** Raw spend + wall-clock redacted.",
+        "",
+        f"- git_head: {git_head}",
+        f"- datasets_lock: {datasets_lock}",
+        f"- seed: {seed}",
+        f"- arms: {', '.join(arms)}",
+        f"- trials: {trials}",
+        "",
+    ]
+    body = _markdown(redacted_card)
+    (out_dir / "scorecard.public.md").write_text("\n".join(preamble) + body)
     return out_dir

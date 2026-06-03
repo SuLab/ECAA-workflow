@@ -119,6 +119,13 @@ pub struct ArchetypeDefinition {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cross_dependencies: Vec<CrossDependency>,
 
+    /// Edges the author certifies as workflow-ordering-only (no
+    /// port-typed data flow). The gate exempts these from the
+    /// typed-flow requirement; every OTHER non-unifying `depends_on`
+    /// edge is `Unproven` and rejects. Additive-optional; default empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ordering_only_edges: Vec<OrderingOnlyEdge>,
+
     /// `claim_boundary` directive carried into the emitted package's
     /// interpretation policy. Mirrors the field on `AtomDefinition`
     /// but at the archetype level the boundary is the union of every
@@ -384,6 +391,31 @@ pub struct CrossDependency {
     pub reason: String,
 }
 
+/// An archetype-author declaration that a `depends_on` edge between two
+/// stages is a *workflow-ordering* relation, not a port-typed data flow.
+/// The composer honors this as an explicit, auditable exemption: a
+/// declared edge that fails port unification becomes
+/// [`crate::workflow_contracts::edge::EdgeKind::OrderingOnly`]
+/// (non-blocking in Draft); an *undeclared* non-unifying edge is
+/// `Unproven` and rejects.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct OrderingOnlyEdge {
+    /// Producer stage id (or stage alias) — the `depends_on` target.
+    pub from: String,
+    /// Consumer stage id — the stage that declares the `depends_on`.
+    pub to: String,
+}
+
+impl ArchetypeDefinition {
+    /// True iff the author declared `(from → to)` an ordering-only edge.
+    pub fn is_ordering_only(&self, from: &str, to: &str) -> bool {
+        self.ordering_only_edges
+            .iter()
+            .any(|e| e.from == from && e.to == to)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -426,6 +458,7 @@ mod tests {
             compose: vec![],
             slots: None,
             cross_dependencies: vec![],
+            ordering_only_edges: vec![],
             claim_boundary: None,
             project_class: "bioinformatics".into(),
             modality_hint: None,
@@ -438,6 +471,37 @@ mod tests {
         let yaml = serde_yaml_ng::to_string(&arch).unwrap();
         let back: ArchetypeDefinition = serde_yaml_ng::from_str(&yaml).unwrap();
         assert_eq!(arch, back);
+    }
+
+    const MINIMAL_ARCHETYPE_YAML: &str = r#"
+schema_version: "0.1"
+id: round_trip_fixture
+version: "1.0.0"
+description: round-trip fixture
+sme_summary: round-trip fixture
+goal_data: "data:3917"
+project_class: research
+atoms:
+  - atom_id: reporting
+"#;
+
+    #[test]
+    fn ordering_only_edges_round_trip_and_default_empty() {
+        // Build a minimal archetype from YAML (the round-trip + accessor
+        // is the point, not the archetype's content), with the new field
+        // initially absent (default empty).
+        let mut arch: ArchetypeDefinition =
+            serde_yaml_ng::from_str(MINIMAL_ARCHETYPE_YAML).unwrap();
+        assert!(arch.ordering_only_edges.is_empty(), "default is empty");
+        arch.ordering_only_edges.push(OrderingOnlyEdge {
+            from: "cell_type_annotation".into(),
+            to: "differential_expression".into(),
+        });
+        let yaml = serde_yaml_ng::to_string(&arch).unwrap();
+        let back: ArchetypeDefinition = serde_yaml_ng::from_str(&yaml).unwrap();
+        assert_eq!(arch, back);
+        assert!(back.is_ordering_only("cell_type_annotation", "differential_expression"));
+        assert!(!back.is_ordering_only("a", "b"));
     }
 
     /// Archetype-level `preferred_container` field
@@ -460,6 +524,7 @@ mod tests {
             compose: vec![],
             slots: None,
             cross_dependencies: vec![],
+            ordering_only_edges: vec![],
             claim_boundary: None,
             project_class: "clinical_trial".into(),
             modality_hint: None,
@@ -505,6 +570,7 @@ mod tests {
             compose: vec![],
             slots: None,
             cross_dependencies: vec![],
+            ordering_only_edges: vec![],
             claim_boundary: None,
             project_class: "bioinformatics".into(),
             modality_hint: Some("cross_omics_rnaseq_proteomics".into()),
@@ -555,6 +621,7 @@ mod tests {
             compose: vec![],
             slots: None,
             cross_dependencies: vec![],
+            ordering_only_edges: vec![],
             claim_boundary: None,
             project_class: "bioinformatics".into(),
             modality_hint: None,

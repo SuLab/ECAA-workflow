@@ -72,3 +72,25 @@ claim_boundary: |
   reviewers should treat surfaced overlaps as hypothesis-generating
   signals, not validated regulatory programs. Per-branch effect sizes +
   adjusted p-values stay independent.
+ordering_only_edges:
+  - { from: atac_differential_accessibility, to: atac_reporting }
+  - { from: atac_motif_enrichment, to: atac_reporting }
+  - { from: atac_peak_annotation, to: atac_reporting }
+  - { from: atac_peak_calling, to: atac_reporting }
+  - { from: atac_peak_calling, to: cross_omics_alignment_check }
+  - { from: atac_raw_qc, to: atac_sequence_trimming }
+  - { from: chip_contextualize_findings_with_literature, to: chip_reporting }
+  - { from: chip_motif_enrichment, to: chip_reporting }
+  - { from: chip_peak_annotation, to: chip_reporting }
+  - { from: chip_peak_calling, to: chip_contextualize_findings_with_literature }
+  - { from: chip_peak_calling, to: chip_reporting }
+  - { from: chip_peak_calling, to: cross_omics_alignment_check }
+  - { from: chip_raw_qc, to: chip_sequence_trimming }
+  - { from: cross_omics_alignment_check, to: cross_omics_thematic_comparison }
+  - { from: rnaseq_contextualize_findings_with_literature, to: rnaseq_reporting }
+  - { from: rnaseq_differential_expression, to: rnaseq_contextualize_findings_with_literature }
+  - { from: rnaseq_differential_expression, to: rnaseq_pathway_enrichment }
+  - { from: rnaseq_differential_expression, to: rnaseq_reporting }
+  - { from: rnaseq_pathway_enrichment, to: rnaseq_reporting }
+  - { from: rnaseq_quantification, to: cross_omics_alignment_check }
+  - { from: rnaseq_raw_qc, to: rnaseq_sequence_trimming }

@@ -350,4 +350,30 @@ queue_entry_id: string,
 /**
  * Transition kind.
  */
-transition_kind: string, };
+transition_kind: string, } | { "kind": "ordering_edge_exempted", 
+/**
+ * Id.
+ */
+id: string, 
+/**
+ * Timestamp.
+ */
+timestamp: string, 
+/**
+ * Producer node id.
+ */
+producer_node: string, 
+/**
+ * Consumer node id.
+ */
+consumer_node: string, 
+/**
+ * True when the exemption came from an archetype
+ * `ordering_only_edges` declaration; false for synthesis-site
+ * ordering edges.
+ */
+declared: boolean, 
+/**
+ * Strictness band string (`"draft"` / `"production"`).
+ */
+risk_mode: string, };

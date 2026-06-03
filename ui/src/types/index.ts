@@ -86,6 +86,19 @@ export type { UserInputKind } from "./UserInputKind";
 // type when surfacing intake-derived state without copy-pasting
 // the field set.
 export type { IntakeFacts } from "./IntakeFacts";
+
+// Paper §D.2 typed-workflow companion (runtime/workflow-typed.json). The
+// first-class, schema-validated projection of the composed DAG: typed steps,
+// typed edges with port-level endpoints, parameter mappings, top-level typed
+// parameters + validation rules, and deterministic metadata. Served read-only
+// via the $HOME-jailed artifact route.
+export type { TypedWorkflow } from "./TypedWorkflow";
+export type { TypedStep } from "./TypedStep";
+export type { TypedEdge } from "./TypedEdge";
+export type { ParameterMapping } from "./ParameterMapping";
+export type { WorkflowParameter } from "./WorkflowParameter";
+export type { ValidationRule } from "./ValidationRule";
+export type { WorkflowMetadata } from "./WorkflowMetadata";
 // Note: SessionStateSnapshot is exported from chatClient.ts since the
 // hand-maintained shape there is the contract UI components consume;
 // the generated SessionStateSnapshot.ts is available for direct use

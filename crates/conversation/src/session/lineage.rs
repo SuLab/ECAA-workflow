@@ -337,6 +337,10 @@ impl Session {
             },
             // None until the child session emits its own package.
             last_emitted_run_id: None,
+            // Branches inherit the parent's coverage confidence; the
+            // child recomputes it on its next compose (same as the
+            // inherited compose_outcome/workflow_dag above).
+            coverage_confidence: parent.coverage_confidence.clone(),
         }
     }
 }
@@ -431,6 +435,7 @@ mod branch_from_exhaustiveness {
             intake_followup_streak: _,
             last_emitted_run_id: _,
             audit_writer_secret: _,
+            coverage_confidence: _,
         } = child;
     }
 }

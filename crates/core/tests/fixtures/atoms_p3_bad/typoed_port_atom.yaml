@@ -1,0 +1,14 @@
+id: typoed_port_atom
+version: "1.0.0"
+role: operation
+description: Bad fixture — typo'd facet key on an input port.
+edam_operation: "operation:3198"
+assignee: agent
+inputs:
+  - name: reads
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2044"
+      label: "Sequence reads"
+      ontology_version: "EDAM-1.25"
+    privacy_clas: public

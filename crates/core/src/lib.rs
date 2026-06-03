@@ -24,6 +24,9 @@ pub mod audit_writer;
 pub mod backend_emitters;
 pub mod bco;
 pub mod blocker;
+/// M3 — maps every compatibility/validation boundary failure to a
+/// typed BlockerKind plus at least one populated UnblockPath.
+pub mod boundary_actionability;
 /// Builder module.
 pub mod builder;
 pub mod checkpoint_mode;
@@ -53,6 +56,7 @@ pub mod config;
 pub mod container_state;
 pub mod cost;
 pub mod coverage;
+pub mod coverage_statement;
 pub mod cross_version_diff;
 // Saga: rollback for non-atomic transitions.
 // ResilientClient: HTTPS-only client wrapper with scheme guards.
@@ -60,6 +64,7 @@ pub mod cross_version_diff;
 pub mod dag;
 pub mod decision_log;
 pub mod decision_substrate;
+pub mod dependency_lock;
 pub mod derived_image;
 pub mod resilient_client;
 pub mod saga;
@@ -68,6 +73,7 @@ pub mod saga;
 // `runtime/determinism-shim.json` by the conversation crate's
 // `emit::sidecars::write_determinism_shim`.
 pub mod audit_proof;
+pub mod determinism_seeds;
 pub mod determinism_shim;
 pub mod disambiguation;
 pub mod disposition;
@@ -104,6 +110,7 @@ pub mod hypothesized_proposal;
 pub mod ingestion_safety;
 pub mod intake_facts;
 pub mod intake_port_mapper;
+pub mod intake_sanitize;
 // v3 P8 — lifecycle adversarial cases (design §7).
 // Encodes the six non-monotonic lifecycle edges + the
 // session-scoped adjudication queue surfaced through
@@ -134,6 +141,7 @@ pub mod project_class_registry;
 pub mod promotion_gate_policy;
 pub mod provenance_tiers;
 pub mod reexecution;
+pub mod reexecution_bounds;
 pub mod registry;
 pub mod remediation;
 // v4 P5 (D5 / F20) — repair-strategy registry. Planner consults this
@@ -145,6 +153,7 @@ pub mod repair;
 pub mod retrieval_routes;
 /// Ro crate module.
 pub mod ro_crate;
+pub mod rubric_self_assessment;
 pub mod runtime_prereqs;
 pub mod sandbox_policy;
 pub mod sandbox_refusal_category;

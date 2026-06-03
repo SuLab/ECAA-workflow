@@ -109,6 +109,7 @@ fn emit_creates_required_files() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit should succeed");
 
@@ -158,6 +159,7 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
 
@@ -221,6 +223,173 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
     );
 }
 
+/// W1 — core emit_package writes a byte-deterministic
+/// runtime/workflow-typed.json carrying D.2 keys. Ports degrade to
+/// out/in on the core path (no WorkflowDag), which is the documented
+/// graceful-degrade. The artifact is byte-deterministic so it stays IN
+/// the BagIt manifest.
+#[test]
+fn core_emit_writes_workflow_typed_json() {
+    let tmp = TempDir::new().unwrap();
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/downstream-policy");
+
+    emit_package(&EmitConfig {
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+        edge_kinds: None,
+    })
+    .expect("emit");
+
+    let path = tmp.path().join("runtime/workflow-typed.json");
+    assert!(path.exists(), "workflow-typed.json not emitted");
+    let v: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    for key in [
+        "workflow_id",
+        "name",
+        "steps",
+        "edges",
+        "parameter_mappings",
+        "parameters",
+        "validation_rules",
+        "metadata",
+    ] {
+        assert!(v.get(key).is_some(), "missing D.2 key {key}");
+    }
+    // Byte-deterministic companion stays IN the BagIt manifest (unlike
+    // the post-manifest jsonl sidecars).
+    let manifest =
+        std::fs::read_to_string(tmp.path().join("manifest-sha512.txt")).expect("BagIt manifest");
+    assert!(
+        manifest.contains("runtime/workflow-typed.json"),
+        "workflow-typed.json should be IN the BagIt manifest (it is byte-deterministic)"
+    );
+}
+
+/// WG4b — when the caller threads the lifted EdgeKind map from the composed
+/// WorkflowDag, runtime/proofs.jsonl carries the REAL kind for each
+/// node-pair dependency instead of the strict `Unproven` placeholder.
+#[test]
+fn proofs_jsonl_carries_real_edge_kind_when_map_threaded() {
+    use crate::workflow_contracts::edge::EdgeKind;
+    let tmp = TempDir::new().unwrap();
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/downstream-policy");
+
+    // Build a node-pair edge-kind map marking every depends_on edge as a
+    // typed data flow (mirrors what edge_kind_map_from_edges produces from a
+    // fully-typed WorkflowDag).
+    let mut edge_kinds: std::collections::BTreeMap<(String, String), EdgeKind> =
+        std::collections::BTreeMap::new();
+    for (to_node, task) in &dag.tasks {
+        for from_node in &task.depends_on {
+            edge_kinds.insert(
+                (from_node.to_string(), to_node.to_string()),
+                EdgeKind::TypedDataFlow,
+            );
+        }
+    }
+    assert!(
+        !edge_kinds.is_empty(),
+        "fixture DAG must have at least one dependency edge"
+    );
+
+    emit_package(&EmitConfig {
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+        edge_kinds: Some(&edge_kinds),
+    })
+    .expect("emit");
+
+    let proofs = std::fs::read_to_string(tmp.path().join("runtime/proofs.jsonl"))
+        .expect("proofs sidecar");
+    let mut saw_typed = false;
+    for line in proofs.lines().filter(|l| !l.trim().is_empty()) {
+        let v: serde_json::Value = serde_json::from_str(line).unwrap();
+        let kind = v.get("kind").and_then(|k| k.as_str()).unwrap_or("");
+        assert_eq!(
+            kind, "typed_data_flow",
+            "every threaded dependency edge must carry the lifted kind, not the Unproven placeholder"
+        );
+        saw_typed = true;
+    }
+    assert!(saw_typed, "expected at least one proof row");
+
+    // Control: with NO map, the placeholder remains (back-compat).
+    let tmp2 = TempDir::new().unwrap();
+    emit_package(&EmitConfig {
+        output_dir: tmp2.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+        edge_kinds: None,
+    })
+    .expect("emit");
+    let proofs2 = std::fs::read_to_string(tmp2.path().join("runtime/proofs.jsonl"))
+        .expect("proofs sidecar");
+    for line in proofs2.lines().filter(|l| !l.trim().is_empty()) {
+        let v: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert_eq!(
+            v.get("kind").and_then(|k| k.as_str()),
+            Some("unproven"),
+            "without a threaded map, dependency edges keep the strict Unproven placeholder"
+        );
+    }
+}
+
 #[test]
 fn emitted_audit_proof_report_carries_version_declaration() {
     let tmp = TempDir::new().unwrap();
@@ -249,6 +418,7 @@ fn emitted_audit_proof_report_carries_version_declaration() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
     let raw = std::fs::read_to_string(tmp.path().join("runtime/audit-proof-report.json"))
@@ -261,6 +431,50 @@ fn emitted_audit_proof_report_carries_version_declaration() {
         v["evaluated_at"].as_str().is_some(),
         "evaluated_at should be stamped"
     );
+}
+
+#[test]
+fn emits_ed_cf_self_assessment_sidecar() {
+    let tmp = TempDir::new().unwrap();
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let config_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config");
+    let policies_dir = config_root.join("downstream-policy");
+    let stage_atoms = config_root.join("stage-atoms");
+    emit_package(&EmitConfig {
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: Some(&stage_atoms),
+        experimental_archetype: false,
+        edge_kinds: None,
+    })
+    .expect("emit");
+    let path = tmp.path().join("runtime/ed-cf-self-assessment.json");
+    assert!(path.exists(), "ed-cf-self-assessment.json must be emitted");
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert!(v.get("extensibility").is_some());
+    assert!(v.get("counterfactual_floor").is_some());
+    let disc = v["disclaimer"].as_str().unwrap();
+    assert!(disc.contains("not validity") || disc.contains("does NOT"));
+    // atom_count was derived from the real catalog → ED axis is non-empty.
+    assert!(v["extensibility"]["score"].as_f64().unwrap() > 0.0);
 }
 
 #[test]
@@ -292,6 +506,7 @@ fn emit_copies_plotting_library_into_runtime() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
 
@@ -369,6 +584,7 @@ fn emit_package_deterministic_contents_across_repeated_emissions() {
             per_atom_runtime_prereqs: None,
             stage_atoms_dir: None,
             experimental_archetype: false,
+            edge_kinds: None,
         })
         .expect("emit");
         vec![
@@ -509,6 +725,7 @@ fn emit_plotting_library_is_idempotent_on_reemit() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     };
     emit_package(&cfg).expect("first emit");
     // Introduce a stray file that must get cleaned up on re-emit
@@ -554,6 +771,7 @@ fn workflow_json_round_trips() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
 
@@ -588,6 +806,7 @@ fn workflow_json_round_trips() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("re-emit");
     let content2 = std::fs::read_to_string(tmp.path().join("WORKFLOW.json")).unwrap();
@@ -693,6 +912,7 @@ fn compute_resource_policy_carries_phase_1_fields() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
 
@@ -757,6 +977,7 @@ fn gpu_capability_policy_is_emitted() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
 
@@ -827,6 +1048,7 @@ fn gpu_capability_schema_violation_fails_emission() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .unwrap_err();
     let msg = format!("{:#}", err);
@@ -863,6 +1085,7 @@ fn no_compute_profiles_dir_skips_both_policies() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
 
@@ -905,6 +1128,7 @@ fn ro_crate_is_valid_json_ld() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
 
@@ -1251,6 +1475,7 @@ fn emit_plain(dir: &std::path::Path, policies_dir: &std::path::Path) {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
 }
@@ -1308,6 +1533,7 @@ fn emit_writes_runtime_prereqs_with_passed_baseline() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
 
@@ -1359,6 +1585,7 @@ fn emit_writes_dockerfile_when_manifest_is_buildable() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
 
@@ -1424,6 +1651,7 @@ fn emit_copies_install_proxy_when_manifest_is_buildable() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
 
@@ -1644,6 +1872,7 @@ fn emit_package_writes_atom_prereqs_when_map_provided() {
         per_atom_runtime_prereqs: Some(&map),
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
     assert!(
@@ -1736,6 +1965,7 @@ fn emit_writes_container_spec_with_declared_image() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit");
     let spec: serde_json::Value =
@@ -1871,6 +2101,7 @@ fn emit_package_rejects_unpinned_container_digest() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     });
     let err = result.expect_err("emit must reject unpinned digests");
     let msg = format!("{:#}", err);
@@ -1963,6 +2194,7 @@ fn emit_stamps_experimental_archetype_maturity() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: true,
+        edge_kinds: None,
     })
     .expect("emit should succeed");
 
@@ -1993,6 +2225,7 @@ fn emit_stamps_experimental_archetype_maturity() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: true,
+        edge_kinds: None,
     })
     .expect("second emit should succeed");
     let a = std::fs::read_to_string(tmp.path().join("ro-crate-metadata.json")).unwrap();
@@ -2025,6 +2258,7 @@ fn emit_does_not_stamp_production_archetype() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("emit should succeed");
 
@@ -2090,6 +2324,7 @@ fn amend_from_some_writes_lineage_policy() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("amend emit");
 
@@ -2144,6 +2379,7 @@ fn amend_from_some_adds_wasDerivedFrom_and_updateAction() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("amend emit");
 
@@ -2206,6 +2442,7 @@ fn branch_emit_adds_wasDerivedFrom_without_updateAction() {
         per_atom_runtime_prereqs: None,
         stage_atoms_dir: None,
         experimental_archetype: false,
+        edge_kinds: None,
     })
     .expect("branch emit");
 
@@ -2373,6 +2610,7 @@ fn emit_package_whole_package_byte_reproducible() {
             per_atom_runtime_prereqs: None,
             stage_atoms_dir: None,
             experimental_archetype: false,
+            edge_kinds: None,
         })
         .expect("emit");
         // Keep the dir alive past the closure so the post-walk reads
@@ -2546,6 +2784,7 @@ fn amend_emit_is_byte_reproducible() {
             per_atom_runtime_prereqs: None,
             stage_atoms_dir: None,
             experimental_archetype: false,
+            edge_kinds: None,
         })
         .expect("amend emit");
         child_tmp.keep()

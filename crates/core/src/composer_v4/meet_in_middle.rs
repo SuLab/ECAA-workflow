@@ -66,7 +66,7 @@ use crate::compatibility::engine::{
 // can hand them to the repair registry.
 use crate::repair::proposal::RepairGap;
 use crate::repair::strategy::GapKind;
-use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract};
+use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
 use crate::workflow_contracts::evidence::AssumptionLedger;
 use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
 
@@ -551,8 +551,15 @@ fn build_edge(
     result: CompatibilityResult,
     nodes_by_id: &mut BTreeMap<String, TaskNode>,
 ) -> EdgeContract {
-    let proof = match result {
-        CompatibilityResult::Compatible(p) => p,
+    // Classify the edge by the engine's compatibility verdict. The
+    // typed `EdgeKind` — not a substring scan of the proof warnings — is
+    // what `score_dag` reads. `Compatible` → lossless typed data flow;
+    // `CompatibleWithAdapters` → adapter-mediated; the defensive
+    // `Incompatible` / `Unknown` arms (the selection loop normally drops
+    // these before we reach `build_edge`) are `Unproven` so the gate
+    // still rejects any composition that somehow carries one.
+    let (proof, kind) = match result {
+        CompatibilityResult::Compatible(p) => (p, EdgeKind::TypedDataFlow),
         CompatibilityResult::CompatibleWithAdapters {
             mut proof,
             adapters,
@@ -571,20 +578,27 @@ fn build_edge(
                 }
                 nodes_by_id.entry(id).or_insert_with(|| adapter.clone());
             }
-            proof
+            (proof, EdgeKind::AdapterMediated)
         }
         // The selection loop drops Incompatible / Unknown before we
         // get here; these arms exist for total coverage. If reached,
         // synthesize a defensive proof carrying the engine's report
-        // as a warning rather than panicking.
-        CompatibilityResult::Incompatible(report) => CompatibilityProof {
-            warnings: vec![format!("incompatible: {:?}", report.reasons)],
-            ..Default::default()
-        },
-        CompatibilityResult::Unknown(c) => CompatibilityProof {
-            warnings: vec![format!("unknown: {}: {}", c.id, c.statement)],
-            ..Default::default()
-        },
+        // as a warning rather than panicking — and classify Unproven so
+        // the gate rejects it.
+        CompatibilityResult::Incompatible(report) => (
+            CompatibilityProof {
+                warnings: vec![format!("incompatible: {:?}", report.reasons)],
+                ..Default::default()
+            },
+            EdgeKind::Unproven,
+        ),
+        CompatibilityResult::Unknown(c) => (
+            CompatibilityProof {
+                warnings: vec![format!("unknown: {}: {}", c.id, c.statement)],
+                ..Default::default()
+            },
+            EdgeKind::Unproven,
+        ),
     };
     EdgeContract {
         from_node: producer_id.to_string(),
@@ -592,6 +606,7 @@ fn build_edge(
         to_node: consumer_id.to_string(),
         to_port: consumer_port.to_string(),
         proof,
+        kind,
         chain_of_custody: None,
     }
 }

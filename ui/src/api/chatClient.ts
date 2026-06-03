@@ -518,6 +518,14 @@ export interface SessionMetrics {
   claim_mismatch_rate?: number | null
   /** Turns where the SME requested a method recommendation (contractually refused). */
   method_recommendation_requests?: number
+  /**
+   * Count of session-scoped catalog-gap events: each propose_hypothesized_node /
+   * propose_hypothesized_renderer dispatch where the closed atom/renderer catalog
+   * could not express the SME's request. With affordance_fallbacks (plot gaps),
+   * the honest "coverage-gap frequency per session". Optional: 0 / absent on
+   * sidecars written before the field existed.
+   */
+  coverage_gap_events?: number
 }
 
 /// Hand-mirrored from

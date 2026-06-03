@@ -67,3 +67,12 @@ claim_boundary: |
   + Houseman cell-fraction adjustment should be applied
   alongside the integration. Cross-validate top candidates with
   orthogonal evidence.
+ordering_only_edges:
+  - { from: expression_methylation_correlation, to: reporting }
+  - { from: methylation_dmr_calling, to: expression_methylation_correlation }
+  - { from: methylation_dmr_calling, to: reporting }
+  - { from: methylation_raw_qc, to: methylation_sequence_trimming }
+  - { from: pathway_enrichment, to: reporting }
+  - { from: rnaseq_differential_expression, to: expression_methylation_correlation }
+  - { from: rnaseq_differential_expression, to: reporting }
+  - { from: rnaseq_raw_qc, to: rnaseq_sequence_trimming }

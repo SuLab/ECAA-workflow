@@ -11,7 +11,7 @@
 //! - [`InvariantId`], [`InvariantStatus`], [`InvariantVerdict`],
 //!   [`AuditProofReport`] — A sub-graph wire shape.
 //! - [`ReexecutionBucket`] — Q sub-graph `RerunOutcome.class` enum.
-//! - [`BlockerKind`] (47 variants, `#[non_exhaustive]`) + cascade
+//! - [`BlockerKind`] (48 variants, `#[non_exhaustive]`) + cascade
 //!   (`ValidationFailureCause`, `LiteratureClaimFailureKind`,
 //!   `NetworkPolicy`, `SandboxRequirement`, `ToolErrorEnvelope`,
 //!   `ExcludedPath`, `SandboxRefusalRecord`, `StallSignalWire`,

@@ -29,9 +29,9 @@ def test_chat_intake_sets_session_and_package(monkeypatch, tmp_path):
     def fake_drive(base_url, instruction, *, locked_methods=None, **kw):
         seen["base_url"] = base_url
         seen["locked"] = locked_methods
-        return "sid-42", emitted
+        return "sid-42", emitted, {}
 
-    monkeypatch.setattr(eval_runner, "drive_chat_intake", fake_drive)
+    monkeypatch.setattr(eval_runner, "drive_chat_intake_with_metrics", fake_drive)
     # Don't actually stage/auto-approve real files beyond the emitted dir.
     monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
     monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate", lambda *a, **k: None)
@@ -104,7 +104,7 @@ def test_ensure_package_for_cells_reuses_existing_dir(monkeypatch, tmp_path):
     base_rec = {"package_dir": str(existing), "session_id": "sid-old"}
 
     # If reuse works, intake must NOT be re-driven.
-    monkeypatch.setattr(eval_runner, "drive_chat_intake",
+    monkeypatch.setattr(eval_runner, "drive_chat_intake_with_metrics",
                         lambda *a, **k: (_ for _ in ()).throw(
                             AssertionError("should not re-drive intake")))
 
@@ -130,11 +130,11 @@ class _NoDirectivePlugin(_EcaaPlugin):
 
 
 def _drive_emitting_prompt(emitted: Path, base_text: str):
-    """Build a fake drive_chat_intake that emits a dir with a seeded PROMPT.md."""
+    """Build a fake drive fn that emits a dir with a seeded PROMPT.md."""
     def _fake_drive(base_url, instruction, *, locked_methods=None, **kw):
         emitted.mkdir(parents=True, exist_ok=True)
         (emitted / "PROMPT.md").write_text(base_text)
-        return "sid-directive", emitted
+        return "sid-directive", emitted, {}
     return _fake_drive
 
 
@@ -145,7 +145,7 @@ def test_contamination_directive_reaches_emitted_prompt_md(monkeypatch, tmp_path
     monkeypatch.setenv("ECAA_EVAL_INTAKE", "chat")
     emitted = tmp_path / "emitted-pkg"
     base_text = "# Task contract\nrun the analysis\n"
-    monkeypatch.setattr(eval_runner, "drive_chat_intake",
+    monkeypatch.setattr(eval_runner, "drive_chat_intake_with_metrics",
                         _drive_emitting_prompt(emitted, base_text))
     monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
     monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate",
@@ -171,7 +171,7 @@ def test_no_contamination_directive_leaves_prompt_md_unchanged(monkeypatch, tmp_
     monkeypatch.setenv("ECAA_EVAL_INTAKE", "chat")
     emitted = tmp_path / "emitted-pkg"
     base_text = "# Task contract\nrun the analysis\n"
-    monkeypatch.setattr(eval_runner, "drive_chat_intake",
+    monkeypatch.setattr(eval_runner, "drive_chat_intake_with_metrics",
                         _drive_emitting_prompt(emitted, base_text))
     monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
     monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate",
@@ -194,8 +194,8 @@ def test_ensure_package_for_cells_reemits_when_dir_gone(monkeypatch, tmp_path):
     fresh = tmp_path / "fresh-pkg"
     fresh.mkdir()
     monkeypatch.setenv("ECAA_EVAL_INTAKE", "chat")
-    monkeypatch.setattr(eval_runner, "drive_chat_intake",
-                        lambda *a, **k: ("sid-new", fresh))
+    monkeypatch.setattr(eval_runner, "drive_chat_intake_with_metrics",
+                        lambda *a, **k: ("sid-new", fresh, {}))
     monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
     monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate", lambda *a, **k: None)
 
@@ -207,3 +207,63 @@ def test_ensure_package_for_cells_reemits_when_dir_gone(monkeypatch, tmp_path):
         _Server())
     assert spec.package_dir == fresh
     assert spec.session_id == "sid-new"
+
+
+def test_chat_intake_stashes_session_metrics_on_output(monkeypatch, tmp_path):
+    """_chat_intake_or_cli must call the metrics-aware drive fn and stash the
+    harvested snapshot on spec.session_metrics."""
+    from scripts.eval import eval_runner
+    from scripts.eval.benchmark import Arm, RunSpec
+
+    captured = {"sid": "sid-9", "pkg": tmp_path / "pkg",
+                "metrics": {"followup_count": 3, "time_to_emit_ms": 5100}}
+    (tmp_path / "pkg").mkdir()
+
+    def _fake_drive(base_url, instruction, *, locked_methods=None, **kw):
+        return captured["sid"], captured["pkg"], captured["metrics"]
+
+    monkeypatch.setattr(eval_runner, "drive_chat_intake_with_metrics", _fake_drive)
+    monkeypatch.setattr(eval_runner, "_intake_mode", lambda: "chat")
+    monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
+    monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate", lambda *a: None)
+    monkeypatch.setattr(eval_runner, "_append_agent_directive", lambda *a: None)
+
+    class _Plugin:
+        def build_run(self, task, arm, workdir):
+            return RunSpec(arm=arm, workdir=workdir, kind="ecaa_package",
+                           instruction="do it")
+        def locked_methods(self, task, arm):
+            return []
+        def contamination_directive(self):
+            return None
+
+    class _Srv:
+        base_url = "http://x"
+
+    spec = eval_runner._chat_intake_or_cli(_Plugin(), _task(), Arm.ECAA_WORKFLOW,
+                                           tmp_path, _Srv())
+    assert spec.session_id == "sid-9"
+    assert getattr(spec, "session_metrics", None) == captured["metrics"]
+
+
+def test_attach_session_metrics_copies_named_keys_into_extra():
+    from scripts.eval.eval_runner import _attach_session_metrics
+    from scripts.eval.benchmark import Score, Arm
+
+    metrics_by_key = {"t1:ecaa:0": {
+        "followup_count": 2, "time_to_emit_ms": 4200,
+        "task_success_rate": 0.75, "method_recommendation_requests": 1,
+        "is_ambiguous": False, "blockers_encountered": [],
+        "affordance_fallbacks": [{"semantic_type": "data:2603",
+                                  "primitive": "scatter", "count": 3}],
+        "coverage_gap_events": 1}}
+    scores = [Score("t1", "ecaa", 0, 80.0, {}, None, None, "gemini-3.1-pro"),
+              Score("t1", "claude-direct", 0, 70.0, {}, None, None, "gemini-3.1-pro")]
+    _attach_session_metrics(scores, metrics_by_key)
+    ecaa = next(s for s in scores if s.arm == "ecaa")
+    direct = next(s for s in scores if s.arm == "claude-direct")
+    sm = ecaa.extra["session_metrics"]
+    assert sm["followup_count"] == 2 and sm["time_to_emit_ms"] == 4200
+    assert sm["coverage_gap_events"] == 1
+    # Bare arm carries no session — must NOT get a session_metrics key.
+    assert "session_metrics" not in (direct.extra or {})

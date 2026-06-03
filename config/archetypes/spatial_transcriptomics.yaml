@@ -72,3 +72,11 @@ claim_boundary: |
   Report platform, reference atlas, and resolution scale alongside every
   spatial claim. Do not pool platforms (Visium vs MERFISH) into a single
   call without explicit SME direction.
+ordering_only_edges:
+  - { from: cell_type_annotation, to: differential_expression }
+  - { from: data_acquisition, to: qc_preprocessing }
+  - { from: differential_expression, to: reporting }
+  - { from: dimensionality_reduction, to: spatial_domain_segmentation }
+  - { from: spatial_domain_segmentation, to: cell_type_annotation }
+  - { from: spatial_domain_segmentation, to: spatially_variable_genes }
+  - { from: spatially_variable_genes, to: differential_expression }

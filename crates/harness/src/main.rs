@@ -520,11 +520,14 @@ fn collect_safety_policy_refusals(
             continue;
         }
         // Controlled-access guard: tasks marked `controlled_access: true`
-        // must not be dispatched to an LLM-backed executor. The mock
-        // executor is exempt (test-only, no real data). All real backends
-        // (local, aws, slurm) launch the Claude agent wrapper and thereby
-        // forward task context to an Anthropic inference endpoint.
-        if task.safety.controlled_access && caps.kind != "mock" {
+        // must not be dispatched to an executor that forwards task
+        // context to a third-party LLM inference endpoint. Gated on the
+        // declared capability (fail-closed default `true`) rather than
+        // the backend kind, so an operator-declared on-prem no-egress
+        // backend may run controlled data while every LLM-forwarding
+        // backend (and any future one) is refused. The mock executor
+        // sets `forwards_to_external_llm: false` and stays exempt.
+        if task.safety.controlled_access && caps.forwards_to_external_llm {
             let port_name = task
                 .spec
                 .as_ref()
@@ -546,6 +549,77 @@ fn collect_safety_policy_refusals(
         }
     }
     refusals
+}
+
+#[cfg(test)]
+mod controlled_access_gate_tests {
+    use super::*;
+    use ecaa_workflow_core::atom::{NetworkPolicy, SandboxRequirement};
+    use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState, DAG};
+    use ecaa_workflow_harness::executor::ExecutorCapabilities;
+
+    fn controlled_access_dag() -> DAG {
+        let mut dag = DAG {
+            version: "1".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "controlled_access_test".into(),
+            current_task: None,
+            tasks: std::collections::BTreeMap::new(),
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+        };
+        let mut task = Task {
+            kind: TaskKind::Computation,
+            state: TaskState::Pending,
+            depends_on: vec![],
+            assignee: Assignee::Agent,
+            description: "controlled-access acquisition".into(),
+            spec: None,
+            resolution: None,
+            result_ref: None,
+            resource_class: ResourceClass::CpuHeavy,
+            requires_sme_review: false,
+            required_artifacts: vec![],
+            container: None,
+            source_atom_id: Some("controlled_access_data_acquisition".into()),
+            safety: Default::default(),
+        };
+        task.safety.controlled_access = true;
+        dag.tasks.insert("ca1".into(), task);
+        dag
+    }
+
+    #[test]
+    fn controlled_access_refused_on_llm_forwarding_executor_only() {
+        let dag = controlled_access_dag();
+        let picks = vec!["ca1".to_string()];
+
+        // LLM-forwarding executor (the production default) => refused.
+        let caps_llm = ExecutorCapabilities {
+            sandbox: SandboxRequirement::None,
+            network: NetworkPolicy::Bridge,
+            kind: "local",
+            forwards_to_external_llm: true,
+        };
+        let refusals = collect_safety_policy_refusals(&dag, &picks, &caps_llm);
+        assert!(
+            refusals.contains_key("ca1"),
+            "controlled-access must be refused on an LLM-forwarding executor"
+        );
+
+        // On-prem no-LLM-egress executor => NOT refused.
+        let caps_local = ExecutorCapabilities {
+            sandbox: SandboxRequirement::None,
+            network: NetworkPolicy::Bridge,
+            kind: "slurm",
+            forwards_to_external_llm: false,
+        };
+        let refusals2 = collect_safety_policy_refusals(&dag, &picks, &caps_local);
+        assert!(
+            !refusals2.contains_key("ca1"),
+            "an on-prem no-LLM-egress executor may run controlled-access data"
+        );
+    }
 }
 
 /// Append per-task validator results to
@@ -612,6 +686,30 @@ fn stamp_dispatch_identity(
             dispatch.harness_run_id.clone(),
         );
         env.insert("ECAA_DISPATCH_EPOCH".into(), dispatch.epoch.to_string());
+    }
+}
+
+/// Stamp the deterministic determinism-envelope env (PYTHONHASHSEED,
+/// SOURCE_DATE_EPOCH, TZ, LANG, LC_ALL) derived from the stamped
+/// dispatch identity. Default-on; `enabled=false` (driven by
+/// `ECAA_DETERMINISM_SEEDS=0`) stamps nothing. Only sets keys that
+/// aren't already present so an operator override survives. Values are
+/// deterministic functions of the run id — never `SystemTime::now()`.
+fn stamp_determinism_env(
+    env: &mut std::collections::BTreeMap<String, String>,
+    dispatch: Option<&PickedDispatch>,
+    enabled: bool,
+) {
+    if !enabled {
+        return;
+    }
+    let Some(dispatch) = dispatch else { return };
+    let seeds = ecaa_workflow_core::determinism_seeds::seed_env_from_dispatch(
+        &dispatch.harness_run_id,
+        dispatch.epoch,
+    );
+    for (k, v) in seeds {
+        env.entry(k).or_insert(v);
     }
 }
 
@@ -2722,6 +2820,58 @@ fn run_loop(
                         "dispatch record append failed"
                     );
                 }
+                // M2 — write one validated-invocation record per dispatched
+                // task, paired 1:1 with the dispatch WAL entry by
+                // (harness_run_id, epoch). Reads the per-task atom id +
+                // safety profile + container pin + prerequisites off the
+                // just-pre-marked DAG. Best-effort: a write failure logs +
+                // continues (the WAL + WORKFLOW.json remain authoritative;
+                // a missing invocation row is an audit gap, never a
+                // dispatch blocker — "always emits" / "never block
+                // dispatch" both hold).
+                if let Some(t) = dag_mut.tasks.get(id.as_str()) {
+                    let prereqs: Vec<String> =
+                        t.depends_on.iter().map(|d| d.to_string()).collect();
+                    // The harness only ever pre-marks Ready tasks, whose
+                    // deps are all Completed — so port-typed inputs are
+                    // satisfied at dispatch by construction. Recorded
+                    // explicitly so auditors read it directly.
+                    let inputs_satisfied = prereqs.iter().all(|p| {
+                        dag_mut
+                            .tasks
+                            .get(p.as_str())
+                            .map(|pt| {
+                                matches!(
+                                    pt.state,
+                                    ecaa_workflow_core::dag::TaskState::Completed { .. }
+                                )
+                            })
+                            .unwrap_or(false)
+                    });
+                    let container_image = t.container.as_ref().map(|c| c.image.clone());
+                    let inv = ecaa_workflow_harness::invocation_log::InvocationRecord::new(
+                        id.as_str(),
+                        t.source_atom_id.as_deref(),
+                        epoch,
+                        harness_run_id,
+                        &now.to_rfc3339(),
+                        &prereqs,
+                        inputs_satisfied,
+                        &t.safety,
+                        container_image.as_deref(),
+                    );
+                    if let Err(e) =
+                        ecaa_workflow_harness::invocation_log::append_invocation(path, &inv)
+                    {
+                        tracing::warn!(
+                            target: "harness",
+                            task_id = %id,
+                            epoch = epoch,
+                            error = %e,
+                            "invocation-record append failed (continuing; WAL + WORKFLOW.json remain authoritative)"
+                        );
+                    }
+                }
                 picked_dispatches.push(PickedDispatch {
                     task_id: id.clone().into(),
                     harness_run_id: harness_run_id.to_string(),
@@ -2834,6 +2984,13 @@ fn run_loop(
                         };
                         let mut env = render_envelope(path, id, dag_snapshot, &inputs);
                         stamp_dispatch_identity(&mut env, dispatch_by_task.get(id));
+                        stamp_determinism_env(
+                            &mut env,
+                            dispatch_by_task.get(id),
+                            ecaa_workflow_core::determinism_seeds::seeds_enabled(
+                                std::env::var("ECAA_DETERMINISM_SEEDS").ok().as_deref(),
+                            ),
+                        );
                         stamp_literature_scope(&mut env, should_freeze_method_authority(args));
                         stamp_provisioning_policy(&mut env, path, dag_snapshot, id, &declared);
                         stamp_safety_network(&mut env, dag_snapshot, id);
@@ -2848,6 +3005,13 @@ fn run_loop(
                     .map(|id| {
                         let mut env = render_envelope(path, id, dag_snapshot, &inputs);
                         stamp_dispatch_identity(&mut env, dispatch_by_task.get(id));
+                        stamp_determinism_env(
+                            &mut env,
+                            dispatch_by_task.get(id),
+                            ecaa_workflow_core::determinism_seeds::seeds_enabled(
+                                std::env::var("ECAA_DETERMINISM_SEEDS").ok().as_deref(),
+                            ),
+                        );
                         stamp_literature_scope(&mut env, should_freeze_method_authority(args));
                         stamp_provisioning_policy(&mut env, path, dag_snapshot, id, &declared);
                         stamp_safety_network(&mut env, dag_snapshot, id);
@@ -5486,6 +5650,25 @@ mod read_dag_tests {
             env.get("ECAA_TASK_NETWORK").map(String::as_str),
             Some("bridge")
         );
+    }
+
+    #[test]
+    fn stamp_determinism_env_threads_run_id_derived_seeds() {
+        let dispatch = PickedDispatch {
+            task_id: "t".into(),
+            harness_run_id: "run-det".into(),
+            epoch: 3,
+        };
+        let mut env: std::collections::BTreeMap<String, String> = Default::default();
+        // Force-enable regardless of the ambient env in CI.
+        stamp_determinism_env(&mut env, Some(&dispatch), true);
+        assert_eq!(env.get("PYTHONHASHSEED").map(String::as_str), Some("0"));
+        assert_eq!(env.get("LANG").map(String::as_str), Some("C.UTF-8"));
+        assert!(env.contains_key("SOURCE_DATE_EPOCH"));
+        // Disabled => no keys stamped.
+        let mut env_off: std::collections::BTreeMap<String, String> = Default::default();
+        stamp_determinism_env(&mut env_off, Some(&dispatch), false);
+        assert!(env_off.is_empty(), "disabled knob must stamp nothing");
     }
 
     #[test]

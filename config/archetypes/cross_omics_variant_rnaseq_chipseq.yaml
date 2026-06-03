@@ -66,3 +66,11 @@ claim_boundary: |
   demonstrate functional regulation. Cross-validation with reporter
   assays / TF-binding disruption predictions / population eQTL
   replication is required before any regulatory-mechanism claim.
+ordering_only_edges:
+  - { from: chipseq_peak_calling, to: reporting }
+  - { from: chipseq_raw_qc, to: chipseq_sequence_trimming }
+  - { from: cis_regulatory_variant_scoring, to: reporting }
+  - { from: rnaseq_normalisation, to: reporting }
+  - { from: rnaseq_raw_qc, to: rnaseq_sequence_trimming }
+  - { from: variant_raw_qc, to: variant_sequence_trimming }
+  - { from: variant_variant_annotation, to: reporting }

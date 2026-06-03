@@ -152,6 +152,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                         per_atom_runtime_prereqs: per_atom_prereqs.as_ref(),
                         stage_atoms_dir: Some(&stage_atoms_dir),
                         experimental_archetype,
+                        edge_kinds: None,
                     })?;
                     println!(
                         "\n{} Package emitted → {}",

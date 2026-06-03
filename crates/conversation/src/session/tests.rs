@@ -640,6 +640,7 @@ fn archetype_snapshot_defaults_to_none_and_inherits_through_branch() {
         compose: vec![],
         slots: None,
         cross_dependencies: vec![],
+        ordering_only_edges: vec![],
         claim_boundary: None,
         project_class: "bioinformatics".into(),
         modality_hint: None,

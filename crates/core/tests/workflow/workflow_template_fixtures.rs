@@ -13,8 +13,8 @@ use ecaa_workflow_core::workflow_contracts::task_node::{
     ConditionalEdge, IterationDeclaration, ScatterDeclaration, WorkflowTemplate,
 };
 use ecaa_workflow_core::workflow_contracts::{
-    CompatibilityProof, EdgeContract, Implementation, OciImageRef, PortContract, SemanticType,
-    TaskNode,
+    CompatibilityProof, EdgeContract, EdgeKind, Implementation, OciImageRef, PortContract,
+    SemanticType, TaskNode,
 };
 
 fn align_node() -> TaskNode {
@@ -124,6 +124,7 @@ fn conditional_template_round_trips() {
                 to_node: "quantify_features".into(),
                 to_port: "bam".into(),
                 proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
             },
             EdgeContract {
@@ -132,6 +133,7 @@ fn conditional_template_round_trips() {
                 to_node: "batch_correct".into(),
                 to_port: "counts".into(),
                 proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
             },
             EdgeContract {
@@ -140,6 +142,7 @@ fn conditional_template_round_trips() {
                 to_node: "differential_expression".into(),
                 to_port: "counts".into(),
                 proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
             },
         ],
@@ -185,6 +188,7 @@ fn scatter_gather_template_round_trips() {
                 to_node: "quantify_features".into(),
                 to_port: "bam".into(),
                 proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
             },
             EdgeContract {
@@ -193,6 +197,7 @@ fn scatter_gather_template_round_trips() {
                 to_node: "differential_expression".into(),
                 to_port: "counts".into(),
                 proof: CompatibilityProof::default(),
+                kind: EdgeKind::TypedDataFlow,
                 chain_of_custody: None,
             },
         ],

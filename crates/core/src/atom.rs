@@ -298,11 +298,169 @@ pub struct AtomDefinition {
     #[serde(default, skip_serializing_if = "is_empty_runtime_prereqs")]
     pub runtime_packages: crate::runtime_prereqs::RuntimePrereqs,
 
+    /// Typed parameter list — the paper-D.1 parameter axis.
+    /// Schema-validated at load. Additive: the legacy `attributes`
+    /// bag is retained; atoms migrate to `parameters` incrementally.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<ParameterSpec>,
+
+    /// Atom provenance (paper-D.1 origin/maintainer axis). Optional;
+    /// author-set in YAML, never inferred.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub provenance: Option<AtomProvenance>,
+
+    /// Machine-readable duration estimate (paper-D.1 estimated_duration
+    /// axis). Optional; coarse `resource_profile.runtime_class` remains
+    /// the fallback via `runtime_class_to_seconds`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub estimated_duration: Option<DurationEstimate>,
+
     /// Unifying safety classification. Composes with the
     /// fine-grained `crate::sandbox_policy::SandboxPolicy` when
     /// `sandbox != None`.
     #[serde(default, skip_serializing_if = "SafetyPolicy::is_default")]
     pub safety: SafetyPolicy,
+
+    /// Governance lifecycle metadata (G4). Optional; `None` means
+    /// "unmanaged" — allowed for non-Exec atoms, refused for Exec atoms
+    /// by `atom_safety::validate_atom_governance` at registry load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub governance: Option<AtomGovernance>,
+}
+
+/// One typed parameter on an atom — the paper-D.1 parameter axis.
+/// Schema-validated at registry load (unlike the legacy untyped
+/// `attributes` bag). Optional and additive: atoms that declare a
+/// `parameters:` block get typed validation; legacy atoms keep
+/// `attributes`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct ParameterSpec {
+    /// Parameter name (stable key the agent/runtime reads).
+    pub name: String,
+    /// Declared type. `Enum` means the legal set is `allowed_values`.
+    pub r#type: ParameterType,
+    /// Whether the parameter must be supplied. Default false.
+    #[serde(default)]
+    pub required: bool,
+    /// Default value applied when the parameter is omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    #[ts(type = "unknown")]
+    pub default: Option<serde_json::Value>,
+    /// Closed legal value set (load-bearing for `ParameterType::Enum`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(type = "Array<unknown>")]
+    pub allowed_values: Vec<serde_json::Value>,
+    /// Illustrative example values; never enforced.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(type = "Array<unknown>")]
+    pub examples: Vec<serde_json::Value>,
+    /// Human description; surfaces in CONTEXT.md, never machine-parsed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub description: Option<String>,
+}
+
+/// Declared parameter type. `#[non_exhaustive]` so adding a future
+/// type (e.g. a `Duration` scalar) is a non-breaking minor change for
+/// downstream `ts-rs` / RO-Crate consumers.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ParameterType {
+    /// String scalar.
+    String,
+    /// JSON number (float).
+    Number,
+    /// Integer scalar.
+    Integer,
+    /// Boolean scalar.
+    Boolean,
+    /// JSON array.
+    Array,
+    /// JSON object.
+    Object,
+    /// Closed enumeration — legal set is `allowed_values`.
+    Enum,
+}
+
+/// Atom provenance — the paper-D.1 `provenance(origin, maintainer)`
+/// axis. Author-set in YAML, never inferred (so emission stays
+/// deterministic). Optional and additive.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct AtomProvenance {
+    /// Where this atom came from.
+    pub origin: AtomOrigin,
+    /// Responsible maintainer (team or handle). Free-form string.
+    pub maintainer: String,
+}
+
+/// Provenance origin class. `#[non_exhaustive]` — adding a future
+/// origin (e.g. `Vendor`) is a non-breaking minor change.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum AtomOrigin {
+    /// Shipped in the built-in catalog.
+    Builtin,
+    /// Authored by the deploying site.
+    SiteLocal,
+    /// Contributed by the community.
+    Community,
+}
+
+/// Machine-readable duration estimate the SME cost-preview + pilot
+/// consume. Replaces relying solely on the coarse
+/// `ResourceProfile.runtime_class` string. Optional and additive.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct DurationEstimate {
+    /// Median wall-clock estimate, seconds.
+    pub seconds_p50: u64,
+    /// 95th-percentile estimate, seconds. Optional.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub seconds_p95: Option<u64>,
+    /// How the estimate was derived.
+    pub basis: DurationBasis,
+}
+
+/// Provenance of a `DurationEstimate`. `#[non_exhaustive]`.
+/// `PilotMeasured` is written only to runtime sidecars (never the
+/// byte-diffed emit set) so emission stays reproducible.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum DurationBasis {
+    /// Projected from the coarse `resource_profile.runtime_class`.
+    RuntimeClassDefault,
+    /// Hand-authored by the atom maintainer.
+    AuthorEstimate,
+    /// Measured by a pilot run (runtime sidecar only).
+    PilotMeasured,
+}
+
+/// Deterministic projection of the coarse `runtime_class` bucket to a
+/// p50 seconds estimate. Pure map — no `SystemTime`, no `Clock`, no
+/// randomness — so any caller using it for a `RuntimeClassDefault`
+/// fallback stays byte-reproducible. `None` for an unknown bucket so
+/// callers fall back rather than panic.
+pub fn runtime_class_to_seconds(class: &str) -> Option<u64> {
+    match class {
+        "seconds" => Some(30),
+        "minutes" => Some(600),
+        "hours" => Some(7200),
+        "days" => Some(172_800),
+        _ => None,
+    }
 }
 
 impl AtomDefinition {
@@ -345,7 +503,11 @@ impl AtomDefinition {
             required_artifacts: Vec::new(),
             validators: Vec::new(),
             runtime_packages: crate::runtime_prereqs::RuntimePrereqs::default(),
+            parameters: Vec::new(),
+            provenance: None,
+            estimated_duration: None,
             safety: SafetyPolicy::default(),
+            governance: None,
         }
     }
 }
@@ -1044,6 +1206,51 @@ impl SafetyPolicy {
     }
 }
 
+/// Atom-registry governance lifecycle status (G4). Answers who may
+/// publish/review/retire an atom. The only load-bearing rule is "Exec
+/// atoms require status: reviewed" (`atom_safety::validate_atom_governance`).
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema,
+)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum GovernanceStatus {
+    /// Authored, not yet reviewed. Exec atoms in this state refuse to load.
+    #[default]
+    Draft,
+    /// Reviewed + signed off. Required for Exec atoms.
+    Reviewed,
+    /// Superseded; still loads but composer-deprioritised.
+    Deprecated,
+    /// Withdrawn; excluded from composer candidate selection at load.
+    Retired,
+}
+
+/// Atom-registry governance lifecycle metadata (G4). Optional +
+/// additive; `None` means "unmanaged" — allowed for non-Exec atoms,
+/// refused for Exec atoms by the load gate.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct AtomGovernance {
+    /// Lifecycle status. Defaults to `Draft`.
+    #[serde(default)]
+    pub status: GovernanceStatus,
+    /// Reviewer identity (team / individual). Author-supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reviewed_by: Option<String>,
+    /// Author-supplied static `YYYY-MM-DD`. NOT `SystemTime::now()` —
+    /// deterministic emission requires the date be authored text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub review_date: Option<String>,
+    /// Atom id this revision supersedes, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub supersedes: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1204,7 +1411,11 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
+            provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let yaml = serde_yaml_ng::to_string(&atom).expect("serialize");
         let back: AtomDefinition = serde_yaml_ng::from_str(&yaml).expect("roundtrip");
@@ -1248,7 +1459,11 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
+            provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         assert!(yaml.contains("discovery_kind: method"));
@@ -1296,7 +1511,11 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
+            provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         // Default arch is suppressed by skip_serializing_if so the
@@ -1418,7 +1637,11 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
+            provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         let a_pos = yaml.find("- a").unwrap();

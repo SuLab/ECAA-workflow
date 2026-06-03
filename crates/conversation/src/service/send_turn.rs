@@ -15,6 +15,17 @@ use crate::session::{Session, SessionId, SessionState, Turn};
 use chrono::Utc;
 use std::time::Instant;
 
+/// True for the two session-scoped catalog-gap proposal tools. Each dispatch
+/// of one of these is a "coverage-gap event": the closed atom/renderer catalog
+/// could not express what the SME asked for, so the LLM proposed a hypothesized
+/// node/renderer. Mirrors the tool names in `tools/mod.rs`.
+pub(crate) fn is_coverage_gap_tool(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "propose_hypothesized_node" | "propose_hypothesized_renderer"
+    )
+}
+
 impl ConversationService {
     /// Read the per-session metrics snapshot, if any turns have been
     /// recorded yet. F3 — populates `session_duration_seconds` from
@@ -415,6 +426,10 @@ impl ConversationService {
             self.metrics_store()
                 .record_tool_call(id, &record.tool_name)
                 .await;
+            // E3: a proposal-tool dispatch is a catalog coverage-gap event.
+            if is_coverage_gap_tool(&record.tool_name) {
+                self.metrics_store().record_coverage_gap(id).await;
+            }
         }
         self.metrics_store()
             .record_turn(

@@ -284,6 +284,8 @@ impl Session {
             // `clear_disambiguation_on_selection` when the SME picks
             // a quick-reply chip.
             pending_disambiguation: None,
+            // Populated by the compose path; None until a v4 composition runs.
+            coverage_confidence: None,
         }
     }
 }
@@ -292,31 +294,70 @@ impl Session {
 //
 // `runtime/security-policy.json` aggregates the per-atom SafetyPolicy
 // 5-tuple across every atom the package uses, plus container image
-// digests. Today the session does not maintain a directly-walkable
-// atoms-in-use registry (the legacy taxonomy path inlines them into
-// the lowered DAG; the v4 composer keeps them on `workflow_dag` nodes
-// behind several layers of indirection). The accessors below return
-// empty `Vec`s so the sidecar emits a minimal-but-valid manifest;
-// richer aggregation lands when the per-atom composer wiring closes
-// the gap (planned next milestone).
+// digests. Both accessors walk `self.workflow_dag.nodes` and resolve
+// each node id against the supplied registry — the same walk the
+// per-atom runtime-prereqs block in `emit::mod` performs. Container
+// digests are emit-time CONTENT-HASHES (offline, deterministic,
+// byte-reproducible); runtime-resolved registry digests are a separate
+// tier captured in per-task evidence.
 
 impl Session {
-    /// Return references to every [`AtomDefinition`] this session
-    /// composes the DAG from. Today returns an empty `Vec` — the
-    /// underlying atom catalog is not yet walkable from the session
-    /// shape. The D3 security-policy sidecar treats the empty case as
-    /// "minimal valid manifest" (package_max_safety_level defaults to
-    /// Compute, etc.).
-    pub fn atoms_in_use(&self) -> Vec<ecaa_workflow_core::atom::AtomDefinition> {
-        Vec::new()
+    /// Resolve every atom this session's DAG composes from, by walking
+    /// `self.workflow_dag.nodes` and looking each node id up in the
+    /// supplied registry. Mirrors the identical walk in
+    /// `emit::mod`'s per-atom-runtime-prereqs block. Returns owned
+    /// clones so the caller can build `&[&AtomDefinition]` for the
+    /// aggregator.
+    ///
+    /// Always non-fatal: a missing `workflow_dag` (legacy/v1 emit) or a
+    /// node id absent from the registry yields fewer atoms, never a
+    /// panic — preserving the "always emits" contract.
+    pub fn atoms_in_use(
+        &self,
+        registry: &ecaa_workflow_core::atom_registry::AtomRegistry,
+    ) -> Vec<ecaa_workflow_core::atom::AtomDefinition> {
+        let Some(dag) = self.workflow_dag.as_ref() else {
+            return Vec::new();
+        };
+        dag.nodes
+            .iter()
+            .filter_map(|node| registry.get(node.id.as_str()).cloned())
+            .collect()
     }
 
-    /// Return the SHA-256 image digests of every container the
-    /// package's tasks dispatch into. Today returns an empty `Vec`;
-    /// richer aggregation lands with the per-task derived-image work
-    /// (`ECAA_PER_TASK_IMAGES`).
-    pub fn container_image_digests(&self) -> Vec<String> {
-        Vec::new()
+    /// Content-hash digests of every container this session's atoms
+    /// resolve into, deterministically and OFFLINE. Two tiers:
+    ///
+    /// * atoms declaring a pinned `preferred_container.digest` → the
+    ///   literal `@sha256:<hex>` already on the spec.
+    /// * all other atoms → `content-hash:sha256:<16hex>` from
+    ///   `derived_image::per_atom_image_hash` (code-only, no pull).
+    ///
+    /// Collected into a `BTreeSet<String>` so the output is deduped and
+    /// byte-stable. Runtime-resolved registry digests are a SEPARATE
+    /// tier recorded in per-task evidence (D7), never here.
+    pub fn container_image_digests(
+        &self,
+        atoms: &[ecaa_workflow_core::atom::AtomDefinition],
+    ) -> Vec<String> {
+        let mut out: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for atom in atoms {
+            match atom.preferred_container.as_ref() {
+                Some(spec) if !spec.digest.is_empty() => {
+                    out.insert(format!(
+                        "@sha256:{}",
+                        spec.digest.trim_start_matches("sha256:")
+                    ));
+                }
+                _ => {
+                    out.insert(format!(
+                        "content-hash:sha256:{}",
+                        ecaa_workflow_core::derived_image::per_atom_image_hash(atom)
+                    ));
+                }
+            }
+        }
+        out.into_iter().collect()
     }
 
     // ── ConfirmationToken latch helpers ───────────────────────────
@@ -565,6 +606,25 @@ impl Session {
     #[doc(hidden)]
     pub fn test_fixture_with_verifiable_claims() -> Self {
         Self::test_fixture_with_dag()
+    }
+
+    /// Test fixture — session carrying a minimal v4 `WorkflowDag` with
+    /// two nodes whose ids are real stage-atom ids (`alignment`,
+    /// `quantification`), so `atoms_in_use` and
+    /// `container_image_digests` have content to resolve.
+    #[doc(hidden)]
+    pub fn test_fixture_two_atom_dag() -> Self {
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+        let mut s = Self::new(false);
+        let dag = WorkflowDag {
+            nodes: vec![
+                TaskNode::skeleton("alignment", "align"),
+                TaskNode::skeleton("quantification", "quantify"),
+            ],
+            ..WorkflowDag::default()
+        };
+        s.workflow_dag = Some(dag);
+        s
     }
 }
 

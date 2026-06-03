@@ -30,6 +30,27 @@ use std::sync::Arc;
 /// ships with the binary; no runtime path-resolution required.
 const ATOM_SCHEMA_JSON: &str = include_str!("../../../config/stage-atoms/_atom.schema.json");
 
+/// Compare two version strings by numeric MAJOR.MINOR.PATCH. Pre-release /
+/// build suffixes on the patch field (`-rc1`, `+build`) are stripped before
+/// the numeric compare — consistent with the load-time shape check. Used by
+/// the registry-lifecycle diff (`registry::lifecycle::AtomCatalogDiff`) and
+/// the duplicate-id-lower-version guard.
+pub(crate) fn semver_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    fn parts(v: &str) -> [u64; 3] {
+        let mut out = [0u64; 3];
+        for (i, p) in v.split('.').take(3).enumerate() {
+            let core = if i == 2 {
+                p.split(['-', '+']).next().unwrap_or(p)
+            } else {
+                p
+            };
+            out[i] = core.parse().unwrap_or(0);
+        }
+        out
+    }
+    parts(a).cmp(&parts(b))
+}
+
 /// In-memory atom catalog. Keyed by `id`; `BTreeMap` so iteration is
 /// deterministic.
 #[derive(Debug, Clone, Default)]
@@ -46,7 +67,10 @@ impl AtomRegistry {
     /// not recursed (per ADR / plan §3.1 row "Flat
     /// `config/stage-atoms/*.yaml`").
     pub fn load_from_dir(dir: &Path) -> Result<Self> {
-        let schema = Self::compiled_schema()?;
+        // Eagerly compile the schema so a malformed `_atom.schema.json`
+        // fails the load before we walk the directory; `validate_one`
+        // re-fetches the same cached compiled schema per atom.
+        Self::compiled_schema()?;
         let mut atoms = BTreeMap::new();
         if !dir.exists() {
             // An empty dir is allowed (the composer fallback
@@ -81,18 +105,8 @@ impl AtomRegistry {
             // Schema validate first; serde_yaml_ng::from_str on a
             // missing-field shape would panic at deserialize time
             // with a message that doesn't point at the source line.
-            if let Err(errors) = schema.validate(&parsed) {
-                let msgs: Vec<String> = errors
-                    .map(|e| format!("{} at {}", e, e.instance_path))
-                    .collect();
-                return Err(anyhow!(
-                    "atom {} failed schema validation:\n  - {}",
-                    path.display(),
-                    msgs.join("\n  - ")
-                ));
-            }
-            let atom: AtomDefinition = serde_json::from_value(parsed)
-                .with_context(|| format!("deserializing atom {}", path.display()))?;
+            let atom: AtomDefinition =
+                Self::validate_one(&parsed, &format!("atom {}", path.display()))?;
             // Filename stem must match the atom id for byte-
             // deterministic registry iteration; otherwise a future
             // atom rename could leave a stale file name picked up by
@@ -138,6 +152,39 @@ impl AtomRegistry {
     /// Is empty.
     pub fn is_empty(&self) -> bool {
         self.atoms.is_empty()
+    }
+
+    /// Deterministic content id over the loaded atom set: the
+    /// id-sorted `(id, version)` pairs hashed with SHA-256, truncated
+    /// to 16 hex chars and prefixed `atomreg:sha256:`. Stable across
+    /// loads (the `BTreeMap` keying guarantees sorted iteration), so it
+    /// is byte-reproducible.
+    ///
+    /// M4 stub: Phase 2 (W1) embeds this into the emitted
+    /// `workflow-typed.json` so the typed artifact is self-describing
+    /// against the registry that produced it.
+    // TODO(phase-2-W1): thread snapshot_id() into workflow-typed.json.
+    pub fn snapshot_id(&self) -> String {
+        let mut buf = String::new();
+        for (id, atom) in &self.atoms {
+            buf.push_str(id);
+            buf.push('@');
+            buf.push_str(&atom.version);
+            buf.push('\n');
+        }
+        let hex = crate::hash_utils::sha256_short(buf.as_bytes(), 16);
+        format!("atomreg:sha256:{hex}")
+    }
+
+    /// Build a registry directly from a list of atoms (test helper +
+    /// in-memory composition). Ids must be unique; later duplicates win
+    /// — call sites pass distinct ids.
+    pub fn from_atoms(atoms: Vec<AtomDefinition>) -> Self {
+        let mut map = BTreeMap::new();
+        for atom in atoms {
+            map.insert(atom.id.clone(), atom);
+        }
+        Self { atoms: map }
     }
 
     /// Return every bare discover axis that `composer_v4::synthesize_discover_companions`
@@ -364,6 +411,22 @@ impl AtomRegistry {
                     .join("\n  - ")
             ));
         }
+        // G4 — governance lint. Exec atoms must declare
+        // `governance.status == reviewed`; non-Exec atoms are exempt.
+        let mut governance_errors: Vec<crate::atom_safety::GovernanceError> = Vec::new();
+        for atom in self.atoms.values() {
+            governance_errors.extend(crate::atom_safety::validate_atom_governance(atom));
+        }
+        if !governance_errors.is_empty() {
+            return Err(anyhow!(
+                "atom registry governance lint failed:\n  - {}",
+                governance_errors
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n  - ")
+            ));
+        }
         Ok(())
     }
 
@@ -406,8 +469,106 @@ impl AtomRegistry {
         Self { atoms }
     }
 
+    /// Build a new registry that contains every atom from `self` plus
+    /// the supplied external-overlay atoms — but UNLIKE
+    /// [`Self::with_promoted_overlay`] (which deliberately skips schema
+    /// validation for Rust-synthesized atoms), this runs each overlay
+    /// atom through the SAME `_atom.schema.json` validation AND
+    /// `crate::atom_safety::validate_atom_safety` that local YAML atoms
+    /// pass at `load_from_dir`. The whole overlay is refused on the
+    /// first failure so a malformed federated tool can never enter the
+    /// catalog the composer searches. Id collisions with a base atom
+    /// drop the overlay entry (base wins), matching
+    /// `with_promoted_overlay`. The `tier` is recorded for the trust
+    /// differential; both tiers are admitted at the quarantine band
+    /// (the production-execution gate keeps imports out of production
+    /// DAGs until promoted).
+    pub fn with_external_overlay(
+        &self,
+        overlay: impl IntoIterator<Item = AtomDefinition>,
+        tier: crate::external_registry::RegistryTier,
+    ) -> Result<Self> {
+        let _ = tier; // The trust band is enforced at the importer->node band.
+        let schema = Self::compiled_schema()?;
+        let mut atoms = self.atoms.clone();
+        for atom in overlay {
+            if atoms.contains_key(&atom.id) {
+                tracing::warn!(
+                    overlay_atom_id = %atom.id,
+                    "AtomRegistry::with_external_overlay: overlay atom id collides with \
+                     base registry atom; dropping overlay entry to preserve production atom"
+                );
+                continue;
+            }
+            // Schema validation — serialize to JSON and run the embedded
+            // schema, exactly as `load_from_dir` does for YAML atoms.
+            let as_json: Value = serde_json::to_value(&atom).with_context(|| {
+                format!("serializing overlay atom {} for schema check", atom.id)
+            })?;
+            if let Err(errors) = schema.validate(&as_json) {
+                let msgs: Vec<String> = errors
+                    .map(|e| format!("{} at {}", e, e.instance_path))
+                    .collect();
+                return Err(anyhow!(
+                    "external overlay atom {} failed schema validation:\n  - {}",
+                    atom.id,
+                    msgs.join("\n  - ")
+                ));
+            }
+            // Safety consistency — same lint local atoms get.
+            let safety_errors = crate::atom_safety::validate_atom_safety(&atom);
+            if !safety_errors.is_empty() {
+                return Err(anyhow!(
+                    "external overlay atom {} failed safety lint:\n  - {}",
+                    atom.id,
+                    safety_errors
+                        .iter()
+                        .map(|e| e.to_string())
+                        .collect::<Vec<_>>()
+                        .join("\n  - ")
+                ));
+            }
+            atoms.insert(atom.id.clone(), atom);
+        }
+        Ok(Self { atoms })
+    }
+
     fn compiled_schema() -> Result<&'static JSONSchema> {
         crate::schema_helpers::compile_schema_cached("atom", ATOM_SCHEMA_JSON)
+    }
+
+    /// Schema-validate a single atom JSON `Value` against the embedded
+    /// `_atom.schema.json`, then deserialize into [`AtomDefinition`].
+    /// Shared by `load_from_dir` (one call per file) and
+    /// [`Self::validate_candidate`] (in-memory drafted atoms). `ctx` is a
+    /// caller label used in error messages ("atom <path>" or
+    /// "drafted candidate").
+    fn validate_one(parsed: &Value, ctx: &str) -> Result<AtomDefinition> {
+        let schema = Self::compiled_schema()?;
+        if let Err(errors) = schema.validate(parsed) {
+            let msgs: Vec<String> = errors
+                .map(|e| format!("{} at {}", e, e.instance_path))
+                .collect();
+            return Err(anyhow!(
+                "{} failed schema validation:\n  - {}",
+                ctx,
+                msgs.join("\n  - ")
+            ));
+        }
+        serde_json::from_value(parsed.clone()).with_context(|| format!("deserializing {ctx}"))
+    }
+
+    /// Validate an in-memory candidate atom (e.g. a drafted atom from the
+    /// `atom_drafter` side-call) through the SAME schema + deserialize
+    /// path a YAML file hits in `load_from_dir`. Does NOT run
+    /// `validate_consistency` (that needs the full registry for
+    /// dependency resolution); callers that splice the candidate into a
+    /// registry overlay run `validate_consistency` on the merged registry.
+    ///
+    /// This is the single gate that guarantees an LLM-drafted atom is held
+    /// to the identical validator as hand-authored content.
+    pub fn validate_candidate(value: &Value) -> Result<AtomDefinition> {
+        Self::validate_one(value, "drafted candidate")
     }
 
     /// Process-wide cached load. Subsequent calls with the same
@@ -445,6 +606,53 @@ mod tests {
         let p = dir.join(format!("{}.yaml", name));
         let mut f = std::fs::File::create(&p).unwrap();
         f.write_all(body.as_bytes()).unwrap();
+    }
+
+    #[test]
+    fn semver_cmp_orders_correctly() {
+        use super::semver_cmp;
+        assert_eq!(semver_cmp("1.2.0", "1.10.0"), std::cmp::Ordering::Less);
+        assert_eq!(semver_cmp("2.0.0", "1.9.9"), std::cmp::Ordering::Greater);
+        assert_eq!(semver_cmp("1.0.0", "1.0.0"), std::cmp::Ordering::Equal);
+        // Pre-release suffix on patch is stripped for the numeric compare.
+        assert_eq!(semver_cmp("1.0.0-rc1", "1.0.0"), std::cmp::Ordering::Equal);
+    }
+
+    #[test]
+    fn validate_candidate_accepts_well_formed_in_memory_atom() {
+        let candidate = serde_json::json!({
+            "id": "draft_align",
+            "version": "1.0.0",
+            "role": "operation",
+            "description": "Align short reads to a reference.",
+            "edam_operation": "operation:0292",
+            "edam_data": "data:2978",
+            "edam_format": "format:2572",
+            "assignee": "agent"
+        });
+        let atom = AtomRegistry::validate_candidate(&candidate)
+            .expect("well-formed candidate must validate");
+        assert_eq!(atom.id, "draft_align");
+        assert_eq!(atom.edam_operation, "operation:0292");
+    }
+
+    #[test]
+    fn candidate_failing_schema_is_rejected() {
+        // Missing the required `role` field — the SAME schema a YAML file hits.
+        let candidate = serde_json::json!({
+            "id": "draft_bad",
+            "version": "1.0.0",
+            "description": "no role field",
+            "edam_operation": "operation:0292",
+            "assignee": "agent"
+        });
+        let err = AtomRegistry::validate_candidate(&candidate)
+            .expect_err("missing-role candidate must fail schema")
+            .to_string();
+        assert!(
+            err.contains("schema") || err.contains("role"),
+            "expected schema-validation failure, got: {err}"
+        );
     }
 
     #[test]
@@ -759,5 +967,74 @@ assignee: agent
         let tmp = tempfile::tempdir().unwrap();
         let reg = AtomRegistry::load_from_dir(tmp.path()).unwrap();
         assert!(reg.discover_axes().is_empty());
+    }
+
+    #[test]
+    fn with_external_overlay_admits_valid_atom_and_exposes_in_find_producers() {
+        let base = AtomRegistry::default();
+        let mut atom = AtomDefinition::test_default("imported_tool");
+        atom.edam_data = Some("data:2978".into());
+        let merged = base
+            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .expect("valid overlay admitted");
+        let hits: Vec<&str> = merged
+            .find_producers("data:2978", None)
+            .map(|a| a.id.as_str())
+            .collect();
+        assert_eq!(hits, vec!["imported_tool"]);
+    }
+
+    #[test]
+    fn with_external_overlay_rejects_schema_invalid_atom() {
+        let base = AtomRegistry::default();
+        let mut atom = AtomDefinition::test_default("Bad Id With Spaces");
+        atom.id = "Bad Id With Spaces".into(); // fails schema id pattern
+        let err = base
+            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("schema"), "got: {err}");
+    }
+
+    #[test]
+    fn with_external_overlay_rejects_safety_invalid_atom() {
+        // A Network-level atom whose network policy is `none` is a
+        // safety-consistency violation `validate_atom_safety` catches.
+        use crate::atom::{NetworkPolicy, SafetyLevel, SafetyPolicy};
+        let base = AtomRegistry::default();
+        let mut atom = AtomDefinition::test_default("net_tool");
+        atom.safety = SafetyPolicy {
+            level: SafetyLevel::Network,
+            network: NetworkPolicy::None { allowlist: vec![] },
+            ..SafetyPolicy::default()
+        };
+        let err = base
+            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("safety"), "got: {err}");
+    }
+
+    #[test]
+    fn with_external_overlay_keeps_overlay_atoms_quarantined() {
+        // Overlay atoms enter Contracted/Unverified — they cannot reach
+        // production execution until promoted. Here we assert the
+        // overlay never shadows a base atom on id collision.
+        let mut atom = AtomDefinition::test_default("align_reads");
+        atom.edam_data = Some("data:9999".into());
+        let tmp = tempfile::tempdir().unwrap();
+        write_atom(
+            tmp.path(),
+            "align_reads",
+            "id: align_reads\nversion: \"1.0.0\"\nrole: operation\ndescription: x\nedam_operation: operation:0292\nedam_data: data:2978\nassignee: agent\n",
+        );
+        let base = AtomRegistry::load_from_dir(tmp.path()).unwrap();
+        let merged = base
+            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .expect("overlay admitted");
+        // Base wins on id collision (overlay dropped) — base atom's
+        // data:2978 still resolves, the overlay's data:9999 does not.
+        assert!(merged.find_producers("data:9999", None).next().is_none());
+        assert!(merged.find_producers("data:2978", None).next().is_some());
     }
 }

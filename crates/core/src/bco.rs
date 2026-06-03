@@ -441,7 +441,11 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
+            provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         }
     }
 
@@ -723,6 +727,7 @@ mod tests {
             cardinality: Cardinality::default(),
             validators: Vec::new(),
             constraints: Vec::new(),
+            parameters: Vec::new(),
             facets: std::collections::BTreeMap::new(),
         });
         composed.atom.outputs.push(PortContract {
@@ -743,6 +748,7 @@ mod tests {
             cardinality: Cardinality::default(),
             validators: Vec::new(),
             constraints: Vec::new(),
+            parameters: Vec::new(),
             facets: std::collections::BTreeMap::new(),
         });
         let intake = sample_intake();
@@ -815,7 +821,11 @@ mod tests {
             required_artifacts: vec![],
             validators: vec![],
             runtime_packages: Default::default(),
+            parameters: Vec::new(),
+            provenance: None,
+            estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         composition.atoms.insert(
             0,

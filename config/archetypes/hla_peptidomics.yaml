@@ -47,3 +47,7 @@ claim_boundary: |
   relevance. Report HLA typing source, search engine + parameters,
   binding-predictor + threshold, and somatic-variant-call source
   alongside every neoantigen.
+ordering_only_edges:
+  - { from: data_acquisition, to: hla_peptide_search }
+  - { from: neoantigen_filtering, to: reporting }
+  - { from: netmhc_binding_prediction, to: reporting }

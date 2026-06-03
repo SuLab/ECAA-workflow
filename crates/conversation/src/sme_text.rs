@@ -107,67 +107,18 @@ fn word_replacements() -> &'static [(Regex, &'static str)] {
 /// output differs from the input — that's where the prompt-injection
 /// signal flips into a `ToolError::ValidationFailure`. This function
 /// is pure data-transformation; it never returns errors.
+///
+/// Delegates to `core::intake_sanitize::sanitize` so there is a single
+/// chokepoint definition shared across every intake free-text tool.
 pub fn sanitize_for_session_prose(input: &str) -> String {
-    if input.is_empty() {
-        return String::new();
-    }
-    // Pass 1: strip XML-like tags.
-    let tags_stripped = XML_TAG_PATTERN.replace_all(input, "").into_owned();
-    // Pass 2: strip ASCII control characters except \n / \t.
-    let ctrl_stripped: String = tags_stripped
-        .chars()
-        .filter(|c| {
-            if *c == '\n' || *c == '\t' {
-                return true;
-            }
-            !c.is_control()
-        })
-        .collect();
-    // Pass 3: strip internal tool-name tokens (whole word match).
-    TOOL_NAME_PATTERN
-        .replace_all(&ctrl_stripped, "")
-        .into_owned()
+    // Single definition of truth lives in
+    // `core::intake_sanitize::sanitize` (the M6 chokepoint). This
+    // wrapper preserves the public name + existing call sites; the
+    // input-side sanitiser logic + tool-name vocabulary is owned by
+    // core so every `set_intake_*` / `append_intake_prose` tool shares
+    // one chokepoint.
+    ecaa_workflow_core::intake_sanitize::sanitize(input)
 }
-
-/// Matches any `<...>` span. Greedy on the inner content but bounded
-/// by the next `>` so adjacent tags like `</user><system>` don't merge
-/// into a single match.
-static XML_TAG_PATTERN: Lazy<Regex> = Lazy::new(|| Regex::new(r"<[^>]*>").unwrap());
-
-/// Matches whole-word occurrences of any tool name in the closed
-/// `Tool` vocabulary. The list is duplicated from
-/// `tools/mod.rs::Tool` (variant-name → snake-case form) because the
-/// `Tool` enum is in a downstream module — pulling it in here would
-/// introduce a cyclic dependency for a list of 20 strings. The
-/// `sanitize_for_session_prose_strips_known_tool_names` unit test
-/// below guards the duplication.
-static TOOL_NAME_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(concat!(
-        r"\b(",
-        "classify_intake|",
-        "get_taxonomy_info|",
-        "get_session_state|",
-        "get_classification_evidence|",
-        "get_task_result|",
-        "get_literature_context|",
-        "list_atoms|",
-        "set_intake_field|",
-        "set_intake_method|",
-        "append_intake_prose|",
-        "amend_stage_method|",
-        "select_sensitivity_winner|",
-        "rerun_task|",
-        "branch_session|",
-        "emit_package|",
-        "start_execution|",
-        "propose_summary_confirmation|",
-        "propose_quick_replies|",
-        "propose_hypothesized_node|",
-        "propose_hypothesized_renderer",
-        r")\b",
-    ))
-    .unwrap()
-});
 
 #[cfg(test)]
 mod tests {

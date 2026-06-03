@@ -61,6 +61,26 @@ def load_lock(path: Path) -> dict[str, LockEntry]:
     return out
 
 
+def datasets_lock_revisions() -> str:
+    """One-line summary of the pinned dataset revisions for provenance stamping.
+
+    Parses scripts/eval/datasets.lock into `name=revision;...`. Falls back to a
+    raw line-collapse (then "unknown") if the lock is unreadable, so provenance
+    stamping never fails an otherwise-complete scorecard write."""
+    lock = Path(__file__).resolve().parents[1] / "datasets.lock"
+    try:
+        entries = load_lock(lock)
+        if entries:
+            return ";".join(f"{e.name}={e.revision}" for e in entries.values())
+    except (OSError, ValueError, KeyError):
+        pass
+    try:
+        return ";".join(line.strip() for line in lock.read_text().splitlines()
+                        if line.strip() and not line.startswith("#"))
+    except OSError:
+        return "unknown"
+
+
 def cache_root() -> Path:
     root = Path(os.environ.get("ECAA_EVAL_CACHE_DIR",
                                Path.home() / ".ecaa-workflow" / "eval-cache"))

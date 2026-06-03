@@ -756,6 +756,9 @@ impl Executor for LocalExecutor {
             sandbox,
             network: ecaa_workflow_core::atom::NetworkPolicy::Bridge,
             kind: "local",
+            // Local dispatch launches the Claude agent wrapper, which
+            // forwards task context to an Anthropic inference endpoint.
+            forwards_to_external_llm: true,
         }
     }
 

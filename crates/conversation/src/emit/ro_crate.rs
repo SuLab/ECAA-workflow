@@ -578,6 +578,15 @@ pub(super) async fn patch_ro_crate_metadata(
     // existence-gated registration loop covers it without a
     // dedicated branch.
     let semantic_sidecars: &[(&str, &str, &str, &str)] = &[
+        // W1 — first-class, schema-validated D.2 projection of the composed
+        // DAG. Byte-reproducible companion to WORKFLOW.json; validated
+        // against _workflow-typed.schema.json in `make conformance`.
+        (
+            "runtime/workflow-typed.json",
+            "Typed workflow (paper D.2 shape)",
+            "W1 — first-class, schema-validated D.2 projection of the composed DAG: typed steps (tool_id, parameters, dependencies, estimated_duration), typed edges with port-level source_output/target_input, parameter_mappings, top-level typed parameters + validation_rules, and deterministic metadata. Byte-reproducible companion to WORKFLOW.json; validated against _workflow-typed.schema.json in `make conformance`.",
+            "application/json",
+        ),
         (
             "runtime/proofs.jsonl",
             "Compatibility proofs",
@@ -662,6 +671,28 @@ pub(super) async fn patch_ro_crate_metadata(
             "Per-package install log written by the install-proxy shims (apt/pip/conda/cran/npm/rubygems) every time an agent install request passes the per-task provisioning.json policy. Each line records timestamp, atom_id, package, registry, and source=agent_runtime so auditors can distinguish runtime installs from compile-time-vendored ones.",
             "application/jsonl",
         ),
+        // M2 — validated-invocation log. Written one record per line by
+        // the HARNESS at the dispatch site (sync, no tokio). Absent until
+        // a harness has dispatched at least one task, so the presence
+        // gate below skips it on pre-execution first emits — exactly the
+        // pattern install-log.jsonl + validation-reports.jsonl follow.
+        (
+            "runtime/invocations.jsonl",
+            "Validated invocation log (M2)",
+            "One validated-invocation record per dispatched task, written by the harness at the dispatch site. Binds {source atom id, resolved container image, port-typed inputs satisfied, sandbox profile, network policy} as a single provenance object — the runtime mirror of the compile-time per-edge proofs.jsonl. Absent until a harness has dispatched at least one task; presence-gated like validation-reports.jsonl. Excluded from the byte-diff baseline (carries dispatch-time timestamps).",
+            "application/jsonl",
+        ),
+        // M5 — goal-branch coverage statement. Written at emit time by
+        // `audit_log::write_coverage_statement` whenever the session has a
+        // cached WorkflowDag; absent on legacy / pre-compose sessions, so
+        // the presence gate below skips it there. Deterministic and IN the
+        // byte-diff baseline.
+        (
+            "runtime/coverage-statement.json",
+            "Goal-branch coverage statement (M5)",
+            "Declares which emitted goal branches were satisfied by catalog atoms vs covered by session proposals (propose_hypothesized_node + composer-synthesized unsatisfiable-modality proposals). The durable, auditable analog of the transient coverage-gap UI banner. Deterministic; byte-reproducible.",
+            "application/json",
+        ),
         // ── Grant v19 §Authentication of Key Resources (D1-D4) ──────
         // Four runtime/*.json sidecars cited as live disclosure
         // surfaces. D1 is suppressed under ECAA_ABLATE_CLAIM_CONSISTENCY;
@@ -682,8 +713,8 @@ pub(super) async fn patch_ro_crate_metadata(
         ),
         (
             "runtime/security-policy.json",
-            "Per-atom SafetyPolicy aggregate + container digests + scan summary",
-            "Aggregates the SafetyPolicy 5-tuple (SafetyLevel x NetworkPolicy x CodeExecution x SandboxRequirement x ProvisioningPolicy) for every atom in the package, plus container image SHA-256 digests and any vulnerability-scan summary. Always written.",
+            "Per-atom SafetyPolicy aggregate + two-tier container digests + scan summary",
+            "Aggregates the SafetyPolicy 5-tuple (SafetyLevel x NetworkPolicy x CodeExecution x SandboxRequirement x ProvisioningPolicy) for every atom in the package. Container digests are two-tier: emit-time content-hash digests (content-hash:sha256:<16hex>, deterministic + offline, populated for atoms that derive their image) and pinned registry digests (@sha256:<hex>) when an atom declares a preferred_container digest. Runtime-resolved registry digests (tag->@sha256) are recorded separately in per-task evidence, never in this byte-reproducible record. Always written.",
             "application/json",
         ),
         (
@@ -696,6 +727,18 @@ pub(super) async fn patch_ro_crate_metadata(
             "runtime/audit-proof-report.json",
             "Audit-proof invariant report (D8)",
             "Per-invariant verdicts (claim-completeness, decision-justification, evidence-coverage, equivalence-failure, cross-graph-integrity, substrate-validity). Warn-only at emission time; the verdicts surface in the UI Verifier tab. Suppressed under ECAA_ABLATE_AUDIT_PROOF (Arm B' control).",
+            "application/json",
+        ),
+        (
+            "runtime/ed-cf-delta.json",
+            "Longitudinal ED/CF re-assessment delta (RS2)",
+            "Per-axis delta between this package's ED/CF self-location and its lineage parent's (gained/lost extensibility + counterfactual mechanisms). Written only when this emission has a lineage parent with its own self-assessment. Informational — locates, does not validate.",
+            "application/json",
+        ),
+        (
+            "runtime/coverage-statement.json",
+            "Catalog-coverage statement (CC1)",
+            "SME-legible record of which requested modalities fell outside the validated catalog (uncovered_modalities) and the unresolved gap count, projected from the composer's gap signal. Written only when the package is not fully covered. Informational — communicates coverage uncertainty, does not validate.",
             "application/json",
         ),
         // ECAA emit-time validation summary written by

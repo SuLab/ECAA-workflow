@@ -200,6 +200,27 @@
         }
       }
     },
+    "ordering_only_edges": {
+      "type": "array",
+      "description": "Edges the archetype author certifies as workflow-ordering-only (no port-typed data flow). Exempt from the typed-flow gate; every other non-unifying depends_on edge is Unproven and rejects composition. Additive-optional.",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+            "description": "Producer stage id / alias."
+          },
+          "to": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*[a-z0-9]$",
+            "description": "Consumer stage id."
+          }
+        }
+      }
+    },
     "claim_boundary": {
       "type": "string",
       "minLength": 1,

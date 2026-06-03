@@ -171,7 +171,11 @@ fn synth_atom(
         required_artifacts: vec![],
         validators: vec![],
         runtime_packages: Default::default(),
+        parameters: Vec::new(),
+        provenance: None,
+        estimated_duration: None,
         safety: Default::default(),
+        governance: None,
     }
 }
 
@@ -256,6 +260,7 @@ fn synth_archetype(
         compose: vec![],
         slots: None,
         cross_dependencies: vec![],
+        ordering_only_edges: vec![],
         claim_boundary: None,
         project_class: project_class.into(),
         modality_hint: None,

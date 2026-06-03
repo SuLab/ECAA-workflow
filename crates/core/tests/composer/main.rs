@@ -9,3 +9,4 @@ mod composer_determinism;
 mod composer_generic_omics_fallthrough;
 mod composer_literature;
 mod composer_offline;
+mod validated_dag_edge_kinds;

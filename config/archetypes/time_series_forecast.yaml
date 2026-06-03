@@ -45,3 +45,6 @@ claim_boundary: |
   not assert causal structure, predictive validity on regimes outside the
   training window, or domain-interpretive meaning beyond what the SME has
   already stated.
+ordering_only_edges:
+  - { from: data_import, to: time_series_decompose }
+  - { from: time_series_forecast_evaluate, to: reporting }

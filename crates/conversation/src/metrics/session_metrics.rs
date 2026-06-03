@@ -352,6 +352,15 @@ pub struct SessionMetrics {
     /// The live proxy for refusal demand.
     #[serde(default)]
     pub method_recommendation_requests: u64,
+    /// Count of session-scoped catalog-gap events: each
+    /// `propose_hypothesized_node` / `propose_hypothesized_renderer`
+    /// dispatch is one event where the closed atom/renderer catalog could
+    /// not express what the SME asked for. Distinct from
+    /// `affordance_fallbacks` (plot-renderer gaps) — together they are the
+    /// honest "coverage-gap frequency per session" the eval harvests.
+    /// `#[serde(default)]` so sidecars written before this field load with 0.
+    #[serde(default)]
+    pub coverage_gap_events: u32,
 }
 
 /// Terminal disposition of a session for fleet completion-rate

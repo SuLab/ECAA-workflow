@@ -63,7 +63,19 @@ check_kind: string,
 /**
  * Statement.
  */
-statement: string, } | { "kind": "other", 
+statement: string, } | { "kind": "parameter_mismatch", 
+/**
+ * Parameter.
+ */
+parameter: string, 
+/**
+ * Producer.
+ */
+producer: string, 
+/**
+ * Consumer.
+ */
+consumer: string, } | { "kind": "other", 
 /**
  * Statement.
  */

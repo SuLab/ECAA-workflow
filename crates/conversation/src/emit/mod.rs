@@ -19,7 +19,7 @@ mod cross_version_diff;
 mod decision_substrate_writer;
 mod model_policy_sidecar;
 mod ro_crate;
-mod sidecars;
+pub mod sidecars;
 mod sme_intake_methods;
 pub mod validation;
 
@@ -378,6 +378,27 @@ async fn emit_steps(
         })
         .unwrap_or(false);
 
+    // WG4b — lift the live session WorkflowDag's typed edge kinds into a
+    // node-pair map so the core-written runtime/proofs.jsonl carries the
+    // real EdgeKind. (The conversation path also overwrites proofs.jsonl
+    // below from the full-fidelity edges in `write_phase16_sidecars`, which
+    // already serializes the real per-port kind; this keeps the core-written
+    // version consistent for the window before that overwrite.)
+    let edge_kinds_owned = session.workflow_dag.as_ref().map(|wd| {
+        ecaa_workflow_core::workflow_contracts::edge::edge_kind_map_from_edges(&wd.edges)
+    });
+
+    // M4 — derive the atom-registry snapshot id from the on-disk catalog so
+    // the full-fidelity workflow-typed.json overwrite is self-describing.
+    // Best-effort: a missing/unreadable catalog yields `None` (matches the
+    // core path's behavior).
+    let atom_snapshot_id = {
+        let atoms_dir = config_dir.join("stage-atoms");
+        ecaa_workflow_core::atom_registry::AtomRegistry::load_cached(&atoms_dir)
+            .ok()
+            .map(|reg| reg.snapshot_id())
+    };
+
     let cfg = EmitConfig {
         output_dir,
         dag,
@@ -395,6 +416,7 @@ async fn emit_steps(
         per_atom_runtime_prereqs: per_atom_prereqs_owned.as_ref(),
         stage_atoms_dir: Some(&stage_atoms_dir),
         experimental_archetype,
+        edge_kinds: edge_kinds_owned.as_ref(),
     };
     emit_package(&cfg).context("core emit_package")?;
 
@@ -476,6 +498,13 @@ async fn emit_steps(
     // Mutates `session.decisions` so `write_decision_log` below picks
     // up the new CrossVersionDiff record.
     let diff_written = cross_version_diff::write_cross_version_diff(session, output_dir).await?;
+    // Longitudinal ED/CF delta against the same parent package (RS2).
+    // Best-effort: soft-skips when there is no lineage parent or no parent
+    // assessment. Excluded from the byte-diff baseline.
+    cross_version_diff::write_ed_cf_delta(session, output_dir).await?;
+    // Durable catalog-coverage statement (CC1-4) — written only when the
+    // session is not fully covered. Excluded from the byte-diff baseline.
+    cross_version_diff::write_coverage_statement(session, output_dir).await?;
     // Per-figure diff against the same parent. Writes
     // `runtime/figure-diff.json` when a parent emit exists; soft-skips
     // otherwise. Hash-only — no decoding, no LLM, sub-second on
@@ -495,6 +524,19 @@ async fn emit_steps(
     // runtime/policy-decisions.jsonl. The RO-Crate registration
     // below picks them up automatically (presence-gated).
     audit_log::write_phase16_sidecars(session, output_dir, tier).await?;
+    // W1 — overwrite the core-written runtime/workflow-typed.json with the
+    // full-fidelity typed artifact (real ports from the session's
+    // WorkflowDag). SAME projection as the core path — never forked. No-op
+    // for sessions without a cached WorkflowDag (the core degraded-port
+    // companion then stands).
+    audit_log::write_workflow_typed(
+        session,
+        output_dir,
+        Some(&classification),
+        Some(&intake_facts),
+        atom_snapshot_id.clone(),
+    )
+    .await?;
     // Grant v19 §Authentication of Key Resources (D1-D4) — emit the
     // four runtime/*.json sidecars cited as live disclosure surfaces.
     // D1 (claim-verification) is suppressed under
@@ -511,8 +553,9 @@ async fn emit_steps(
     // Invariant 4 reads this file as its Q sub-graph source (empty →
     // Unverified). Uses the `output_dir` (staging) as the replay side and the
     // session's parent_package_path as the source side.
-    sidecars::write_reexecution_sidecar(session, output_dir).await?;
-    sidecars::write_security_policy(session, output_dir).await?;
+    sidecars::write_reexecution_sidecar(session, output_dir, config_dir).await?;
+    sidecars::write_security_policy(session, output_dir, config_dir).await?;
+    sidecars::write_dependency_lock(&runtime_prereqs, output_dir).await?;
     sidecars::write_model_policy(session, output_dir).await?;
     // D5 — typed-blocker sidecar. Suppressed under
     // ECAA_ABLATE_TYPED_BLOCKERS (ablation moves from the SSE broadcaster
@@ -564,6 +607,12 @@ async fn emit_steps(
     // the harness pre_dispatch_check. No-op when the session has
     // no active_policy_bundle / no cached workflow_dag.
     audit_log::write_phase14_sidecars(session, output_dir).await?;
+    // M5 — durable goal-branch coverage statement (catalog vs proposal).
+    // No-op without a cached WorkflowDag. The RO-Crate patcher below
+    // registers it via the presence-gated semantic_sidecars loop.
+    audit_log::write_coverage_statement(session, output_dir)
+        .await
+        .context("writing runtime/coverage-statement.json (M5)")?;
     // Phase A1–A3 (flexible-plotting resolver wiring) — resolve a
     // PlotAffordance per output port for every task in the DAG, write
     // runtime/plot_affordances.jsonl + runtime/affordance_fallbacks.jsonl,
@@ -1229,6 +1278,118 @@ mod tests {
             parts.iter().any(|p| p.get("@id").and_then(|v| v.as_str())
                 == Some("runtime/install-log.jsonl")),
             "install-log.jsonl missing from root hasPart array"
+        );
+    }
+
+    /// M2 — when the harness has written `runtime/invocations.jsonl`,
+    /// the emitter's RO-Crate patcher must register it as a
+    /// File + CreativeWork entity and link it from the root `hasPart`,
+    /// exactly like the install-log presence-gated registration.
+    #[tokio::test]
+    async fn invocations_jsonl_registered_when_present() {
+        let tmp = tempfile::tempdir().unwrap();
+        let runtime = tmp.path().join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        // Plant the invocation log as the harness does at the dispatch site.
+        std::fs::write(
+            runtime.join("invocations.jsonl"),
+            "{\"task_id\":\"qc\",\"epoch\":1,\"harness_run_id\":\"run-abc\",\"started_at\":\"2026-06-02T00:00:00Z\",\"port_typed_inputs_satisfied\":true,\"sandbox\":\"none\",\"sandbox_required\":false,\"network_policy\":null}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            tmp.path().join("ro-crate-metadata.json"),
+            r#"{
+              "@context": "https://w3id.org/ro/crate/1.1/context",
+              "@graph": [
+                {
+                  "@id": "./",
+                  "@type": "Dataset",
+                  "hasPart": []
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        ro_crate::patch_ro_crate_metadata(
+            tmp.path(),
+            vec![],
+            vec![],
+            ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private,
+        )
+        .await
+        .unwrap();
+
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(tmp.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph = metadata["@graph"].as_array().unwrap();
+        let entity = graph
+            .iter()
+            .find(|e| e.get("@id").and_then(|v| v.as_str()) == Some("runtime/invocations.jsonl"))
+            .expect("invocations.jsonl entity missing from RO-Crate graph");
+        let types: Vec<&str> = entity["@type"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert!(
+            types.contains(&"File") && types.contains(&"CreativeWork"),
+            "expected @type to include File + CreativeWork, got {:?}",
+            types
+        );
+        assert_eq!(entity["encodingFormat"], "application/jsonl");
+
+        let root = graph.iter().find(|e| e["@id"] == "./").unwrap();
+        let parts = root["hasPart"].as_array().unwrap();
+        assert!(
+            parts.iter().any(|p| p.get("@id").and_then(|v| v.as_str())
+                == Some("runtime/invocations.jsonl")),
+            "invocations.jsonl missing from root hasPart array"
+        );
+    }
+
+    /// M2 — a pre-execution first emit (no harness dispatch yet) has no
+    /// `runtime/invocations.jsonl`, so the entity must be absent from the
+    /// RO-Crate graph (presence-gated).
+    #[tokio::test]
+    async fn invocations_jsonl_absent_when_file_not_written() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join("ro-crate-metadata.json"),
+            r#"{
+              "@context": "https://w3id.org/ro/crate/1.1/context",
+              "@graph": [
+                {
+                  "@id": "./",
+                  "@type": "Dataset",
+                  "hasPart": []
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        ro_crate::patch_ro_crate_metadata(
+            tmp.path(),
+            vec![],
+            vec![],
+            ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private,
+        )
+        .await
+        .unwrap();
+
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(tmp.path().join("ro-crate-metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let graph = metadata["@graph"].as_array().unwrap();
+        assert!(
+            !graph.iter().any(|e| e.get("@id").and_then(|v| v.as_str())
+                == Some("runtime/invocations.jsonl")),
+            "invocations.jsonl entity must not appear when the file does not exist"
         );
     }
 

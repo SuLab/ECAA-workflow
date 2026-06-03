@@ -23,7 +23,7 @@ from scripts.eval.plugins.nekrutenko import Nekrutenko
 from scripts.eval.scheduler import run_phase
 from scripts.eval.services import agent_runner
 from scripts.eval.services import judge as judge_mod
-from scripts.eval.services.chat_client import drive_chat_intake
+from scripts.eval.services.chat_client import drive_chat_intake_with_metrics
 from scripts.eval.services.chat_server import ChatServer
 from scripts.eval.services.datasets import (cache_root, eval_runs_dir,
                                             scratch_root, stage_file)
@@ -32,6 +32,16 @@ from scripts.eval.services.scorecard import collect_guard_outcomes, write_scorec
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = {"biomnibench": BiomniBench, "nekrutenko": Nekrutenko}
+
+
+def _git_head() -> str:
+    """Resolve HEAD for the public scorecard's provenance stamp. Best-effort."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=str(REPO_ROOT),
+            text=True).strip()
+    except (subprocess.CalledProcessError, OSError):
+        return "unknown"
 
 
 def _isolated_pkg_copy(src_pkg: Path, dest: Path) -> Path:
@@ -213,12 +223,17 @@ def _chat_intake_or_cli(plugin, task, arm: Arm, workdir: Path,
         # proposal_policy is a Benchmark hook (default "reject"); resolve it
         # defensively so duck-typed/minimal plugins without the method are fine.
         _policy_fn = getattr(plugin, "proposal_policy", lambda _t, _a: "reject")
-        sid, pkg = drive_chat_intake(
+        sid, pkg, session_metrics = drive_chat_intake_with_metrics(
             server.base_url, spec.instruction,
             locked_methods=plugin.locked_methods(task, arm),
             proposal_policy=_policy_fn(task, arm))
         spec.session_id = sid
         spec.package_dir = pkg
+        # RunSpec has no session_metrics slot; stash it dynamically (the
+        # dataclass has no slots=True so attribute assignment is permitted).
+        # Read defensively via getattr elsewhere so the CLI-intake path (no
+        # metrics) stays fine.
+        spec.session_metrics = session_metrics
     else:
         _cli_intake(spec, task, workdir)
     _stage_inputs(spec.package_dir, task.inputs)
@@ -260,6 +275,10 @@ def run_base(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int,
             session_id=spec.session_id,
             server_url=(server.base_url if server is not None else None))
         out = plugin.collect(spec, spec.package_dir)
+        sm = getattr(spec, "session_metrics", None)
+        if sm:
+            out.artifacts = dict(out.artifacts or {})
+            out.artifacts["session_metrics"] = sm
     else:
         res = agent_runner.run_bare(workdir, spec.instruction)
         (workdir / "agent-stdout.json").write_text(res.stdout or "")
@@ -335,6 +354,30 @@ def _attach_guard_outcomes(scores: list[Score], spec_by_key: dict,
             continue
         s.extra = dict(s.extra or {})
         s.extra["guard_outcomes"] = collect_guard_outcomes(pkg)
+
+
+# E1: the paper's named conversational / parameter-completion friction metrics.
+# Copied positionally via .get(key) (never index) so a missing key is None, not
+# a crash, and an older server's smaller snapshot still works.
+_HARVESTED_METRIC_KEYS = (
+    "followup_count", "time_to_emit_ms", "task_success_rate",
+    "method_recommendation_requests", "is_ambiguous", "blockers_encountered",
+    "affordance_fallbacks", "coverage_gap_events",
+)
+
+
+def _attach_session_metrics(scores: list[Score], metrics_by_key: dict) -> None:
+    """Copy the harvested per-session metrics snapshot (keyed by base_key) onto
+    each ECAA Score.extra["session_metrics"], filtered to the named allowlist.
+    Bare-arm rows have no session and are skipped. In-place; best-effort."""
+    for s in scores:
+        if s.arm != Arm.ECAA_WORKFLOW.value:
+            continue
+        snap = metrics_by_key.get(_base_key(s.task_id, s.arm, s.trial))
+        if not isinstance(snap, dict) or not snap:
+            continue
+        s.extra = dict(s.extra or {})
+        s.extra["session_metrics"] = {k: snap.get(k) for k in _HARVESTED_METRIC_KEYS}
 
 
 def main(argv: list[str]) -> int:
@@ -424,6 +467,8 @@ def main(argv: list[str]) -> int:
                "task_id": task.task_id, "arm": arm.value, "trial": trial,
                "exit_ok": out.exit_ok, "wall_secs": out.wall_secs,
                "session_id": getattr(spec, "session_id", None),
+               "session_metrics": (out.artifacts.get("session_metrics")
+                                   if isinstance(out.artifacts, dict) else None),
                "package_dir": (str(spec.package_dir)
                                if getattr(spec, "package_dir", None) else None)}
         if is_deterministic:
@@ -575,6 +620,19 @@ def main(argv: list[str]) -> int:
         # yields no guard_outcomes (the package survives unless KEEP_SCRATCH).
         _attach_guard_outcomes(scores, spec_by_key, base_recs)
 
+        # E1: harvest the per-session friction metrics onto each ECAA row.
+        # Reconstruct from live specs first, falling back to the journal so
+        # --resume runs still attach what the base run captured.
+        metrics_by_key: dict[str, dict] = {}
+        for k, sp in spec_by_key.items():
+            sm = getattr(sp, "session_metrics", None)
+            if isinstance(sm, dict) and sm:
+                metrics_by_key[k] = sm
+        for k, r in base_recs.items():
+            if k not in metrics_by_key and isinstance(r.get("session_metrics"), dict):
+                metrics_by_key[k] = r["session_metrics"]
+        _attach_session_metrics(scores, metrics_by_key)
+
         card = plugin.report(scores)
         # Cost breakdown (per provider + totals), tolerant of partial/deterministic rows.
         card.meta["cost"] = {
@@ -611,6 +669,18 @@ def main(argv: list[str]) -> int:
         )
         write_scorecard(card, run_dir, plugin=plugin, package_dir=ref_pkg)
         print(f"wrote {run_dir}/scorecard.md")
+        # E2: also emit the cost-redacted, provenance-stamped public copy that
+        # `make eval-publish` commits under docs/eval-results/.
+        from scripts.eval.services.scorecard import write_public_scorecard
+        from scripts.eval.services.datasets import datasets_lock_revisions
+        write_public_scorecard(
+            card, run_dir,
+            git_head=_git_head(),
+            datasets_lock=datasets_lock_revisions(),
+            seed=1729,  # mirrors scorecard._BOOTSTRAP_SEED
+            arms=[a.value for a in arms],
+            trials=trials)
+        print(f"wrote {run_dir}/scorecard.public.md")
         return 0
 
     try:

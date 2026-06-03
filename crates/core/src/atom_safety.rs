@@ -315,6 +315,37 @@ fn level_rank(level: SafetyLevel) -> u8 {
     }
 }
 
+/// Atom-registry governance lint errors (G4).
+#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum GovernanceError {
+    #[error("atom {atom_id}: Exec-level atoms require governance.status == reviewed (found {found:?})")]
+    /// An Exec atom did not declare `governance.status == reviewed`.
+    ExecAtomNotReviewed {
+        atom_id: AtomId,
+        found: Option<crate::atom::GovernanceStatus>,
+    },
+}
+
+/// G4 — governance cross-field rule. Exec atoms MUST declare
+/// `governance.status == reviewed`; everything else is governance-exempt
+/// (a `None` block is allowed for non-Exec atoms).
+#[must_use = "governance violations must be inspected — an unreviewed Exec atom must not reach dispatch"]
+pub fn validate_atom_governance(atom: &AtomDefinition) -> Vec<GovernanceError> {
+    use crate::atom::GovernanceStatus;
+    let mut errors = Vec::new();
+    if atom.safety.level == SafetyLevel::Exec {
+        let status = atom.governance.as_ref().map(|g| g.status);
+        if status != Some(GovernanceStatus::Reviewed) {
+            errors.push(GovernanceError::ExecAtomNotReviewed {
+                atom_id: AtomId::from(atom.id.as_str()),
+                found: status,
+            });
+        }
+    }
+    errors
+}
+
 // ── Grant v19 §Authentication of Key Resources — D3 ────────────────
 //
 // Per-package aggregation of every atom's SafetyPolicy. Written to
@@ -354,6 +385,10 @@ pub struct AtomPolicyEntry {
     pub sandbox_requirement: String,
     /// Provisioning policy.
     pub provisioning_policy: String,
+    /// Governance lifecycle status (G4). `None` when the atom declares
+    /// no `governance:` block (unmanaged; allowed for non-Exec atoms).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub governance_status: Option<String>,
 }
 
 /// Build a [`PackageSafetyAggregate`] from a slice of atoms in use by
@@ -385,6 +420,7 @@ pub fn aggregate_for_package(
             code_execution: format!("{:?}", p.code_execution),
             sandbox_requirement: format!("{:?}", p.sandbox),
             provisioning_policy: format!("{:?}", p.provisioning),
+            governance_status: atom.governance.as_ref().map(|g| format!("{:?}", g.status)),
         });
 
         // Safety-level max-rollup uses the established level_rank
@@ -507,6 +543,62 @@ mod tests {
     #[test]
     fn exec_atom_passes() {
         assert!(validate_atom_safety(&exec_atom()).is_empty());
+    }
+
+    // ── G4 governance lint ───────────────────────────────────────────
+
+    #[test]
+    fn exec_atom_with_draft_governance_fails() {
+        use crate::atom::{AtomGovernance, GovernanceStatus};
+        let mut a = exec_atom();
+        a.governance = Some(AtomGovernance {
+            status: GovernanceStatus::Draft,
+            reviewed_by: None,
+            review_date: None,
+            supersedes: None,
+        });
+        let errors = validate_atom_governance(&a);
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, GovernanceError::ExecAtomNotReviewed { .. })),
+            "draft Exec atom must fail governance: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn exec_atom_with_reviewed_governance_passes() {
+        use crate::atom::{AtomGovernance, GovernanceStatus};
+        let mut a = exec_atom();
+        a.governance = Some(AtomGovernance {
+            status: GovernanceStatus::Reviewed,
+            reviewed_by: Some("ecaa-governance".into()),
+            review_date: Some("2026-06-02".into()),
+            supersedes: None,
+        });
+        assert!(validate_atom_governance(&a).is_empty());
+    }
+
+    #[test]
+    fn exec_atom_with_no_governance_block_fails() {
+        // Default-deny: an Exec atom MUST declare reviewed governance.
+        let a = exec_atom(); // governance: None
+        let errors = validate_atom_governance(&a);
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, GovernanceError::ExecAtomNotReviewed { .. })),
+            "Exec atom with no governance block must fail: {errors:?}"
+        );
+    }
+
+    #[test]
+    fn non_exec_atom_with_no_governance_passes() {
+        let a = compute_atom(); // governance: None, non-Exec
+        assert!(
+            validate_atom_governance(&a).is_empty(),
+            "non-Exec atoms are governance-exempt"
+        );
     }
 
     #[test]
