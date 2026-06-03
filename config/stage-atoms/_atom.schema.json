@@ -54,6 +54,35 @@
         "examples": { "type": "array" },
         "description": { "type": "string", "minLength": 1 }
       }
+    },
+    "port_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "semantic_type"],
+      "description": "Mirrors crates/core/src/workflow_contracts/port.rs::PortContract. Sealed (additionalProperties:false) so a typo'd facet key fails at registry load; the `facets` escape hatch stays open inside.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "semantic_type": { "type": "object" },
+        "physical_format": { "type": "object" },
+        "structural_schema": { "type": "object" },
+        "ontology_terms": { "type": "array" },
+        "modality": { "type": "string", "minLength": 1 },
+        "organism": { "type": "string", "minLength": 1 },
+        "genome_build": { "type": "string", "minLength": 1 },
+        "annotation_version": { "type": "string", "minLength": 1 },
+        "coordinate_system": { "type": "string", "minLength": 1 },
+        "units": { "type": "string", "minLength": 1 },
+        "normalization_state": { "type": "string", "minLength": 1 },
+        "statistical_state": { "type": "string", "minLength": 1 },
+        "privacy_class": {
+          "type": "string",
+          "enum": ["public", "internal", "sensitive", "phi", "restricted"]
+        },
+        "cardinality": { "type": "object" },
+        "validators": { "type": "array" },
+        "constraints": { "type": "array" },
+        "facets": { "type": "object", "additionalProperties": true }
+      }
     }
   },
   "properties": {
@@ -169,18 +198,12 @@
     "inputs": {
       "type": "array",
       "description": "Phase 2 of the DAG composer alignment plan — explicit rich PortContract input ports. Optional and additive: when absent, the compatibility::engine synthesizes coarse ports from edam_data / edam_format. Each entry mirrors crates/core/src/workflow_contracts/port.rs::PortContract.",
-      "items": {
-        "type": "object",
-        "additionalProperties": true
-      }
+      "items": { "$ref": "#/definitions/port_contract" }
     },
     "outputs": {
       "type": "array",
       "description": "Phase 2 of the DAG composer alignment plan — explicit rich PortContract output ports. See `inputs` for the migration story.",
-      "items": {
-        "type": "object",
-        "additionalProperties": true
-      }
+      "items": { "$ref": "#/definitions/port_contract" }
     },
     "method_choice": {
       "type": "object",
