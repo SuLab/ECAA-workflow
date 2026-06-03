@@ -1,0 +1,7 @@
+# Bulk RNA-seq differential-expression tables. log2FC + adjusted p-values
+# are the load-bearing numeric columns; aligner + DE-engine version
+# drift produces sub-percent jitter. A 2% relative band with a small
+# absolute floor (for near-zero log2FC) keeps SemanticEquivalent honest
+# without rubber-stamping a real effect-size flip.
+relative_tolerance: 0.02
+absolute_tolerance: 0.001

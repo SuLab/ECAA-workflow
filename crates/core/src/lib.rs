@@ -140,6 +140,7 @@ pub mod project_class_registry;
 pub mod promotion_gate_policy;
 pub mod provenance_tiers;
 pub mod reexecution;
+pub mod reexecution_bounds;
 pub mod registry;
 pub mod remediation;
 // v4 P5 (D5 / F20) — repair-strategy registry. Planner consults this

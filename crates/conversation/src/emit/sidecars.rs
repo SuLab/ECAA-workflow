@@ -223,7 +223,11 @@ pub(super) async fn write_model_policy(session: &Session, output_dir: &Path) -> 
 /// `session.pending_amendment.parent_package_path` is set), the sidecar is
 /// not written. Downstream tooling must treat absence of the file as "no
 /// parent to replay against".
-pub(super) async fn write_reexecution_sidecar(session: &Session, output_dir: &Path) -> Result<()> {
+pub(super) async fn write_reexecution_sidecar(
+    session: &Session,
+    output_dir: &Path,
+    config_dir: &Path,
+) -> Result<()> {
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
     let path = runtime.join("reexecution.json");
@@ -269,11 +273,30 @@ pub(super) async fn write_reexecution_sidecar(session: &Session, output_dir: &Pa
         return Ok(());
     }
 
+    // Resolve per-modality semantic-equivalence bounds from the
+    // classified modality. Load is warn-and-continue (missing dir →
+    // fallback-only provider), so a config-dir typo degrades to the
+    // historical ±5% band rather than blocking emit.
+    let modality = session
+        .classification
+        .as_ref()
+        .map(|c| c.modality.clone())
+        .unwrap_or_default();
+    let bounds = ecaa_workflow_core::reexecution_bounds::ModalityBoundsProvider::from_dir(
+        &config_dir.join("reexecution-bounds"),
+    )
+    .bounds_for(&modality);
+
     // Run the classifier synchronously inside a spawn_blocking to avoid
     // blocking the async executor — all file reads in core are blocking.
     let output_dir_owned = output_dir.to_path_buf();
     let report = tokio::task::spawn_blocking(move || {
-        ecaa_workflow_core::reexecution::classify_reexecution(&parent_path, &output_dir_owned, None)
+        ecaa_workflow_core::reexecution::classify_reexecution(
+            &parent_path,
+            &output_dir_owned,
+            None,
+            bounds,
+        )
     })
     .await
     .context("reexecution classifier task panicked")?

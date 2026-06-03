@@ -492,7 +492,7 @@ async fn emit_steps(
     // ECAA_ABLATE_REEXECUTION_CLASS; absent on first emit. Uses the
     // `output_dir` (staging) as the replay side and the session's
     // parent_package_path as the source side.
-    sidecars::write_reexecution_sidecar(session, output_dir).await?;
+    sidecars::write_reexecution_sidecar(session, output_dir, config_dir).await?;
     sidecars::write_security_policy(session, output_dir, config_dir).await?;
     sidecars::write_dependency_lock(&runtime_prereqs, output_dir).await?;
     sidecars::write_model_policy(session, output_dir).await?;

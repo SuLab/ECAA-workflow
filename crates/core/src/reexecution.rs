@@ -2,11 +2,11 @@
 //!
 //! Five buckets, in priority order (first match wins per artifact):
 //! - `ByteIdentical`: SHA-256 of result artifact matches replay.
-//! - `SemanticEquivalent`: per-modality bounds satisfied. The placeholder
-//!   implementation checks that numeric columns are within ±5% relative
-//!   tolerance; actual per-modality bounds will be supplied by E20 via
-//!   the `ModalityBoundsProvider` injection point. See
-//!   [`classify_reexecution`] for the E20 hook comment.
+//! - `SemanticEquivalent`: per-modality numeric bounds satisfied. Bounds
+//!   come from [`crate::reexecution_bounds::ModalityBoundsProvider`],
+//!   resolved by the caller from the classified modality; the
+//!   default-constructed `ModalityBounds` reproduces the historical ±5%
+//!   relative band for unconfigured modalities. See [`classify_reexecution`].
 //! - `AcknowledgedNonDeterminism`: artifact differs but the source package's
 //!   `determinism-shim.json::env_capture` records a known non-determinism
 //!   source (e.g. `PYTHONHASHSEED` absent from captured vars, or
@@ -91,16 +91,16 @@ impl ReexecutionReport {
 /// from the parent package. When `None`, the function looks for
 /// `<parent_pkg>/runtime/determinism-shim.json` automatically.
 ///
-/// **E20 hook:** per-modality semantic bounds are currently a placeholder
-/// (±5% relative tolerance on numeric columns). Once E20 lands the
-/// `ModalityBoundsProvider` registry, replace the call to
-/// [`check_semantic_equivalence_placeholder`] with a modality-dispatch
-/// against the registry. The function signature here is intentionally
-/// left open for that injection.
+/// `bounds` carries the per-modality semantic-equivalence tolerance,
+/// resolved by the caller from `ModalityBoundsProvider` (the
+/// default-constructed [`crate::reexecution_bounds::ModalityBounds`]
+/// reproduces the historical ±5% relative placeholder). Callers without
+/// a classified modality pass `ModalityBounds::default()`.
 pub fn classify_reexecution(
     parent_pkg: &Path,
     replay_pkg: &Path,
     policy_path: Option<&Path>,
+    bounds: crate::reexecution_bounds::ModalityBounds,
 ) -> io::Result<ReexecutionReport> {
     // Load the determinism shim from the parent package to detect
     // acknowledged non-determinism sources.
@@ -145,7 +145,7 @@ pub fn classify_reexecution(
                 }),
         );
 
-        let ac = classify_single_artifact(&path, &replay_path, &rel_path, shim.as_ref());
+        let ac = classify_single_artifact(&path, &replay_path, &rel_path, shim.as_ref(), &bounds);
         classifications.push(ac);
     }
 
@@ -164,6 +164,7 @@ fn classify_single_artifact(
     replay_artifact: &Path,
     rel_path: &str,
     shim: Option<&DeterminismShimSidecar>,
+    bounds: &crate::reexecution_bounds::ModalityBounds,
 ) -> ArtifactClassification {
     // Unavailable: replay artifact missing.
     if !replay_artifact.exists() {
@@ -220,21 +221,23 @@ fn classify_single_artifact(
         }
     }
 
-    // SemanticEquivalent: placeholder ±5% relative tolerance on numeric
-    // columns. E20 replaces this call with modality-dispatched bounds.
-    match check_semantic_equivalence_placeholder(&parent_bytes, &replay_bytes) {
+    // SemanticEquivalent: per-modality bounds (the generic_omics /
+    // default fallback reproduces the historical ±5% relative band).
+    match check_semantic_equivalence(&parent_bytes, &replay_bytes, bounds) {
         Ok(true) => ArtifactClassification {
             artifact_path: rel_path.to_string(),
             bucket: ReexecutionBucket::SemanticEquivalent,
-            reason: Some(
-                "numeric columns within ±5% relative tolerance (placeholder; E20 supplies per-modality bounds)"
-                    .to_string(),
-            ),
+            reason: Some(format!(
+                "numeric columns within per-modality bounds (rel {:.3}, abs {:.4})",
+                bounds.relative_tolerance, bounds.absolute_tolerance
+            )),
         },
         Ok(false) => ArtifactClassification {
             artifact_path: rel_path.to_string(),
             bucket: ReexecutionBucket::Failed,
-            reason: Some("numeric divergence exceeds semantic-equivalence bounds".to_string()),
+            reason: Some(
+                "numeric divergence exceeds per-modality semantic-equivalence bounds".to_string(),
+            ),
         },
         Err(e) => ArtifactClassification {
             artifact_path: rel_path.to_string(),
@@ -244,16 +247,18 @@ fn classify_single_artifact(
     }
 }
 
-/// Placeholder semantic-equivalence check: every numeric cell in the replay
-/// must be within ±5% relative tolerance of the corresponding parent cell.
-/// Non-numeric cells must match exactly (case-insensitive trim).
+/// Semantic-equivalence check: every numeric cell in the replay must be
+/// within the supplied per-modality `bounds` of the corresponding parent
+/// cell. Non-numeric cells must match exactly (case-insensitive trim).
 ///
 /// Returns `Ok(true)` when all cells satisfy the bounds, `Ok(false)` when
-/// any cell diverges, and `Err` on parse failure.
-///
-/// **E20 hook:** replace this function's logic with modality-dispatched
-/// bounds loaded via `ModalityBoundsProvider` — see [`classify_reexecution`].
-fn check_semantic_equivalence_placeholder(parent: &[u8], replay: &[u8]) -> Result<bool, String> {
+/// any cell diverges, and `Err` on parse failure. The default-constructed
+/// `bounds` reproduces the historical ±5% relative band.
+fn check_semantic_equivalence(
+    parent: &[u8],
+    replay: &[u8],
+    bounds: &crate::reexecution_bounds::ModalityBounds,
+) -> Result<bool, String> {
     let parent_str = std::str::from_utf8(parent).map_err(|e| e.to_string())?;
     let replay_str = std::str::from_utf8(replay).map_err(|e| e.to_string())?;
 
@@ -280,7 +285,7 @@ fn check_semantic_equivalence_placeholder(parent: &[u8], replay: &[u8]) -> Resul
             // Try numeric comparison first.
             match (pc.parse::<f64>(), rc.parse::<f64>()) {
                 (Ok(pv), Ok(rv)) => {
-                    if !numerics_within_tolerance(pv, rv, 0.05) {
+                    if !bounds.within(pv, rv) {
                         return Ok(false);
                     }
                 }
@@ -296,16 +301,6 @@ fn check_semantic_equivalence_placeholder(parent: &[u8], replay: &[u8]) -> Resul
         }
     }
     Ok(true)
-}
-
-/// Check whether `|a - b| / max(|a|, |b|, 1e-9)` is within `tolerance`.
-/// Handles the zero-denominator case (when both are ~0, they are equivalent).
-fn numerics_within_tolerance(a: f64, b: f64, tolerance: f64) -> bool {
-    if a == b {
-        return true;
-    }
-    let denom = a.abs().max(b.abs()).max(1e-9);
-    (a - b).abs() / denom <= tolerance
 }
 
 /// Returns `true` when the shim records a known source of non-determinism:
