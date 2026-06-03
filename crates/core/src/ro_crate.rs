@@ -96,6 +96,7 @@ pub fn build_metadata(
                     {"@id": "runtime/determinism-shim.json"},
                     {"@id": "runtime/security-policy.json"},
                     {"@id": "runtime/audit-proof-report.json"},
+                    {"@id": "runtime/ed-cf-self-assessment.json"},
                     {"@id": "runtime/validation-summary.json"}
                 ],
                 "mainEntity": {"@id": "WORKFLOW.json"}
@@ -252,6 +253,13 @@ pub fn build_metadata(
             "@type": "CreativeWork",
             "name": "Audit-proof invariant report",
             "description": "ECAA audit-proof invariant verdicts.",
+            "encodingFormat": "application/json"
+        }),
+        json!({
+            "@id": "runtime/ed-cf-self-assessment.json",
+            "@type": "CreativeWork",
+            "name": "ED/CF rubric self-assessment",
+            "description": "Deterministic self-location of the system in the Extensibility-Dimension / Counterfactual-Floor design space. Informational — locates, does not validate.",
             "encodingFormat": "application/json"
         }),
         json!({

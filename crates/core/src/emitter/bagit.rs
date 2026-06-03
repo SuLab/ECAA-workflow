@@ -231,6 +231,13 @@ fn walk_for_manifest(
             || rel == std::path::Path::new("runtime/determinism-shim.json")
             || rel == std::path::Path::new("runtime/security-policy.json")
             || rel == std::path::Path::new("runtime/audit-proof-report.json")
+            // ED/CF self-assessment is deterministic from package facts, but
+            // the conversation emit path may re-emit it with the live
+            // Tool::COUNT (vs the core-side baseline), so it stays off the
+            // byte-reproducibility baseline like the other informational
+            // post-manifest sidecars.
+            || rel == std::path::Path::new("runtime/ed-cf-self-assessment.json")
+            || rel == std::path::Path::new("runtime/ed-cf-delta.json")
             || rel == std::path::Path::new("runtime/validation-summary.json")
             || rel == std::path::Path::new("runtime/policy-decisions.jsonl")
             || rel == std::path::Path::new("runtime/decisions.jsonl.mac")

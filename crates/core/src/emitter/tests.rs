@@ -428,6 +428,49 @@ fn emitted_audit_proof_report_carries_version_declaration() {
 }
 
 #[test]
+fn emits_ed_cf_self_assessment_sidecar() {
+    let tmp = TempDir::new().unwrap();
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let config_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config");
+    let policies_dir = config_root.join("downstream-policy");
+    let stage_atoms = config_root.join("stage-atoms");
+    emit_package(&EmitConfig {
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: Some(&stage_atoms),
+        edge_kinds: None,
+    })
+    .expect("emit");
+    let path = tmp.path().join("runtime/ed-cf-self-assessment.json");
+    assert!(path.exists(), "ed-cf-self-assessment.json must be emitted");
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert!(v.get("extensibility").is_some());
+    assert!(v.get("counterfactual_floor").is_some());
+    let disc = v["disclaimer"].as_str().unwrap();
+    assert!(disc.contains("not validity") || disc.contains("does NOT"));
+    // atom_count was derived from the real catalog → ED axis is non-empty.
+    assert!(v["extensibility"]["score"].as_f64().unwrap() > 0.0);
+}
+
+#[test]
 fn emit_copies_plotting_library_into_runtime() {
     let tmp = TempDir::new().unwrap();
     let dag = rnaseq_dag();

@@ -151,6 +151,72 @@ pub(super) fn write_audit_proof_report(output_dir: &Path) -> Result<()> {
     )
 }
 
+/// Core-side baseline for the closed tool-vocabulary size. The conversation
+/// crate owns the authoritative `Tool::COUNT`; core cannot depend on it, so
+/// the core emit path records this documented baseline. The conversation
+/// emit path may re-emit the sidecar with the live count.
+const ED_CF_TOOL_COUNT_BASELINE: usize = 22;
+/// Core-side baseline for the high-impact alone-in-turn tool count.
+const ED_CF_HIGH_IMPACT_TOOL_BASELINE: usize = 6;
+
+/// Emit the ED/CF self-assessment sidecar to
+/// `runtime/ed-cf-self-assessment.json`. Deterministic, warn-only,
+/// informational — never blocks emission. Excluded from the BagIt
+/// manifest (like the audit-proof report) because the conversation
+/// emit path may re-emit it with the live tool counts.
+///
+/// `atom_count` / `modality_count` are derived from the config dirs when
+/// available (atom registry dir + sibling `modalities/` dir); the tool
+/// counts use the core-side baseline constants.
+pub(super) fn write_ed_cf_self_assessment(
+    output_dir: &Path,
+    stage_atoms_dir: Option<&Path>,
+) -> Result<()> {
+    let atom_count = stage_atoms_dir
+        .and_then(|d| crate::atom_registry::AtomRegistry::load_from_dir(d).ok())
+        .map(|r| r.len())
+        .unwrap_or(0);
+    // The modality manifests live in a sibling `modalities/` dir of the
+    // config root (stage-atoms' parent).
+    let modality_count = stage_atoms_dir
+        .and_then(|d| d.parent())
+        .map(|cfg| cfg.join("modalities"))
+        .map(|md| count_modality_manifests(&md))
+        .unwrap_or(0);
+    let inputs = crate::rubric_self_assessment::AssessmentInputs::from_package_facts(
+        atom_count,
+        modality_count,
+        ED_CF_TOOL_COUNT_BASELINE,
+        ED_CF_HIGH_IMPACT_TOOL_BASELINE,
+    );
+    let report = crate::rubric_self_assessment::EdCfSelfAssessment::from_inputs(&inputs);
+    let value = serde_json::to_value(&report).context("serializing ED/CF self-assessment")?;
+    write_pretty_json(
+        &output_dir.join("runtime").join("ed-cf-self-assessment.json"),
+        &value,
+    )
+}
+
+/// Count `<id>.yaml` modality manifests in `dir` (excluding `_*.yaml`
+/// schema sidecars). Returns 0 when the dir is absent/unreadable.
+fn count_modality_manifests(dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    entries
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            let p = e.path();
+            p.extension().and_then(|s| s.to_str()) == Some("yaml")
+                && !p
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with('_'))
+                    .unwrap_or(false)
+        })
+        .count()
+}
+
 pub(super) fn write_validation_summary(output_dir: &Path) -> Result<()> {
     let mode = read_validation_mode();
     let (passed, failed, skipped_pending_harness) = if mode == ValidationMode::Disabled {
