@@ -1,6 +1,8 @@
 id: clinical_endpoint_analysis
 version: "1.0.0"
 role: operation
+# Confirmatory result-producing stage: anchors a Required recall expectation.
+confirmatory: true
 description: |
   Run the prespecified primary + secondary endpoint analyses against
   the imported CDISC ADaM / SDTM trial dataset. Method-neutral over the

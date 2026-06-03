@@ -1,6 +1,8 @@
 id: pathway_enrichment
 version: "1.0.0"
 role: operation
+# Confirmatory result-producing stage: anchors a Required recall expectation.
+confirmatory: true
 description: |
   Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against
   ranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.

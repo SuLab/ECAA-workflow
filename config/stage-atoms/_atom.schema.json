@@ -66,6 +66,10 @@
       ],
       "description": "Drives builder-side expansion semantics. Plan §A.S1 — `selection` lifts the legacy `select_*` filename prefix into a typed role; `calibration`/`pilot`/`adversarial`/`monitor` are speculative variants that default to `operation`-equivalent behavior at consumer sites until specialized."
     },
+    "confirmatory": {
+      "type": "boolean",
+      "description": "True for a confirmatory result-producing stage whose numeric outputs the verifier recomputes from source; anchors a Required recall expectation in derive_expected_manifest. Defaults false; discover_*/validate_* stages are never confirmatory."
+    },
     "discovery_kind": {
       "type": "string",
       "minLength": 1,

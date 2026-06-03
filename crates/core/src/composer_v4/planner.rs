@@ -3064,6 +3064,8 @@ fn placeholder_atom(node: &TaskNode) -> AtomDefinition {
         id: node.id.clone(),
         version: node.version.render(),
         role: crate::atom::AtomRole::Operation,
+        // Placeholder atoms for hypothesized nodes are not confirmatory.
+        confirmatory: false,
         discovery_kind: None,
         description: node.intent.clone(),
         edam_operation: "ecaax:hypothesized".into(),

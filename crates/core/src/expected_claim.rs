@@ -78,29 +78,19 @@ pub struct ExpectedClaimManifest {
     pub entries: Vec<ExpectedClaim>,
 }
 
-/// The set of confirmatory-stage id stems whose output tables anchor the
-/// recall floor. These are the stages whose numeric results the verifier
-/// recomputes from source; a `Required` expectation is emitted for each
-/// present in the DAG. Kept as a small curated list (not a free-for-all
-/// over every Computation task) so the manifest under-generates rather
-/// than over-generates `Required` entries on novel archetypes.
-const CONFIRMATORY_STAGE_STEMS: &[&str] = &[
-    "differential_expression",
-    "differential_abundance",
-    "pathway_enrichment",
-    "gene_set_enrichment",
-    "variant_calling",
-    "peak_calling",
-    "primary_endpoint",
-    "endpoint_analysis",
-];
-
 /// A task is a confirmatory result-producing stage when its source atom
-/// id (preferred) or task id stem matches a known confirmatory stage and
-/// it is a `Computation` task (not `Discovery`/`Validation`/`Review`/
-/// `Gate`). `discover_*` and `validate_*` self-describing stages never
-/// anchor expectations.
-fn is_confirmatory_stage(task_id: &str, task: &crate::dag::Task) -> bool {
+/// id (preferred) or task id self-declares `confirmatory: true` in the
+/// catalog and it is a `Computation` task (not `Discovery`/`Validation`/
+/// `Review`/`Gate`). `discover_*` and `validate_*` self-describing stages
+/// never anchor expectations. `confirmatory_atom_ids` is the set of
+/// lowercased atom ids the registry marked confirmatory; passing it in
+/// (rather than reading a hardcoded list) lets novel archetypes' atoms
+/// self-declare confirmatory-ness without an id-substring allowlist.
+fn is_confirmatory_stage(
+    task_id: &str,
+    task: &crate::dag::Task,
+    confirmatory_atom_ids: &std::collections::BTreeSet<String>,
+) -> bool {
     if !matches!(task.kind, TaskKind::Computation) {
         return false;
     }
@@ -112,20 +102,22 @@ fn is_confirmatory_stage(task_id: &str, task: &crate::dag::Task) -> bool {
     if key.starts_with("discover_") || key.starts_with("validate_") {
         return false;
     }
-    CONFIRMATORY_STAGE_STEMS
-        .iter()
-        .any(|stem| key == *stem || key.contains(stem))
+    confirmatory_atom_ids.contains(&key)
 }
 
 /// Derive the expected-claim manifest deterministically from the intake
-/// goal + the DAG's confirmatory stages. Pure over intake bytes — no
-/// `Clock`, no RNG, no filesystem. `BTreeMap`-keyed accumulation then a
-/// final sort by `(requirement, entity, contrast)` so two emits of the
-/// same intake produce a byte-identical manifest.
+/// goal + the DAG's confirmatory stages. Pure over its inputs — no
+/// `Clock`, no RNG, no filesystem: confirmatory-ness is read from the
+/// passed-in `confirmatory_atom_ids` set (built at the emit site from the
+/// catalog's per-atom `confirmatory` marker), not a list in this file.
+/// `BTreeMap`-keyed accumulation then a final sort by `(requirement,
+/// entity, contrast)` so two emits of the same intake produce a
+/// byte-identical manifest.
 pub fn derive_expected_manifest(
     classification: &ClassificationResult,
     dag: &DAG,
     _project_class: ProjectClass,
+    confirmatory_atom_ids: &std::collections::BTreeSet<String>,
 ) -> ExpectedClaimManifest {
     use std::collections::BTreeMap;
 
@@ -138,7 +130,7 @@ pub fn derive_expected_manifest(
     // present cited path beats the fuzzy collapse — see `claim_verifier`).
     let goal_edam = classification.goal.as_ref().map(|g| g.edam_data.clone());
     for (task_id, task) in dag.tasks.iter() {
-        if !is_confirmatory_stage(task_id.as_ref(), task) {
+        if !is_confirmatory_stage(task_id.as_ref(), task, confirmatory_atom_ids) {
             continue;
         }
         let stem = task
@@ -224,7 +216,7 @@ pub fn inject_manifest_into_policy(
 mod tests {
     use super::*;
     use crate::dag::{Task, TaskId, TaskState, DAG};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     // `DAG` does NOT derive `Default` (verified: it has `version`,
     // `schema_version`, `workflow_id`, `current_task`, `tasks`,
@@ -290,8 +282,12 @@ mod tests {
     #[test]
     fn empty_dag_and_no_goal_yields_empty_manifest() {
         let dag = dag_with(vec![]);
-        let m =
-            derive_expected_manifest(&empty_classification(), &dag, ProjectClass::Bioinformatics);
+        let m = derive_expected_manifest(
+            &empty_classification(),
+            &dag,
+            ProjectClass::Bioinformatics,
+            &BTreeSet::new(),
+        );
         assert_eq!(m.schema_version, "1");
         assert!(
             m.entries.is_empty(),
@@ -308,8 +304,15 @@ mod tests {
             "differential_expression",
             comp_task("differential_expression"),
         )]);
-        let m =
-            derive_expected_manifest(&empty_classification(), &dag, ProjectClass::Bioinformatics);
+        let m = derive_expected_manifest(
+            &empty_classification(),
+            &dag,
+            ProjectClass::Bioinformatics,
+            &BTreeSet::from([
+                "differential_expression".to_string(),
+                "pathway_enrichment".to_string(),
+            ]),
+        );
         assert_eq!(m.entries.len(), 1, "one confirmatory stage ⇒ one entry");
         let e = &m.entries[0];
         assert_eq!(e.requirement, Requirement::Required);
@@ -331,8 +334,15 @@ mod tests {
                 comp_task("differential_expression"),
             ),
         ]);
-        let m =
-            derive_expected_manifest(&empty_classification(), &dag, ProjectClass::Bioinformatics);
+        let m = derive_expected_manifest(
+            &empty_classification(),
+            &dag,
+            ProjectClass::Bioinformatics,
+            &BTreeSet::from([
+                "differential_expression".to_string(),
+                "pathway_enrichment".to_string(),
+            ]),
+        );
         let entities: Vec<&str> = m.entries.iter().map(|e| e.entity.as_str()).collect();
         let mut sorted = entities.clone();
         sorted.sort();

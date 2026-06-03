@@ -502,6 +502,8 @@ pub fn promoted_proposal_to_atom_definition(
         id: proposal.node_id.clone(),
         version: "0.0.0".to_string(),
         role: crate::atom::AtomRole::Operation,
+        // Proposed overlay atoms are never confirmatory result producers.
+        confirmatory: false,
         discovery_kind: None,
         description: proposal.intent.clone(),
         edam_operation,

@@ -109,6 +109,8 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                             .map(|a| (a.id.clone(), a.runtime_packages.clone()))
                             .collect()
                     });
+                    // Stage-atoms dir for the recall anchor (confirmatory-atom-id set).
+                    let stage_atoms_dir = config_path.join("stage-atoms");
                     emit_package(&EmitConfig {
                         output_dir: out,
                         dag,
@@ -135,6 +137,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                         // — emit is unreachable in that state because current_dag
                         // is also None and the /ready handler returns above.
                         per_atom_runtime_prereqs: per_atom_prereqs.as_ref(),
+                        stage_atoms_dir: Some(&stage_atoms_dir),
                     })?;
                     println!(
                         "\n{} Package emitted → {}",

@@ -101,6 +101,14 @@ pub struct EmitConfig<'a> {
     /// test fixtures).
     pub per_atom_runtime_prereqs:
         Option<&'a std::collections::BTreeMap<String, crate::runtime_prereqs::RuntimePrereqs>>,
+    /// Dir of `config/stage-atoms`. When set, emit loads the
+    /// `AtomRegistry` to derive the set of catalog-declared confirmatory
+    /// atom ids, which `derive_expected_manifest` uses to anchor the
+    /// recall floor (the `verifiableEntities.expected` block). `None` ⇒
+    /// no anchoring (the derived manifest finds no confirmatory stages);
+    /// a registry-load failure is non-fatal and also yields no anchoring,
+    /// since recall expectations are additive.
+    pub stage_atoms_dir: Option<&'a std::path::Path>,
 }
 
 /// Structured amendment metadata captured at the moment `emit_package`
@@ -331,10 +339,27 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     // policy's `verifiableEntities.expected`. Deterministic over intake;
     // no-op when the policy is absent.
     {
+        // Build the set of catalog-declared confirmatory atom ids from
+        // the stage-atoms registry. A load failure is non-fatal (recall
+        // anchoring is additive) — `.ok()` collapses to an empty set so
+        // emit never blocks on a missing/unreadable catalog. Lowercased
+        // so the case-insensitive compare in `is_confirmatory_stage`
+        // holds.
+        let confirmatory_atom_ids: std::collections::BTreeSet<String> = config
+            .stage_atoms_dir
+            .and_then(|d| crate::atom_registry::AtomRegistry::load_cached(d).ok())
+            .map(|reg| {
+                reg.iter()
+                    .filter(|(_, a)| a.confirmatory)
+                    .map(|(id, _)| id.to_ascii_lowercase())
+                    .collect()
+            })
+            .unwrap_or_default();
         let manifest = crate::expected_claim::derive_expected_manifest(
             config.classification,
             config.dag,
             crate::project_class::ProjectClass::default(),
+            &confirmatory_atom_ids,
         );
         crate::expected_claim::inject_manifest_into_policy(dir, &manifest)
             .context("injecting expected-claim manifest")?;

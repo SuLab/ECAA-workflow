@@ -160,6 +160,7 @@ fn make_atom(
         id: id.into(),
         version: "1.0.0".into(),
         role,
+        confirmatory: false,
         discovery_kind: if matches!(role, AtomRole::Discovery) {
             Some("method".into())
         } else {

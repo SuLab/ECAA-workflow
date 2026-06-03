@@ -40,6 +40,17 @@ version: string,
  */
 role: AtomRole, 
 /**
+ * True when this atom is a confirmatory result-producing stage:
+ * a stage whose numeric outputs the verifier recomputes from
+ * source, and which therefore anchors a `Required` recall
+ * expectation in `derive_expected_manifest` (Inv 1 enforces
+ * recall over these). Self-declared per atom so novel archetypes'
+ * confirmatory stages are recognised without an id-substring list.
+ * Defaults `false`; `discover_*` / `validate_*` self-describing
+ * stages are never confirmatory.
+ */
+confirmatory: boolean, 
+/**
  * Required when `role == Discovery`. Names the kind of decision
  * the agent makes (e.g. `method`, `threshold`, `panel`). Schema
  * enforces presence; the builder reads it.

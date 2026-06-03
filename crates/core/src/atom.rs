@@ -65,6 +65,17 @@ pub struct AtomDefinition {
     /// fan-in barrier.
     pub role: AtomRole,
 
+    /// True when this atom is a confirmatory result-producing stage:
+    /// a stage whose numeric outputs the verifier recomputes from
+    /// source, and which therefore anchors a `Required` recall
+    /// expectation in `derive_expected_manifest` (Inv 1 enforces
+    /// recall over these). Self-declared per atom so novel archetypes'
+    /// confirmatory stages are recognised without an id-substring list.
+    /// Defaults `false`; `discover_*` / `validate_*` self-describing
+    /// stages are never confirmatory.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub confirmatory: bool,
+
     /// Required when `role == Discovery`. Names the kind of decision
     /// the agent makes (e.g. `method`, `threshold`, `panel`). Schema
     /// enforces presence; the builder reads it.
@@ -309,6 +320,7 @@ impl AtomDefinition {
             id,
             version: "1.0.0".into(),
             role: AtomRole::Operation,
+            confirmatory: false,
             discovery_kind: None,
             edam_operation: "operation:0292".into(),
             edam_data: Some("data:1383".into()),
@@ -1159,6 +1171,7 @@ mod tests {
             id: "align_reads".into(),
             version: "1.0.0".into(),
             role: AtomRole::Operation,
+            confirmatory: false,
             discovery_kind: None,
             description: "Align short reads to a reference genome.".into(),
             edam_operation: "operation:0292".into(),
@@ -1204,6 +1217,7 @@ mod tests {
             id: "discover_aligner".into(),
             version: "1.0.0".into(),
             role: AtomRole::Discovery,
+            confirmatory: false,
             discovery_kind: Some("method".into()),
             description: "Pick a short-read aligner appropriate to organism + read shape.".into(),
             edam_operation: "ecaax:aligner_choice".into(),
@@ -1248,6 +1262,7 @@ mod tests {
             id: "x".into(),
             version: "1.0.0".into(),
             role: AtomRole::Operation,
+            confirmatory: false,
             discovery_kind: None,
             description: "x".into(),
             edam_operation: "operation:0004".into(),
@@ -1377,6 +1392,7 @@ mod tests {
             id: "x".into(),
             version: "1.0.0".into(),
             role: AtomRole::Operation,
+            confirmatory: false,
             discovery_kind: None,
             description: "x".into(),
             edam_operation: "operation:0004".into(),
