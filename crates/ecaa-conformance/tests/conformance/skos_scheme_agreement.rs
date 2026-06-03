@@ -3,7 +3,7 @@
 //! Each closed enum's Rust variant set MUST exactly equal its registered
 //! SKOS scheme's skos:notation set, and the count MUST match the pinned
 //! constant. This COMPLEMENTS — does not replace — the existing pinned
-//! counts (BlockerKind::COUNT==47 in blocker_variant_count.rs /
+//! counts (BlockerKind::COUNT==48 in blocker_variant_count.rs /
 //! spec_consistency.rs; all_flags().len()==6 in core::ablation). The three
 //! couplings agree by construction: Rust ⇄ COUNT, Rust ⇄ spec-md, Rust ⇄ SKOS.
 //!
