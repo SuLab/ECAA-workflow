@@ -533,6 +533,7 @@ pub fn promoted_proposal_to_atom_definition(
         provenance: None,
         estimated_duration: None,
         safety: crate::atom::SafetyPolicy::default(),
+        governance: None,
     })
 }
 

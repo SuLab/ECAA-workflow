@@ -397,6 +397,22 @@ impl AtomRegistry {
                     .join("\n  - ")
             ));
         }
+        // G4 — governance lint. Exec atoms must declare
+        // `governance.status == reviewed`; non-Exec atoms are exempt.
+        let mut governance_errors: Vec<crate::atom_safety::GovernanceError> = Vec::new();
+        for atom in self.atoms.values() {
+            governance_errors.extend(crate::atom_safety::validate_atom_governance(atom));
+        }
+        if !governance_errors.is_empty() {
+            return Err(anyhow!(
+                "atom registry governance lint failed:\n  - {}",
+                governance_errors
+                    .iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n  - ")
+            ));
+        }
         Ok(())
     }
 

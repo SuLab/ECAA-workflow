@@ -277,6 +277,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         }
     }
 

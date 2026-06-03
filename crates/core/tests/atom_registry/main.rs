@@ -5,6 +5,8 @@ mod atom_count_baseline;
 mod atom_registry_overlay;
 mod confirmatory_atom_catalog;
 mod estimated_duration;
+mod exec_atom_load;
+mod governance_load;
 mod atom_role_consumers;
 mod atom_role_speculative_variants;
 mod atom_safety_integration;

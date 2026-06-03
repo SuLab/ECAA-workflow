@@ -445,6 +445,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         }
     }
 
@@ -824,6 +825,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         composition.atoms.insert(
             0,

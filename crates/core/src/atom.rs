@@ -322,6 +322,13 @@ pub struct AtomDefinition {
     /// `sandbox != None`.
     #[serde(default, skip_serializing_if = "SafetyPolicy::is_default")]
     pub safety: SafetyPolicy,
+
+    /// Governance lifecycle metadata (G4). Optional; `None` means
+    /// "unmanaged" — allowed for non-Exec atoms, refused for Exec atoms
+    /// by `atom_safety::validate_atom_governance` at registry load.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub governance: Option<AtomGovernance>,
 }
 
 /// One typed parameter on an atom — the paper-D.1 parameter axis.
@@ -500,6 +507,7 @@ impl AtomDefinition {
             provenance: None,
             estimated_duration: None,
             safety: SafetyPolicy::default(),
+            governance: None,
         }
     }
 }
@@ -1198,6 +1206,51 @@ impl SafetyPolicy {
     }
 }
 
+/// Atom-registry governance lifecycle status (G4). Answers who may
+/// publish/review/retire an atom. The only load-bearing rule is "Exec
+/// atoms require status: reviewed" (`atom_safety::validate_atom_governance`).
+#[derive(
+    Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema,
+)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum GovernanceStatus {
+    /// Authored, not yet reviewed. Exec atoms in this state refuse to load.
+    #[default]
+    Draft,
+    /// Reviewed + signed off. Required for Exec atoms.
+    Reviewed,
+    /// Superseded; still loads but composer-deprioritised.
+    Deprecated,
+    /// Withdrawn; excluded from composer candidate selection at load.
+    Retired,
+}
+
+/// Atom-registry governance lifecycle metadata (G4). Optional +
+/// additive; `None` means "unmanaged" — allowed for non-Exec atoms,
+/// refused for Exec atoms by the load gate.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct AtomGovernance {
+    /// Lifecycle status. Defaults to `Draft`.
+    #[serde(default)]
+    pub status: GovernanceStatus,
+    /// Reviewer identity (team / individual). Author-supplied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub reviewed_by: Option<String>,
+    /// Author-supplied static `YYYY-MM-DD`. NOT `SystemTime::now()` —
+    /// deterministic emission requires the date be authored text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub review_date: Option<String>,
+    /// Atom id this revision supersedes, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub supersedes: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1362,6 +1415,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let yaml = serde_yaml_ng::to_string(&atom).expect("serialize");
         let back: AtomDefinition = serde_yaml_ng::from_str(&yaml).expect("roundtrip");
@@ -1409,6 +1463,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         assert!(yaml.contains("discovery_kind: method"));
@@ -1460,6 +1515,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         // Default arch is suppressed by skip_serializing_if so the
@@ -1585,6 +1641,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let yaml = serde_yaml_ng::to_string(&atom).unwrap();
         let a_pos = yaml.find("- a").unwrap();

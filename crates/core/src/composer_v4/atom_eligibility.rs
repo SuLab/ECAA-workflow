@@ -85,6 +85,17 @@ pub(crate) fn is_v4_eligible(
     if intent.modality.is_some() && AGENTIC_BENCH_ATOM_IDS.contains(&atom.id.as_str()) {
         return false;
     }
+    // Filter 3 (G4) — governance lifecycle. A `Retired` atom is
+    // withdrawn from the catalog: never a candidate producer / consumer
+    // for the v4 search. `Draft` / `Reviewed` / `Deprecated` (and an
+    // absent block) stay selectable; the Exec-must-be-reviewed gate is
+    // enforced separately at registry load.
+    if matches!(
+        atom.governance.as_ref().map(|g| g.status),
+        Some(crate::atom::GovernanceStatus::Retired)
+    ) {
+        return false;
+    }
     true
 }
 
@@ -129,6 +140,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         }
     }
 

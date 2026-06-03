@@ -941,6 +941,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let downstream = AtomDefinition {
             id: "differential_expression".into(),
@@ -981,6 +982,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let composition = CompositionResult {
             matched_archetype: Some("test_archetype".into()),
@@ -1086,6 +1088,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let discover_b = AtomDefinition {
             id: "discover_alignment__rerun_2".into(),
@@ -1126,6 +1129,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let composition = CompositionResult {
             matched_archetype: Some("test_archetype".into()),
@@ -1225,6 +1229,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let composition = CompositionResult {
             matched_archetype: Some("test_archetype".into()),
@@ -1307,6 +1312,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let composition = CompositionResult {
             matched_archetype: Some("cross_omics_test".into()),
@@ -1430,6 +1436,7 @@ mod tests {
             provenance: None,
             estimated_duration: None,
             safety: Default::default(),
+            governance: None,
         };
         let composition = CompositionResult {
             matched_archetype: None,

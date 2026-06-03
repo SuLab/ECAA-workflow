@@ -175,6 +175,7 @@ fn synth_atom(
         provenance: None,
         estimated_duration: None,
         safety: Default::default(),
+        governance: None,
     }
 }
 
