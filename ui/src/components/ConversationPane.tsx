@@ -253,6 +253,22 @@ export default function ConversationPane() {
     [conv.sendTurn],
   )
 
+  // Drop a retained optional stage the confirmation card surfaced.
+  // Routes through the same conversation loop quick-replies use: a
+  // deterministic natural-language instruction the LLM resolves into a
+  // `set_intake_excluded_atoms` call, which prunes the stage and rebuilds
+  // the DAG. (No dedicated REST endpoint exists for exclusion today; it
+  // is a conversational tool, so this is the established mechanism — see
+  // crates/conversation/src/tools/intake.rs::set_intake_excluded_atoms.)
+  const onRemoveOptionalStage = useCallback(
+    (stageId: string) =>
+      conv.sendTurn(
+        `Drop the optional stage "${stageId}" from the plan — exclude it before we emit.`,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dep on .sendTurn method ref is intentional; full conv object would re-run on every render
+    [conv.sendTurn],
+  )
+
   // Whether the session has produced at least one emitted package.
   // Today's gating: only offer the "Branch from here" affordance once
   // the SME has something concrete to fork — pre-emission sessions
@@ -647,6 +663,7 @@ export default function ConversationPane() {
             ? onBranch
             : undefined
         }
+        onRemoveOptionalStage={onRemoveOptionalStage}
       />
       {conv.stillThinking && (
         <StillThinkingIndicator

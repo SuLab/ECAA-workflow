@@ -237,6 +237,10 @@ interface Props {
    *  least one package, so the SME has something concrete to branch
    *  from. */
   onBranch?: (rationale?: string) => void | Promise<void>
+  /** Drop a retained optional stage listed on the confirmation card.
+   *  Threaded down to `ConfirmationTurnCard`. Routes the stage id
+   *  through the existing exclusion mechanism. */
+  onRemoveOptionalStage?: (stageId: string) => void | Promise<void>
 }
 
 function AssistantTurnCardImpl({
@@ -250,6 +254,7 @@ function AssistantTurnCardImpl({
   projectClass,
   sessionId,
   onBranch,
+  onRemoveOptionalStage,
 }: Props) {
   // Preprocess lit-entity tags once per content string. If there are no
   // sentinel tokens, `preprocessed === turn.content` and the fast path
@@ -289,6 +294,7 @@ function AssistantTurnCardImpl({
           onConfirm={onConfirm}
           onReject={onReject}
           projectClass={projectClass}
+          onRemoveOptionalStage={onRemoveOptionalStage}
         />
       )}
       {isLatest && pillStatusLine && <ToolCallStatusPill statusLine={pillStatusLine} />}

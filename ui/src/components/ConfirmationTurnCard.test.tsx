@@ -123,4 +123,92 @@ describe('ConfirmationTurnCard', () => {
       screen.getByRole('button', { name: /revise/i }),
     ).toBeDisabled()
   })
+
+  describe('retained optional stages', () => {
+    const cardWithOptional = {
+      ...card,
+      retained_optional_stages: [
+        {
+          stage_id: 'pathway_enrichment',
+          reason: 'optional downstream stage; included by the archetype',
+        },
+      ],
+    }
+
+    it('renders a removable chip for each retained optional stage', () => {
+      render(
+        <SessionTestWrapper>
+          <ConfirmationTurnCard
+            card={cardWithOptional}
+            onConfirm={vi.fn()}
+            onReject={vi.fn()}
+            onRemoveOptionalStage={vi.fn()}
+          />
+        </SessionTestWrapper>,
+      )
+      // The stage id is shown as a chip label …
+      expect(screen.getByText('pathway_enrichment')).toBeInTheDocument()
+      // … with a remove affordance.
+      expect(
+        screen.getByRole('button', {
+          name: /remove optional stage pathway_enrichment/i,
+        }),
+      ).toBeInTheDocument()
+    })
+
+    it('posts the exclusion with the stage id when remove is clicked', async () => {
+      const user = userEvent.setup()
+      const onRemoveOptionalStage = vi.fn().mockResolvedValue(undefined)
+      render(
+        <SessionTestWrapper>
+          <ConfirmationTurnCard
+            card={cardWithOptional}
+            onConfirm={vi.fn()}
+            onReject={vi.fn()}
+            onRemoveOptionalStage={onRemoveOptionalStage}
+          />
+        </SessionTestWrapper>,
+      )
+      await user.click(
+        screen.getByRole('button', {
+          name: /remove optional stage pathway_enrichment/i,
+        }),
+      )
+      expect(onRemoveOptionalStage).toHaveBeenCalledOnce()
+      expect(onRemoveOptionalStage).toHaveBeenCalledWith('pathway_enrichment')
+    })
+
+    it('renders no remove affordance when no handler is wired', () => {
+      render(
+        <SessionTestWrapper>
+          <ConfirmationTurnCard
+            card={cardWithOptional}
+            onConfirm={vi.fn()}
+            onReject={vi.fn()}
+          />
+        </SessionTestWrapper>,
+      )
+      expect(
+        screen.queryByRole('button', {
+          name: /remove optional stage/i,
+        }),
+      ).toBeNull()
+    })
+
+    it('renders no optional-stage section when the list is empty', () => {
+      render(
+        <SessionTestWrapper>
+          <ConfirmationTurnCard
+            card={{ ...card, retained_optional_stages: [] }}
+            onConfirm={vi.fn()}
+            onReject={vi.fn()}
+            onRemoveOptionalStage={vi.fn()}
+          />
+        </SessionTestWrapper>,
+      )
+      expect(
+        screen.queryByLabelText(/retained optional stages/i),
+      ).toBeNull()
+    })
+  })
 })
