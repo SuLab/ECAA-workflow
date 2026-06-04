@@ -54,9 +54,9 @@ pub use invalidation_guard::WorkflowDagMut;
 pub use lineage::{session_lineage_schema_version, SessionLineage};
 pub use state::{
     AssistantIntent, ConfirmationCard, HarnessEvent, PendingAmendment, RemoteExecutionInfo,
-    RendererProposal, RendererProposals, Session, SessionState, ShareToken, SmeMethodSignals,
-    StructuredCaptureField, StructuredCaptureFieldKind, StructuredCaptureTurnCard, ToolCallRecord,
-    Turn, TurnRole,
+    RendererProposal, RendererProposals, RetainedOptionalStage, Session, SessionState, ShareToken,
+    SmeMethodSignals, StructuredCaptureField, StructuredCaptureFieldKind, StructuredCaptureTurnCard,
+    ToolCallRecord, Turn, TurnRole,
 };
 pub use transitions::{StateTrigger, TransitionError};
 
