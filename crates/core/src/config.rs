@@ -1,7 +1,7 @@
 //! Typed `Config` struct loaded once at process boot.
 //!
-//! A single [`Config`] consolidates the env-var catalog documented in
-//! `docs/env-vars-reference.md` behind one loader that:
+//! A single [`Config`] consolidates the shared environment-variable
+//! catalog behind one loader that:
 //!
 //! - Reads from `std::env::vars()` once at startup via [`Config::from_env`]
 //!   (production) or from an injected [`HashMap`] via
@@ -328,14 +328,6 @@ pub struct Config {
     /// `std::env::var` read at `classify.rs:266`).
     pub modality_drift_mode: ModalityDriftMode,
 
-    // ECAA emission mode (Aim 3A Arm B″) ---------------------------------
-    /// `ECAA_ECAA_MODE`. Default `Full` (current behavior — full ECAA
-    /// package shape with every typed sidecar materialized).
-    /// `Conventional` is the Arm B″ control package: README +
-    /// analysis.ipynb + basic RO-Crate + per-table CSVs, with no
-    /// ECAA-specific sidecars. Unknown values fall back to `Full` with
-    /// a tracing warning.
-    pub ecaa_mode: crate::emit_mode::EcaaMode,
 }
 
 // ----------------------------------------------------------------------------
@@ -524,10 +516,6 @@ impl Config {
             }
         };
 
-        // -- ECAA emission mode ----------------------------------------
-        let ecaa_mode =
-            crate::emit_mode::EcaaMode::from_env_str(env.get("ECAA_ECAA_MODE").copied());
-
         Ok(Config {
             anthropic_api_key,
             anthropic_base_url,
@@ -554,7 +542,6 @@ impl Config {
             compose_strict,
             external_curated_dirs,
             modality_drift_mode,
-            ecaa_mode,
         })
     }
 
@@ -607,7 +594,6 @@ impl std::fmt::Debug for Config {
             .field("git_enabled", &self.git_enabled)
             .field("compose_strict", &self.compose_strict)
             .field("modality_drift_mode", &self.modality_drift_mode)
-            .field("ecaa_mode", &self.ecaa_mode)
             .finish()
     }
 }
@@ -667,7 +653,6 @@ impl Default for ConfigBuilder {
                 compose_strict: false,
                 external_curated_dirs: Vec::new(),
                 modality_drift_mode: ModalityDriftMode::Warn,
-                ecaa_mode: crate::emit_mode::EcaaMode::Full,
             },
         }
     }
@@ -811,12 +796,6 @@ impl ConfigBuilder {
     /// Modality drift mode.
     pub fn modality_drift_mode(mut self, m: ModalityDriftMode) -> Self {
         self.inner.modality_drift_mode = m;
-        self
-    }
-
-    /// Ecaa mode.
-    pub fn ecaa_mode(mut self, mode: crate::emit_mode::EcaaMode) -> Self {
-        self.inner.ecaa_mode = mode;
         self
     }
 

@@ -14,7 +14,6 @@
 //! - `cross_version_diff` — per-table diff vs a parent package
 
 mod audit_log;
-pub mod conventional;
 mod cross_version_diff;
 mod decision_substrate_writer;
 mod model_policy_sidecar;
@@ -175,37 +174,6 @@ async fn emit_steps(
     config_dir: &Path,
     tier: ecaa_workflow_core::provenance_tiers::ProvenanceTier,
 ) -> Result<()> {
-    // Aim 3A Arm B″ branch. When `ECAA_ECAA_MODE=conventional`, emit
-    // a competent conventional-documentation envelope (README +
-    // analysis.ipynb + basic RO-Crate + tables/*.csv) and skip the full
-    // ECAA pipeline entirely. The branch is intentionally placed inside
-    // `emit_steps` so the conventional output inherits the atomic-
-    // staging guarantee of the outer `emit_with_conversation_log_tiered`.
-    //
-    // Reading the env var directly (rather than threading a `Config`
-    // argument) keeps the diff narrow; the production `Config::from_env`
-    // already parses this var into `Config::ecaa_mode`, so consumers
-    // wanting the typed value have it.
-    #[allow(clippy::disallowed_methods)]
-    let raw_mode = std::env::var("ECAA_ECAA_MODE").ok();
-    let mode = ecaa_workflow_core::emit_mode::EcaaMode::from_env_str(raw_mode.as_deref());
-    if mode == ecaa_workflow_core::emit_mode::EcaaMode::Conventional {
-        // Intent summary: prefer the SME's raw intake prose; fall back
-        // to a literal placeholder when the session was constructed
-        // without prose (e.g. test fixtures that bypass AppendIntakeProse).
-        let intent_summary = if session.intake_prose.trim().is_empty() {
-            "[Intent summary not provided.]".to_string()
-        } else {
-            session.intake_prose.clone()
-        };
-        // No tables at emit time — the conventional envelope is emitted
-        // pre-execution; the harness writes result CSVs during/after the run.
-        let tables: Vec<(&str, &str)> = Vec::new();
-        conventional::emit_conventional(output_dir, &intent_summary, &tables)
-            .context("conventional emit (Arm B″)")?;
-        return Ok(());
-    }
-
     let dag = session
         .dag
         .as_ref()

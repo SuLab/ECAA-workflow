@@ -79,7 +79,6 @@ pub mod disambiguation;
 pub mod disposition;
 pub mod edam;
 pub mod emission_invariants;
-pub mod emit_mode;
 /// Emitter module.
 pub mod emitter;
 pub mod expected_claim;

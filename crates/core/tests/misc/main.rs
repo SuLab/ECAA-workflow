@@ -4,7 +4,6 @@
 mod agent_code;
 mod design_doc_markers_baseline;
 mod determinism_clock_gate;
-mod emit_mode;
 mod four_conditions_parity;
 mod lineage_task_pair;
 mod no_keys_in_emit;
