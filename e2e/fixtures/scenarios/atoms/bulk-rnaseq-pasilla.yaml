@@ -30,7 +30,8 @@ beats:
 
   - user: >-
       The contrast is untreated vs treated. Standard QC, normalization,
-      and differential expression are all I need. Internal use, public data.
+      and differential expression are all I need — no pathway or gene-set
+      enrichment analysis. Internal use, public data.
     assistant:
       content: >-
         Recorded — untreated vs treated, QC + normalization + DE pipeline.
@@ -70,7 +71,8 @@ live:
     RNAi). I have the gene counts matrix (pasilla_gene_counts.tsv, 14599 genes
     × 7 samples) and sample annotation (pasilla_sample_annotation.csv) already
     staged locally. The pipeline should cover QC, normalization, and differential
-    expression with reporting figures. This is internal use, all public data.
+    expression with reporting figures. No pathway enrichment or gene-set
+    enrichment analysis is wanted. This is internal use, all public data.
     Please build the plan and emit the package once confirmed.
   followups:
     - trigger: "(?i)(contrast|comparison|condition|group|design|what.*vs|untreated|treated)"
