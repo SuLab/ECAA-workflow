@@ -1198,11 +1198,13 @@ pub struct ConfirmationCard {
     /// `#[serde(default)]` so on-disk cards that pre-date this field
     /// deserialize cleanly with an empty list; `skip_serializing_if`
     /// keeps the wire payload unchanged for the common (empty) case.
-    /// (No `#[ts(optional)]`: ts-rs reserves that for `Option<T>`. A `Vec`
-    /// maps to a TS array that defaults to `[]`, and `skip_serializing_if`
-    /// keeps the wire payload unchanged for the common empty case.)
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub retained_optional_stages: Vec<RetainedOptionalStage>,
+    /// `Option<Vec>` + `#[ts(optional)]` so the generated TS field is
+    /// optional (`retained_optional_stages?`): legacy on-disk cards and
+    /// non-composer paths omit it, and `skip_serializing_if = "Option::is_none"`
+    /// keeps it off the wire when there are no retained optional stages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub retained_optional_stages: Option<Vec<RetainedOptionalStage>>,
 }
 
 /// Curated set of stage ids treated as *optional* analysis stages for
@@ -1515,15 +1517,18 @@ mod tests {
             summary_markdown: "plan".into(),
             summary_hash: String::new(),
             resource_estimate: None,
-            retained_optional_stages: vec![RetainedOptionalStage {
+            retained_optional_stages: Some(vec![RetainedOptionalStage {
                 stage_id: "pathway_enrichment".into(),
                 reason: "optional downstream stage; included by the archetype".into(),
-            }],
+            }]),
         };
         let json = serde_json::to_value(&card).expect("serialize card");
         let back: ConfirmationCard = serde_json::from_value(json).expect("deserialize card");
-        assert_eq!(back.retained_optional_stages.len(), 1);
-        assert_eq!(back.retained_optional_stages[0].stage_id, "pathway_enrichment");
+        assert_eq!(back.retained_optional_stages.as_deref().unwrap_or_default().len(), 1);
+        assert_eq!(
+            back.retained_optional_stages.as_ref().unwrap()[0].stage_id,
+            "pathway_enrichment"
+        );
 
         // A legacy on-disk card with no retained_optional_stages field
         // deserializes to an empty list (serde default).
@@ -1533,6 +1538,6 @@ mod tests {
         });
         let parsed: ConfirmationCard =
             serde_json::from_value(legacy).expect("legacy card deserializes");
-        assert!(parsed.retained_optional_stages.is_empty());
+        assert!(parsed.retained_optional_stages.unwrap_or_default().is_empty());
     }
 }

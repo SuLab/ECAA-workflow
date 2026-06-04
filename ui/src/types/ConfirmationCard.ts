@@ -52,4 +52,4 @@ resource_estimate?: ResourceEstimate,
  * deserialize cleanly with an empty list; `skip_serializing_if`
  * keeps the wire payload unchanged for the common (empty) case.
  */
-retained_optional_stages: Array<RetainedOptionalStage>, };
+retained_optional_stages?: Array<RetainedOptionalStage>, };

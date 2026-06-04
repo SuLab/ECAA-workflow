@@ -708,7 +708,7 @@ impl ConversationService {
                             .workflow_dag
                             .as_ref()
                             .map(crate::session::RetainedOptionalStage::from_workflow_dag)
-                            .unwrap_or_default();
+                            .filter(|stages| !stages.is_empty());
                         accumulated_card = Some(ConfirmationCard {
                             summary_markdown: summary_markdown.clone(),
                             summary_hash,

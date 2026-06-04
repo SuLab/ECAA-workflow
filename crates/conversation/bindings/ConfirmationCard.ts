@@ -55,4 +55,4 @@ resource_estimate?: ResourceEstimate,
  * maps to a TS array that defaults to `[]`, and `skip_serializing_if`
  * keeps the wire payload unchanged for the common empty case.)
  */
-retained_optional_stages: Array<RetainedOptionalStage>, };
+retained_optional_stages?: Array<RetainedOptionalStage>, };
