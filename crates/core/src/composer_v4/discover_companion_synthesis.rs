@@ -345,6 +345,147 @@ fn candidate_tools(atom: &AtomDefinition) -> Option<Vec<String>> {
     Some(out)
 }
 
+/// WG3 strict-mode (C4): type the method-discovery / survey companion
+/// edges (`survey_method_landscape → discover_X`, `discover_X → X`, and
+/// `<characterization> → survey_method_landscape`). The consumer
+/// genuinely consumes the producer's artifact — the method-landscape
+/// table or the method recommendation (each task writes a `result.json`
+/// downstream reads) — so these are honest data flows, not mere
+/// ordering. Discover companions are port-less skeletons, so we first
+/// give them a typed method-recommendation output; then each consumer
+/// gets an ADDITIVE input port accepting its companion producers (never
+/// replacing real data inputs — `pick_best_port_pair` tries all ports,
+/// so real analytical edges keep their existing typing) and the edges
+/// are re-proven through the compatibility engine. `OrderingOnly`
+/// companion edges land as `TypedDataFlow`, which `RiskMode::Production`
+/// accepts. Mutates `dag` in place; idempotent.
+pub(crate) fn type_companion_edges(dag: &mut WorkflowDag) {
+    use crate::compatibility::engine::DeterministicCompatibilityEngine;
+    use crate::composer_v4::planner::pick_best_port_pair;
+    use crate::workflow_contracts::port::PortContract;
+    use crate::workflow_contracts::semantic_type::SemanticType;
+    use std::collections::BTreeMap;
+
+    let is_discover = |id: &str| id.starts_with("discover_") || id.contains("_discover_");
+    let is_companion_edge = |from: &str, to: &str| {
+        is_discover(from) || is_discover(to) || to.contains("survey_method_landscape")
+    };
+
+    // 1. Discover companions are port-less skeletons; give each a typed
+    //    method-recommendation output so the discover_X -> X edge has a
+    //    producer artifact to flow.
+    for node in dag.nodes.iter_mut() {
+        if !node.outputs.is_empty() {
+            continue;
+        }
+        // Companion producers reach here port-less: discover companions are
+        // bare skeletons, and the survey atom declares a rich `outputs:`
+        // block but no top-level `edam_data` (which is all `from_atom`'s
+        // `synthesize_outputs` reads). Give each its canonical method-axis
+        // artifact so the companion edges have a producer type to flow.
+        let synthesized = if is_discover(&node.id) {
+            Some((
+                "method_recommendation",
+                "ecaax:method_recommendation",
+                "Method recommendation",
+            ))
+        } else if node.id.contains("survey_method_landscape") {
+            Some((
+                "method_landscape",
+                "ecaax:method_landscape_matrix",
+                "Method landscape matrix",
+            ))
+        } else {
+            None
+        };
+        if let Some((pname, iri, label)) = synthesized {
+            node.outputs = vec![PortContract {
+                name: pname.into(),
+                semantic_type: SemanticType::OntologyTerm {
+                    iri: iri.into(),
+                    label: label.into(),
+                    ontology_version: Some("ecaax-1".into()),
+                },
+                privacy_class: crate::workflow_contracts::port::PortPrivacyClass::Internal,
+                ..Default::default()
+            }];
+        }
+    }
+
+    // 2. Add an ADDITIVE input port to each consumer for every distinct
+    //    companion-producer type it receives (only when not already
+    //    accepted), so the engine can prove the edge via that port.
+    let outputs_by_id: BTreeMap<String, Vec<PortContract>> = dag
+        .nodes
+        .iter()
+        .map(|n| (n.id.clone(), n.outputs.clone()))
+        .collect();
+    let mut needed: BTreeMap<String, Vec<PortContract>> = BTreeMap::new();
+    for e in &dag.edges {
+        if e.kind == EdgeKind::OrderingOnly && is_companion_edge(&e.from_node, &e.to_node) {
+            if let Some(p) = outputs_by_id.get(&e.from_node).and_then(|o| o.first()) {
+                needed.entry(e.to_node.clone()).or_default().push(p.clone());
+            }
+        }
+    }
+    for (cid, mut ports) in needed {
+        ports.sort_by(|a, b| a.semantic_type.stable_id().cmp(&b.semantic_type.stable_id()));
+        ports.dedup_by(|a, b| a.semantic_type.stable_id() == b.semantic_type.stable_id());
+        if let Some(node) = dag.nodes.iter_mut().find(|n| n.id == cid) {
+            for p in ports {
+                let already = node
+                    .inputs
+                    .iter()
+                    .any(|ip| ip.semantic_type.stable_id() == p.semantic_type.stable_id());
+                if !already {
+                    // Clone the producer's FULL output port (preserving
+                    // physical_format + privacy_class so the engine can prove
+                    // the pair) as an additive consumer input.
+                    let mut inp = p.clone();
+                    inp.name = format!("companion_in_{}", node.inputs.len());
+                    node.inputs.push(inp);
+                }
+            }
+        }
+    }
+
+    // 3. Re-prove the companion edges now that the ports line up.
+    let inputs_by_id: BTreeMap<String, Vec<PortContract>> = dag
+        .nodes
+        .iter()
+        .map(|n| (n.id.clone(), n.inputs.clone()))
+        .collect();
+    let engine = DeterministicCompatibilityEngine::new();
+    for edge in &mut dag.edges {
+        if edge.kind != EdgeKind::OrderingOnly
+            || !is_companion_edge(&edge.from_node, &edge.to_node)
+        {
+            continue;
+        }
+        let prod_outs = outputs_by_id
+            .get(&edge.from_node)
+            .cloned()
+            .unwrap_or_default();
+        let cons_ins = inputs_by_id.get(&edge.to_node).cloned().unwrap_or_default();
+        let (out_port, in_port, proof, kind) =
+            pick_best_port_pair(&engine, &prod_outs, &cons_ins, true);
+        edge.from_port = out_port.name;
+        edge.to_port = in_port.name;
+        edge.proof = proof;
+        edge.kind = kind;
+    }
+
+    // Keep the WorkflowDag byte-stable (ports/edges may have changed).
+    dag.nodes.sort_by(|a, b| a.id.cmp(&b.id));
+    dag.edges.sort_by(|a, b| {
+        a.from_node
+            .cmp(&b.from_node)
+            .then_with(|| a.from_port.cmp(&b.from_port))
+            .then_with(|| a.to_node.cmp(&b.to_node))
+            .then_with(|| a.to_port.cmp(&b.to_port))
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,6 +507,63 @@ mod tests {
             assumptions: AssumptionLedger::default(),
             source_template: None,
         }
+    }
+
+    /// WG3 strict-mode (C4): survey→discover_X and discover_X→X companion
+    /// edges are retyped from OrderingOnly to engine-proven TypedDataFlow.
+    #[test]
+    fn companion_edges_are_typed_not_ordering_only() {
+        use crate::workflow_contracts::port::PortContract;
+        // Port-less survey node — as `from_atom` produces for the
+        // survey_method_landscape atom (rich `outputs:` block, no top-level
+        // edam_data). `type_companion_edges` must synthesize its
+        // (internal-privacy) method-landscape output so survey→discover types.
+        let survey = TaskNode::skeleton("survey_method_landscape", "survey");
+        // Port-less discover skeleton (as synthesize_discover produces).
+        let discover = TaskNode::skeleton("discover_alignment", "discover aligner");
+        let mut alignment = TaskNode::skeleton("alignment", "align");
+        alignment.inputs = vec![PortContract::from_edam(
+            "reads",
+            Some("data:2044"),
+            Some("format:1930"),
+        )];
+        alignment.outputs = vec![PortContract::from_edam(
+            "bam",
+            Some("data:0863"),
+            Some("format:2572"),
+        )];
+        let oo = |from: &str, to: &str| EdgeContract {
+            from_node: from.into(),
+            from_port: String::new(),
+            to_node: to.into(),
+            to_port: String::new(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::OrderingOnly,
+            chain_of_custody: None,
+        };
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![survey, discover, alignment],
+            edges: vec![
+                oo("survey_method_landscape", "discover_alignment"),
+                oo("discover_alignment", "alignment"),
+            ],
+            assumptions: AssumptionLedger::default(),
+            source_template: None,
+        };
+        type_companion_edges(&mut dag);
+        for e in &dag.edges {
+            assert_ne!(
+                e.kind,
+                EdgeKind::OrderingOnly,
+                "companion edge {}->{} must be engine-proven (WG3 C4), not OrderingOnly",
+                e.from_node,
+                e.to_node
+            );
+        }
+        // The discover skeleton now carries a typed recommendation output.
+        let disc = dag.nodes.iter().find(|n| n.id == "discover_alignment").unwrap();
+        assert!(!disc.outputs.is_empty(), "discover node should gain a method-recommendation output");
     }
 
     /// Assert that for every synthesized discover_X node there is a
