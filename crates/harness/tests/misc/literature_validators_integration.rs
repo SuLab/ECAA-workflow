@@ -366,3 +366,58 @@ fn valid_concordance_flags_all_accepted() {
         "all four valid concordance flags should be accepted"
     );
 }
+
+// ── Regression: method_landscape curated_baseline rows must not strand survey ──
+//
+// `survey_method_landscape` emits a method_landscape.csv whose `curated_baseline`
+// candidate rows carry EMPTY `evidence_quote_offset` / `redistributable` /
+// `verified` columns (they have no literature evidence). A bare-typed
+// `ClaimsMatrixRow` (`evidence_quote_offset: u64`, `redistributable: bool`)
+// rejected "" and failed the WHOLE `load_rows` parse, so
+// `run_evidence_quote_substring_match` and `run_redistributable_or_marked`
+// reported a spurious `EvidenceArtifactMissing` at row 0 — blocking the keystone
+// survey task and stranding every downstream stage (the live nekrutenko eval
+// scored 0.0 jaccard for exactly this reason: survey blocked → variant_calling
+// never ran → no VCFs).
+#[test]
+fn method_landscape_curated_baseline_rows_do_not_spuriously_block() {
+    let tmp = TempDir::new().unwrap();
+    let task = tmp.path().join("runtime/outputs/survey_method_landscape");
+    let evidence = task.join("evidence");
+    fs::create_dir_all(&evidence).unwrap();
+
+    // One real paper-class row (verified) + two curated_baseline placeholder
+    // rows with the empty offset/redistributable/verified columns the producer
+    // legitimately emits.
+    let csv = task.join("method_landscape.csv");
+    write(
+        &csv,
+        "axis,candidate_method,source_ref_kind,source_ref,source_class,evidence_role,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified,version_context\n\
+alignment,bwa,pmid,pmid:19451168,primary_literature,performance,bwa is fast and accurate,0,pubmed_abstract,sha256:aa,2026-06-04T00:00:00Z,true,true,bwa 0.7\n\
+alignment,bwa_mem2,,,curated_baseline,,,,curated_candidate,,2026-06-04T00:00:00Z,,false,\n\
+alignment,minimap2,,,curated_baseline,,,,curated_candidate,,2026-06-04T00:00:00Z,,false,\n",
+    );
+
+    let manifest = evidence.join("manifest.json");
+    write(
+        &manifest,
+        r#"{"schema_version":2,"entries":[{"source_ref_kind":"pmid","source_ref":"pmid:19451168","source_class":"primary_literature","source_kind":"pubmed_abstract","path":"evidence/PMID19451168_abstract.txt","sha256_binary":"aa","sha256_extracted_text":"cc","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":39,"retrieval_ts":"2026-06-04T00:00:00Z","retrieval_query_id":"q1","redistributable":true,"license":"open access"}]}"#,
+    );
+    // The manifest path is "evidence/"-prefixed; resolve_evidence_file strips it.
+    write(
+        &evidence.join("PMID19451168_abstract.txt"),
+        "bwa is fast and accurate on short reads",
+    );
+
+    // Before the fix: load_rows() failed to parse the empty offset/redistributable
+    // columns on the curated rows, so BOTH validators returned
+    // EvidenceArtifactMissing at row 0.
+    assert!(
+        run_evidence_quote_substring_match(&csv, &manifest).is_ok(),
+        "curated_baseline rows must not break the CSV parse for the quote validator"
+    );
+    assert!(
+        run_redistributable_or_marked(&csv, &manifest).is_ok(),
+        "curated_baseline rows must be skipped by the redistributable legal gate"
+    );
+}

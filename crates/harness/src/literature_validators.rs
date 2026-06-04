@@ -15,6 +15,44 @@ use std::path::Path;
 use ecaa_workflow_core::blocker::{LiteratureClaimFailureKind, ValidationFailureCause};
 use serde::Deserialize;
 
+/// CSV-lenient `u64`: the `method_landscape.csv` shape emits an EMPTY
+/// `evidence_quote_offset` on `curated_baseline` candidate rows (which carry no
+/// evidence). A bare `u64` field rejects "" and fails the WHOLE `load_rows`
+/// parse, which the offset-reading validators then mis-report as a spurious
+/// `EvidenceArtifactMissing` at row 0 (stranding the keystone
+/// `survey_method_landscape` task and every downstream stage). Treat empty as 0.
+fn de_u64_lenient<'de, D>(d: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(d)?;
+    let t = s.trim();
+    if t.is_empty() {
+        return Ok(0);
+    }
+    t.parse::<u64>().map_err(serde::de::Error::custom)
+}
+
+/// CSV-lenient `bool`: `curated_baseline` rows emit an EMPTY `redistributable`
+/// (and may emit an empty `verified`). A bare `bool` rejects "" and fails the
+/// whole CSV parse — same spurious-`EvidenceArtifactMissing` class as
+/// [`de_u64_lenient`]. Treat empty as `false`; accept the usual true/false
+/// tokens otherwise.
+fn de_bool_lenient<'de, D>(d: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s = String::deserialize(d)?;
+    match s.trim() {
+        "" => Ok(false),
+        "true" | "True" | "TRUE" | "1" => Ok(true),
+        "false" | "False" | "FALSE" | "0" => Ok(false),
+        other => Err(serde::de::Error::custom(format!(
+            "invalid bool literal: {other:?}"
+        ))),
+    }
+}
+
 /// Canonical normalization applied to source text before substring-match.
 /// Pinned by name in `evidence/manifest.json::extracted_text_normalization`.
 pub fn collapse_whitespace_lowercase_v1(s: &str) -> String {
@@ -73,11 +111,17 @@ struct ClaimsMatrixRow {
     #[serde(default)]
     pub concordance_flag: Option<String>,
     pub evidence_quote: String,
+    // `curated_baseline` method_landscape rows emit an empty offset/redistributable/
+    // verified; lenient deserializers map "" to 0/false so a no-evidence candidate
+    // row does not fail the whole CSV parse (see de_u64_lenient / de_bool_lenient).
+    #[serde(deserialize_with = "de_u64_lenient")]
     pub evidence_quote_offset: u64,
     pub source_kind: String,
     pub source_hash: String,
     pub retrieval_ts: String,
+    #[serde(deserialize_with = "de_bool_lenient")]
     pub redistributable: bool,
+    #[serde(deserialize_with = "de_bool_lenient")]
     pub verified: bool,
 }
 
@@ -612,6 +656,16 @@ pub fn run_redistributable_or_marked(
     })?;
     for (i, row) in rows.iter().enumerate() {
         if row.source_kind == "none" {
+            continue;
+        }
+        // `curated_baseline` candidate rows are offline / thin-literature
+        // placeholders carrying no real source (the locator validator
+        // `run_source_resolves` already skips them). They legitimately have an
+        // empty `redistributable` column and a placeholder `source_kind`
+        // (`curated_candidate`) that is not a redistributable corpus class, so
+        // the legal gate must not subject them to the source_kind match below
+        // (which would otherwise fall through to a spurious FAIL).
+        if row.source_class.as_deref() == Some(CURATED_BASELINE_CLASS) {
             continue;
         }
         // The legal gate stays meaningful: it is keyed by `source_kind`, never
