@@ -81,7 +81,7 @@ pub const STALL_MEM_WINDOW_MINS_DEFAULT: u64 = 5;
 pub const STALL_GPU_IDLE_MINS_DEFAULT: u64 = 15;
 /// Multiplier on `expected_wall_seconds`; when actual runtime exceeds
 /// `expected × multiplier` the runtime-over-expected stall fires.
-/// Overridden by `ECAA_STALL_RUNTIME_OVER_EXPECTED_MULT`.
+/// Overridden by `ECAA_STALL_RUNTIME_MULT`.
 pub const STALL_RUNTIME_OVER_EXPECTED_MULT_DEFAULT: f32 = 2.0;
 /// How often the stall monitor samples system metrics (seconds).
 /// Overridden by `ECAA_STALL_SAMPLE_INTERVAL_SECS`.

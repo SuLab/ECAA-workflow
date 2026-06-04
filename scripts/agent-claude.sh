@@ -1085,9 +1085,8 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # current user before the conditional cp runs.
   # Security remediation removed the
   # `sudo rm -rf` fallback. A root-owned bind-mount leftover means
-  # the operator must intervene manually (per
-  # docs/remote-compute-operator-reference.md); silently elevating
-  # to sudo from an agent script opens a privilege-escalation seam.
+  # the operator must intervene manually; silently elevating to sudo
+  # from an agent script opens a privilege-escalation seam.
   if [ -e "$AGENT_CLAUDE_JSON" ] && [ ! -f "$AGENT_CLAUDE_JSON" ]; then
     if ! rm -rf "$AGENT_CLAUDE_JSON" 2>/dev/null; then
       echo "ERROR: cannot remove non-file $AGENT_CLAUDE_JSON (likely root-owned bind-mount leftover); run \`sudo rm -rf '$AGENT_CLAUDE_JSON'\` manually and retry" >&2

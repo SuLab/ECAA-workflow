@@ -32,7 +32,7 @@ use ecaa_workflow_harness::executor::slurm::ssh::{SshSession, SystemSshSession};
 /// Submits a trivial `sbatch` job, polls `sacct` to terminal state,
 /// and asserts it reached `COMPLETED`. Cancels the job on timeout.
 #[test]
-#[ignore = "live-cluster test: requires ECAA_SLURM_HOST + ECAA_SLURM_STAGING_DIR + SSH access. Run manually with --ignored. See plan §8 + docs/remote-compute-operator-reference.md."]
+#[ignore = "live-cluster test: requires ECAA_SLURM_HOST + ECAA_SLURM_STAGING_DIR + SSH access. Run manually with --ignored. See the SLURM section in .env.example."]
 fn live_slurm_sleep_job_reaches_terminal_state() {
     let host = std::env::var("ECAA_SLURM_HOST")
         .expect("ECAA_SLURM_HOST must be set for the live SLURM test");

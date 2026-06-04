@@ -424,19 +424,13 @@ fn harness_batch_window_env_var_documented_in_claude_md() {
 
 // ── Exhaustive env-var doc-gate ─────────────────────────────────────
 
-/// Doc-as-contract gate: every `ECAA_*` name that appears in the
-/// `crates/` source tree must be documented in `docs/env-vars-reference.md`
-/// (or in `CLAUDE.md`'s daily-contributor / container plumbing block).
+/// Doc-as-contract gate: every user-facing `ECAA_*` name that appears in the
+/// `crates/` source tree must be documented in `.env.example` (or in
+/// `CLAUDE.md` when an internal checkout carries the daily-contributor block).
 ///
-/// Counterpart to `ecaa-workflow/scripts/check-env-vars-documented.sh`
-/// — that shell script is the operator's local lint; this test is the CI
-/// gate (it runs under `cargo test --workspace` even if the contributor
-/// hasn't installed the local hooks).
-///
-/// The audit-residuals remediation identified ~22
-/// names missing from `docs/env-vars-reference.md`. Adding a new env var
-/// to the source without documenting it should fail this test rather
-/// than slipping into a future audit.
+/// `.env.example` is the public checked-in catalog. Adding a new env var to
+/// the source without documenting it should fail this test rather than slipping
+/// into a future audit.
 ///
 /// **False positives.** A handful of source mentions are not real env
 /// vars and are filtered here:
@@ -455,14 +449,7 @@ fn harness_batch_window_env_var_documented_in_claude_md() {
 fn every_ecaa_env_var_documented() {
     use std::collections::BTreeSet;
 
-    // `docs/env-vars-reference.md` is absent in a fresh OSS clone. Skip
-    // the exhaustive doc gate when the reference doc isn't present
-    // rather than failing the whole `cargo test` run; the gate still
-    // fires for contributors who have the internal-dev docs/ checked out.
-    let env_doc_path = repo_root().join("docs").join("env-vars-reference.md");
-    if !env_doc_path.exists() {
-        return;
-    }
+    let env_doc_path = repo_root().join(".env.example");
 
     // Walk crates/ collecting every ECAA_* identifier reference.
     // Constraints: only inspect `.rs` files so the test isn't sensitive
@@ -500,6 +487,8 @@ fn every_ecaa_env_var_documented() {
     let false_positives: BTreeSet<&str> = [
         "ECAA_PER_TASK_IMAGE_ENV_LOCK", // cfg(test) Mutex<()>, not an env var
         "ECAA_AWS_ENV_LOCK",            // cfg(test) Mutex<()>, not an env var
+        "ECAA_VERSION",                 // Rust spec-version constant, not an env var
+        "ECAA_ECAA_MODE", // retired env surface; mentioned only by the inertness regression test
     ]
     .into_iter()
     .collect();
@@ -517,11 +506,15 @@ fn every_ecaa_env_var_documented() {
     // they're not real env vars the operator sets. Filter by name shape.
     source_names.retain(|n| !n.starts_with("ECAA_C7_") && !n.starts_with("ECAA_C14_"));
 
-    // Read both doc anchors. `docs/env-vars-reference.md` is the
-    // primary; `CLAUDE.md` carries the daily-contributor short list +
-    // the Stage-15 container inventory.
-    let env_doc = read_to_string(&repo_root().join("docs").join("env-vars-reference.md"));
-    let claude = read_to_string(&repo_root().join("CLAUDE.md"));
+    // Read both doc anchors. `.env.example` is the primary; `CLAUDE.md`
+    // carries the internal daily-contributor short list when it is present.
+    let env_doc = read_to_string(&env_doc_path);
+    let claude_path = repo_root().join("CLAUDE.md");
+    let claude = if claude_path.exists() {
+        read_to_string(&claude_path)
+    } else {
+        String::new()
+    };
 
     // A name counts as documented if it appears as an exact substring
     // in either doc. This is intentionally generous — a wildcard
@@ -536,9 +529,9 @@ fn every_ecaa_env_var_documented() {
     assert!(
         missing.is_empty(),
         "\nThe following ECAA_* env var names are referenced in crates/ \
-         but not documented in docs/env-vars-reference.md or CLAUDE.md:\n\n  {}\n\n\
+         but not documented in .env.example or CLAUDE.md:\n\n  {}\n\n\
          Add an entry under the appropriate section in \
-         docs/env-vars-reference.md (or extend an existing wildcard \
+         .env.example (or extend an existing wildcard \
          bullet that covers the name). If a name in this list is a \
          false positive (a test-only static or a synthetic name built \
          via format!), extend the filter in this test to skip it.\n",

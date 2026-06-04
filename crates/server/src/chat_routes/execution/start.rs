@@ -1017,7 +1017,8 @@ async fn spawn_harness_for_session_reserved(
     });
     // ECAA_SERVER_URL default. Port 3737 is distinct from the CLI's 3000 to allow
     // `make dev-server` and a live harness to run side-by-side without collision.
-    // See docs/api-reference.md "Port Conventions".
+    // The user-facing dev-server port remains documented in README.md and
+    // .env.example.
     let server_url =
         std::env::var("ECAA_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3737".to_string());
 

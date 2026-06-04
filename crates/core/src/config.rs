@@ -25,7 +25,7 @@
 //!
 //! ## Scope (env-vars covered)
 //!
-//! Mirrors `docs/env-vars-reference.md` for the **shared** knobs read by the
+//! Mirrors `.env.example` for the **shared** knobs read by the
 //! server, conversation crate, harness scheduler, and CLI. Container-runtime
 //! plumbing (`ECAA_CONTAINER_*`, `ECAA_AGENT_*`, `ECAA_AWS_*` provisioning
 //! flags) is harness-only and deliberately deferred to a future
@@ -42,7 +42,7 @@ use url::Url;
 const DEFAULT_ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
 
 /// Default harness-progress batcher debounce window. Documented in
-/// `docs/env-vars-reference.md` under `ECAA_HARNESS_BATCH_WINDOW_SECS`.
+/// `.env.example` under `ECAA_HARNESS_BATCH_WINDOW_SECS`.
 const DEFAULT_HARNESS_BATCH_WINDOW_SECS: u64 = 10;
 
 /// Upper bound for `ECAA_HARNESS_BATCH_WINDOW_SECS`. Values past this would
@@ -810,8 +810,7 @@ impl ConfigBuilder {
 // ----------------------------------------------------------------------------
 
 /// Reads `ECAA_ANTHROPIC_API_KEY`, falling back to legacy `ANTHROPIC_API_KEY`
-/// with a one-time stderr deprecation warning (matches the docs in
-/// `docs/env-vars-reference.md`).
+/// with a one-time stderr deprecation warning (matches `.env.example`).
 fn read_api_key(env: &HashMap<&str, &str>) -> Option<String> {
     if let Some(k) = env.get("ECAA_ANTHROPIC_API_KEY").copied() {
         if !k.is_empty() {

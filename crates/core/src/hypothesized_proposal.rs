@@ -433,9 +433,8 @@ pub fn proposal_to_materialized_task_node(
 /// variant (HE1). The executable hybrid escape hatch — auto-running
 /// model-generated Python under a default-strict sandbox — is DEFERRED and
 /// OFF-BY-DEFAULT: executing model-generated code is the highest-risk
-/// surface and is only safe behind `SandboxRequirement::Required` +
-/// `ECAA_ALLOW_GENERATIVE_NODES=1` + an airtight sandbox runtime that does
-/// not yet exist.
+/// surface and is only safe behind an explicit operator opt-in plus an
+/// airtight sandbox runtime that does not yet exist.
 ///
 /// Until that runtime ships, a promoted proposal lowers to
 /// `Implementation::Unimplemented` (Contracted) so the harness

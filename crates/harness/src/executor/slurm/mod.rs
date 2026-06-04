@@ -81,7 +81,7 @@ impl SlurmConfig {
             });
         if !missing.is_empty() {
             return Err(anyhow!(
-                "SLURM executor missing required env vars: {}. See docs/remote-compute-operator-reference.md.",
+                "SLURM executor missing required env vars: {}. See the SLURM section in .env.example.",
                 missing.join(", ")
             ));
         }

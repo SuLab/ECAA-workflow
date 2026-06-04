@@ -7,9 +7,8 @@
 # instance during a long-running compute step.
 #
 # Operator-facing template that works once the AMI + IAM are
-# provisioned per docs/remote-compute-operator-reference.md. The real
-# ECAA_AWS_INSTANCE_ID + ECAA_AWS_COMMAND_ID wrappers are handed
-# off via SSM RunCommand.
+# provisioned. The real ECAA_AWS_INSTANCE_ID + ECAA_AWS_COMMAND_ID
+# wrappers are handed off via SSM RunCommand.
 #
 # IAM permissions required on the caller credentials:
 #  - cloudwatch:GetMetricData
@@ -17,8 +16,7 @@
 #  - (optional) logs:GetLogEvents for in-task log queries
 # Scope these to the session-tagged EC2 instances via a condition on
 # the Name tag: { "Condition": { "StringEquals": { "ec2:ResourceTag/scripps-session-id": "<session-id>" } } }
-# See docs/remote-compute-operator-reference.md#environment-variables
-# for the full list of ECAA_AWS_* env vars this script reads.
+# See `.env.example` for the full list of ECAA_AWS_* env vars this script reads.
 
 set -euo pipefail
 

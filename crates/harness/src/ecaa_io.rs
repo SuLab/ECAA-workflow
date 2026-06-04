@@ -39,7 +39,7 @@ use std::path::Path;
 pub const DEFAULT_AGENT_FILE_MAX_BYTES: u64 = 100 * 1024 * 1024;
 
 /// Env-var name that overrides the default cap. Documented in
-/// `CLAUDE.md` (env-vars table) and `docs/env-vars-reference.md`.
+/// `.env.example` and, when present, `CLAUDE.md`.
 pub const ENV_AGENT_FILE_MAX_MB: &str = "ECAA_AGENT_FILE_MAX_MB";
 
 /// Resolve the active cap from the environment. Out-of-range values

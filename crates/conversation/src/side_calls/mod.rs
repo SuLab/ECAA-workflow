@@ -58,8 +58,8 @@ use std::sync::Arc;
 // classifier response, so titles ended up generic
 // ("Bioinformatics Analysis Setup"). At 6+ the SME has had at least one
 // back-and-forth on study design and the model has a real signal to
-// anchor the label on. If CLAUDE.md or docs/api-reference.md still say
-// "≥3", treat the constant here as authoritative and update the docs.
+// anchor the label on. If README.md or USERS.md still say ">=3", treat
+// the constant here as authoritative and update the docs.
 pub const AUTO_TITLE_MIN_TURNS: usize = 6;
 
 /// Absolute cap on the characters we keep from the LLM's output. Haiku

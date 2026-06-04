@@ -72,7 +72,8 @@ enum Commands {
     /// Start the workflow planning server (UI backend)
     Serve {
         /// Port to listen on
-        // Default dev server port. Port conventions documented in docs/api-reference.md.
+        // Default dev server port. Port conventions are documented in README.md
+        // and .env.example.
         // 3000 (here) is the user-facing dev port; 3737 is the harness-callback port
         // (in crates/server/src/chat_routes/execution/start.rs).
         #[arg(long, default_value = "3000")]

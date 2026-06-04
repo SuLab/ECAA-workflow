@@ -61,9 +61,9 @@ impl CacheEvictor {
                     .map(|h| PathBuf::from(h).join(".ecaa-workflow/agent-cache"))
             })?;
         // Multiplier in plan/doc text is 1e9 (decimal GB) — matches
-        // operator intuition ("50 GB" = 50_000_000_000 bytes). CLAUDE.md
-        // and docs/env-vars-reference.md both quote "GB" without a
-        // GiB/GB suffix; pick the operator-friendly definition.
+        // operator intuition ("50 GB" = 50_000_000_000 bytes). `.env.example`
+        // quotes "GB" without a GiB/GB suffix; pick the operator-friendly
+        // definition.
         let max_bytes = max_gb.saturating_mul(1_000_000_000);
         Some(Self {
             cache_dir,

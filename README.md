@@ -2,7 +2,7 @@
 
 A deterministic, offline compiler that turns a natural-language description of a bioinformatics analysis into a self-contained, agent-executable [RO-Crate](https://www.researchobject.org/ro-crate/) package — with a full-lifecycle conversational shell wrapped around the executing package.
 
-The compiler classifies the intake, selects an archetype, builds a task DAG, emits a package, and an execution harness drives an agent (Claude Code, a shell script, anything callable with a package path) against the emitted DAG. The emitted package is an **ECAA** (Evidence-Carrying Analysis Artifact) — a typed RO-Crate that carries, alongside the analysis itself, the claims it supports, the evidence backing each claim, and the decision record that produced them. An embedded **ECAA validator** checks the package against a machine-checkable contract over those subgraphs. This validation is **advisory (warn-only) by default** on a plain emit and only blocks emission when `ECAA_VALIDATION_BLOCK_ON_FAIL=1`; the local conformance gate (`make conformance`, `ECAA_CONFORMANCE_MODE=1`) runs it block-on-fail. The contract establishes machine-checkable **consistency** between an analysis's claims, evidence, decisions, and execution provenance — it does **not** establish biological validity; treat verdicts as a hygiene floor, not a quality ceiling.
+The compiler classifies the intake, selects an archetype, builds a task DAG, emits a package, and an execution harness drives an agent (Claude Code, a shell script, anything callable with a package path) against the emitted DAG. The emitted package is an **ECAA** (Evidence-Carrying Analysis Artifact) v0.2 package — a typed RO-Crate that carries, alongside the analysis itself, the claims it supports, the evidence backing each claim, and the decision record that produced them. An embedded **ECAA validator** checks the package against a machine-checkable contract over those subgraphs. Emit-time validation defaults to pure-Rust JSON Schema (`schema_only`) and is **advisory (warn-only)** on a plain emit unless `ECAA_VALIDATION_BLOCK_ON_FAIL=1`; the local conformance gate (`make conformance`, `ECAA_CONFORMANCE_MODE=1`) runs it block-on-fail. The contract establishes machine-checkable **consistency** between an analysis's claims, evidence, decisions, and execution provenance — it does **not** establish biological validity; treat verdicts as a hygiene floor, not a quality ceiling.
 
 ## Layout
 
@@ -14,6 +14,8 @@ The compiler classifies the intake, selects an archetype, builds a task DAG, emi
 | Execution harness | `crates/harness` | Loops an agent subprocess against ready tasks. `Local` / `Mock` / `AWS` / `SLURM` executors. |
 | ECAA validator | `crates/{ecaa-conformance, ecaa-types}` + `docs/ecaa-spec/` | Emits + validates the ECAA conformance contract. `ecaa-conformance` re-exports core's public API and is the conformance harness a second implementer runs against their own packages — not an independent reimplementation of core. |
 | Web UI | `ui/` | React 18 + Vite + TypeScript chat surface. |
+
+Current ECAA profile IRI: `https://w3id.org/ecaa/v0.2`. The active spec files are in [`docs/ecaa-spec/`](docs/ecaa-spec/): `v0.2.md`, `ecaa-v0.2.ttl`, `ecaa-v0.2.shacl.ttl`, and `ecaa-v0.2.jsonld`.
 
 ## Setup
 
@@ -62,6 +64,8 @@ export ECAA_ANTHROPIC_API_KEY=<your key>
 make dev-server
 ```
 
+For local production configuration, start from [`.env.example`](.env.example). Its active defaults are loopback/local and durable under `$HOME/.ecaa-workflow`; live API, eval, debug, AWS, SLURM, and external-validator knobs are commented until deliberately enabled.
+
 Smoke-test the compiler against a bundled scenario:
 
 ```bash
@@ -86,15 +90,15 @@ make e2e-playwright  # mocked Playwright tier
 - **Deterministic output.** Emitted packages are byte-reproducible. Use `BTreeMap`, not `HashMap`. Avoid timestamps and random IDs outside `uuid_short()`.
 - **LLM as UX shim.** Closed tool vocabulary (`Tool::COUNT` asserted at compile time). High-impact actions are gated by deterministic server state, not LLM inference.
 - **Confirmation discipline.** `emit_package` returns `PreconditionFailure` unless `session.user_confirmed == true`. The button click is a server-side action the LLM observes only via `get_session_state`.
-- **ECAA conformance.** Every emitted package carries the eight ECAA subgraph sidecars (claims, evidence, decisions, equivalence, ...) which the validator checks against the JSON Schemas in `docs/ecaa-spec/subgraph-schemas/`.
+- **ECAA conformance.** Every normal emitted package carries the eight required ECAA v0.2 sidecars: `runtime/intake-conversation.jsonl`, `runtime/decisions.jsonl`, `runtime/validation-reports.jsonl`, `runtime/proofs.jsonl`, `runtime/claim-verification.json`, `runtime/verifier-decisions.jsonl`, `runtime/assumptions.jsonl`, and `runtime/audit-proof-report.json`. There is no reduced ECAA mode switch; `ECAA_ABLATE_*` flags are the only code-backed way to emit non-conformant control artifacts.
 
 ## Configuration
 
-`config/` is the source of truth for modalities, archetypes, atoms, compute profiles, gene panels, plot affordances, and downstream-policy contracts. `config/archetypes/` and `config/stage-atoms/` carry their own READMEs.
+`config/` is the source of truth for modalities, archetypes, atoms, compute profiles, gene panels, plot affordances, and downstream-policy contracts. `config/archetypes/` and `config/stage-atoms/` carry their own READMEs. Runtime environment variables are catalogued in [`.env.example`](.env.example).
 
 ## Documentation
 
-User guide: [`USERS.md`](USERS.md). Contributor guide: [`CONTRIBUTING.md`](CONTRIBUTING.md). ECAA spec: [`docs/ecaa-spec/`](docs/ecaa-spec/).
+User guide: [`USERS.md`](USERS.md). Methods summary: [`METHODS.md`](METHODS.md). Contributor guide: [`CONTRIBUTING.md`](CONTRIBUTING.md). ECAA spec: [`docs/ecaa-spec/`](docs/ecaa-spec/).
 
 ## License
 

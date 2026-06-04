@@ -183,7 +183,7 @@ impl AwsConfig {
         }
         if !missing.is_empty() {
             return Err(anyhow!(
-                "AWS executor missing required env vars: {}. See docs/remote-compute-operator-reference.md.",
+                "AWS executor missing required env vars: {}. See the AWS section in .env.example.",
                 missing.join(", ")
             ));
         }

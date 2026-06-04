@@ -38,7 +38,7 @@ async fn boot_session_with_dag() -> Session {
 
 #[tokio::test]
 #[serial]
-async fn deprecated_ecaa_mode_conventional_does_not_suppress_sidecars() {
+async fn deprecated_mode_env_var_conventional_does_not_suppress_sidecars() {
     std::env::set_var("ECAA_ECAA_MODE", "conventional");
 
     let dir = tempdir().unwrap();
