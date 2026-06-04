@@ -1198,10 +1198,10 @@ pub struct ConfirmationCard {
     /// `#[serde(default)]` so on-disk cards that pre-date this field
     /// deserialize cleanly with an empty list; `skip_serializing_if`
     /// keeps the wire payload unchanged for the common (empty) case.
-    /// `#[ts(optional)]` mirrors the skip so the TS binding marks the
-    /// field optional — the UI tolerates the absent-on-legacy case.
+    /// (No `#[ts(optional)]`: ts-rs reserves that for `Option<T>`. A `Vec`
+    /// maps to a TS array that defaults to `[]`, and `skip_serializing_if`
+    /// keeps the wire payload unchanged for the common empty case.)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    #[ts(optional)]
     pub retained_optional_stages: Vec<RetainedOptionalStage>,
 }
 
