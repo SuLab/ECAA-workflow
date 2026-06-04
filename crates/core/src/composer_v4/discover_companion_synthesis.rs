@@ -501,7 +501,10 @@ pub(crate) fn type_companion_edges(dag: &mut WorkflowDag) {
 /// (none expected post-C2/C4) leave their edge OrderingOnly. Mutates
 /// `dag` in place; idempotent.
 pub(crate) fn type_residual_ordering_edges(dag: &mut WorkflowDag) {
-    use crate::compatibility::engine::DeterministicCompatibilityEngine;
+    use crate::compatibility::engine::{
+        CompatibilityEngine, CompatibilityResult, DeterministicCompatibilityEngine,
+        PlanningContext as CompatibilityContext,
+    };
     use crate::composer_v4::planner::pick_best_port_pair;
     use crate::workflow_contracts::port::PortContract;
     use std::collections::BTreeMap;
@@ -523,17 +526,27 @@ pub(crate) fn type_residual_ordering_edges(dag: &mut WorkflowDag) {
             needed.entry(e.to_node.clone()).or_default().push(p.clone());
         }
     }
-    // Add ADDITIVE inputs (full-clone, preserving format + privacy) for
-    // any producer type the consumer does not already accept.
+    // Add ADDITIVE inputs (full-clone, preserving format + privacy) for any
+    // producer output the consumer does not ALREADY accept. The "already"
+    // check uses the engine — NOT a bare EDAM-IRI match — so a consumer that
+    // declares a same-IRI but facet-incompatible input (e.g.
+    // translation_efficiency_de's raw rpf/mrna `data:3917` vs normalisation's
+    // normalized `data:3917`) still gains the producer's exact port and the
+    // edge proves.
+    let engine = DeterministicCompatibilityEngine::new();
+    let cctx = CompatibilityContext::default();
     for (cid, mut ports) in needed {
         ports.sort_by(|a, b| a.semantic_type.stable_id().cmp(&b.semantic_type.stable_id()));
-        ports.dedup_by(|a, b| a.semantic_type.stable_id() == b.semantic_type.stable_id());
+        ports.dedup_by(|a, b| a.semantic_type == b.semantic_type);
         if let Some(node) = dag.nodes.iter_mut().find(|n| n.id == cid) {
             for p in ports {
-                let already = node
-                    .inputs
-                    .iter()
-                    .any(|ip| ip.semantic_type.stable_id() == p.semantic_type.stable_id());
+                let already = node.inputs.iter().any(|ip| {
+                    matches!(
+                        engine.prove(&p, ip, &cctx),
+                        CompatibilityResult::Compatible(_)
+                            | CompatibilityResult::CompatibleWithAdapters { .. }
+                    )
+                });
                 if !already {
                     let mut inp = p.clone();
                     inp.name = format!("residual_in_{}", node.inputs.len());
@@ -549,7 +562,6 @@ pub(crate) fn type_residual_ordering_edges(dag: &mut WorkflowDag) {
         .iter()
         .map(|n| (n.id.clone(), n.inputs.clone()))
         .collect();
-    let engine = DeterministicCompatibilityEngine::new();
     for edge in &mut dag.edges {
         if edge.kind != EdgeKind::OrderingOnly {
             continue;
