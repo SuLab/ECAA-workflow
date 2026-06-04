@@ -139,6 +139,14 @@ class Nekrutenko(Benchmark):
     def tasks(self, handle: Path, *, smoke: bool):
         from scripts.eval.benchmark import Task
         samples = {p.name: p for p in (handle / _SAMPLES).glob("*.fq.gz")}
+        # Stage the canonical chrM reference (rCRS) alongside the reads. The
+        # ground-truth VCFs call variants RELATIVE to this reference, so both
+        # arms must align to it (not a synthesized/consensus reference, which
+        # would zero out every variant). data_acquisition runs network:none, so
+        # the reference must be a provided input rather than a download.
+        ref = handle / _SAMPLES / "chrM.fa.gz"
+        if ref.exists():
+            samples[ref.name] = ref
         return [Task(task_id="mtdna", prompt=_WORKFLOW_PROMPT, inputs=samples,
                      rubric=None, answer_key=handle / _ANSWER_KEY,
                      meta={"handle": str(handle)})]

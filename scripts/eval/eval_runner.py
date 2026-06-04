@@ -188,6 +188,43 @@ def _append_agent_directive(pkg_dir, directive: str | None) -> None:
         pass
 
 
+def _append_provided_inputs_directive(pkg_dir) -> None:
+    """Point the agent at the real input data staged under the package `inputs/`
+    directory and forbid synthesizing a substitute.
+
+    Without this, a `data_acquisition`/import stage that finds no registered
+    accession (the eval provides LOCAL files, not SRA/GEO accessions) and runs
+    `network: none` falls back to SYNTHESIZING placeholder reads + a consensus
+    reference. That silently zeroes out every downstream result — e.g. lofreq
+    tests positions against a reference the synthetic reads exactly match
+    (NM:i:0), reports 0 variants, and the run scores 0.0 jaccard despite the DAG
+    completing. The bare arm never hits this because it is handed the reads
+    directly in its workdir; this directive restores parity for the ECAA arm.
+
+    No-op when `inputs/` is absent/empty; idempotent (the file listing makes the
+    appended block stable, so `_append_agent_directive` won't double-append)."""
+    inputs_dir = Path(pkg_dir) / "inputs"
+    try:
+        files = sorted(p.name for p in inputs_dir.iterdir() if p.is_file())
+    except OSError:
+        files = []
+    if not files:
+        return
+    listing = "\n".join(f"  - inputs/{name}" for name in files)
+    directive = (
+        "## Provided input data — use these, do NOT synthesize\n\n"
+        "The authoritative input data for this analysis is already staged in the\n"
+        "package `inputs/` directory (a sibling of `runtime/`, relative to your\n"
+        "working directory):\n\n"
+        f"{listing}\n\n"
+        "Any data-acquisition or import stage MUST register and use these exact\n"
+        "SME-supplied files as its data source. Do NOT synthesize, simulate, or\n"
+        "download substitute sequencing reads or reference sequences while these\n"
+        "inputs are present — they are the real dataset for every downstream stage."
+    )
+    _append_agent_directive(pkg_dir, directive)
+
+
 def _intake_mode() -> str:
     """`chat` (default) drives the full server chat-intake path; `cli` keeps the
     legacy no-LLM `ecaa-workflow intake` compile path (offline/CI smoke)."""
@@ -237,6 +274,10 @@ def _chat_intake_or_cli(plugin, task, arm: Arm, workdir: Path,
     else:
         _cli_intake(spec, task, workdir)
     _stage_inputs(spec.package_dir, task.inputs)
+    # Tell the agent the staged inputs are the real, authoritative dataset (else
+    # an offline data_acquisition stage synthesizes variant-free placeholder data
+    # and the whole run silently scores 0.0).
+    _append_provided_inputs_directive(spec.package_dir)
     _write_auto_approve_discovery_gate(spec.package_dir)
     # contamination_directive is an OPT-IN Benchmark hook (default None); resolve
     # it defensively so duck-typed/minimal plugins without the method are fine.
