@@ -57,6 +57,24 @@ inputs:
       label: "Tabular text"
     statistical_state: "de_tested"
     privacy_class: internal
+  # Gene-set collection (GMT) the pathway databases above are tested
+  # against (KEGG / Reactome / GO / MSigDB hallmark). Required: without a
+  # sourced gene-set collection the enrichment test has nothing to test
+  # the ranked DE list against, so the composer prunes this atom when no
+  # gene-set source is registered. Typed `data:2600` ("Pathway or
+  # network") — the shared GENE_SET_SEMANTIC_IRI the source-typing pass
+  # surfaces on the ingest anchor — so producer/consumer types unify.
+  - name: gene_set_collection
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2600"
+      label: "Pathway or network"
+      ontology_version: "EDAM-1.25"
+    physical_format:
+      iri: "format:3475"
+      label: "Tabular text"
+      extension: "gmt"
+    privacy_class: internal
 outputs:
   - name: pathway_results
     semantic_type:

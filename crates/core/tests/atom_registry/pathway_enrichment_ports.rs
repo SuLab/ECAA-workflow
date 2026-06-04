@@ -1,0 +1,71 @@
+//! A1 — the `pathway_enrichment` atom declares BOTH a `ranked_de_results`
+//! input AND a required `gene_set_collection` input typed
+//! `data:2600` (the shared `GENE_SET_SEMANTIC_IRI`). Without the gene-set
+//! input the composer's `prune_unsourced_atoms` pass cannot recognize the
+//! atom as gene-set-dependent, so this is the contract the pruner relies
+//! on.
+
+use ecaa_workflow_core::atom_registry::AtomRegistry;
+use ecaa_workflow_core::composer_v4::source_typing::GENE_SET_SEMANTIC_IRI;
+use ecaa_workflow_core::workflow_contracts::port::Cardinality;
+use std::path::{Path, PathBuf};
+
+fn config_stage_atoms() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/stage-atoms")
+}
+
+#[test]
+fn pathway_enrichment_declares_both_de_and_gene_set_inputs() {
+    let reg = AtomRegistry::load_from_dir(&config_stage_atoms())
+        .expect("registry must load with the pathway_enrichment atom present");
+    let atom = reg
+        .get("pathway_enrichment")
+        .expect("pathway_enrichment atom must be in the catalog");
+
+    let input_names: Vec<&str> = atom.inputs.iter().map(|p| p.name.as_str()).collect();
+    assert!(
+        input_names.contains(&"ranked_de_results"),
+        "pathway_enrichment must keep its ranked_de_results input; inputs={input_names:?}"
+    );
+    assert!(
+        input_names.contains(&"gene_set_collection"),
+        "pathway_enrichment must declare a gene_set_collection input; inputs={input_names:?}"
+    );
+}
+
+#[test]
+fn pathway_enrichment_gene_set_input_is_required_and_typed_data_2600() {
+    let reg = AtomRegistry::load_from_dir(&config_stage_atoms())
+        .expect("registry must load with the pathway_enrichment atom present");
+    let atom = reg
+        .get("pathway_enrichment")
+        .expect("pathway_enrichment atom must be in the catalog");
+
+    let gene_set = atom
+        .inputs
+        .iter()
+        .find(|p| p.name == "gene_set_collection")
+        .expect("gene_set_collection input port must be present");
+
+    // The gene-set input must be typed with the shared canonical IRI so
+    // producer (source-typing anchor output) and consumer types unify in
+    // the compatibility engine.
+    assert_eq!(
+        gene_set.semantic_type.stable_id(),
+        GENE_SET_SEMANTIC_IRI,
+        "gene_set_collection must be typed {GENE_SET_SEMANTIC_IRI}"
+    );
+
+    // It must be REQUIRED (cardinality One) — an Optional input would not
+    // justify pruning the atom when unsourced, defeating the feature.
+    assert!(
+        matches!(gene_set.cardinality, Cardinality::One),
+        "gene_set_collection must be a required (One) input; got {:?}",
+        gene_set.cardinality
+    );
+}
