@@ -290,9 +290,7 @@ pub fn check_cross_graph_integrity(pkg: &LoadedPackage) -> InvariantVerdict {
                         let basename = path.rsplit('/').next().unwrap_or(path);
                         // Exact path first; basename fallback for the nested-table
                         // / direct-child-reconstruction mismatch (see above).
-                        if !known_outputs.contains(path)
-                            && !known_basenames.contains(basename)
-                        {
+                        if !known_outputs.contains(path) && !known_basenames.contains(basename) {
                             violators.push(format!("supported_by: {r}"));
                         }
                     }

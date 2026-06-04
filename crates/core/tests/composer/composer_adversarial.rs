@@ -432,7 +432,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => panic!("cycle should fail; got Ok with {} atoms", r.atoms.len()),
                 Err(e) => Outcome::Err(e),
             }
@@ -459,7 +460,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => panic!("ring should fail; got Ok with {} atoms", r.atoms.len()),
                 Err(e) => Outcome::Err(e),
             }
@@ -490,7 +492,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &reg,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("deep cycle should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -518,7 +521,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("malformed exclusion should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -545,7 +549,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("multi-ghost exclusion should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -572,7 +577,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("transitive-ghost exclusion should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -602,7 +608,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => panic!(
                     "exclusion-conflict should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -633,7 +640,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => panic!(
                     "self-conflict should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -681,7 +689,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => panic!(
                     "missing-discovery method-choice should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -715,7 +724,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("operation-as-discovery should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -757,7 +767,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("joint mismatch should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -795,7 +806,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("missing source_atom should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -822,7 +834,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => Outcome::Ok {
                     atom_count: r.atoms.len(),
                 },
@@ -850,7 +863,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => {
                     assert!(
                         r.atoms.iter().any(|c| c.stage_id.as_str() == "upstream"),
@@ -889,7 +903,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => Outcome::Ok {
                     atom_count: r.atoms.len(),
                 },
@@ -925,7 +940,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => panic!("self-loop should fail; got Ok with {} atoms", r.atoms.len()),
                 Err(e) => Outcome::Err(e),
             }
@@ -964,7 +980,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("method-choice cycle should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -994,7 +1011,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => panic!(
                     "diamond exclusion should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -1046,7 +1064,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("deep transitive-exclusion should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1077,7 +1096,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("typo'd method-choice should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1110,7 +1130,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("orphan discovery should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1167,7 +1188,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("3-way joint mismatch should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1206,7 +1228,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!("empty-string source vs concrete should fail"),
                 Err(e) => Outcome::Err(e),
             }
@@ -1229,7 +1252,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(_) => panic!(
                     "discovery-only registry should yield NoArchetypeMatch \
                      for an Operation-typed goal"
@@ -1263,7 +1287,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => panic!(
                     "format-mismatch should fail; got Ok with {} atoms",
                     r.atoms.len()
@@ -1316,7 +1341,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => {
                     assert!(
                         r.atoms.len() >= 5,
@@ -1366,7 +1392,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => Outcome::Ok {
                     atom_count: r.atoms.len(),
                 },
@@ -1397,7 +1424,8 @@ const CASES: &[AdversarialCase] = &[
                 &de_table_goal(),
                 "bioinformatics",
                 &atoms,
-                &empty_archetypes()) {
+                &empty_archetypes(),
+            ) {
                 Ok(r) => {
                     assert!(
                         r.atoms.len() >= 4,

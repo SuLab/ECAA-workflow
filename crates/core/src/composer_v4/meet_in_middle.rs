@@ -713,8 +713,8 @@ mod tests {
             depth,
             atom_id: atom_id.into(),
             port_index,
-            produced:
-                crate::workflow_contracts::data_product::DataProductContract::sample_de_table(),
+            produced: crate::workflow_contracts::data_product::DataProductContract::sample_de_table(
+            ),
         }
     }
 

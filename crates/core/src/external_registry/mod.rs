@@ -26,10 +26,10 @@ pub mod registry_improvement;
 pub mod to_atom;
 
 pub use local_cwl::LocalCwlImporter;
-pub use to_atom::imported_node_to_atom;
 pub use registry_improvement::{
     aggregate_unknowns, aggregate_unknowns_from_inputs, AggregatorInput, RegistryImprovementSignal,
 };
+pub use to_atom::imported_node_to_atom;
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -360,7 +360,10 @@ mod tests {
 
     #[test]
     fn community_tier_entry_band_is_unverified() {
-        assert_eq!(RegistryTier::Community.entry_trust(), TrustLevel::Unverified);
+        assert_eq!(
+            RegistryTier::Community.entry_trust(),
+            TrustLevel::Unverified
+        );
     }
 
     #[test]
@@ -477,7 +480,10 @@ mod tests {
         assert_eq!(atoms.len(), 1);
         assert_eq!(atoms[0].id, "good");
         assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0], ExternalImportError::MissingField { .. }));
+        assert!(matches!(
+            errors[0],
+            ExternalImportError::MissingField { .. }
+        ));
     }
 
     #[test]
@@ -487,7 +493,11 @@ mod tests {
         };
         let blocker = e.into_blocker("local_cwl", "align_reads");
         match blocker {
-            crate::blocker::BlockerKind::ExternalImportFailed { registry, id, reason } => {
+            crate::blocker::BlockerKind::ExternalImportFailed {
+                registry,
+                id,
+                reason,
+            } => {
                 assert_eq!(registry, "local_cwl");
                 assert_eq!(id, "align_reads");
                 assert!(reason.contains("snap-1"));

@@ -726,7 +726,8 @@ pub fn drain_session(session_id: &str) -> Vec<VerifierDecision> {
     let Ok(mut map) = buffer().lock() else {
         return Vec::new();
     };
-    map.remove(&Some(session_id.to_string())).unwrap_or_default()
+    map.remove(&Some(session_id.to_string()))
+        .unwrap_or_default()
 }
 
 /// Test/library callers that need to peek at the current thread's

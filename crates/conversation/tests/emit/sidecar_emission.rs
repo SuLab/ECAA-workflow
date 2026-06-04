@@ -285,7 +285,10 @@ async fn security_policy_lists_one_atom_policy_per_dag_node_and_digests() {
         .await
         .unwrap();
     let body2 = std::fs::read(tmp2.path().join("runtime/security-policy.json")).unwrap();
-    assert_eq!(body, body2, "security-policy.json must be byte-reproducible");
+    assert_eq!(
+        body, body2,
+        "security-policy.json must be byte-reproducible"
+    );
 }
 
 // ── D5: per-package dependency lock (requested side) ──────────────

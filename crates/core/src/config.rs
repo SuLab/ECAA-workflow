@@ -1187,7 +1187,10 @@ mod tests {
     #[test]
     fn parses_external_curated_dirs() {
         let mut env = HashMap::new();
-        env.insert("ECAA_EXTERNAL_CURATED_DIRS", "/opt/curated-a:/opt/curated-b");
+        env.insert(
+            "ECAA_EXTERNAL_CURATED_DIRS",
+            "/opt/curated-a:/opt/curated-b",
+        );
         let cfg = Config::from_env_map(&env).unwrap();
         assert_eq!(
             cfg.external_curated_dirs,

@@ -94,7 +94,10 @@ fn every_refusal_kind_is_actionable_or_documented_hard_policy() {
             "RefusalKind {kind:?} (non-hard) has no UnblockPath"
         );
         for p in &paths {
-            assert!(unblock_path_is_populated(p), "empty UnblockPath for {kind:?}");
+            assert!(
+                unblock_path_is_populated(p),
+                "empty UnblockPath for {kind:?}"
+            );
         }
     }
 }
@@ -108,7 +111,9 @@ fn unblock_path_is_populated(p: &UnblockPath) -> bool {
             ..
         } => !rule_id.is_empty() && !required_credentials.is_empty(),
         UnblockPath::AttemptRepair {
-            strategy_id, gap_id, ..
+            strategy_id,
+            gap_id,
+            ..
         } => !strategy_id.is_empty() && !gap_id.is_empty(),
         UnblockPath::SupplyMissingMetadata { field, .. } => !field.is_empty(),
         UnblockPath::EscalateToReviewer { reviewer_class, .. } => !reviewer_class.is_empty(),

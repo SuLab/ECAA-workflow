@@ -1878,7 +1878,12 @@ pub(crate) fn pick_best_port_pair(
         for out_port in producer_outputs {
             match engine.prove(out_port, in_port, &cctx) {
                 CompatibilityResult::Compatible(proof) => {
-                    return (out_port.clone(), in_port.clone(), proof, EdgeKind::TypedDataFlow);
+                    return (
+                        out_port.clone(),
+                        in_port.clone(),
+                        proof,
+                        EdgeKind::TypedDataFlow,
+                    );
                 }
                 CompatibilityResult::CompatibleWithAdapters {
                     mut proof,
@@ -1985,7 +1990,10 @@ fn normalize_modality_stem(modality: &str) -> String {
 /// goal-penalized. This is the reliable modality signal per the design
 /// (only 14/93 atoms declare a per-atom modality facet; the archetype
 /// catalog is where the per-modality pipeline membership lives).
-fn atom_modality_affiliations(atom_id: &str, archetype_reg: &ArchetypeRegistry) -> BTreeSet<String> {
+fn atom_modality_affiliations(
+    atom_id: &str,
+    archetype_reg: &ArchetypeRegistry,
+) -> BTreeSet<String> {
     let mut affil: BTreeSet<String> = BTreeSet::new();
     for (_, arch) in archetype_reg.iter() {
         let references = arch.atoms.iter().any(|a| a.atom_id.as_str() == atom_id);
@@ -3370,9 +3378,8 @@ mod tests {
     #[test]
     fn goal_relevance_penalty_flags_off_modality_atom_and_reranks() {
         use std::path::Path;
-        let archetype_reg =
-            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes"))
-                .expect("archetypes");
+        let archetype_reg = ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes"))
+            .expect("archetypes");
 
         let goal = GoalSpec {
             edam_data: "data:0951".into(),
@@ -3393,8 +3400,14 @@ mod tests {
         let coherent = WorkflowDag {
             id: "coherent".into(),
             nodes: vec![
-                atom_node("bulk_rnaseq_differential_expression", "differential_expression"),
-                atom_node("proteomics_differential_abundance", "differential_expression"),
+                atom_node(
+                    "bulk_rnaseq_differential_expression",
+                    "differential_expression",
+                ),
+                atom_node(
+                    "proteomics_differential_abundance",
+                    "differential_expression",
+                ),
                 atom_node("multi_modal_thematic_comparison", "reporting"),
                 atom_node("final_reporting", "final_reporting"),
             ],
@@ -3440,9 +3453,8 @@ mod tests {
     #[test]
     fn goal_relevance_penalty_is_zero_when_no_modality_requested() {
         use std::path::Path;
-        let archetype_reg =
-            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes"))
-                .expect("archetypes");
+        let archetype_reg = ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes"))
+            .expect("archetypes");
         let goal = simple_goal();
         // No modality, no additional_modalities → R is empty.
         let ctx = planning_context_for_goal("test-no-modality", &goal);

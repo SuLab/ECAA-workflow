@@ -1339,4 +1339,3 @@ fn compose_unknown_falls_back_to_v2() {
         "unknown version must fall back to v2 archetype routing"
     );
 }
-

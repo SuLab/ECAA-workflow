@@ -56,7 +56,10 @@ fn invocation_record_binds_audit_fields_and_round_trips() {
         &sp,
         Some("ecaa/bio-min:latest"),
     );
-    assert!(rec.sandbox_required, "process_isolation sets sandbox_required");
+    assert!(
+        rec.sandbox_required,
+        "process_isolation sets sandbox_required"
+    );
     assert!(rec.port_typed_inputs_satisfied);
 
     let line = serde_json::to_string(&rec).unwrap();

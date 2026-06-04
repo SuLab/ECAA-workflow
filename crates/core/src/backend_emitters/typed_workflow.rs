@@ -97,7 +97,10 @@ pub fn lower_to_typed_workflow(dag: &WorkflowDag, ctx: &TypedWorkflowContext) ->
     let mut parameter_mappings: Vec<ParameterMapping> = Vec::with_capacity(sorted_edges.len());
     for e in &sorted_edges {
         edges.push(TypedEdge {
-            edge_id: format!("{}.{}->{}.{}", e.from_node, e.from_port, e.to_node, e.to_port),
+            edge_id: format!(
+                "{}.{}->{}.{}",
+                e.from_node, e.from_port, e.to_node, e.to_port
+            ),
             source_node_id: e.from_node.clone(),
             target_node_id: e.to_node.clone(),
             source_output: e.from_port.clone(),
@@ -401,7 +404,9 @@ pub struct ValidationRule {
 }
 
 /// Paper §D.2 metadata (W3). All fields deterministic from compiler state.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema,
+)]
 #[ts(export)]
 #[non_exhaustive]
 pub struct WorkflowMetadata {
@@ -546,9 +551,11 @@ mod tests {
     #[test]
     fn lowering_is_byte_stable_across_100_replays() {
         let wf = simple_dag();
-        let first =
-            serde_json::to_string(&lower_to_typed_workflow(&wf, &TypedWorkflowContext::default()))
-                .unwrap();
+        let first = serde_json::to_string(&lower_to_typed_workflow(
+            &wf,
+            &TypedWorkflowContext::default(),
+        ))
+        .unwrap();
         for i in 0..100 {
             let json = serde_json::to_string(&lower_to_typed_workflow(
                 &wf,
@@ -683,7 +690,10 @@ mod tests {
             })
             .collect();
         assert!(!typed_set.is_empty(), "fixture must have at least one edge");
-        assert_eq!(typed_set, proof_set, "typed edges diverged from proofs.jsonl");
+        assert_eq!(
+            typed_set, proof_set,
+            "typed edges diverged from proofs.jsonl"
+        );
     }
 
     /// W6 — typed step ids equal the WorkflowDag node ids; each step's
@@ -698,7 +708,10 @@ mod tests {
             wf.nodes.iter().map(|n| n.id.clone()).collect();
         let step_ids: std::collections::BTreeSet<String> =
             typed.steps.iter().map(|s| s.step_id.clone()).collect();
-        assert_eq!(step_ids, node_ids, "step ids diverged from WorkflowDag nodes");
+        assert_eq!(
+            step_ids, node_ids,
+            "step ids diverged from WorkflowDag nodes"
+        );
 
         for step in &typed.steps {
             let depends_on: Vec<String> = artifact

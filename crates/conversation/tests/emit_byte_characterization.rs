@@ -65,7 +65,8 @@ fn normalize(raw: &str, output_dir: &Path) -> String {
     let stripped = raw.replace(&output_dir.display().to_string(), "<PKG>");
     let stripped = ts.replace_all(&stripped, "<TS>").into_owned();
     let stripped = wf.replace_all(&stripped, "workflow-<ID>").into_owned();
-    dur.replace_all(&stripped, r#""duration_ms": <DUR>"#).into_owned()
+    dur.replace_all(&stripped, r#""duration_ms": <DUR>"#)
+        .into_owned()
 }
 
 async fn emit_and_read_metadata(dir: &Path) -> String {
@@ -132,8 +133,8 @@ fn collect_emitted_files(dir: &Path) -> std::collections::BTreeMap<String, Strin
     let mut out: BTreeMap<String, String> = BTreeMap::new();
     let mut stack: Vec<PathBuf> = vec![dir.to_path_buf()];
     while let Some(cur) = stack.pop() {
-        let entries = std::fs::read_dir(&cur)
-            .unwrap_or_else(|e| panic!("read_dir {}: {e}", cur.display()));
+        let entries =
+            std::fs::read_dir(&cur).unwrap_or_else(|e| panic!("read_dir {}: {e}", cur.display()));
         for entry in entries {
             let entry = entry.expect("dir entry");
             let path = entry.path();
@@ -259,15 +260,17 @@ async fn conversation_emit_writes_full_fidelity_workflow_typed() {
         path.exists(),
         "workflow-typed.json missing on conversation path"
     );
-    let v: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     let edges = v.get("edges").and_then(|e| e.as_array()).unwrap();
     assert!(!edges.is_empty(), "expected at least one typed edge");
     // Full-fidelity: at least one edge carries a real (non-placeholder)
     // port name. The core degrade collapses every port to "out"/"in"; the
     // conversation path preserves the composer's typed port names.
     let has_real_port = edges.iter().any(|e| {
-        let so = e.get("source_output").and_then(|s| s.as_str()).unwrap_or("");
+        let so = e
+            .get("source_output")
+            .and_then(|s| s.as_str())
+            .unwrap_or("");
         let ti = e.get("target_input").and_then(|s| s.as_str()).unwrap_or("");
         (so != "out" && !so.is_empty()) || (ti != "in" && !ti.is_empty())
     });
@@ -285,14 +288,14 @@ async fn workflow_typed_registered_in_ro_crate() {
     emit_with_conversation_log(&mut session, dir.path(), &config_dir())
         .await
         .unwrap();
-    let meta: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap(),
-    )
-    .unwrap();
+    let meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("ro-crate-metadata.json")).unwrap())
+            .unwrap();
     let graph = meta.get("@graph").and_then(|g| g.as_array()).unwrap();
     assert!(
-        graph.iter().any(|n| n.get("@id").and_then(|i| i.as_str())
-            == Some("runtime/workflow-typed.json")),
+        graph
+            .iter()
+            .any(|n| n.get("@id").and_then(|i| i.as_str()) == Some("runtime/workflow-typed.json")),
         "workflow-typed.json not registered as CreativeWork"
     );
 }
@@ -306,8 +309,7 @@ async fn workflow_typed_included_in_bagit_manifest() {
     emit_with_conversation_log(&mut session, dir.path(), &config_dir())
         .await
         .unwrap();
-    let manifest =
-        std::fs::read_to_string(dir.path().join("manifest-sha512.txt")).unwrap();
+    let manifest = std::fs::read_to_string(dir.path().join("manifest-sha512.txt")).unwrap();
     assert!(
         manifest.contains("runtime/workflow-typed.json"),
         "workflow-typed.json should be IN the BagIt manifest (it is byte-deterministic)"

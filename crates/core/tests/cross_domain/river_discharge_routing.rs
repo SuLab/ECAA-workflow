@@ -98,7 +98,10 @@ fn river_discharge_composes_executable_dag_via_same_planner() {
     );
     // Sequential pipeline → at least one inter-atom dependency edge.
     let total_deps: usize = composition.atoms.iter().map(|c| c.depends_on.len()).sum();
-    assert!(total_deps > 0, "DAG must declare at least one dependency edge");
+    assert!(
+        total_deps > 0,
+        "DAG must declare at least one dependency edge"
+    );
 
     // The composed WorkflowDag lowers to an executable, acyclic task DAG
     // through the SAME builder bio archetypes use.

@@ -679,8 +679,11 @@ pub fn register_produced_output_tables(package_root: &std::path::Path) -> std::i
     let outputs_root = package_root.join("runtime").join("outputs");
     let mut rels: Vec<String> = Vec::new();
     if let Ok(entries) = std::fs::read_dir(&outputs_root) {
-        let mut task_dirs: Vec<std::path::PathBuf> =
-            entries.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
+        let mut task_dirs: Vec<std::path::PathBuf> = entries
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
         task_dirs.sort();
         for task_dir in task_dirs {
             let task = task_dir
@@ -841,8 +844,7 @@ pub fn finalize_evidence_registration_with_verifier(
             );
         }
     }
-    crate::emitter::regenerate_bagit_manifest(root, clock)
-        .map_err(std::io::Error::other)?;
+    crate::emitter::regenerate_bagit_manifest(root, clock).map_err(std::io::Error::other)?;
     Ok(added)
 }
 
@@ -853,10 +855,8 @@ fn backfill_claim_subgraph(
     root: &std::path::Path,
     verifier: &crate::audit_writer::AuditWriter,
 ) -> anyhow::Result<()> {
-    let pkg = crate::audit_proof::loader::LoadedPackage::from_root_with_verifier(
-        root,
-        Some(verifier),
-    )?;
+    let pkg =
+        crate::audit_proof::loader::LoadedPackage::from_root_with_verifier(root, Some(verifier))?;
     // `claims` is the unioned signed-sink doc (`{verdicts:[…]}`) when the sink
     // verified; None / tampered ⇒ nothing trustworthy to project.
     let Some(claims) = pkg.claims.as_ref() else {

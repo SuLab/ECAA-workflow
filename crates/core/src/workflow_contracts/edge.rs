@@ -23,9 +23,7 @@ use super::evidence::{AssumptionRef, ValidatorRef};
 /// or hand-written edge that omits `kind` is treated as the *strictest
 /// failing* case — it is never silently waved through the gate.
 /// Defaulting to `TypedDataFlow` would re-open the loophole.
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema,
-)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]

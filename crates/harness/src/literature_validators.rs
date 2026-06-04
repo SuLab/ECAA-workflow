@@ -629,13 +629,11 @@ pub fn run_redistributable_or_marked(
             // Paper-class OA / abstract / OpenAlex / Crossref records are
             // genuinely CC/fair-use redistributable and MUST carry the mark.
             (
-                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only"
-                | "pubmed_abstract",
+                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only" | "pubmed_abstract",
                 true,
             ) => true,
             (
-                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only"
-                | "pubmed_abstract",
+                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only" | "pubmed_abstract",
                 false,
             ) => false,
             // Tool-documentation pages are pages, not redistributed corpus —

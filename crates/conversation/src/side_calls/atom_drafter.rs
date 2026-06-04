@@ -221,8 +221,12 @@ fn render_user_prompt(req: &AtomDraftRequest) -> String {
 /// Parse the LLM text as a JSON object. Tolerates a markdown fence.
 fn parse_json_object(raw: &str) -> std::result::Result<serde_json::Value, (String, String)> {
     let stripped = strip_fence(raw.trim());
-    serde_json::from_str::<serde_json::Value>(stripped)
-        .map_err(|e| (stripped.chars().take(500).collect::<String>(), e.to_string()))
+    serde_json::from_str::<serde_json::Value>(stripped).map_err(|e| {
+        (
+            stripped.chars().take(500).collect::<String>(),
+            e.to_string(),
+        )
+    })
 }
 
 fn strip_fence(s: &str) -> &str {
@@ -367,7 +371,10 @@ mod tests {
         let _ = draft_atom(backend, &metrics, id, &request("doublet_score")).await;
         let snap = metrics.snapshot(id).await.unwrap();
         assert!(snap.side_call_cost_usd > 0.0, "side-call bucket empty");
-        assert!((snap.chat_cost_usd - 0.0).abs() < 1e-9, "chat bucket polluted");
+        assert!(
+            (snap.chat_cost_usd - 0.0).abs() < 1e-9,
+            "chat bucket polluted"
+        );
     }
 
     #[tokio::test]
@@ -381,7 +388,10 @@ mod tests {
         let err = draft_atom(backend, &metrics, id, &request("doublet_score"))
             .await
             .unwrap_err();
-        assert!(matches!(err, DraftError::ValidatorFailed { .. }), "got: {err}");
+        assert!(
+            matches!(err, DraftError::ValidatorFailed { .. }),
+            "got: {err}"
+        );
     }
 
     #[tokio::test]
@@ -395,7 +405,10 @@ mod tests {
         let err = draft_atom(backend, &metrics, id, &request("doublet_score"))
             .await
             .unwrap_err();
-        assert!(matches!(err, DraftError::MethodChoiceSet { .. }), "got: {err}");
+        assert!(
+            matches!(err, DraftError::MethodChoiceSet { .. }),
+            "got: {err}"
+        );
     }
 
     #[tokio::test]

@@ -2284,12 +2284,10 @@ async fn latest_session_shape_composes_three_branches_then_allows_scope_reset() 
     // node. Assert the grounded analytical node is present rather than the
     // (wrong) `proteomics_differential_expression`.
     assert!(
-        task_ids
-            .iter()
-            .any(|id| id.starts_with("proteomics_")
-                && (id.contains("peptide_search")
-                    || id.contains("protein_quantification")
-                    || id.contains("differential_abundance"))),
+        task_ids.iter().any(|id| id.starts_with("proteomics_")
+            && (id.contains("peptide_search")
+                || id.contains("protein_quantification")
+                || id.contains("differential_abundance"))),
         "proteomics branch must ground to proteomics atoms: {task_ids:?}"
     );
     assert!(
@@ -2307,7 +2305,10 @@ async fn latest_session_shape_composes_three_branches_then_allows_scope_reset() 
             || id.starts_with("bulk_rnaseq_")
             || id.starts_with("single_cell_rnaseq_")
             || id.starts_with("proteomics_");
-        assert!(ok, "off-modality task leaked into 3-way multi-branch DAG: {id}");
+        assert!(
+            ok,
+            "off-modality task leaked into 3-way multi-branch DAG: {id}"
+        );
     }
     // The legacy 2-way-archetype degrade path must NOT have fired: it
     // would alias `bulk_rnaseq_differential_expression` ->
@@ -3421,7 +3422,9 @@ async fn rebuild_dag_populates_archetype_id_from_matched_archetype() {
 /// bridge exclusion, so the whole FASTQ block is pruned.
 #[test]
 fn counts_level_entry_from_exclusion_prunes_fastq_block() {
-    use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+    use ecaa_workflow_core::workflow_contracts::edge::{
+        CompatibilityProof, EdgeContract, EdgeKind,
+    };
     use ecaa_workflow_core::workflow_contracts::evidence::AssumptionLedger;
     use ecaa_workflow_core::workflow_contracts::port::PortContract;
     use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};

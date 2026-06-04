@@ -15,9 +15,7 @@
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::builder::build_dag_from_composition;
-use ecaa_workflow_core::composer::{
-    compose_with_modalities, compose_with_modality,
-};
+use ecaa_workflow_core::composer::{compose_with_modalities, compose_with_modality};
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::path::PathBuf;
 
@@ -241,10 +239,8 @@ fn empty_modality_list_delegates_to_legacy() {
     // Empty list must produce IDENTICAL results to passing None,
     // including for failure modes (e.g. TieRequiresSmeDecision when
     // multiple single-modality archetypes share the goal).
-    let multi =
-        compose_with_modalities(&goal, "bioinformatics", &atoms, &archetypes, &[]);
-    let single =
-        compose_with_modality(&goal, "bioinformatics", &atoms, &archetypes, None);
+    let multi = compose_with_modalities(&goal, "bioinformatics", &atoms, &archetypes, &[]);
+    let single = compose_with_modality(&goal, "bioinformatics", &atoms, &archetypes, None);
     match (&multi, &single) {
         (Ok(m), Ok(s)) => assert_eq!(m.matched_archetype, s.matched_archetype),
         (Err(m), Err(s)) => {

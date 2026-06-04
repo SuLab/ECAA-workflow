@@ -573,9 +573,7 @@ fn task_expected_claim_stems(
         let path = dir.join("task-spec.json");
         if let Ok(raw) = std::fs::read_to_string(path) {
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
-                if let Some(source_atom_id) =
-                    value.get("source_atom_id").and_then(|v| v.as_str())
-                {
+                if let Some(source_atom_id) = value.get("source_atom_id").and_then(|v| v.as_str()) {
                     stems.insert(expected_claim_stem(source_atom_id));
                 }
             }

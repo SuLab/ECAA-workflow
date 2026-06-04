@@ -263,8 +263,7 @@ fn core_emit_writes_workflow_typed_json() {
 
     let path = tmp.path().join("runtime/workflow-typed.json");
     assert!(path.exists(), "workflow-typed.json not emitted");
-    let v: serde_json::Value =
-        serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     for key in [
         "workflow_id",
         "name",
@@ -342,8 +341,8 @@ fn proofs_jsonl_carries_real_edge_kind_when_map_threaded() {
     })
     .expect("emit");
 
-    let proofs = std::fs::read_to_string(tmp.path().join("runtime/proofs.jsonl"))
-        .expect("proofs sidecar");
+    let proofs =
+        std::fs::read_to_string(tmp.path().join("runtime/proofs.jsonl")).expect("proofs sidecar");
     let mut saw_typed = false;
     for line in proofs.lines().filter(|l| !l.trim().is_empty()) {
         let v: serde_json::Value = serde_json::from_str(line).unwrap();
@@ -378,8 +377,8 @@ fn proofs_jsonl_carries_real_edge_kind_when_map_threaded() {
         edge_kinds: None,
     })
     .expect("emit");
-    let proofs2 = std::fs::read_to_string(tmp2.path().join("runtime/proofs.jsonl"))
-        .expect("proofs sidecar");
+    let proofs2 =
+        std::fs::read_to_string(tmp2.path().join("runtime/proofs.jsonl")).expect("proofs sidecar");
     for line in proofs2.lines().filter(|l| !l.trim().is_empty()) {
         let v: serde_json::Value = serde_json::from_str(line).unwrap();
         assert_eq!(

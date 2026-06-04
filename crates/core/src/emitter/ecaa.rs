@@ -220,7 +220,9 @@ pub(super) fn write_ed_cf_self_assessment(
     let report = crate::rubric_self_assessment::EdCfSelfAssessment::from_inputs(&inputs);
     let value = serde_json::to_value(&report).context("serializing ED/CF self-assessment")?;
     write_pretty_json(
-        &output_dir.join("runtime").join("ed-cf-self-assessment.json"),
+        &output_dir
+            .join("runtime")
+            .join("ed-cf-self-assessment.json"),
         &value,
     )
 }

@@ -378,14 +378,17 @@ pub(super) async fn write_coverage_statement(session: &Session, output_dir: &Pat
         return Ok(());
     };
     let node_ids: Vec<String> = dag.nodes.iter().map(|n| n.id.clone()).collect();
-    let proposal_node_ids: Vec<String> =
-        session.proposals.values().map(|p| p.node_id.clone()).collect();
+    let proposal_node_ids: Vec<String> = session
+        .proposals
+        .values()
+        .map(|p| p.node_id.clone())
+        .collect();
     let stmt = build_coverage_statement(&node_ids, &proposal_node_ids);
 
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
-    let bytes = serde_json::to_vec_pretty(&stmt)
-        .context("serializing runtime/coverage-statement.json")?;
+    let bytes =
+        serde_json::to_vec_pretty(&stmt).context("serializing runtime/coverage-statement.json")?;
     let path = runtime.join("coverage-statement.json");
     tokio::fs::write(&path, bytes)
         .await

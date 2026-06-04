@@ -311,11 +311,12 @@ mod ed_cf_delta_tests {
         };
         let mut session = Session::new(false);
         session.coverage_confidence = Some(CoverageConfidence::from_outcome(&outcome));
-        write_coverage_statement(&session, dir.path()).await.unwrap();
+        write_coverage_statement(&session, dir.path())
+            .await
+            .unwrap();
         let path = dir.path().join("runtime/coverage-statement.json");
         assert!(path.exists(), "partial coverage must write a statement");
-        let v: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(v["uncovered_modalities"][0], "cytof");
 
         // Fully covered → no file.

@@ -80,9 +80,7 @@ pub fn check_evidence_coverage(pkg: &LoadedPackage) -> InvariantVerdict {
     let mut violators = Vec::new();
     for o in &outputs {
         let basename = o.rsplit('/').next().unwrap_or(o);
-        if !supported.contains(o)
-            && !supported_basenames.contains(basename)
-            && !unused.contains(o)
+        if !supported.contains(o) && !supported_basenames.contains(basename) && !unused.contains(o)
         {
             violators.push(o.clone());
         }

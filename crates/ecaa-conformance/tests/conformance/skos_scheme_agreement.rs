@@ -98,9 +98,10 @@ fn scheme_notations(ttl: &str, scheme: &str) -> BTreeSet<String> {
         // Pull the skos:notation "…" from this block.
         if let Some(idx) = block.find("skos:notation") {
             let rest = &block[idx..];
-            if let (Some(a), Some(b)) =
-                (rest.find('"'), rest[rest.find('"').unwrap() + 1..].find('"'))
-            {
+            if let (Some(a), Some(b)) = (
+                rest.find('"'),
+                rest[rest.find('"').unwrap() + 1..].find('"'),
+            ) {
                 let start = a + 1;
                 let tok = &rest[start..start + b];
                 out.insert(tok.to_string());
@@ -165,7 +166,11 @@ fn ablation_flag_enum_matches_scheme() {
 fn scheme_versioninfo_pins_match_counts() {
     let ttl = schemes_ttl();
     // owl:versionInfo on each scheme must equal the variant count.
-    for (scheme, count) in [("blocker-kind", "48"), ("rerun-outcome", "5"), ("ablation-flag", "6")] {
+    for (scheme, count) in [
+        ("blocker-kind", "48"),
+        ("rerun-outcome", "5"),
+        ("ablation-flag", "6"),
+    ] {
         let head = ttl
             .split(&format!("vocab:{scheme} a skos:ConceptScheme"))
             .nth(1)

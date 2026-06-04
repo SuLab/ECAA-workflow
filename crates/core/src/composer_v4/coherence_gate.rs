@@ -198,7 +198,11 @@ mod tests {
             source_template: None,
         };
         let findings = evaluate(&dag, &PlanningContext::default(), &archetypes()).findings;
-        assert_eq!(findings.len(), 1, "expected one orphan finding: {findings:?}");
+        assert_eq!(
+            findings.len(),
+            1,
+            "expected one orphan finding: {findings:?}"
+        );
         assert!(findings[0].contains("orphan_de"), "{findings:?}");
     }
 
@@ -275,10 +279,8 @@ mod tests {
             "off-modality node must be the flagged one: {findings:?}"
         );
         assert!(
-            !findings
-                .iter()
-                .any(|f| f.starts_with("modality_mismatch:")
-                    && f.contains("bulk_rnaseq_differential_expression")),
+            !findings.iter().any(|f| f.starts_with("modality_mismatch:")
+                && f.contains("bulk_rnaseq_differential_expression")),
             "on-modality branch node must NOT be flagged: {findings:?}"
         );
     }

@@ -975,7 +975,10 @@ assignee: agent
         let mut atom = AtomDefinition::test_default("imported_tool");
         atom.edam_data = Some("data:2978".into());
         let merged = base
-            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .with_external_overlay(
+                vec![atom],
+                crate::external_registry::RegistryTier::Community,
+            )
             .expect("valid overlay admitted");
         let hits: Vec<&str> = merged
             .find_producers("data:2978", None)
@@ -990,7 +993,10 @@ assignee: agent
         let mut atom = AtomDefinition::test_default("Bad Id With Spaces");
         atom.id = "Bad Id With Spaces".into(); // fails schema id pattern
         let err = base
-            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .with_external_overlay(
+                vec![atom],
+                crate::external_registry::RegistryTier::Community,
+            )
             .unwrap_err()
             .to_string();
         assert!(err.contains("schema"), "got: {err}");
@@ -1009,7 +1015,10 @@ assignee: agent
             ..SafetyPolicy::default()
         };
         let err = base
-            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .with_external_overlay(
+                vec![atom],
+                crate::external_registry::RegistryTier::Community,
+            )
             .unwrap_err()
             .to_string();
         assert!(err.contains("safety"), "got: {err}");
@@ -1030,7 +1039,10 @@ assignee: agent
         );
         let base = AtomRegistry::load_from_dir(tmp.path()).unwrap();
         let merged = base
-            .with_external_overlay(vec![atom], crate::external_registry::RegistryTier::Community)
+            .with_external_overlay(
+                vec![atom],
+                crate::external_registry::RegistryTier::Community,
+            )
             .expect("overlay admitted");
         // Base wins on id collision (overlay dropped) — base atom's
         // data:2978 still resolves, the overlay's data:9999 does not.

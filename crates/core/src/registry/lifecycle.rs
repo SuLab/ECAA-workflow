@@ -26,7 +26,9 @@ pub struct VersionBump {
 
 /// Diff between two atom-catalog snapshots. Added/removed/bumped lists are
 /// id-sorted for byte-stable output.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS, schemars::JsonSchema,
+)]
 #[ts(export)]
 #[non_exhaustive]
 pub struct AtomCatalogDiff {

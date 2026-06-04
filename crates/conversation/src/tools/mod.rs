@@ -2147,7 +2147,9 @@ fn wire_upstream_edges(
     task_node_id: &str,
     proposal: &ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal,
 ) -> bool {
-    use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+    use ecaa_workflow_core::workflow_contracts::edge::{
+        CompatibilityProof, EdgeContract, EdgeKind,
+    };
     let mut dirty = false;
     for upstream_id in &proposal.upstream_atom_ids {
         let upstream_exists = dag.nodes.iter().any(|n| n.id == *upstream_id);
@@ -2203,7 +2205,9 @@ fn wire_promoted_node(
     task_node_id: &str,
     proposal: &ecaa_workflow_core::hypothesized_proposal::HypothesizedProposal,
 ) -> bool {
-    use ecaa_workflow_core::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+    use ecaa_workflow_core::workflow_contracts::edge::{
+        CompatibilityProof, EdgeContract, EdgeKind,
+    };
     use ecaa_workflow_core::workflow_contracts::evidence::ValidatorRef;
     use ecaa_workflow_core::workflow_contracts::implementation::Implementation;
     use ecaa_workflow_core::workflow_contracts::lifecycle::LifecycleState;

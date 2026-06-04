@@ -637,4 +637,3 @@ fn read_default_budget_usd() -> Option<f64> {
         .and_then(|s| s.parse::<f64>().ok())
         .filter(|v| v.is_finite() && *v > 0.0)
 }
-

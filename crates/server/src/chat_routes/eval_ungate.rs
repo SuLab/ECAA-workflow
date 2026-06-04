@@ -25,7 +25,9 @@ fn eval_ungate_enabled_from(eval_live: Option<&str>, ungate: Option<&str>) -> bo
 pub(crate) fn eval_ungate_enabled() -> bool {
     eval_ungate_enabled_from(
         std::env::var("ECAA_EVAL_LIVE").ok().as_deref(),
-        std::env::var("ECAA_EVAL_UNGATE_SCHEMA_GATE").ok().as_deref(),
+        std::env::var("ECAA_EVAL_UNGATE_SCHEMA_GATE")
+            .ok()
+            .as_deref(),
     )
 }
 
@@ -63,7 +65,10 @@ mod tests {
     #[test]
     fn enabled_only_when_both_flags_set() {
         let enabled = eval_ungate_enabled_from(Some("1"), Some("1"));
-        assert!(enabled, "both flags set must enable ungate (else the arm is vacuous)");
+        assert!(
+            enabled,
+            "both flags set must enable ungate (else the arm is vacuous)"
+        );
     }
 
     /// Non-"1" values are not truthy.

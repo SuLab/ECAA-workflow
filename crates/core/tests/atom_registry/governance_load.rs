@@ -20,8 +20,7 @@ fn config_stage_atoms() -> PathBuf {
 
 #[test]
 fn real_catalog_passes_governance_gate() {
-    let reg = AtomRegistry::load_from_dir(&config_stage_atoms())
-        .expect("real catalog must load");
+    let reg = AtomRegistry::load_from_dir(&config_stage_atoms()).expect("real catalog must load");
     reg.validate_consistency().expect(
         "real catalog must pass governance lint: its Exec atom carries governance.status: reviewed",
     );

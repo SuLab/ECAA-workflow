@@ -6,9 +6,7 @@
 //! the from_atom lowering as oracles. Iterates over ALL Exec atoms so
 //! future Exec atoms are auto-covered.
 
-use ecaa_workflow_core::atom::{
-    AtomDefinition, NetworkPolicy, SafetyLevel, SandboxRequirement,
-};
+use ecaa_workflow_core::atom::{AtomDefinition, NetworkPolicy, SafetyLevel, SandboxRequirement};
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::atom_safety::aggregate_for_package;
 use ecaa_workflow_core::blocker::BlockerKind;

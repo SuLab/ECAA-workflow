@@ -142,8 +142,7 @@ fn verified_table_backed_claim_resolves_in_cross_graph_integrity() {
     // Post-execution: register the produced result tables as V `@graph`
     // entities (in production this runs in the verify-finalize after the agent
     // has written its tables).
-    let registered =
-        ecaa_workflow_core::ro_crate::register_produced_output_tables(root).unwrap();
+    let registered = ecaa_workflow_core::ro_crate::register_produced_output_tables(root).unwrap();
     assert_eq!(
         registered, 1,
         "the produced result table must be registered as a V Evidence entity"
@@ -217,7 +216,11 @@ fn finalize_registers_tables_and_reseals_manifest() {
 fn finalize_is_idempotent_and_manifest_stable() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
-    write_production_shaped_package(root, "differential_expression.tsv", "differential_expression");
+    write_production_shaped_package(
+        root,
+        "differential_expression.tsv",
+        "differential_expression",
+    );
     let clock = ecaa_workflow_core::clock::WallClock;
 
     let first = ecaa_workflow_core::ro_crate::finalize_evidence_registration(root, &clock).unwrap();
@@ -290,8 +293,7 @@ fn verified_claim_with_subdir_table_resolves_after_finalize() {
     write_package_with_subdir_table(root, table, task);
 
     let clock = ecaa_workflow_core::clock::WallClock;
-    let added =
-        ecaa_workflow_core::ro_crate::finalize_evidence_registration(root, &clock).unwrap();
+    let added = ecaa_workflow_core::ro_crate::finalize_evidence_registration(root, &clock).unwrap();
     assert_eq!(
         added, 1,
         "the table nested under runtime/outputs/<task>/tables/ must be registered"
@@ -308,10 +310,9 @@ fn verified_claim_with_subdir_table_resolves_after_finalize() {
     );
     // The figures/ subdir must NOT be walked as a table (it is an ImageObject).
     assert!(
-        !graph.iter().any(|e| e["@id"]
-            .as_str()
-            .is_some_and(|s| s.starts_with("runtime/outputs/differential_expression/figures/")
-                && (s.ends_with(".tsv") || s.ends_with(".csv")))),
+        !graph.iter().any(|e| e["@id"].as_str().is_some_and(|s| s
+            .starts_with("runtime/outputs/differential_expression/figures/")
+            && (s.ends_with(".tsv") || s.ends_with(".csv")))),
         "figures/ must stay excluded from table registration"
     );
 
@@ -370,8 +371,7 @@ fn finalize_backfills_claim_nodes_into_graph_from_signed_sink() {
 
     // ... and a supported_by edge to a V evidence node.
     let has_supported_by_edge = graph.iter().any(|e| {
-        e.get("supported_by").is_some()
-            && e["@type"] == json!("Claim")
+        e.get("supported_by").is_some() && e["@type"] == json!("Claim")
             || e["predicate"] == json!("supported_by")
     });
     assert!(

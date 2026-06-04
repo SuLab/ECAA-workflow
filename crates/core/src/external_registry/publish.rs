@@ -84,7 +84,8 @@ impl PublishedToolDescriptor {
             let mut o = serde_json::Map::new();
             o.insert("id".into(), serde_json::Value::String(p.name.clone()));
             if let crate::workflow_contracts::semantic_type::SemanticType::OntologyTerm {
-                iri, ..
+                iri,
+                ..
             } = &p.semantic_type
             {
                 // Importer parses `edam:data_N` / `edam:format_N`; emit

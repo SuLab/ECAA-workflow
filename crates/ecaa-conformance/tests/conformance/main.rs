@@ -2,17 +2,21 @@ mod _shacl_harness;
 mod a3_fixture_conformance;
 mod ablation_contract;
 mod audit_proof_invariants;
+mod benchmark_readiness;
 mod claim_completeness_shacl;
 mod conformance_external_validators;
 mod cross_graph_shacl;
 mod equivalence_failure_shacl;
 mod evidence_coverage_shacl;
 mod execution_consistency_shacl;
-mod nanopub_projection;
-mod qualified_derivation;
-mod rust_pyshacl_agreement;
 mod false_positive_corpus;
 mod invariant_utility;
+mod nanopub_projection;
+mod null_treatment_control;
+mod positive_treatment_control;
+mod qualified_derivation;
+mod rust_pyshacl_agreement;
+mod schema_compliance;
 mod shacl_non_vacuous;
 mod skos_membership_shacl;
 mod skos_scheme_agreement;
@@ -20,14 +24,10 @@ mod spec_consistency;
 mod typed_workflow_schema;
 mod wrroc_runcrate;
 mod wrroc_v05_conformance;
-mod benchmark_readiness;
-mod null_treatment_control;
-mod positive_treatment_control;
-mod schema_compliance;
 // Phase 5 (governance) — appended at end to minimize cross-phase
 // conflict with Phase 8's additions to this registry.
-mod sandbox_profile_attestation;
 mod controlled_access_egress;
+mod sandbox_profile_attestation;
 // WG3 strict-mode — cross-omics promotion gate (production_ready coupled to a
 // clean RiskMode::Production compose).
 mod production_promotion_gate;

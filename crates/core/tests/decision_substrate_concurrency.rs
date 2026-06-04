@@ -78,8 +78,13 @@ fn concurrent_compose_isolates_substrate_per_session() {
     // into the default bucket); we don't assert on its substrate rows, so
     // clear the default bucket afterward to keep this binary's later
     // unscoped drain hermetic.
-    let baseline = composer::compose(&variant_calling_goal(), "bioinformatics", &atoms, &archetypes)
-        .expect("baseline compose succeeds");
+    let baseline = composer::compose(
+        &variant_calling_goal(),
+        "bioinformatics",
+        &atoms,
+        &archetypes,
+    )
+    .expect("baseline compose succeeds");
     let baseline_hash = hash_composition(&baseline);
     let _ = decision_substrate::drain();
 

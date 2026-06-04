@@ -123,9 +123,7 @@ fn strip_branch_final_report(dag: &mut WorkflowDag) {
     let drop: BTreeSet<String> = dag
         .nodes
         .iter()
-        .filter(|n| {
-            n.attributes.get("atom_id").and_then(|v| v.as_str()) == Some("final_reporting")
-        })
+        .filter(|n| n.attributes.get("atom_id").and_then(|v| v.as_str()) == Some("final_reporting"))
         .map(|n| n.id.clone())
         .collect();
     dag.nodes.retain(|n| !drop.contains(&n.id));
@@ -154,9 +152,7 @@ fn ordering_proof(from: &str, to: &str) -> CompatibilityProof {
     CompatibilityProof {
         producer_type: "ecaax:multi_branch_join_signal".into(),
         consumer_type: "ecaax:multi_branch_join_signal".into(),
-        warnings: vec![
-            "workflow_ordering_edge: multi-branch join; no port-typed data flow".into(),
-        ],
+        warnings: vec!["workflow_ordering_edge: multi-branch join; no port-typed data flow".into()],
         rationale: Some(format!("multi_branch_synthesis: {from} -> {to}")),
         ..Default::default()
     }
@@ -287,7 +283,9 @@ fn missing_modality_gap(modality: &str) -> GapReport {
         ),
         missing_port: None,
         suggestions: vec![
-            format!("Propose a hypothesized pipeline for '{modality}' via propose_hypothesized_node"),
+            format!(
+                "Propose a hypothesized pipeline for '{modality}' via propose_hypothesized_node"
+            ),
             "Add an archetype or atoms covering this modality".into(),
         ],
     }
@@ -409,14 +407,12 @@ pub(crate) fn compose_branches(
         atom_reg,
         archetype_reg,
     )
-    .unwrap_or_else(|| {
-        WorkflowDag {
-            id: format!("composed:{}", ctx.intent.id),
-            nodes: Vec::new(),
-            edges: Vec::new(),
-            assumptions: Default::default(),
-            source_template: None,
-        }
+    .unwrap_or_else(|| WorkflowDag {
+        id: format!("composed:{}", ctx.intent.id),
+        nodes: Vec::new(),
+        edges: Vec::new(),
+        assumptions: Default::default(),
+        source_template: None,
     });
 
     MultiBranchComposition { dag, unresolved }
@@ -430,9 +426,10 @@ mod tests {
     use std::path::Path;
 
     fn registries() -> (AtomRegistry, ArchetypeRegistry) {
-        let atoms = AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
-        let archs =
-            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("archetypes");
+        let atoms =
+            AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archs = ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes"))
+            .expect("archetypes");
         (atoms, archs)
     }
     fn de_goal() -> GoalSpec {
@@ -532,11 +529,13 @@ mod tests {
             source_template: None,
         };
         strip_branch_final_report(&mut dag);
-        assert!(dag
-            .nodes
-            .iter()
-            .all(|n| n.attributes.get("atom_id").and_then(|v| v.as_str()) != Some("final_reporting")));
-        assert!(dag.edges.is_empty(), "edges touching final_reporting are dropped");
+        assert!(dag.nodes.iter().all(
+            |n| n.attributes.get("atom_id").and_then(|v| v.as_str()) != Some("final_reporting")
+        ));
+        assert!(
+            dag.edges.is_empty(),
+            "edges touching final_reporting are dropped"
+        );
     }
 
     #[test]
@@ -548,7 +547,10 @@ mod tests {
             assumptions: Default::default(),
             source_template: None,
         };
-        assert_eq!(branch_terminals(&dag), vec!["b".to_string(), "c".to_string()]);
+        assert_eq!(
+            branch_terminals(&dag),
+            vec!["b".to_string(), "c".to_string()]
+        );
     }
 
     #[test]
@@ -605,15 +607,21 @@ mod tests {
             Some("reporting")
         );
         // Each branch terminal feeds the comparison; comparison feeds final.
-        assert!(dag.edges.iter().any(|e| e.from_node
-            == "bulk_rnaseq_differential_expression"
-            && e.to_node == "multi_modal_thematic_comparison"));
-        assert!(dag.edges.iter().any(|e| e.from_node
-            == "proteomics_differential_abundance"
-            && e.to_node == "multi_modal_thematic_comparison"));
-        assert!(dag.edges.iter().any(|e| e.from_node
-            == "multi_modal_thematic_comparison"
-            && e.to_node == "final_reporting"));
+        assert!(dag
+            .edges
+            .iter()
+            .any(|e| e.from_node == "bulk_rnaseq_differential_expression"
+                && e.to_node == "multi_modal_thematic_comparison"));
+        assert!(dag
+            .edges
+            .iter()
+            .any(|e| e.from_node == "proteomics_differential_abundance"
+                && e.to_node == "multi_modal_thematic_comparison"));
+        assert!(dag
+            .edges
+            .iter()
+            .any(|e| e.from_node == "multi_modal_thematic_comparison"
+                && e.to_node == "final_reporting"));
         // Determinism: nodes sorted by id.
         let actual: Vec<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
         let mut sorted = actual.clone();
@@ -670,7 +678,11 @@ mod tests {
         );
         let comp = compose_branches(&ctx, &goal, "bioinformatics", &atoms, &archs);
         // The resolvable branch is still composed...
-        assert!(comp.dag.nodes.iter().any(|n| n.id.starts_with("bulk_rnaseq_")));
+        assert!(comp
+            .dag
+            .nodes
+            .iter()
+            .any(|n| n.id.starts_with("bulk_rnaseq_")));
         // ...and the unsatisfiable modality is surfaced, not dropped.
         assert!(comp
             .unresolved
@@ -728,7 +740,11 @@ mod tests {
                 || n.id == "final_reporting"
                 || n.id.starts_with("bulk_rnaseq_")
                 || n.id.starts_with("single_cell_rnaseq_");
-            assert!(ok, "off-modality node leaked into multi-branch DAG: {}", n.id);
+            assert!(
+                ok,
+                "off-modality node leaked into multi-branch DAG: {}",
+                n.id
+            );
         }
         // No wrong-modality / cross-modality-pollution atoms.
         assert!(
@@ -853,21 +869,30 @@ mod tests {
             "must be multi-branch synthesis, not a cross-omics archetype: {ids:?}"
         );
         // All three branches present + namespace-prefixed.
-        assert!(ids.iter().any(|i| i.starts_with("bulk_rnaseq_")), "bulk_rnaseq branch: {ids:?}");
+        assert!(
+            ids.iter().any(|i| i.starts_with("bulk_rnaseq_")),
+            "bulk_rnaseq branch: {ids:?}"
+        );
         assert!(
             ids.iter().any(|i| i.starts_with("single_cell_rnaseq_")),
             "single_cell_rnaseq branch: {ids:?}"
         );
-        assert!(ids.iter().any(|i| i.starts_with("proteomics_")), "proteomics branch: {ids:?}");
+        assert!(
+            ids.iter().any(|i| i.starts_with("proteomics_")),
+            "proteomics branch: {ids:?}"
+        );
         // Proteomics grounded to proteomics atoms (Pillar B), not RNA garbage.
         assert!(
-            ids.iter()
-                .any(|i| i.starts_with("proteomics_") && (i.contains("peptide_search") || i.contains("protein_quantification") || i.contains("differential_abundance"))),
+            ids.iter().any(|i| i.starts_with("proteomics_")
+                && (i.contains("peptide_search")
+                    || i.contains("protein_quantification")
+                    || i.contains("differential_abundance"))),
             "proteomics branch must contain proteomics atoms: {ids:?}"
         );
         // Zero wrong-modality leakage anywhere.
         assert!(
-            !ids.iter().any(|i| i.contains("translation_efficiency") || i.contains("vdj")),
+            !ids.iter()
+                .any(|i| i.contains("translation_efficiency") || i.contains("vdj")),
             "no wrong-modality atoms expected: {ids:?}"
         );
         // Structural invariant: every node is a bare join terminal or
@@ -878,7 +903,11 @@ mod tests {
                 || n.id.starts_with("bulk_rnaseq_")
                 || n.id.starts_with("single_cell_rnaseq_")
                 || n.id.starts_with("proteomics_");
-            assert!(ok, "off-modality node leaked into 3-way multi-branch DAG: {}", n.id);
+            assert!(
+                ok,
+                "off-modality node leaked into 3-way multi-branch DAG: {}",
+                n.id
+            );
         }
     }
 }

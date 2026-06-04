@@ -87,8 +87,13 @@ fn minimal_dag() -> ecaa_workflow_core::dag::DAG {
     if let Some(wf) = out.workflow_dag.as_ref() {
         build_dag_from_workflow_dag(wf, "rust-pyshacl-agreement").expect("lower")
     } else {
-        build_dag_from_composition(&out.composition, "rust-pyshacl-agreement", &BTreeMap::new(), &[])
-            .expect("lower")
+        build_dag_from_composition(
+            &out.composition,
+            "rust-pyshacl-agreement",
+            &BTreeMap::new(),
+            &[],
+        )
+        .expect("lower")
     }
 }
 

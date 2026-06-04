@@ -112,9 +112,7 @@ fn one_dispatched_task_yields_exactly_one_invocation_record() {
 
     let path = invocation_log_path(&pkg);
     let body = std::fs::read_to_string(&path).unwrap_or_else(|e| {
-        panic!(
-            "invocations.jsonl must exist after a dispatch ({e}); harness output:\n{combined}"
-        )
+        panic!("invocations.jsonl must exist after a dispatch ({e}); harness output:\n{combined}")
     });
     let lines: Vec<&str> = body.lines().filter(|l| !l.is_empty()).collect();
     assert_eq!(

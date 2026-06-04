@@ -132,8 +132,9 @@ pub struct EmitConfig<'a> {
     /// `None`, the legacy/test path) falls back to the strict
     /// `EdgeKind::Unproven` placeholder so behavior is unchanged when no
     /// typed-edge data is available.
-    pub edge_kinds:
-        Option<&'a std::collections::BTreeMap<(String, String), crate::workflow_contracts::edge::EdgeKind>>,
+    pub edge_kinds: Option<
+        &'a std::collections::BTreeMap<(String, String), crate::workflow_contracts::edge::EdgeKind>,
+    >,
 }
 
 /// Structured amendment metadata captured at the moment `emit_package`

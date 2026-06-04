@@ -4,9 +4,7 @@
 //! collect_safety_policy_refusals layer, exercised by Task 9's harness
 //! test; the conformance crate cannot reach that private binary fn).
 
-use ecaa_workflow_core::atom::{
-    AtomDefinition, NetworkPolicy, SafetyLevel, SandboxRequirement,
-};
+use ecaa_workflow_core::atom::{AtomDefinition, NetworkPolicy, SafetyLevel, SandboxRequirement};
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::atom_safety::aggregate_for_package;
 use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};

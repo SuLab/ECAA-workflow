@@ -319,7 +319,9 @@ fn level_rank(level: SafetyLevel) -> u8 {
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum GovernanceError {
-    #[error("atom {atom_id}: Exec-level atoms require governance.status == reviewed (found {found:?})")]
+    #[error(
+        "atom {atom_id}: Exec-level atoms require governance.status == reviewed (found {found:?})"
+    )]
     /// An Exec atom did not declare `governance.status == reviewed`.
     ExecAtomNotReviewed {
         atom_id: AtomId,

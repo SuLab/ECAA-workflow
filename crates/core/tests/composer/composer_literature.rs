@@ -13,8 +13,7 @@
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
 use ecaa_workflow_core::atom_registry::AtomRegistry;
 use ecaa_workflow_core::composer::{
-    compose_with_intake, compose_with_modality, IntakeContext,
-    LITERATURE_OPT_IN_ATOM_IDS,
+    compose_with_intake, compose_with_modality, IntakeContext, LITERATURE_OPT_IN_ATOM_IDS,
 };
 use ecaa_workflow_core::goal_spec::GoalSpec;
 use std::collections::BTreeMap;
@@ -227,14 +226,8 @@ fn v2_chip_seq_peaks_with_literature_includes_lit_atoms() {
         source_prose: None,
         confidence: 0.9,
     };
-    let result = compose_with_modality(
-        &goal,
-        "bioinformatics",
-        &atoms,
-        &archs,
-        Some("chip_seq"),
-    )
-    .expect("v2 compose with chip_seq hint should succeed for peak calling goal");
+    let result = compose_with_modality(&goal, "bioinformatics", &atoms, &archs, Some("chip_seq"))
+        .expect("v2 compose with chip_seq hint should succeed for peak calling goal");
     let ids: Vec<&str> = result.atoms.iter().map(|c| c.atom.id.as_str()).collect();
     assert!(
         ids.contains(&"review_prior_work"),

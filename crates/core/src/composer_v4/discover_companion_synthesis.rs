@@ -429,7 +429,11 @@ pub(crate) fn type_companion_edges(dag: &mut WorkflowDag) {
         }
     }
     for (cid, mut ports) in needed {
-        ports.sort_by(|a, b| a.semantic_type.stable_id().cmp(&b.semantic_type.stable_id()));
+        ports.sort_by(|a, b| {
+            a.semantic_type
+                .stable_id()
+                .cmp(&b.semantic_type.stable_id())
+        });
         ports.dedup_by(|a, b| a.semantic_type.stable_id() == b.semantic_type.stable_id());
         if let Some(node) = dag.nodes.iter_mut().find(|n| n.id == cid) {
             for p in ports {
@@ -457,8 +461,7 @@ pub(crate) fn type_companion_edges(dag: &mut WorkflowDag) {
         .collect();
     let engine = DeterministicCompatibilityEngine::new();
     for edge in &mut dag.edges {
-        if edge.kind != EdgeKind::OrderingOnly
-            || !is_companion_edge(&edge.from_node, &edge.to_node)
+        if edge.kind != EdgeKind::OrderingOnly || !is_companion_edge(&edge.from_node, &edge.to_node)
         {
             continue;
         }
@@ -536,7 +539,11 @@ pub(crate) fn type_residual_ordering_edges(dag: &mut WorkflowDag) {
     let engine = DeterministicCompatibilityEngine::new();
     let cctx = CompatibilityContext::default();
     for (cid, mut ports) in needed {
-        ports.sort_by(|a, b| a.semantic_type.stable_id().cmp(&b.semantic_type.stable_id()));
+        ports.sort_by(|a, b| {
+            a.semantic_type
+                .stable_id()
+                .cmp(&b.semantic_type.stable_id())
+        });
         ports.dedup_by(|a, b| a.semantic_type == b.semantic_type);
         if let Some(node) = dag.nodes.iter_mut().find(|n| n.id == cid) {
             for p in ports {
@@ -665,8 +672,15 @@ mod tests {
             );
         }
         // The discover skeleton now carries a typed recommendation output.
-        let disc = dag.nodes.iter().find(|n| n.id == "discover_alignment").unwrap();
-        assert!(!disc.outputs.is_empty(), "discover node should gain a method-recommendation output");
+        let disc = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "discover_alignment")
+            .unwrap();
+        assert!(
+            !disc.outputs.is_empty(),
+            "discover node should gain a method-recommendation output"
+        );
     }
 
     /// WG3 strict-mode (C5): a residual within-pipeline ordering edge

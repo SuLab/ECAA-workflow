@@ -118,7 +118,10 @@ impl EdCfSelfAssessment {
             ("gap_proposal_pipeline", i.proposal_pipeline_present),
             ("llm_assisted_authoring", i.llm_assisted_authoring_present),
             ("local_extension_graduation", i.proposal_pipeline_present),
-            ("external_registry_import_tiers", i.external_import_tiers_present),
+            (
+                "external_registry_import_tiers",
+                i.external_import_tiers_present,
+            ),
             ("schema_version_migration", i.schema_migration_present),
         ];
         let ed_present: Vec<String> = ed_mechs
@@ -137,7 +140,10 @@ impl EdCfSelfAssessment {
         // CF: fraction of the five gate-strictness mechanisms present.
         let cf_mechs: Vec<(&str, bool)> = vec![
             ("emit_confirmation_latch", i.confirmation_latch_present),
-            ("high_impact_alone_in_turn_gating", i.high_impact_tool_count > 0),
+            (
+                "high_impact_alone_in_turn_gating",
+                i.high_impact_tool_count > 0,
+            ),
             ("sandbox_default_strict", i.sandbox_default_strict),
             ("runtime_claim_verification", i.claim_verification_present),
             ("audit_proof_report", i.audit_proof_present),
@@ -285,8 +291,7 @@ mod tests {
     #[test]
     fn assessment_round_trips_its_own_json_schema() {
         use jsonschema::JSONSchema;
-        let schema_value =
-            serde_json::to_value(schemars::schema_for!(EdCfSelfAssessment)).unwrap();
+        let schema_value = serde_json::to_value(schemars::schema_for!(EdCfSelfAssessment)).unwrap();
         let compiled = JSONSchema::compile(&schema_value).expect("schema compiles");
         let instance = serde_json::to_value(EdCfSelfAssessment::from_inputs(
             &AssessmentInputs::from_package_facts(93, 21, 22, 6),

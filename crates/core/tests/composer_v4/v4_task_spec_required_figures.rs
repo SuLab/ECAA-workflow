@@ -153,7 +153,11 @@ fn v4_multi_branch_aliases_keep_base_plot_stage_ids() {
             "data_acquisition",
         ),
         ("bulk_rnaseq_raw_qc", "raw_qc", "quality_control"),
-        ("atac_seq_data_acquisition", "data_acquisition", "data_acquisition"),
+        (
+            "atac_seq_data_acquisition",
+            "data_acquisition",
+            "data_acquisition",
+        ),
         ("atac_seq_peak_calling", "peak_calling", "peak_calling"),
     ] {
         let task = dag

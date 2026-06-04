@@ -16,8 +16,7 @@ fn shipped_catalog_passes_atom_contract_lint() {
     // config dirs live two levels up at the workspace root.
     let reg = AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms"))
         .expect("load shipped catalog");
-    let violations =
-        lint_atom_contracts(&reg, Path::new("../../config/plot-affordances"));
+    let violations = lint_atom_contracts(&reg, Path::new("../../config/plot-affordances"));
     assert!(
         violations.is_empty(),
         "atom contract lint found {} violation(s):\n  - {}",

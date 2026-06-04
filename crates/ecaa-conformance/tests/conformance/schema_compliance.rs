@@ -54,11 +54,7 @@ fn schema_path(stem: &str) -> PathBuf {
 /// it. Returns the `validate_value` result so callers can assert pass/fail.
 /// Keeps the `jsonschema::JSONSchema` type local (the conformance crate does
 /// not depend on `jsonschema` directly).
-fn validate_against_schema(
-    stem: &str,
-    instance: &Value,
-    context: &str,
-) -> anyhow::Result<()> {
+fn validate_against_schema(stem: &str, instance: &Value, context: &str) -> anyhow::Result<()> {
     let path = schema_path(stem);
     let raw = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("reading schema {}: {e}", path.display()));

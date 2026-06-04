@@ -210,9 +210,10 @@ fn run_doctor_extensions(sessions_dir: Option<String>) -> Result<()> {
             }
         }
     };
-    let n = ecaa_workflow_conversation::session::cross_session_aggregator::count_graduation_eligible(
-        &dir,
-    );
+    let n =
+        ecaa_workflow_conversation::session::cross_session_aggregator::count_graduation_eligible(
+            &dir,
+        );
     if n == 0 {
         println!("local-extensions: 0 graduation-eligible");
     } else {

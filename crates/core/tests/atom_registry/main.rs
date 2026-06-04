@@ -4,13 +4,13 @@
 mod atom_contract_lint;
 mod atom_count_baseline;
 mod atom_registry_overlay;
+mod atom_role_consumers;
+mod atom_role_speculative_variants;
+mod atom_safety_integration;
 mod confirmatory_atom_catalog;
 mod estimated_duration;
 mod exec_atom_load;
 mod governance_load;
-mod atom_role_consumers;
-mod atom_role_speculative_variants;
-mod atom_safety_integration;
 mod integrators_atom_loads;
 mod live_configs;
 mod method_choice_self_consistency;

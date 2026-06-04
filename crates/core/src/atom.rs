@@ -1230,7 +1230,9 @@ pub enum GovernanceStatus {
 /// Atom-registry governance lifecycle metadata (G4). Optional +
 /// additive; `None` means "unmanaged" — allowed for non-Exec atoms,
 /// refused for Exec atoms by the load gate.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema)]
+#[derive(
+    Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, TS, schemars::JsonSchema,
+)]
 #[ts(export)]
 pub struct AtomGovernance {
     /// Lifecycle status. Defaults to `Draft`.

@@ -314,7 +314,11 @@ mod tests {
         assert_eq!(cov.per_entity["de_results"], EntityCoverage::Absent);
 
         // And the exact (stem-equal) sibling DOES still resolve.
-        let exact = vec![verdict("tp53", Some("de_results.tsv"), ClaimStatus::Verified)];
+        let exact = vec![verdict(
+            "tp53",
+            Some("de_results.tsv"),
+            ClaimStatus::Verified,
+        )];
         let cov_exact = reconcile_coverage(&m, &exact);
         assert_eq!(cov_exact.required_addressed, 1);
     }

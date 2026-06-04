@@ -27,7 +27,10 @@ fn shacl_passes_on_covered_output() {
     // Non-vacuity: the projection must emit real triples (OutputFile + Claim).
     let triples = parse_triple_count(&stdout)
         .unwrap_or_else(|| panic!("could not parse 'projected: N RDF triples':\n{stdout}"));
-    assert!(triples > 0, "projection must emit >0 triples (got {triples})");
+    assert!(
+        triples > 0,
+        "projection must emit >0 triples (got {triples})"
+    );
 }
 
 #[test]

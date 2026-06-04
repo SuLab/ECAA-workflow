@@ -308,8 +308,7 @@ mod tests {
 
         // "other" survives untouched and can be drained separately.
         let other_dir = tempfile::tempdir().unwrap();
-        let other_n =
-            write_verifier_decisions_for_session(other_dir.path(), &sess_other).unwrap();
+        let other_n = write_verifier_decisions_for_session(other_dir.path(), &sess_other).unwrap();
         assert_eq!(other_n, 3, "sibling session's buffered rows are intact");
     }
 }

@@ -532,9 +532,11 @@ mod tests {
         // deterministic (no wall-clock read), so emit and rebuild
         // agree byte-for-byte.
         let raw = std::fs::read(&bco_path).unwrap();
-        let rebuilt =
-            serde_json::to_vec_pretty(&build_bco(&composition, &intake)).unwrap();
-        assert_eq!(raw, rebuilt, "emitted bco.json must equal a fresh build_bco");
+        let rebuilt = serde_json::to_vec_pretty(&build_bco(&composition, &intake)).unwrap();
+        assert_eq!(
+            raw, rebuilt,
+            "emitted bco.json must equal a fresh build_bco"
+        );
         let parsed: Value = serde_json::from_slice(&raw).unwrap();
         assert_eq!(
             parsed["spec_version"],
@@ -607,7 +609,10 @@ mod tests {
         let clock = FrozenClock { at: pinned };
         let a = build_bco_with_clock(&composition, &intake, &clock);
         let b = build_bco_with_clock(&composition, &intake, &clock);
-        assert_eq!(serde_json::to_vec(&a).unwrap(), serde_json::to_vec(&b).unwrap());
+        assert_eq!(
+            serde_json::to_vec(&a).unwrap(),
+            serde_json::to_vec(&b).unwrap()
+        );
         assert_eq!(
             a["provenance_domain"]["created"].as_str().unwrap(),
             pinned.to_rfc3339()

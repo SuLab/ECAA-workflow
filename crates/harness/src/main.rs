@@ -2830,8 +2830,7 @@ fn run_loop(
                 // dispatch blocker — "always emits" / "never block
                 // dispatch" both hold).
                 if let Some(t) = dag_mut.tasks.get(id.as_str()) {
-                    let prereqs: Vec<String> =
-                        t.depends_on.iter().map(|d| d.to_string()).collect();
+                    let prereqs: Vec<String> = t.depends_on.iter().map(|d| d.to_string()).collect();
                     // The harness only ever pre-marks Ready tasks, whose
                     // deps are all Completed — so port-typed inputs are
                     // satisfied at dispatch by construction. Recorded
@@ -6859,8 +6858,7 @@ mod run_loop_transition_tests {
     /// from prior_running, record in prior_completed.
     #[test]
     fn first_completed_observation_emits_completed_and_cleans_scratch() {
-        let d =
-            decide_task_progress_event(&completed(), false, true, false, false, "align", false);
+        let d = decide_task_progress_event(&completed(), false, true, false, false, "align", false);
         assert_eq!(d.event, TaskProgressEvent::Completed);
         assert!(d.mirror_state);
         assert!(d.cleanup_scratch);
@@ -6920,7 +6918,10 @@ mod run_loop_transition_tests {
             }
             other => panic!("expected FailedAsBlocked, got {:?}", other),
         }
-        assert!(d.cleanup_scratch, "Failed transition still reclaims scratch");
+        assert!(
+            d.cleanup_scratch,
+            "Failed transition still reclaims scratch"
+        );
         assert!(d.ops.insert_failed);
         assert!(d.ops.insert_blocked);
     }
@@ -7024,7 +7025,10 @@ mod run_loop_transition_tests {
             assert_eq!(apply(&failed()), TaskProgressEvent::None);
         }
         assert!(prior_failed.contains(tid));
-        assert!(!prior_running.contains(tid), "running guard dropped on Failed");
+        assert!(
+            !prior_running.contains(tid),
+            "running guard dropped on Failed"
+        );
     }
 }
 
@@ -7078,11 +7082,17 @@ mod run_loop_executor_smoke_tests {
         let first = m
             .run_iteration(&path, "agent", &BTreeMap::new())
             .expect("first outcome");
-        assert!(!first.agent_status.success(), "first scripted outcome fails");
+        assert!(
+            !first.agent_status.success(),
+            "first scripted outcome fails"
+        );
         let second = m
             .run_iteration(&path, "agent", &BTreeMap::new())
             .expect("second outcome");
-        assert!(second.agent_status.success(), "second scripted outcome succeeds");
+        assert!(
+            second.agent_status.success(),
+            "second scripted outcome succeeds"
+        );
         assert_eq!(m.provision_calls(), 1);
         assert_eq!(m.remaining(), 0);
     }

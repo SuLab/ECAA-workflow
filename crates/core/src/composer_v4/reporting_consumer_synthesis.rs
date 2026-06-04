@@ -957,9 +957,17 @@ mod tests {
             Some("format:3464"),
         )];
         let mut de = TaskNode::skeleton("differential_expression", "DE");
-        de.outputs = vec![PortContract::from_edam("out", Some("data:3917"), Some("format:3475"))];
+        de.outputs = vec![PortContract::from_edam(
+            "out",
+            Some("data:3917"),
+            Some("format:3475"),
+        )];
         let mut peaks = TaskNode::skeleton("peak_calling", "peaks");
-        peaks.outputs = vec![PortContract::from_edam("out", Some("data:0863"), Some("format:3475"))];
+        peaks.outputs = vec![PortContract::from_edam(
+            "out",
+            Some("data:0863"),
+            Some("format:3475"),
+        )];
         let mk = |from: &str| EdgeContract {
             from_node: from.into(),
             from_port: "out".into(),
