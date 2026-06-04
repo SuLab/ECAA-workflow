@@ -43,7 +43,7 @@ pub fn build_metadata(
         // `conformsTo` asserts the full normative profile set — base
         // RO-Crate 1.1, the WorkflowHub workflow-ro-crate 1.0 profile,
         // the WRROC v0.5 Tier-3 profiles (process / workflow /
-        // provenance), and the ECAA v0.1 profile — built from the single
+        // provenance), and the ECAA v0.2 profile — built from the single
         // `REQUIRED_PROFILE_IRIS` source of truth so the descriptor and
         // the spec-conformance post-checks never drift. The Tier-3 entity
         // builders (`parameter_connection_entity`, `p_plan_entity`) wire

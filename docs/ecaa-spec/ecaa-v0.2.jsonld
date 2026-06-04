@@ -1,6 +1,6 @@
 {
   "@context": {
-    "ecaa": "https://w3id.org/ecaa/ns/0.1#",
+    "ecaa": "https://w3id.org/ecaa/ns/0.2#",
     "prov": "http://www.w3.org/ns/prov#",
     "wfprov": "https://w3id.org/ro/wfrun/provenance/0.5#",
     "dcterms": "http://purl.org/dc/terms/",

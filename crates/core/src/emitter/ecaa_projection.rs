@@ -10,7 +10,7 @@
 //! emit-time schema validation a **tautology** — the implementation types
 //! were validated against schemas derived from those same types, so the
 //! check could never catch a divergence from the spec's normative node /
-//! edge model (`v0.1.md` §4-5, `ecaa-v0.1.ttl`).
+//! edge model (`v0.2.md` §4-5, `ecaa-v0.2.ttl`).
 //!
 //! This module breaks the tautology. It is a thin, pure projection that
 //! maps each internal record into the spec's typed node / edge JSON — the
@@ -51,7 +51,7 @@
 use crate::audit_proof::loader::LoadedPackage;
 use serde_json::{json, Map, Value};
 
-/// The 25 closed node types (`v0.1.md` §5), one variant per entry in
+/// The 25 closed node types (`v0.2.md` §5), one variant per entry in
 /// [`ecaa_workflow_types::consts::NODE_TYPES`]. The wire form is produced
 /// exclusively via [`SpecNodeType::as_str`] (no serde derive) so the
 /// closed-set string can never silently diverge from a serde rename; a
@@ -128,7 +128,7 @@ impl SpecNodeType {
     }
 }
 
-/// The 20 closed edge predicates (`v0.1.md` §5), one variant per entry in
+/// The 20 closed edge predicates (`v0.2.md` §5), one variant per entry in
 /// [`ecaa_workflow_types::consts::EDGE_PREDICATES`]. Wire form is
 /// snake_case (plus the one PROV-O import `prov:wasDerivedFrom`), produced
 /// exclusively via [`SpecPredicate::as_str`] (no serde derive).
@@ -193,7 +193,7 @@ impl SpecPredicate {
     }
 }
 
-/// One spec-typed node in a sub-graph `G` (`v0.1.md` §4.1). `id` is the
+/// One spec-typed node in a sub-graph `G` (`v0.2.md` §4.1). `id` is the
 /// LOCAL identifier within `G`; [`SpecNode::to_value`] prefix-tags it with
 /// the sub-graph letter per §4.2.
 #[derive(Debug, Clone, PartialEq)]
@@ -235,7 +235,7 @@ impl SpecNode {
     }
 }
 
-/// One spec-typed edge `(source_id, target_id, predicate)` (`v0.1.md`
+/// One spec-typed edge `(source_id, target_id, predicate)` (`v0.2.md`
 /// §4.1). `source_id` is always local to `G`; `target_id` is local for an
 /// intra-graph edge and already prefix-tagged (`<G>:<id>`) for a
 /// cross-graph reference (§4.2).

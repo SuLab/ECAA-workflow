@@ -18,7 +18,7 @@
         {"@id": "https://w3id.org/ro/wfrun/process/0.5"},
         {"@id": "https://w3id.org/ro/wfrun/workflow/0.5"},
         {"@id": "https://w3id.org/ro/wfrun/provenance/0.5"},
-        {"@id": "https://w3id.org/ecaa/v0.1"}
+        {"@id": "https://w3id.org/ecaa/v0.2"}
       ],
       "hasPart": [
         {"@id": "runtime/verifier-decisions.jsonl"}

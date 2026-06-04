@@ -232,7 +232,7 @@ mod tests {
                 .map(|p| PackageResult {
                     path: p.display().to_string(),
                     ok: false,
-                    errors: vec!["missing conformsTo: https://w3id.org/ecaa/v0.1".to_string()],
+                    errors: vec!["missing conformsTo: https://w3id.org/ecaa/v0.2".to_string()],
                     profiles: Vec::new(),
                 })
                 .collect();
@@ -254,7 +254,7 @@ mod tests {
         match FailingStub.validate_outcome(&[p.as_path()]) {
             WrrocOutcome::Fail(msgs) => {
                 assert_eq!(msgs.len(), 1);
-                assert!(msgs[0].contains("ecaa/v0.1"), "got: {msgs:?}");
+                assert!(msgs[0].contains("ecaa/v0.2"), "got: {msgs:?}");
                 assert!(msgs[0].contains("/tmp/pkg-a"), "path-prefixed: {msgs:?}");
             }
             other => panic!("expected Fail, got {other:?}"),

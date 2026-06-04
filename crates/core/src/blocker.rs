@@ -1,6 +1,6 @@
 //! Closed taxonomy of reasons a task or chat session can land in a
 //! Blocked state. Types live in `crates/ecaa-types/src/blocker.rs` (the
-//! canonical ECAA v0.1 binding) and are re-exported here so existing
+//! canonical ECAA v0.2 binding) and are re-exported here so existing
 //! `ecaa_workflow_core::blocker::*` consumers continue to compile
 //! unchanged.
 //!

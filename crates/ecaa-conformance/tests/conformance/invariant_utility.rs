@@ -42,7 +42,7 @@ fn fixture_root() -> PathBuf {
         .join("complete-package")
 }
 
-/// The all-`Pass` baseline package transcribed from `docs/ecaa-spec/v0.1.md`
+/// The all-`Pass` baseline package transcribed from `docs/ecaa-spec/v0.2.md`
 /// Appendix C ("a minimal valid ECAA package"). Under `NoopWrrocValidator`
 /// the five hermetic invariants genuinely `Pass`; substrate is `Unverified`
 /// under Noop by design (exercised in Task 5).
@@ -261,12 +261,12 @@ fn status_glyph(s: InvariantStatus) -> &'static str {
 /// ∀ c ∈ C.Claims :
 ///     c.status = "pending"
 ///   ∨ ∃ e ∈ C.edges :
-///         e.predicate = "supported-by"
+///         e.predicate = "supported_by"
 ///       ∧ e.source = c.id
 ///       ∧ e.target ∈ V.Statistics ∪ V.Figures ∪ V.Tables
 /// ```
 /// Violation injected: a `C.Claim` with `status = "verified"` (NOT "pending")
-/// and NO `supported-by` edge — falsifying both disjuncts.
+/// and NO `supported_by` edge — falsifying both disjuncts.
 fn mutate_claim_completeness(root: &Path) {
     let mut claims = read_json(root, "claim-verification.json");
     let verdicts = claims
@@ -281,13 +281,13 @@ fn mutate_claim_completeness(root: &Path) {
     write_json(root, "claim-verification.json", &claims);
 
     // Spec-fidelity: the C sub-graph now holds a non-pending Claim with no
-    // supported-by edge (the node/edge shape the §1 predicate ranges over).
+    // supported_by edge (the node/edge shape the §1 predicate ranges over).
     let claims = read_json(root, "claim-verification.json");
     let v = claims["verdicts"].as_array().expect("verdicts array");
     assert!(
         v.iter().any(|c| c["status"] == "verified"
             && c["supported_by"].as_array().map_or(true, |a| a.is_empty())),
-        "spec §1 violation (verified Claim with no supported-by) not present in C sub-graph"
+        "spec §1 violation (verified Claim with no supported_by) not present in C sub-graph"
     );
 }
 
@@ -337,11 +337,11 @@ fn mutate_decision_justification(root: &Path) {
 /// Spec predicate (`invariants.md` §3, verbatim):
 /// ```text
 /// ∀ o ∈ E.OutputFiles :
-///     (∃ e ∈ V.edges : e.predicate = "computed-from" ∧ e.target = o.id)
+///     (∃ e ∈ V.edges : e.predicate = "computed_from" ∧ e.target = o.id)
 ///   ∨ (∃ b ∈ F.Blockers : b.kind = "OutputUnused" ∧ b.refs ∋ o.id)
 /// ```
-/// Violation injected: an `E.OutputFile` (a V `computed-from` row whose output
-/// path is the bare `o.id`) referenced by NO `C.supported-by` and marked by NO
+/// Violation injected: an `E.OutputFile` (a V `computed_from` row whose output
+/// path is the bare `o.id`) referenced by NO `C.supported_by` and marked by NO
 /// `F` `output_unused` blocker — falsifying both disjuncts.
 fn mutate_evidence_coverage(root: &Path) {
     append_jsonl(
@@ -354,7 +354,7 @@ fn mutate_evidence_coverage(root: &Path) {
     );
 
     // Spec-fidelity: the V sub-graph now declares an output via a
-    // `computed-from` row, and neither C nor F covers it — exactly the
+    // `computed_from` row, and neither C nor F covers it — exactly the
     // un-referenced OutputFile the §3 predicate ranges over.
     let proofs = read_jsonl(root, "proofs.jsonl");
     let declared = proofs.iter().any(|p| {
@@ -365,7 +365,7 @@ fn mutate_evidence_coverage(root: &Path) {
     });
     assert!(
         declared,
-        "spec §3 setup (computed-from OutputFile) not present in V sub-graph"
+        "spec §3 setup (computed_from OutputFile) not present in V sub-graph"
     );
     let claims = read_json(root, "claim-verification.json");
     let covered = claims["verdicts"].as_array().is_some_and(|vs| {
@@ -446,7 +446,7 @@ fn mutate_equivalence_failure(root: &Path) {
 ///             (e.target matches "<G'.letter>:<id>")
 ///           ∧ (∃ n ∈ G'.nodes : n.id = e.target_local_id)
 /// ```
-/// Violation injected: a `C` `supported-by` edge whose target output resolves
+/// Violation injected: a `C` `supported_by` edge whose target output resolves
 /// to NO node in the `V` (Evidence) sub-graph — a dangling cross-graph
 /// reference falsifying the consequent.
 fn mutate_cross_graph_integrity(root: &Path) {
@@ -462,7 +462,7 @@ fn mutate_cross_graph_integrity(root: &Path) {
     }));
     write_json(root, "claim-verification.json", &claims);
 
-    // Spec-fidelity: the C edge points at an output that no V `computed-from`
+    // Spec-fidelity: the C edge points at an output that no V `computed_from`
     // row declares — the dangling cross-graph reference §5 ranges over.
     let claims = read_json(root, "claim-verification.json");
     let dangling_ref = claims["verdicts"]
@@ -475,7 +475,7 @@ fn mutate_cross_graph_integrity(root: &Path) {
         .any(|s| s.split('#').next() == Some("data/outputs/ghost_node.tsv"));
     assert!(
         dangling_ref,
-        "spec §5 setup: C supported-by edge to the ghost output must be present"
+        "spec §5 setup: C supported_by edge to the ghost output must be present"
     );
     let known: std::collections::BTreeSet<String> = read_jsonl(root, "proofs.jsonl")
         .iter()
@@ -639,7 +639,7 @@ fn mutate_equivalence_failure_b(root: &Path) {
 }
 
 /// Invariant 5 — `cross_graph_integrity` → Fail (branch B).
-/// Distinct from branch A (a dangling `C.supported-by` → `V`): here an
+/// Distinct from branch A (a dangling `C.supported_by` → `V`): here an
 /// `F.Blocker` (assumption) carries an `edge_id` that resolves to NO `V`
 /// `edge_id` — a different cross-graph reference (F→V) that dangles. (The
 /// reference impl reads cross-graph references from claim `supported_by` and

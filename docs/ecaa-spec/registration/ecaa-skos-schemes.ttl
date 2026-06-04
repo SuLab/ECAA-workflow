@@ -2,7 +2,7 @@
 @prefix dcterms: <http://purl.org/dc/terms/> .
 @prefix owl:     <http://www.w3.org/2002/07/owl#> .
 @prefix xsd:     <http://www.w3.org/2001/XMLSchema#> .
-@prefix ecaa:    <https://w3id.org/ecaa/ns/0.1#> .
+@prefix ecaa:    <https://w3id.org/ecaa/ns/0.2#> .
 @prefix vocab:   <https://w3id.org/ecaa/vocab/> .
 
 #######################################################################
@@ -14,10 +14,10 @@
 # C/Q/F/A wire JSON carries.
 #######################################################################
 
-# --- BlockerKind (F sub-graph; 47 concepts) --------------------------
+# --- BlockerKind (F sub-graph; 48 concepts) --------------------------
 vocab:blocker-kind a skos:ConceptScheme ;
     dcterms:title "ECAA BlockerKind controlled vocabulary"@en ;
-    dcterms:isVersionOf <https://w3id.org/ecaa/v0.1> ;
+    dcterms:isVersionOf <https://w3id.org/ecaa/v0.2> ;
     owl:versionInfo "48" ;     # variant count; pinned by the agreement lint
     skos:note "Closed-but-extensible: adding a concept is a MINOR change (see v0.2 spec §Conformance & Extension)." .
 
@@ -264,7 +264,7 @@ vocab:blocker-kind a skos:ConceptScheme ;
 # --- RerunOutcome.class (Q sub-graph; 5 concepts) --------------------
 vocab:rerun-outcome a skos:ConceptScheme ;
     dcterms:title "ECAA RerunOutcome class controlled vocabulary"@en ;
-    dcterms:isVersionOf <https://w3id.org/ecaa/v0.1> ;
+    dcterms:isVersionOf <https://w3id.org/ecaa/v0.2> ;
     owl:versionInfo "5" ;
     skos:note "Q sub-graph RerunOutcome.class; Rust binding ReexecutionBucket." .
 
@@ -296,7 +296,7 @@ vocab:rerun-outcome a skos:ConceptScheme ;
 # --- AblationFlag (L3 instrument; 6 concepts) ------------------------
 vocab:ablation-flag a skos:ConceptScheme ;
     dcterms:title "ECAA AblationFlag controlled vocabulary"@en ;
-    dcterms:isVersionOf <https://w3id.org/ecaa/v0.1> ;
+    dcterms:isVersionOf <https://w3id.org/ecaa/v0.2> ;
     owl:versionInfo "6" ;
     skos:note "The 6-flag ECAA_ABLATE_* contract; one flag toggles exactly one sidecar." .
 

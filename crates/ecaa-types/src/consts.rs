@@ -1,18 +1,18 @@
-//! Canonical const arrays defining ECAA v0.1 closed type-set sizes.
+//! Canonical const arrays defining ECAA v0.2 closed type-set sizes.
 //!
 //! Source of truth for cross-doc consistency checks. Spec files MUST
 //! reference exactly these names; downstream linters import this module
 //! instead of hardcoding string lists.
 
-/// ECAA spec version this implementation emits (`v0.1.md` §9.2).
+/// ECAA spec version this implementation emits (`v0.2.md` §9.2).
 /// Stamped into every `audit-proof-report.json` as `ecaa_version`.
-pub const ECAA_VERSION: &str = "0.1";
+pub const ECAA_VERSION: &str = "0.2";
 
 /// Minimum reader version required to consume packages this
-/// implementation emits (`v0.1.md` §9.2 per-package declaration).
-pub const MIN_READER_VERSION: &str = "0.1";
+/// implementation emits (`v0.2.md` §9.2 per-package declaration).
+pub const MIN_READER_VERSION: &str = "0.2";
 
-/// The 25 node-type names in canonical form (matches `v0.1.md` §5
+/// The 25 node-type names in canonical form (matches `v0.2.md` §5
 /// sub-graph table inline code spans).
 pub const NODE_TYPES: &[&str] = &[
     // I (5)
@@ -112,7 +112,7 @@ pub const REQUIRED_PROFILE_IRIS: &[&str] = &[
     "https://w3id.org/ro/wfrun/process/0.5",
     "https://w3id.org/ro/wfrun/workflow/0.5",
     "https://w3id.org/ro/wfrun/provenance/0.5",
-    "https://w3id.org/ecaa/v0.1",
+    "https://w3id.org/ecaa/v0.2",
 ];
 
 #[cfg(test)]
@@ -121,9 +121,9 @@ mod tests {
     use crate::invariants::InvariantId;
 
     #[test]
-    fn version_consts_match_spec_v0_1() {
-        assert_eq!(ECAA_VERSION, "0.1");
-        assert_eq!(MIN_READER_VERSION, "0.1");
+    fn version_consts_match_spec_v0_2() {
+        assert_eq!(ECAA_VERSION, "0.2");
+        assert_eq!(MIN_READER_VERSION, "0.2");
     }
 
     #[test]

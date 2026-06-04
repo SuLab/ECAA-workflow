@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "ECAA V (Evidence) sub-graph",
-  "description": "Hand-authored against the SPEC node/edge object model (v0.1.md §5.4), NOT the internal impl types. Validates the spec-shaped projection emitted by crates/core/src/emitter/ecaa_projection.rs::project_subgraph('V', …). Each array element is a typed node or a typed edge; closed `type`/`predicate` enums are pinned to ecaa_workflow_types::consts (asserted by schemars_generation.rs).",
+  "description": "Hand-authored against the SPEC node/edge object model (v0.2.md §5.4), NOT the internal impl types. Validates the spec-shaped projection emitted by crates/core/src/emitter/ecaa_projection.rs::project_subgraph('V', …). Each array element is a typed node or a typed edge; closed `type`/`predicate` enums are pinned to ecaa_workflow_types::consts (asserted by schemars_generation.rs).",
   "type": "array",
   "items": {
     "oneOf": [

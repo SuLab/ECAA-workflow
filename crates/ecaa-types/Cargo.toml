@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 publish = false
-description = "Canonical Rust binding of the ECAA v0.1 typed object model — see docs/ecaa-spec/v0.1.md"
+description = "Canonical Rust binding of the ECAA v0.2 typed object model — see docs/ecaa-spec/v0.2.md"
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }

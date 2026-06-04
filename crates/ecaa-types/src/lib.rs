@@ -1,10 +1,10 @@
-//! Canonical Rust binding of the ECAA v0.1 typed object model.
+//! Canonical Rust binding of the ECAA v0.2 typed object model.
 //!
 //! Small dependency a second Rust-language ECAA implementation can import
 //! to get the canonical types without pulling in the ECAA-workflow compiler.
-//! See `docs/ecaa-spec/v0.1.md` for the full normative specification.
+//! See `docs/ecaa-spec/v0.2.md` for the full normative specification.
 //!
-//! # v0.1 scope
+//! # v0.2 scope
 //!
 //! Ships the closed types that downstream consumers need to bind to:
 //!

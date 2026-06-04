@@ -1,13 +1,13 @@
-//! Cross-document consistency linter for the ECAA v0.1 specification.
+//! Cross-document consistency linter for the ECAA v0.2 specification.
 //!
 //! Enforces four consistency rules (ECAA spec §10):
-//!   1. Invariant ID consistency across v0.1.md, invariants.md, and
+//!   1. Invariant ID consistency across v0.2.md, invariants.md, and
 //!      `crates/core/src/audit_proof/invariants/`.
-//!   2. Node/edge type consistency across v0.1.md §5, ecaa-v0.1.ttl,
+//!   2. Node/edge type consistency across v0.2.md §5, ecaa-v0.2.ttl,
 //!      and the 8 JSON Schemas.
-//!   3. BlockerKind consistency: v0.1.md Appendix B MUST match
+//!   3. BlockerKind consistency: v0.2.md Appendix B MUST match
 //!      `crates/core/src/blocker.rs`.
-//!   4. Sidecar filename consistency: v0.1.md §3 sidecar table MUST
+//!   4. Sidecar filename consistency: v0.2.md §3 sidecar table MUST
 //!      match the emit-side paths and the loader-side paths.
 //!
 //! Canonical type-set definitions live in
@@ -116,25 +116,25 @@ fn invariant_ids_appear_in_invariants_md() {
 }
 
 #[test]
-fn invariant_ids_appear_in_v01_md() {
-    let path = spec_dir().join("v0.1.md");
+fn invariant_ids_appear_in_v02_md() {
+    let path = spec_dir().join("v0.2.md");
     let codes = extract_inline_code_strings(&path);
     for id in EXPECTED_INVARIANT_IDS {
         assert!(
             codes.iter().any(|c| c == id),
-            "v0.1.md §6 must reference `{id}` as an inline code span"
+            "v0.2.md §6 must reference `{id}` as an inline code span"
         );
     }
 }
 
 #[test]
-fn sidecar_filenames_in_v01_md() {
-    let path = spec_dir().join("v0.1.md");
+fn sidecar_filenames_in_v02_md() {
+    let path = spec_dir().join("v0.2.md");
     let codes = extract_inline_code_strings(&path);
     for (letter, fname) in EXPECTED_SIDECARS {
         assert!(
             codes.iter().any(|c| c == fname),
-            "v0.1.md §3 must list `{fname}` (sub-graph {letter})"
+            "v0.2.md §3 must list `{fname}` (sub-graph {letter})"
         );
     }
 }
@@ -197,7 +197,7 @@ fn blocker_variant_names() -> Vec<String> {
 
 #[test]
 fn blocker_variants_match_appendix_b() {
-    let path = spec_dir().join("v0.1.md");
+    let path = spec_dir().join("v0.2.md");
     let codes = extract_inline_code_strings(&path);
     let names = blocker_variant_names();
     assert_eq!(
@@ -211,7 +211,7 @@ fn blocker_variants_match_appendix_b() {
     for name in &names {
         assert!(
             codes.iter().any(|c| c == name),
-            "v0.1.md Appendix B must list `{name}` as an inline code span"
+            "v0.2.md Appendix B must list `{name}` as an inline code span"
         );
     }
     // Cross-check against the strum::EnumCount macro (compile-time count).
@@ -231,25 +231,25 @@ fn closed_set_sizes_match_design() {
 }
 
 #[test]
-fn node_types_in_v01_md() {
-    let path = spec_dir().join("v0.1.md");
+fn node_types_in_v02_md() {
+    let path = spec_dir().join("v0.2.md");
     let codes = extract_inline_code_strings(&path);
     for name in EXPECTED_NODE_TYPES {
         assert!(
             codes.iter().any(|c| c == name),
-            "v0.1.md §5 must reference `{name}` as an inline code span"
+            "v0.2.md §5 must reference `{name}` as an inline code span"
         );
     }
 }
 
 #[test]
-fn edge_predicates_in_v01_md() {
-    let path = spec_dir().join("v0.1.md");
+fn edge_predicates_in_v02_md() {
+    let path = spec_dir().join("v0.2.md");
     let codes = extract_inline_code_strings(&path);
     for name in EXPECTED_EDGE_PREDICATES {
         assert!(
             codes.iter().any(|c| c == name),
-            "v0.1.md §5 must reference `{name}` as an inline code span"
+            "v0.2.md §5 must reference `{name}` as an inline code span"
         );
     }
 }

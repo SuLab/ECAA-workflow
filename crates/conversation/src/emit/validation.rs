@@ -448,7 +448,7 @@ fn parse_jsonl_lines(
     }
 }
 
-/// Map a sidecar relpath to its ECAA sub-graph letter (`v0.1.md` §3.4 /
+/// Map a sidecar relpath to its ECAA sub-graph letter (`v0.2.md` §3.4 /
 /// `consts::SIDECAR_PATHS`). Returns `None` for the A audit-proof report,
 /// which is validated as a report DOCUMENT, not a node/edge sub-graph.
 fn sidecar_letter(relpath: &str) -> Option<char> {

@@ -11,7 +11,7 @@
 //! `AuditProofReport`) and assert the committed file matched. That made
 //! emit-time validation a TAUTOLOGY — the impl types were checked against
 //! schemas derived from those same types, so the gate could never catch a
-//! divergence from the spec's node/edge object model (v0.1.md §4-5).
+//! divergence from the spec's node/edge object model (v0.2.md §4-5).
 //!
 //! The schemas are now HAND-AUTHORED against the spec node/edge model and
 //! validate the spec-shaped projection (see

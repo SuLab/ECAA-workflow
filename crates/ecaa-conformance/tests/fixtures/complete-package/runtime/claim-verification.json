@@ -3,7 +3,7 @@
     {"id":"claim_001","type":"Claim","text":"Per-base quality drops below Q20 after position 145.","status":"verified"}
   ],
   "edges": [
-    {"source":"claim_001","target":"V:fig_qc","predicate":"supported-by"}
+    {"source":"claim_001","target":"V:fig_qc","predicate":"supported_by"}
   ],
   "n_checked": 1,
   "n_verified": 1,

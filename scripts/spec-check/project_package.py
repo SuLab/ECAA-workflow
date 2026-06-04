@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""End-to-end ECAA v0.1 RDF projection + SHACL validation.
+"""End-to-end ECAA v0.2 RDF projection + SHACL validation.
 
 Takes a package directory, projects all 8 sub-graph sidecars (the 6 JSONL
 streams plus the C and A single-document JSON files) plus a synthesized
-`ecaa:Package` node through ecaa-v0.1.jsonld into RDF (via the shared
+`ecaa:Package` node through ecaa-v0.2.jsonld into RDF (via the shared
 `_project.project` helper), serializes that ABox to `<pkg_dir>/package.ttl`,
-then validates against ecaa-v0.1.shacl.ttl (SHACL) with the ecaa-v0.1.ttl
+then validates against ecaa-v0.2.shacl.ttl (SHACL) with the ecaa-v0.2.ttl
 ontology supplied as the inference graph.
 
 Usage:
@@ -61,11 +61,11 @@ if records_seen and len(projected) == 0:
 
 # Load ontology (inference graph).
 onto = Graph()
-onto.parse(spec_dir / "ecaa-v0.1.ttl", format="turtle")
+onto.parse(spec_dir / "ecaa-v0.2.ttl", format="turtle")
 
 # Load SHACL shapes.
 shapes = Graph()
-shapes.parse(spec_dir / "ecaa-v0.1.shacl.ttl", format="turtle")
+shapes.parse(spec_dir / "ecaa-v0.2.shacl.ttl", format="turtle")
 
 # SKOS concept schemes + profile IRIs — additive, optional. The schemes are
 # merged into the DATA graph (not the ont graph): pyshacl evaluates sh:sparql

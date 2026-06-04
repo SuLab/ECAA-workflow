@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared ECAA v0.1 package → RDF projection.
+"""Shared ECAA v0.2 package → RDF projection.
 
 Factored out of `project_package.py` so the SHACL path
 (`project_package.py`) and the OWL-DL path (`owl_consistency.py`) build the
@@ -7,7 +7,7 @@ package ABox the same way. Both import `project(pkg_dir) -> rdflib.Graph`.
 
 The projection takes a package directory and runs every present sub-graph
 sidecar (the 6 JSONL streams + the C and A single-document JSON files)
-through `ecaa-v0.1.jsonld`, plus a synthesized `ecaa:Package` node built
+through `ecaa-v0.2.jsonld`, plus a synthesized `ecaa:Package` node built
 from the RO-Crate descriptor's `conformsTo` profile IRIs. The result is the
 package ABox the OWL ontology + SHACL shapes are evaluated against.
 
@@ -68,7 +68,7 @@ def _spec_dir():
 
 def load_context():
     """Load the JSON-LD `@context` block once."""
-    return json.load(open(_spec_dir() / "ecaa-v0.1.jsonld"))
+    return json.load(open(_spec_dir() / "ecaa-v0.2.jsonld"))
 
 
 def project_decision_record(entry, fallback_id):
@@ -314,12 +314,12 @@ def project_claim_verdicts(claim_doc):
 # Nanopublication + schema.org bridge vocabulary. These are projection-side
 # standards-bridge terms (F7-engineering) — NOT part of the ECAA closed term
 # set, so they are bound in a local `@context` here, never in
-# `ecaa-v0.1.jsonld`.
+# `ecaa-v0.2.jsonld`.
 _NANOPUB_CTX = {
     "np": "http://www.nanopub.org/nschema#",
     "schema": "https://schema.org/",
     "prov": "http://www.w3.org/ns/prov#",
-    "ecaa": "https://w3id.org/ecaa/ns/0.1#",
+    "ecaa": "https://w3id.org/ecaa/ns/0.2#",
     "id": "@id",
     "type": "@type",
     "hasAssertion": {"@id": "np:hasAssertion", "@type": "@id"},
@@ -590,7 +590,7 @@ def project_qualified_derivation(metadata):
     (additive — RO-Crate-1.1 readers keep working). `prov:qualifiedDerivation`
     / `prov:Derivation` are RDF projection terms, NOT ECAA closed predicates,
     so they are bound in a local `@context` here (not in the canonical
-    `ecaa-v0.1.jsonld`). Returns a list of JSON-LD docs (each with its own
+    `ecaa-v0.2.jsonld`). Returns a list of JSON-LD docs (each with its own
     `@context`), or an empty list when no lineage edge is present.
     """
     graph = metadata.get("@graph", []) if isinstance(metadata, dict) else []

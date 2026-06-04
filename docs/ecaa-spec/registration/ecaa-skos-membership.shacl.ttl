@@ -1,6 +1,6 @@
 @prefix sh:    <http://www.w3.org/ns/shacl#> .
 @prefix skos:  <http://www.w3.org/2004/02/skos/core#> .
-@prefix ecaa:  <https://w3id.org/ecaa/ns/0.1#> .
+@prefix ecaa:  <https://w3id.org/ecaa/ns/0.2#> .
 @prefix vocab: <https://w3id.org/ecaa/vocab/> .
 
 #######################################################################
@@ -22,7 +22,7 @@ ecaa:BlockerKindMembershipShape a sh:NodeShape ;
     sh:severity sh:Violation ;
     sh:sparql [
         sh:select """
-            PREFIX ecaa: <https://w3id.org/ecaa/ns/0.1#>
+            PREFIX ecaa: <https://w3id.org/ecaa/ns/0.2#>
             PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
             PREFIX vocab: <https://w3id.org/ecaa/vocab/>
             SELECT $this WHERE {
@@ -43,7 +43,7 @@ ecaa:RerunOutcomeClassMembershipShape a sh:NodeShape ;
     sh:severity sh:Violation ;
     sh:sparql [
         sh:select """
-            PREFIX ecaa: <https://w3id.org/ecaa/ns/0.1#>
+            PREFIX ecaa: <https://w3id.org/ecaa/ns/0.2#>
             PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
             PREFIX vocab: <https://w3id.org/ecaa/vocab/>
             SELECT $this WHERE {

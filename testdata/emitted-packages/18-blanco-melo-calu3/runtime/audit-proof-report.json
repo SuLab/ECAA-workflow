@@ -1,7 +1,7 @@
 {
   "schema_version": "0.1",
-  "ecaa_version": "0.1",
-  "min_reader_version": "0.1",
+  "ecaa_version": "0.2",
+  "min_reader_version": "0.2",
   "package_iri": "ro-crate-metadata.json",
   "evaluated_at": "2026-06-02T00:44:27.875286028+00:00",
   "evaluator": {

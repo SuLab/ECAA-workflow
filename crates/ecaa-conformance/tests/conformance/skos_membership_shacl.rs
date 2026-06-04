@@ -10,7 +10,7 @@
 //!
 //! This gate closes that gap WITHOUT touching the live pipeline: it shells out
 //! to `scripts/spec-check/test_skos_membership.py`, which projects a snake_case
-//! ABox through the canonical `ecaa-v0.1.jsonld` context and runs REAL pyshacl
+//! ABox through the canonical `ecaa-v0.2.jsonld` context and runs REAL pyshacl
 //! over the published membership shapes + published SKOS schemes:
 //!
 //!   * a REGISTERED token (`agent_error` / `byte_identical`) → the package

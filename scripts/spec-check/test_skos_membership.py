@@ -10,7 +10,7 @@ CamelCase string (`UnprovableEdge`/`PolicyException`) and `RerunOutcome.class`
 as an IRI individual (`ecaa:failed`), neither of which is the snake_case
 `skos:notation` wire token the membership SPARQL matches on, so loading them
 there would mis-fire. Instead, THIS gate exercises the published membership
-shapes over a snake_case ABox projected through the canonical `ecaa-v0.1.jsonld`
+shapes over a snake_case ABox projected through the canonical `ecaa-v0.2.jsonld`
 context, exactly as a real wire-form package serializes `kind`/`class`.
 
 It runs real pyshacl over real SPARQL:
@@ -78,9 +78,9 @@ def _require_deps():
 
 
 def _canonical_context():
-    """Return the canonical `ecaa-v0.1.jsonld` @context block (the same context
+    """Return the canonical `ecaa-v0.2.jsonld` @context block (the same context
     `project_package.py` projects every sidecar through)."""
-    doc = json.load(open(_SPEC_DIR / "ecaa-v0.1.jsonld"))
+    doc = json.load(open(_SPEC_DIR / "ecaa-v0.2.jsonld"))
     return doc["@context"] if "@context" in doc else doc
 
 

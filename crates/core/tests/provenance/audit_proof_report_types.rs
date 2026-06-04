@@ -31,12 +31,12 @@ fn empty_report_serializes_deterministically() {
 #[test]
 fn empty_report_carries_per_package_version_fields() {
     let report = AuditProofReport::empty();
-    assert_eq!(report.ecaa_version, "0.1");
-    assert_eq!(report.min_reader_version, "0.1");
+    assert_eq!(report.ecaa_version, "0.2");
+    assert_eq!(report.min_reader_version, "0.2");
     let json = serde_json::to_string(&report).unwrap();
-    assert!(json.contains("\"ecaa_version\":\"0.1\""), "got: {json}");
+    assert!(json.contains("\"ecaa_version\":\"0.2\""), "got: {json}");
     assert!(
-        json.contains("\"min_reader_version\":\"0.1\""),
+        json.contains("\"min_reader_version\":\"0.2\""),
         "got: {json}"
     );
     assert!(json.contains("\"evaluator\""), "got: {json}");

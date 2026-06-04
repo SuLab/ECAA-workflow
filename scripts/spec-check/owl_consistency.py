@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Verify ECAA v0.1 OWL-DL satisfiability using HermiT via owlready2.
+"""Verify ECAA v0.2 OWL-DL satisfiability using HermiT via owlready2.
 
 Two modes:
 
     python3 owl_consistency.py
-        Static check: the ecaa-v0.1.ttl ontology alone is OWL-DL-satisfiable.
+        Static check: the ecaa-v0.2.ttl ontology alone is OWL-DL-satisfiable.
 
     python3 owl_consistency.py <package_dir>
         ABox check: build the package's individuals via the shared
         `_project.project(pkg_dir)` helper, MERGE them with the static
-        ecaa-v0.1.ttl ontology, and run HermiT over ontology + individuals so
+        ecaa-v0.2.ttl ontology, and run HermiT over ontology + individuals so
         a node typed against a disjointness axiom surfaces as an
         inconsistency. (Without the package the reasoner only proves the
         ontology is self-consistent, never that the ABox is.)
@@ -25,7 +25,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ttl_path = Path(__file__).parent.parent.parent / "docs" / "ecaa-spec" / "ecaa-v0.1.ttl"
+ttl_path = Path(__file__).parent.parent.parent / "docs" / "ecaa-spec" / "ecaa-v0.2.ttl"
 
 try:
     from rdflib import Graph
@@ -73,7 +73,7 @@ onto = get_ontology(f"file://{tmp_path}").load()
 try:
     with onto:
         sync_reasoner(infer_property_values=True)
-    scope = "ontology + package ABox" if pkg_dir is not None else "ecaa-v0.1.ttl"
+    scope = "ontology + package ABox" if pkg_dir is not None else "ecaa-v0.2.ttl"
     print(
         f"OK: {scope} is OWL-DL-satisfiable "
         f"({len(list(onto.classes()))} classes, "

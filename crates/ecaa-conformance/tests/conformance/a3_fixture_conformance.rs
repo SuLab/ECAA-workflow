@@ -1,5 +1,5 @@
 //! A3 — every committed `testdata/**/ro-crate-metadata.json` fixture must
-//! match the ECAA v0.1 descriptor contract:
+//! match the ECAA v0.2 descriptor contract:
 //!
 //!   (a) its `ro-crate-metadata.json` descriptor entry declares ALL 6 required
 //!       `conformsTo` profile IRIs (read from core's canonical

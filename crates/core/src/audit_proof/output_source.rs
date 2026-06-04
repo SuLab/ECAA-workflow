@@ -12,7 +12,7 @@
 //! Outputs are the RO-Crate `@graph` **output entities** — the
 //! `schema:Image`/`ImageObject` figure entities (declared figure obligations at
 //! emit; produced figure files post-execution) plus any `Dataset`/`File` entity
-//! rooted under `runtime/outputs/`. The spec (`v0.1.md` §5.4) names exactly
+//! rooted under `runtime/outputs/`. The spec (`v0.2.md` §5.4) names exactly
 //! these as the RO-Crate carriers of V evidence:
 //!
 //! > The RO-Crate `@graph` ALSO carries V entities as `dcat:Dataset` /
@@ -34,7 +34,7 @@
 //! range over on real packages (the D.5.1 key-mismatch).
 //!
 //! A `proofs.jsonl` row whose `computed_from`/`produces` names a *real* output
-//! path (e.g. a hand-built fixture's V `computed-from` row, or a future writer
+//! path (e.g. a hand-built fixture's V `computed_from` row, or a future writer
 //! that records produced files there) is still honored as a complementary
 //! source — only the `workflow:*` dependency-node form is rejected.
 
@@ -57,7 +57,7 @@ pub struct AnalyticalOutput {
     pub producer_task: Option<String>,
 }
 
-/// The spec V node-type (`v0.1.md` §5.4 closed set member) an output maps to.
+/// The spec V node-type (`v0.2.md` §5.4 closed set member) an output maps to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OutputKind {
     /// `schema:Image` / `ImageObject` → V `Figure`.

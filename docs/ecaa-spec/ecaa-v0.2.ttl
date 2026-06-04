@@ -1,4 +1,4 @@
-@prefix ecaa: <https://w3id.org/ecaa/ns/0.1#> .
+@prefix ecaa: <https://w3id.org/ecaa/ns/0.2#> .
 @prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
@@ -11,22 +11,22 @@
 @prefix bioschema: <https://bioschemas.org/> .
 
 #######################################################################
-# ECAA v0.1 Ontology
-# https://w3id.org/ecaa/v0.1
+# ECAA v0.2 Ontology
+# https://w3id.org/ecaa/v0.2
 #
 # Normative OWL ontology profile for the Evidence-Carrying Analysis
-# Artifact (ECAA) v0.1 specification. Declares the 8 sub-graph classes,
+# Artifact (ECAA) v0.2 specification. Declares the 8 sub-graph classes,
 # 25 node-type classes, 20 edge predicates, and the DL-expressible
 # audit-proof invariants (1, 3, 5).
 #
-# Invariants 2, 4, 6 are encoded in ecaa-v0.1.shacl.ttl.
+# Invariants 2, 4, 6 are encoded in ecaa-v0.2.shacl.ttl.
 #######################################################################
 
-<https://w3id.org/ecaa/v0.1> a owl:Ontology ;
-    dcterms:title "ECAA v0.1 Ontology" ;
-    dcterms:created "2026-05-18"^^xsd:date ;
-    owl:versionInfo "0.1.0" ;
-    rdfs:comment "Normative OWL profile for the Evidence-Carrying Analysis Artifact v0.1 specification. See https://w3id.org/ecaa/v0.1 for the full specification document." .
+<https://w3id.org/ecaa/v0.2> a owl:Ontology ;
+    dcterms:title "ECAA v0.2 Ontology" ;
+    dcterms:created "2026-06-04"^^xsd:date ;
+    owl:versionInfo "0.2.0" ;
+    rdfs:comment "Normative OWL profile for the Evidence-Carrying Analysis Artifact v0.2 specification. See https://w3id.org/ecaa/v0.2 for the full specification document." .
 
 #######################################################################
 # The 8 sub-graph top-level classes
@@ -74,7 +74,7 @@ ecaa:AuditProofGraph a owl:Class ;
 
 ecaa:Package a owl:Class ;
     rdfs:label "ECAA Package"@en ;
-    rdfs:comment "An ECAA v0.1 package — the tuple P = (I, D, E, V, C, Q, F, A) materialized as a WRROC v0.5 Tier-3 RO-Crate."@en .
+    rdfs:comment "An ECAA v0.2 package — the tuple P = (I, D, E, V, C, Q, F, A) materialized as a WRROC v0.5 Tier-3 RO-Crate."@en .
 
 #######################################################################
 # I — Intent sub-graph node types (5)
@@ -96,7 +96,7 @@ ecaa:Contrast a owl:Class ;
 ecaa:Modality a owl:Class ;
     rdfs:subClassOf prov:Entity ;
     rdfs:label "Modality"@en ;
-    rdfs:comment "The analysis modality (bulk_rnaseq, scrnaseq, chipseq, etc.). Closed 21-modality set in v0.1."@en .
+    rdfs:comment "The analysis modality (bulk_rnaseq, scrnaseq, chipseq, etc.). Closed 21-modality set in v0.2."@en .
 
 ecaa:ExpectedOutput a owl:Class ;
     rdfs:subClassOf prov:Entity ;
@@ -209,7 +209,7 @@ ecaa:failed a ecaa:RerunOutcomeClass .
 ecaa:RerunOutcomeClass a owl:Class ;
     owl:oneOf (ecaa:byteIdentical ecaa:semanticallyEquivalent ecaa:nonDeterministic ecaa:unavailable ecaa:failed) ;
     rdfs:label "Rerun Outcome Class"@en ;
-    rdfs:comment "Closed 5-class set for v0.1."@en .
+    rdfs:comment "Closed 5-class set for v0.2."@en .
 
 #######################################################################
 # F — Failure sub-graph node types (2)
@@ -284,19 +284,19 @@ ecaa:consumes a owl:ObjectProperty ;
     rdfs:label "consumes"@en .
 ecaa:runs_in a owl:ObjectProperty ;
     rdfs:domain ecaa:WorkflowStep ; rdfs:range ecaa:RuntimeEnvironment ;
-    rdfs:label "runs-in"@en .
+    rdfs:label "runs_in"@en .
 
 # V — Evidence (2)
 ecaa:appears_in a owl:ObjectProperty ;
     rdfs:label "appears-in"@en .
 ecaa:computed_from a owl:ObjectProperty ;
     rdfs:domain prov:Entity ; rdfs:range ecaa:OutputFile ;
-    rdfs:label "computed-from"@en .
+    rdfs:label "computed_from"@en .
 
 # C — Claim (2)
 ecaa:supported_by a owl:ObjectProperty ;
     rdfs:domain ecaa:Claim ; rdfs:range prov:Entity ;
-    rdfs:label "supported-by"@en ;
+    rdfs:label "supported_by"@en ;
     rdfs:comment "Points from a Claim to a V Statistic/Figure/Table/File."@en .
 ecaa:contradicts a owl:ObjectProperty ;
     rdfs:domain ecaa:Claim ; rdfs:range prov:Entity ;
@@ -308,7 +308,7 @@ ecaa:equivalent_to a owl:ObjectProperty ;
     rdfs:label "equivalent-to"@en .
 ecaa:diverges_from a owl:ObjectProperty ;
     rdfs:domain ecaa:RerunOutcome ; rdfs:range prov:Entity ;
-    rdfs:label "diverges-from"@en .
+    rdfs:label "diverges_from"@en .
 
 # F — Failure (2)
 ecaa:requires a owl:ObjectProperty ;
@@ -325,12 +325,12 @@ ecaa:evaluated_against a owl:ObjectProperty ;
 
 #######################################################################
 # Audit-proof invariant restrictions (DL-expressible: 1, 3, 5)
-# Invariants 2, 4, 6 are in ecaa-v0.1.shacl.ttl.
+# Invariants 2, 4, 6 are in ecaa-v0.2.shacl.ttl.
 #######################################################################
 
-# Invariant 1: claim-completeness
-# Every Claim either has status "pending" OR has ≥1 supported-by edge.
-# Encoded as: Claim ⊑ (∃ status."pending") ⊔ (∃ supported-by.⊤)
+# Invariant 1: claim_completeness
+# Every Claim either has status "pending" OR has ≥1 supported_by edge.
+# Encoded as: Claim ⊑ (∃ status."pending") ⊔ (∃ supported_by.⊤)
 
 ecaa:status a owl:DatatypeProperty ;
     rdfs:domain ecaa:Claim ;
@@ -349,8 +349,8 @@ ecaa:Claim rdfs:subClassOf
       )
     ] .
 
-# Invariant 3: evidence-coverage
-# Every OutputFile is referenced via computed-from from some Evidence node
+# Invariant 3: evidence_coverage
+# Every OutputFile is referenced via computed_from from some Evidence node
 # OR is referenced by an F Blocker of kind OutputUnused.
 # (DL-encodes the "referenced in V" half; the "OutputUnused" carve-out
 # is in SHACL because it requires cross-graph value-set comparison.)
@@ -360,7 +360,7 @@ ecaa:OutputFile rdfs:subClassOf
       owl:onProperty [ owl:inverseOf ecaa:computed_from ] ;
       owl:minCardinality "1"^^xsd:nonNegativeInteger ] .
 
-# Invariant 5: cross-graph-integrity
+# Invariant 5: cross_graph_integrity
 # Encoded as a structural constraint: ecaa:supported_by range is a
 # nominally-typed union over V node classes. Dangling references
 # violate this when the target IRI fails to resolve to any of the

@@ -1,84 +1,85 @@
 <!-- docs/ecaa-spec/invariants.md -->
-# ECAA Audit-Proof Invariants — Predicate Reference (v0.1)
+# ECAA Audit-Proof Invariants — Predicate Reference (v0.2)
 
-Normative companion to `v0.1.md` §6. Defines the six audit-proof
+Normative companion to `v0.2.md` §6. Defines the six audit-proof
 invariants as first-order-logic predicates over the typed sub-graph
-data model declared in `v0.1.md` §4–5. Reference implementation:
+data model declared in `v0.2.md` §4–5. Reference implementation:
 `crates/core/src/audit_proof/invariants/`.
 
 ## Verdict ladder
 
-ECAA v0.1 defines four invariant verdicts. The set is **closed** —
+ECAA v0.2 defines four invariant verdicts. The set is **closed** —
 implementations MUST emit exactly one of these per evaluated invariant.
 
 | Verdict | Meaning |
 |---|---|
-| `Pass` | Predicate evaluated and held over the relevant sub-graph data. |
-| `Warn` | Predicate evaluated and did NOT hold; spec policy is non-blocking. |
-| `Fail` | Predicate evaluated and did NOT hold; spec policy blocks (a hard-block-policy implementation refuses emission). |
-| `Unverified` | Predicate could not be evaluated because a prerequisite is missing (e.g., the relevant sub-graph file is absent or an external tool like `runcrate` is unavailable at runtime). |
+| `pass` | Predicate evaluated and held over the relevant sub-graph data. |
+| `warn` | Predicate evaluated and did NOT hold; spec policy is non-blocking. |
+| `fail` | Predicate evaluated and did NOT hold; spec policy blocks under a strict hard-block policy. |
+| `unverified` | Predicate could not be evaluated because a prerequisite is missing (e.g., the relevant sub-graph file is absent or an external tool like `runcrate` is unavailable at runtime). |
 
-`Unverified` is NOT a soft pass. Implementations MUST surface it in
-`audit-proof-report.json` rather than coerce it to `Pass`.
+`unverified` is NOT a soft pass. Implementations MUST surface it in
+`audit-proof-report.json` rather than coerce it to `pass`.
 
 ## Default warn/fail mapping (normative)
 
-Each invariant defines a default verdict for non-Pass cases. Implementations
+Each invariant defines a default verdict for non-`pass` cases. Implementations
 MAY override globally to warn-only (typical for development environments)
 but MUST record the override in `audit-proof-report.json` under
 `evaluator.policy: "warn-only"`. Per-invariant overrides are out of scope
-for v0.1.
+for v0.2.
 
 | # | Invariant | Default on violation |
 |---|---|---|
-| 1 | `claim_completeness` | Warn |
-| 2 | `decision_justification` | Warn |
-| 3 | `evidence_coverage` | Warn |
-| 4 | `equivalence_failure` | Fail |
-| 5 | `cross_graph_integrity` | Fail |
-| 6 | `substrate_validity` | Fail |
+| 1 | `claim_completeness` | `warn` |
+| 2 | `decision_justification` | `warn` |
+| 3 | `evidence_coverage` | `warn` |
+| 4 | `equivalence_failure` | `fail` |
+| 5 | `cross_graph_integrity` | `fail` |
+| 6 | `substrate_validity` | `fail` |
 
 ## Determinism requirement
 
 Evaluators MUST be deterministic over package bytes. Predicates are
 pure functions of the sub-graph data (plus, for invariant 6, an
 external substrate validator). LLM-mediated predicates are NOT
-v0.1-conformant.
+v0.2-conformant.
 
 ## Predicate notation
 
 Predicates use first-order logic over the typed object model
-defined in `v0.1.md` §4. Sub-graph node sets are written `I.Questions`,
+defined in `v0.2.md` §4. Sub-graph node sets are written `I.Questions`,
 `D.MethodChoices`, etc. Edge sets are written as triples
 `(source_id, target_id, predicate)`. Cross-graph references use the
-prefix-scheme identifiers `<letter>:<id>` declared in `v0.1.md` §4.
+prefix-scheme identifiers `<letter>:<id>` declared in `v0.2.md` §4.
 
 ## Invariants
 
 ### 1. `claim_completeness`
 
-**One-line statement.** Every narrative claim in the Claim graph is either supported by Evidence or explicitly marked pending.
+**One-line statement.** Every narrative claim verdict in the Claim graph is either supported by Evidence or explicitly marked pending.
 
 **Predicate.**
 
 ```
-∀ c ∈ C.Claims :
+∀ c ∈ C.verdicts :
     c.status = "pending"
-  ∨ ∃ e ∈ C.edges :
-        e.predicate = "supported-by"
-      ∧ e.source = c.id
-      ∧ e.target ∈ V.Statistics ∪ V.Figures ∪ V.Tables
+  ∨ |c.supported_by| ≥ 1
 ```
 
-**Inputs.** C (claim graph). V (evidence graph — only the existence and types of `Statistic` / `Figure` / `Table` nodes are read).
+If the signed runtime sink carries a `coverage` block, every required structured expected claim MUST be addressed; any required absent or unverifiable entry is a recall gap.
+
+**Inputs.** C (`runtime/claim-verification.json` and, when present, the trusted signed sink under `runtime/verification-reports/claim-verification.signed.json`).
 
 **Verdict mapping.**
 
 | Condition | Verdict |
 |---|---|
-| Predicate holds for all claims in C | `Pass` |
-| C is present and at least one claim violates the predicate | `Warn` (default) |
-| `runtime/claim-verification.json` is absent | `Unverified` |
+| Predicate holds for all claim verdicts in C and required coverage has no gaps | `pass` |
+| C is present and at least one non-pending verdict has empty `supported_by` | `warn` (default) |
+| Signed-sink `coverage` contains required absent or unverifiable entries | `fail` |
+| `runtime/claim-verification.json` is absent or has no `verdicts` array | `unverified` |
+| Verdict array is empty and no signed-sink `coverage` block is present | `unverified` |
 
 **Rationale.** Narrative claims with no traceable evidence are the failure mode the ECAA contract exists to address. Marking a claim `pending` is a legitimate acknowledged state — the spec explicitly carves it out so SMEs can communicate work-in-progress claims without violating the contract.
 
@@ -96,19 +97,19 @@ prefix-scheme identifiers `<letter>:<id>` declared in `v0.1.md` §4.
   ∨ length(m.rationale) ≥ 30
 ```
 
-**Inputs.** D (decision graph) only. The 30-character threshold is normative for v0.1 — a future minor version MAY relax it; implementations MUST NOT silently lower it.
+**Inputs.** D (decision graph) only. The 30-character threshold is normative for v0.2 — a future minor version MAY relax it; implementations MUST NOT silently lower it.
 
 **Verdict mapping.**
 
 | Condition | Verdict |
 |---|---|
-| Predicate holds for all method choices in D | `Pass` |
-| D contains zero `MethodChoice` entries | `Unverified` |
-| D is present and at least one MethodChoice violates the predicate | `Warn` (default) |
+| Predicate holds for all method choices in D | `pass` |
+| D contains zero `MethodChoice` entries | `unverified` |
+| D is present and at least one MethodChoice violates the predicate | `warn` (default) |
 
 **Rationale.** SME-stated method rationale is the only durable record of *why* an analysis chose DESeq2 over edgeR, BWA over Bowtie2, etc. Empty `rationale` strings with no `cites` edges convert the Decision sub-graph from auditable provenance into a stub.
 
-**OWL expressibility.** This predicate is NOT expressible in OWL 2 DL — the `length(s) ≥ 30` constraint requires datatype facets that fall outside OWL DL. Encoded in `ecaa-v0.1.shacl.ttl` as a SHACL `sh:NodeShape`.
+**OWL expressibility.** This predicate is NOT expressible in OWL 2 DL — the `length(s) ≥ 30` constraint requires datatype facets that fall outside OWL DL. Encoded in `ecaa-v0.2.shacl.ttl` as a SHACL `sh:NodeShape`.
 
 **Reference impl.** `crates/core/src/audit_proof/invariants/decision_justification.rs`.
 
@@ -119,20 +120,22 @@ prefix-scheme identifiers `<letter>:<id>` declared in `v0.1.md` §4.
 **Predicate.**
 
 ```
-∀ o ∈ E.OutputFiles :
-    (∃ e ∈ V.edges : e.predicate = "computed-from" ∧ e.target = o.id)
-  ∨ (∃ b ∈ F.Blockers : b.kind = "OutputUnused" ∧ b.refs ∋ o.id)
+∀ o ∈ analytical_outputs(package) :
+    o ∈ strip_fragment(C.verdicts[].supported_by)
+  ∨ basename(o) ∈ basename(strip_fragment(C.verdicts[].supported_by))
+  ∨ (∃ a ∈ F.Assumptions : a.kind = "output_unused" ∧ a.detail = o)
 ```
 
-**Inputs.** E (execution graph), V (evidence graph), F (failure graph).
+**Inputs.** Analytical outputs from the RO-Crate output entities and real-path `proofs.jsonl` rows, C (`verdicts[].supported_by`), and F (`assumptions.jsonl` rows with `kind: "output_unused"`).
 
 **Verdict mapping.**
 
 | Condition | Verdict |
 |---|---|
-| Every E.OutputFile is referenced in V or marked unused in F | `Pass` |
-| At least one OutputFile is neither referenced nor marked unused | `Warn` (default) |
-| C is absent entirely | `Warn` (cannot evaluate evidence-side; design `audit_proof/invariants/evidence_coverage.rs` Warn-on-no-C semantics) |
+| No analytical outputs are declared | `unverified` |
+| Every analytical output is referenced by C or marked unused in F | `pass` |
+| At least one analytical output is neither referenced nor marked unused | `warn` (default) |
+| C is absent while analytical outputs exist | `warn` |
 
 **Rationale.** Outputs that exist on disk but appear in no Evidence reference are a strong signal of dead-code analysis — figures generated but not interpreted, tables computed but never shown. The `output_unused` carve-out lets the SME declare an output is incidental rather than analytically load-bearing.
 
@@ -158,13 +161,13 @@ prefix-scheme identifiers `<letter>:<id>` declared in `v0.1.md` §4.
 
 | Condition | Verdict |
 |---|---|
-| Predicate holds for all rerun outcomes | `Pass` |
-| At least one rerun outcome violates the predicate | `Fail` (default) |
-| Q is absent (no re-execution performed) | `Unverified` |
+| Re-execution ran and every divergent outcome is acknowledged | `pass` |
+| At least one divergent outcome or compile-time prove failure is unacknowledged | `fail` (default) |
+| Q is absent or `runtime/reexecution.json::per_artifact[]` is empty (no re-execution performed) | `unverified` |
 
 **Rationale.** A re-execution that diverged or failed but produced no Blocker is the silent-corruption failure mode. The conformant emit path MUST surface divergence as a typed Blocker even when the SME's preferred recovery action is "accept the divergence as the new baseline".
 
-**OWL expressibility.** This predicate is NOT expressible in OWL 2 DL — the closed value-set comparison against the `BlockerKind` enum requires reasoning over a finite set of named individuals which extends OWL DL with closed-world assumptions. Encoded in `ecaa-v0.1.shacl.ttl`.
+**OWL expressibility.** This predicate is NOT expressible in OWL 2 DL — the closed value-set comparison against the `BlockerKind` enum requires reasoning over a finite set of named individuals which extends OWL DL with closed-world assumptions. Encoded in `ecaa-v0.2.shacl.ttl`.
 
 **Reference impl.** `crates/core/src/audit_proof/invariants/equivalence_failure.rs`.
 
@@ -190,10 +193,10 @@ where `cross_graph(e)` is true iff `e.target` is prefixed with a sub-graph lette
 
 | Condition | Verdict |
 |---|---|
-| Every cross-graph reference resolves | `Pass` |
-| At least one cross-graph reference dangles | `Fail` (default) |
+| Every cross-graph reference resolves | `pass` |
+| At least one cross-graph reference dangles | `fail` (default) |
 
-**Rationale.** Dangling references between sub-graphs break the typed-object closure. A `Claim` with `supported-by: V:fig_3a` is meaningless if no `V` node has id `fig_3a` — and worse, it silently masquerades as a supported claim under invariant 1.
+**Rationale.** Dangling references between sub-graphs break the typed-object closure. A `Claim` with `supported_by: V:fig_3a` is meaningless if no `V` node has id `fig_3a` — and worse, it silently masquerades as a supported claim under invariant 1.
 
 **Reference impl.** `crates/core/src/audit_proof/invariants/cross_graph_integrity.rs`.
 
@@ -212,7 +215,7 @@ package.passes(`runcrate report ≥ 0.5.0` parseability proxy; runcrate ships no
         sidecar ∈ package.@graph as CreativeWork
 ```
 
-where `REQUIRED_PROFILE_IRIS` is the six-IRI set declared in `v0.1.md` §3 and `REQUIRED_SIDECARS` is the eight-filename set declared in the same section.
+where `REQUIRED_PROFILE_IRIS` is the six-IRI set declared in `v0.2.md` §3 and `REQUIRED_SIDECARS` is the eight-filename set declared in the same section.
 
 **Inputs.** The package's `ro-crate-metadata.json` and the external `runcrate` tool.
 
@@ -220,13 +223,13 @@ where `REQUIRED_PROFILE_IRIS` is the six-IRI set declared in `v0.1.md` §3 and `
 
 | Condition | Verdict |
 |---|---|
-| All four sub-conditions hold | `Pass` |
-| One or more sub-conditions fails | `Fail` (default) |
-| `runcrate` is unavailable at runtime | `Unverified` (REQUIRED — implementations MUST NOT coerce to Pass) |
+| All four sub-conditions hold | `pass` |
+| One or more sub-conditions fails | `fail` (default) |
+| `runcrate` is unavailable at runtime | `unverified` (REQUIRED — implementations MUST NOT coerce to `pass`) |
 
-**Rationale.** The WRROC binding is what makes ECAA a portable analysis package rather than a project-local file convention. Substrate-validity is the gate that lets a v0.1-conformant package be consumed by every existing WRROC-compatible reader (WorkflowHub.eu, BCO crosswalk tools, etc.).
+**Rationale.** The WRROC binding is what makes ECAA a portable analysis package rather than a project-local file convention. Substrate-validity is the gate that lets a v0.2-conformant package be consumed by every existing WRROC-compatible reader (WorkflowHub.eu, BCO crosswalk tools, etc.).
 
-**OWL expressibility.** This predicate is NOT expressible in OWL 2 DL — the external-tool dependency on `runcrate` is outside any RDF schema language. Encoded in `ecaa-v0.1.shacl.ttl` only as a structural SHACL shape over the `@graph`; the `runcrate` invocation is performed by the conformance suite's Python harness.
+**OWL expressibility.** This predicate is NOT expressible in OWL 2 DL — the external-tool dependency on `runcrate` is outside any RDF schema language. Encoded in `ecaa-v0.2.shacl.ttl` only as a structural SHACL shape over the `@graph`; the `runcrate` invocation is performed by the conformance suite's Python harness.
 
 **Reference impl.** `crates/core/src/audit_proof/invariants/substrate_validity.rs`.
 
@@ -241,16 +244,18 @@ specific deployment contexts; see operations.md §3.
 
 ```json
 {
-  "ecaa_version": "0.1",
+  "schema_version": "0.1",
+  "ecaa_version": "0.2",
+  "min_reader_version": "0.2",
   "package_iri": "<IRI of the package's ro-crate-metadata.json>",
   "evaluated_at": "<RFC 3339 timestamp>",
-  "min_reader_version": "0.1",
   "verdicts": [
     {
-      "invariant_id": "claim-completeness",
-      "verdict": "Pass",
-      "evidence": [],
-      "details": "all 12 claims have supported-by edges or status=pending"
+      "id": "claim_completeness",
+      "status": "pass",
+      "detail": null,
+      "n_inspected": 12,
+      "n_violations": 0
     }
   ],
   "evaluator": {
@@ -261,8 +266,8 @@ specific deployment contexts; see operations.md §3.
 }
 ```
 
-**`evidence` field.** REQUIRED on every non-`Pass` verdict. Each entry is `{path: <string>, reason: <string>}` where `path` SHOULD be a prefix-scheme reference (e.g., `D:method_001`) or a relative filesystem path. OPTIONAL on `Pass` verdicts.
+**Verdict fields.** Each verdict MUST carry `id`, `status`, `n_inspected`, and `n_violations`. `detail` is nullable and SHOULD explain every non-`pass` result.
 
 **`evaluator.policy`.** When the implementation has overridden the per-invariant default warn/fail mapping (per §"Default warn/fail mapping"), `policy` MUST be `"warn-only"` or `"strict"`. Absence implies the normative defaults from this document apply.
 
-**Deterministic comparison.** Two ECAA-v0.1-conformant evaluators evaluating the same package bytes MUST produce verdict arrays that agree on every `invariant_id`'s `verdict` value. The `evidence` and `details` fields are informative and MAY differ in wording. The `evaluator` object is informative.
+**Deterministic comparison.** Two ECAA-v0.2-conformant evaluators evaluating the same package bytes MUST produce verdict arrays that agree on every `id`'s `status` value. The `detail` field is informative and MAY differ in wording. The `evaluator` object is informative.

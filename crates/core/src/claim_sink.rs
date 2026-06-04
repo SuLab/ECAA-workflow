@@ -262,8 +262,8 @@ mod tests {
         assert_eq!(doc["schema_version"], json!("1"));
         assert_eq!(doc["n_checked"], json!(2));
         assert_eq!(doc["n_mismatch"], json!(1));
-        assert_eq!(doc["ecaa_version"], json!("0.1"));
-        assert_eq!(doc["min_reader_version"], json!("0.1"));
+        assert_eq!(doc["ecaa_version"], json!("0.2"));
+        assert_eq!(doc["min_reader_version"], json!("0.2"));
         assert_eq!(doc["source"], json!("runtime-verifier"));
         assert_eq!(doc["task_id"], json!("diff_expr"));
         let verdicts = doc["verdicts"].as_array().unwrap();

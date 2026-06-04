@@ -429,8 +429,8 @@ fn emitted_audit_proof_report_carries_version_declaration() {
     let raw = std::fs::read_to_string(tmp.path().join("runtime/audit-proof-report.json"))
         .expect("audit-proof-report.json");
     let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    assert_eq!(v["ecaa_version"].as_str(), Some("0.1"));
-    assert_eq!(v["min_reader_version"].as_str(), Some("0.1"));
+    assert_eq!(v["ecaa_version"].as_str(), Some("0.2"));
+    assert_eq!(v["min_reader_version"].as_str(), Some("0.2"));
     assert!(v["evaluator"]["impl"].as_str().is_some());
     assert!(
         v["evaluated_at"].as_str().is_some(),

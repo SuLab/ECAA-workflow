@@ -1,11 +1,11 @@
 # ecaa-workflow-types
 
-Canonical Rust binding of the ECAA v0.1 typed object model.
+Canonical Rust binding of the ECAA v0.2 typed object model.
 
 This crate is the small, focused dependency a second Rust-language ECAA implementation can import to get the canonical types without pulling in the full `ECAA-workflow` compiler.
 
-**Spec:** [`docs/ecaa-spec/v0.1.md`](../../docs/ecaa-spec/v0.1.md)
-**Spec profile IRI:** `https://w3id.org/ecaa/v0.1`
+**Spec:** [`docs/ecaa-spec/v0.2.md`](../../docs/ecaa-spec/v0.2.md)
+**Spec profile IRI:** `https://w3id.org/ecaa/v0.2`
 
 ## What's in this crate
 
@@ -32,4 +32,4 @@ A second Rust-language ECAA implementation imports this crate, uses serde to des
 
 ## Versioning
 
-Tracks the ECAA spec version. v0.1.0 of this crate = ECAA spec v0.1.0.
+Tracks the ECAA spec version. v0.2.0 of this crate line = ECAA spec v0.2.x.

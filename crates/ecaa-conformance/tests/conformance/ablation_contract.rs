@@ -87,6 +87,7 @@ fn emit_into(out: &Path) {
         policies_dir: &policies_dir,
         policy_allowlist: None,
         claim_boundary: None,
+        objective: None,
         compute_profiles_dir: None,
         intake_facts: None,
         amend_from: None,
