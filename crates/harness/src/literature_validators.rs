@@ -884,20 +884,27 @@ fn minimum_independent_sources(csv_path: &Path) -> u64 {
 }
 
 /// Validates `source-discovery-policy.json::claimSupportRules` against
-/// `method_landscape.csv`: a candidate that qualifies as a
-/// default/recommended choice for an axis must have ≥1 verified paper-class
-/// source (source_class ∈ {primary_literature, conference_proceedings}) AND
-/// ≥`minimumIndependentSources` distinct verified sources.
+/// `method_landscape.csv` with **per-axis, de-ranking** semantics: an axis is
+/// recommendable when it carries ≥1 adequately-corroborated default — a
+/// candidate with ≥1 verified paper-class source (source_class ∈
+/// {primary_literature, conference_proceedings}) AND ≥`minimumIndependentSources`
+/// distinct verified sources. A literature-eligible candidate that falls short
+/// is simply NOT a valid default (de-ranked); it does not fail the survey as
+/// long as its axis still has a corroborated alternative. This avoids one weak
+/// peripheral candidate (e.g. an unused filtering tool with a single citation)
+/// blocking an entire otherwise-recommendable survey.
 ///
-/// "Default/recommended" is determined by the optional `tier` column when the
-/// table carries it (value `defaultRecommended`); otherwise — the
-/// method_landscape schema does NOT define a `tier` column today
-/// (`additionalProperties: false`), so this validator keys off the
-/// `literature_eligible` rule: a candidate with ≥1 verified paper-class row is
-/// treated as a default candidate. Tool-doc-only candidates are never
-/// literature_eligible, so they cannot qualify as defaults — and a tool-doc-
-/// only candidate explicitly carrying a `defaultRecommended` tier therefore
-/// fails the paper-class requirement.
+/// Two cases remain hard failures:
+///   (a) a candidate EXPLICITLY tier-marked `defaultRecommended` (when the
+///       optional `tier` column is present) that is not adequately supported —
+///       the survey makes a specific unsupported recommendation; and
+///   (b) an axis that presents ≥1 literature-eligible candidate but carries NO
+///       adequately-corroborated default — the axis cannot be recommended.
+///
+/// The method_landscape schema does not define a `tier` column today
+/// (`additionalProperties: false`), so in practice (a) never fires and the
+/// check reduces to per-axis recommendability. Tool-doc-only candidates are
+/// never literature_eligible, so they impose no corroboration obligation.
 ///
 /// `manifest_path` is unused (the corroboration policy is read from the
 /// package, not the evidence manifest); the two-arg signature matches the
@@ -1000,22 +1007,60 @@ pub fn run_claim_support_satisfied(
         }
     }
 
-    for ((_axis, _cand), a) in &acc {
-        // A candidate is a "default" if explicitly tiered as such, OR
-        // (tier column absent) if it is literature_eligible (≥1 paper-class
-        // verified row). Tool-doc-only candidates are never eligible.
-        let literature_eligible = a.paper_class_verified >= 1;
-        let is_default = a.tier_default || literature_eligible;
-        if !is_default {
-            continue;
-        }
-        // Defaults must carry ≥1 paper-class source AND ≥min distinct sources.
-        let distinct = a.verified_sources.len() as u64;
-        if a.paper_class_verified < 1 || distinct < min_sources {
+    // De-ranking semantics: a literature-eligible candidate that is
+    // under-corroborated is simply NOT a valid default (it is de-ranked, not a
+    // failure) as long as its axis still carries an adequately-corroborated
+    // alternative — one weak peripheral candidate must not block a whole survey
+    // whose axes are otherwise recommendable. Two hard failures remain:
+    //   (a) a candidate EXPLICITLY tier-marked `defaultRecommended` that is not
+    //       adequately supported — the survey is making a specific unsupported
+    //       recommendation; and
+    //   (b) an axis that presents ≥1 literature-eligible candidate but carries
+    //       NO adequately-corroborated default — that axis cannot be recommended
+    //       at all.
+    // A "valid default" carries ≥1 paper-class verified source AND
+    // ≥`min_sources` distinct verified sources. `acc` is a BTreeMap, so every
+    // iteration below is deterministic.
+    let is_valid_default = |a: &Acc| -> bool {
+        a.paper_class_verified >= 1 && (a.verified_sources.len() as u64) >= min_sources
+    };
+
+    // (a) explicit defaultRecommended that is unsupported — fail at its first row.
+    for a in acc.values() {
+        if a.tier_default && !is_valid_default(a) {
             return Err((
                 a.first_row,
                 lit_fail(
                     a.first_row,
+                    &artifact,
+                    LiteratureClaimFailureKind::InsufficientCorroboration,
+                ),
+            ));
+        }
+    }
+
+    // (b) per-axis recommendability: an axis with any literature-eligible
+    // candidate must carry at least one adequately-corroborated default. The
+    // under-corroborated candidates on a still-recommendable axis are de-ranked
+    // (skipped), not failed.
+    let mut axis_has_valid: BTreeMap<&str, bool> = BTreeMap::new();
+    let mut axis_eligible_row: BTreeMap<&str, u64> = BTreeMap::new();
+    for ((axis, _cand), a) in &acc {
+        if a.paper_class_verified >= 1 {
+            axis_eligible_row
+                .entry(axis.as_str())
+                .and_modify(|r| *r = (*r).min(a.first_row))
+                .or_insert(a.first_row);
+            let v = axis_has_valid.entry(axis.as_str()).or_insert(false);
+            *v = *v || is_valid_default(a);
+        }
+    }
+    for (axis, first_row) in &axis_eligible_row {
+        if !axis_has_valid.get(*axis).copied().unwrap_or(false) {
+            return Err((
+                *first_row,
+                lit_fail(
+                    *first_row,
                     &artifact,
                     LiteratureClaimFailureKind::InsufficientCorroboration,
                 ),
@@ -1769,6 +1814,52 @@ mod tests {
             "axis,candidate_method,source_class,source_ref,verified\n\
              alignment,star,primary_literature,30000000,true\n\
              alignment,star,conference_proceedings,10.1/x,true\n",
+        );
+        let err = run_claim_support_satisfied(&csv, &dir.path().join("ignored")).unwrap_err();
+        assert!(matches!(
+            err.1,
+            ValidationFailureCause::LiteratureClaim {
+                kind: LiteratureClaimFailureKind::InsufficientCorroboration,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn claim_support_deranks_weak_alternative_when_axis_has_valid_default() {
+        // An axis with a corroborated default (gatk_hard_filter: 2 distinct
+        // paper sources) plus a thin alternative (bcftools_filter: 1 source)
+        // must PASS — the weak candidate is de-ranked, not a failure, because
+        // the axis is still recommendable. (Regression for the nekrutenko eval
+        // 0.0 where one peripheral single-citation method blocked the whole
+        // survey and stranded variant_calling.)
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,source_ref,verified\n\
+             variant_filtering,gatk_hard_filter,primary_literature,30000001,true\n\
+             variant_filtering,gatk_hard_filter,primary_literature,30000002,true\n\
+             variant_filtering,bcftools_filter,primary_literature,30000003,true\n",
+        );
+        assert!(
+            run_claim_support_satisfied(&csv, &dir.path().join("ignored")).is_ok(),
+            "axis with a corroborated default must pass; the single-source \
+             alternative is de-ranked, not a hard failure"
+        );
+    }
+
+    #[test]
+    fn claim_support_fails_axis_with_no_corroborated_default() {
+        // Two candidates on one axis, BOTH under-corroborated (1 source each):
+        // the axis has no recommendable default → InsufficientCorroboration.
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,source_ref,verified\n\
+             variant_filtering,gatk_hard_filter,primary_literature,30000001,true\n\
+             variant_filtering,bcftools_filter,primary_literature,30000003,true\n",
         );
         let err = run_claim_support_satisfied(&csv, &dir.path().join("ignored")).unwrap_err();
         assert!(matches!(
