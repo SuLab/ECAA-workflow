@@ -131,15 +131,17 @@ fn production_matcher_selects_cross_omics_by_default() {
     let reg = ArchetypeRegistry::load_from_dir(&config_root().join("archetypes"))
         .expect("ArchetypeRegistry::load_from_dir must succeed");
 
-    // The cross-omics archetype is loaded and its maturity marker is
-    // retained as data (production_ready: false) so emission can stamp
-    // it — but that marker must NOT exclude it from selection.
+    // The cross-omics archetype is loaded. It has been PROMOTED to
+    // production maturity (production_ready: true): WG3 strict-mode typing
+    // (validate/aggregator/companion/residual edge passes) makes every
+    // cross-omics package compose clean under RiskMode::Production, so the
+    // experimental stamp is dropped. It remains selectable by default.
     let arch = reg
         .get("cross_omics_rnaseq_proteomics")
         .expect("cross_omics archetype must be loaded into the catalog");
     assert!(
-        !arch.production_ready,
-        "cross-omics archetype keeps its production_ready: false maturity marker"
+        arch.production_ready,
+        "cross-omics archetypes are promoted to production maturity (WG3 strict-mode complete)"
     );
 
     // The production matcher selects it by default for a matching intake.

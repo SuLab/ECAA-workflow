@@ -4,7 +4,7 @@ version: "1.0.0"
 # Paper §10: experimental — scaffolded, not production-validated. This
 # archetype stays selectable by the matcher; emission stamps the
 # package's RO-Crate root with `archetypeMaturity: experimental`.
-production_ready: false
+production_ready: true
 description: |
   Cross-omics analysis comparing transcriptomics + proteomics across
   SME-named groups. Two parallel evidence streams — bulk RNA-seq DE

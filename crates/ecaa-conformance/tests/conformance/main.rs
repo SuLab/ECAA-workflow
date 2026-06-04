@@ -28,3 +28,6 @@ mod schema_compliance;
 // conflict with Phase 8's additions to this registry.
 mod sandbox_profile_attestation;
 mod controlled_access_egress;
+// WG3 strict-mode — cross-omics promotion gate (production_ready coupled to a
+// clean RiskMode::Production compose).
+mod production_promotion_gate;
