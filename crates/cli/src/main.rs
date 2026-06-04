@@ -574,6 +574,7 @@ fn run_build(archetype: &str, output: &str, emit_bco_flag: bool) -> Result<()> {
         ecaa_workflow_core::workflow_contracts::edge::edge_kind_map_from_edges(&wd.edges)
     });
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: out_path,
         dag: &dag,
         classification: &clf,
@@ -860,6 +861,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
         ecaa_workflow_core::workflow_contracts::edge::edge_kind_map_from_edges(&wd.edges)
     });
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: out_path,
         dag: &dag,
         classification: &full_clf,

@@ -98,6 +98,13 @@ def _target_n(pattern: str, n_samples: int = len(_SAMPLE_NAMES)) -> int:
 # flags (e.g. --no-default-filter), or trimming settings — doing so would hand
 # the agent the methodology, defeat method-neutrality, and unfairly differ from
 # what the bare arm has to derive on its own.
+#
+# The data location is also stated IN THE PROMPT (not via a post-emit directive):
+# all prompting must go through chat intake so the eval tests realistic SME use.
+# The reference + reads are staged into inputs/ for both arms (see build_run /
+# _stage_inputs); naming inputs/ here lets the ECAA objective (surfaced into
+# PROMPT.md) and the bare instruction both point the agent at the real data
+# instead of synthesizing it.
 _WORKFLOW_PROMPT = (
     "Perform per-sample germline variant calling on four paired-end "
     "Illumina mitochondrial (chrM) sequencing samples: align reads with "
@@ -105,7 +112,10 @@ _WORKFLOW_PROMPT = (
     "lofreq to detect the full spectrum of short variants (SNVs and indels) "
     "in each sample — including low-frequency heteroplasmic variants, not "
     "only fixed/homoplasmic sites — writing one VCF per sample, and finally "
-    "build a collapsed per-variant table across samples."
+    "build a collapsed per-variant table across samples. The input FASTQ "
+    "files and the chrM reference are provided in the inputs/ directory of "
+    "this analysis; use those exact files as the data source — do not "
+    "synthesize, simulate, or download substitute reads or references."
 )
 
 
@@ -168,10 +178,16 @@ class Nekrutenko(Benchmark):
         workdir.mkdir(parents=True, exist_ok=True)
         if arm == Arm.ECAA_WORKFLOW:
             return RunSpec(arm, workdir, "ecaa_package", task.prompt)
-        # bare arm: problem statement + explicit tool inventory, no plan
+        # bare arm: problem statement + explicit tool inventory, no plan. Stage
+        # the provided data into an inputs/ subdir (matching the ECAA arm's
+        # pkg/inputs/ layout) so the shared prompt's "inputs/ directory" wording
+        # is accurate for both arms — the bare agent finds the same files in the
+        # same place the prompt names.
         instr = task.prompt + "\n\nAvailable tools: bwa, samtools, lofreq, bcftools, awk."
+        inputs_dir = workdir / "inputs"
+        inputs_dir.mkdir(parents=True, exist_ok=True)
         for name, src in task.inputs.items():
-            stage_file(src, workdir / name)
+            stage_file(src, inputs_dir / name)
         return RunSpec(arm, workdir, "bare", instr)
 
     def locked_methods(self, task, arm):

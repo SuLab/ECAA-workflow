@@ -93,6 +93,7 @@ fn emit_creates_required_files() {
         .join("config/downstream-policy");
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -143,6 +144,7 @@ fn emit_package_writes_ecaa_runtime_artifacts() {
         .join("config/downstream-policy");
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -241,6 +243,7 @@ fn core_emit_writes_workflow_typed_json() {
         .join("config/downstream-policy");
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -321,6 +324,7 @@ fn proofs_jsonl_carries_real_edge_kind_when_map_threaded() {
     );
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -358,6 +362,7 @@ fn proofs_jsonl_carries_real_edge_kind_when_map_threaded() {
     // Control: with NO map, the placeholder remains (back-compat).
     let tmp2 = TempDir::new().unwrap();
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp2.path(),
         dag: &dag,
         classification: &clf,
@@ -401,6 +406,7 @@ fn emitted_audit_proof_report_carries_version_declaration() {
         .unwrap()
         .join("config/downstream-policy");
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -446,6 +452,7 @@ fn emits_ed_cf_self_assessment_sidecar() {
     let policies_dir = config_root.join("downstream-policy");
     let stage_atoms = config_root.join("stage-atoms");
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -489,6 +496,7 @@ fn emit_copies_plotting_library_into_runtime() {
         .join("config/downstream-policy");
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -567,6 +575,7 @@ fn emit_package_deterministic_contents_across_repeated_emissions() {
     let mk = || -> Vec<Vec<u8>> {
         let tmp = TempDir::new().unwrap();
         emit_package(&EmitConfig {
+            objective: None,
             output_dir: tmp.path(),
             dag: &dag,
             classification: &clf,
@@ -708,6 +717,7 @@ fn emit_plotting_library_is_idempotent_on_reemit() {
         .unwrap()
         .join("config/downstream-policy");
     let cfg = EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -754,6 +764,7 @@ fn workflow_json_round_trips() {
         .join("config/downstream-policy");
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -789,6 +800,7 @@ fn workflow_json_round_trips() {
     );
     // Second emit — same inputs must produce the same run_id.
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -895,6 +907,7 @@ fn compute_resource_policy_carries_phase_1_fields() {
     let profiles = compute_profiles_root();
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -960,6 +973,7 @@ fn gpu_capability_policy_is_emitted() {
     let profiles = compute_profiles_root();
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -1031,6 +1045,7 @@ fn gpu_capability_schema_violation_fails_emission() {
     let dag = rnaseq_dag();
     let clf = test_classification();
     let err = emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -1068,6 +1083,7 @@ fn no_compute_profiles_dir_skips_both_policies() {
     let clf = test_classification();
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -1111,6 +1127,7 @@ fn ro_crate_is_valid_json_ld() {
         .join("config/downstream-policy");
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -1239,11 +1256,15 @@ fn prompt_md_includes_claim_boundary_and_directives() {
     };
     let claim_boundary = "Do not claim biological causality; \
                               report statistical associations only.";
-    let prompt = render_prompt(&dag, &clf, Some(claim_boundary));
+    let prompt = render_prompt(&dag, &clf, Some(claim_boundary), None);
 
     assert!(
         prompt.contains("## Claim boundary"),
         "PROMPT.md must surface claim boundary"
+    );
+    assert!(
+        !prompt.contains("## Analysis objective"),
+        "no SME objective passed -> objective section must be absent"
     );
     assert!(
         prompt.contains("statistical associations"),
@@ -1252,10 +1273,37 @@ fn prompt_md_includes_claim_boundary_and_directives() {
 }
 
 #[test]
+fn prompt_md_surfaces_sme_objective_verbatim() {
+    // The SME's stated analysis objective (chat-intake prose) must reach the
+    // execution agent verbatim as a project brief — otherwise a goal like
+    // low-frequency heteroplasmy detection never influences the per-task agent.
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let objective =
+        "Detect the full variant spectrum including low-frequency heteroplasmic variants; \
+         input FASTQs and the chrM reference are provided in inputs/.";
+    let prompt = render_prompt(&dag, &clf, None, Some(objective));
+    assert!(
+        prompt.contains("## Analysis objective (as stated by the SME at intake)"),
+        "objective section header missing"
+    );
+    assert!(
+        prompt.contains("low-frequency heteroplasmic variants"),
+        "objective must be surfaced verbatim"
+    );
+    // Empty / whitespace objective is treated as absent (no empty section).
+    let blank = render_prompt(&dag, &clf, None, Some("   "));
+    assert!(
+        !blank.contains("## Analysis objective"),
+        "blank objective must not emit a section"
+    );
+}
+
+#[test]
 fn prompt_md_omits_sections_when_nothing_to_say() {
     let dag = rnaseq_dag(); // no SME resolutions
     let clf = test_classification();
-    let prompt = render_prompt(&dag, &clf, None);
+    let prompt = render_prompt(&dag, &clf, None, None);
     assert!(!prompt.contains("## Claim boundary"));
     assert!(!prompt.contains("## SME directives"));
 }
@@ -1269,7 +1317,7 @@ fn prompt_md_includes_auto_detect_compute_and_fanout_section() {
     // most cores idle on multi-sample stages.
     let dag = rnaseq_dag();
     let clf = test_classification();
-    let prompt = render_prompt(&dag, &clf, None);
+    let prompt = render_prompt(&dag, &clf, None, None);
 
     // Section header
     assert!(
@@ -1332,7 +1380,7 @@ fn prompt_md_includes_package_containment_and_git_sections() {
     // code that produced it. Every package is a git repo.
     let dag = rnaseq_dag();
     let clf = test_classification();
-    let prompt = render_prompt(&dag, &clf, None);
+    let prompt = render_prompt(&dag, &clf, None, None);
 
     // Containment section
     assert!(prompt.contains("## Package containment"));
@@ -1458,6 +1506,7 @@ fn emit_plain(dir: &std::path::Path, policies_dir: &std::path::Path) {
     let dag = rnaseq_dag();
     let clf = test_classification();
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: dir,
         dag: &dag,
         classification: &clf,
@@ -1516,6 +1565,7 @@ fn emit_writes_runtime_prereqs_with_passed_baseline() {
     let dag = rnaseq_dag();
     let clf = test_classification();
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -1568,6 +1618,7 @@ fn emit_writes_dockerfile_when_manifest_is_buildable() {
     let dag = rnaseq_dag();
     let clf = test_classification();
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -1634,6 +1685,7 @@ fn emit_copies_install_proxy_when_manifest_is_buildable() {
     let dag = rnaseq_dag();
     let clf = test_classification();
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -1855,6 +1907,7 @@ fn emit_package_writes_atom_prereqs_when_map_provided() {
         Default::default();
     map.insert("atom_a".into(), buildable_prereqs(&["libfoo"]));
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -1948,6 +2001,7 @@ fn emit_writes_container_spec_with_declared_image() {
     let clf = test_classification();
     let policies = policies_dir();
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -2084,6 +2138,7 @@ fn emit_package_rejects_unpinned_container_digest() {
     let clf = test_classification();
     let policies = policies_dir();
     let result = emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -2177,6 +2232,7 @@ fn emit_stamps_experimental_archetype_maturity() {
     let mut clf = test_classification();
     clf.archetype_id = Some("cross_omics_rnaseq_proteomics".into());
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -2208,6 +2264,7 @@ fn emit_stamps_experimental_archetype_maturity() {
     // Determinism: a second emit of the same inputs is byte-identical.
     let tmp2 = TempDir::new().unwrap();
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp2.path(),
         dag: &dag,
         classification: &clf,
@@ -2241,6 +2298,7 @@ fn emit_does_not_stamp_production_archetype() {
     let mut clf = test_classification();
     clf.archetype_id = Some("bulk_rnaseq_de".into());
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -2307,6 +2365,7 @@ fn amend_from_some_writes_lineage_policy() {
     let dag = rnaseq_dag();
     let clf = test_classification();
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: child_tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -2362,6 +2421,7 @@ fn amend_from_some_adds_wasDerivedFrom_and_updateAction() {
     let dag = rnaseq_dag();
     let clf = test_classification();
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: child_tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -2425,6 +2485,7 @@ fn branch_emit_adds_wasDerivedFrom_without_updateAction() {
     let dag = rnaseq_dag();
     let clf = test_classification();
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: child_tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -2593,6 +2654,7 @@ fn emit_package_whole_package_byte_reproducible() {
     let emit_into = || -> std::path::PathBuf {
         let tmp = TempDir::new().unwrap();
         emit_package(&EmitConfig {
+            objective: None,
             output_dir: tmp.path(),
             dag: &dag,
             classification: &clf,
@@ -2767,6 +2829,7 @@ fn amend_emit_is_byte_reproducible() {
     let emit_child = || -> std::path::PathBuf {
         let child_tmp = TempDir::new().unwrap();
         emit_package(&EmitConfig {
+            objective: None,
             output_dir: child_tmp.path(),
             dag: &dag,
             classification: &clf,
