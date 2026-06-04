@@ -53,6 +53,14 @@ pub struct EmitConfig<'a> {
     /// Optional free-text claim boundary from the taxonomy — surfaced verbatim
     /// into PROMPT.md so the agent sees it as a standing rule.
     pub claim_boundary: Option<&'a str>,
+    /// Optional free-text analysis objective as the SME stated it during chat
+    /// intake (`session.intake_prose`). Surfaced verbatim into PROMPT.md as the
+    /// project brief so every execution agent sees the SME's actual goal and
+    /// constraints (e.g. "detect low-frequency heteroplasmy", "the data is in
+    /// inputs/") rather than only the generic archetype description. `None`
+    /// (CLI `intake`/`build` path, tests) omits the section, leaving PROMPT.md
+    /// byte-identical to the pre-objective output.
+    pub objective: Option<&'a str>,
     /// Root of the compute-profiles config (defaults to
     /// `<repo>/config/compute-profiles`). When present and the profiles.yaml
     /// exists, the emitter writes `policies/compute-resource-policy.json`.
@@ -378,7 +386,8 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     crate::fs_helpers::atomic_write_bytes_sync(&dir.join("CONTEXT.md"), context_payload.as_bytes())
         .context("writing CONTEXT.md")?;
 
-    let prompt_payload = render_prompt(config.dag, config.classification, config.claim_boundary);
+    let prompt_payload =
+        render_prompt(config.dag, config.classification, config.claim_boundary, config.objective);
     crate::fs_helpers::atomic_write_bytes_sync(&dir.join("PROMPT.md"), prompt_payload.as_bytes())
         .context("writing PROMPT.md")?;
 
@@ -712,6 +721,7 @@ pub fn render_prompt(
     dag: &DAG,
     classification: &ClassificationResult,
     claim_boundary: Option<&str>,
+    objective: Option<&str>,
 ) -> String {
     let (completed, ready, blocked, pending) = dag.progress();
     let mut out = format!(
@@ -1078,6 +1088,26 @@ This way the SME's selection (when it lands) gets its own commit on top, and the
         domain = classification.domain,
         description = classification.workflow_description,
     );
+
+    // SME analysis objective (stated during chat intake) — the project brief
+    // every execution agent reads. Surfaced verbatim so the SME's goal +
+    // constraints (e.g. "detect low-frequency heteroplasmy", "the data is in
+    // inputs/") reach the per-task agent, which otherwise sees only the generic
+    // archetype/atom descriptions. Empty (CLI/build path) omits the section so
+    // those packages stay byte-identical. Advisory: it informs method/parameter
+    // choices and what to report; it does not override a task spec or the claim
+    // boundary.
+    if let Some(obj) = objective {
+        if !obj.trim().is_empty() {
+            out.push_str("\n## Analysis objective (as stated by the SME at intake)\n\n");
+            out.push_str(obj.trim());
+            out.push_str(
+                "\n\nThis is the SME's stated goal for the whole analysis. Honor it when \
+                 choosing methods, parameters, and what to report at each stage; it does not \
+                 override a task's spec or the claim boundary.\n",
+            );
+        }
+    }
 
     // Claim boundary (from taxonomy) — standing instruction the agent must obey
     if let Some(boundary) = claim_boundary {

@@ -100,6 +100,7 @@ fn task_spec_sidecar_present_for_every_task() {
         .join("config/downstream-policy");
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,
@@ -172,6 +173,7 @@ fn task_spec_task_id_matches_map_key() {
         .join("config/downstream-policy");
 
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: tmp.path(),
         dag: &dag,
         classification: &clf,

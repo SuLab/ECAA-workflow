@@ -399,6 +399,17 @@ async fn emit_steps(
             .map(|reg| reg.snapshot_id())
     };
 
+    // Surface the SME's stated analysis objective (chat-intake prose) into the
+    // emitted PROMPT.md so execution agents act on the SME's goal/constraints,
+    // not just the generic archetype description (Option A). Empty prose -> None
+    // (section omitted). Owned clone keeps the borrow independent of `session`.
+    let sme_objective_owned: String = session.intake_prose.trim().to_string();
+    let sme_objective: Option<&str> = if sme_objective_owned.is_empty() {
+        None
+    } else {
+        Some(sme_objective_owned.as_str())
+    };
+
     let cfg = EmitConfig {
         output_dir,
         dag,
@@ -406,6 +417,7 @@ async fn emit_steps(
         policies_dir: &policies_dir,
         policy_allowlist: taxonomy.policies.as_deref(),
         claim_boundary: taxonomy.claim_boundary.as_deref(),
+        objective: sme_objective,
         compute_profiles_dir: compute_profiles_dir.as_deref(),
         intake_facts: Some(&intake_facts),
         amend_from: amend_from_path,

@@ -1025,6 +1025,7 @@ fn emit_minimal_package(out: &std::path::Path) {
     let clf = emit_minimal_classification();
     let policies_dir = config_dir("config/downstream-policy");
     emit_package(&EmitConfig {
+        objective: None,
         output_dir: out,
         dag: &dag,
         classification: &clf,

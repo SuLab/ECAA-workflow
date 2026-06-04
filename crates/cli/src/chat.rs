@@ -125,6 +125,7 @@ pub(crate) fn run_chat(config_dir: &str, output: &str) -> Result<()> {
                         })
                         .unwrap_or(false);
                     emit_package(&EmitConfig {
+                        objective: None,
                         output_dir: out,
                         dag,
                         classification: &clf,
