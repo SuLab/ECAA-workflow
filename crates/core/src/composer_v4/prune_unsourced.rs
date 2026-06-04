@@ -21,9 +21,13 @@
 //!  4. All dropped nodes are removed.
 //!  5. New `OrderingOnly` rewire edges are added (idempotent).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
+use crate::compatibility::engine::{
+    CompatibilityEngine, CompatibilityResult, DeterministicCompatibilityEngine, PlanningContext,
+};
 use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+use crate::workflow_contracts::port::{Cardinality, PortContract};
 use crate::workflow_contracts::task_node::WorkflowDag;
 
 /// The synthetic upstream fallback node id.  Any surviving node whose
@@ -186,6 +190,233 @@ pub fn rewire_or_drop(dag: &mut WorkflowDag, dropped: &BTreeSet<String>) {
             chain_of_custody: None,
         });
     }
+}
+
+/// A port is REQUIRED when its cardinality is not `Optional`. An
+/// `Optional` input may be left unwired, so a missing producer for it
+/// must not justify pruning its consumer.
+fn is_required(port: &PortContract) -> bool {
+    !matches!(port.cardinality, Cardinality::Optional)
+}
+
+/// Does some producer output port satisfy `consumer` per the
+/// compatibility engine? Reuses the exact predicate
+/// `forward_search`/`meet_in_middle` use: `Compatible` or
+/// `CompatibleWithAdapters` count as "sourced"; `Incompatible` and
+/// `Unknown` (opaque short-circuit, undecided facets) do not.
+fn any_output_satisfies(
+    engine: &DeterministicCompatibilityEngine,
+    ctx: &PlanningContext,
+    producers: &[&PortContract],
+    consumer: &PortContract,
+) -> bool {
+    producers.iter().any(|prod| {
+        matches!(
+            engine.prove(prod, consumer, ctx),
+            CompatibilityResult::Compatible(_) | CompatibilityResult::CompatibleWithAdapters { .. }
+        )
+    })
+}
+
+/// Pure pass that drops every atom whose REQUIRED input port(s) cannot
+/// be SOURCED, then rewires-or-drops the resulting orphans via
+/// [`rewire_or_drop`].
+///
+/// "Sourced" = some UPSTREAM-REACHABLE node (following `edges` backward
+/// from the consumer) has an OUTPUT port whose semantic type is
+/// COMPATIBLE with the required input port's semantic type, where
+/// compatibility is decided by the shared
+/// [`DeterministicCompatibilityEngine`] (`Compatible` /
+/// `CompatibleWithAdapters`). Because `data_acquisition` is the root
+/// source ancestor of everything and (post `source_typing`) carries
+/// registered intake inputs as typed output ports, a registered gene-set
+/// makes a pathway atom's gene-set input sourceable; with no gene-set
+/// registered, it is not.
+///
+/// # Semantics
+///
+/// * A non-source node is unsourced when at least one of its REQUIRED
+///   input ports has no compatible producer among its transitive
+///   ancestors. Source nodes (no incoming edges) are never pruned for
+///   lack of an upstream source — their inputs are satisfied externally
+///   (registered intake data).
+/// * `discover_<base>` / `validate_<base>` companions of any dropped
+///   `<base>` are dropped alongside it (mirroring the
+///   `format!("discover_{...}")` / `format!("validate_{...}")` naming the
+///   companion-synthesis passes use).
+/// * FIXPOINT — dropping a producer can un-source a downstream consumer,
+///   so the unsourced scan is repeated until no new node is added.
+/// * The accumulated drop set is then handed to [`rewire_or_drop`], which
+///   rewires surviving orphans to `data_acquisition` (or cascade-drops
+///   them when the anchor itself is gone).
+///
+/// # Determinism
+///
+/// Reachability and the drop set use sorted (`BTreeMap` / `BTreeSet`)
+/// containers and the nodes/edges are scanned in their stored order, so
+/// the result is byte-stable across runs given identical input. No I/O,
+/// no randomness.
+///
+/// # Not wired
+///
+/// This pass is standalone; it is NOT invoked by composition / rebuild
+/// today. It mutates only `dag.nodes` and `dag.edges` (through
+/// `rewire_or_drop`); no atom YAML is touched.
+pub fn prune_unsourced_atoms(dag: &mut WorkflowDag) {
+    // Precompute incoming edges per node id (consumer -> [producer ids]).
+    // BTreeMap for deterministic iteration; entries appear in stored
+    // order within each vec.
+    let mut incoming: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for node in &dag.nodes {
+        incoming.entry(node.id.as_str()).or_default();
+    }
+    for edge in &dag.edges {
+        incoming
+            .entry(edge.to_node.as_str())
+            .or_default()
+            .push(edge.from_node.as_str());
+    }
+
+    // Index node id -> &TaskNode for output-port lookup during sourcing.
+    let by_id: BTreeMap<&str, &crate::workflow_contracts::task_node::TaskNode> =
+        dag.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+
+    // Transitive ancestors per node (every upstream-reachable node id,
+    // following edges backward). Excludes the node itself.
+    let ancestors: BTreeMap<&str, BTreeSet<&str>> = dag
+        .nodes
+        .iter()
+        .map(|n| (n.id.as_str(), transitive_ancestors(n.id.as_str(), &incoming)))
+        .collect();
+
+    let engine = DeterministicCompatibilityEngine::new();
+    let ctx = PlanningContext::default();
+
+    // Set of ids known to exist in this DAG (for companion membership).
+    let present: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+
+    let mut dropped: BTreeSet<String> = BTreeSet::new();
+
+    // FIXPOINT: each round re-scans every not-yet-dropped node. A round
+    // may add a node whose required input is only producible by an
+    // already-dropped ancestor whose entire producing sub-chain is gone —
+    // i.e. the input was NEVER sourceable from a surviving root.
+    //
+    // Sourcing is checked against every upstream-reachable producer that
+    // is NOT dropped. A node that merely loses its sole *direct* producer
+    // to a drop, yet still descends from the surviving `data_acquisition`
+    // anchor, is NOT pruned here — it becomes an orphan that
+    // `rewire_or_drop` reconnects to the anchor (mirroring the
+    // `prune_excluded_atoms` contract, where the shared helper owns the
+    // transitive rewire/cascade rather than the drop-set builder).
+    loop {
+        let before = dropped.len();
+
+        for node in &dag.nodes {
+            if dropped.contains(node.id.as_str()) {
+                continue;
+            }
+            // Source nodes (no incoming edges) are satisfied externally —
+            // never prune them for lack of an upstream source.
+            let preds = incoming.get(node.id.as_str()).map(Vec::as_slice).unwrap_or(&[]);
+            if preds.is_empty() {
+                continue;
+            }
+
+            // A node that still descends from the surviving
+            // `data_acquisition` anchor remains reachable: any required
+            // input that lost only its direct producer is rewired by
+            // `rewire_or_drop`, not pruned here. Pruning is reserved for
+            // inputs that are INTRINSICALLY unsourceable (no compatible
+            // producer anywhere upstream — e.g. a gene-set input with no
+            // registered gene-set source). To decide that, source against
+            // every upstream-reachable producer that is still alive.
+            let producer_ports: Vec<&PortContract> = ancestors
+                .get(node.id.as_str())
+                .into_iter()
+                .flatten()
+                .filter(|anc| !dropped.contains(**anc))
+                .filter_map(|anc| by_id.get(anc))
+                .flat_map(|anc| anc.outputs.iter())
+                .collect();
+
+            // Whether the node still reaches a surviving anchor: if so,
+            // a required input that *was* sourceable originally but lost
+            // its producer to a drop is a rewire case, not a prune case.
+            let reaches_surviving_anchor = ancestors
+                .get(node.id.as_str())
+                .into_iter()
+                .flatten()
+                .any(|anc| *anc == DATA_ACQ_ID && !dropped.contains(DATA_ACQ_ID));
+
+            let unsourced = node.inputs.iter().filter(|p| is_required(p)).any(|input| {
+                if any_output_satisfies(&engine, &ctx, &producer_ports, input) {
+                    return false;
+                }
+                // No surviving upstream producer for this required input.
+                // Was it ever sourceable in the ORIGINAL DAG (i.e. by some
+                // ancestor, dropped or not)? If yes AND the node still
+                // reaches the anchor, leave it for `rewire_or_drop`.
+                // Otherwise it is intrinsically unsourced → prune.
+                if reaches_surviving_anchor {
+                    let original_ports: Vec<&PortContract> = ancestors
+                        .get(node.id.as_str())
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|anc| by_id.get(anc))
+                        .flat_map(|anc| anc.outputs.iter())
+                        .collect();
+                    // Sourceable originally → rewire case (not unsourced).
+                    // Never sourceable → intrinsically unsourced (prune).
+                    !any_output_satisfies(&engine, &ctx, &original_ports, input)
+                } else {
+                    true
+                }
+            });
+
+            if unsourced {
+                dropped.insert(node.id.clone());
+            }
+        }
+
+        if dropped.len() == before {
+            break;
+        }
+    }
+
+    // Companion expansion: for each dropped <base>, also drop
+    // `discover_<base>` and `validate_<base>` when present. Collect first
+    // (can't mutate `dropped` while iterating it).
+    let companions: Vec<String> = dropped
+        .iter()
+        .flat_map(|base| {
+            [format!("discover_{base}"), format!("validate_{base}")]
+        })
+        .filter(|cand| present.contains(cand.as_str()))
+        .collect();
+    dropped.extend(companions);
+
+    rewire_or_drop(dag, &dropped);
+}
+
+/// Transitive ancestors of `start` following `incoming` (consumer ->
+/// producers) backward. Deterministic BFS over a sorted frontier;
+/// excludes `start` itself.
+fn transitive_ancestors<'a>(
+    start: &'a str,
+    incoming: &BTreeMap<&'a str, Vec<&'a str>>,
+) -> BTreeSet<&'a str> {
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    let mut stack: Vec<&str> = incoming.get(start).cloned().unwrap_or_default();
+    while let Some(cur) = stack.pop() {
+        if cur == start || !seen.insert(cur) {
+            continue;
+        }
+        if let Some(preds) = incoming.get(cur) {
+            stack.extend(preds.iter().copied());
+        }
+    }
+    seen
 }
 
 #[cfg(test)]
@@ -351,6 +582,267 @@ mod tests {
             "all nodes must be cascade-dropped transitively; surviving={ids:?}"
         );
         assert!(dag.edges.is_empty(), "all edges must be removed");
+    }
+
+    // ---- prune_unsourced_atoms ------------------------------------------
+    //
+    // These tests exercise the higher-level pass that COMPUTES the dropped
+    // set (atoms with unsourceable required inputs) and then delegates to
+    // `rewire_or_drop`.
+
+    use crate::workflow_contracts::semantic_type::SemanticType;
+    use crate::composer_v4::source_typing::GENE_SET_SEMANTIC_IRI;
+    // `Cardinality` and `PortContract` come in via `super::*`.
+
+    /// EDAM IRI used for the differential-expression results that flow
+    /// `de → pathway`. Any IRI works as long as producer + consumer share
+    /// it (identical types unify to `Compatible`). Chosen to be distinct
+    /// from the gene-set IRI so the two pathway inputs are independent.
+    const DE_RESULTS_IRI: &str = "data:3753";
+
+    /// A REQUIRED (`Cardinality::One`) input port of the given semantic
+    /// type.
+    fn required_input(name: &str, iri: &str) -> PortContract {
+        PortContract {
+            cardinality: Cardinality::One,
+            ..PortContract::with_semantic_type(name, SemanticType::edam(iri, ""))
+        }
+    }
+
+    /// An output port of the given semantic type.
+    fn output_port(name: &str, iri: &str) -> PortContract {
+        PortContract::with_semantic_type(name, SemanticType::edam(iri, ""))
+    }
+
+    /// `data:2531` — a generic upstream artifact the `data_acquisition`
+    /// anchor always produces (cohort manifest), so DE's own input is
+    /// sourceable in these fixtures.
+    const COHORT_IRI: &str = "data:2531";
+
+    fn node_with(id: &str, inputs: Vec<PortContract>, outputs: Vec<PortContract>) -> TaskNode {
+        let mut n = TaskNode::skeleton(id, id);
+        n.inputs = inputs;
+        n.outputs = outputs;
+        n
+    }
+
+    /// `data_acquisition → de → pathway → reporting`, where
+    /// `data_acquisition` does NOT expose a gene-set output. `pathway` has
+    /// a required gene-set input (unsourceable) plus a DE-results input
+    /// (produced by `de`). Expect `pathway` dropped and `reporting`
+    /// rewired to `de` (its sole surviving upstream is now `data_acquisition`
+    /// via rewire — but `de` survives, so the original `de→...` chain is
+    /// preserved through the rewire-or-drop sweep).
+    #[test]
+    fn prunes_pathway_like_node_when_gene_set_not_sourced() {
+        let data_acq = node_with(
+            "data_acquisition",
+            vec![],
+            vec![output_port("cohort", COHORT_IRI)],
+        );
+        let de = node_with(
+            "de",
+            vec![required_input("cohort_in", COHORT_IRI)],
+            vec![output_port("de_results", DE_RESULTS_IRI)],
+        );
+        let pathway = node_with(
+            "pathway",
+            vec![
+                required_input("de_in", DE_RESULTS_IRI),
+                required_input("gene_set_in", GENE_SET_SEMANTIC_IRI),
+            ],
+            vec![output_port("enrichment", "data:3953")],
+        );
+        let reporting = node_with(
+            "reporting",
+            vec![required_input("report_in", "data:3953")],
+            vec![],
+        );
+        let mut dag = WorkflowDag {
+            id: "test".into(),
+            nodes: vec![data_acq, de, pathway, reporting],
+            edges: vec![
+                typed_edge("data_acquisition", "de"),
+                typed_edge("de", "pathway"),
+                typed_edge("pathway", "reporting"),
+            ],
+            ..Default::default()
+        };
+
+        prune_unsourced_atoms(&mut dag);
+
+        let ids: Vec<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert!(
+            !ids.contains(&"pathway"),
+            "pathway has an unsourced gene-set input; must be dropped; nodes={ids:?}"
+        );
+        assert!(ids.contains(&"de"), "de must survive; nodes={ids:?}");
+        assert!(
+            ids.contains(&"reporting"),
+            "reporting must survive (rewired); nodes={ids:?}"
+        );
+        // reporting lost its only producer (pathway) → rewired to
+        // data_acquisition by rewire_or_drop.
+        let rewired = dag
+            .edges
+            .iter()
+            .any(|e| e.from_node == "data_acquisition" && e.to_node == "reporting");
+        assert!(
+            rewired,
+            "reporting must be rewired to data_acquisition after pathway drop; edges={:?}",
+            dag.edges
+                .iter()
+                .map(|e| (e.from_node.as_str(), e.to_node.as_str()))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// Same topology, but `data_acquisition` HAS a gene-set output port.
+    /// Now pathway's gene-set input is sourceable from an upstream-reachable
+    /// node → pathway is retained and nothing is pruned.
+    #[test]
+    fn keeps_pathway_like_node_when_gene_set_sourced() {
+        let data_acq = node_with(
+            "data_acquisition",
+            vec![],
+            vec![
+                output_port("cohort", COHORT_IRI),
+                output_port("gene_set", GENE_SET_SEMANTIC_IRI),
+            ],
+        );
+        let de = node_with(
+            "de",
+            vec![required_input("cohort_in", COHORT_IRI)],
+            vec![output_port("de_results", DE_RESULTS_IRI)],
+        );
+        let pathway = node_with(
+            "pathway",
+            vec![
+                required_input("de_in", DE_RESULTS_IRI),
+                required_input("gene_set_in", GENE_SET_SEMANTIC_IRI),
+            ],
+            vec![output_port("enrichment", "data:3953")],
+        );
+        let reporting = node_with(
+            "reporting",
+            vec![required_input("report_in", "data:3953")],
+            vec![],
+        );
+        let mut dag = WorkflowDag {
+            id: "test".into(),
+            nodes: vec![data_acq, de, pathway, reporting],
+            edges: vec![
+                typed_edge("data_acquisition", "de"),
+                typed_edge("de", "pathway"),
+                typed_edge("pathway", "reporting"),
+            ],
+            ..Default::default()
+        };
+
+        prune_unsourced_atoms(&mut dag);
+
+        let ids: Vec<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert!(
+            ids.contains(&"pathway"),
+            "gene-set is sourced from data_acquisition; pathway must be retained; nodes={ids:?}"
+        );
+        assert_eq!(
+            dag.nodes.len(),
+            4,
+            "nothing should be pruned; nodes={ids:?}"
+        );
+    }
+
+    /// `discover_<base>` / `validate_<base>` companions of a dropped
+    /// `<base>` are dropped alongside it.
+    #[test]
+    fn prunes_discover_and_validate_companions_of_pruned_atom() {
+        let data_acq = node_with(
+            "data_acquisition",
+            vec![],
+            vec![output_port("cohort", COHORT_IRI)],
+        );
+        let de = node_with(
+            "de",
+            vec![required_input("cohort_in", COHORT_IRI)],
+            vec![output_port("de_results", DE_RESULTS_IRI)],
+        );
+        // pathway has an unsourced gene-set input → dropped.
+        let pathway = node_with(
+            "pathway",
+            vec![
+                required_input("de_in", DE_RESULTS_IRI),
+                required_input("gene_set_in", GENE_SET_SEMANTIC_IRI),
+            ],
+            vec![output_port("enrichment", "data:3953")],
+        );
+        let discover = TaskNode::skeleton("discover_pathway", "discover pathway method");
+        let validate = TaskNode::skeleton("validate_pathway", "validate pathway");
+        let mut dag = WorkflowDag {
+            id: "test".into(),
+            nodes: vec![data_acq, de, pathway, discover, validate],
+            edges: vec![
+                typed_edge("data_acquisition", "de"),
+                typed_edge("de", "pathway"),
+                typed_edge("data_acquisition", "discover_pathway"),
+                typed_edge("pathway", "validate_pathway"),
+            ],
+            ..Default::default()
+        };
+
+        prune_unsourced_atoms(&mut dag);
+
+        let ids: Vec<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert!(!ids.contains(&"pathway"), "pathway must be dropped; nodes={ids:?}");
+        assert!(
+            !ids.contains(&"discover_pathway"),
+            "discover_pathway companion must be dropped; nodes={ids:?}"
+        );
+        assert!(
+            !ids.contains(&"validate_pathway"),
+            "validate_pathway companion must be dropped; nodes={ids:?}"
+        );
+        assert!(ids.contains(&"de"), "de must survive; nodes={ids:?}");
+    }
+
+    /// A normal chain where every required input has an upstream producer
+    /// of a compatible type → nothing pruned.
+    #[test]
+    fn keeps_node_whose_required_inputs_are_all_produced_upstream() {
+        let data_acq = node_with(
+            "data_acquisition",
+            vec![],
+            vec![output_port("cohort", COHORT_IRI)],
+        );
+        let de = node_with(
+            "de",
+            vec![required_input("cohort_in", COHORT_IRI)],
+            vec![output_port("de_results", DE_RESULTS_IRI)],
+        );
+        let reporting = node_with(
+            "reporting",
+            vec![required_input("de_in", DE_RESULTS_IRI)],
+            vec![],
+        );
+        let mut dag = WorkflowDag {
+            id: "test".into(),
+            nodes: vec![data_acq, de, reporting],
+            edges: vec![
+                typed_edge("data_acquisition", "de"),
+                typed_edge("de", "reporting"),
+            ],
+            ..Default::default()
+        };
+        let before = dag.nodes.len();
+
+        prune_unsourced_atoms(&mut dag);
+
+        assert_eq!(
+            dag.nodes.len(),
+            before,
+            "all required inputs are sourced; nothing should be pruned; nodes={:?}",
+            dag.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>()
+        );
     }
 
     /// Rewire is idempotent — calling twice doesn't add duplicate edges.
