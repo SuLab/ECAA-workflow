@@ -195,7 +195,11 @@ pub fn rewire_or_drop(dag: &mut WorkflowDag, dropped: &BTreeSet<String>) {
 /// A port is REQUIRED when its cardinality is not `Optional`. An
 /// `Optional` input may be left unwired, so a missing producer for it
 /// must not justify pruning its consumer.
-fn is_required(port: &PortContract) -> bool {
+///
+/// `pub(crate)` so the emit-time backstop in
+/// `composer::validation::no_unsourced_required_inputs` reuses the exact
+/// same predicate the pruner uses (DRY — one definition of "required").
+pub(crate) fn is_required(port: &PortContract) -> bool {
     !matches!(port.cardinality, Cardinality::Optional)
 }
 
@@ -204,7 +208,11 @@ fn is_required(port: &PortContract) -> bool {
 /// `forward_search`/`meet_in_middle` use: `Compatible` or
 /// `CompatibleWithAdapters` count as "sourced"; `Incompatible` and
 /// `Unknown` (opaque short-circuit, undecided facets) do not.
-fn any_output_satisfies(
+///
+/// `pub(crate)` so the emit-time backstop in
+/// `composer::validation::no_unsourced_required_inputs` reuses the exact
+/// same compatibility predicate the pruner uses (DRY).
+pub(crate) fn any_output_satisfies(
     engine: &DeterministicCompatibilityEngine,
     ctx: &PlanningContext,
     producers: &[&PortContract],
@@ -402,7 +410,11 @@ pub fn prune_unsourced_atoms(dag: &mut WorkflowDag) {
 /// Transitive ancestors of `start` following `incoming` (consumer ->
 /// producers) backward. Deterministic BFS over a sorted frontier;
 /// excludes `start` itself.
-fn transitive_ancestors<'a>(
+///
+/// `pub(crate)` so the emit-time backstop in
+/// `composer::validation::no_unsourced_required_inputs` reuses the exact
+/// same reachability walk the pruner uses (DRY).
+pub(crate) fn transitive_ancestors<'a>(
     start: &'a str,
     incoming: &BTreeMap<&'a str, Vec<&'a str>>,
 ) -> BTreeSet<&'a str> {

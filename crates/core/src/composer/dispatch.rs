@@ -474,7 +474,18 @@ pub(crate) fn compose_v4_dispatch_full(
         } => {
             let mut composition =
                 composer_v4::lower_dag_to_composition_result(&dag, atom_reg, &effective_goal)?;
-            validate_composition(&composition, atom_reg)?;
+            // NOTE: the `no_unsourced_required_inputs` backstop is NOT run
+            // here (we pass `None`). At composition-dispatch time the DAG
+            // still legitimately contains atoms whose required inputs are
+            // unsourced (e.g. `pathway_enrichment`'s `gene_set_collection`
+            // when no gene-set was registered) — those are removed by the
+            // shared `prune_unsourced_atoms` pass the conversation layer's
+            // `rebuild_dag` runs immediately after composition. Running the
+            // backstop on this pre-prune DAG would be a false positive. The
+            // backstop guards the POST-prune / emit-time DAG; the
+            // conversation layer is responsible for re-validating after it
+            // prunes (see `no_unsourced_required_inputs`).
+            validate_composition(&composition, atom_reg, None)?;
             composition.matched_archetype = composition
                 .matched_archetype
                 .or_else(|| Some(format!("v4:{}", effective_goal.edam_data)));
@@ -495,7 +506,14 @@ pub(crate) fn compose_v4_dispatch_full(
             );
             match lowered {
                 Ok(composition) => {
-                    validate_composition(&composition, atom_reg)?;
+                    // A DraftDag is intentionally incomplete (it carries
+                    // blockers and is not executable), so do NOT run the
+                    // unsourced-required-input backstop against it — that
+                    // invariant guards EMIT-time DAGs, and only the
+                    // ValidatedExecutableDag arm above reaches emit. Pass
+                    // `None` so a draft's known gaps don't masquerade as a
+                    // distinct UnsourcedRequiredInput error.
+                    validate_composition(&composition, atom_reg, None)?;
                     Err(CompositionError::ComposerV4OutcomeNotExecutable {
                         outcome_kind: "DraftDag".into(),
                         summary,

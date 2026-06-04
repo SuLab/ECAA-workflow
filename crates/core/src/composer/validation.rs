@@ -21,15 +21,29 @@
 use super::{ComposedAtom, CompositionError, CompositionResult};
 use crate::atom::AtomRole;
 use crate::atom_registry::AtomRegistry;
+use crate::compatibility::engine::{DeterministicCompatibilityEngine, PlanningContext};
+use crate::composer_v4::prune_unsourced::{
+    any_output_satisfies, is_required, transitive_ancestors,
+};
 use crate::edam::is_subtype_of;
 use crate::goal_spec::GoalSpec;
+use crate::workflow_contracts::port::PortContract;
+use crate::workflow_contracts::task_node::WorkflowDag;
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Six-item formal validation. Runs over a
 /// `CompositionResult` independently of which path produced it.
+///
+/// `workflow_dag` carries the v4 planner's typed `WorkflowDag` when one
+/// is available (the proof-carrying path); `None` for legacy
+/// archetype/backward-chain compositions and tests. When present, the
+/// emit-time backstop [`no_unsourced_required_inputs`] runs as an extra
+/// (8th) check: every retained atom's REQUIRED input port must be
+/// satisfiable by an upstream-reachable producer.
 pub(super) fn validate_composition(
     result: &CompositionResult,
     atom_reg: &AtomRegistry,
+    workflow_dag: Option<&WorkflowDag>,
 ) -> Result<(), CompositionError> {
     let composed_ids: BTreeSet<&str> = result.atoms.iter().map(|c| c.stage_id.as_str()).collect();
 
@@ -233,6 +247,91 @@ pub(super) fn validate_composition(
         }
     }
 
+    // 8. Emit-time backstop — no retained atom may carry a REQUIRED input
+    // port that no upstream-reachable producer can source. Defense in
+    // depth: `composer_v4::prune_unsourced::prune_unsourced_atoms` drops
+    // such atoms at rebuild time, but if one ever survives to emit (a
+    // composer bug, a manually-spliced node, a future path that skips the
+    // prune) this turns a silently-undispatchable DAG into a typed
+    // composition failure. Only runs when a typed `WorkflowDag` is
+    // available — the legacy `CompositionResult`-only paths carry no port
+    // graph to check against.
+    if let Some(dag) = workflow_dag {
+        no_unsourced_required_inputs(dag)?;
+    }
+
+    Ok(())
+}
+
+/// Emit-time backstop invariant (B1): every retained atom in `dag` whose
+/// REQUIRED input ports cannot be satisfied by an upstream-reachable
+/// producer fails composition with
+/// [`CompositionError::UnsourcedRequiredInput`].
+///
+/// This REUSES the exact predicate logic the rebuild-time pruner uses
+/// (`is_required` / `any_output_satisfies` / `transitive_ancestors` from
+/// `composer_v4::prune_unsourced`) so the backstop and the pruner agree
+/// on the definition of "sourced" by construction (DRY). It differs from
+/// the pruner only in disposition: the pruner DROPS the offending atom +
+/// rewires; the backstop REPORTS the first offender as an error.
+///
+/// Reachability mirrors the pruner: a node is checked against the OUTPUT
+/// ports of every transitive ancestor (every upstream-reachable node).
+/// Source nodes (no incoming edges) are never flagged — their inputs are
+/// satisfied externally by registered intake data. Deterministic: nodes
+/// and required input ports are scanned in stored order over sorted
+/// reachability containers, so the first offender reported is stable.
+pub(super) fn no_unsourced_required_inputs(dag: &WorkflowDag) -> Result<(), CompositionError> {
+    // Incoming edges per node id (consumer -> [producer ids]); BTreeMap
+    // for deterministic iteration — mirrors `prune_unsourced_atoms`.
+    let mut incoming: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for node in &dag.nodes {
+        incoming.entry(node.id.as_str()).or_default();
+    }
+    for edge in &dag.edges {
+        incoming
+            .entry(edge.to_node.as_str())
+            .or_default()
+            .push(edge.from_node.as_str());
+    }
+
+    // node id -> &TaskNode for output-port lookup during sourcing.
+    let by_id: BTreeMap<&str, &crate::workflow_contracts::task_node::TaskNode> =
+        dag.nodes.iter().map(|n| (n.id.as_str(), n)).collect();
+
+    let engine = DeterministicCompatibilityEngine::new();
+    let ctx = PlanningContext::default();
+
+    for node in &dag.nodes {
+        // Source nodes (no incoming edges) are satisfied externally by
+        // registered intake data — never flag them.
+        let preds = incoming
+            .get(node.id.as_str())
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if preds.is_empty() {
+            continue;
+        }
+
+        // Output ports of every upstream-reachable ancestor — the same
+        // producer set the pruner sources against.
+        let ancestors = transitive_ancestors(node.id.as_str(), &incoming);
+        let producer_ports: Vec<&PortContract> = ancestors
+            .iter()
+            .filter_map(|anc| by_id.get(anc))
+            .flat_map(|anc| anc.outputs.iter())
+            .collect();
+
+        for input in node.inputs.iter().filter(|p| is_required(p)) {
+            if !any_output_satisfies(&engine, &ctx, &producer_ports, input) {
+                return Err(CompositionError::UnsourcedRequiredInput {
+                    atom_id: node.id.clone(),
+                    port: input.name.clone(),
+                });
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -332,7 +431,7 @@ mod tests {
     fn wildcard_data_9999_does_not_trigger_goal_unreachable() {
         let result = wildcard_result("data:9999".into());
         let atom_reg = AtomRegistry::default();
-        let outcome = validate_composition(&result, &atom_reg);
+        let outcome = validate_composition(&result, &atom_reg, None);
         assert!(
             outcome.is_ok(),
             "data:9999 must be wildcard, got {:?}",
@@ -344,11 +443,263 @@ mod tests {
     fn empty_edam_data_does_not_trigger_goal_unreachable() {
         let result = wildcard_result(String::new());
         let atom_reg = AtomRegistry::default();
-        let outcome = validate_composition(&result, &atom_reg);
+        let outcome = validate_composition(&result, &atom_reg, None);
         assert!(
             outcome.is_ok(),
             "empty edam_data must be wildcard, got {:?}",
             outcome
+        );
+    }
+
+    // ---- B1 backstop: no_unsourced_required_inputs ------------------
+
+    use crate::composer_v4::source_typing::GENE_SET_SEMANTIC_IRI;
+    use crate::workflow_contracts::edge::{CompatibilityProof, EdgeContract, EdgeKind};
+    use crate::workflow_contracts::port::Cardinality;
+    use crate::workflow_contracts::semantic_type::SemanticType;
+    use crate::workflow_contracts::task_node::TaskNode;
+    // `PortContract` and `WorkflowDag` come in via `super::*` (they are
+    // imported at module scope for `no_unsourced_required_inputs`).
+
+    /// EDAM IRI for the DE-results that flow `de → pathway` (distinct
+    /// from the gene-set IRI so the two pathway inputs are independent).
+    const DE_RESULTS_IRI: &str = "data:3753";
+    /// Generic upstream artifact the anchor always produces (so DE's own
+    /// input is sourceable in these fixtures).
+    const COHORT_IRI: &str = "data:2531";
+
+    fn required_input(name: &str, iri: &str) -> PortContract {
+        PortContract {
+            cardinality: Cardinality::One,
+            ..PortContract::with_semantic_type(name, SemanticType::edam(iri, ""))
+        }
+    }
+    fn output_port(name: &str, iri: &str) -> PortContract {
+        PortContract::with_semantic_type(name, SemanticType::edam(iri, ""))
+    }
+    fn node_with(id: &str, inputs: Vec<PortContract>, outputs: Vec<PortContract>) -> TaskNode {
+        let mut n = TaskNode::skeleton(id, id);
+        n.inputs = inputs;
+        n.outputs = outputs;
+        n
+    }
+    fn typed_edge(from: &str, to: &str) -> EdgeContract {
+        EdgeContract {
+            from_node: from.into(),
+            from_port: "out".into(),
+            to_node: to.into(),
+            to_port: "in".into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
+            chain_of_custody: None,
+        }
+    }
+
+    /// A retained atom whose required `gene_set_collection` input has no
+    /// upstream producer → the backstop reports `UnsourcedRequiredInput`.
+    #[test]
+    fn backstop_flags_retained_atom_with_unsourced_required_input() {
+        let data_acq = node_with(
+            "data_acquisition",
+            vec![],
+            vec![output_port("cohort", COHORT_IRI)],
+        );
+        let de = node_with(
+            "de",
+            vec![required_input("cohort_in", COHORT_IRI)],
+            vec![output_port("de_results", DE_RESULTS_IRI)],
+        );
+        // pathway's gene-set input is unsourced (no data:2600 producer).
+        let pathway = node_with(
+            "pathway_enrichment",
+            vec![
+                required_input("ranked_de_results", DE_RESULTS_IRI),
+                required_input("gene_set_collection", GENE_SET_SEMANTIC_IRI),
+            ],
+            vec![output_port("enrichment", "data:3953")],
+        );
+        let dag = WorkflowDag {
+            id: "test".into(),
+            nodes: vec![data_acq, de, pathway],
+            edges: vec![typed_edge("data_acquisition", "de"), typed_edge("de", "pathway_enrichment")],
+            ..Default::default()
+        };
+
+        let err = no_unsourced_required_inputs(&dag)
+            .expect_err("an unsourced required gene-set input must fail the backstop");
+        match err {
+            CompositionError::UnsourcedRequiredInput { atom_id, port } => {
+                assert_eq!(atom_id, "pathway_enrichment");
+                assert_eq!(port, "gene_set_collection");
+            }
+            other => panic!("expected UnsourcedRequiredInput, got {other:?}"),
+        }
+    }
+
+    /// Same topology, but the anchor exposes a gene-set output → every
+    /// required input is upstream-sourceable → backstop passes.
+    #[test]
+    fn backstop_passes_when_all_required_inputs_are_sourced() {
+        let data_acq = node_with(
+            "data_acquisition",
+            vec![],
+            vec![
+                output_port("cohort", COHORT_IRI),
+                output_port("gene_set", GENE_SET_SEMANTIC_IRI),
+            ],
+        );
+        let de = node_with(
+            "de",
+            vec![required_input("cohort_in", COHORT_IRI)],
+            vec![output_port("de_results", DE_RESULTS_IRI)],
+        );
+        let pathway = node_with(
+            "pathway_enrichment",
+            vec![
+                required_input("ranked_de_results", DE_RESULTS_IRI),
+                required_input("gene_set_collection", GENE_SET_SEMANTIC_IRI),
+            ],
+            vec![output_port("enrichment", "data:3953")],
+        );
+        let dag = WorkflowDag {
+            id: "test".into(),
+            nodes: vec![data_acq, de, pathway],
+            edges: vec![typed_edge("data_acquisition", "de"), typed_edge("de", "pathway_enrichment")],
+            ..Default::default()
+        };
+
+        assert!(
+            no_unsourced_required_inputs(&dag).is_ok(),
+            "all required inputs are upstream-sourceable; backstop must pass"
+        );
+    }
+
+    /// End-to-end through `validate_composition`: a goal-reachable
+    /// composition whose accompanying `WorkflowDag` carries a retained
+    /// atom with an unsourced required input → `validate_composition`
+    /// surfaces `UnsourcedRequiredInput`. A clean DAG (same composition)
+    /// → `Ok`.
+    #[test]
+    fn validate_composition_runs_unsourced_backstop_when_dag_present() {
+        // `ComposedAtom`, `CompositionResult`, `GoalSpec`, `AtomRegistry`
+        // all come in via `super::*`.
+        //
+        // A composed atom whose top-level `edam_data` matches the goal so
+        // the goal-reachability check (3) passes via the legacy branch and
+        // execution flows to the backstop (check 8). The atom shape is
+        // irrelevant to the backstop — the WorkflowDag below is what it
+        // inspects — so source it from the live registry.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("config/stage-atoms");
+        let reg = AtomRegistry::load_from_dir(&dir).expect("live atom registry must load");
+        let atom = reg
+            .get("differential_expression")
+            .expect("differential_expression atom must exist")
+            .clone();
+        let goal_data = atom.edam_data.clone().unwrap_or_else(|| "data:0951".into());
+
+        let composed = ComposedAtom {
+            stage_id: atom.id.clone().into(),
+            atom,
+            depends_on: Vec::new(),
+            required: true,
+            bindings: Vec::new(),
+            container: None,
+        };
+        let result = CompositionResult {
+            matched_archetype: Some("test_archetype".into()),
+            match_score: 0,
+            atoms: vec![composed],
+            goal: GoalSpec {
+                edam_data: goal_data,
+                edam_format: None,
+                modifiers: BTreeMap::new(),
+                source_prose: None,
+                confidence: 0.9,
+            },
+            rationale: String::new(),
+            atom_rationales: BTreeMap::new(),
+            resource_estimate: crate::composer::ResourceEstimate::default(),
+        };
+
+        // Unsourced DAG: pathway's gene-set input has no upstream producer.
+        let dirty_dag = WorkflowDag {
+            id: "test".into(),
+            nodes: vec![
+                node_with(
+                    "data_acquisition",
+                    vec![],
+                    vec![output_port("cohort", COHORT_IRI)],
+                ),
+                node_with(
+                    "de",
+                    vec![required_input("cohort_in", COHORT_IRI)],
+                    vec![output_port("de_results", DE_RESULTS_IRI)],
+                ),
+                node_with(
+                    "pathway_enrichment",
+                    vec![
+                        required_input("ranked_de_results", DE_RESULTS_IRI),
+                        required_input("gene_set_collection", GENE_SET_SEMANTIC_IRI),
+                    ],
+                    vec![output_port("enrichment", "data:3953")],
+                ),
+            ],
+            edges: vec![
+                typed_edge("data_acquisition", "de"),
+                typed_edge("de", "pathway_enrichment"),
+            ],
+            ..Default::default()
+        };
+
+        let atom_reg = AtomRegistry::default();
+        let err = validate_composition(&result, &atom_reg, Some(&dirty_dag))
+            .expect_err("validate_composition must surface the unsourced required input");
+        assert!(
+            matches!(err, CompositionError::UnsourcedRequiredInput { .. }),
+            "expected UnsourcedRequiredInput, got {err:?}"
+        );
+
+        // Clean DAG: anchor exposes the gene-set output → backstop passes,
+        // and the rest of validate_composition is satisfied → Ok.
+        let clean_dag = WorkflowDag {
+            id: "test".into(),
+            nodes: vec![
+                node_with(
+                    "data_acquisition",
+                    vec![],
+                    vec![
+                        output_port("cohort", COHORT_IRI),
+                        output_port("gene_set", GENE_SET_SEMANTIC_IRI),
+                    ],
+                ),
+                node_with(
+                    "de",
+                    vec![required_input("cohort_in", COHORT_IRI)],
+                    vec![output_port("de_results", DE_RESULTS_IRI)],
+                ),
+                node_with(
+                    "pathway_enrichment",
+                    vec![
+                        required_input("ranked_de_results", DE_RESULTS_IRI),
+                        required_input("gene_set_collection", GENE_SET_SEMANTIC_IRI),
+                    ],
+                    vec![output_port("enrichment", "data:3953")],
+                ),
+            ],
+            edges: vec![
+                typed_edge("data_acquisition", "de"),
+                typed_edge("de", "pathway_enrichment"),
+            ],
+            ..Default::default()
+        };
+        assert!(
+            validate_composition(&result, &atom_reg, Some(&clean_dag)).is_ok(),
+            "a clean DAG must pass validate_composition"
         );
     }
 }

@@ -107,6 +107,23 @@ pub enum CompositionError {
         expected: String,
     },
 
+    /// Emit-time backstop (B1). A retained atom in the composed
+    /// `WorkflowDag` declares a REQUIRED input port that no
+    /// upstream-reachable producer can satisfy. This is the same
+    /// condition `composer_v4::prune_unsourced::prune_unsourced_atoms`
+    /// drops at rebuild time; this variant is the defense-in-depth
+    /// invariant that fails composition if such an atom ever survives to
+    /// emit (e.g. a `pathway_enrichment` whose `gene_set_collection`
+    /// input — data:2600 — has no gene-set source). Surfaces the atom id
+    /// + the unsourced port name so the blocker UI can name the gap.
+    #[error("atom {atom_id} has a required input port {port} that no upstream producer can source")]
+    UnsourcedRequiredInput {
+        /// Atom (node) id in the composed DAG.
+        atom_id: String,
+        /// Unsourced required input port name.
+        port: String,
+    },
+
     /// Multi-modal joint-source constraint violated.
     /// The atom declared `joint_with: [{lhs, rhs}]` but the
     /// composed producers of `lhs` and `rhs` carry different
@@ -400,6 +417,25 @@ impl CompositionError {
                     )],
                 }],
             },
+            CompositionError::UnsourcedRequiredInput { atom_id, port } => {
+                ComposeOutcome::PartialDag {
+                    dag: empty_dag,
+                    unresolved_gaps: vec![GapReport {
+                        id: format!("unsourced_required_input:{atom_id}:{port}"),
+                        statement: format!(
+                            "atom {atom_id} has a required input port {port} that no \
+                             upstream producer can source"
+                        ),
+                        missing_port: Some(port.clone()),
+                        suggestions: vec![
+                            "Register an intake input that supplies this port's data type \
+                             (e.g. a gene-set / GMT collection for pathway enrichment)"
+                                .into(),
+                            "Import a producer atom via the external registry".into(),
+                        ],
+                    }],
+                }
+            }
             CompositionError::JointSourceMismatch {
                 atom,
                 lhs,

@@ -366,7 +366,7 @@ fn validate_rejects_unreachable_goal() {
         resource_estimate: ResourceEstimate::default(),
     };
     let atom_reg = registry_from(vec![leaf]);
-    let err = validate_composition(&result, &atom_reg);
+    let err = validate_composition(&result, &atom_reg, None);
     assert!(matches!(err, Err(CompositionError::GoalUnreachable { .. })));
 }
 
@@ -395,7 +395,7 @@ fn validate_accepts_subtype_match_for_goal() {
         resource_estimate: ResourceEstimate::default(),
     };
     let atom_reg = registry_from(vec![leaf]);
-    validate_composition(&result, &atom_reg).expect("goal-reachable validation should pass");
+    validate_composition(&result, &atom_reg, None).expect("goal-reachable validation should pass");
 }
 
 #[test]
@@ -430,7 +430,7 @@ fn validate_rejects_input_unsatisfied() {
         atom_rationales: BTreeMap::new(),
         resource_estimate: ResourceEstimate::default(),
     };
-    let err = validate_composition(&result, &atom_reg);
+    let err = validate_composition(&result, &atom_reg, None);
     assert!(matches!(
         err,
         Err(CompositionError::InputUnsatisfied { .. })
@@ -462,7 +462,7 @@ fn validate_accepts_intake_supplied_dep() {
         atom_rationales: BTreeMap::new(),
         resource_estimate: ResourceEstimate::default(),
     };
-    validate_composition(&result, &atom_reg).expect("intake dep should pass validation");
+    validate_composition(&result, &atom_reg, None).expect("intake dep should pass validation");
 }
 
 #[test]
@@ -494,7 +494,7 @@ fn validate_rejects_method_choice_unresolved() {
         atom_rationales: BTreeMap::new(),
         resource_estimate: ResourceEstimate::default(),
     };
-    let err = validate_composition(&result, &atom_reg);
+    let err = validate_composition(&result, &atom_reg, None);
     assert!(matches!(
         err,
         Err(CompositionError::MethodChoiceUnresolved { .. })
@@ -530,7 +530,7 @@ fn validate_accepts_method_choice_when_discovery_present() {
         atom_rationales: BTreeMap::new(),
         resource_estimate: ResourceEstimate::default(),
     };
-    validate_composition(&result, &atom_reg)
+    validate_composition(&result, &atom_reg, None)
         .expect("composition with discovery sibling should pass");
 }
 
@@ -560,7 +560,7 @@ fn validate_rejects_malformed_exclusion() {
         atom_rationales: BTreeMap::new(),
         resource_estimate: ResourceEstimate::default(),
     };
-    let err = validate_composition(&result, &atom_reg);
+    let err = validate_composition(&result, &atom_reg, None);
     assert!(matches!(
         err,
         Err(CompositionError::MalformedExclusion { .. })
@@ -600,7 +600,7 @@ fn validate_rejects_exclusion_conflict() {
         atom_rationales: BTreeMap::new(),
         resource_estimate: ResourceEstimate::default(),
     };
-    let err = validate_composition(&result, &atom_reg);
+    let err = validate_composition(&result, &atom_reg, None);
     assert!(matches!(
         err,
         Err(CompositionError::ExclusionConflict { .. })
@@ -956,7 +956,7 @@ fn joint_with_validates_when_sources_match() {
     };
     let registry = registry_from(vec![counts, protein, integrate]);
     // Six-item validation passes (joint source ok).
-    validate_composition(&result, &registry).expect("joint validation passes");
+    validate_composition(&result, &registry, None).expect("joint validation passes");
 }
 
 /// Joint-source constraint fires
@@ -1020,7 +1020,7 @@ fn joint_with_rejects_mismatched_sources() {
     };
     let registry = registry_from(vec![counts, protein, integrate]);
     let err =
-        validate_composition(&result, &registry).expect_err("must surface JointSourceMismatch");
+        validate_composition(&result, &registry, None).expect_err("must surface JointSourceMismatch");
     match err {
         CompositionError::JointSourceMismatch {
             atom,
@@ -1093,7 +1093,7 @@ fn joint_with_rejects_missing_source_attribute() {
         resource_estimate: ResourceEstimate::default(),
     };
     let registry = registry_from(vec![counts, protein, integrate]);
-    let err = validate_composition(&result, &registry)
+    let err = validate_composition(&result, &registry, None)
         .expect_err("must reject when one side lacks source_atom");
     assert!(matches!(err, CompositionError::JointSourceMismatch { .. }));
 }
