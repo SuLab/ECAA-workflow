@@ -23,11 +23,22 @@ import requests
 _CREATE_TIMEOUT = 30
 _TURN_TIMEOUT = 180
 _STATE_TIMEOUT = 30
-_CONFIRM_TIMEOUT = 120
+# /confirm runs try_auto_emit_after_confirm SYNCHRONOUSLY and only returns 204
+# AFTER emit completes. With ECAA_VALIDATE_ON_EMIT=full that emit runs the
+# external runcrate + OWL-DL validators (ECAA_VALIDATION_EXTERNAL_TIMEOUT_SECS,
+# default 180s, possibly several validators), so a real confirm can take 3+ min.
+# A short timeout here makes _post time out and RETRY the confirm; the retry then
+# lands on the now-Emitting session and 400s ("illegal transition ... from
+# Emitting"), failing the whole ECAA base run before the harness ever runs. Size
+# the budget above worst-case synchronous emit.
+_CONFIRM_TIMEOUT = 600
 _SME_NAMED_TIMEOUT = 30
 _METRICS_TIMEOUT = 30
 
-_EMIT_POLL_DEADLINE = 60.0
+# Post-confirm poll must also cover a full synchronous emit: if confirm was a
+# retry that fell through (session already Emitting), emit may still be running
+# when we start polling for `emitted`.
+_EMIT_POLL_DEADLINE = 600.0
 _EMIT_POLL_INTERVAL = 0.5
 
 # Connection/5xx retry backoff schedule (seconds).
@@ -280,8 +291,18 @@ def drive_chat_intake_with_metrics(base_url: str, instruction: str, *,
                    headers={"Idempotency-Key": str(uuid.uuid4())},
                    timeout=_CONFIRM_TIMEOUT)
         if cr.status_code != 204:
-            raise ChatIntakeError(
-                f"POST /confirm -> {cr.status_code}: {cr.text[:300]}")
+            # A confirm that 400s with an "illegal transition ... from
+            # Emitting/Emitted" means the session has ALREADY advanced past
+            # PendingConfirmation — i.e. a prior confirm (e.g. one that _post
+            # timed out on mid-emit and retried) already succeeded and auto-emit
+            # is underway or done. That is the success path, not a failure: fall
+            # through to the emit poll below rather than aborting the base run.
+            body = cr.text or ""
+            already_confirmed = cr.status_code == 400 and (
+                "from Emitting" in body or "from Emitted" in body)
+            if not already_confirmed:
+                raise ChatIntakeError(
+                    f"POST /confirm -> {cr.status_code}: {body[:300]}")
 
     # 4. Poll for the emitted package path (auto-emit is synchronous, but be
     # defensive against an emitting->emitted lag).
