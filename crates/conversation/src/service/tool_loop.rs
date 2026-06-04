@@ -698,10 +698,22 @@ impl ConversationService {
                         // the text produces a different fingerprint.
                         let summary_hash =
                             crate::tools::conversational::summary_hash_of(summary_markdown);
+                        // Surface any curated optional stages that survived
+                        // composition so the confirmation card can offer the
+                        // SME a one-click drop. Sourced from the cached v4
+                        // typed compose output (`session.workflow_dag`); empty
+                        // for legacy / non-composer sessions where no DAG is
+                        // cached.
+                        let retained_optional_stages = session
+                            .workflow_dag
+                            .as_ref()
+                            .map(crate::session::RetainedOptionalStage::from_workflow_dag)
+                            .unwrap_or_default();
                         accumulated_card = Some(ConfirmationCard {
                             summary_markdown: summary_markdown.clone(),
                             summary_hash,
                             resource_estimate: None,
+                            retained_optional_stages,
                         });
                     }
                 }

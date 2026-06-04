@@ -1183,6 +1183,72 @@ pub struct ConfirmationCard {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub resource_estimate: Option<ecaa_workflow_core::composer::ResourceEstimate>,
+    /// Retained *optional* analysis stages still present in the composed
+    /// DAG at confirmation time. Surfaced so the SME can drop one before
+    /// emit (each entry renders as a removable chip in the confirmation
+    /// card; the UI's "remove" affordance posts an exclusion for the
+    /// `stage_id`, which rebuilds the DAG without it).
+    ///
+    /// "Optional" = the curated set
+    /// [`CURATED_OPTIONAL_STAGES`] (`pathway_enrichment`,
+    /// `contextualize_findings_with_literature`) intersected with the
+    /// stages actually present in the composed DAG. Empty when none of
+    /// the curated optional stages survived composition.
+    ///
+    /// `#[serde(default)]` so on-disk cards that pre-date this field
+    /// deserialize cleanly with an empty list; `skip_serializing_if`
+    /// keeps the wire payload unchanged for the common (empty) case.
+    /// `#[ts(optional)]` mirrors the skip so the TS binding marks the
+    /// field optional — the UI tolerates the absent-on-legacy case.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(optional)]
+    pub retained_optional_stages: Vec<RetainedOptionalStage>,
+}
+
+/// Curated set of stage ids treated as *optional* analysis stages for
+/// the confirmation card. These are the downstream stages an archetype
+/// commonly includes but the SME can safely drop before emit. This is
+/// the floor: any stage in this set that survives composition is
+/// surfaced as removable. Mirrors the optional-stage examples called
+/// out in the `discover_*` / exclusion tool schemas
+/// (`pathway_enrichment`, `contextualize_findings_with_literature`).
+pub const CURATED_OPTIONAL_STAGES: [&str; 2] =
+    ["pathway_enrichment", "contextualize_findings_with_literature"];
+
+/// One retained optional analysis stage, surfaced on the
+/// [`ConfirmationCard`] so the SME can drop it before package emit.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct RetainedOptionalStage {
+    /// Stage id as it appears in the composed `WorkflowDag` node ids.
+    /// The UI's "remove" affordance posts this id to the existing
+    /// exclusion mechanism so the stage is excluded and the DAG rebuilt.
+    pub stage_id: String,
+    /// Short human-readable rationale for why this stage is droppable,
+    /// rendered alongside the chip.
+    pub reason: String,
+}
+
+impl RetainedOptionalStage {
+    /// Build the retained-optional-stage list from a composed
+    /// [`WorkflowDag`](ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag):
+    /// every node whose id is in [`CURATED_OPTIONAL_STAGES`] AND present
+    /// in the DAG yields one entry. Order follows the DAG's node order
+    /// (which the lowering pass keeps stable) so the rendered chips are
+    /// deterministic. Returns an empty vec when no curated optional
+    /// stage survived composition.
+    pub fn from_workflow_dag(
+        dag: &ecaa_workflow_core::workflow_contracts::task_node::WorkflowDag,
+    ) -> Vec<Self> {
+        dag.nodes
+            .iter()
+            .filter(|node| CURATED_OPTIONAL_STAGES.contains(&node.id.as_str()))
+            .map(|node| Self {
+                stage_id: node.id.clone(),
+                reason: "optional downstream stage; included by the archetype".to_string(),
+            })
+            .collect()
+    }
 }
 
 /// Progress event posted by the harness to the server's `/progress` endpoint.
@@ -1387,5 +1453,86 @@ mod tests {
             "Session JSON with a legacy composer_version field must still load: {:?}",
             parsed.err()
         );
+    }
+
+    #[test]
+    fn retained_optional_stages_lists_curated_optional_stage_present_in_dag() {
+        use super::RetainedOptionalStage;
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        // A composed DAG that contains `pathway_enrichment` (a curated
+        // optional stage) plus a non-optional stage. The card payload
+        // must surface only the optional stage.
+        let dag = WorkflowDag {
+            nodes: vec![
+                TaskNode::skeleton("differential_expression", "core DE step"),
+                TaskNode::skeleton("pathway_enrichment", "optional downstream enrichment"),
+            ],
+            ..WorkflowDag::default()
+        };
+
+        let retained = RetainedOptionalStage::from_workflow_dag(&dag);
+        assert_eq!(
+            retained.len(),
+            1,
+            "exactly one curated optional stage should be retained"
+        );
+        assert_eq!(retained[0].stage_id, "pathway_enrichment");
+        assert!(
+            !retained[0].reason.is_empty(),
+            "each retained optional stage carries a non-empty reason"
+        );
+    }
+
+    #[test]
+    fn retained_optional_stages_empty_when_no_curated_stage_in_dag() {
+        use super::RetainedOptionalStage;
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        // A composed DAG with no curated optional stage yields an empty
+        // list — the confirmation card shows no removable chips.
+        let dag = WorkflowDag {
+            nodes: vec![
+                TaskNode::skeleton("differential_expression", "core DE step"),
+                TaskNode::skeleton("reporting", "final report"),
+            ],
+            ..WorkflowDag::default()
+        };
+
+        let retained = RetainedOptionalStage::from_workflow_dag(&dag);
+        assert!(
+            retained.is_empty(),
+            "no curated optional stage present => empty retained list, got {retained:?}"
+        );
+    }
+
+    #[test]
+    fn confirmation_card_retained_stages_round_trip_and_legacy_default() {
+        use super::{ConfirmationCard, RetainedOptionalStage};
+
+        // A populated card round-trips its retained_optional_stages.
+        let card = ConfirmationCard {
+            summary_markdown: "plan".into(),
+            summary_hash: String::new(),
+            resource_estimate: None,
+            retained_optional_stages: vec![RetainedOptionalStage {
+                stage_id: "pathway_enrichment".into(),
+                reason: "optional downstream stage; included by the archetype".into(),
+            }],
+        };
+        let json = serde_json::to_value(&card).expect("serialize card");
+        let back: ConfirmationCard = serde_json::from_value(json).expect("deserialize card");
+        assert_eq!(back.retained_optional_stages.len(), 1);
+        assert_eq!(back.retained_optional_stages[0].stage_id, "pathway_enrichment");
+
+        // A legacy on-disk card with no retained_optional_stages field
+        // deserializes to an empty list (serde default).
+        let legacy = serde_json::json!({
+            "summary_markdown": "legacy plan",
+            "summary_hash": ""
+        });
+        let parsed: ConfirmationCard =
+            serde_json::from_value(legacy).expect("legacy card deserializes");
+        assert!(parsed.retained_optional_stages.is_empty());
     }
 }

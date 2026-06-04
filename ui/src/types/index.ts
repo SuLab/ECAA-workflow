@@ -20,6 +20,7 @@ export type { Turn } from "./Turn";
 export type { TurnRole } from "./TurnRole";
 export type { AssistantIntent } from "./AssistantIntent";
 export type { ConfirmationCard } from "./ConfirmationCard";
+export type { RetainedOptionalStage } from "./RetainedOptionalStage";
 export type { ResourceEstimate } from "./ResourceEstimate";
 export type { ScoreEvidence } from "./ScoreEvidence";
 export type { ExcludedPath } from "./ExcludedPath";

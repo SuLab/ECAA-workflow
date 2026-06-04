@@ -3,6 +3,7 @@ import type {
   ConfirmationCard,
   ProjectClass,
   ResourceEstimate,
+  RetainedOptionalStage,
   SessionMode,
   CheckpointMode,
 } from '../types'
@@ -59,6 +60,120 @@ function ResourceEstimateChip({ estimate }: { estimate: ResourceEstimate }) {
   )
 }
 
+/**
+ * Removable chips for the *optional* analysis stages the composer
+ * retained in the DAG (e.g. `pathway_enrichment`,
+ * `contextualize_findings_with_literature`). Each chip carries a
+ * "remove" affordance; clicking it routes the stage id back through the
+ * existing exclusion mechanism (a chat turn that drives the
+ * `set_intake_excluded_atoms` tool), which prunes the stage and rebuilds
+ * the DAG. Renders nothing when the list is empty or no remove handler
+ * is wired.
+ */
+function RetainedOptionalStageChips({
+  stages,
+  onRemove,
+  disabled,
+}: {
+  stages: RetainedOptionalStage[]
+  onRemove?: (stageId: string) => void | Promise<void>
+  disabled?: boolean
+}) {
+  // Local set of stage ids whose removal is in flight, so a clicked
+  // chip shows a pending state and can't be double-submitted.
+  const [removing, setRemoving] = useState<Record<string, boolean>>({})
+  if (!onRemove || stages.length === 0) {
+    return null
+  }
+  const handleRemove = async (stageId: string) => {
+    if (disabled || removing[stageId]) return
+    setRemoving((prev) => ({ ...prev, [stageId]: true }))
+    try {
+      await onRemove(stageId)
+    } catch {
+      // Leave the chip visible if the exclusion turn failed; clear the
+      // pending state so the SME can retry.
+      setRemoving((prev) => ({ ...prev, [stageId]: false }))
+    }
+  }
+  return (
+    <div
+      aria-label="Retained optional stages"
+      style={{ marginTop: '0.7rem' }}
+    >
+      <div
+        style={{
+          fontSize: '0.74rem',
+          color: 'var(--color-text-secondary)',
+          fontWeight: 500,
+          marginBottom: '0.35rem',
+        }}
+      >
+        Optional stages (remove any you don&apos;t need):
+      </div>
+      <ul
+        style={{
+          listStyle: 'none',
+          margin: 0,
+          padding: 0,
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: '0.4rem',
+        }}
+      >
+        {stages.map((stage) => {
+          const pending = !!removing[stage.stage_id]
+          return (
+            <li key={stage.stage_id}>
+              <span
+                title={stage.reason}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  padding: '0.2rem 0.3rem 0.2rem 0.55rem',
+                  fontSize: '0.76rem',
+                  color: 'var(--color-text-primary)',
+                  background: 'var(--color-surface-muted)',
+                  border: '1px solid var(--color-border-strong)',
+                  borderRadius: '999px',
+                  fontFamily:
+                    'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                }}
+              >
+                {stage.stage_id}
+                <button
+                  type="button"
+                  aria-label={`Remove optional stage ${stage.stage_id}`}
+                  onClick={() => void handleRemove(stage.stage_id)}
+                  disabled={disabled || pending}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '1.1rem',
+                    height: '1.1rem',
+                    lineHeight: 1,
+                    padding: 0,
+                    fontSize: '0.85rem',
+                    color: 'var(--color-text-secondary)',
+                    background: 'transparent',
+                    border: 'none',
+                    borderRadius: '999px',
+                    cursor: disabled || pending ? 'default' : 'pointer',
+                  }}
+                >
+                  {pending ? '…' : '×'}
+                </button>
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 type DisciplineChoice = 'unset' | 'exploratory' | 'confirmatory'
 type CheckpointChoice = 'gated' | 'selective' | 'fast'
 
@@ -70,6 +185,12 @@ interface Props {
   /** When `ClinicalTrial`, the Analysis discipline dropdown is
    *  required and Accept stays disabled until the SME picks. */
   projectClass?: ProjectClass
+  /** Drop a retained optional stage before emit. Receives the stage id
+   *  and routes it through the existing exclusion mechanism (a chat turn
+   *  that drives `set_intake_excluded_atoms`), which prunes the stage and
+   *  rebuilds the DAG. When omitted, the optional-stage chips render
+   *  without a remove affordance (read-only). */
+  onRemoveOptionalStage?: (stageId: string) => void | Promise<void>
 }
 
 export default function ConfirmationTurnCard({
@@ -78,6 +199,7 @@ export default function ConfirmationTurnCard({
   onReject,
   disabled,
   projectClass = 'bioinformatics',
+  onRemoveOptionalStage,
 }: Props) {
   const sessionCtx = useSessionContext()
   const [decision, setDecision] = useState<'pending' | 'confirmed' | 'rejected'>(
@@ -181,6 +303,13 @@ export default function ConfirmationTurnCard({
       )}
       {card.resource_estimate && (
         <ResourceEstimateChip estimate={card.resource_estimate} />
+      )}
+      {decision === 'pending' && card.retained_optional_stages && (
+        <RetainedOptionalStageChips
+          stages={card.retained_optional_stages}
+          onRemove={onRemoveOptionalStage}
+          disabled={disabled}
+        />
       )}
       {decision === 'pending' && (
         <div style={{ marginTop: '0.85rem' }}>

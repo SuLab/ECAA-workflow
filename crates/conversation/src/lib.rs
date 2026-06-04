@@ -110,9 +110,9 @@ pub use scorer::{parse_score, score_transcript, score_transcript_with_model, Rub
 pub use service::{AutoEmitOutcome, ConversationService, ServiceError, ServiceEventSink};
 pub use session::state::{UserInput, UserInputFile, UserInputKind};
 pub use session::{
-    session_lineage_schema_version, ConfirmationCard, HarnessEvent, Session, SessionId,
-    SessionLineage, SessionState, ShareToken, StateTrigger, ToolCallRecord, TransitionError, Turn,
-    TurnRole,
+    session_lineage_schema_version, ConfirmationCard, HarnessEvent, RetainedOptionalStage, Session,
+    SessionId, SessionLineage, SessionState, ShareToken, StateTrigger, ToolCallRecord,
+    TransitionError, Turn, TurnRole,
 };
 pub use tool_schemas::{tool_schemas, tool_status_line};
 pub use tools::{dispatch_batch, dispatch_one, BatchableTool, HighImpactTool, Tool, ToolContext};

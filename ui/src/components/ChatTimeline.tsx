@@ -26,6 +26,9 @@ interface Props {
    *  undefined (the default — pre-emission sessions have nothing
    *  meaningful to branch from). */
   onBranch?: (rationale?: string) => void | Promise<void>
+  /** Threaded to the latest assistant turn's ConfirmationTurnCard so the
+   *  SME can drop a retained optional stage before emit. */
+  onRemoveOptionalStage?: (stageId: string) => void | Promise<void>
 }
 
 // Sentinel turn_id we splice onto the end of the rendered list when an
@@ -44,6 +47,7 @@ function ChatTimeline({
   projectClass,
   sessionId,
   onBranch,
+  onRemoveOptionalStage,
 }: Props) {
   const virtuosoRef = useRef<VirtuosoHandle>(null)
 
@@ -202,6 +206,14 @@ function ChatTimeline({
                 onBranch={
                   realIndex === lastAssistantIdx && !showStreaming
                     ? onBranch
+                    : undefined
+                }
+                // Only the latest (actionable) confirmation card may
+                // drop an optional stage; historical cards render the
+                // chips read-only (no handler => no remove affordance).
+                onRemoveOptionalStage={
+                  realIndex === lastConfirmationCardIdx
+                    ? onRemoveOptionalStage
                     : undefined
                 }
               />
