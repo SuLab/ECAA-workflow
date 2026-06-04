@@ -379,6 +379,15 @@ pub fn plan(
         // WG3 strict-mode (C5): catch-all typing of any residual declared
         // ordering edge (within-pipeline secondary data deps / barriers).
         super::discover_companion_synthesis::type_residual_ordering_edges(&mut dag);
+        // Surface SME-registered intake inputs as typed source output
+        // ports on the ingest-root anchor (`data_acquisition` /
+        // `data_import`). Additive only — appends ports so a later
+        // unsourced-prune pass can treat a registered external input
+        // (e.g. a gene-set / GMT collection) as a valid in-DAG source.
+        super::source_typing::surface_registered_source_ports(
+            &mut dag,
+            &ctx.intent.available_data,
+        );
         let score = score_dag(&dag, ctx, archetype_reg);
         let summary = summarize_dag(&dag, &score);
         alternatives.push(RankedAlternative {
@@ -500,6 +509,13 @@ pub fn plan(
             super::discover_companion_synthesis::type_companion_edges(&mut dag);
             // WG3 strict-mode (C5): catch-all typing of residual ordering edges.
             super::discover_companion_synthesis::type_residual_ordering_edges(&mut dag);
+            // Surface SME-registered intake inputs as typed source output
+            // ports on the ingest-root anchor — at parity with the
+            // archetype-seed branch above. Additive only.
+            super::source_typing::surface_registered_source_ports(
+                &mut dag,
+                &ctx.intent.available_data,
+            );
             let mut score = score_dag(&dag, ctx, archetype_reg);
             // When an archetype seed presents a
             // definitive canonical match (modality_hint + goal_data +
