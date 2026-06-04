@@ -342,6 +342,17 @@ pub fn allocate_for_picks(
     let scale_vcpus = total_requested_vcpus > u64::from(usable_vcpus);
     let scale_memory = total_requested_memory > u64::from(usable_memory);
 
+    // Opt-in headroom (ECAA_HW_FILL_HEADROOM=1): when the picks UNDER-subscribe
+    // the usable budget, scale each grant UP (via the same proportional
+    // `scale_share`) to fill it — so a serial run on a large, mostly-idle host
+    // uses the spare cores/RAM to finish heavy compute faster (e.g. Harmony PCA
+    // on ~900k cells) instead of being boxed into its profile high-water while
+    // the box sits idle. K concurrent picks split the budget proportionally, so
+    // this never over-subscribes. Default off preserves exact-high-water
+    // allocation (and the `allocator_grants_full_high_water_when_under_budget`
+    // contract). Local-only: AWS/SLURM size by instance type, not this path.
+    let fill_headroom = std::env::var("ECAA_HW_FILL_HEADROOM").ok().as_deref() == Some("1");
+
     // GPU bookkeeping — assign devices in pick order. Each request for
     // GPU consumes one free device; once they're exhausted, subsequent
     // GPU requests fall back to "none".
@@ -351,7 +362,7 @@ pub fn allocate_for_picks(
         let req_vcpus = req.vcpus.max(AgentAllocation::MIN_VCPUS);
         let req_memory = req.memory_gb.max(AgentAllocation::MIN_MEMORY_GB);
 
-        let vcpus = if scale_vcpus {
+        let vcpus = if scale_vcpus || fill_headroom {
             scale_share(
                 req_vcpus,
                 total_requested_vcpus,
@@ -361,7 +372,7 @@ pub fn allocate_for_picks(
         } else {
             req_vcpus
         };
-        let memory_gb = if scale_memory {
+        let memory_gb = if scale_memory || fill_headroom {
             scale_share(
                 req_memory,
                 total_requested_memory,
