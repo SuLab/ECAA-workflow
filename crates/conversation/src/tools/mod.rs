@@ -1895,6 +1895,8 @@ fn prune_excluded_atoms(session: &mut Session) {
     let Some(wf) = session.workflow_dag.as_mut() else {
         return;
     };
+    // Build the initial dropped set: every node whose id (or whose
+    // `discover_`/`validate_`-stripped base id) appears in the exclusion list.
     let mut dropped: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for node in wf.nodes.iter() {
         let base = node
@@ -1906,73 +1908,10 @@ fn prune_excluded_atoms(session: &mut Session) {
             dropped.insert(node.id.clone());
         }
     }
-    // data_acquisition is the synthetic upstream source for any orphaned
-    // downstream atom when the SME's data is post-pipeline. If it was itself
-    // dropped (unusual), fall back to cascade-drop.
-    let data_acq_id = "data_acquisition";
-    let data_acq_present =
-        wf.nodes.iter().any(|n| n.id == data_acq_id) && !dropped.contains(data_acq_id);
-    // Rewire-or-drop pass (single sweep; the rewire makes the graph stable so
-    // no fixpoint is needed).
-    let mut rewires: Vec<(String, String)> = Vec::new();
-    for node in wf.nodes.iter() {
-        if dropped.contains(&node.id) {
-            continue;
-        }
-        let incoming: Vec<&str> = wf
-            .edges
-            .iter()
-            .filter(|e| e.to_node == node.id)
-            .map(|e| e.from_node.as_str())
-            .collect();
-        if incoming.is_empty() {
-            continue;
-        }
-        let all_dropped = incoming.iter().all(|src| dropped.contains(*src));
-        if !all_dropped {
-            continue;
-        }
-        if data_acq_present && node.id != data_acq_id {
-            rewires.push((data_acq_id.to_string(), node.id.clone()));
-        } else {
-            dropped.insert(node.id.clone());
-        }
-    }
-    // Drop edges referencing dropped nodes, then drop the nodes.
-    wf.edges
-        .retain(|e| !dropped.contains(&e.from_node) && !dropped.contains(&e.to_node));
-    wf.nodes.retain(|n| !dropped.contains(&n.id));
-    // Add rewire edges (after dropping the now-dead originals). Minimal
-    // EdgeContract with sentinel ports + a rationale so downstream lowering
-    // picks up the edge.
-    for (from_node, to_node) in rewires {
-        let already = wf
-            .edges
-            .iter()
-            .any(|e| e.from_node == from_node && e.to_node == to_node);
-        if already {
-            continue;
-        }
-        let proof = ecaa_workflow_core::workflow_contracts::edge::CompatibilityProof {
-            rationale: Some(
-                "rewired to data_acquisition because upstream atom(s) were excluded by SME"
-                    .to_string(),
-            ),
-            ..Default::default()
-        };
-        wf.edges
-            .push(ecaa_workflow_core::workflow_contracts::edge::EdgeContract {
-                from_node,
-                from_port: "_excluded_rewire".into(),
-                to_node,
-                to_port: "_excluded_rewire".into(),
-                proof,
-                // Structural re-wire after an SME atom exclusion: an
-                // ordering edge, not a port-typed data flow.
-                kind: ecaa_workflow_core::workflow_contracts::edge::EdgeKind::OrderingOnly,
-                chain_of_custody: None,
-            });
-    }
+    // Shared rewire-or-drop sweep: surviving nodes that lost all incoming
+    // edges are rewired to `data_acquisition`; cascade-dropped when
+    // `data_acquisition` itself was dropped.
+    ecaa_workflow_core::composer_v4::prune_unsourced::rewire_or_drop(wf, &dropped);
     tracing::debug!(
         session_id = %session.id,
         dropped_count = dropped.len(),

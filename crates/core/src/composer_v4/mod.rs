@@ -13,6 +13,7 @@ pub mod meet_in_middle;
 mod multi_branch_synthesis;
 pub mod planner;
 pub mod policy_gate;
+pub mod prune_unsourced;
 pub mod reporting_consumer_synthesis;
 pub mod scoring;
 pub mod survey_method_landscape_synthesis;
