@@ -422,11 +422,20 @@ fn scale_share(want: u32, total_want: u64, usable: u32, floor: u32) -> u32 {
 /// budget so we never starve a pick.
 pub fn resolve_high_water_for(package: &Path, dag: &DAG, task_id: &str) -> ResourceRequirements {
     let task = dag.tasks.get(task_id);
+    // Fall back to the task id when the emitted task spec carries no
+    // `stage_class` (the v4 composer omits it). The task id IS the stage name
+    // (e.g. `batch_correction`), which is the key the per-stage compute
+    // profiles in `compute-resource-policy.json` use. Without this fallback,
+    // EVERY task misses its profile and collapses to the tiny `default`
+    // (2 vCPU / 8 GB) — starving heavy stages (Harmony batch-correction OOMs
+    // at the 8 GB cap on ~900k cells) and pinning BLAS to 2 threads on a host
+    // with far more cores/RAM.
     let stage_class = task
         .and_then(|t| t.spec.as_ref())
         .and_then(|s| s.get("stage_class"))
         .and_then(|v| v.as_str())
-        .unwrap_or("");
+        .filter(|s| !s.is_empty())
+        .unwrap_or(task_id);
 
     let methods: Vec<String> = task
         .and_then(|t| t.spec.as_ref())

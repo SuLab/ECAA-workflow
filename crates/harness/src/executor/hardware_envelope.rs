@@ -175,7 +175,14 @@ pub fn render_envelope(
     );
 
     // Stage-specific tool/env guidance from compute-resource-policy.json.
-    if let Some(stage_class) = task.and_then(task_stage_class) {
+    // Fall back to the task id when the spec omits `stage_class` (v4 composer)
+    // so per-stage tool-thread curves still resolve (same rationale as
+    // `host_probe::resolve_high_water_for`).
+    if let Some(stage_class) = task
+        .and_then(task_stage_class)
+        .filter(|s| !s.is_empty())
+        .or_else(|| Some(task_id.to_string()))
+    {
         if let Some(compute) = load_compute_policy(package) {
             if let Some(profile) = compute.get("profiles").and_then(|p| p.get(&stage_class)) {
                 if let Some(curves) = profile.get("tool_thread_curves") {
