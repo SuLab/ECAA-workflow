@@ -22,6 +22,7 @@ Dependencies (pip install --user --break-system-packages):
 import json
 import sys
 from pathlib import Path
+from urllib.parse import quote
 
 # `Graph` is re-exported so callers can `from _project import Graph, project`
 # without importing rdflib directly and duplicating the import-error message.
@@ -106,6 +107,17 @@ def _strip_fragment(s):
     """Drop any `#fragment` so an evidence reference resolves against the bare
     output path — mirrors the Rust `evidence_coverage::strip_fragment`."""
     return s.split("#", 1)[0]
+
+
+def _curie_token(raw):
+    """Percent-encode an arbitrary value for use in a synthesized CURIE local.
+
+    Runtime IDs can contain characters that are legal in workflow strings but
+    illegal in Turtle IRIs once expanded through the `ecaa:` prefix, such as
+    `union(data:...)`. Escaping only the dynamic token keeps stable prefixes
+    readable while preserving equality across referenced IDs.
+    """
+    return quote(str(raw), safe="")
 
 
 # Post-Phase-1, the authoritative C-graph source is the host-signed verdict
@@ -227,7 +239,7 @@ def project_rerun_outcome_row(entry, fallback_id):
     if cls:
         node["class"] = {"@id": f"ecaa:{_class_iri(cls)}"}
     raw_id = entry.get("id") or entry.get("edge_id") or fallback_id
-    node["id"] = f"ecaa:rerun:{raw_id}"
+    node["id"] = f"ecaa:rerun:{_curie_token(raw_id)}"
     return node
 
 
@@ -245,11 +257,20 @@ def project_blocker_row(entry, fallback_id):
         return entry
     node = dict(entry)
     node["type"] = "Blocker"
+    kind = entry.get("kind")
+    if kind == "output_unused":
+        node["kind"] = "OutputUnused"
+        refs = entry.get("refs") or entry.get("detail")
+        if isinstance(refs, str):
+            node["refs"] = {"@id": _strip_fragment(refs)}
+        raw_id = entry.get("id") or entry.get("assumption_id") or fallback_id
+        node["id"] = f"ecaa:blocker:{_curie_token(raw_id)}"
+        return node
     refs = entry.get("refs")
     if isinstance(refs, str):
-        node["refs"] = {"@id": f"ecaa:rerun:{refs}"}
+        node["refs"] = {"@id": f"ecaa:rerun:{_curie_token(refs)}"}
     raw_id = entry.get("id") or entry.get("assumption_id") or fallback_id
-    node["id"] = f"ecaa:blocker:{raw_id}"
+    node["id"] = f"ecaa:blocker:{_curie_token(raw_id)}"
     return node
 
 
@@ -275,8 +296,9 @@ def project_claim_verdicts(claim_doc):
         if not isinstance(v, dict):
             continue
         cid = v.get("claim_id") or f"claim_{idx:03d}"
+        cid_token = _curie_token(cid)
         node = {
-            "id": f"ecaa:claim:{cid}",
+            "id": f"ecaa:claim:{cid_token}",
             "type": "Claim",
             "status": v.get("status", "pending"),
         }
@@ -335,6 +357,7 @@ def project_nanopub(claim_doc, ecaa_version="0.1"):
         if not isinstance(v, dict):
             continue
         cid = v.get("claim_id") or f"claim_{idx:03d}"
+        cid_token = _curie_token(cid)
         status = v.get("status", "pending")
         refs = v.get("supported_by")
         citations = (
@@ -342,9 +365,9 @@ def project_nanopub(claim_doc, ecaa_version="0.1"):
             if isinstance(refs, list)
             else []
         )
-        np_id = f"ecaa:nanopub:{cid}"
-        review_id = f"ecaa:claimreview:{cid}"
-        claim_id = f"ecaa:schemaclaim:{cid}"
+        np_id = f"ecaa:nanopub:{cid_token}"
+        review_id = f"ecaa:claimreview:{cid_token}"
+        claim_id = f"ecaa:schemaclaim:{cid_token}"
         review = {
             "id": review_id,
             "type": "schema:ClaimReview",
@@ -391,9 +414,8 @@ def project_nanopub(claim_doc, ecaa_version="0.1"):
     return docs
 
 
-def project_evidence_outputs(proofs_rows):
-    """Synthesize one typed `ecaa:OutputFile` node per distinct V output path
-    (`proofs[].computed_from`/`produces`, fragment-stripped).
+def project_evidence_outputs(proofs_rows, graph_nodes=None, pkg_dir=None):
+    """Synthesize one typed `ecaa:OutputFile` node per distinct V output path.
 
     These are the focus nodes for Invariant 3 (evidence-coverage): every
     `OutputFile` must be referenced by a Claim `supported_by` (or an
@@ -401,27 +423,76 @@ def project_evidence_outputs(proofs_rows):
     The node IRI is the bare output path so it coincides with the
     fragment-stripped `supported_by` IRI from `project_claim_verdicts`.
 
-    A `workflow:<id>`-prefixed value is a STEP-lineage reference (a dependency
-    edge endpoint, as `render_dependency_proofs_jsonl` emits), NOT a produced
-    file — those are the execution-consistency domain (Invariant 6 sub-check),
-    not evidence-coverage, so they are skipped here. Returns a list of JSON-LD
-    nodes (without `@context`).
+    Source-of-truth parity with Rust matters here: produced analytical outputs
+    are existing RO-Crate output entities under `runtime/outputs/**` plus any
+    real-path `proofs[].computed_from`/`produces` row. A pre-execution package
+    can list planned output entities before their files exist; those are not
+    evidence-coverage focus nodes yet because there is no produced file to
+    cover. A `workflow:<id>`-prefixed proof value is a STEP-lineage reference,
+    not a produced file, and is skipped.
+
+    Returns a list of JSON-LD nodes (without `@context`).
     """
     seen = set()
     nodes = []
+    pkg_path = Path(pkg_dir) if pkg_dir is not None else None
+
+    def _types(node):
+        raw = node.get("@type") if isinstance(node, dict) else None
+        if isinstance(raw, str):
+            return {raw}
+        if isinstance(raw, list):
+            return {x for x in raw if isinstance(x, str)}
+        return set()
+
+    def _add(output):
+        if not isinstance(output, str):
+            return
+        if output.startswith("workflow:"):
+            return
+        output = _strip_fragment(output)
+        if not output or output in seen:
+            return
+        seen.add(output)
+        nodes.append({"id": output, "type": "OutputFile"})
+
+    def _exists_in_package(output):
+        if pkg_path is None:
+            return True
+        if not isinstance(output, str):
+            return False
+        if output.startswith("workflow:"):
+            return False
+        output = _strip_fragment(output)
+        if not output:
+            return False
+        # RO-Crate ids can be relative paths. Keep absolute/IRI-like ids
+        # eligible for tests and future external outputs, but only treat local
+        # package paths as produced evidence when the file is present.
+        if "://" in output or output.startswith("ecaa:"):
+            return True
+        rel = output[2:] if output.startswith("./") else output
+        if rel.startswith("/"):
+            return Path(rel).exists()
+        return (pkg_path / rel).exists()
+
+    for entity in graph_nodes or []:
+        if not isinstance(entity, dict):
+            continue
+        output = entity.get("@id")
+        if not isinstance(output, str):
+            continue
+        ty = _types(entity)
+        is_image = "ImageObject" in ty or "schema:Image" in ty
+        is_dataset_or_file = bool(ty & {"Dataset", "File", "dcat:Dataset"})
+        if is_image or (output.startswith("runtime/outputs/") and is_dataset_or_file):
+            if _exists_in_package(output):
+                _add(output)
+
     for row in proofs_rows:
         if not isinstance(row, dict):
             continue
-        output = row.get("computed_from") or row.get("produces")
-        if not isinstance(output, str):
-            continue
-        if output.startswith("workflow:"):
-            continue
-        output = _strip_fragment(output)
-        if output in seen:
-            continue
-        seen.add(output)
-        nodes.append({"id": output, "type": "OutputFile"})
+        _add(row.get("computed_from") or row.get("produces"))
     return nodes
 
 
@@ -657,13 +728,21 @@ def project(pkg_dir, log=print):
                 entry["@context"] = ctx["@context"]
                 _to_rdf(projected, entry, context_label=rel)
 
+    metadata_path = pkg_dir / "ro-crate-metadata.json"
+    metadata = None
+    graph_nodes = []
+    if metadata_path.exists():
+        metadata = json.load(open(metadata_path))
+        graph_nodes = metadata.get("@graph", [])
+
     # V evidence-coverage focus nodes: one typed `ecaa:OutputFile` per distinct
     # output path (Invariant 3 / Invariant 5 binding). Synthesized from the
-    # retained proofs rows; projection-layer only (off the BagIt path).
-    for of_node in project_evidence_outputs(proofs_rows):
+    # retained proofs rows and the RO-Crate output entities; projection-layer
+    # only (off the BagIt path).
+    for of_node in project_evidence_outputs(proofs_rows, graph_nodes, pkg_dir):
         node = dict(of_node)
         node["@context"] = ctx["@context"]
-        _to_rdf(projected, node, context_label="runtime/proofs.jsonl#OutputFile")
+        _to_rdf(projected, node, context_label="V#OutputFile")
 
     # C is a single document, sourced from the host-signed verdict sink when
     # present (Phase-1 keystone) and the agent-writable stub otherwise. Project
@@ -700,9 +779,7 @@ def project(pkg_dir, log=print):
     # Without a node typed ecaa:Package the shape has zero focus nodes and
     # SHACL passes vacuously. The conformsTo IRIs come from the single source
     # of truth, ro-crate-metadata.json, rather than being hard-coded here.
-    metadata_path = pkg_dir / "ro-crate-metadata.json"
-    if metadata_path.exists():
-        metadata = json.load(open(metadata_path))
+    if metadata is not None:
         iris = conforms_to_iris(metadata)
         package_node = {
             "@context": ctx["@context"],

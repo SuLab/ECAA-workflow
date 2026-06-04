@@ -245,6 +245,8 @@ function titleFor(kind: BlockerKind | null | undefined, isDiscovery: boolean): s
       return `Task ${kind.task_id} was cancelled by an amendment of ${kind.target_stage}`
     case 'provenance_commit_dropped':
       return `Provenance commit hook (${kind.trigger}) was skipped: ${kind.reason}`
+    case 'external_import_failed':
+      return `External registry import failed — ${kind.registry} / ${kind.id}: ${kind.reason}`
     case 'turn_budget_exceeded':
       return 'Executor agent hit turn budget'
   }
@@ -579,6 +581,8 @@ function buttonLabelFor(
     case 'cancelled_by_amendment':
     case 'provenance_commit_dropped':
       return "I've addressed this — continue"
+    case 'external_import_failed':
+      return 'Retry import'
     case 'turn_budget_exceeded':
       return 'Investigate'
   }

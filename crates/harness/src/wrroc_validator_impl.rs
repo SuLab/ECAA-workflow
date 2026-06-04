@@ -2,7 +2,8 @@
 //!
 //! Implements the `ecaa_workflow_core::wrroc_validator::WrrocValidator`
 //! trait by shelling out to `scripts/wrroc-validate.py`, which wraps
-//! `runcrate validate` (≥0.5.0) plus four post-validation checks
+//! `runcrate report` as the released runcrate parseability check plus
+//! four post-validation checks
 //! (RO-Crate 1.1 descriptor + 3 WRROC profile IRIs in `conformsTo`,
 //! ≥1 ParameterConnection entity, ≥1 p-plan:Plan entity).
 //!

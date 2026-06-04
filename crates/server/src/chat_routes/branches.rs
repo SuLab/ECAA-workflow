@@ -402,6 +402,13 @@ async fn inherit_branch_artifacts(
         inherit_completed_task_dirs(parent_id, child_id, &parent_pkg, &child_pkg, &completed);
 
     files_inherited += inherit_parent_data_dir(parent_id, child_id, &parent_pkg, &child_pkg);
+    let assumptions_inherited = inherit_completed_task_assumptions(
+        parent_id,
+        child_id,
+        &parent_pkg,
+        &child_pkg,
+        &completed,
+    );
 
     tracing::info!(
         target: "ecaa::branch::inherit",
@@ -409,6 +416,7 @@ async fn inherit_branch_artifacts(
         child = %child_id,
         tasks = tasks_inherited,
         files = files_inherited,
+        assumptions = assumptions_inherited,
         "branch artifact inheritance complete"
     );
     (tasks_inherited, files_inherited)
@@ -610,6 +618,150 @@ fn inherit_parent_data_dir(
             0
         }
     }
+}
+
+/// Carry over task-scoped runtime assumptions for inherited completed tasks.
+/// Inherited output files need their corresponding `output_unused` and other
+/// task-local F rows in the child package, otherwise post-branch ECAA
+/// validation sees produced artifacts with no local audit explanation.
+fn inherit_completed_task_assumptions(
+    parent_id: Uuid,
+    child_id: Uuid,
+    parent_pkg: &std::path::Path,
+    child_pkg: &std::path::Path,
+    completed: &[String],
+) -> usize {
+    if completed.is_empty() {
+        return 0;
+    }
+    let parent_file = parent_pkg.join("runtime").join("assumptions.jsonl");
+    if !parent_file.exists() {
+        return 0;
+    }
+    let child_file = child_pkg.join("runtime").join("assumptions.jsonl");
+    let completed: std::collections::HashSet<&str> = completed.iter().map(String::as_str).collect();
+
+    let mut existing_ids = std::collections::HashSet::new();
+    if let Ok(text) = std::fs::read_to_string(&child_file) {
+        for line in text.lines() {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            if let Some(id) = value.get("id").and_then(serde_json::Value::as_str) {
+                existing_ids.insert(id.to_string());
+            }
+        }
+    }
+
+    let parent_prefix = parent_pkg.to_string_lossy().to_string();
+    let child_prefix = child_pkg.to_string_lossy().to_string();
+    let text = match std::fs::read_to_string(&parent_file) {
+        Ok(text) => text,
+        Err(e) => {
+            tracing::warn!(
+                target: "ecaa::branch::inherit",
+                parent = %parent_id,
+                child = %child_id,
+                error = %e,
+                "carry-over of runtime assumptions failed while reading parent sidecar"
+            );
+            return 0;
+        }
+    };
+
+    let mut rows = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(mut value) = serde_json::from_str::<serde_json::Value>(trimmed) else {
+            continue;
+        };
+        let Some(task_id) = value.get("task_id").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        if !completed.contains(task_id) {
+            continue;
+        }
+        if let Some(id) = value.get("id").and_then(serde_json::Value::as_str) {
+            if !existing_ids.insert(id.to_string()) {
+                continue;
+            }
+        }
+        rewrite_json_string_prefixes(&mut value, &parent_prefix, &child_prefix);
+        if let Ok(row) = serde_json::to_string(&value) {
+            rows.push(row);
+        }
+    }
+
+    if rows.is_empty() {
+        return 0;
+    }
+    if let Some(parent) = child_file.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!(
+                target: "ecaa::branch::inherit",
+                parent = %parent_id,
+                child = %child_id,
+                error = %e,
+                "carry-over of runtime assumptions failed while creating child runtime dir"
+            );
+            return 0;
+        }
+    }
+
+    let needs_leading_newline = std::fs::read(&child_file)
+        .ok()
+        .and_then(|bytes| bytes.last().copied())
+        .map(|b| b != b'\n')
+        .unwrap_or(false);
+
+    let mut file = match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&child_file)
+    {
+        Ok(file) => file,
+        Err(e) => {
+            tracing::warn!(
+                target: "ecaa::branch::inherit",
+                parent = %parent_id,
+                child = %child_id,
+                error = %e,
+                "carry-over of runtime assumptions failed while opening child sidecar"
+            );
+            return 0;
+        }
+    };
+    if needs_leading_newline {
+        if let Err(e) = std::io::Write::write_all(&mut file, b"\n") {
+            tracing::warn!(
+                target: "ecaa::branch::inherit",
+                parent = %parent_id,
+                child = %child_id,
+                error = %e,
+                "carry-over of runtime assumptions failed while separating JSONL rows"
+            );
+            return 0;
+        }
+    }
+    use std::io::Write as _;
+    let mut written = 0usize;
+    for row in rows {
+        if let Err(e) = writeln!(&mut file, "{row}") {
+            tracing::warn!(
+                target: "ecaa::branch::inherit",
+                parent = %parent_id,
+                child = %child_id,
+                error = %e,
+                "carry-over of runtime assumptions failed while appending child sidecar"
+            );
+            return written;
+        }
+        written += 1;
+    }
+    written
 }
 
 /// Recursively walk `src`, materializing every regular file at the
@@ -1271,6 +1423,99 @@ mod tests {
             "child-local file must not be clobbered by parent carry-over"
         );
         assert_eq!(std::fs::read(dst.join("new.txt")).unwrap(), b"parent_new");
+    }
+
+    #[test]
+    fn inherit_completed_task_assumptions_appends_task_rows_without_duplicates() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let parent_pkg = tmp.path().join("parent-pkg");
+        let child_pkg = tmp.path().join("child-pkg");
+        std::fs::create_dir_all(parent_pkg.join("runtime")).unwrap();
+        std::fs::create_dir_all(child_pkg.join("runtime")).unwrap();
+        let inherited_detail = parent_pkg
+            .join("runtime/outputs/data_acquisition/result.tsv")
+            .to_string_lossy()
+            .to_string();
+        let parent_rows = vec![
+            serde_json::json!({
+                "id": "assump:keep",
+                "kind": "output_unused",
+                "task_id": "data_acquisition",
+                "detail": inherited_detail,
+            }),
+            serde_json::json!({
+                "id": "assump:dupe",
+                "kind": "output_unused",
+                "task_id": "data_acquisition",
+                "detail": "runtime/outputs/data_acquisition/dupe.tsv",
+            }),
+            serde_json::json!({
+                "id": "assump:skip-downstream",
+                "kind": "output_unused",
+                "task_id": "differential_expression",
+                "detail": "runtime/outputs/differential_expression/de.tsv",
+            }),
+            serde_json::json!({
+                "id": "assump:skip-global",
+                "kind": "registry_default",
+                "detail": "not task scoped",
+            }),
+        ];
+        let parent_jsonl = parent_rows
+            .iter()
+            .map(serde_json::Value::to_string)
+            .collect::<Vec<_>>()
+            .join("\n");
+        std::fs::write(
+            parent_pkg.join("runtime/assumptions.jsonl"),
+            format!("{parent_jsonl}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            child_pkg.join("runtime/assumptions.jsonl"),
+            serde_json::json!({
+                "id": "assump:dupe",
+                "kind": "output_unused",
+                "task_id": "data_acquisition",
+                "detail": "child keeps existing row"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let written = super::inherit_completed_task_assumptions(
+            Uuid::new_v4(),
+            Uuid::new_v4(),
+            &parent_pkg,
+            &child_pkg,
+            &["data_acquisition".to_string()],
+        );
+        assert_eq!(
+            written, 1,
+            "only one non-duplicate completed-task row lands"
+        );
+
+        let child_text = std::fs::read_to_string(child_pkg.join("runtime/assumptions.jsonl"))
+            .expect("child assumptions sidecar");
+        let rows = child_text
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        let ids = rows
+            .iter()
+            .filter_map(|row| row.get("id").and_then(serde_json::Value::as_str))
+            .collect::<Vec<_>>();
+        assert_eq!(ids, vec!["assump:dupe", "assump:keep"]);
+        assert!(
+            child_text.contains(child_pkg.to_string_lossy().as_ref()),
+            "inherited absolute paths must point at the child package"
+        );
+        assert!(
+            !child_text.contains(parent_pkg.to_string_lossy().as_ref()),
+            "inherited rows must not retain parent package paths"
+        );
+        assert!(!child_text.contains("skip-downstream"));
+        assert!(!child_text.contains("skip-global"));
     }
 
     #[test]

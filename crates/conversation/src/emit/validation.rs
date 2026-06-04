@@ -12,7 +12,7 @@
 //!    `ECAA_VALIDATE_ON_EMIT=full`. Invokes
 //!    `scripts/spec-check/project_package.py` (RDF projection → SHACL
 //!    via pyshacl), `owl_consistency.py` (HermiT DL satisfiability via
-//!    owlready2), and `runcrate validate` (WRROC v0.5 round-trip).
+//!    owlready2), and `runcrate report` (WRROC v0.5 parseability).
 //!    Gracefully degrades when Python deps or scripts are missing —
 //!    missing tooling is reported as `Unavailable`, not `Fail`.
 //!
@@ -33,7 +33,7 @@
 //! - `ECAA_VALIDATION_BLOCK_ON_FAIL` (default `0`, warn-only)
 //!   When `1`/`true`/`yes`, schema-validation failures cause
 //!   `validate_emitted_package` to return `Err`, aborting the emit.
-//! - `ECAA_VALIDATION_EXTERNAL_TIMEOUT_SECS` (default `30`)
+//! - `ECAA_VALIDATION_EXTERNAL_TIMEOUT_SECS` (default `180`)
 //!   Per-subprocess timeout for external Python validators.
 
 use anyhow::{anyhow, Result};
@@ -146,7 +146,7 @@ pub struct ExternalValidationResults {
     pub shacl_projection: ExternalCheckOutcome,
     /// Outcome of the OWL consistency check.
     pub owl_consistency: ExternalCheckOutcome,
-    /// Outcome of the `runcrate validate` conformance check.
+    /// Outcome of the `runcrate report` conformance check.
     pub runcrate_validate: ExternalCheckOutcome,
 }
 
@@ -347,7 +347,7 @@ fn read_external_timeout() -> Duration {
     let secs = std::env::var("ECAA_VALIDATION_EXTERNAL_TIMEOUT_SECS")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(30);
+        .unwrap_or(180);
     Duration::from_secs(secs)
 }
 
@@ -870,7 +870,7 @@ fn run_external_check(
     interpret_external_output(label, &out)
 }
 
-/// Interpret `runcrate validate` output: success → `Pass`, else `Fail`.
+/// Interpret `runcrate report` output: success → `Pass`, else `Fail`.
 fn interpret_runcrate_output(out: &std::process::Output) -> ExternalCheckOutcome {
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
@@ -888,7 +888,7 @@ fn interpret_runcrate_output(out: &std::process::Output) -> ExternalCheckOutcome
 
 /// WRROC round-trip check via the external `runcrate` Python tool.
 fn run_runcrate_validate(pkg_root: &Path, timeout: Duration) -> ExternalCheckOutcome {
-    let probe = Command::new("runcrate").arg("--version").output();
+    let probe = Command::new("runcrate").arg("version").output();
     let probe = match probe {
         Ok(o) if o.status.success() => o,
         _ => {
@@ -901,10 +901,11 @@ fn run_runcrate_validate(pkg_root: &Path, timeout: Duration) -> ExternalCheckOut
         "[ecaa-validation] runcrate available: {}",
         String::from_utf8_lossy(&probe.stdout).trim()
     );
+    let descriptor = pkg_root.join("ro-crate-metadata.json");
     let started = Instant::now();
     let child = match Command::new("runcrate")
-        .arg("validate")
-        .arg(pkg_root)
+        .arg("report")
+        .arg(&descriptor)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
@@ -1071,5 +1072,63 @@ pub fn write_validation_summary(pkg_root: &Path, summary: &ValidationSummary) {
             "[ecaa-validation] validation-summary serialization failed: {} (continuing emit)",
             e
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use tempfile::tempdir;
+
+    #[test]
+    #[serial]
+    fn runcrate_validator_uses_report_parseability_command() {
+        let bin_dir = tempdir().expect("temp bin dir");
+        let runcrate = bin_dir.path().join("runcrate");
+        fs::write(
+            &runcrate,
+            r#"#!/usr/bin/env sh
+set -eu
+case "${1:-}" in
+  version)
+    printf 'runcrate 0.5.0\n'
+    ;;
+  report)
+    test "${2:-}" = "$PKG/ro-crate-metadata.json"
+    printf 'report ok\n'
+    ;;
+  *)
+    printf 'unexpected command: %s\n' "${1:-}" >&2
+    exit 2
+    ;;
+esac
+"#,
+        )
+        .expect("fake runcrate");
+        let mut perms = fs::metadata(&runcrate).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&runcrate, perms).expect("chmod fake runcrate");
+
+        let pkg = tempdir().expect("package dir");
+        fs::write(
+            pkg.path().join("ro-crate-metadata.json"),
+            r#"{"@context":"https://w3id.org/ro/crate/1.1/context","@graph":[]}"#,
+        )
+        .expect("ro-crate-metadata");
+
+        let old_path = std::env::var("PATH").unwrap_or_default();
+        std::env::set_var("PATH", format!("{}:{old_path}", bin_dir.path().display()));
+        std::env::set_var("PKG", pkg.path());
+        let outcome = run_runcrate_validate(pkg.path(), Duration::from_secs(5));
+        std::env::set_var("PATH", old_path);
+        std::env::remove_var("PKG");
+
+        match outcome {
+            ExternalCheckOutcome::Pass { details } => assert_eq!(details, "report ok"),
+            other => panic!("expected runcrate report to pass, got {other:?}"),
+        }
     }
 }

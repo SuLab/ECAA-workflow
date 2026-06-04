@@ -38,7 +38,7 @@ REQUIRED_PROFILES = [
 
 
 def validate_one(pkg_dir: Path) -> dict:
-    """Run runcrate validate on a single package directory."""
+    """Run the WRROC conformance checks on a single package directory."""
     if not (pkg_dir / "ro-crate-metadata.json").exists():
         return {
             "path": str(pkg_dir),

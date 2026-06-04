@@ -1,7 +1,7 @@
 //! WRROC v0.5 conformance validator trait + report types.
 //!
 //! `crates/core` is the deterministic, I/O-free compiler. Shelling out
-//! to `python3` (the original `runcrate validate` wrapper at
+//! to `python3` (the original external WRROC wrapper at
 //! `ecaa-workflow-core::wrroc_validator::validate_packages`) violates
 //! the "no I/O outside the emitter" invariant asserted by CLAUDE.md, so
 //! the subprocess impl now lives in
@@ -16,7 +16,8 @@
 //!   trivially. Use when WRROC conformance is out of scope for the run
 //!   (smoke tests, offline replay, fixture authoring).
 //! - `PythonRuncrateWrrocValidator` (harness): shells `python3
-//!   scripts/wrroc-validate.py` which wraps `runcrate validate` ≥0.5.0
+//!   scripts/wrroc-validate.py` which wraps `runcrate report` as the
+//!   released runcrate parseability check
 //!   plus four post-validation checks (RO-Crate 1.1 descriptor +
 //!   3 WRROC profile IRIs in conformsTo, ≥1 ParameterConnection, ≥1
 //!   p-plan:Plan).

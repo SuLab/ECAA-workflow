@@ -107,6 +107,32 @@ describe('BlockerCard', () => {
     expect(alert.getAttribute('data-blocker-kind')).toBe('awaiting_sme_selection')
   })
 
+  it('renders the external import failure blocker with a retry affordance', () => {
+    render(
+      <BlockerCard
+        reason="Could not import atom ext/method-a from local-registry: schema missing"
+        recoveryHint="Fix the registry entry and retry the import."
+        onUnblock={vi.fn()}
+        blockerKind={{
+          kind: 'external_import_failed',
+          registry: 'local-registry',
+          id: 'ext/method-a',
+          reason: 'schema missing',
+        }}
+      />,
+    )
+
+    expect(
+      screen.getByText(/External registry import failed/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/local-registry.*ext\/method-a.*schema missing/i),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /Retry import/i }),
+    ).toBeInTheDocument()
+  })
+
   it('fires onUnblock when the SME clicks the recovery button', async () => {
     const user = userEvent.setup()
     const onUnblock = vi.fn().mockResolvedValue(undefined)

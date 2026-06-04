@@ -63,9 +63,9 @@ ecaa:EquivalenceFailureShape a sh:NodeShape ;
 
 # Invariant 6: substrate-validity
 # Structural: the package descriptor must declare the 6 required profile IRIs.
-# (The `runcrate validate` external-tool check is performed by the Python
-# conformance harness, not by SHACL — this shape catches the trivially
-# verifiable structural prerequisites.)
+# (The runcrate parseability check is performed by the Python conformance
+# harness, not by SHACL — this shape catches the trivially verifiable
+# structural prerequisites.)
 
 ecaa:SubstrateValidityShape a sh:NodeShape ;
     sh:targetClass ecaa:Package ;
