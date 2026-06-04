@@ -376,6 +376,9 @@ pub fn plan(
         super::reporting_consumer_synthesis::type_aggregator_fan_in_edges(&mut dag);
         // WG3 strict-mode (C4): type the discover/survey companion edges.
         super::discover_companion_synthesis::type_companion_edges(&mut dag);
+        // WG3 strict-mode (C5): catch-all typing of any residual declared
+        // ordering edge (within-pipeline secondary data deps / barriers).
+        super::discover_companion_synthesis::type_residual_ordering_edges(&mut dag);
         let score = score_dag(&dag, ctx, archetype_reg);
         let summary = summarize_dag(&dag, &score);
         alternatives.push(RankedAlternative {
@@ -495,6 +498,8 @@ pub fn plan(
             super::reporting_consumer_synthesis::type_aggregator_fan_in_edges(&mut dag);
             // WG3 strict-mode (C4): type the discover/survey companion edges.
             super::discover_companion_synthesis::type_companion_edges(&mut dag);
+            // WG3 strict-mode (C5): catch-all typing of residual ordering edges.
+            super::discover_companion_synthesis::type_residual_ordering_edges(&mut dag);
             let mut score = score_dag(&dag, ctx, archetype_reg);
             // When an archetype seed presents a
             // definitive canonical match (modality_hint + goal_data +

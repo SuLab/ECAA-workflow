@@ -486,6 +486,97 @@ pub(crate) fn type_companion_edges(dag: &mut WorkflowDag) {
     });
 }
 
+/// WG3 strict-mode (C5): catch-all typing for any declared-`OrderingOnly`
+/// edge left after the validate (C1) / aggregator (C2) / companion (C4)
+/// passes. These are archetype-declared dependencies whose consumer input
+/// IRI did not unify with the producer output IRI for the same artifact
+/// family, OR where the consumer reads the producer's `result.json` as a
+/// SECONDARY input (a QC flag; a cross-branch barrier inspecting upstream
+/// outputs). In this execution model every task writes a `result.json`
+/// that downstream agents read, so adding the producer's output as an
+/// ADDITIVE consumer input (never replacing the consumer's primary data
+/// inputs — `pick_best_port_pair` tries all ports so the primary edges
+/// keep their typing) is an honest typing; the edge then re-proves to
+/// TypedDataFlow/AdapterMediated. Producers that are genuinely output-less
+/// (none expected post-C2/C4) leave their edge OrderingOnly. Mutates
+/// `dag` in place; idempotent.
+pub(crate) fn type_residual_ordering_edges(dag: &mut WorkflowDag) {
+    use crate::compatibility::engine::DeterministicCompatibilityEngine;
+    use crate::composer_v4::planner::pick_best_port_pair;
+    use crate::workflow_contracts::port::PortContract;
+    use std::collections::BTreeMap;
+
+    let outputs_by_id: BTreeMap<String, Vec<PortContract>> = dag
+        .nodes
+        .iter()
+        .map(|n| (n.id.clone(), n.outputs.clone()))
+        .collect();
+
+    // For each remaining OrderingOnly edge whose producer has an output,
+    // collect the producer's output port per consumer.
+    let mut needed: BTreeMap<String, Vec<PortContract>> = BTreeMap::new();
+    for e in &dag.edges {
+        if e.kind != EdgeKind::OrderingOnly {
+            continue;
+        }
+        if let Some(p) = outputs_by_id.get(&e.from_node).and_then(|o| o.first()) {
+            needed.entry(e.to_node.clone()).or_default().push(p.clone());
+        }
+    }
+    // Add ADDITIVE inputs (full-clone, preserving format + privacy) for
+    // any producer type the consumer does not already accept.
+    for (cid, mut ports) in needed {
+        ports.sort_by(|a, b| a.semantic_type.stable_id().cmp(&b.semantic_type.stable_id()));
+        ports.dedup_by(|a, b| a.semantic_type.stable_id() == b.semantic_type.stable_id());
+        if let Some(node) = dag.nodes.iter_mut().find(|n| n.id == cid) {
+            for p in ports {
+                let already = node
+                    .inputs
+                    .iter()
+                    .any(|ip| ip.semantic_type.stable_id() == p.semantic_type.stable_id());
+                if !already {
+                    let mut inp = p.clone();
+                    inp.name = format!("residual_in_{}", node.inputs.len());
+                    node.inputs.push(inp);
+                }
+            }
+        }
+    }
+
+    // Re-prove every remaining OrderingOnly edge.
+    let inputs_by_id: BTreeMap<String, Vec<PortContract>> = dag
+        .nodes
+        .iter()
+        .map(|n| (n.id.clone(), n.inputs.clone()))
+        .collect();
+    let engine = DeterministicCompatibilityEngine::new();
+    for edge in &mut dag.edges {
+        if edge.kind != EdgeKind::OrderingOnly {
+            continue;
+        }
+        let prod_outs = outputs_by_id
+            .get(&edge.from_node)
+            .cloned()
+            .unwrap_or_default();
+        let cons_ins = inputs_by_id.get(&edge.to_node).cloned().unwrap_or_default();
+        let (out_port, in_port, proof, kind) =
+            pick_best_port_pair(&engine, &prod_outs, &cons_ins, true);
+        edge.from_port = out_port.name;
+        edge.to_port = in_port.name;
+        edge.proof = proof;
+        edge.kind = kind;
+    }
+
+    dag.nodes.sort_by(|a, b| a.id.cmp(&b.id));
+    dag.edges.sort_by(|a, b| {
+        a.from_node
+            .cmp(&b.from_node)
+            .then_with(|| a.from_port.cmp(&b.from_port))
+            .then_with(|| a.to_node.cmp(&b.to_node))
+            .then_with(|| a.to_port.cmp(&b.to_port))
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -564,6 +655,50 @@ mod tests {
         // The discover skeleton now carries a typed recommendation output.
         let disc = dag.nodes.iter().find(|n| n.id == "discover_alignment").unwrap();
         assert!(!disc.outputs.is_empty(), "discover node should gain a method-recommendation output");
+    }
+
+    /// WG3 strict-mode (C5): a residual within-pipeline ordering edge
+    /// (consumer's declared input IRI differs from the producer's output
+    /// IRI for the same artifact) is retyped from OrderingOnly to
+    /// engine-proven via an additive consumer input.
+    #[test]
+    fn residual_ordering_edges_are_typed() {
+        use crate::workflow_contracts::port::PortContract;
+        let mut de = TaskNode::skeleton("differential_expression", "DE");
+        de.outputs = vec![PortContract::from_edam(
+            "de_results",
+            Some("data:3134"),
+            Some("format:3475"),
+        )];
+        let mut pathway = TaskNode::skeleton("pathway_enrichment", "pathway");
+        // pathway's declared input is data:0951 — does NOT unify with DE's
+        // data:3134, so the archetype edge lands OrderingOnly.
+        pathway.inputs = vec![PortContract::from_edam(
+            "ranked_de_results",
+            Some("data:0951"),
+            Some("format:3475"),
+        )];
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![de, pathway],
+            edges: vec![EdgeContract {
+                from_node: "differential_expression".into(),
+                from_port: String::new(),
+                to_node: "pathway_enrichment".into(),
+                to_port: String::new(),
+                proof: crate::workflow_contracts::edge::CompatibilityProof::default(),
+                kind: EdgeKind::OrderingOnly,
+                chain_of_custody: None,
+            }],
+            assumptions: AssumptionLedger::default(),
+            source_template: None,
+        };
+        type_residual_ordering_edges(&mut dag);
+        assert_ne!(
+            dag.edges[0].kind,
+            EdgeKind::OrderingOnly,
+            "residual within-pipeline edge must be engine-proven (WG3 C5), not OrderingOnly"
+        );
     }
 
     /// Assert that for every synthesized discover_X node there is a
