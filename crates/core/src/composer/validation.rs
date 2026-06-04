@@ -23,7 +23,7 @@ use crate::atom::AtomRole;
 use crate::atom_registry::AtomRegistry;
 use crate::compatibility::engine::{DeterministicCompatibilityEngine, PlanningContext};
 use crate::composer_v4::prune_unsourced::{
-    any_output_satisfies, is_required, transitive_ancestors,
+    any_output_satisfies, is_prunable_required_input, transitive_ancestors,
 };
 use crate::edam::is_subtype_of;
 use crate::goal_spec::GoalSpec;
@@ -322,7 +322,7 @@ pub(super) fn no_unsourced_required_inputs(dag: &WorkflowDag) -> Result<(), Comp
             .flat_map(|anc| anc.outputs.iter())
             .collect();
 
-        for input in node.inputs.iter().filter(|p| is_required(p)) {
+        for input in node.inputs.iter().filter(|p| is_prunable_required_input(p)) {
             if !any_output_satisfies(&engine, &ctx, &producer_ports, input) {
                 return Err(CompositionError::UnsourcedRequiredInput {
                     atom_id: node.id.clone(),

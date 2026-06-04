@@ -203,6 +203,44 @@ pub(crate) fn is_required(port: &PortContract) -> bool {
     !matches!(port.cardinality, Cardinality::Optional)
 }
 
+/// A required input port is *prunable-when-unsourced* only when it is a
+/// **gene-set collection** input (semantic type [`GENE_SET_SEMANTIC_IRI`],
+/// `data:2600`). This is the one input class the unsourced-prune feature
+/// is designed to gate: `source_typing` surfaces a `data:2600` output on
+/// the ingest anchor IFF an SME registered a gene-set, so a gene-set input
+/// with no upstream `data:2600` producer means "no gene-set registered →
+/// drop the (gene-set-dependent) atom".
+///
+/// Every OTHER required input is satisfied by a channel the composer
+/// already accounted for but which the type-only `any_output_satisfies`
+/// re-derivation cannot see, so flagging them over-prunes legitimately-
+/// wired atoms. Concretely, on the live atom catalog:
+///   * **intake-supplied metadata** — e.g. `differential_expression`'s
+///     `experimental_design` input (`topic:3678`, the SME's contrast /
+///     reference-level design) is never produced by ANY upstream atom; it
+///     comes from registered intake, so the composer composes DE without a
+///     producer for it. A blanket "no producer → prune" rule deletes DE
+///     (and everything downstream) in every RNA-seq DAG.
+///   * **ordering-/cross-branch-wired inputs** — e.g. proteomics reuses
+///     the `differential_expression` atom whose `normalized_counts` input
+///     is typed `data:3917` (RNA count matrix) while the proteomics branch
+///     produces `ecaax:protein_abundance_matrix`; the composer wires this
+///     as an `ordering_only`/residual edge that the strict IRI-unification
+///     in `any_output_satisfies` cannot reproduce.
+///
+/// Scoping the prune to the gene-set sentinel keeps the keystone
+/// `pathway_enrichment` behavior (drop when no gene-set is registered,
+/// keep when one is) while leaving every other composer-wired atom intact.
+///
+/// `pub(crate)` so the emit-time backstop in
+/// `composer::validation::no_unsourced_required_inputs` reuses the exact
+/// same predicate (DRY — one definition of "prunable-when-unsourced").
+pub(crate) fn is_prunable_required_input(port: &PortContract) -> bool {
+    is_required(port)
+        && port.semantic_type.stable_id()
+            == crate::composer_v4::source_typing::GENE_SET_SEMANTIC_IRI
+}
+
 /// Does some producer output port satisfy `consumer` per the
 /// compatibility engine? Reuses the exact predicate
 /// `forward_search`/`meet_in_middle` use: `Compatible` or
@@ -243,11 +281,15 @@ pub(crate) fn any_output_satisfies(
 ///
 /// # Semantics
 ///
-/// * A non-source node is unsourced when at least one of its REQUIRED
-///   input ports has no compatible producer among its transitive
-///   ancestors. Source nodes (no incoming edges) are never pruned for
-///   lack of an upstream source — their inputs are satisfied externally
-///   (registered intake data).
+/// * A non-source node is unsourced when its **gene-set-collection**
+///   required input (see [`is_prunable_required_input`]) has no compatible
+///   producer among its transitive ancestors. Other required inputs are
+///   NOT prune triggers — they are satisfied by channels the composer
+///   already accounted for (intake-supplied metadata, ordering-only /
+///   cross-branch edges) that the type-only sourcing check cannot see, so
+///   flagging them would over-prune legitimately-wired atoms. Source nodes
+///   (no incoming edges) are never pruned for lack of an upstream source —
+///   their inputs are satisfied externally (registered intake data).
 /// * `discover_<base>` / `validate_<base>` companions of any dropped
 ///   `<base>` are dropped alongside it (mirroring the
 ///   `format!("discover_{...}")` / `format!("validate_{...}")` naming the
@@ -357,7 +399,7 @@ pub fn prune_unsourced_atoms(dag: &mut WorkflowDag) {
                 .flatten()
                 .any(|anc| *anc == DATA_ACQ_ID && !dropped.contains(DATA_ACQ_ID));
 
-            let unsourced = node.inputs.iter().filter(|p| is_required(p)).any(|input| {
+            let unsourced = node.inputs.iter().filter(|p| is_prunable_required_input(p)).any(|input| {
                 if any_output_satisfies(&engine, &ctx, &producer_ports, input) {
                     return false;
                 }
@@ -854,6 +896,119 @@ mod tests {
             before,
             "all required inputs are sourced; nothing should be pruned; nodes={:?}",
             dag.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>()
+        );
+    }
+
+    /// REGRESSION (cross-omics over-prune): a node with a REQUIRED input
+    /// that has no upstream producer because the input is **intake-supplied
+    /// metadata** (here `topic:3678`, mirroring
+    /// `differential_expression`'s `experimental_design` input) must NOT be
+    /// pruned. Only a gene-set-typed unsourced input justifies a prune.
+    ///
+    /// Before the fix, `prune_unsourced_atoms` flagged EVERY unsourced
+    /// required input, so DE (and its whole downstream chain) was dropped
+    /// from every cross-omics DAG.
+    #[test]
+    fn keeps_node_with_unsourced_intake_supplied_required_input() {
+        // Anchor is NOT named `data_acquisition` (mirrors the cross-omics
+        // `rnaseq_data_acquisition` alias) so `reaches_surviving_anchor` is
+        // false — the exact condition that forced the old over-prune.
+        let anchor = node_with(
+            "rnaseq_data_acquisition",
+            vec![],
+            vec![output_port("cohort", COHORT_IRI)],
+        );
+        let norm = node_with(
+            "rnaseq_normalisation",
+            vec![required_input("cohort_in", COHORT_IRI)],
+            vec![output_port("normalized_counts", "data:3917")],
+        );
+        // DE: `normalized_counts` IS sourced (data:3917 from norm), but
+        // `experimental_design` (topic:3678) is intake-supplied — no atom
+        // produces it. DE must survive.
+        let de = node_with(
+            "rnaseq_differential_expression",
+            vec![
+                required_input("normalized_counts", "data:3917"),
+                required_input("experimental_design", "topic:3678"),
+            ],
+            vec![output_port("de_results", DE_RESULTS_IRI)],
+        );
+        let mut dag = WorkflowDag {
+            id: "test".into(),
+            nodes: vec![anchor, norm, de],
+            edges: vec![
+                typed_edge("rnaseq_data_acquisition", "rnaseq_normalisation"),
+                typed_edge("rnaseq_normalisation", "rnaseq_differential_expression"),
+            ],
+            ..Default::default()
+        };
+        let before = dag.nodes.len();
+
+        prune_unsourced_atoms(&mut dag);
+
+        let ids: Vec<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert!(
+            ids.contains(&"rnaseq_differential_expression"),
+            "DE has an intake-supplied (topic:3678) required input with no \
+             producer — it must NOT be pruned; nodes={ids:?}"
+        );
+        assert_eq!(
+            dag.nodes.len(),
+            before,
+            "nothing should be pruned (no gene-set input anywhere); nodes={ids:?}"
+        );
+    }
+
+    /// Companion of the regression above: even when the gene-set-gated atom
+    /// IS pruned, a sibling with an intake-supplied unsourced required
+    /// input (the DE node) survives. Mirrors the cross-omics shape where
+    /// `pathway_enrichment` drops but `differential_expression` stays.
+    #[test]
+    fn prunes_gene_set_atom_but_keeps_de_with_intake_input() {
+        let anchor = node_with(
+            "rnaseq_data_acquisition",
+            vec![],
+            vec![output_port("cohort", COHORT_IRI)],
+        );
+        let de = node_with(
+            "rnaseq_differential_expression",
+            vec![
+                required_input("cohort_in", COHORT_IRI),
+                required_input("experimental_design", "topic:3678"),
+            ],
+            vec![output_port("de_results", DE_RESULTS_IRI)],
+        );
+        // pathway: gene-set input unsourced → must be pruned.
+        let pathway = node_with(
+            "rnaseq_pathway_enrichment",
+            vec![
+                required_input("ranked_de_results", DE_RESULTS_IRI),
+                required_input("gene_set_collection", GENE_SET_SEMANTIC_IRI),
+            ],
+            vec![output_port("enrichment", "data:3953")],
+        );
+        let mut dag = WorkflowDag {
+            id: "test".into(),
+            nodes: vec![anchor, de, pathway],
+            edges: vec![
+                typed_edge("rnaseq_data_acquisition", "rnaseq_differential_expression"),
+                typed_edge("rnaseq_differential_expression", "rnaseq_pathway_enrichment"),
+            ],
+            ..Default::default()
+        };
+
+        prune_unsourced_atoms(&mut dag);
+
+        let ids: Vec<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert!(
+            !ids.contains(&"rnaseq_pathway_enrichment"),
+            "pathway's gene-set input is unsourced; must be pruned; nodes={ids:?}"
+        );
+        assert!(
+            ids.contains(&"rnaseq_differential_expression"),
+            "DE's only unsourced required input is intake-supplied \
+             (topic:3678); DE must survive; nodes={ids:?}"
         );
     }
 
