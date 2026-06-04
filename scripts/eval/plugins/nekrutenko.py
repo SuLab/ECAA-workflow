@@ -87,13 +87,25 @@ def _target_n(pattern: str, n_samples: int = len(_SAMPLE_NAMES)) -> int:
     return n_samples
 
 
+# Task prompt fed IDENTICALLY to both arms (ECAA intake + bare instruction).
+# It names the canonical recipe tools (bwa/samtools/lofreq) deliberately — the
+# eval pins that recipe (see locked_methods) for fidelity to the Nekrutenko
+# reference. The objective states the SCIENTIFIC goal — detect the full variant
+# spectrum INCLUDING low-frequency heteroplasmy — because the mtDNA answer key
+# contains a ~4% heteroplasmic call (chrM:16455) that a "germline" (high-AF)
+# framing would not target, leaving a prompt↔truth fidelity gap. This is a GOAL,
+# not a method/parameter prescription: it must NOT name AF thresholds, lofreq
+# flags (e.g. --no-default-filter), or trimming settings — doing so would hand
+# the agent the methodology, defeat method-neutrality, and unfairly differ from
+# what the bare arm has to derive on its own.
 _WORKFLOW_PROMPT = (
     "Perform per-sample germline variant calling on four paired-end "
     "Illumina mitochondrial (chrM) sequencing samples: align reads with "
     "bwa, sort and index with samtools, then run variant calling with "
-    "lofreq to detect short variants (SNPs and indels), writing one VCF "
-    "per sample, and finally build a collapsed per-variant table across "
-    "samples."
+    "lofreq to detect the full spectrum of short variants (SNVs and indels) "
+    "in each sample — including low-frequency heteroplasmic variants, not "
+    "only fixed/homoplasmic sites — writing one VCF per sample, and finally "
+    "build a collapsed per-variant table across samples."
 )
 
 
