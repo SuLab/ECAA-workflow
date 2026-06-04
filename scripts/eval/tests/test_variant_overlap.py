@@ -261,3 +261,51 @@ def test_macro_jaccard_excludes_gvcf_and_matches_by_stem(tmp_path):
     macro, per = macro_jaccard_by_sample([gvcf, real], ref_dir, ("M117-bl",))
     assert per["M117-bl"] == 1.0
     assert abs(macro - 1.0) < 1e-9
+
+
+# ── arm-fairness: contig-alias normalization (RC-1) ──────────────────────────
+
+_VCF_MT = """##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+MT\t152\t.\tT\tC\t.\tPASS\tAF=0.99
+"""
+_VCF_CHRM = """##fileformat=VCFv4.2
+#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO
+chrM\t152\t.\tT\tC\t.\tPASS\tAF=0.99
+"""
+
+def test_contig_alias_mt_normalizes_to_chrm(tmp_path):
+    # An annotator that renames chrM->MT must not desync the variant key.
+    p = tmp_path / "renamed.vcf"; p.write_text(_VCF_MT)
+    v = parse_vcf_variants(p)
+    assert ("chrM", 152, "T", "C") in v, "MT must canonicalize to chrM"
+
+def test_flat_jaccard_matches_across_mt_and_chrm(tmp_path):
+    # The same call written `MT:152` (annotated copy) and `chrM:152` (reference)
+    # must score a perfect match — not a spurious 0 / union inflation.
+    obs = tmp_path / "obs.vcf"; obs.write_text(_VCF_MT)
+    ref = tmp_path / "ref.vcf"; ref.write_text(_VCF_CHRM)
+    assert flat_jaccard([obs], [ref]) == 1.0
+
+def test_nc012920_and_chr_prefix_normalize(tmp_path):
+    from scripts.eval.scoring.variant_overlap import _canonical_contig
+    assert _canonical_contig("NC_012920.1") == "chrM"
+    assert _canonical_contig("chrMT") == "chrM"
+    assert _canonical_contig("M") == "chrM"
+    assert _canonical_contig("chr1") == "chr1"   # non-mito unchanged
+
+
+# ── arm-fairness: scratch/intermediate exclusion (RC-2) ──────────────────────
+
+def test_is_scratch_vcf_relative_to_root(tmp_path):
+    from scripts.eval.scoring.variant_overlap import is_scratch_vcf
+    root = tmp_path / "pkg"; (root / "runtime/outputs/anno/tmp").mkdir(parents=True)
+    (root / "runtime/outputs/anno/vcf").mkdir(parents=True)
+    scratch = root / "runtime/outputs/anno/tmp/x.renamed.vcf"; scratch.write_text(_VCF_MT)
+    final = root / "runtime/outputs/anno/vcf/x.vcf"; final.write_text(_VCF_CHRM)
+    assert is_scratch_vcf(scratch, root) is True
+    assert is_scratch_vcf(final, root) is False
+    # A run dir that itself lives under /tmp (or pytest tmp_path) must NOT
+    # false-positive: the check is relative to root, so the leading path is
+    # ignored. tmp_path is under /tmp on most CI/dev hosts.
+    assert is_scratch_vcf(final, root) is False

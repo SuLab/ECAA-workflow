@@ -35,6 +35,53 @@ def _read_vcf_text(path: Path) -> str:
     return p.read_text()
 
 
+# Mitochondrial contig aliases. The reference VCFs spell the mito contig
+# `chrM`, but tools downstream rename it (`MT` for VEP/Ensembl, `NC_012920(.1)`
+# / `J01415(.2)` for RefSeq/GenBank rCRS). They are the SAME molecule, so a
+# variant key keyed on the raw chrom string would treat `MT:152` and `chrM:152`
+# as different calls — inflating the union and breaking matches. That penalizes a
+# multi-stage pipeline (which renames the contig at an annotation step) against a
+# single-script arm that never renames, i.e. it is ARM-UNFAIR. Normalize every
+# mito alias to the reference's `chrM` so the comparison is convention-agnostic.
+_MITO_ALIASES = {
+    "M", "MT", "MITO", "MTDNA", "RCRS",
+    "NC_012920", "NC_012920.1", "J01415", "J01415.2",
+}
+
+
+def _canonical_contig(chrom: str) -> str:
+    """Canonicalize a contig name for variant-key matching. Mitochondrial
+    aliases (chrM / MT / M / NC_012920 / J01415, with or without a `chr`
+    prefix) all map to the reference spelling `chrM`; other contigs are
+    returned unchanged."""
+    c = chrom.strip()
+    bare = c[3:] if c[:3].lower() == "chr" else c
+    if bare.upper() in _MITO_ALIASES:
+        return "chrM"
+    return c
+
+
+# Directory names that mark a VCF as scratch / intermediate rather than a final
+# deliverable call set (e.g. an annotator's contig-renamed working copy). These
+# are checked RELATIVE to the run dir (see `is_scratch_vcf`) so a run dir that
+# itself lives under `/tmp` — or a pytest `tmp_path` — never false-positives.
+_SCRATCH_DIR_NAMES = {"tmp", ".tmp", "_tmp", "scratch", "work", "intermediate", "intermediates"}
+
+
+def is_scratch_vcf(path, root) -> bool:
+    """True when `path` sits under a scratch/intermediate subdir relative to
+    `root` (the run/package dir). Scratch VCFs are not deliverable call sets and
+    must not enter scoring — pooling them (or matching a per-sample VCF to one)
+    penalizes a multi-stage pipeline that leaves intermediates against a
+    single-script arm that does not. Returns False when `path` is not under
+    `root` (best-effort; the caller's glob is already root-scoped)."""
+    try:
+        rel = Path(path).resolve().relative_to(Path(root).resolve())
+    except (ValueError, OSError):
+        return False
+    return any(part.lower() in _SCRATCH_DIR_NAMES for part in rel.parts[:-1])
+
+
 def _parse_af_field(info: str) -> list[float]:
     """Extract the AF INFO subfield as a list of per-allele allele frequencies.
 
@@ -76,7 +123,7 @@ def parse_vcf_variants(path: Path) -> dict[tuple[str, int, str, str], float]:
         # bcftools/lofreq output, so excluding it has no effect on real data.
         if flt not in ("PASS", "."):
             continue
-        chrom, pos, ref, alt, info = f[0], int(f[1]), f[3], f[4], f[7]
+        chrom, pos, ref, alt, info = _canonical_contig(f[0]), int(f[1]), f[3], f[4], f[7]
         alts = alt.split(",")
         afs = _parse_af_field(info)
         for i, allele in enumerate(alts):

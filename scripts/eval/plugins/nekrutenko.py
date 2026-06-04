@@ -26,6 +26,7 @@ from pathlib import Path
 from statistics import mean
 from scripts.eval.benchmark import Arm, Benchmark, Output, RunSpec, Score, Scorecard
 from scripts.eval.scoring.variant_overlap import (flat_jaccard, _is_gvcf_path,
+                                                  is_scratch_vcf,
                                                   macro_jaccard_by_sample)
 from scripts.eval.scoring.error_matrix import classify_cell
 from scripts.eval.services.datasets import scratch_root, stage_file
@@ -183,11 +184,19 @@ class Nekrutenko(Benchmark):
         # annotated / per-sample outputs in nested stage dirs. score() pools all
         # of them into one flat call set (dropping gVCF intermediates), so naming
         # and per-sample-vs-cohort organisation don't matter at scoring time.
-        vcfs = {p.name: p for p in run_dir.rglob("*.vcf")}
+        # EXCLUDE scratch/intermediate VCFs (e.g. an annotation step's
+        # `tmp/<sample>.renamed.vcf` with the contig renamed for VEP): pooling
+        # them — or letting the per-sample matcher pick one — penalizes a
+        # multi-stage pipeline against the single-script bare arm (arm-unfair).
+        # is_scratch_vcf is run-dir-relative so a /tmp-based run dir is fine.
+        vcfs = {p.name: p for p in run_dir.rglob("*.vcf")
+                if not is_scratch_vcf(p, run_dir)}
         # Agents (and lofreq) routinely emit bgzipped .vcf.gz — the answer keys
         # themselves are .vcf.gz. Index those too, under both their own name and
         # the plain-.vcf stem. A plain .vcf already present wins (setdefault).
         for p in run_dir.rglob("*.vcf.gz"):
+            if is_scratch_vcf(p, run_dir):
+                continue
             vcfs.setdefault(p.name, p)
             vcfs.setdefault(p.name[:-3], p)
         return Output(trace_md="", answer_txt="", artifacts={"vcf_dir": run_dir,

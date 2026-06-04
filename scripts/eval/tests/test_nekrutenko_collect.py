@@ -86,6 +86,51 @@ def test_score_partial_overlap(tmp_path):
     assert abs(score.jaccard - (1 / 3)) < 1e-9
 
 
+def test_collect_excludes_scratch_intermediate_vcf(tmp_path):
+    """A scratch `tmp/<sample>.renamed.vcf` (e.g. an annotator's contig-renamed
+    working copy) must NOT be indexed — pooling it, or letting the per-sample
+    matcher pick it, was depressing the ECAA arm (arm-unfair vs the single-script
+    bare arm). Regression for the nekrutenko 0.40-not-0.667 / M117-bl=0.0 case."""
+    run_dir = tmp_path / "run"
+    (run_dir / "variant_calling/vcf").mkdir(parents=True)
+    (run_dir / "variant_annotation/tmp").mkdir(parents=True)
+    _write_key(run_dir / "variant_calling/vcf", "M117-bl.lofreq.vcf.gz",
+               "chrM\t152\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    # scratch copy with the contig renamed to MT — must be excluded
+    (run_dir / "variant_annotation/tmp/M117-bl.renamed.vcf").write_text(
+        _HDR + "MT\t152\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    out = Nekrutenko().collect(
+        RunSpec(Arm.ECAA_WORKFLOW, run_dir, "ecaa_package", "x"), run_dir)
+    indexed = list(out.artifacts["vcfs"].values())
+    # NB: assert on the FILENAME, not absolute path parts — the pytest tmp_path
+    # lives under /tmp, so an absolute "tmp" check would false-positive (the very
+    # trap is_scratch_vcf avoids by being root-relative).
+    assert not any("renamed" in p.name for p in indexed), \
+        f"scratch tmp/ VCF leaked into scoring: {[p.name for p in indexed]}"
+    assert any("M117-bl.lofreq" in p.name for p in indexed)
+
+
+def test_score_scratch_renamed_vcf_does_not_depress(tmp_path):
+    """End-to-end: a correct final call + a scratch MT-renamed copy still scores
+    1.0 (scratch excluded; and MT would normalize to chrM anyway)."""
+    key_dir = tmp_path / "ground_truth"; key_dir.mkdir()
+    _write_key(key_dir, "M117-bl.vcf.gz", "chrM\t152\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    run_dir = tmp_path / "run"
+    (run_dir / "variant_calling/vcf").mkdir(parents=True)
+    (run_dir / "variant_annotation/tmp").mkdir(parents=True)
+    _write_key(run_dir / "variant_calling/vcf", "M117-bl.lofreq.vcf.gz",
+               "chrM\t152\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    (run_dir / "variant_annotation/tmp/M117-bl.renamed.vcf").write_text(
+        _HDR + "MT\t152\t.\tT\tC\t.\tPASS\tAF=0.99\n")
+    plug = Nekrutenko()
+    out = plug.collect(RunSpec(Arm.ECAA_WORKFLOW, run_dir, "ecaa_package", "x"), run_dir)
+    task = Task(task_id="mtdna", prompt="", inputs={}, rubric=None,
+                answer_key=key_dir, meta={})
+    score = plug.score(task, Arm.ECAA_WORKFLOW, out, trial=0)
+    assert abs(score.jaccard - 1.0) < 1e-9, f"flat jaccard depressed: {score.jaccard}"
+    assert score.extra["per_sample_jaccard"]["M117-bl"] == 1.0
+
+
 def test_score_preserves_error_cells_passthrough(tmp_path):
     """error_cells set on the Output's artifacts flows through unchanged."""
     key_dir = tmp_path / "ground_truth"; key_dir.mkdir()
