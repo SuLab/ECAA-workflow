@@ -169,6 +169,53 @@ def _write_auto_approve_discovery_gate(pkg: Path) -> None:
 _write_auto_approve_all = _write_auto_approve_discovery_gate
 
 
+def _strip_method_discovery(pkg) -> None:
+    """Opt-in (ECAA_EVAL_SKIP_DISCOVERY=1): remove the literature-grounded
+    method-discovery layer from the emitted DAG — `survey_method_landscape`
+    plus every `discover_*` task — and drop them from every remaining task's
+    `depends_on`.
+
+    Those tasks run heavy live literature retrieval (PubMed MCP, ~15 min for
+    the survey alone), the single largest source of agent token / subscription
+    usage in a run (and what trips the Max/Pro session limit). The analysis
+    atoms each carry their own `attributes.candidate_tools`, and method
+    selection is delegated to the execution agent at runtime (the production
+    default per CLAUDE.md), so removing the discovery layer leaves a valid,
+    leaner DAG: the analysis + reporting half runs unchanged, the agent just
+    picks a method from candidate_tools instead of from a survey-ranked table.
+
+    A post-emit WORKFLOW.json rewrite, mirroring the existing eval post-emit
+    augmentations (`_write_auto_approve_discovery_gate`,
+    `_auto_resolve_guard_block`). No-op unless the env flag is set. Best-effort:
+    a malformed/missing WORKFLOW.json is left untouched."""
+    if os.environ.get("ECAA_EVAL_SKIP_DISCOVERY") != "1":
+        return
+    wf = Path(pkg) / "WORKFLOW.json"
+    try:
+        data = json.loads(wf.read_text())
+    except (OSError, ValueError):
+        return
+    tasks = data.get("tasks")
+    if not isinstance(tasks, dict):
+        return
+    drop = {tid for tid in tasks
+            if tid == "survey_method_landscape" or tid.startswith("discover_")}
+    if not drop:
+        return
+    for tid in drop:
+        tasks.pop(tid, None)
+    for t in tasks.values():
+        deps = t.get("depends_on") if isinstance(t, dict) else None
+        if isinstance(deps, list) and deps:
+            t["depends_on"] = [d for d in deps if d not in drop]
+    tmp = wf.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(wf)
+    print(f"[eval] ECAA_EVAL_SKIP_DISCOVERY: stripped {len(drop)} "
+          f"method-discovery task(s) from {Path(pkg).name}: {sorted(drop)}",
+          file=sys.stderr)
+
+
 def _append_agent_directive(pkg_dir, directive: str | None) -> None:
     """Append a package-wide agent directive to the emitted PROMPT.md so EVERY
     task's agent invocation sees it — agent-claude.sh re-reads PROMPT.md per task
@@ -237,6 +284,10 @@ def _chat_intake_or_cli(plugin, task, arm: Arm, workdir: Path,
     else:
         _cli_intake(spec, task, workdir)
     _stage_inputs(spec.package_dir, task.inputs)
+    # Opt-in: strip the heavy literature-grounded method-discovery layer
+    # (survey_method_landscape + discover_*) BEFORE the auto-approve markers so
+    # they operate on the leaner DAG. No-op unless ECAA_EVAL_SKIP_DISCOVERY=1.
+    _strip_method_discovery(spec.package_dir)
     # NOTE: the agent learns the inputs/ data location from the SME's intake
     # prose (surfaced into PROMPT.md via EmitConfig.objective), NOT from a
     # post-emit directive — all prompting goes through chat intake so the eval
