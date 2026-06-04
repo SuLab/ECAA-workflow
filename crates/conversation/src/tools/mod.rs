@@ -1924,6 +1924,49 @@ fn prune_excluded_atoms(session: &mut Session) {
     }
 }
 
+/// Deterministically drop every atom on the authoritative
+/// `session.workflow_dag` whose REQUIRED input port(s) cannot be SOURCED
+/// from an upstream-reachable producer, then re-derive `session.dag`.
+///
+/// This is the type-driven complement of [`prune_excluded_atoms`]: where
+/// that pass drops atoms the SME explicitly excluded, this one drops
+/// atoms that are structurally un-runnable because a required input has
+/// no producer anywhere upstream (the keystone case: `pathway_enrichment`
+/// requires a `gene_set_collection` input — `data:2600` — and no gene-set
+/// was registered, so the composer's `source_typing` pass surfaced no
+/// gene-set output port on `data_acquisition`).
+///
+/// Runs UNCONDITIONALLY (independent of `session.excluded_atoms`) so a
+/// Pasilla-like intent with no gene-set registered prunes
+/// `pathway_enrichment` even when the exclusion list is empty. No-op when
+/// no `workflow_dag` is present. The shared
+/// `composer_v4::prune_unsourced::prune_unsourced_atoms` pass owns the
+/// drop-set computation + rewire-or-drop sweep; this wrapper only adapts
+/// it onto the session and re-lowers the cache.
+fn prune_unsourced_atoms_pass(session: &mut Session) {
+    let Some(wf) = session.workflow_dag.as_mut() else {
+        return;
+    };
+    let before_nodes = wf.nodes.len();
+    ecaa_workflow_core::composer_v4::prune_unsourced::prune_unsourced_atoms(wf);
+    let after_nodes = wf.nodes.len();
+    if after_nodes == before_nodes {
+        // Nothing pruned — leave the lowered cache populated by the
+        // earlier `session.dag = Some(dag)` (or the exclusion-prune
+        // re-derive) untouched.
+        return;
+    }
+    tracing::debug!(
+        session_id = %session.id,
+        pruned_count = before_nodes - after_nodes,
+        "rebuild_dag: pruned atoms with unsourced required inputs"
+    );
+    let id = workflow_id(&session.id);
+    if let Ok(rebuilt) = ecaa_workflow_core::builder::build_dag_from_workflow_dag(wf, &id) {
+        session.dag = Some(rebuilt);
+    }
+}
+
 pub(crate) fn rebuild_dag(
     session: &mut Session,
     config_dir: &std::path::Path,
@@ -1995,6 +2038,17 @@ pub(crate) fn rebuild_dag(
     //   3. Re-derive `session.dag` from the pruned workflow_dag so the
     //      next read sees the trimmed surface immediately.
     prune_excluded_atoms(session);
+
+    // Type-driven prune: drop every atom whose REQUIRED input port(s)
+    // cannot be sourced from any upstream producer (e.g.
+    // `pathway_enrichment`'s `gene_set_collection` input when no gene-set
+    // was registered). Runs unconditionally — independent of the SME
+    // exclusion list — so a Pasilla-like intent with no gene-set prunes
+    // `pathway_enrichment` even when `excluded_atoms` is empty. Must run
+    // AFTER `prune_excluded_atoms` (so the exclusion rewires are already
+    // applied) and BEFORE the promoted-node reinjection / gap-detection
+    // below operate on the trimmed surface.
+    prune_unsourced_atoms_pass(session);
 
     // Re-inject any SME-promoted nodes that were
     // spliced into `session.workflow_dag` before this rebuild ran.
