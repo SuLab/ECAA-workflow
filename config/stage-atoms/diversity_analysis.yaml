@@ -45,14 +45,13 @@ inputs:
   - name: taxonomic_profile
     semantic_type:
       kind: ontology_term
-      iri: "data:0951"
-      label: "Statistical estimate score"
+      iri: "data:3028"
+      label: "Taxonomy"
       ontology_version: "EDAM-1.25"
     physical_format:
       iri: "format:3475"
       label: "Tabular text"
     modality: "metagenomics"
-    statistical_state: "raw_counts"
     privacy_class: internal
 outputs:
   - name: diversity_metrics
