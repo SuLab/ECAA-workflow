@@ -55,6 +55,105 @@ def _partial_judging_count(card: Scorecard) -> int:
     return sum(1 for r in card.rows if _is_partial_judging(r))
 
 
+def _by_arm_by_judge(card: Scorecard) -> dict[str, dict[str, list[float]]]:
+    """Per-arm scores for BOTH judges as first-class numbers.
+
+    The headline judge (Gemini 3.1 Pro) is ``Score.overall``; the cross-check
+    judge (Anthropic Opus — the model FAMILY the dataset's shipped reference
+    scorer uses) is ``Score.extra['cross_check']``. Both verdicts are produced
+    on the same rubric + trace + answer via the identical absolute sum-clamp
+    parser, so the two columns are directly comparable judge readings of the
+    same work. Partial-judging rows (cross-only fallback, no headline) are
+    excluded so each column holds only that judge's own scores.
+
+    Returns ``{arm: {"headline": [...], "cross": [...]}}``."""
+    out: dict[str, dict[str, list[float]]] = {}
+    for r in card.rows:
+        if _is_partial_judging(r):
+            continue
+        d = out.setdefault(r.arm, {"headline": [], "cross": []})
+        if isinstance(r.overall, (int, float)):
+            d["headline"].append(float(r.overall))
+        cc = (r.extra or {}).get("cross_check")
+        if isinstance(cc, (int, float)):
+            d["cross"].append(float(cc))
+    return out
+
+
+def _paired_delta_for_judge(card: Scorecard, *, use_cross: bool) -> tuple[float, int] | None:
+    """Mean paired (ecaa - claude-direct) delta on overlapping (task,trial) for
+    ONE judge. ``use_cross=False`` reads the Gemini headline (Score.overall);
+    ``use_cross=True`` reads the Anthropic cross-check (extra['cross_check']).
+    Returns (mean_delta, n_pairs) or None when no pairs overlap."""
+    ecaa: dict[tuple[str, int], float] = {}
+    direct: dict[tuple[str, int], float] = {}
+    for r in card.rows:
+        if _is_partial_judging(r):
+            continue
+        if use_cross:
+            v = (r.extra or {}).get("cross_check")
+            if not isinstance(v, (int, float)):
+                continue
+            v = float(v)
+        else:
+            if not isinstance(r.overall, (int, float)):
+                continue
+            v = float(r.overall)
+        key = (r.task_id, r.trial)
+        if r.arm == "ecaa":
+            ecaa[key] = v
+        elif r.arm == "claude-direct":
+            direct[key] = v
+    keys = sorted(set(ecaa) & set(direct))
+    if not keys:
+        return None
+    deltas = [ecaa[k] - direct[k] for k in keys]
+    return (sum(deltas) / len(deltas), len(deltas))
+
+
+def _render_per_judge_means(card: Scorecard) -> list[str]:
+    """Two-judge arm-means table: Gemini headline AND Anthropic cross-check side
+    by side, with each judge's raw-mean and paired (task,trial) ecaa-direct
+    delta. Surfaces the reference-model-family (Anthropic) reading as a
+    first-class number, not just a per-row cross_check."""
+    by = _by_arm_by_judge(card)
+    if not by:
+        return []
+    lines = ["", "## Per-judge arm means (two independent judges)", ""]
+    lines.append(
+        "Both judges score the SAME rubric + trace + answer via the identical "
+        "absolute sum-clamp parser. **Gemini 3.1 Pro** is the headline judge; "
+        "**Anthropic Opus** is the cross-check — the model family the dataset's "
+        "shipped reference scorer (`tests/llm_judge.py`) uses, so its column is "
+        "the closest in-run proxy for a reference-faithful judge."
+    )
+    lines.append("")
+    lines.append("| arm | n | Gemini 3.1 Pro (headline) | Anthropic Opus (cross / reference-family) |")
+    lines.append("| --- | --- | --- | --- |")
+    for arm in sorted(by):
+        h = by[arm]["headline"]
+        c = by[arm]["cross"]
+        h_str = f"{mean(h):.1f}" if h else ""
+        c_str = f"{mean(c):.1f}" if c else ""
+        n = max(len(h), len(c))
+        lines.append(f"| {arm} | {n} | {h_str} | {c_str} |")
+    # Per-judge paired delta (the honest ecaa-vs-direct comparison per judge).
+    gem = _paired_delta_for_judge(card, use_cross=False)
+    ant = _paired_delta_for_judge(card, use_cross=True)
+    if gem or ant:
+        lines.append("")
+        if gem:
+            lines.append(f"- **Gemini paired delta (ecaa − direct):** {gem[0]:+.1f} (n={gem[1]} pair(s))")
+        if ant:
+            lines.append(f"- **Anthropic paired delta (ecaa − direct):** {ant[0]:+.1f} (n={ant[1]} pair(s))")
+        lines.append(
+            "- Agreement of the two judges on the SIGN of the delta is the "
+            "confidence signal; the magnitudes differ because the judges "
+            "calibrate the rubric's A/B/C levels differently."
+        )
+    return lines
+
+
 def _render_error_matrix(em: dict) -> list[str]:
     """Render meta["error_matrix"] — one line per arm plus a by-pattern table."""
     lines = ["", "## Error matrix", ""]
@@ -772,7 +871,9 @@ def _markdown(card: Scorecard) -> str:
                   # surfaced via the partial-judging caveat block, not a bullet.
                   "partial_judging_excluded", "dimension_caveat",
                   # F12: rendered as its own readiness-gate section, not bullets.
-                  "benchmarkable_set", "session_metrics"}
+                  "benchmarkable_set", "session_metrics",
+                  # rendered as the per-judge arm-means table, not a scalar bullet.
+                  "per_judge_means"}
     if card.meta:
         for k, v in card.meta.items():
             if k not in _RICH_KEYS:
@@ -797,6 +898,11 @@ def _markdown(card: Scorecard) -> str:
     if "ecaa" in arms and "claude-direct" in arms:
         delta = mean(arms["ecaa"]) - mean(arms["claude-direct"])
         lines.append(f"**ecaa - claude-direct raw-mean delta:** {delta:+.1f}")
+
+    # Two-judge view: Gemini headline AND Anthropic cross-check as first-class
+    # per-arm means + per-judge paired deltas. The headline table above is
+    # Gemini-only; this surfaces the reference-model-family (Anthropic) reading.
+    lines += _render_per_judge_means(card)
 
     # eval-04: per-(task,trial) paired delta + bootstrap CI (the honest
     # headline). Falls back to nothing when there are no overlapping pairs.
@@ -866,6 +972,19 @@ def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None, package_dir=
     guard = _aggregate_guard_outcomes(card)
     if guard and "guard_outcomes" not in meta:
         meta["guard_outcomes"] = guard
+    # Two-judge per-arm means (Gemini headline + Anthropic cross) in the machine
+    # scorecard so a JSON reader gets both judges, not just the headline.
+    if "per_judge_means" not in meta:
+        by = _by_arm_by_judge(card)
+        if by:
+            meta["per_judge_means"] = {
+                arm: {
+                    "gemini_headline_mean": (mean(v["headline"]) if v["headline"] else None),
+                    "anthropic_cross_mean": (mean(v["cross"]) if v["cross"] else None),
+                    "n": max(len(v["headline"]), len(v["cross"])),
+                }
+                for arm, v in by.items()
+            }
     # E1: surface the per-arm session-metrics rollup in the machine scorecard.
     session = _aggregate_session_metrics(card)
     if session and "session_metrics" not in meta:
