@@ -58,9 +58,10 @@ def _partial_judging_count(card: Scorecard) -> int:
 def _by_arm_by_judge(card: Scorecard) -> dict[str, dict[str, list[float]]]:
     """Per-arm scores for BOTH judges as first-class numbers.
 
-    The headline judge (Gemini 3.1 Pro) is ``Score.overall``; the cross-check
-    judge (Anthropic Opus — the model FAMILY the dataset's shipped reference
-    scorer uses) is ``Score.extra['cross_check']``. Both verdicts are produced
+    The headline judge (Gemini 3.1 Pro — the judge the BiomniBench paper adopts
+    "throughout", §2.2) is ``Score.overall``; the cross-check judge (Anthropic
+    Opus — an INDEPENDENT second opinion, not the paper's judge) is
+    ``Score.extra['cross_check']``. Both verdicts are produced
     on the same rubric + trace + answer via the identical absolute sum-clamp
     parser, so the two columns are directly comparable judge readings of the
     same work. Partial-judging rows (cross-only fallback, no headline) are
@@ -122,13 +123,14 @@ def _render_per_judge_means(card: Scorecard) -> list[str]:
     lines = ["", "## Per-judge arm means (two independent judges)", ""]
     lines.append(
         "Both judges score the SAME rubric + trace + answer via the identical "
-        "absolute sum-clamp parser. **Gemini 3.1 Pro** is the headline judge; "
-        "**Anthropic Opus** is the cross-check — the model family the dataset's "
-        "shipped reference scorer (`tests/llm_judge.py`) uses, so its column is "
-        "the closest in-run proxy for a reference-faithful judge."
+        "absolute sum-clamp parser. **Gemini 3.1 Pro** is the headline judge AND "
+        "the judge the BiomniBench paper adopts throughout (§2.2) — so the Gemini "
+        "column is the paper-faithful judge. **Anthropic Opus** is an independent "
+        "second opinion (NOT the paper's judge); its agreement on the SIGN of the "
+        "delta is a confidence signal, not a reference number."
     )
     lines.append("")
-    lines.append("| arm | n | Gemini 3.1 Pro (headline) | Anthropic Opus (cross / reference-family) |")
+    lines.append("| arm | n | Gemini 3.1 Pro (headline = paper judge) | Anthropic Opus (independent cross-check) |")
     lines.append("| --- | --- | --- | --- |")
     for arm in sorted(by):
         h = by[arm]["headline"]
