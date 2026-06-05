@@ -79,6 +79,19 @@ pub(super) const REQUIRED_INHERITED_KEYS: &[&str] = &[
     // the task prompt and uses the billing mode when choosing Claude auth.
     "ECAA_AGENT_BILLING",
     "MAX_TURNS_PER_TASK",
+    // Per-task $ budget cap (claude `--max-budget-usd`). agent-claude.sh reads
+    // ECAA_AGENT_BUDGET_USD (global override) and the per-class siblings; the
+    // agent's wallclock SIGTERM timer reads ECAA_AGENT_WALLCLOCK_SECS. Without
+    // these in the allowlist env_clear strips an operator/eval budget bump, so
+    // the agent silently falls back to the built-in default (e.g. $3 for
+    // analytical) and a heavy task that needs more (Harmony on ~1M cells) hits
+    // the cap mid-run and is re-dispatched — looking like an execution loop.
+    "ECAA_AGENT_BUDGET_USD",
+    "ECAA_AGENT_BUDGET_USD_VALIDATE",
+    "ECAA_AGENT_BUDGET_USD_DISCOVER",
+    "ECAA_AGENT_BUDGET_USD_DATA_ACQ",
+    "ECAA_AGENT_BUDGET_USD_ANALYTICAL",
+    "ECAA_AGENT_WALLCLOCK_SECS",
     // Per-session install-cache policy. `agent-claude.sh` keys its pip/conda/
     // R-libs cache on ECAA_CHAT_SESSION_ID and only engages caching when it is
     // set; the cache base + mode come from the sibling vars. Without these in
