@@ -387,7 +387,8 @@ fn read_string_list(v: &Value, key: &str) -> Result<Vec<String>> {
 pub fn classify_contract(sentence: &str) -> ClaimContract {
     let lower = sentence.to_lowercase();
 
-    // Thresholded DE / enrichment: presence of a threshold keyword.
+    // Thresholded DE / enrichment: an explicit threshold comparison or a
+    // significance ASSERTION.
     let threshold_keywords = [
         "fdr",
         "padj",
@@ -402,7 +403,37 @@ pub fn classify_contract(sentence: &str) -> ClaimContract {
         "significance threshold",
         "bonferroni",
     ];
-    if threshold_keywords.iter().any(|kw| lower.contains(kw)) {
+    // A proximity *hedge* ("near/approaching the significance threshold",
+    // "marginally significant") asserts the result is NOT (yet) significant, so
+    // it must not be checked against FDR < 0.05 — doing so flags an honestly
+    // near-threshold gene as a fabrication. Phrases are significance-anchored so
+    // unrelated words ("linear", "nuclear") don't match a bare "near".
+    let proximity_hedges = [
+        "near the significance",
+        "near significance",
+        "near the threshold",
+        "near the fdr",
+        "approaching significance",
+        "approaching the significance",
+        "close to significance",
+        "close to the significance",
+        "short of significance",
+        "just below significance",
+        "just shy of significance",
+        "trend toward significance",
+        "trending toward significance",
+        "marginally significant",
+        "marginal significance",
+        "borderline significant",
+        "borderline significance",
+        "nominally significant",
+    ];
+    let has_threshold_kw = threshold_keywords.iter().any(|kw| lower.contains(kw));
+    let is_proximity_hedge = proximity_hedges.iter().any(|kw| lower.contains(kw));
+    // An explicit numeric comparator ("FDR < 0.05") is a real, checkable
+    // assertion even alongside hedging language, so it stays thresholded.
+    let has_explicit_comparator = lower.contains('<') || lower.contains('≤');
+    if has_threshold_kw && !(is_proximity_hedge && !has_explicit_comparator) {
         return ClaimContract::ThresholdedDeOrEnrichment;
     }
 
@@ -1385,5 +1416,41 @@ mod tests {
         let claims = extract_claims("GO:0008150 was enriched (score=2.0, Table S1).", &cfg);
         let entities = claims.iter().map(|c| c.entity.as_str()).collect::<Vec<_>>();
         assert_eq!(entities, vec!["GO:0008150"]);
+    }
+
+    #[test]
+    fn classify_hedged_near_significance_not_thresholded() {
+        // "near the significance threshold" is a proximity HEDGE (the result is
+        // explicitly NOT significant), not an assertion that it passed FDR, so
+        // it must NOT be classified as a thresholded claim (which would enforce
+        // FDR < 0.05 against the table p-value). Regression for the tier-4-1
+        // clean-scenario false positive: HMOX1 (log2FC +0.3, p 0.54) flagged as
+        // a fabrication purely because the sentence named the threshold.
+        assert_eq!(
+            classify_contract(
+                "HMOX1 was modestly upregulated near the significance threshold (Table 2)"
+            ),
+            ClaimContract::NumericTableLookup,
+        );
+    }
+
+    #[test]
+    fn classify_explicit_fdr_comparator_stays_thresholded_when_hedged() {
+        // A real, checkable significance assertion with an explicit comparator
+        // stays thresholded even when hedging words are present.
+        assert_eq!(
+            classify_contract("GENE1 was marginally significant at FDR < 0.05 (Table 1)"),
+            ClaimContract::ThresholdedDeOrEnrichment,
+        );
+    }
+
+    #[test]
+    fn classify_unhedged_significance_assertion_stays_thresholded() {
+        // No proximity hedge → an assertion that the gene meets the threshold
+        // remains a thresholded claim.
+        assert_eq!(
+            classify_contract("GENE1 passed the significance threshold (Table 1)"),
+            ClaimContract::ThresholdedDeOrEnrichment,
+        );
     }
 }
