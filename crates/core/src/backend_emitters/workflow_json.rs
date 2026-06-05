@@ -503,6 +503,18 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     // literature validators reject. Additive: the `attributes` key is emitted
     // only when the atom declares ≥1 of these, so non-literature tasks keep
     // their byte-reproducible spec shape.
+    // Promoted hypothesized-node analytical contract (assumptions +
+    // failure_modes + declared tests), stamped onto node.attributes by
+    // `hypothesized_proposal::proposal_to_transient_task_node`. Surfacing them
+    // top-level in the spec puts them in task-spec.json so the executing agent
+    // honours the declared QC/failure-modes (e.g. filter rare/zero-variance
+    // features) instead of running off the bare intent. Additive; absent for
+    // curated-atom tasks that carry no proposal contract.
+    for key in ["analytical_assumptions", "failure_modes", "declared_validation_tests"] {
+        if let Some(v) = node.attributes.get(key) {
+            spec_map.insert(key.into(), v.clone());
+        }
+    }
     let mut attrs_map = serde_json::Map::new();
     for key in [
         "retrieval_tools",

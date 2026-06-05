@@ -72,6 +72,33 @@ pub(super) fn propose_hypothesized_node(
         });
     }
 
+    // ── Schema validation: a proposed analysis must declare its analytical
+    // assumptions AND failure modes. These are not optional metadata: they are
+    // the contract the executing agent acts on (threaded into Task.spec at
+    // promotion). An analysis proposed with empty assumptions/failure_modes
+    // executes off the bare intent and silently omits the domain QC the work
+    // requires (e.g. a correlation node that never declares "rare/zero-variance
+    // features inflate spurious estimates" omits the rare-feature filter a
+    // reviewer expects). Require at least one non-empty entry in each. ──
+    if assumptions.iter().all(|a| a.trim().is_empty()) {
+        return ToolResult::err(ToolError::PreconditionFailure {
+            reason: "assumptions must declare at least one non-empty analytical assumption".into(),
+            hint: "State the preconditions the node relies on (e.g. \"per-group features have \
+                   sufficient abundance and non-zero variance for stable estimates\"). A proposed \
+                   analysis without declared assumptions executes off intent alone."
+                .into(),
+        });
+    }
+    if failure_modes.iter().all(|f| f.trim().is_empty()) {
+        return ToolResult::err(ToolError::PreconditionFailure {
+            reason: "failure_modes must declare at least one non-empty failure mode".into(),
+            hint: "Name how the analysis goes wrong when an assumption is violated (e.g. \"rare or \
+                   zero-variance features inflate spurious correlations and must be filtered before \
+                   testing\"). These drive the executing agent's QC/filtering steps."
+                .into(),
+        });
+    }
+
     // ── Schema validation: id shape (snake_case, no whitespace) ──
     if !proposed_id
         .chars()
@@ -262,8 +289,9 @@ mod tests {
             "x",
             &["data:2603".into()],
             "x",
-            &[],
-            &[],
+            &["inputs satisfy the analysis's statistical preconditions".into()],
+            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing".into()],
             &[],
             &[],
             &ctx,
@@ -281,8 +309,9 @@ mod tests {
             "x",
             &["data:2603".into()],
             "x",
-            &[],
-            &[],
+            &["inputs satisfy the analysis's statistical preconditions".into()],
+            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing".into()],
             &[],
             &[],
             &ctx,
@@ -308,8 +337,9 @@ mod tests {
             "intent",
             &["not-an-iri".into()],
             "rationale",
-            &[],
-            &[],
+            &["inputs satisfy the analysis's statistical preconditions".into()],
+            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing".into()],
             &[],
             &[],
             &ctx,
@@ -380,8 +410,9 @@ mod tests {
             "intent",
             &["data:2603".into()],
             "rationale",
-            &[],
-            &[],
+            &["inputs satisfy the analysis's statistical preconditions".into()],
+            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing".into()],
             &[],
             &[],
             &ctx,
@@ -395,8 +426,9 @@ mod tests {
             "intent",
             &["data:2603".into()],
             "rationale",
-            &[],
-            &[],
+            &["inputs satisfy the analysis's statistical preconditions".into()],
+            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing".into()],
             &[],
             &[],
             &ctx,
@@ -440,8 +472,9 @@ mod tests {
              two human cell lines, matched resolution-by-resolution.",
             &["data:0863".into(), "operation:3223".into()],
             "SME requested a cross-cell-line comparison of TAD/compartment calls",
-            &[],
-            &[],
+            &["inputs satisfy the analysis's statistical preconditions".into()],
+            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing".into()],
             &[],
             &[],
             &ctx,
@@ -459,8 +492,9 @@ mod tests {
              two cell lines, matched resolution-by-resolution.",
             &["operation:3222".into(), "data:0951".into()],
             "SME requested a cross-cell-line comparison",
-            &[],
-            &[],
+            &["inputs satisfy the analysis's statistical preconditions".into()],
+            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing".into()],
             &[],
             &[],
             &ctx,
@@ -502,8 +536,9 @@ mod tests {
              contact matrix at multiple bin resolutions.",
             &["operation:3222".into()],
             "SME requested TAD calling",
-            &[],
-            &[],
+            &["inputs satisfy the analysis's statistical preconditions".into()],
+            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing".into()],
             &[],
             &[],
             &ctx,
@@ -515,8 +550,9 @@ mod tests {
              observed/expected Hi-C contact matrix at multiple resolutions.",
             &["operation:3223".into()],
             "SME requested A/B compartments",
-            &[],
-            &[],
+            &["inputs satisfy the analysis's statistical preconditions".into()],
+            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing".into()],
             &[],
             &[],
             &ctx,
@@ -538,8 +574,9 @@ mod tests {
             "intent",
             &["data:2603".into()],
             "rationale",
-            &[],
-            &[],
+            &["inputs satisfy the analysis's statistical preconditions".into()],
+            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing".into()],
             &["p_value_in_unit_interval".into()],
             &[],
             &ctx,
@@ -569,8 +606,9 @@ mod tests {
             "intent",
             &["data:2603".into()],
             "rationale",
-            &[],
-            &[],
+            &["inputs satisfy the analysis's statistical preconditions".into()],
+            &["violated preconditions (e.g. rare/zero-variance features) bias the result; \
+               filter/QC before computing".into()],
             &[],
             &[],
             &ctx,

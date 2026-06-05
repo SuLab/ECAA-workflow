@@ -404,6 +404,26 @@ pub fn proposal_to_transient_task_node(p: &HypothesizedProposal) -> TaskNode {
         source: Some(format!("proposal:{}", p.id)),
         ..Provenance::default()
     };
+    // Thread the proposal's analytical CONTRACT (assumptions + failure_modes +
+    // declared tests) onto the node's attributes so the lowering pass folds
+    // them into `Task.spec` and the executing agent reads them in
+    // task-spec.json. Without this the agent receives only the one-sentence
+    // intent (spec=null) and silently omits the domain QC the failure_modes
+    // imply (e.g. a correlation node that never filters rare/zero-variance
+    // features). Only emitted when non-empty so a contract-less legacy proposal
+    // keeps its prior shape.
+    if !p.assumptions.is_empty() {
+        node.attributes
+            .insert("analytical_assumptions".into(), serde_json::json!(p.assumptions));
+    }
+    if !p.failure_modes.is_empty() {
+        node.attributes
+            .insert("failure_modes".into(), serde_json::json!(p.failure_modes));
+    }
+    if !p.validation_tests.is_empty() {
+        node.attributes
+            .insert("declared_validation_tests".into(), serde_json::json!(p.validation_tests));
+    }
     node
 }
 

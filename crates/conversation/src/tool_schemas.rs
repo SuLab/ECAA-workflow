@@ -640,12 +640,12 @@ fn raw_tool_schemas() -> Vec<serde_json::Value> {
                     "assumptions": {
                         "type": "array",
                         "items": { "type": "string", "maxLength": MAX_FREETEXT_LEN },
-                        "description": "Declared assumptions the SME confirms before promotion."
+                        "description": "REQUIRED, ≥1. The analytical preconditions the node relies on — these become part of the executing agent's contract. State what must hold for the result to be valid (e.g. 'per-group features have sufficient abundance and non-zero variance for stable estimates'; 'samples are independent'; 'counts are normalised before comparison'). Do NOT leave empty — a node with no declared assumptions executes off the bare intent and silently skips the QC the analysis needs."
                     },
                     "failure_modes": {
                         "type": "array",
                         "items": { "type": "string", "maxLength": MAX_FREETEXT_LEN },
-                        "description": "Failure modes the validators must cover."
+                        "description": "REQUIRED, ≥1. How the analysis goes WRONG when an assumption is violated, and the mitigation the executing agent must apply. Name the concrete pitfall + fix (e.g. 'rare or zero-variance features inflate spurious correlations → filter to a minimum-abundance threshold before testing'; 'unadjusted multiple testing inflates false positives → report FDR-corrected values'). These directly drive the agent's filtering/QC steps."
                     },
                     "validation_tests": {
                         "type": "array",
@@ -658,7 +658,7 @@ fn raw_tool_schemas() -> Vec<serde_json::Value> {
                         "description": "Atom-ids the proposed node depends on (e.g. ['normalisation'] or ['differential_expression']). Becomes the new node's depends_on on promotion. Without this the promoted node would be an orphan with no input data. Use list_atoms first to confirm the upstream atom ids exist."
                     }
                 },
-                "required": ["proposed_id", "intent", "parent_terms", "llm_rationale"]
+                "required": ["proposed_id", "intent", "parent_terms", "llm_rationale", "assumptions", "failure_modes"]
             }
         }),
         json!({
