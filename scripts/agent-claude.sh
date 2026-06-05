@@ -230,8 +230,20 @@ HEARTBEAT_PID=""
 if [ -n "${ECAA_TASK_ID:-}" ]; then
   HEARTBEAT_FILE="$PACKAGE/runtime/outputs/$ECAA_TASK_ID/.heartbeat"
   mkdir -p "$(dirname "$HEARTBEAT_FILE")" 2>/dev/null || true
+  # Liveness loop. CRITICAL: a transient write failure must NOT kill the loop.
+  # The previous `|| exit 0` made a single failed `date > file` (a momentary fs
+  # hiccup, a brief dir-recreate race, an EINTR) terminate the heartbeat
+  # writer PERMANENTLY — so the file froze while the agent was still genuinely
+  # running a long compute step (e.g. UMAP / Harmony / validation on ~1M
+  # cells), and the harness then false-blocked the task with
+  # `BlockerKind::HeartbeatStalled` even though real work was in flight.
+  # Tolerate write failures (`|| true`) and exit ONLY when the parent
+  # agent-claude.sh is gone (the real reason to stop), so the writer survives
+  # transient errors and keeps proving liveness for the whole dispatch.
+  __hb_parent=$$
   ( while :; do
-      date -u +%Y-%m-%dT%H:%M:%SZ > "$HEARTBEAT_FILE" 2>/dev/null || exit 0
+      date -u +%Y-%m-%dT%H:%M:%SZ > "$HEARTBEAT_FILE" 2>/dev/null || true
+      kill -0 "$__hb_parent" 2>/dev/null || exit 0
       sleep "$ECAA_HEARTBEAT_INTERVAL_SECS"
     done ) &
   HEARTBEAT_PID=$!
