@@ -77,6 +77,12 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--benchmark", default=None, choices=list(PLUGINS))
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--trials", type=int, default=1)
+    ap.add_argument("--fresh", action="store_true",
+                    help="Ignore cached verdicts: delete the matching judge-cache "
+                         "entries first so the judges are re-CALLED with the "
+                         "CURRENT prompt (the cache key excludes prompt text, so a "
+                         "prompt change is otherwise invisible). Costs real judge "
+                         "API usage.")
     args = ap.parse_args(argv)
 
     run_dir = Path(args.run_dir)
@@ -128,6 +134,21 @@ def main(argv: list[str]) -> int:
             continue
         for req in plugin.judge_requests(t, a, out):
             all_requests.append({**req, "key": f"{i}:{req['role']}"})
+
+    # --fresh: the judge cache is keyed by (judge_id, rubric, trace, answer) and
+    # does NOT include the prompt text, so a prompt change is invisible to a
+    # plain rescore. Delete the matching entries so judge_batch re-calls the API
+    # with the CURRENT prompt.
+    if args.fresh and all_requests:
+        busted = 0
+        for req in all_requests:
+            cp = judge_mod._cache_path(req["judge_id"], req["rubric"],
+                                       req["trace"], req["answer"])
+            if cp.exists():
+                cp.unlink()
+                busted += 1
+        print(f"[rescore] --fresh: busted {busted} cached verdict(s) — re-judging "
+              f"with the current prompt (incurs API cost)", file=sys.stderr)
 
     verdicts = judge_mod.judge_batch(all_requests) if all_requests else {}
 
