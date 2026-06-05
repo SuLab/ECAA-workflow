@@ -77,6 +77,13 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--benchmark", default=None, choices=list(PLUGINS))
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--trials", type=int, default=1)
+    ap.add_argument("--reflatten", action="store_true",
+                    help="For ECAA rows, regenerate trace/answer by re-running "
+                         "flatten_outputs over the (still-present) emitted package "
+                         "instead of using the journaled flattened text. Picks up "
+                         "flattener changes (e.g. surfacing final_report.md) "
+                         "without re-executing the agent. Bare rows keep their "
+                         "journaled agent output.")
     ap.add_argument("--fresh", action="store_true",
                     help="Ignore cached verdicts: delete the matching judge-cache "
                          "entries first so the judges are re-CALLED with the "
@@ -105,7 +112,22 @@ def main(argv: list[str]) -> int:
         bk = r.get("key")
         if not bk:
             continue
-        out_by_key[bk] = Output(r.get("trace_md", ""), r.get("answer_txt", ""),
+        trace, answer = r.get("trace_md", ""), r.get("answer_txt", "")
+        if (args.reflatten and r.get("arm") == "ecaa" and r.get("package_dir")
+                and Path(r["package_dir"]).exists()):
+            from scripts.eval.scoring.flatten import flatten_outputs
+            pd = Path(r["package_dir"])
+            try:
+                trace, answer = flatten_outputs(pd / "runtime" / "outputs",
+                                                pd / "WORKFLOW.json")
+                print(f"[rescore] --reflatten {bk}: trace {len(r.get('trace_md','') or '')}"
+                      f"->{len(trace)} chars, answer "
+                      f"{len(r.get('answer_txt','') or '')}->{len(answer)} chars",
+                      file=sys.stderr)
+            except Exception as e:  # noqa: BLE001
+                print(f"[rescore] --reflatten {bk} failed ({e}); using journaled text",
+                      file=sys.stderr)
+        out_by_key[bk] = Output(trace, answer,
                                 {}, bool(r.get("exit_ok")), float(r.get("wall_secs") or 0.0))
         if r.get("package_dir"):
             pkg_by_key[bk] = r["package_dir"]

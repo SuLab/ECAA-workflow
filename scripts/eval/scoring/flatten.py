@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-_NARRATIVE_NAMES = ("report.md", "interpretation.md", "summary.md", "result.md")
+_NARRATIVE_NAMES = ("final_report.md", "report.md", "interpretation.md", "summary.md", "result.md")
 _RESULT_JSON_KEYS = ("narrative", "interpretation", "summary", "report", "answer", "text")
 
 
@@ -78,7 +78,24 @@ def _topo(tasks: dict[str, dict]) -> list[str]:
 
 
 def _narrative(task_dir: Path) -> str:
-    # (a) result.json — prefer known narrative keys, fall back to full JSON dump
+    # (a) well-known report markdown FIRST — the agent's human-facing
+    #     deliverable (full interpretation + code + mechanism), which is what
+    #     the rubric grades. A reporting task writes both a rich
+    #     `final_report.md`/`report.md` AND a `result.json` whose `narrative`
+    #     field is a COMPRESSED operational digest; preferring the markdown
+    #     surfaces the mechanism-deep report to the judge instead of the digest.
+    #     Only reporting stages carry these files, so analytical tasks (which
+    #     have only result.json) are unaffected and keep their result.json
+    #     narrative. Skip an empty/whitespace markdown so it can't shadow a
+    #     good result.json.
+    for name in _NARRATIVE_NAMES:
+        p = task_dir / name
+        if p.exists():
+            txt = p.read_text()
+            if txt.strip():
+                return txt
+
+    # (b) result.json — known narrative keys, else full JSON dump.
     rj = task_dir / "result.json"
     if rj.exists():
         try:
@@ -91,12 +108,6 @@ def _narrative(task_dir: Path) -> str:
                 return json.dumps(data, indent=2)
         except (json.JSONDecodeError, OSError):
             pass
-
-    # (b) well-known markdown filenames
-    for name in _NARRATIVE_NAMES:
-        p = task_dir / name
-        if p.exists():
-            return p.read_text()
 
     # (c) any *.md in the dir (sorted)
     mds = sorted(task_dir.glob("*.md"))
