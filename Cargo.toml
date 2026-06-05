@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/eval-adapters",
     "crates/cli",
     "crates/conversation",
     "crates/core",

@@ -1,0 +1,6 @@
+scenario_id: mixed_001
+narrative_path: testdata/eval-tier-4-1/narratives/mixed.md
+result_table_path: testdata/eval-tier-4-1/tables/de_table_1.tsv
+interpretation_policy: config/downstream-policy/interpretation-policy.json
+expected_mismatch_count: 1
+expected_min_verified: 2

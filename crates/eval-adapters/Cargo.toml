@@ -1,0 +1,21 @@
+[package]
+name = "ecaa-workflow-eval-adapters"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Tier-4-1 claim-verifier fabrication-catch regression corpus + harness."
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+serde_yaml_ng.workspace = true
+ecaa-workflow-core = { path = "../core" }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[[bin]]
+name = "tier-4-1"
+path = "src/bin/tier_4_1.rs"

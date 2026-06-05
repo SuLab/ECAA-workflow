@@ -932,6 +932,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ecaa-workflow-eval-adapters"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ecaa-workflow-core",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "tempfile",
+]
+
+[[package]]
 name = "ecaa-workflow-harness"
 version = "0.1.0"
 dependencies = [
