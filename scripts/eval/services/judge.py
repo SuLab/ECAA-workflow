@@ -252,26 +252,31 @@ def _prompt(rubric: dict, trace: str, answer: str) -> str:
     ``level_text`` fall back to a generic A/B/C semantic. Output format, criterion
     ids, and scoring math are faithful.
 
-    FIDELITY NOTE: the prompt text makes two deliberate divergences from the
-    BiomniBench-DA reference scorer (``<task>/tests/llm_judge.py``). (a) We frame
-    the call as an "expert evaluator for a *bioinformatics* data analysis task"
-    where the reference says "expert evaluator for a data analysis task" — we add
-    "bioinformatics" to scope the judge to this domain. (b) We place the "for each
-    criterion choose ONE level A/B/C" instruction BEFORE the rubric/``<trace>``/
-    ``<answer>``, whereas the reference places it AFTER them. Both are framing-only
-    deltas; the JSON output format, the criterion ids, and the scoring math remain
-    faithful to the reference."""
+    FIDELITY: the prompt prose now matches the BiomniBench-DA reference scorer
+    (``<task>/tests/llm_judge.py``) verbatim — "expert evaluator for a data
+    analysis task" (no domain qualifier), the "for each criterion choose ONE
+    level" instruction placed AFTER the rubric/``<trace>``/``<answer>`` (reference
+    order), and the reference's "Here is the agent's analysis trace/final answer"
+    framing. The criterion ids are ``criterion_N`` (the reference's scheme), so
+    the JSON example carries directly. The one remaining (substance-equivalent)
+    difference: the rubric block is rendered from the normalized structure via
+    ``_criterion_block`` — same criterion ids, A/B/C prose, and point values the
+    reference's verbatim ``rubric.txt`` carries — rather than injected as the raw
+    file. Output format and scoring math are identical to the reference."""
     absolute = rubric.get("scoring") == "absolute"
     crit = "\n\n".join(_criterion_block(c, absolute) for c in rubric["criteria"])
     return (
-        "You are an expert evaluator for a bioinformatics data analysis task.\n\n"
-        "Evaluate the agent's work using the following rubric. For each criterion "
-        "choose ONE level — A, B, or C — based purely on which level description "
-        "best describes the agent's work. Do not output numerical points; the "
-        "score for each level is computed automatically from the rubric.\n\n"
-        f"RUBRIC:\n{crit}\n\n"
+        "You are an expert evaluator for a data analysis task.\n\n"
+        "Evaluate the agent's work using the following rubric:\n\n"
+        f"{crit}\n\n"
+        "Here is the agent's analysis trace:\n\n"
         f"<trace>\n{trace}\n</trace>\n\n"
+        "Here is the agent's final answer:\n\n"
         f"<answer>\n{answer}\n</answer>\n\n"
+        "For each criterion in the rubric, choose ONE level: A, B, or C — based "
+        "purely on which level description best describes the agent's work. Do "
+        "not output numerical points; the score for each level is computed "
+        "automatically from the rubric.\n\n"
         "You MUST respond with a JSON object in exactly this format:\n"
         "{\n"
         '  "criteria": {\n'
@@ -280,9 +285,8 @@ def _prompt(rubric: dict, trace: str, answer: str) -> str:
         "  },\n"
         '  "overall_reasoning": "<short summary>"\n'
         "}\n\n"
-        "Use each criterion's exact id as the key. Each \"level\" value must be "
-        'exactly the single character "A", "B", or "C". Only output the JSON '
-        "object, nothing else."
+        'Each "level" value must be exactly the single character "A", "B", or '
+        '"C". Only output the JSON object, nothing else.'
     )
 
 
