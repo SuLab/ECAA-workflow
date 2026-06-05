@@ -306,13 +306,26 @@ def _judge_cost_usd(judge_id: str, in_tok: int, out_tok: int) -> float:
     return in_tok / 1e6 * in_price + out_tok / 1e6 * out_price
 
 
+def _sync_judge_timeout() -> int:
+    """Per-call read timeout (seconds) for a SYNCHRONOUS judge call. The default
+    120 s can be too short for a large agent trace (a flattened ECAA package with
+    the full final_report.md + claims runs 15+ KB), where the judge's
+    time-to-first-byte exceeds 120 s and the read times out. Env-tunable;
+    default raised to 300 s. Read at call time so it's per-run adjustable."""
+    try:
+        return max(30, int(os.environ.get("ECAA_EVAL_JUDGE_TIMEOUT", "300")))
+    except ValueError:
+        return 300
+
+
 def _gemini_call(prompt: str) -> tuple[str, int, int]:
     """Return (text, in_tok, out_tok) from a live Gemini call."""
     key = os.environ["GEMINI_API_KEY"]
     url = ("https://generativelanguage.googleapis.com/v1beta/models/"
            f"gemini-3.1-pro-preview:generateContent?key={key}")
     r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}],
-                                 "generationConfig": {"temperature": 0.0}}, timeout=120)
+                                 "generationConfig": {"temperature": 0.0}},
+                      timeout=_sync_judge_timeout())
     r.raise_for_status()
     body = r.json()
     text = body["candidates"][0]["content"]["parts"][0]["text"]
@@ -333,7 +346,7 @@ def _anthropic_call(prompt: str) -> tuple[str, int, int]:
                       headers={"x-api-key": key, "anthropic-version": "2023-06-01"},
                       json={"model": "claude-opus-4-8", "max_tokens": 8192,
                             "messages": [{"role": "user", "content": prompt}]},
-                      timeout=120)
+                      timeout=_sync_judge_timeout())
     r.raise_for_status()
     body = r.json()
     text = body["content"][0]["text"]

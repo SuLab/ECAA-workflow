@@ -173,6 +173,37 @@ def _terminal_id(order: list[str], stage: dict[str, str]) -> str | None:
     return order[-1]
 
 
+def _result_json_claims_block(task_dir: Path) -> str:
+    """Render the terminal task's `result.json` `claims` as a compact block.
+
+    The report markdown is prose; `result.json.claims` carry the structured,
+    machine-checkable findings WITH per-claim evidence pointers (and exact
+    intermediate counts the prose may omit, e.g. "89,408 baseline tumour
+    cells"). Appending them to the terminal narrative surfaces that
+    rubric-relevant detail (intermediate counts + traceability) to the judge
+    without dropping the rich prose. Empty/absent claims yield ""."""
+    rj = task_dir / "result.json"
+    if not rj.exists():
+        return ""
+    try:
+        data = json.loads(rj.read_text())
+    except (json.JSONDecodeError, OSError):
+        return ""
+    claims = data.get("claims") if isinstance(data, dict) else None
+    if not isinstance(claims, list) or not claims:
+        return ""
+    lines = ["", "### Structured claims (machine-checkable, with evidence)"]
+    for c in claims:
+        if isinstance(c, dict):
+            txt = c.get("claim") or c.get("text") or ""
+            ev = c.get("evidence") or ""
+            if txt:
+                lines.append(f"- {txt}" + (f"  [evidence: {ev}]" if ev else ""))
+        elif isinstance(c, str) and c.strip():
+            lines.append(f"- {c}")
+    return "\n".join(lines) if len(lines) > 2 else ""
+
+
 def flatten_outputs(outputs_dir: Path, workflow_json: Path) -> tuple[str, str]:
     tasks = _normalize_tasks(json.loads(Path(workflow_json).read_text())["tasks"])
     order = _topo(tasks)
@@ -181,10 +212,17 @@ def flatten_outputs(outputs_dir: Path, workflow_json: Path) -> tuple[str, str]:
     terminal_id = _terminal_id(order, stage)
     for tid in order:
         narr = _narrative(outputs_dir / tid)
+        # The terminal report also gets its structured claims appended (exact
+        # intermediate counts + evidence pointers the prose report can omit).
+        if tid == terminal_id:
+            narr = (narr + _result_json_claims_block(outputs_dir / tid)).strip()
         if narr:
             sections.append(f"## Task: {tid} ({stage.get(tid,'')})\n\n{narr}")
     trace = "\n\n".join(sections)
-    answer = _narrative(outputs_dir / terminal_id) if terminal_id else ""
+    answer = ""
+    if terminal_id:
+        answer = (_narrative(outputs_dir / terminal_id)
+                  + _result_json_claims_block(outputs_dir / terminal_id)).strip()
     return trace, answer
 
 
