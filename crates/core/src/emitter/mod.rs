@@ -922,6 +922,15 @@ Run these probes before any heavy work and log the results to `runtime/outputs/<
 - Stage spec explicitly says \"single-process\" or `parallel_processable: false`\n\
 - Memory budget can't accommodate even 2 workers (use the on-disk libraries instead)\n\
 \n\
+### Execution discipline on large data — do NOT thrash\n\
+\n\
+For a dataset at scale (>100k cells, >1e8 matrix nonzeros, multi-GB inputs), a single vectorised step legitimately takes MINUTES. That is normal and expected — it is NOT a sign your script is wrong.\n\
+\n\
+- **Commit to ONE library approach and let it run.** Pick the standard tool for the operation (scanpy/anndata or Seurat for scRNA-seq; scipy.sparse for matrix ops) and run it to completion. Do NOT abandon a running computation and rewrite the script just because a step is taking several minutes — `log1p`/normalisation/PCA/Harmony on ~1M cells routinely take 5–20 minutes even fully multithreaded. Watch `progress.log` / heartbeat, not the wall clock.\n\
+- **NEVER fall back to single-threaded text tools** (`awk`, `sed`, `cut`, hand-rolled line parsers) for numeric matrix operations. They are far SLOWER than a BLAS-backed `scipy`/`numpy`/Seurat call on the same data, not faster, and they throw away the thread budget you were given. If a vectorised approach is slow, the fix is more threads / a chunked-but-still-vectorised pass / an on-disk backend (BPCells, DelayedArray, anndata-on-disk) — never a switch to text processing.\n\
+- **Only rewrite on a real ERROR.** Rewrite your script when it raised an exception or produced wrong output — not on a hunch that a different strategy might be faster. Each speculative rewrite costs turns and budget; two or three rewrites will exhaust your per-task turn cap and block the task with no result.\n\
+- **If memory is the constraint**, process in row/column chunks with the SAME vectorised library (e.g. iterate `scipy.sparse` blocks, or use anndata `backed='r'`), keeping each chunk multithreaded — do not drop to a scalar/text loop.\n\
+\n\
 ### Required logging\n\
 \n\
 Append exactly one line per fan-out region to `runtime/outputs/<task_id>/progress.log`:\n\
