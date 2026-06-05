@@ -127,8 +127,9 @@ Run these probes before any heavy work and log the results to `runtime/outputs/<
 
 - **Effective core budget**: `cores = min(detected_cores, ECAA_HW_RECOMMENDED_THREADS or detected_cores)`. The env var is a ceiling, not a target. If unset, use the full detected count.
 - **Reserve 1 core** for the orchestrator process: `usable = max(1, cores - 1)`.
-- **Inner thread budget per unit**: pick from `ECAA_HW_TOOL_THREAD_CURVES[your-tool]` if your tool is listed; otherwise default to `min(4, usable)` for BLAS-heavy R/Python (SCTransform, DESeq2, Seurat anchor finding) or `1` for pure-Python single-threaded code.
-- **Outer worker count**: `outer_workers = max(1, floor(usable / inner_threads_per_unit))`. Total active threads stay bounded: `outer_workers * inner_threads_per_unit ≤ usable`.
+- **Decide outer workers FIRST, from the work**: `outer_workers = max(1, min(units, usable))`. A single work unit (`units == 1`) means `outer_workers = 1` — do NOT fan out.
+- **Then give each worker the remaining budget**: `inner_threads_per_unit = max(1, floor(usable / outer_workers))`. CRITICAL: when `units == 1`, this is the FULL `usable` budget — one big multithreaded operation. A single heavy matrix op (log1p/CPM normalisation, PCA, Harmony, SCTransform, DESeq2 on a >100k-cell or >1e8-nnz matrix) MUST run multithreaded: numpy/scipy/sklearn/Seurat all dispatch through BLAS, so this is NOT "pure-Python single-threaded" — never set `inner_threads_per_unit = 1` for it. If your tool is in `ECAA_HW_TOOL_THREAD_CURVES`, cap at that value; otherwise use the full `inner_threads_per_unit` just computed. Running a billion-nonzero normalisation at 1 thread when 19+ cores are free is the most common cause of a task blowing its turn/time budget — use the cores you were given.
+- Total active threads stay bounded: `outer_workers * inner_threads_per_unit ≤ usable`.
 - **Memory check**: estimate per-worker memory (e.g. an SCTransform on a 30k-cell Seurat object ≈ 6 GiB). If `outer_workers * per_worker_gib > available_gib`, reduce `outer_workers` until it fits, OR switch to BPCells/DelayedArray on-disk backing per the memory-discipline policy.
 
 ### Step 3 — Fan out
