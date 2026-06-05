@@ -164,6 +164,56 @@ def test_run_ecaa_package_relaunches_and_resolves_guard_block(tmp_path, monkeypa
     assert res.resolved_blocks == ["survey_method_landscape"]
 
 
+def test_run_ecaa_package_continues_incomplete_unblocked_dag(tmp_path, monkeypatch):
+    """A harness that exits early (e.g. --max-iterations) with unblocked pending
+    work — no blocked tasks — is relaunched to CONTINUE the DAG, as long as each
+    launch makes forward progress (completes >=1 task)."""
+    monkeypatch.setenv("ECAA_EVAL_MAX_RELAUNCH", "8")
+    wf = tmp_path / "WORKFLOW.json"
+    wf.write_text(json.dumps({"tasks": {
+        "a": {"state": {"status": "pending"}},
+        "b": {"state": {"status": "pending"}},
+        "c": {"state": {"status": "pending"}},
+    }}))
+    calls = {"n": 0}
+    order = ["a", "b", "c"]
+
+    def fake_run(cmd, **kw):
+        data = json.loads(wf.read_text())
+        for tid in order:  # complete the next pending task each launch (progress)
+            if data["tasks"][tid]["state"]["status"] == "pending":
+                data["tasks"][tid]["state"] = {"status": "completed"}
+                break
+        wf.write_text(json.dumps(data))
+        calls["n"] += 1
+        return _FakeProc()
+
+    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+    run_ecaa_package(tmp_path)
+    assert calls["n"] == 3, "should relaunch to continue an incomplete unblocked DAG"
+
+
+def test_run_ecaa_package_stops_when_no_progress_and_unblocked(tmp_path, monkeypatch):
+    """An incomplete DAG with no blocked tasks and NO forward progress between
+    launches is treated as wedged: stop after the second launch rather than
+    spinning to the relaunch cap."""
+    monkeypatch.setenv("ECAA_EVAL_MAX_RELAUNCH", "8")
+    wf = tmp_path / "WORKFLOW.json"
+    wf.write_text(json.dumps({"tasks": {
+        "a": {"state": {"status": "completed"}},
+        "b": {"state": {"status": "pending"}},  # never advances
+    }}))
+    calls = {"n": 0}
+
+    def fake_run(cmd, **kw):  # never mutates state -> no progress
+        calls["n"] += 1
+        return _FakeProc()
+
+    monkeypatch.setattr(agent_runner.subprocess, "run", fake_run)
+    run_ecaa_package(tmp_path)
+    assert calls["n"] == 2, "no-progress unblocked DAG must stop, not spin"
+
+
 def test_run_bare_sets_default_container_image(tmp_path, monkeypatch):
     """run_bare supplies ECAA_DEFAULT_CONTAINER_IMAGE=bio-min:local when not set."""
     bindir = tmp_path / "bin"

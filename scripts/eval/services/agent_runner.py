@@ -60,6 +60,22 @@ def _blocked_guard_tasks(package_dir: Path) -> list[tuple[str, str]]:
     return out
 
 
+def _task_status_counts(package_dir: Path) -> dict[str, int]:
+    """Histogram of task statuses in WORKFLOW.json. Empty on parse failure."""
+    try:
+        data = json.loads((package_dir / "WORKFLOW.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    tasks = data.get("tasks", {})
+    items = tasks.values() if isinstance(tasks, dict) else tasks
+    counts: dict[str, int] = {}
+    for t in items:
+        st = t.get("state") if isinstance(t, dict) else None
+        status = st.get("status") if isinstance(st, dict) else st
+        counts[str(status)] = counts.get(str(status), 0) + 1
+    return counts
+
+
 def _auto_resolve_guard_block(package_dir: Path, task_id: str, reason: str) -> None:
     """Unattended eval: accept a guard-blocked task as a documented deviation so
     execution can continue. The guard already RAN and recorded its catch (e.g.
@@ -169,6 +185,7 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
     relaunches = 0
     resolved: list[str] = []
     captured = ""
+    prev_completed = -1
     while True:
         proc = subprocess.run(cmd, cwd=str(REPO_ROOT), timeout=harness_timeout,
                               env=effective_env,
@@ -177,12 +194,30 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
             captured += (proc.stdout or "") + (proc.stderr or "")
         if relaunches >= max_relaunch:
             break
+        counts = _task_status_counts(package_dir)
+        completed = counts.get("completed", 0)
+        remaining = sum(counts.get(s, 0) for s in ("pending", "ready", "running"))
         blocked = _blocked_guard_tasks(package_dir)
-        if not blocked:
-            break
-        for tid, reason in blocked:
-            _auto_resolve_guard_block(package_dir, tid, reason)
-            resolved.append(tid)
+        if blocked:
+            # Guard-blocked tasks: accept the documented deviation + flip ready,
+            # relaunch. Checked BEFORE the terminal-DAG test because a blocked
+            # task resolves to ready and is then runnable on the next launch.
+            for tid, reason in blocked:
+                _auto_resolve_guard_block(package_dir, tid, reason)
+                resolved.append(tid)
+        elif remaining == 0:
+            break  # DAG fully terminal (all completed / failed) — nothing to continue.
+        elif completed > prev_completed:
+            # No blocks, but the DAG is incomplete and the last launch made
+            # progress: the harness exited early (hit --max-iterations or its
+            # wall-clock timeout) with unblocked work still pending. Completed
+            # task state persists on disk, so relaunching simply CONTINUES the
+            # DAG from where it stopped. Gate on forward progress so a genuinely
+            # wedged DAG (no completions this launch) stops instead of spinning.
+            pass
+        else:
+            break  # no blocks and no progress since last launch — stop (stuck).
+        prev_completed = completed
         relaunches += 1
     return RunResult(proc.returncode == 0, time.time() - t0, package_dir,
                      captured, resolved_blocks=resolved)
