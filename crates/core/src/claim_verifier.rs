@@ -793,6 +793,37 @@ fn verify_one(
     if let Some(direction) = claim.direction {
         let observed = lookup_numeric(&row.values, &cfg.effect_size_columns);
         if let Some(obs) = observed {
+            // Near-zero / non-significance policy: a *bare* direction claim
+            // (no stated effect-size value) on a gene that is both near-zero
+            // (|log2FC| < EPS) and non-significant has no mechanically
+            // determinable direction — neither confirmable nor refutable — so
+            // it is `Unverifiable` rather than verified or flagged. Significance
+            // is judged on the *adjusted* p (the largest reported p-value-family
+            // value, so e.g. padj=0.16 reads non-significant even when raw
+            // p<0.05); a claim that itself states an effect size is exempt
+            // because it makes a checkable quantitative assertion.
+            const NEAR_ZERO_LOG2FC: f64 = 0.5;
+            if claim.effect_size.is_none() && obs.abs() < NEAR_ZERO_LOG2FC {
+                let max_p = cfg
+                    .pvalue_columns
+                    .iter()
+                    .filter_map(|c| {
+                        row.values
+                            .get(&normalize(c))
+                            .and_then(|raw| raw.parse::<f64>().ok())
+                    })
+                    .filter(|v| v.is_finite())
+                    .fold(None, |acc: Option<f64>, v| Some(acc.map_or(v, |a: f64| a.max(v))));
+                let non_significant = max_p.map_or(true, |p| p >= 0.05);
+                if non_significant {
+                    return ClaimStatus::Unverifiable {
+                        reason: format!(
+                            "direction claim on a non-significant near-zero effect (log2FC {:+.4}, adjusted p >= 0.05); direction not mechanically determinable",
+                            obs
+                        ),
+                    };
+                }
+            }
             // A zero observed effect size agrees with NEITHER direction — an
             // "upregulated"/"downregulated" claim on a no-change row is a
             // fabrication, not a confirm. Mirrors the strict `> 0.0` / `< 0.0`
@@ -2749,5 +2780,58 @@ mod tests {
             "cited path basename must resolve, not collapse to None"
         );
         assert!(resolved.unwrap().ends_with("de_results.tsv"));
+    }
+
+    #[test]
+    fn direction_on_nonsig_near_zero_is_unverifiable() {
+        // Option 2: a bare direction claim on a non-significant, near-zero
+        // effect (|log2FC| < 0.5, adjusted p >= 0.05) is Unverifiable — the
+        // direction is not mechanically determinable.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(tmp.path(), "de_s1.tsv", "gene\tlog2FC\tpadj\nACAN\t0.3\t0.70\n");
+        let claims = extract_claims("ACAN was upregulated (Table S1).", &cfg);
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Unverifiable { .. }),
+            "non-sig near-zero direction must be Unverifiable, got {:?}",
+            v.status
+        );
+    }
+
+    #[test]
+    fn wrong_direction_on_nonsig_near_zero_is_not_a_mismatch() {
+        // Even a contradicting direction on a non-significant near-zero effect
+        // is Unverifiable, not Mismatch — a direction that isn't statistically
+        // established can be neither confirmed nor refuted.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(tmp.path(), "de_s1.tsv", "gene\tlog2FC\tpadj\nACAN\t0.3\t0.70\n");
+        let claims = extract_claims("ACAN was downregulated (Table S1).", &cfg);
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Unverifiable { .. }),
+            "contradicting direction on non-sig near-zero must be Unverifiable, got {:?}",
+            v.status
+        );
+    }
+
+    #[test]
+    fn significant_near_zero_direction_is_still_checked() {
+        // The gate requires BOTH near-zero AND non-significant: a near-zero but
+        // significant effect keeps a determinable direction.
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_table(tmp.path(), "de_s1.tsv", "gene\tlog2FC\tpadj\nACAN\t0.3\t0.001\n");
+        let claims = extract_claims("ACAN was upregulated (Table S1).", &cfg);
+        let report = verify_claims(&claims, tmp.path(), &cfg);
+        let v = report.verdicts.iter().find(|v| v.claim.entity == "ACAN").unwrap();
+        assert!(
+            matches!(v.status, ClaimStatus::Verified),
+            "significant near-zero up-claim should verify, got {:?}",
+            v.status
+        );
     }
 }
