@@ -636,6 +636,26 @@ def _attach_session_metrics(scores: list[Score], metrics_by_key: dict) -> None:
         s.extra["session_metrics"] = {k: snap.get(k) for k in _HARVESTED_METRIC_KEYS}
 
 
+def _apply_task_filter(tasks: list, tasks_arg: "str | None") -> list:
+    """Filter a plugin's task list down to an explicit task_id allowlist.
+
+    ``tasks_arg`` is the comma-separated value of ``--tasks`` (None keeps every
+    task). Returned order follows the allowlist. An id not present in ``tasks``
+    is a hard error (ValueError) so a typo can never silently shrink a run. This
+    is the primitive behind the pinned ``subsets/baseline.toml`` tractable slice;
+    it is plugin-agnostic — Nekrutenko's single ``mtdna`` task either survives
+    the allowlist or the run is intentionally empty."""
+    if not tasks_arg:
+        return tasks
+    want = [t.strip() for t in tasks_arg.split(",") if t.strip()]
+    by_id = {t.task_id: t for t in tasks}
+    missing = [w for w in want if w not in by_id]
+    if missing:
+        raise ValueError(
+            f"--tasks ids not found: {missing}; available: {sorted(by_id)}")
+    return [by_id[w] for w in want]
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("benchmark", choices=list(PLUGINS))
@@ -652,6 +672,12 @@ def main(argv: list[str]) -> int:
                     help="Max concurrent agent runs (pool size = global cap).")
     ap.add_argument("--resume", default=None,
                     help="Resume into an existing run dir; skip journaled work.")
+    ap.add_argument("--tasks", default=None,
+                    help="Comma-separated task_id allowlist (e.g. da-8-1,da-15-1). "
+                         "Filters the benchmark's task set; an unknown id aborts. "
+                         "Independent of --smoke. The pinned tractable slice lives "
+                         "in scripts/eval/subsets/baseline.toml (run via "
+                         "`make eval-baseline`).")
     args = ap.parse_args(argv)
 
     if os.environ.get("ECAA_EVAL_LIVE") != "1":
@@ -673,6 +699,11 @@ def main(argv: list[str]) -> int:
     trials = 1 if args.smoke else args.trials
     handle = plugin.fetch(cache_root())
     tasks = plugin.tasks(handle, smoke=args.smoke)
+    try:
+        tasks = _apply_task_filter(tasks, args.tasks)
+    except ValueError as e:
+        print(f"ABORT: {e}", file=sys.stderr)
+        return 2
 
     if args.resume:
         run_dir = Path(args.resume)
@@ -931,6 +962,19 @@ def main(argv: list[str]) -> int:
         _attach_session_metrics(scores, metrics_by_key)
 
         card = plugin.report(scores)
+        # Subset provenance + non-statistical caveat: when --tasks pinned a slice
+        # (the tractable baseline), stamp it so a reader never mistakes the
+        # absolute score for the full-benchmark published number.
+        if args.tasks:
+            card.meta["subset"] = {
+                "task_ids": [t.task_id for t in tasks],
+                "n_tasks": len(tasks),
+                "caveat": (
+                    "SUBSET RUN — a deliberately small, non-statistical task slice "
+                    "for fast baseline/regression reads. Absolute scores are NOT "
+                    "comparable to the full-benchmark published numbers; read the "
+                    "ECAA-vs-bare delta directionally, not as powered."),
+            }
         # Cost breakdown (per provider + totals), tolerant of partial/deterministic rows.
         card.meta["cost"] = {
             "judge_usd": round(sum(s.extra.get("judge_cost_usd", 0.0) for s in scores), 4),

@@ -1,0 +1,38 @@
+# Tractable eval baseline subset — pinned source of truth.
+#
+# A deliberately SMALL, NON-STATISTICAL slice for fast baseline/regression reads
+# of the system. Primary read: the ECAA-vs-bare delta (directional). Secondary:
+# absolute score vs the papers' published numbers (loose — this is a subset, not
+# the full benchmark). Run it with `make eval-baseline` (live; operator-launched).
+#
+# Selection principle: diversity-first, size-capped. The four BiomniBench tasks
+# span four DISTINCT analytical methods (task_type) and an easy->hard difficulty
+# spread, each with a small enough data footprint to keep wall-clock low. The
+# full 50-task set is medium-heavy (18 easy / 23 medium / 9 hard), so this slice
+# is NOT difficulty-matched — it is an intentional tractable cut, recorded here
+# so the choice stays auditable and editable. Edit the ids below to re-cut.
+
+[biomnibench]
+task_ids = ["da-8-1", "da-15-1", "da-5-1", "da-26-2"]
+
+# Per-task rationale (data size at the pinned datasets.lock revision):
+#   da-8-1   2.7 M  easy    metabolic   association-testing
+#   da-15-1   17 M  easy    neurology   differential-expression
+#   da-5-1   2.0 M  medium  oncology    multi-omic-integration (stresses ECAA cross-omics composition)
+#   da-26-2   225 M hard    oncology    predictive-modeling (ML)
+
+[nekrutenko]
+# Nekrutenko is a single task; its tractability lever is the fault-matrix size.
+# 1 seed -> 12 PATH-shim cells (vs the canonical 3 seeds / 36 cells). The
+# make target sets ECAA_EVAL_NEK_SEEDS and passes --error-matrix.
+seeds = [42]
+error_matrix = true
+
+[run]
+# Defaults the make target applies. Sequential eval orchestration (max_parallel
+# = 1, the eval_runner default), single trial, both arms (the ecaa-vs-bare delta
+# is the whole point). Each agent is allowed to fill the host via
+# ECAA_HW_FILL_HEADROOM=1 (no per-agent cpu/mem caps).
+arms = "ecaa,claude-direct"
+trials = 1
+fill_headroom = true

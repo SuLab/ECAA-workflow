@@ -36,6 +36,10 @@ bootstrap: build install bio-min ## Build + install binaries + build the bio-min
 bio-min: ## Build the agent execution container (bio-min)
 	bash scripts/build-bio-min.sh bio-min:local
 
+ROCM_AGENT_TAG ?= ghcr.io/scripps/bio-min-rocm:v0.1.0
+rocm-agent: ## Build the ROCm-enabled agent image for AMD GPUs (multi-GB; operator-run). Override ROCM_AGENT_TAG / ROCM_IMAGE.
+	docker build -t $(ROCM_AGENT_TAG) $(if $(ROCM_IMAGE),--build-arg ROCM_IMAGE=$(ROCM_IMAGE),) -f docker/rocm-agent.Dockerfile docker/
+
 # ── Test ─────────────────────────────────────────────────────────────────────
 
 test: test-runner test-doc ## Run cargo test + doc tests across the workspace
@@ -173,6 +177,14 @@ eval-full: ## Both benchmarks IN FULL, fast-and-safe + PARALLEL (operator-run; n
 	@ECAA_HW_DYNAMIC_ALLOCATION=0 ECAA_AGENT_MEMORY_CAP_GB=28 ECAA_HW_NPROC_HINT=10 \
 		$(PYTHON) -m scripts.eval.eval_runner biomnibench --trials 3 \
 		--max-parallel $(BBENCH_PARALLEL) $(EVAL_ARGS)
+
+eval-baseline: ## Tractable baseline (live; operator-run): both benchmarks, both arms, 1 trial, SEQUENTIAL, each agent fills the host (ECAA_HW_FILL_HEADROOM=1). Subset pinned in scripts/eval/subsets/baseline.toml. Needs ECAA_EVAL_LIVE=1 + GEMINI_API_KEY + ECAA_ANTHROPIC_API_KEY.
+	@MANIFEST=scripts/eval/subsets/baseline.toml ; \
+	 TASKS=$$($(PYTHON) -c "import tomllib,pathlib;print(','.join(tomllib.loads(pathlib.Path('$$MANIFEST').read_text())['biomnibench']['task_ids']))") ; \
+	 echo "[eval-baseline] BiomniBench subset: $$TASKS  (sequential, ECAA_HW_FILL_HEADROOM=1)" ; \
+	 ECAA_HW_FILL_HEADROOM=1 $(PYTHON) -m scripts.eval.eval_runner biomnibench --tasks "$$TASKS" --trials 1 --arms ecaa,claude-direct $(EVAL_ARGS)
+	@echo "[eval-baseline] Nekrutenko base + 12-cell matrix (1 seed), sequential, ECAA_HW_FILL_HEADROOM=1"
+	@ECAA_HW_FILL_HEADROOM=1 ECAA_EVAL_NEK_SEEDS=42 $(PYTHON) -m scripts.eval.eval_runner nekrutenko --error-matrix --trials 1 --arms ecaa,claude-direct $(EVAL_ARGS)
 
 eval-biomnibench: ## Tier 3 — only BiomniBench-DA (needs ECAA_EVAL_LIVE=1 + GEMINI_API_KEY + ECAA_ANTHROPIC_API_KEY)
 	@$(PYTHON) -m scripts.eval.eval_runner biomnibench $(EVAL_ARGS)
