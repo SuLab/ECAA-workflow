@@ -70,12 +70,12 @@ def test_aggregate_claim_groundedness_pmid_only_reports_pmid():
     assert agg["ecaa"]["reference_type"] == "pmid"
 
 
-def test_aggregate_claim_groundedness_default_placeholder_dropped_for_richer():
-    # An arm with both the default result_row and a richer pmid type reports the
-    # richer type when it's the only meaningful one.
+def test_aggregate_claim_groundedness_single_reference_type_preserved():
+    # An arm whose rows all cite the same reference type reports that type;
+    # only a genuine spread of >1 distinct type collapses to "mixed".
     card = Scorecard("biomnibench", [
-        _cg_row("ecaa", 1, 2, ref="result_row", tid="t1"),
-        _cg_row("ecaa", 1, 2, ref="pmid", tid="t2"),
+        _cg_row("ecaa", 1, 2, ref="pmid", tid="t1"),
+        _cg_row("ecaa", 2, 4, ref="pmid", tid="t2"),
     ])
     agg = _aggregate_claim_groundedness(card)
     assert agg["ecaa"]["reference_type"] == "pmid"

@@ -24,6 +24,7 @@ fn verdict(entity: &str, table: Option<&str>, status: ClaimStatus) -> ClaimVerdi
             source_table: table.map(String::from),
             excerpt: String::new(),
             contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
         },
         status,
         strength: ClaimStrength::Exploratory,

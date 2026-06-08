@@ -69,6 +69,7 @@ fn persist_verified_table_claim(root: &Path, task: &str, table: &str, w: &AuditW
         source_table: Some(table.into()),
         excerpt: String::new(),
         contract: ClaimContract::NumericTableLookup,
+        literature_evidence: None,
     };
     let rep = ClaimVerificationReport {
         n_checked: 1,

@@ -362,9 +362,11 @@ def _cell_task():
     return Task("t1", "prompt1", {}, None, None)
 
 
-def test_ensure_package_for_cells_rejects_fully_terminal_reused_dir(monkeypatch, tmp_path):
-    """A journal-reused dir whose tasks are ALL terminal cannot be re-run — the
-    cell would silently score against stale outputs. Surface it as an error."""
+def test_ensure_package_for_cells_accepts_terminal_reused_dir(monkeypatch, tmp_path):
+    """A journal-reused base package is normally fully terminal (the base ran to
+    completion). _ensure_package_for_cells accepts it as a copy SOURCE — each cell
+    copies it via _isolated_pkg_copy, which resets task states to pending; the
+    >=1-runnable-task gate is enforced post-reset in _cell_run_fn, not here."""
     existing = tmp_path / "prior-pkg"
     existing.mkdir()
     (existing / "WORKFLOW.json").write_text(json.dumps({"tasks": {
@@ -378,10 +380,11 @@ def test_ensure_package_for_cells_rejects_fully_terminal_reused_dir(monkeypatch,
                         lambda *a, **k: (_ for _ in ()).throw(
                             AssertionError("should not re-drive intake")))
 
-    with pytest.raises(eval_runner.UnrunnablePackageError):
-        eval_runner._ensure_package_for_cells(
-            _EcaaCellPlugin(), _cell_task(), Arm.ECAA_WORKFLOW, base_rec,
-            tmp_path / "wd", None)
+    spec = eval_runner._ensure_package_for_cells(
+        _EcaaCellPlugin(), _cell_task(), Arm.ECAA_WORKFLOW, base_rec,
+        tmp_path / "wd", None)
+    assert spec.package_dir == existing
+    assert spec.session_id == "sid-old"
 
 
 def test_ensure_package_for_cells_accepts_runnable_reused_dir(monkeypatch, tmp_path):

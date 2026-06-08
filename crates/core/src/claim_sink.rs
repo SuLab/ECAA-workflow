@@ -166,6 +166,7 @@ mod tests {
             source_table: table.map(|t| t.to_string()),
             excerpt: String::new(),
             contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
         }
     }
 

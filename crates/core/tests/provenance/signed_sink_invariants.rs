@@ -20,6 +20,7 @@ fn claim(entity: &str, table: Option<&str>) -> Claim {
         source_table: table.map(String::from),
         excerpt: String::new(),
         contract: ClaimContract::NumericTableLookup,
+        literature_evidence: None,
     }
 }
 fn v(c: Claim, s: ClaimStatus) -> ClaimVerdict {

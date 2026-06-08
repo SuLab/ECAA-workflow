@@ -16,17 +16,17 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_atom_count_matches_filesystem():
-    # 93 at HEAD; couples to the actual config/stage-atoms tree.
+    # 97 at HEAD (96 + biological_interpretation); couples to config/stage-atoms.
     n = count_atom_yamls(REPO_ROOT)
-    assert n == 93, f"expected 93 stage-atom YAMLs, found {n} (update both if intentional)"
+    assert n == 97, f"expected 97 stage-atom YAMLs, found {n} (update both if intentional)"
 
 
 def test_modality_count_matches_filesystem():
-    assert count_modality_yamls(REPO_ROOT) == 22
+    assert count_modality_yamls(REPO_ROOT) == 23
 
 
 def test_archetype_count_matches_filesystem():
-    assert count_archetype_yamls(REPO_ROOT) == 31
+    assert count_archetype_yamls(REPO_ROOT) == 32
 
 
 def test_tool_count_parsed_from_source_is_positive():
@@ -49,9 +49,9 @@ def test_files_to_add_modality_is_three_artifact_rule():
 
 def test_compute_emits_full_report(tmp_path):
     report = compute_schema_burden(REPO_ROOT)
-    assert report["atom_count"] == 93
-    assert report["modality_count"] == 22
-    assert report["archetype_count"] == 31
+    assert report["atom_count"] == 97
+    assert report["modality_count"] == 23
+    assert report["archetype_count"] == 32
     assert report["tool_count"] > 0
     assert report["blocker_kind_count"] > 0
     assert len(report["files_to_add_modality"]) == 3

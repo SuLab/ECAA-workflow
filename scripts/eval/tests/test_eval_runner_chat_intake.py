@@ -56,9 +56,9 @@ def test_chat_intake_passes_proposal_policy(monkeypatch, tmp_path):
     def fake_drive(base_url, instruction, *, locked_methods=None,
                    proposal_policy="reject", **kw):
         seen["policy"] = proposal_policy
-        return "sid-1", emitted
+        return "sid-1", emitted, {}
 
-    monkeypatch.setattr(eval_runner, "drive_chat_intake", fake_drive)
+    monkeypatch.setattr(eval_runner, "drive_chat_intake_with_metrics", fake_drive)
     monkeypatch.setattr(eval_runner, "_stage_inputs", lambda *a, **k: None)
     monkeypatch.setattr(eval_runner, "_write_auto_approve_discovery_gate", lambda *a, **k: None)
 

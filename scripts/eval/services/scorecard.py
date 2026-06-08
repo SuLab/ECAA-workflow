@@ -525,10 +525,10 @@ def _aggregate_claim_groundedness(card: Scorecard) -> dict:
         agg["verified_pct"] = (round(100.0 * agg["verified_count"] / total, 1)
                                if total else 0.0)
         seen = ref_seen.get(arm, set())
-        # Drop the default "result_row" placeholder when richer types are present.
-        meaningful = {s for s in seen if s != "result_row"} or seen
-        agg["reference_type"] = "mixed" if len(meaningful) > 1 else (
-            next(iter(meaningful)) if meaningful else "result_row")
+        # An arm whose rows cite more than one kind of reference (e.g. some
+        # result-row-grounded, some PMID-grounded) collapses to "mixed".
+        agg["reference_type"] = "mixed" if len(seen) > 1 else (
+            next(iter(seen)) if seen else "result_row")
     return per_arm
 
 

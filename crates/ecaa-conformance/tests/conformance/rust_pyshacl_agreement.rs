@@ -302,6 +302,7 @@ fn pending_one_claim_report() -> ecaa_workflow_core::claim_verifier::ClaimVerifi
                 source_table: None,
                 excerpt: String::new(),
                 contract: ClaimContract::NumericTableLookup,
+                literature_evidence: None,
             },
             // Projects to `status: "pending"` with empty supported_by →
             // satisfies ClaimCompletenessShape AND leaves Inv 5 (no

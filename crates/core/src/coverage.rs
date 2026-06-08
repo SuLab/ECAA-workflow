@@ -202,6 +202,7 @@ mod tests {
                 source_table: table.map(String::from),
                 excerpt: String::new(),
                 contract: ClaimContract::NumericTableLookup,
+                literature_evidence: None,
             },
             status,
             strength: ClaimStrength::Exploratory,

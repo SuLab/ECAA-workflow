@@ -17,6 +17,7 @@ fn report() -> ClaimVerificationReport {
         source_table: Some("results/tables/de.csv".into()),
         excerpt: String::new(),
         contract: ClaimContract::NumericTableLookup,
+        literature_evidence: None,
     };
     ClaimVerificationReport {
         n_checked: 1,

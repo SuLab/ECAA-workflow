@@ -160,14 +160,6 @@
     "requiredOutputs": [],
     "metrics": []
   },
-  "literatureDefaults": {
-    "minPapers": 2,
-    "minSources": 1,
-    "matrixFile": "claims_evidence_matrix.csv",
-    "concordanceFlags": ["same_direction", "opposite_direction", "no_prior_finding", "unverifiable"],
-    "mismatchOnFlag": "opposite_direction",
-    "note": "Threshold defaults for the LiteratureGrounded claim contract. ExtractorConfig.from_policy reads verifiableEntities.literatureGrounding for the live minPapers / minSources; this block documents the package-side defaults and the claims_evidence_matrix.csv concordance vocabulary the verifier enforces."
-  },
   "evidenceRules": [
     {
       "id": "adjusted_p_value_required",

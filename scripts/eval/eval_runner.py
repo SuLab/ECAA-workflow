@@ -185,15 +185,21 @@ def _reset_workflow_task_states(pkg: Path) -> None:
     except (OSError, ValueError):
         return
     tasks = data.get("tasks")
+    pending = {"status": "pending"}
+    changed = False
     if isinstance(tasks, dict):
-        for t in tasks.values():
-            if isinstance(t, dict):
-                t["state"] = {"status": "pending"}
+        items = tasks.values()
     elif isinstance(tasks, list):
-        for t in tasks:
-            if isinstance(t, dict):
-                t["state"] = {"status": "pending"}
+        items = tasks
     else:
+        return
+    for t in items:
+        if isinstance(t, dict) and t.get("state") != pending:
+            t["state"] = pending
+            changed = True
+    # Only rewrite when something actually changed, so a package with no
+    # terminal task states is left byte-identical (no needless reformat).
+    if not changed:
         return
     tmp = wf.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(data, indent=2))
@@ -497,11 +503,10 @@ def _ensure_package_for_cells(plugin, task, arm: Arm, base_rec: dict | None,
         if recorded and Path(recorded).exists():
             spec.package_dir = Path(recorded)
             spec.session_id = base_rec.get("session_id")
-            if _ready_or_pending_task_count(spec.package_dir) < 1:
-                raise UnrunnablePackageError(
-                    f"reused package {spec.package_dir} has 0 runnable "
-                    f"(pending/ready) tasks; refusing to score a cell against "
-                    f"stale outputs")
+            # No runnable-task assertion here: this reused base package ran to
+            # completion (all tasks terminal). Each cell copies it via
+            # _isolated_pkg_copy, which resets task states to pending; the
+            # >=1-runnable-task gate is enforced post-reset in _cell_run_fn.
             return spec
     # Package gone (or never journaled) — re-emit.
     return _chat_intake_or_cli(plugin, task, arm, workdir, server)

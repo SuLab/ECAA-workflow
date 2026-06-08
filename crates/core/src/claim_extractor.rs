@@ -705,6 +705,25 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
         let source_table = scan_table_reference(trimmed);
         let contract = classify_contract(trimmed);
 
+        // For a literature-grounded sentence, capture the cited PMIDs once; each
+        // entity then becomes a finding_id the verifier resolves against
+        // claims_evidence_matrix.csv. Non-literature contracts carry no PMIDs.
+        let cited_pmids: Vec<u64> = if contract == ClaimContract::LiteratureGrounded {
+            PMID_CITATION_RE
+                .find_iter(trimmed)
+                .filter_map(|m| {
+                    m.as_str()
+                        .chars()
+                        .filter(|c| c.is_ascii_digit())
+                        .collect::<String>()
+                        .parse::<u64>()
+                        .ok()
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         let mut seen: std::collections::BTreeSet<(String, Option<Direction>)> =
             std::collections::BTreeSet::new();
         for (ent_pos, ent_name) in entity_hits {
@@ -716,6 +735,14 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                 continue;
             }
             seen.insert(key);
+            let literature_evidence = if contract == ClaimContract::LiteratureGrounded {
+                Some(LiteratureEvidence {
+                    finding_id: ent_name.clone(),
+                    cited_pmids: cited_pmids.clone(),
+                })
+            } else {
+                None
+            };
             out.push(Claim {
                 entity: ent_name,
                 direction,
@@ -724,7 +751,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                 source_table: source_table.clone(),
                 excerpt: trimmed.to_string(),
                 contract,
-                literature_evidence: None,
+                literature_evidence,
             });
         }
     }
