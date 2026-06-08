@@ -155,6 +155,11 @@ struct EvidenceEntry {
     pub evidence_role: Option<String>,
     #[serde(default)]
     pub version_context: Option<String>,
+    /// Batched PubMed efetch: the PMIDs a single shared XML snapshot covers
+    /// (one efetch request fetches many PMIDs). Locator indexing keys on each
+    /// so a claim row citing any batch member resolves to this snapshot.
+    #[serde(default)]
+    pub pmids_in_batch: Vec<String>,
     pub source_kind: String,
     pub path: String,
     pub sha256_binary: String,
@@ -545,6 +550,14 @@ pub fn run_evidence_quote_substring_match(
                 manifest_by_locator.insert(sr.clone(), e);
             }
         }
+        // Batched PubMed efetch: one snapshot covers many PMIDs (no singular
+        // pmid/source_ref). Index every batch member so a claim row citing any
+        // of them resolves to the shared snapshot.
+        for p in &e.pmids_in_batch {
+            if !p.is_empty() {
+                manifest_by_locator.insert(p.clone(), e);
+            }
+        }
     }
     let manifest_dir = manifest_path.parent().unwrap();
 
@@ -683,11 +696,13 @@ pub fn run_redistributable_or_marked(
             // Paper-class OA / abstract / OpenAlex / Crossref records are
             // genuinely CC/fair-use redistributable and MUST carry the mark.
             (
-                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only" | "pubmed_abstract",
+                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only"
+                | "pubmed_abstract" | "pubmed_efetch_xml_batch",
                 true,
             ) => true,
             (
-                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only" | "pubmed_abstract",
+                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only"
+                | "pubmed_abstract" | "pubmed_efetch_xml_batch",
                 false,
             ) => false,
             // Tool-documentation pages are pages, not redistributed corpus —
@@ -1476,6 +1491,48 @@ mod tests {
         // LEGAL GATE preserved: an OA source left UNMARKED still fails.
         assert!(run("openalex", "false").is_err());
         assert!(run("pmc_oa_full_text", "false").is_err());
+    }
+
+    #[test]
+    fn redistributable_accepts_pubmed_efetch_batch() {
+        // PubMed efetch returns public-domain abstracts (NIH/US-Gov work), so a
+        // `pubmed_efetch_xml_batch` row marked redistributable:true is consistent.
+        // Regression: the batched-efetch source_kind the canonical retrieval path
+        // emits previously fell through to a spurious RedistributableTagInconsistent.
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.path().join("evidence/manifest.json"); // unused by this runner
+        let hdr = "entity,entity_kind,pmid,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified";
+        let csv = dir.path().join("m.csv");
+        write(&csv, &format!("{hdr}\nMaxQuant,method,19029910,foo,0,pubmed_efetch_xml_batch,sha256:abc,2026-06-08T00:00:00Z,true,true\n"));
+        assert!(run_redistributable_or_marked(&csv, &manifest).is_ok());
+        // Legal gate preserved: a public-domain abstract source left UNMARKED still fails.
+        write(&csv, &format!("{hdr}\nMaxQuant,method,19029910,foo,0,pubmed_efetch_xml_batch,sha256:abc,2026-06-08T00:00:00Z,false,true\n"));
+        assert!(run_redistributable_or_marked(&csv, &manifest).is_err());
+    }
+
+    #[test]
+    fn evidence_quote_substring_match_resolves_batched_efetch_manifest() {
+        // Batched PubMed efetch: one XML snapshot covers many PMIDs, exposed via
+        // `pmids_in_batch` (no singular pmid/source_ref field). A claim row citing
+        // a PMID in the batch must resolve to that snapshot — previously reported
+        // PmidNotFound because the locator index only read pmid/source_ref.
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("prior_claims_matrix.csv");
+        write(&csv, "entity,entity_kind,pmid,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified\nMaxQuant,method,19029910,enables high peptide identification,0,pubmed_efetch_xml_batch,sha256:abc,2026-06-08T00:00:00Z,true,true\n");
+        let manifest = dir.path().join("evidence/manifest.json");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        write(
+            &manifest,
+            r#"{"schema_version":2,"entries":[{"pmids_in_batch":["19029910","30656827"],"source_kind":"pubmed_efetch_xml_batch","path":"snap.xml","sha256_binary":"00","sha256_extracted_text":"00","extracted_text_normalization":"collapse_whitespace_lowercase_v1","bytes":0,"retrieval_ts":"2026-06-08T00:00:00Z","retrieval_query_id":"q001","redistributable":true,"license":"public domain"}]}"#,
+        );
+        write(
+            &manifest.parent().unwrap().join("snap.xml"),
+            "MaxQuant enables high peptide identification rates, individualized ppb mass accuracies",
+        );
+        assert!(
+            run_evidence_quote_substring_match(&csv, &manifest).is_ok(),
+            "a PMID present only via pmids_in_batch must resolve to its batch snapshot"
+        );
     }
 
     #[test]

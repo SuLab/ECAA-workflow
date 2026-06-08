@@ -50,7 +50,11 @@ Write everything under `runtime/outputs/$ECAA_TASK_ID/`:
    extracted_text_normalization, bytes, retrieval_ts, retrieval_query_id,
    redistributable, license`, and (for typed locators) `source_ref_kind,
    source_ref, source_class, evidence_role` plus `version_context` for tool
-   docs.
+   docs. A batched PubMed efetch entry — one XML snapshot covering many PMIDs
+   from a single efetch request — lists them under `pmids_in_batch: [...]` with
+   `source_kind: pubmed_efetch_xml_batch` and `redistributable: true` (PubMed
+   abstracts are public-domain US-Gov work); the validator resolves a claim row
+   to its snapshot via any member of `pmids_in_batch`.
 4. **`result.json`** — the usual task result (summary, artifacts, status).
 
 ### How to retrieve
