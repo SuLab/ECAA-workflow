@@ -13,6 +13,7 @@ argument). For recipe benchmarks (Nekrutenko) we DO lock; for open benchmarks
 (BiomniBench) we leave methods free so the execution agent chooses at runtime.
 """
 from __future__ import annotations
+import os
 import time
 import uuid
 from pathlib import Path
@@ -287,7 +288,11 @@ def drive_chat_intake_with_metrics(base_url: str, instruction: str, *,
     # confirm replay the cached 204 rather than double-acting.
     if kind == "pending_confirmation":
         cr = _post(base_url, f"/api/chat/session/{sid}/confirm",
-                   json_body={},
+                   # Headless eval: select the fully-automated checkpoint mode
+                   # so emit-time SME-review stages auto-advance (there is no
+                   # human to gate them). Override via ECAA_EVAL_CHECKPOINT_MODE.
+                   json_body={"checkpoint_mode":
+                              os.environ.get("ECAA_EVAL_CHECKPOINT_MODE", "fast")},
                    headers={"Idempotency-Key": str(uuid.uuid4())},
                    timeout=_CONFIRM_TIMEOUT)
         if cr.status_code != 204:
