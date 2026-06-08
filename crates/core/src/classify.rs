@@ -1070,6 +1070,38 @@ impl Classifier {
                 if conf < min_confidence {
                     return None;
                 }
+                // Single-keyword spillover floor. A 1-hit companion is the
+                // shared/short-keyword false-positive case — e.g. the STAR
+                // aligner keyword "star" substring-matching "mins_since_start"
+                // in a CGM column name, which surfaced bulk_rnaseq at 0.056
+                // confidence and let the v4 composer scaffold a 30-task RNA-seq
+                // branch onto a metabolomics dataset. One incidental hit must
+                // clear a real fraction of the companion's OWN vocabulary
+                // before it earns a branch — UNLESS the SME explicitly signaled
+                // this specific companion, in which case a single name keyword
+                // is enough: n-way intent (>=3 canonical modalities named), an
+                // explicit primary↔companion conjunction, or a named-protocol/
+                // integrator marker that maps to exactly this pair (multiome →
+                // atac_seq, DIABLO → bulk_rnaseq+proteomics, …).
+                const SINGLE_HIT_COMPANION_MIN_CONFIDENCE: f32 = 0.15;
+                let explicitly_signaled = n_way_intent
+                    || pair_explicitly_conjoined(
+                        normalized_text,
+                        primary.id.as_str(),
+                        m.id.as_str(),
+                    )
+                    || MARKER_COMPANION_INTENT.iter().any(|(marker, pairs)| {
+                        normalized_text.contains(marker)
+                            && pairs.iter().any(|(p, s)| {
+                                *p == primary.id.as_str() && *s == m.id.as_str()
+                            })
+                    });
+                if *hits == 1
+                    && !explicitly_signaled
+                    && conf < SINGLE_HIT_COMPANION_MIN_CONFIDENCE
+                {
+                    return None;
+                }
                 Some(ModalityCandidate {
                     modality: m.id.clone(),
                     taxonomy_path: m.taxonomy.clone(),
@@ -3361,6 +3393,41 @@ mod tests {
         assert!(
             r.additional_modalities.is_empty(),
             "no candidate should clear threshold from sparse prose, got {:?}",
+            r.additional_modalities
+        );
+    }
+
+    /// Regression (da-8-1): a generic "multi-omics" marker must not let a
+    /// modality ride in as a cross-omics companion on a single incidental
+    /// keyword. A metabolomics × CGM × clinical association study surfaced a
+    /// spurious `bulk_rnaseq` companion from one shared keyword (conf ~0.06),
+    /// which the v4 composer then scaffolded into a full RNA-seq DE pipeline on
+    /// a dataset with zero FASTQ. The real modalities (metabolomics/lipidomics/
+    /// CGM) aren't registered, so no n-way intent fires — only the generic
+    /// marker does, and that alone must not promote a 1-hit companion.
+    #[test]
+    fn generic_multiomics_marker_does_not_promote_single_keyword_companion() {
+        let cls = load_classifier();
+        // `mins_since_start` (a CGM column name) contains the substring
+        // "star" — the STAR-aligner keyword — giving bulk_rnaseq exactly one
+        // spurious hit, which is precisely how the real da-8-1 misroute began.
+        let r = cls.classify(
+            "Multi-omics cohort from a food-specific glycemic-response study: \
+             74 participants profiled across continuous glucose monitoring, \
+             clinical metadata, targeted metabolomics, lipidomics, and plasma \
+             proteomics. The CGM table data_cgm.csv has columns glucose, food, \
+             rep, and mins_since_start. Within the bread-spiker phenotype, run \
+             a linear regression of each metabolite abundance against systolic \
+             blood pressure with age and BMI as covariates and report the top \
+             hypertension-associated metabolites with significant positive \
+             coefficients.",
+        );
+        assert!(
+            !r.additional_modalities
+                .iter()
+                .any(|c| c.modality == "bulk_rnaseq"),
+            "bulk_rnaseq must not surface as a 1-keyword cross-omics companion \
+             on metabolomics prose, got {:?}",
             r.additional_modalities
         );
     }
