@@ -22,9 +22,20 @@ atoms:
   - atom_id: raw_qc
     required: true
     depends_on: [data_acquisition]
+  - atom_id: review_prior_work
+    required: false
+    # Literature-review atom. Gated by intake.literature_review_requested
+    # (set true only on explicit literature-grounding intent in the SME
+    # prose — see IntakeFacts::detect_literature_intent). When the SME
+    # hasn't opted in, this atom + contextualize_findings_with_literature
+    # are filtered out before lowering so the emitted DAG is byte-identical
+    # to a pre-literature catch-all DAG. Mirrors bulk_rnaseq_de.yaml.
   - atom_id: generic_summary
     required: true
     depends_on: [raw_qc]
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [generic_summary, review_prior_work]
   # Every emitted package terminates in a `reporting`/`final_reporting`
   # pair so the post-emit DAG audit (no isolated nodes, every primary
   # task reaches a terminal) holds even on the catch-all path that's
@@ -33,7 +44,13 @@ atoms:
   # on every promoted-proposal DAG.
   - atom_id: reporting
     required: true
-    depends_on: [generic_summary]
+    # Reporting must also consume contextualize_findings_with_literature
+    # when present so it doesn't dangle as an orphan operation node in the
+    # lowered DAG (audit-dag.py OPERATION_ORPHANS check). When the
+    # literature atom is gated out the edge becomes a no-op the DAG drops.
+    depends_on:
+      - generic_summary
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -42,4 +59,6 @@ claim_boundary: |
   modality-specific biological interpretation; the archetype is a
   catch-all and downstream typed analysis is up to the SME.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: generic_summary, to: contextualize_findings_with_literature }
   - { from: generic_summary, to: reporting }

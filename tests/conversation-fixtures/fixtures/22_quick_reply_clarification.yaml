@@ -34,12 +34,14 @@ mock_responses:
 
 expected_final_state:
   # Ambiguous intake prose ("perturbation experiment in human cells") falls
-  # back to the generic_omics archetype, whose atoms (raw_qc,
-  # generic_summary) carry no `method_choice` / `candidate_tools` —
-  # Closure B.3's discover-companion synthesis adds no discover_* nodes,
-  # so `DagBuiltWithUnresolvedDiscovery` doesn't fire and the session
-  # stays in `intake`. propose_quick_replies doesn't rebuild the DAG.
-  state_kind: intake
+  # back to the generic_omics archetype. `generic_summary` now carries
+  # `attributes.candidate_tools` (a generic analysis-method axis), so the
+  # v4 discover-companion synthesis surfaces `discover_generic_summary`
+  # (gated by a synthesized `survey_method_landscape`). That unresolved
+  # discovery node fires `DagBuiltWithUnresolvedDiscovery`, so the session
+  # lands in `intake_followup` — the SME has a discovery node to pin a
+  # method against, which is the point of the generic discovery layer.
+  state_kind: intake_followup
   user_confirmed: false
   tool_calls_observed:
     - append_intake_prose

@@ -117,6 +117,68 @@ pub const LITERATURE_OPT_IN_ATOM_IDS: &[&str] = &[
     "contextualize_findings_with_literature",
 ];
 
+/// Drop the opt-in literature atoms (and their `validate_*` companions)
+/// from a typed [`WorkflowDag`] unless the SME explicitly requested
+/// literature grounding.
+///
+/// This is the WorkflowDag analog of the [`compose_with_intake`]
+/// literature gate. The v4 planner does not thread `IntakeContext`, so
+/// the deterministic CLI `intake` path (which lowers
+/// `ComposerOutput.workflow_dag` directly) and any other v4 caller call
+/// this to keep a non-literature run byte-identical to a pre-literature
+/// DAG. The conversation layer applies the equivalent gate on its own
+/// lowered DAG + WorkflowDag with edge-splicing; this helper handles the
+/// catch-all / standard-archetype shapes where the literature atoms are
+/// either leaf sources (`review_prior_work`) or single-consumer feeders
+/// of `reporting` (`contextualize_findings_with_literature`) which
+/// retains a non-literature parent, so a simple node+edge removal is
+/// sufficient.
+///
+/// No-op when `requested` is true. Returns the dropped node ids (for
+/// audit logging). Keeps the DAG byte-stable: removal preserves the
+/// existing sort order of surviving nodes/edges.
+pub fn prune_literature_atoms_from_workflow_dag(
+    dag: &mut crate::workflow_contracts::task_node::WorkflowDag,
+    requested: bool,
+) -> BTreeSet<String> {
+    if requested {
+        return BTreeSet::new();
+    }
+    // A node is dropped when it is one of the literature roots OR a
+    // `validate_<root>` companion of one. Edge endpoint ids carry an
+    // optional `__<port>` suffix from the v4 composer; strip it to
+    // recover the bare node id.
+    let is_literature_node = |id: &str| -> bool {
+        LITERATURE_OPT_IN_ATOM_IDS.contains(&id)
+            || id
+                .strip_prefix("validate_")
+                .map(|base| LITERATURE_OPT_IN_ATOM_IDS.contains(&base))
+                .unwrap_or(false)
+    };
+    let dropped: BTreeSet<String> = dag
+        .nodes
+        .iter()
+        .filter(|n| is_literature_node(n.id.as_str()))
+        .map(|n| n.id.clone())
+        .collect();
+    if dropped.is_empty() {
+        return dropped;
+    }
+    fn edge_base(endpoint: &str) -> &str {
+        endpoint.split("__").next().unwrap_or(endpoint)
+    }
+    dag.nodes.retain(|n| !dropped.contains(&n.id));
+    dag.edges.retain(|e| {
+        !dropped.contains(edge_base(&e.from_node)) && !dropped.contains(edge_base(&e.to_node))
+    });
+    for assumption in &mut dag.assumptions.entries {
+        assumption
+            .affects_nodes
+            .retain(|node_id| !dropped.contains(node_id));
+    }
+    dropped
+}
+
 /// Slot-fill-aware composition entry point.
 ///
 /// Wraps `compose` and runs the slot-fill algorithm immediately after

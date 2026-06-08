@@ -1920,7 +1920,7 @@ scenarios:
     - vdj_reconstruction
     expected_modality: generic_omics
     min_task_count: 3
-    max_task_count: 11
+    max_task_count: 12
     structural_constraints:
     - no modality-specific atoms (alignment, quantification, peak_calling) emitted
     - generic_summary present
@@ -1953,7 +1953,7 @@ scenarios:
     - taxonomic_classification
     expected_modality: generic_omics
     min_task_count: 3
-    max_task_count: 11
+    max_task_count: 12
     structural_constraints:
     - no modality-specific downstream atoms emitted
     - generic_summary present

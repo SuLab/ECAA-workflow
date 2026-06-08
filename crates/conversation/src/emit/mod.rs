@@ -227,8 +227,17 @@ async fn emit_steps(
     // packages emitted from a tree without config/compute-profiles/
     // stay byte-identical to the baseline.
     let compute_profiles_dir = policies_dir.parent().map(|p| p.join("compute-profiles"));
-    let intake_facts =
+    let mut intake_facts =
         ecaa_workflow_core::intake_facts::IntakeFacts::from_classification(&classification);
+    // Narrow opt-in: persist literature_review_requested = true into
+    // policies/intake-facts.json only when the SME prose explicitly asked
+    // for literature grounding. Single source of truth:
+    // IntakeFacts::detect_literature_intent. Default false leaves the
+    // emitted facts byte-identical to a plain run.
+    intake_facts.literature_review_requested =
+        ecaa_workflow_core::intake_facts::IntakeFacts::detect_literature_intent(
+            &session.intake_prose,
+        );
     // If the SME just amended a stage, thread the
     // amendment context through to the core emitter so it can write
     // `prov:wasDerivedFrom`, the `UpdateAction` entity, and

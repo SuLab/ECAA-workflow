@@ -32,6 +32,23 @@ resource_profile:
 figure_exempt:
   reason: "Catch-all archetype output; SME amendments add typed downstream atoms with their own plot affordances."
   category: non_plottable
+attributes:
+  # Generic analysis-method axis. A non-empty candidate_tools list is the
+  # canonical "this atom has multiple runtime method alternatives" marker
+  # (see composer_v4::discover_companion_synthesis): it makes the
+  # catch-all summary atom discoverable, so the v4 composer synthesizes a
+  # `discover_generic_summary` companion + a `survey_method_landscape`
+  # gate on the generic_omics route — the same discovery layer every
+  # method-bearing modality gets. The members are modality-agnostic
+  # families the agent ranks deterministically from the surveyed
+  # method landscape.
+  candidate_tools:
+    - descriptive_statistics
+    - hypothesis_testing
+    - correlation_analysis
+    - regression_modeling
+    - dimensionality_reduction
+    - clustering
 inputs:
   - name: qc_metrics
     semantic_type:

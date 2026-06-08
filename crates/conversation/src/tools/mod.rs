@@ -3175,12 +3175,28 @@ fn try_build_via_composer(
             // upstream) — FASTQ-level atoms are unreachable in that
             // case and the composer's archetype catalog still includes
             // them.
-            let dropped_lit = apply_literature_opt_in_gate(&mut dag);
+            // Narrow opt-in: the literature atoms survive only when the
+            // SME prose explicitly asked for literature grounding. The v4
+            // planner doesn't thread IntakeContext, so we derive the flag
+            // here from the session prose (single source of truth:
+            // IntakeFacts::detect_literature_intent).
+            let literature_requested =
+                ecaa_workflow_core::intake_facts::IntakeFacts::detect_literature_intent(
+                    &session.intake_prose,
+                );
+            let dropped_lit = if literature_requested {
+                std::collections::BTreeSet::new()
+            } else {
+                apply_literature_opt_in_gate(&mut dag)
+            };
             let dropped_fastq = apply_counts_only_input_gate(&mut dag, session);
             if let Some(wf) = workflow_dag_for_session.as_mut() {
                 use ecaa_workflow_core::composer::LITERATURE_OPT_IN_ATOM_IDS;
-                let wf_dropped_lit =
-                    prune_workflow_dag_roots_with_companions(wf, LITERATURE_OPT_IN_ATOM_IDS);
+                let wf_dropped_lit = if literature_requested {
+                    std::collections::BTreeSet::new()
+                } else {
+                    prune_workflow_dag_roots_with_companions(wf, LITERATURE_OPT_IN_ATOM_IDS)
+                };
                 let wf_dropped_fastq = prune_counts_only_input_workflow_dag(wf, session);
                 if !wf_dropped_lit.is_empty() || !wf_dropped_fastq.is_empty() {
                     tracing::debug!(

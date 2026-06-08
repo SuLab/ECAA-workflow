@@ -67,7 +67,8 @@ pub use inheritance::{
 #[cfg(test)]
 use slot_fill::apply_slot_fill;
 pub use slot_fill::{
-    compose_with_intake, IntakeContext, SlotBinding, SlotSource, LITERATURE_OPT_IN_ATOM_IDS,
+    compose_with_intake, prune_literature_atoms_from_workflow_dag, IntakeContext, SlotBinding,
+    SlotSource, LITERATURE_OPT_IN_ATOM_IDS,
 };
 #[cfg(test)]
 use validation::validate_composition;

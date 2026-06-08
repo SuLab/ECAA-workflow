@@ -127,7 +127,50 @@ pub struct PinnedReferenceBundle {
     pub content_hash: String,
 }
 
+/// Narrow keyword set that flips `literature_review_requested` true.
+///
+/// Detection is intentionally conservative: it fires ONLY when the SME
+/// prose explicitly asks for literature grounding (compare-to-prior-work,
+/// citations, contextualization). It must NOT fire on incidental mentions
+/// of biology that happen to share a stem — every entry is a phrase the
+/// SME would only write when they want the analysis grounded in
+/// published work. Matched case-insensitively as substrings on the
+/// whitespace-collapsed prose. Keeping this set small bounds the blast
+/// radius: corpus scenarios that don't mention literature stay unchanged.
+const LITERATURE_INTENT_KEYWORDS: &[&str] = &[
+    "literature",
+    "prior work",
+    "references",
+    "citations",
+    "contextualize",
+    "published",
+];
+
 impl IntakeFacts {
+    /// Detect explicit literature-grounding intent in intake prose.
+    ///
+    /// Returns `true` when the prose contains any of
+    /// [`LITERATURE_INTENT_KEYWORDS`] (case-insensitive substring) OR the
+    /// phrase "compared to (the )?literature". This is the single source
+    /// of truth for whether `literature_review_requested` flips true; the
+    /// conversation v4 gate and the emit path both call it. Default false:
+    /// plain analysis prose leaves the opt-in atoms gated out.
+    pub fn detect_literature_intent(prose: &str) -> bool {
+        // Collapse internal whitespace so multi-word phrases match across
+        // newlines / runs of spaces, and lower-case for case-insensitive
+        // matching.
+        let normalized = prose.split_whitespace().collect::<Vec<_>>().join(" ");
+        let lower = normalized.to_lowercase();
+        if LITERATURE_INTENT_KEYWORDS.iter().any(|k| lower.contains(k)) {
+            return true;
+        }
+        // "compared to literature" / "compared to the literature" — the
+        // "literature" stem already covers these, but keep the phrase
+        // anchors explicit so the intent is documented even if the stem
+        // list ever changes.
+        lower.contains("compared to literature") || lower.contains("compared to the literature")
+    }
+
     /// Extract a minimal IntakeFacts snapshot from the classifier
     /// output. Scaling fields remain `None`; call
     /// `with_scaling_from_map` or `from_classification_with_scaling`
@@ -424,6 +467,52 @@ mod tests {
         assert_eq!(facts.sample_count, Some(10));
         // No new fields leak into IntakeFacts.
         assert!(facts.coverage_depth.is_none());
+    }
+
+    #[test]
+    fn detect_literature_intent_on_explicit_keywords() {
+        // Each phrase must flip the flag true.
+        for prose in [
+            "Please ground the findings in the published literature.",
+            "Compare our DE genes to prior work in the field.",
+            "Include references and citations for every called variant.",
+            "I want the report to contextualize results against published studies.",
+            "Add the relevant citations from PubMed.",
+            "Compared to the literature, are these peaks novel?",
+            "Compared to literature this looks consistent.",
+        ] {
+            assert!(
+                IntakeFacts::detect_literature_intent(prose),
+                "expected literature intent to fire on: {prose:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn detect_literature_intent_stays_false_on_plain_prose() {
+        // Plain analysis prose with no literature-grounding ask.
+        for prose in [
+            "Call variants in mtDNA across 36 samples and report allele frequencies.",
+            "Bulk RNA-seq differential expression between tumor and normal.",
+            "Run quality control on some omics data.",
+            "",
+            "single-cell clustering with leiden and report marker genes",
+        ] {
+            assert!(
+                !IntakeFacts::detect_literature_intent(prose),
+                "literature intent must NOT fire on plain prose: {prose:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn detect_literature_intent_is_case_insensitive() {
+        assert!(IntakeFacts::detect_literature_intent(
+            "GROUND THIS IN THE LITERATURE"
+        ));
+        assert!(IntakeFacts::detect_literature_intent(
+            "please add CITATIONS"
+        ));
     }
 
     #[test]
