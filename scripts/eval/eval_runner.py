@@ -537,17 +537,27 @@ def main(argv: list[str]) -> int:
     def _phases() -> int:
         pending_base = [it for it in base_items
                         if _base_key(it[0].task_id, it[1].value, it[2]) not in done]
-        for _it, result in run_phase(pending_base, max_parallel=args.max_parallel,
-                                     run_fn=_run_base_item):
+        # Journal each base run AS IT COMPLETES (via run_phase's on_done), not
+        # batched after the whole phase finishes — so a usage-window exhaustion
+        # mid-phase leaves already-finished runs durable and --resume skips them.
+        # Without this, a phase that spans more than one usage window never
+        # journals and re-runs from scratch forever. Journal.append is thread+
+        # process-safe (threading.Lock + flock), so on_done can call it directly.
+        def _journal_base_done(_it, result):
             if isinstance(result, Exception):
-                # Surface (don't silently drop) a failed/timed-out base run. Journal it
-                # WITHOUT a "key" so it is NOT counted complete — --resume retries it.
                 task, arm, trial = _it
                 bk = _base_key(task.task_id, arm.value, trial)
                 journal.append({"kind": "base_failed", "fail_of": bk,
                                 "error": f"{type(result).__name__}: {result}"})
                 print(f"[run] base run {bk} FAILED ({type(result).__name__}: {result}) "
                       f"— left unscored; --resume retries", file=sys.stderr)
+            else:
+                journal.append(result[3])  # the base rec
+
+        for _it, result in run_phase(pending_base, max_parallel=args.max_parallel,
+                                     run_fn=_run_base_item,
+                                     on_done=_journal_base_done):
+            if isinstance(result, Exception):
                 continue
             item, spec, out, rec = result
             k = rec["key"]
@@ -555,7 +565,7 @@ def main(argv: list[str]) -> int:
             out_by_key[k] = out
             if "score" in rec:
                 score_by_key[k] = _score_from_dict(rec["score"])
-            journal.append(rec)
+            # journaling happens in _journal_base_done as each run completes
 
         # Reconstruct already-journaled base runs (resume) from the journal.
         for it in base_items:
@@ -607,12 +617,19 @@ def main(argv: list[str]) -> int:
                         "key": _cell_key(task.task_id, arm.value, trial, *cs),
                         "parent_key": bk, "cell": cell}
 
+            # Journal each cell AS IT COMPLETES (on_done) for the same cross-
+            # window durability reason as the base phase above.
+            def _journal_cell_done(_it, rec):
+                if not isinstance(rec, Exception):
+                    journal.append(rec)
+
             for _it, rec in run_phase(cell_items, max_parallel=args.max_parallel,
-                                      run_fn=_run_cell_item):
+                                      run_fn=_run_cell_item,
+                                      on_done=_journal_cell_done):
                 if isinstance(rec, Exception):
                     continue
                 cell_recs.setdefault(rec["parent_key"], []).append(rec["cell"])
-                journal.append(rec)
+                # journaling happens in _journal_cell_done as each cell completes
 
             for bk, cells in cell_recs.items():
                 if bk in score_by_key:

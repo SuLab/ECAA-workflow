@@ -63,7 +63,14 @@ _FAULT_PATTERNS = [
     ("silent_truncation",    "lofreq"),
     ("wrong_format_output",  "lofreq"),
 ]
-_SEEDS = (42, 43, 44)
+# Error-matrix replication seeds. Env-overridable (ECAA_EVAL_NEK_SEEDS,
+# comma-separated) so an operator can trade matrix replication for subscription
+# cost without a code edit; default keeps the canonical 3 seeds (36 cells).
+# e.g. ECAA_EVAL_NEK_SEEDS=42 -> 1 seed -> 12 cells/base run.
+_SEEDS = tuple(
+    int(s) for s in os.environ.get("ECAA_EVAL_NEK_SEEDS", "42,43,44").split(",")
+    if s.strip()
+)
 
 # Canonical sample names (the 4 paired-end chrM samples), matching the Nekrutenko
 # reference scorer's SAMPLES (score/score_run.py). Recover scoring is per-sample
