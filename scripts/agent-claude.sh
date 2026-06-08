@@ -908,19 +908,105 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     { set -x; } 2>/dev/null
   fi
 
-  # GPU passthrough. When the per-task `gpu_required`
-  # flag is on AND a non-zero GPU count is declared, add the docker
-  # `--gpus` flag. MIG profile (S5.49: `3g.40gb` etc.) routes to
-  # `--gpus device=<profile>`; otherwise `--gpus all` (the default
-  # used by all single-GPU bio workloads).
+  # GPU passthrough. When the per-task `gpu_required` flag is on AND a
+  # non-zero GPU count is declared, hand the GPU into the container.
+  # Two vendor interfaces are mutually exclusive: NVIDIA goes through the
+  # container-toolkit (`--gpus`), AMD/ROCm through raw device flags
+  # (`docker --gpus` cannot pass an AMD GPU). `DOCKER_GPU_ARGS` holds the
+  # resolved flags; the run-site spread is unchanged regardless of vendor.
+  #
+  # Vendor resolution honors ECAA_CONTAINER_GPU_VENDOR=auto|nvidia|amd|none
+  # (default auto). `auto` prefers AMD when the kfd compute node or
+  # rocminfo is present, then NVIDIA when nvidia-smi is present, else none.
+  __agent_resolve_gpu_vendor() {
+    local requested="${ECAA_CONTAINER_GPU_VENDOR:-auto}"
+    case "$requested" in
+      nvidia|amd|none)
+        printf '%s' "$requested"
+        return 0
+        ;;
+      auto) : ;;
+      *)
+        echo "agent-claude.sh: unknown ECAA_CONTAINER_GPU_VENDOR='$requested'; treating as auto" >&2
+        ;;
+    esac
+    if [ -e /dev/kfd ] || command -v rocminfo >/dev/null 2>&1; then
+      printf 'amd'
+    elif command -v nvidia-smi >/dev/null 2>&1; then
+      printf 'nvidia'
+    else
+      printf 'none'
+    fi
+  }
+
   DOCKER_GPU_ARGS=()
   if [ "${TASK_CONTAINER_GPU_REQUIRED:-false}" = "true" ] \
      && [ "${TASK_GPU_COUNT:-0}" != "0" ]; then
-    if [ -n "${TASK_GPU_MIG_PROFILE:-}" ]; then
-      DOCKER_GPU_ARGS+=("--gpus" "device=${TASK_GPU_MIG_PROFILE}")
-    else
-      DOCKER_GPU_ARGS+=("--gpus" "all")
-    fi
+    __agent_gpu_vendor="$(__agent_resolve_gpu_vendor)"
+    __agent_container_runtime="${ECAA_CONTAINER_RUNTIME:-docker}"
+    echo "agent-claude.sh: GPU required; vendor=$__agent_gpu_vendor runtime=$__agent_container_runtime" >&2
+    case "$__agent_gpu_vendor" in
+      nvidia)
+        # NVIDIA container-toolkit interface. MIG profile (S5.49:
+        # `3g.40gb` etc.) routes to `--gpus device=<profile>`; otherwise
+        # `--gpus all` (the default used by all single-GPU bio workloads).
+        # apptainer/singularity expose the same GPUs via `--nv`.
+        case "$__agent_container_runtime" in
+          apptainer|singularity)
+            DOCKER_GPU_ARGS+=("--nv")
+            ;;
+          *)
+            if [ -n "${TASK_GPU_MIG_PROFILE:-}" ]; then
+              DOCKER_GPU_ARGS+=("--gpus" "device=${TASK_GPU_MIG_PROFILE}")
+            else
+              DOCKER_GPU_ARGS+=("--gpus" "all")
+            fi
+            ;;
+        esac
+        ;;
+      amd)
+        # AMD/ROCm passthrough. ROCm needs the kernel-fusion-driver
+        # (`/dev/kfd`) plus the DRI render nodes (`/dev/dri`) bound in,
+        # and membership in the `video`/`render` groups so the container
+        # user can open them. seccomp=unconfined is required because some
+        # ROCm ioctls are not in docker's default seccomp allowlist.
+        # gfx1030 (RDNA2) lacks first-class support in several ROCm libs;
+        # HSA_OVERRIDE_GFX_VERSION makes them target the gfx1030 ISA.
+        # ECAA_ROCM_GFX_OVERRIDE tunes/disables it (empty = no override).
+        #
+        # --group-add resolves names against the CONTAINER's group db, so a
+        # bare `--group-add render` fails on images (alpine, slim bio) that
+        # lack that group. Pass the HOST numeric GIDs instead — those are
+        # what own the device nodes and grant access regardless of the
+        # image's group file. Fall back to the names only if getent fails.
+        case "$__agent_container_runtime" in
+          apptainer|singularity)
+            DOCKER_GPU_ARGS+=("--rocm")
+            ;;
+          *)
+            __agent_render_gid="$(getent group render 2>/dev/null | cut -d: -f3)"
+            __agent_video_gid="$(getent group video 2>/dev/null | cut -d: -f3)"
+            DOCKER_GPU_ARGS+=(
+              "--device=/dev/kfd"
+              "--device=/dev/dri"
+              "--group-add" "${__agent_video_gid:-video}"
+              "--group-add" "${__agent_render_gid:-render}"
+              "--security-opt" "seccomp=unconfined"
+            )
+            unset __agent_render_gid __agent_video_gid
+            ;;
+        esac
+        __agent_rocm_gfx="${ECAA_ROCM_GFX_OVERRIDE-10.3.0}"
+        if [ -n "$__agent_rocm_gfx" ]; then
+          DOCKER_GPU_ARGS+=("-e" "HSA_OVERRIDE_GFX_VERSION=${__agent_rocm_gfx}")
+        fi
+        unset __agent_rocm_gfx
+        ;;
+      none)
+        : # No GPU passthrough; container runs CPU-only.
+        ;;
+    esac
+    unset __agent_gpu_vendor __agent_container_runtime
   fi
 
   DOCKER_CPU_ARGS=()
