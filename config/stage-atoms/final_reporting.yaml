@@ -23,9 +23,15 @@ resource_profile:
   gpu: false
   runtime_class: minutes
 claim_boundary: |
-  The final report restates findings exactly as produced by upstream
-  validated tasks. Do not introduce claims that aren't backed by an
-  emitted artifact; do not soften / strengthen effect-size language.
+  Findings-first: lead with the validated result rows and the
+  biological_interpretation narrative (when present), then methods and
+  caveats. Restate findings exactly as produced by upstream validated
+  tasks — every claim traces to an emitted result row or to an
+  interpretation statement that itself cites one. Do not introduce
+  claims that aren't backed by an emitted artifact; do not soften or
+  strengthen effect-size language; do not recommend methods the
+  pipeline did not run.
+interpretation_exempt_from_word_budget: true
 # Explicit rich ports.
 # Consumes the full upstream analysis bundle; emits the final
 # narrative report (HTML primary + PDF companion).

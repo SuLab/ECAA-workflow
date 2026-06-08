@@ -371,6 +371,20 @@ pub fn plan(
         // visible as terminal nodes and don't count as a reporting
         // path on their own.
         super::reporting_consumer_synthesis::wire_dangling_analytical_atoms_to_reporting(&mut dag);
+        // WS-2 — inject the grounded biological_interpretation node
+        // between the strands and the reporting terminal, gated on
+        // ECAA_COMPOSE_INTERPRETATION. Runs AFTER strand-wiring (so every
+        // analytical atom already converged onto a terminal) and BEFORE
+        // aggregator-edge typing (so the interpretation fan-in is
+        // re-proven along with every other reporting edge). Re-run
+        // companion synthesis after injection so the
+        // validate_biological_interpretation companion lands in THIS pass.
+        if ctx.compose_interpretation {
+            super::interpretation_synthesis::inject_biological_interpretation_before_reporting(
+                &mut dag,
+            );
+            super::companion_synthesis::synthesize_validate_companions(&mut dag, atom_reg);
+        }
         // WG3 strict-mode (C2/C3): type the report/comparison fan-in edges
         // (producer -> reporting terminal) so they prove under Production.
         super::reporting_consumer_synthesis::type_aggregator_fan_in_edges(&mut dag);
@@ -503,6 +517,16 @@ pub fn plan(
             super::reporting_consumer_synthesis::wire_dangling_analytical_atoms_to_reporting(
                 &mut dag,
             );
+            // WS-2 — inject the grounded biological_interpretation node at
+            // parity with the archetype-seed branch above. Gated on
+            // ECAA_COMPOSE_INTERPRETATION; re-runs companion synthesis so
+            // validate_biological_interpretation lands in this pass.
+            if ctx.compose_interpretation {
+                super::interpretation_synthesis::inject_biological_interpretation_before_reporting(
+                    &mut dag,
+                );
+                super::companion_synthesis::synthesize_validate_companions(&mut dag, atom_reg);
+            }
             // WG3 strict-mode (C2/C3): type the report/comparison fan-in edges.
             super::reporting_consumer_synthesis::type_aggregator_fan_in_edges(&mut dag);
             // WG3 strict-mode (C4): type the discover/survey companion edges.
@@ -3229,6 +3253,75 @@ mod tests {
             source_prose: Some("count matrix".into()),
             confidence: 0.8,
         }
+    }
+
+    /// WS-2 — when `ctx.compose_interpretation` is on, a composed DAG
+    /// that reaches a reporting terminal carries a
+    /// `biological_interpretation` node wired before the final terminal,
+    /// plus its synthesized `validate_biological_interpretation`
+    /// companion. When off, neither appears. Loads the full atom +
+    /// archetype registries (same relative paths the composer_v4
+    /// integration tests use), so it exercises the real plan() pipeline.
+    #[test]
+    fn plan_injects_interpretation_only_when_flag_on() {
+        use std::path::Path;
+        let atom_reg =
+            AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("arches");
+        // Match the `bulk_rnaseq_de` archetype goal (data:0951 DE table /
+        // format:3475) so the archetype seed fires and the composed DAG
+        // carries the `reporting` + `final_reporting` terminals the
+        // interpretation pass anchors onto.
+        let goal = GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some("differential expression table".into()),
+            confidence: 0.8,
+        };
+        let project_class = "research";
+
+        // Flag OFF — no interpretation node.
+        let mut ctx_off =
+            planning_context_for_goal_with_intake("rnaseq-off", &goal, Some("bulk_rnaseq"), None, &[]);
+        ctx_off.compose_interpretation = false;
+        let res_off = plan(&ctx_off, &goal, project_class, &atom_reg, &archetype_reg);
+        if let Some(alt) = res_off.alternatives.first() {
+            assert!(
+                !alt.dag
+                    .nodes
+                    .iter()
+                    .any(|n| n.id == "biological_interpretation"),
+                "flag off must not inject interpretation"
+            );
+        }
+
+        // Flag ON — interpretation node + validate companion present.
+        let mut ctx_on =
+            planning_context_for_goal_with_intake("rnaseq-on", &goal, Some("bulk_rnaseq"), None, &[]);
+        ctx_on.compose_interpretation = true;
+        let res_on = plan(&ctx_on, &goal, project_class, &atom_reg, &archetype_reg);
+        let dag_on = &res_on
+            .alternatives
+            .first()
+            .expect("flag-on plan produces at least one alternative")
+            .dag;
+        assert!(
+            dag_on
+                .nodes
+                .iter()
+                .any(|n| n.id == "biological_interpretation"),
+            "flag on must inject interpretation; nodes={:?}",
+            dag_on.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>()
+        );
+        assert!(
+            dag_on
+                .nodes
+                .iter()
+                .any(|n| n.id == "validate_biological_interpretation"),
+            "validate companion must be synthesized for the interpretation node"
+        );
     }
 
     #[test]

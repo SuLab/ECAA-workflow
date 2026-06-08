@@ -9,6 +9,7 @@ pub mod companion_synthesis;
 pub mod dag_mutation;
 pub mod discover_companion_synthesis;
 pub mod forward_search;
+pub mod interpretation_synthesis;
 pub mod meet_in_middle;
 mod multi_branch_synthesis;
 pub mod planner;
@@ -183,6 +184,14 @@ pub struct PlanningContext {
     /// they already passed the same schema + safety validators as local
     /// atoms and carry `LifecycleState::Contracted` / `TrustLevel::Unverified`.
     pub external_overlay: Vec<crate::atom::AtomDefinition>,
+    /// `ECAA_COMPOSE_INTERPRETATION`. When true, the planner runs
+    /// `interpretation_synthesis::inject_biological_interpretation_before_reporting`
+    /// after `wire_dangling_analytical_atoms_to_reporting` and before
+    /// `type_aggregator_fan_in_edges`, in BOTH the archetype-seed and
+    /// search branches. Default false (via the struct's `Default`
+    /// derive) preserves the byte-reproducibility baseline; the
+    /// dispatcher sets it from `Config::compose_interpretation`.
+    pub compose_interpretation: bool,
 }
 
 impl PlanningContext {
@@ -334,6 +343,15 @@ mod tests {
         // Tied scores → lexical tie-break by id.
         assert_eq!(alts[0].dag.id, "alt_a");
         assert_eq!(alts[1].dag.id, "alt_b");
+    }
+
+    #[test]
+    fn compose_interpretation_defaults_off_on_planning_context() {
+        let ctx = PlanningContext::new(WorkflowIntent::default());
+        assert!(
+            !ctx.compose_interpretation,
+            "PlanningContext.compose_interpretation must default off"
+        );
     }
 
     #[test]

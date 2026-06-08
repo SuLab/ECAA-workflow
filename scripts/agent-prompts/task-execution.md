@@ -33,6 +33,13 @@ Keep token use lean: read only the task spec and the completed-dependency
 outputs you actually need, prefer in-image tools over installing new ones
 when scores are close, and keep your final narrative under ~500 words.
 
+Exception: if your task spec carries `interpretation_exempt_from_word_budget:
+true` (the `biological_interpretation` and `final_reporting` stages), the
+~500 words cap does NOT apply. Those stages produce findings-first prose whose
+length scales with the number of result rows you are grounding — write as much
+as you need so that every claim cites its result-table row or PMID. Do not pad,
+but do not truncate citations to hit a word count.
+
 ### What to write (and only this)
 
 Write everything under `runtime/outputs/$ECAA_TASK_ID/`. Do not touch

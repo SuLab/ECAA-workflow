@@ -88,6 +88,8 @@ scenarios:
     optional_atoms:
     - review_prior_work
     - contextualize_findings_with_literature
+    - biological_interpretation
+    - validate_biological_interpretation
     forbidden_atoms:
     - quantification
     - differential_expression
@@ -145,6 +147,8 @@ scenarios:
     optional_atoms:
     - review_prior_work
     - contextualize_findings_with_literature
+    - biological_interpretation
+    - validate_biological_interpretation
     forbidden_atoms:
     - quantification
     - differential_expression
@@ -201,6 +205,8 @@ scenarios:
     optional_atoms:
     - review_prior_work
     - contextualize_findings_with_literature
+    - biological_interpretation
+    - validate_biological_interpretation
     forbidden_atoms:
     - peak_calling
     - variant_calling
@@ -255,6 +261,8 @@ scenarios:
     optional_atoms:
     - review_prior_work
     - contextualize_findings_with_literature
+    - biological_interpretation
+    - validate_biological_interpretation
     forbidden_atoms:
     - peak_calling
     - variant_calling
@@ -408,6 +416,8 @@ scenarios:
     optional_atoms:
     - review_prior_work
     - contextualize_findings_with_literature
+    - biological_interpretation
+    - validate_biological_interpretation
     forbidden_atoms:
     - quantification
     - differential_expression
@@ -462,6 +472,8 @@ scenarios:
     optional_atoms:
     - review_prior_work
     - contextualize_findings_with_literature
+    - biological_interpretation
+    - validate_biological_interpretation
     forbidden_atoms:
     - quantification
     - differential_expression
@@ -3257,6 +3269,8 @@ scenarios:
     optional_atoms:
     - review_prior_work
     - contextualize_findings_with_literature
+    - biological_interpretation
+    - validate_biological_interpretation
     forbidden_atoms:
     - quantification
     - peak_calling
@@ -3304,6 +3318,8 @@ scenarios:
     optional_atoms:
     - review_prior_work
     - contextualize_findings_with_literature
+    - biological_interpretation
+    - validate_biological_interpretation
     forbidden_atoms:
     - quantification
     - peak_calling

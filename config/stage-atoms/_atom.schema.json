@@ -324,6 +324,10 @@
       "minLength": 1,
       "description": "claim_boundary directive carried into emitted package's interpretation policy."
     },
+    "interpretation_exempt_from_word_budget": {
+      "type": "boolean",
+      "description": "When true, the atom's interpretation/findings narrative is exempt from the dispatched agent's ~500-word narrative cap (the cap applies only to the factual-summary and methods sections). Set on interpretation/reporting atoms whose value is depth of interpretation."
+    },
     "condition": {
       "type": "string",
       "minLength": 1,

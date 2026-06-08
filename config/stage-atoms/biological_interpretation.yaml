@@ -1,0 +1,79 @@
+id: biological_interpretation
+version: "1.0.0"
+role: operation
+description: |
+  Synthesize a findings-first interpretation of the validated upstream
+  analysis. Two intertwined obligations, both method-neutral:
+  (1) BIOLOGICAL — explain what the validated result rows mean in the
+  organism/tissue/disease context, every statement anchored to a
+  specific result-table row (or a cited PMID when contextualized by
+  literature). (2) METHOD JUSTIFICATION — explain why the chosen
+  pipeline methods are appropriate for THIS data and goal, citing the
+  discover_*/result.json choices already made. Never recommend a method
+  the pipeline did not run; describe the choice that was made.
+edam_operation: "operation:0337"
+assignee: agent
+depends_on:
+  - reporting
+inputs:
+  - name: analysis_bundle
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2048"
+      label: "Report"
+      ontology_version: "EDAM-1.25"
+    physical_format: { iri: "format:3464", label: "JSON" }
+    privacy_class: internal
+  - name: literature_concordance
+    # OPTIONAL. Mirrors the claims_evidence_matrix output port of
+    # contextualize_findings_with_literature. When that atom ran, the
+    # composer wires its output here so the interpretation is
+    # literature-grounded (claims may cite PMIDs). When absent, the
+    # interpretation composes from analysis results alone.
+    semantic_type:
+      kind: ontology_term
+      iri: "ecaax:claims_evidence_matrix"
+      label: "Claims-evidence matrix"
+      ontology_version: "ecaax-1"
+    physical_format: { iri: "format:3752", label: "CSV" }
+    cardinality: { kind: optional }
+    privacy_class: internal
+outputs:
+  - name: interpretation
+    semantic_type:
+      kind: local_extension
+      namespace: "ecaax"
+      id: "biological_interpretation"
+      proposed_parent_terms:
+        - "data:2048"
+      definition: "Findings-first biological + method-justification interpretation, every claim anchored to a result row or cited PMID."
+    physical_format: { iri: "format:1196", label: "Markdown" }
+    privacy_class: internal
+  - name: interpretation_result
+    semantic_type:
+      kind: ontology_term
+      iri: "data:2048"
+      label: "Report"
+      ontology_version: "EDAM-1.25"
+    physical_format: { iri: "format:3464", label: "JSON" }
+    privacy_class: internal
+expected_artifacts:
+  - interpretation.md
+  - result.json
+resource_profile: { cpu: light, memory: small, gpu: false, runtime_class: minutes }
+figure_exempt:
+  reason: "Structured-text interpretation only; no plottable data product."
+  category: non_plottable
+interpretation_exempt_from_word_budget: true
+claim_boundary: |
+  Every interpretive statement MUST cite its evidence inline: either a
+  specific upstream result-table row (e.g. the differential-expression
+  row for a named gene, the called-variant row, the called-peak row) OR,
+  when a literature_concordance matrix was provided, a PMID drawn from
+  that matrix. Statements with no result-row and no PMID anchor are
+  forbidden. Do NOT recommend, prefer, or rank any method the pipeline
+  did not run — method discussion is limited to JUSTIFYING the method
+  the pipeline already selected (cite the relevant discover_*/result.json
+  choice). Do NOT soften or strengthen effect-size language beyond what
+  the result rows state. Do NOT invent prior findings; absence of a PMID
+  for a claim means the claim is result-row-grounded only.

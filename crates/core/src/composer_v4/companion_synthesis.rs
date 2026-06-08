@@ -432,6 +432,24 @@ mod tests {
         );
     }
 
+    /// WS-2 — the injected biological_interpretation node is an
+    /// Operation atom with an output port, so it IS eligible for a
+    /// validate companion. This guards against the interpretation node
+    /// silently slipping past validation (it produces SME-facing claims
+    /// that need the same downstream check a regular operation gets).
+    #[test]
+    fn biological_interpretation_gets_validate_companion() {
+        let mut dag =
+            dummy_dag_with_node("biological_interpretation", crate::atom::AtomRole::Operation);
+        let reg = AtomRegistry::default();
+        synthesize_validate_companions(&mut dag, &reg);
+        let ids: BTreeSet<String> = dag.nodes.iter().map(|n| n.id.clone()).collect();
+        assert!(
+            ids.contains("validate_biological_interpretation"),
+            "interpretation node must receive a validate companion; got {ids:?}"
+        );
+    }
+
     /// WG3 strict-mode: the validate-companion edge must be engine-proven
     /// (`TypedDataFlow`), not a hardcoded `OrderingOnly`. The synthesized
     /// validator consumes the producer's output, so the producer-output /

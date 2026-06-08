@@ -312,6 +312,13 @@ pub struct Config {
     /// corpus + byte-reproducibility baseline.
     pub compose_strict: bool,
 
+    /// `ECAA_COMPOSE_INTERPRETATION`. When true, the v4 planner injects
+    /// a `biological_interpretation` node (and its synthesized
+    /// `validate_biological_interpretation` companion) between the
+    /// analytical strands and the reporting terminal. Default false
+    /// preserves the passing corpus + byte-reproducibility baseline.
+    pub compose_interpretation: bool,
+
     /// Operator-declared curated external-registry snapshot dirs (F3).
     /// Colon-separated `ECAA_EXTERNAL_CURATED_DIRS`. Dirs NOT in this
     /// list resolve at `RegistryTier::Community`. Empty by default.
@@ -491,6 +498,10 @@ impl Config {
         // `ECAA_COMPOSE_STRICT` — RiskMode::Production band (WG3). Off by
         // default (Draft) so the corpus + byte baseline are unchanged.
         let compose_strict = parse_bool(env, "ECAA_COMPOSE_STRICT", false);
+        // `ECAA_COMPOSE_INTERPRETATION` — inject the grounded
+        // `biological_interpretation` node. Off by default so the corpus +
+        // byte baseline are unchanged.
+        let compose_interpretation = parse_bool(env, "ECAA_COMPOSE_INTERPRETATION", false);
 
         // `ECAA_EXTERNAL_CURATED_DIRS` (F3) — colon-separated curated
         // registry dirs. Empties dropped; authored order preserved.
@@ -540,6 +551,7 @@ impl Config {
             port,
             git_enabled,
             compose_strict,
+            compose_interpretation,
             external_curated_dirs,
             modality_drift_mode,
         })
@@ -593,6 +605,7 @@ impl std::fmt::Debug for Config {
             .field("port", &self.port)
             .field("git_enabled", &self.git_enabled)
             .field("compose_strict", &self.compose_strict)
+            .field("compose_interpretation", &self.compose_interpretation)
             .field("modality_drift_mode", &self.modality_drift_mode)
             .finish()
     }
@@ -651,6 +664,7 @@ impl Default for ConfigBuilder {
                 port: DEFAULT_PORT,
                 git_enabled: true,
                 compose_strict: false,
+                compose_interpretation: false,
                 external_curated_dirs: Vec::new(),
                 modality_drift_mode: ModalityDriftMode::Warn,
             },
@@ -1183,5 +1197,23 @@ mod tests {
     fn external_curated_dirs_default_empty() {
         let cfg = Config::from_env_map(&HashMap::new()).unwrap();
         assert!(cfg.external_curated_dirs.is_empty());
+    }
+
+    #[test]
+    fn compose_interpretation_defaults_off_and_parses_on() {
+        let empty: HashMap<&str, &str> = HashMap::new();
+        let cfg = Config::from_env_map(&empty).expect("empty env config");
+        assert!(
+            !cfg.compose_interpretation,
+            "compose_interpretation must default off"
+        );
+
+        let mut env: HashMap<&str, &str> = HashMap::new();
+        env.insert("ECAA_COMPOSE_INTERPRETATION", "1");
+        let cfg = Config::from_env_map(&env).expect("env config");
+        assert!(
+            cfg.compose_interpretation,
+            "ECAA_COMPOSE_INTERPRETATION=1 must enable"
+        );
     }
 }
