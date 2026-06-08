@@ -68,6 +68,11 @@ pub mod dependency_lock;
 pub mod derived_image;
 pub mod resilient_client;
 pub mod saga;
+// Pure, deterministic descriptive-statistics helpers (DistributionStats +
+// compute_distribution_stats / is_within_reference_range /
+// detect_outliers_zscore). Shared by claim_verifier numeric-distribution
+// checks and the harness domain-correctness assertion arms.
+pub mod statistical_helpers;
 // Grant v19 §Authentication of Key Resources + §Aim 3A Arm B′ —
 // determinism-shim sidecar payload assembly. Emitted as
 // `runtime/determinism-shim.json` by the conversation crate's
