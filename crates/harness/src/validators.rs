@@ -502,6 +502,117 @@ impl ValidatorRunner for DeterminismRerunRunner {
     }
 }
 
+/// `variant_af_spectrum_plausible`. Reads
+/// `<artifact_path>/result.json::af_values` (a JSON array of allele
+/// frequencies) and asserts the spectrum is well-formed for a
+/// heteroplasmy-dominated mtDNA call set: every AF lies in `[0, 1]` and
+/// the median sits at the low end (right-skewed). This is the
+/// obligation-keyed companion to the goal-driven
+/// `numeric_distribution` assertion arm — it guards the *shape* of the
+/// AF column rather than a specific operator bound, so it never hands
+/// the agent a threshold. Soft-skips when `af_values` is absent.
+pub struct VariantAfSpectrumPlausibleRunner;
+
+impl ValidatorRunner for VariantAfSpectrumPlausibleRunner {
+    fn obligation_id(&self) -> &'static str {
+        "variant_af_spectrum_plausible"
+    }
+
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        let results = match read_json(&artifact_path.join("result.json")) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+        let Some(arr) = results.get("af_values").and_then(|v| v.as_array()) else {
+            return ValidatorOutcome::Errored {
+                reason: "result.json::af_values not present".into(),
+            };
+        };
+        let values: Vec<f64> = arr.iter().filter_map(|v| v.as_f64()).collect();
+        if values.is_empty() {
+            return ValidatorOutcome::Errored {
+                reason: "result.json::af_values is empty or non-numeric".into(),
+            };
+        }
+        // Every AF must be a fraction in [0, 1].
+        let out_of_unit: Vec<f64> = values
+            .iter()
+            .copied()
+            .filter(|&v| !(0.0..=1.0).contains(&v))
+            .collect();
+        if !out_of_unit.is_empty() {
+            return ValidatorOutcome::Failed {
+                message: format!(
+                    "{} allele frequency value(s) outside [0, 1]: {}",
+                    out_of_unit.len(),
+                    out_of_unit
+                        .iter()
+                        .take(3)
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            };
+        }
+        let stats = ecaa_workflow_core::statistical_helpers::compute_distribution_stats(&values);
+        // A heteroplasmy-dominated mtDNA AF spectrum is right-skewed: the
+        // median must not sit above the midpoint. A median > 0.5 means the
+        // call set is dominated by near-homoplasmic calls, which flags a
+        // reference / allele-frequency-orientation error.
+        if stats.p50 > 0.5 {
+            return ValidatorOutcome::Failed {
+                message: format!(
+                    "AF spectrum median {:.4} > 0.5 — not the right-skewed shape expected for mtDNA heteroplasmy",
+                    stats.p50
+                ),
+            };
+        }
+        ValidatorOutcome::Passed
+    }
+}
+
+/// `variant_filtered_count_consistency`. Reads the filtered stage's
+/// `<artifact_path>/result.json::variant_count` and the upstream called
+/// count recorded as `result.json::called_variant_count` (the agent
+/// copies the upstream total forward at filter time). Asserts the
+/// filtered count does not exceed the called count — filtering removes,
+/// never adds. This is the obligation-keyed companion to the
+/// `cross_stage_output_comparison` assertion arm for harness installs
+/// that route via the ValidatorRunner registry instead of the
+/// validation contract. Soft-skips when either field is absent.
+pub struct VariantFilteredCountConsistencyRunner;
+
+impl ValidatorRunner for VariantFilteredCountConsistencyRunner {
+    fn obligation_id(&self) -> &'static str {
+        "variant_filtered_count_consistency"
+    }
+
+    fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
+        let results = match read_json(&artifact_path.join("result.json")) {
+            Ok(v) => v,
+            Err(e) => return e,
+        };
+        let filtered = results.get("variant_count").and_then(|v| v.as_f64());
+        let called = results.get("called_variant_count").and_then(|v| v.as_f64());
+        match (filtered, called) {
+            (Some(f), Some(c)) => {
+                if f <= c {
+                    ValidatorOutcome::Passed
+                } else {
+                    ValidatorOutcome::Failed {
+                        message: format!(
+                            "filtered variant count {f} exceeds called count {c} — filtering must not add records"
+                        ),
+                    }
+                }
+            }
+            _ => ValidatorOutcome::Errored {
+                reason: "result.json missing variant_count / called_variant_count".into(),
+            },
+        }
+    }
+}
+
 fn read_json(path: &Path) -> Result<serde_json::Value, ValidatorOutcome> {
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
@@ -627,10 +738,27 @@ pub fn default_runners() -> Vec<Box<dyn ValidatorRunner>> {
         Box::new(CellBarcodeMatrixDimensionConsistencyRunner),
         Box::new(TrainTestLeakageCheckRunner),
         Box::new(DeterminismRerunRunner),
+        // Variant-domain runners. These obligation ids are harness-local
+        // (not yet mirrored in core's starter registry); they are the
+        // ValidatorRunner companions to the goal-driven variant
+        // assertion arms and are exempted in
+        // `default_runners_cover_starter_obligations`.
+        Box::new(VariantAfSpectrumPlausibleRunner),
+        Box::new(VariantFilteredCountConsistencyRunner),
     ];
     runners.extend(crate::literature_validators::literature_runners());
     runners
 }
+
+/// Harness-local variant-domain obligation ids that intentionally have
+/// no entry in core's `validation_obligations` starter registry. They
+/// are the ValidatorRunner companions to the goal-driven variant
+/// assertion arms (driven by `validation-contract-variants.json`) and
+/// are exempted from the starter-coverage drift check below. If the
+/// integrated build later mirrors these into core's starter set, remove
+/// them from this list so the drift check re-tightens.
+const HARNESS_LOCAL_VARIANT_OBLIGATIONS: &[&str] =
+    &["variant_af_spectrum_plausible", "variant_filtered_count_consistency"];
 
 #[cfg(test)]
 mod tests {
@@ -727,6 +855,80 @@ mod tests {
         }
     }
 
+    #[test]
+    fn variant_af_spectrum_plausible_passes_right_skewed_unit_set() {
+        let tmp = TempDir::new().unwrap();
+        write_result_json(
+            tmp.path(),
+            serde_json::json!({ "af_values": [0.01, 0.02, 0.05, 0.10, 0.40, 0.80] }),
+        );
+        let runner = VariantAfSpectrumPlausibleRunner;
+        assert_eq!(runner.run(tmp.path()), ValidatorOutcome::Passed);
+    }
+
+    #[test]
+    fn variant_af_spectrum_plausible_fails_out_of_unit_af() {
+        let tmp = TempDir::new().unwrap();
+        write_result_json(
+            tmp.path(),
+            serde_json::json!({ "af_values": [0.1, 1.5, 0.2] }),
+        );
+        let runner = VariantAfSpectrumPlausibleRunner;
+        match runner.run(tmp.path()) {
+            ValidatorOutcome::Failed { message } => assert!(message.contains("1.5"), "{message}"),
+            other => panic!("expected Failed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn variant_af_spectrum_plausible_fails_high_median() {
+        let tmp = TempDir::new().unwrap();
+        write_result_json(
+            tmp.path(),
+            serde_json::json!({ "af_values": [0.90, 0.95, 0.99, 0.92] }),
+        );
+        let runner = VariantAfSpectrumPlausibleRunner;
+        match runner.run(tmp.path()) {
+            ValidatorOutcome::Failed { message } => assert!(message.contains("median"), "{message}"),
+            other => panic!("expected Failed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn variant_af_spectrum_missing_field_is_errored() {
+        let tmp = TempDir::new().unwrap();
+        write_result_json(tmp.path(), serde_json::json!({ "summary": "ok" }));
+        let runner = VariantAfSpectrumPlausibleRunner;
+        assert!(matches!(runner.run(tmp.path()), ValidatorOutcome::Errored { .. }));
+    }
+
+    #[test]
+    fn variant_filtered_count_consistency_passes_when_filtered_le_called() {
+        let tmp = TempDir::new().unwrap();
+        write_result_json(
+            tmp.path(),
+            serde_json::json!({ "variant_count": 80, "called_variant_count": 100 }),
+        );
+        let runner = VariantFilteredCountConsistencyRunner;
+        assert_eq!(runner.run(tmp.path()), ValidatorOutcome::Passed);
+    }
+
+    #[test]
+    fn variant_filtered_count_consistency_fails_when_filtered_gt_called() {
+        let tmp = TempDir::new().unwrap();
+        write_result_json(
+            tmp.path(),
+            serde_json::json!({ "variant_count": 120, "called_variant_count": 100 }),
+        );
+        let runner = VariantFilteredCountConsistencyRunner;
+        match runner.run(tmp.path()) {
+            ValidatorOutcome::Failed { message } => {
+                assert!(message.contains("exceeds"), "{message}")
+            }
+            other => panic!("expected Failed, got {other:?}"),
+        }
+    }
+
     /// Regression: every runner in `default_runners()` must return an
     /// `obligation_id` that exists in the canonical starter obligation
     /// set declared by `crates/core::validation_obligations`. The
@@ -761,6 +963,10 @@ mod tests {
             .iter()
             .map(|r| r.obligation_id())
             .filter(|id| !canonical_starter_ids.contains(*id))
+            // Harness-local variant-domain obligations are intentionally
+            // not in core's starter registry (companions to the
+            // goal-driven variant assertion arms).
+            .filter(|id| !HARNESS_LOCAL_VARIANT_OBLIGATIONS.contains(id))
             .collect();
         assert!(
             drifted.is_empty(),

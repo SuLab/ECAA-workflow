@@ -4559,6 +4559,21 @@ fn enforce_validation_contract(
 
     let mut violations: Vec<(String, Vec<String>)> = Vec::new();
 
+    // Map upstream task_id -> its output dir, so cross-stage assertions
+    // can resolve a producer's result regardless of which validator is
+    // running. Deterministic: BTreeMap, sorted iteration over task ids.
+    let mut upstream_outputs: std::collections::BTreeMap<String, std::path::PathBuf> =
+        std::collections::BTreeMap::new();
+    for tid in dag.tasks.keys() {
+        upstream_outputs.insert(
+            tid.to_string(),
+            pkg_dir
+                .join("runtime")
+                .join("outputs")
+                .join(tid.to_string()),
+        );
+    }
+
     // For each validate_<stage> that's Completed, run its contract block.
     // Typed role via `derive_role_from_id`.
     let task_ids: Vec<String> = dag.tasks.keys().map(|id| id.to_string()).collect();
@@ -4598,7 +4613,7 @@ fn enforce_validation_contract(
             if severity != "required" {
                 continue;
             }
-            if !run_assertion(pkg_dir, a) {
+            if !run_assertion(pkg_dir, a, &upstream_outputs) {
                 failed_ids.push(id);
             }
         }
@@ -4636,10 +4651,68 @@ fn enforce_validation_contract(
     Ok(violations)
 }
 
+/// Read a JSON value at `pointer` (RFC-6901) from `path` and return it
+/// as f64. Returns `None` when the file is missing/unparseable, the
+/// pointer doesn't resolve, or the value isn't numeric. Used by the
+/// numeric assertion arms; pessimistic by construction (None → false at
+/// the call site).
+fn read_json_pointer_f64(path: &Path, pointer: &str) -> Option<f64> {
+    let bytes = read_bytes_capped(path, resolve_max_bytes()).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v.pointer(pointer).and_then(|x| x.as_f64())
+}
+
+/// Compare `lhs op rhs` for the contract comparison vocabulary.
+/// Unknown operators return false (pessimistic).
+fn numeric_compare(lhs: f64, op: &str, rhs: f64) -> bool {
+    match op {
+        "gte" => lhs >= rhs,
+        "gt" => lhs > rhs,
+        "lte" => lhs <= rhs,
+        "lt" => lhs < rhs,
+        "eq" => (lhs - rhs).abs() < f64::EPSILON,
+        _ => false,
+    }
+}
+
+/// Read a JSON array of numbers at `pointer` from `path` into a Vec<f64>.
+/// Returns `None` if the file/pointer is missing or the value is not an
+/// array of numbers. Non-numeric elements are skipped.
+fn read_json_pointer_f64_array(path: &Path, pointer: &str) -> Option<Vec<f64>> {
+    let bytes = read_bytes_capped(path, resolve_max_bytes()).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let arr = v.pointer(pointer)?.as_array()?;
+    Some(arr.iter().filter_map(|x| x.as_f64()).collect())
+}
+
+/// Resolve a JSON pointer to a "presence cardinality": the count of
+/// non-null entries it represents. An array yields its length; a scalar
+/// (non-null) yields 1; null / missing yields 0. Used by the control
+/// presence arms. Returns `None` only on file read/parse failure (so the
+/// caller stays pessimistic).
+fn json_pointer_presence_count(path: &Path, pointer: &str) -> Option<usize> {
+    let bytes = read_bytes_capped(path, resolve_max_bytes()).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    Some(match v.pointer(pointer) {
+        Some(serde_json::Value::Array(a)) => a.len(),
+        Some(serde_json::Value::Null) | None => 0,
+        Some(_) => 1,
+    })
+}
+
 /// Per-assertion runner. Returns true when the assertion passes.
 /// Unknown assertion_types default to false (pessimistic) so any typo
 /// surfaces as a hard failure.
-fn run_assertion(pkg_dir: &Path, assertion: &serde_json::Value) -> bool {
+///
+/// `upstream` maps an upstream task_id to that task's output dir so
+/// `cross_stage_output_comparison` can read a producer's result without
+/// knowing which validator is running. The map is deterministic
+/// (BTreeMap, built once from the DAG by `enforce_validation_contract`).
+fn run_assertion(
+    pkg_dir: &Path,
+    assertion: &serde_json::Value,
+    upstream: &std::collections::BTreeMap<String, std::path::PathBuf>,
+) -> bool {
     let atype = match assertion.get("assertion_type").and_then(|v| v.as_str()) {
         Some(s) => s,
         None => return false,
@@ -4684,6 +4757,158 @@ fn run_assertion(pkg_dir: &Path, assertion: &serde_json::Value) -> bool {
             } else {
                 false
             }
+        }
+        "numeric_threshold" => {
+            let path = resolve(target);
+            let Some(check) = assertion.get("check") else {
+                return false;
+            };
+            let Some(pointer) = check.get("json_pointer").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(op) = check.get("op").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(rhs) = check.get("value").and_then(|v| v.as_f64()) else {
+                return false;
+            };
+            match read_json_pointer_f64(&path, pointer) {
+                Some(lhs) => numeric_compare(lhs, op, rhs),
+                None => false,
+            }
+        }
+        "numeric_distribution" => {
+            let path = resolve(target);
+            let Some(check) = assertion.get("check") else {
+                return false;
+            };
+            let Some(pointer) = check.get("json_pointer").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(stat) = check.get("stat").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(op) = check.get("op").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(rhs) = check.get("value").and_then(|v| v.as_f64()) else {
+                return false;
+            };
+            let Some(values) = read_json_pointer_f64_array(&path, pointer) else {
+                return false;
+            };
+            if values.is_empty() {
+                return false;
+            }
+            let s = ecaa_workflow_core::statistical_helpers::compute_distribution_stats(&values);
+            let observed = match stat {
+                "mean" => s.mean,
+                "stdev" => s.stdev,
+                "skewness" => s.skewness,
+                "kurtosis" => s.kurtosis,
+                "p5" => s.p5,
+                "p50" => s.p50,
+                "p95" => s.p95,
+                _ => return false,
+            };
+            numeric_compare(observed, op, rhs)
+        }
+        "reference_range_outlier" => {
+            let path = resolve(target);
+            let Some(check) = assertion.get("check") else {
+                return false;
+            };
+            let Some(pointer) = check.get("json_pointer").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(rmin) = check.get("reference_min").and_then(|v| v.as_f64()) else {
+                return false;
+            };
+            let Some(rmax) = check.get("reference_max").and_then(|v| v.as_f64()) else {
+                return false;
+            };
+            let tol = check
+                .get("tolerance")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.0);
+            let Some(values) = read_json_pointer_f64_array(&path, pointer) else {
+                return false;
+            };
+            if values.is_empty() {
+                return false;
+            }
+            // Assertion PASSES when every observed value is within the
+            // reference range (padded by tolerance) — i.e. no domain
+            // outliers. A single out-of-range value fails the assertion.
+            values.iter().all(|&v| {
+                ecaa_workflow_core::statistical_helpers::is_within_reference_range(
+                    v, rmin, rmax, tol,
+                )
+            })
+        }
+        "positive_control_present" => {
+            let path = resolve(target);
+            let Some(pointer) = assertion
+                .get("check")
+                .and_then(|c| c.get("json_pointer"))
+                .and_then(|v| v.as_str())
+            else {
+                return false;
+            };
+            // Passes when the positive control was detected (count >= 1).
+            json_pointer_presence_count(&path, pointer)
+                .map(|n| n >= 1)
+                .unwrap_or(false)
+        }
+        "negative_control_present" => {
+            let path = resolve(target);
+            let Some(pointer) = assertion
+                .get("check")
+                .and_then(|c| c.get("json_pointer"))
+                .and_then(|v| v.as_str())
+            else {
+                return false;
+            };
+            // The negative control must NOT be called: the assertion passes
+            // only when the count is exactly 0 (no false positive). A read
+            // failure stays pessimistic-false.
+            json_pointer_presence_count(&path, pointer)
+                .map(|n| n == 0)
+                .unwrap_or(false)
+        }
+        "cross_stage_output_comparison" => {
+            let this_path = resolve(target);
+            let Some(check) = assertion.get("check") else {
+                return false;
+            };
+            let Some(this_ptr) = check.get("this_pointer").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(up_task) = check.get("upstream_task").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let up_file = check
+                .get("upstream_file")
+                .and_then(|v| v.as_str())
+                .unwrap_or("result.json");
+            let Some(up_ptr) = check.get("upstream_pointer").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(op) = check.get("op").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(up_dir) = upstream.get(up_task) else {
+                return false; // upstream task output not available → pessimistic
+            };
+            let this_val = match read_json_pointer_f64(&this_path, this_ptr) {
+                Some(v) => v,
+                None => return false,
+            };
+            let up_val = match read_json_pointer_f64(&up_dir.join(up_file), up_ptr) {
+                Some(v) => v,
+                None => return false,
+            };
+            numeric_compare(this_val, op, up_val)
         }
         _ => false,
     }
@@ -5522,6 +5747,214 @@ mod read_dag_tests {
         };
         let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
         assert!(violations.is_empty());
+    }
+
+    #[test]
+    fn numeric_threshold_reads_json_pointer_and_compares() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/vc")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/vc/result.json"),
+            serde_json::json!({ "summary": { "variant_count": 42 } }).to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        // >= 10 passes
+        let a_pass = serde_json::json!({
+            "id": "vc.min_variants",
+            "assertion_type": "numeric_threshold",
+            "target": "runtime/outputs/vc/result.json",
+            "check": { "json_pointer": "/summary/variant_count", "op": "gte", "value": 10.0 }
+        });
+        assert!(run_assertion(pkg, &a_pass, &empty));
+        // >= 100 fails
+        let a_fail = serde_json::json!({
+            "id": "vc.min_variants_high",
+            "assertion_type": "numeric_threshold",
+            "target": "runtime/outputs/vc/result.json",
+            "check": { "json_pointer": "/summary/variant_count", "op": "gte", "value": 100.0 }
+        });
+        assert!(!run_assertion(pkg, &a_fail, &empty));
+        // Missing pointer is pessimistic-false.
+        let a_missing = serde_json::json!({
+            "id": "vc.absent",
+            "assertion_type": "numeric_threshold",
+            "target": "runtime/outputs/vc/result.json",
+            "check": { "json_pointer": "/summary/nope", "op": "gte", "value": 1.0 }
+        });
+        assert!(!run_assertion(pkg, &a_missing, &empty));
+    }
+
+    #[test]
+    fn numeric_distribution_checks_p_stats_against_bounds() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/vc")).unwrap();
+        // AF spectrum: most low, deterministic.
+        std::fs::write(
+            pkg.join("runtime/outputs/vc/result.json"),
+            serde_json::json!({ "af_values": [0.01,0.02,0.03,0.05,0.10,0.20,0.40,0.80] })
+                .to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        // p50 should sit in [0.0, 0.5]; min observed value >= 0.0.
+        let a = serde_json::json!({
+            "id": "vc.af_spectrum",
+            "assertion_type": "numeric_distribution",
+            "target": "runtime/outputs/vc/result.json",
+            "check": {
+                "json_pointer": "/af_values",
+                "stat": "p50", "op": "lte", "value": 0.5
+            }
+        });
+        assert!(run_assertion(pkg, &a, &empty));
+        let a_bad = serde_json::json!({
+            "id": "vc.af_spectrum_bad",
+            "assertion_type": "numeric_distribution",
+            "target": "runtime/outputs/vc/result.json",
+            "check": { "json_pointer": "/af_values", "stat": "p50", "op": "gte", "value": 0.9 }
+        });
+        assert!(!run_assertion(pkg, &a_bad, &empty));
+    }
+
+    #[test]
+    fn reference_range_outlier_flags_only_within_tolerance() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/vc")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/vc/result.json"),
+            serde_json::json!({ "variant_count_per_sample": [40, 42, 41, 39, 43] }).to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        // Reference [10, 100], 0 tolerance — all in range, passes (no outliers).
+        let a = serde_json::json!({
+            "id": "vc.per_sample",
+            "assertion_type": "reference_range_outlier",
+            "target": "runtime/outputs/vc/result.json",
+            "check": { "json_pointer": "/variant_count_per_sample",
+                       "reference_min": 10.0, "reference_max": 100.0, "tolerance": 0.0 }
+        });
+        assert!(run_assertion(pkg, &a, &empty));
+        // Tight reference [10, 41] — 42 and 43 fall outside → assertion fails.
+        let a_bad = serde_json::json!({
+            "id": "vc.per_sample_tight",
+            "assertion_type": "reference_range_outlier",
+            "target": "runtime/outputs/vc/result.json",
+            "check": { "json_pointer": "/variant_count_per_sample",
+                       "reference_min": 10.0, "reference_max": 41.0, "tolerance": 0.0 }
+        });
+        assert!(!run_assertion(pkg, &a_bad, &empty));
+    }
+
+    #[test]
+    fn positive_and_negative_control_arms() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/vc")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/vc/result.json"),
+            serde_json::json!({
+                "controls": { "positive_called": ["rs6311"], "negative_called": [] }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        // positive control must be present (non-empty array).
+        let pos = serde_json::json!({
+            "id": "vc.pos_ctrl",
+            "assertion_type": "positive_control_present",
+            "target": "runtime/outputs/vc/result.json",
+            "check": { "json_pointer": "/controls/positive_called" }
+        });
+        assert!(run_assertion(pkg, &pos, &empty));
+        // negative control must be ABSENT (empty array == no false call).
+        let neg = serde_json::json!({
+            "id": "vc.neg_ctrl",
+            "assertion_type": "negative_control_present",
+            "target": "runtime/outputs/vc/result.json",
+            "check": { "json_pointer": "/controls/negative_called" }
+        });
+        assert!(run_assertion(pkg, &neg, &empty));
+        // A non-empty negative-called array fails the negative-control arm.
+        std::fs::write(
+            pkg.join("runtime/outputs/vc/result.json"),
+            serde_json::json!({
+                "controls": { "positive_called": [], "negative_called": ["spurious"] }
+            })
+            .to_string(),
+        )
+        .unwrap();
+        assert!(!run_assertion(pkg, &pos, &empty)); // empty positive → fail
+        assert!(!run_assertion(pkg, &neg, &empty)); // non-empty negative → fail
+    }
+
+    #[test]
+    fn cross_stage_comparison_uses_upstream_map() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/variant_calling")).unwrap();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/variant_filtering")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_calling/result.json"),
+            serde_json::json!({ "variant_count": 100 }).to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_filtering/result.json"),
+            serde_json::json!({ "variant_count": 80 }).to_string(),
+        )
+        .unwrap();
+        let mut upstream: std::collections::BTreeMap<String, std::path::PathBuf> =
+            std::collections::BTreeMap::new();
+        upstream.insert(
+            "variant_calling".into(),
+            pkg.join("runtime/outputs/variant_calling"),
+        );
+        // filtered(80) <= called(100) → passes.
+        let a = serde_json::json!({
+            "id": "vf.filtered_le_called",
+            "assertion_type": "cross_stage_output_comparison",
+            "target": "runtime/outputs/variant_filtering/result.json",
+            "check": {
+                "this_pointer": "/variant_count",
+                "upstream_task": "variant_calling",
+                "upstream_file": "result.json",
+                "upstream_pointer": "/variant_count",
+                "op": "lte"
+            }
+        });
+        assert!(run_assertion(pkg, &a, &upstream));
+        // A missing upstream task in the map is pessimistic-false.
+        let empty = std::collections::BTreeMap::new();
+        assert!(!run_assertion(pkg, &a, &empty));
+        // filtered > called → fails (filtering can only remove records).
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_filtering/result.json"),
+            serde_json::json!({ "variant_count": 120 }).to_string(),
+        )
+        .unwrap();
+        assert!(!run_assertion(pkg, &a, &upstream));
+    }
+
+    /// Pessimistic-unknown contract: an unrecognized assertion_type must
+    /// fail closed (false), never silently pass.
+    #[test]
+    fn unknown_assertion_type_fails_closed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let empty = std::collections::BTreeMap::new();
+        let a = serde_json::json!({
+            "id": "vc.bogus",
+            "assertion_type": "totally_made_up_check",
+            "target": "runtime/outputs/vc/result.json",
+            "check": {}
+        });
+        assert!(!run_assertion(pkg, &a, &empty));
     }
 
     #[test]

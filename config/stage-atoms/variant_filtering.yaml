@@ -57,3 +57,13 @@ outputs:
       iri: "format:3016"
       label: "VCF"
     privacy_class: internal
+# Validator obligations run by the harness post-filtering. p-value range
+# guards QUAL/score columns that get renormalized into [0,1]; coordinate
+# sanity guards the surviving records. The cross-stage invariants
+# (filtered <= called, sample-count consistency, no record below the
+# declared filter threshold) are enforced by the goal-driven
+# validation-contract-variants cross_stage_output_comparison arms.
+validators:
+  - p_value_in_unit_interval
+  - coordinate_in_contig
+  - variant_filtered_count_consistency

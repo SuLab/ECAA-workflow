@@ -49,3 +49,15 @@ outputs:
       iri: "format:3016"
       label: "VCF"
     privacy_class: internal
+# Validator obligations run by the harness against the emitted VCF +
+# result.json. companion_synthesis synthesizes validate_variant_calling
+# from this list; the harness routes each id to its ValidatorRunner.
+# Coordinate sanity is the domain invariant: every called position must
+# fall inside its declared contig. Determinism guards against a
+# nondeterministic caller. AF-spectrum + per-sample-count sanity is
+# additionally enforced by the goal-driven validation-contract-variants
+# assertion arms (numeric_distribution / reference_range_outlier).
+validators:
+  - coordinate_in_contig
+  - deterministic_or_bounded_variance
+  - variant_af_spectrum_plausible

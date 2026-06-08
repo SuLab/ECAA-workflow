@@ -1,0 +1,124 @@
+{
+  "contract_id": "validation-contract-variants",
+  "description": "Domain-correctness assertions for the variant-calling taxonomy (mtDNA + germline/somatic SNV/indel). §3.2 cross-stage invariants are `required`; §3.1 mtDNA AF-spectrum bounds are `required`; §3.3-3.5 distributional + control sanity checks are `recommended`. Thresholds are operator-authored reference bounds, never handed to the execution agent (method neutrality): each assertion recomputes statistics from the agent's emitted result.json and compares against the bound. Goal-driven and SME-overridable — an SME may widen or tighten any reference bound; the harness never instructs the agent which threshold to apply.",
+  "version": "1.0.0",
+  "stages": {
+    "variant_calling": {
+      "assertions": [
+        {
+          "id": "variant_calling.vcf_present",
+          "description": "A called VCF must exist.",
+          "assertion_type": "artifact_glob_any",
+          "target": "runtime/outputs/variant_calling/*.vcf*",
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.sample_count_recorded",
+          "description": "§3.2 precondition: result.json must record how many samples were called so downstream sample-count consistency can be checked.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/n_samples", "op": "gte", "value": 1.0 },
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.af_spectrum_median_bounded",
+          "description": "§3.1 mtDNA AF spectrum: the median allele frequency across called variants must sit at the low end (heteroplasmy-dominated mtDNA spectra are right-skewed). Reference median upper bound 0.5 — operator-authored, SME-overridable.",
+          "assertion_type": "numeric_distribution",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/af_values", "stat": "p50", "op": "lte", "value": 0.5 },
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.variant_count_per_sample_in_range",
+          "description": "§3.1 mtDNA: per-sample variant counts must fall in a plausible mtDNA reference range; values far outside flag a reference-genome or pipeline error. Reference [5, 500] with 10% band padding — operator-authored, SME-overridable.",
+          "assertion_type": "reference_range_outlier",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": {
+            "json_pointer": "/variant_count_per_sample",
+            "reference_min": 5.0,
+            "reference_max": 500.0,
+            "tolerance": 0.1
+          },
+          "severity": "required"
+        },
+        {
+          "id": "variant_calling.positive_control_recovered",
+          "description": "§3.4 (recommended): when a positive-control locus is configured, it must be among the called variants.",
+          "assertion_type": "positive_control_present",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/controls/positive_called" },
+          "severity": "recommended"
+        },
+        {
+          "id": "variant_calling.negative_control_clean",
+          "description": "§3.5 (recommended): a configured negative-control locus must NOT be called (no false positive).",
+          "assertion_type": "negative_control_present",
+          "target": "runtime/outputs/variant_calling/result.json",
+          "check": { "json_pointer": "/controls/negative_called" },
+          "severity": "recommended"
+        }
+      ]
+    },
+    "variant_filtering": {
+      "assertions": [
+        {
+          "id": "variant_filtering.filtered_le_called",
+          "description": "§3.2 cross-stage invariant: the surviving (filtered) variant count must not exceed the upstream called count — filtering removes, never adds.",
+          "assertion_type": "cross_stage_output_comparison",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": {
+            "this_pointer": "/variant_count",
+            "upstream_task": "variant_calling",
+            "upstream_file": "result.json",
+            "upstream_pointer": "/variant_count",
+            "op": "lte"
+          },
+          "severity": "required"
+        },
+        {
+          "id": "variant_filtering.min_surviving_af_above_threshold",
+          "description": "§3.2 + §3.1 post_filter_min_AF: no surviving record may fall below the declared filter AF threshold — the agent records `min_surviving_af_meets_declared_threshold` = 1 when the minimum surviving AF is >= the declared post_filter_min_AF it applied. The harness never hands the agent the threshold; it verifies the agent's own self-report against its emitted records.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": { "json_pointer": "/min_surviving_af_meets_declared_threshold", "op": "gte", "value": 1.0 },
+          "severity": "required"
+        },
+        {
+          "id": "variant_filtering.sample_count_consistent",
+          "description": "§3.2 cross-stage invariant: the filtered VCF's sample count must equal the called VCF's sample count — filtering must not drop or add samples.",
+          "assertion_type": "cross_stage_output_comparison",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": {
+            "this_pointer": "/n_samples",
+            "upstream_task": "variant_calling",
+            "upstream_file": "result.json",
+            "upstream_pointer": "/n_samples",
+            "op": "eq"
+          },
+          "severity": "required"
+        },
+        {
+          "id": "variant_filtering.post_filter_variant_count_per_sample_in_range",
+          "description": "§3.1 mtDNA: post-filter per-sample variant counts must remain in a plausible mtDNA reference range. Reference [1, 500] with 10% band padding — operator-authored, SME-overridable.",
+          "assertion_type": "reference_range_outlier",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": {
+            "json_pointer": "/variant_count_per_sample",
+            "reference_min": 1.0,
+            "reference_max": 500.0,
+            "tolerance": 0.1
+          },
+          "severity": "required"
+        },
+        {
+          "id": "variant_filtering.post_filter_af_spectrum_bounded",
+          "description": "§3.3 (recommended): the post-filter AF spectrum should remain bounded for mtDNA; a p95 above 1.0 flags a malformed AF column. Recommended, not blocking.",
+          "assertion_type": "numeric_distribution",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": { "json_pointer": "/af_values", "stat": "p95", "op": "lte", "value": 1.0 },
+          "severity": "recommended"
+        }
+      ]
+    }
+  }
+}
