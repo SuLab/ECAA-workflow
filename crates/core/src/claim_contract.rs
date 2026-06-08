@@ -22,6 +22,11 @@ pub enum ClaimContract {
     Categorical,
     /// Time-series or clinical-trial summary ("peak at day 14, n=42 enrolled")
     TimeSeriesSummary,
+    /// Literature-grounded support claim ("TP53 dysregulation is concordant
+    /// with prior reports (PMID 12345678)"). Verified against the
+    /// `claims_evidence_matrix.csv` PMID-anchored prior-work rows rather than
+    /// a numeric result table.
+    LiteratureGrounded,
 }
 
 impl ClaimContract {
@@ -30,5 +35,27 @@ impl ClaimContract {
     /// introduced round-trip cleanly with the backwards-compatible baseline.
     pub fn default_numeric() -> Self {
         Self::NumericTableLookup
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn literature_grounded_serde_rename_is_snake_case() {
+        let c = ClaimContract::LiteratureGrounded;
+        let json = serde_json::to_string(&c).expect("serialize");
+        assert_eq!(json, "\"literature_grounded\"");
+        let back: ClaimContract = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, ClaimContract::LiteratureGrounded);
+    }
+
+    #[test]
+    fn default_is_still_numeric_table_lookup() {
+        assert_eq!(
+            ClaimContract::default_numeric(),
+            ClaimContract::NumericTableLookup
+        );
     }
 }

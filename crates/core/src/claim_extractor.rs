@@ -60,6 +60,12 @@ static TIME_SERIES_RE: LazyLock<Regex> = LazyLock::new(|| {
     .expect("static regex")
 });
 
+/// Static regex for `classify_contract`'s literature-grounding PMID
+/// detector. Matches a `PMID 12345678` / `PMID: 12345678` / `pmid12345678`
+/// citation token. Hoisted for the same reason as `RANK_CLASSIFIER_RE`.
+static PMID_CITATION_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\bpmid\s*:?\s*\d{4,9}\b").expect("static regex"));
+
 /// Static regex for `extract_claims`'s sentence splitter. Hoisted so
 /// every narrative parse reuses the same compiled DFA.
 static SENTENCE_SPLITTER_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -163,6 +169,20 @@ pub enum Direction {
     Down,
 }
 
+/// Literature-support evidence attached to a [`ClaimContract::LiteratureGrounded`]
+/// claim: the upstream finding the narrative is grounding and the PMIDs the
+/// narrative cites for it. The verifier cross-checks these against the
+/// `claims_evidence_matrix.csv` row for `finding_id`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, schemars::JsonSchema)]
+#[ts(export)]
+pub struct LiteratureEvidence {
+    /// Upstream finding id the claim grounds (matches the `finding_id`
+    /// column of `claims_evidence_matrix.csv`).
+    pub finding_id: String,
+    /// PMIDs the narrative cites in support, as parsed integers.
+    pub cited_pmids: Vec<u64>,
+}
+
 /// One extracted narrative claim. Fields beyond `entity` and `excerpt`
 /// are optional — if the narrative omits an effect size, the claim
 /// still records the direction and the source table reference, and
@@ -199,6 +219,12 @@ pub struct Claim {
     /// serialized before this field was introduced.
     #[serde(default = "ClaimContract::default_numeric")]
     pub contract: ClaimContract,
+    /// Literature-support evidence for a `LiteratureGrounded` claim. `None`
+    /// for every other contract class and for claims serialized before this
+    /// field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub literature_evidence: Option<LiteratureEvidence>,
 }
 
 /// Policy-driven extractor configuration. Parsed once from the
@@ -226,6 +252,12 @@ pub struct ExtractorConfig {
     pub log2fc_tolerance: f64,
     /// Pvalue relative tolerance.
     pub pvalue_relative_tolerance: f64,
+    /// Minimum number of distinct supporting papers (PMIDs) a
+    /// literature-grounded claim must cite to be Verified. Default 2.
+    pub literature_min_papers: usize,
+    /// Minimum number of distinct evidence `source_kind`s backing a
+    /// literature-grounded claim. Default 1.
+    pub literature_min_sources: usize,
 }
 
 impl ExtractorConfig {
@@ -318,6 +350,21 @@ impl ExtractorConfig {
             .and_then(Value::as_f64)
             .unwrap_or(0.1);
 
+        // Literature-grounding thresholds for `LiteratureGrounded` claims.
+        // Missing block falls back to the defaults (2 papers, 1 source) so
+        // policies authored before the block existed keep working.
+        let lit = ve.get("literatureGrounding");
+        let literature_min_papers = lit
+            .and_then(|l| l.get("minPapers"))
+            .and_then(Value::as_u64)
+            .map(|n| n as usize)
+            .unwrap_or(2);
+        let literature_min_sources = lit
+            .and_then(|l| l.get("minSources"))
+            .and_then(Value::as_u64)
+            .map(|n| n as usize)
+            .unwrap_or(1);
+
         Ok(Self {
             entity_patterns,
             entity_exclude_patterns,
@@ -328,6 +375,8 @@ impl ExtractorConfig {
             entity_columns,
             log2fc_tolerance,
             pvalue_relative_tolerance,
+            literature_min_papers,
+            literature_min_sources,
         })
     }
 }
@@ -379,11 +428,13 @@ fn read_string_list(v: &Value, key: &str) -> Result<Vec<String>> {
 ///
 /// Priority:
 /// 1. `ThresholdedDeOrEnrichment` — FDR / padj / p< threshold patterns.
-/// 2. `RankTopN` — "top N" / "rank" constructs.
-/// 3. `GroupComparison` — directional group comparisons ("vs", "higher than", "lower than").
-/// 4. `Categorical` — cluster / label / category assignments.
-/// 5. `TimeSeriesSummary` — day / week / month / enrolled / timepoint patterns.
-/// 6. `NumericTableLookup` — fallback.
+/// 2. `LiteratureGrounded` — prior-literature / previous-finding / concordance
+///    cues, or a `PMID` citation token.
+/// 3. `RankTopN` — "top N" / "rank" constructs.
+/// 4. `GroupComparison` — directional group comparisons ("vs", "higher than", "lower than").
+/// 5. `Categorical` — cluster / label / category assignments.
+/// 6. `TimeSeriesSummary` — day / week / month / enrolled / timepoint patterns.
+/// 7. `NumericTableLookup` — fallback.
 pub fn classify_contract(sentence: &str) -> ClaimContract {
     let lower = sentence.to_lowercase();
 
@@ -435,6 +486,50 @@ pub fn classify_contract(sentence: &str) -> ClaimContract {
     let has_explicit_comparator = lower.contains('<') || lower.contains('≤');
     if has_threshold_kw && !(is_proximity_hedge && !has_explicit_comparator) {
         return ClaimContract::ThresholdedDeOrEnrichment;
+    }
+
+    // Literature-grounded support: a PMID citation token, or prose grounding
+    // the result in prior literature / a previous finding / concordance with
+    // earlier work. These are checked against the PMID-anchored
+    // `claims_evidence_matrix.csv` rather than a numeric result table.
+    let literature_keywords = [
+        "prior literature",
+        "prior reports",
+        "prior report",
+        "prior studies",
+        "prior study",
+        "prior work",
+        "previous literature",
+        "previous finding",
+        "previous findings",
+        "previous report",
+        "previous reports",
+        "previous studies",
+        "previous study",
+        "previous work",
+        "earlier work",
+        "earlier studies",
+        "earlier study",
+        "published literature",
+        "published reports",
+        "literature support",
+        "supported by the literature",
+        "consistent with prior",
+        "consistent with previous",
+        "concordant with",
+        "concordance with",
+        "in concordance",
+        "concordant",
+        "in agreement with prior",
+        "in agreement with previous",
+        "as previously reported",
+        "as previously described",
+        "previously reported",
+        "previously described",
+    ];
+    let has_literature_kw = literature_keywords.iter().any(|kw| lower.contains(kw));
+    if PMID_CITATION_RE.is_match(&lower) || has_literature_kw {
+        return ClaimContract::LiteratureGrounded;
     }
 
     // Rank / top-N membership.
@@ -629,6 +724,7 @@ pub fn extract_claims(text: &str, cfg: &ExtractorConfig) -> Vec<Claim> {
                 source_table: source_table.clone(),
                 excerpt: trimmed.to_string(),
                 contract,
+                literature_evidence: None,
             });
         }
     }
@@ -814,6 +910,7 @@ pub fn extract_markdown_table_claims(text: &str, cfg: &ExtractorConfig) -> Vec<C
                         source_table: None,
                         excerpt: lines[j].trim().to_string(),
                         contract: ClaimContract::NumericTableLookup,
+                        literature_evidence: None,
                     });
                 }
             }
@@ -1452,5 +1549,114 @@ mod tests {
             classify_contract("GENE1 passed the significance threshold (Table 1)"),
             ClaimContract::ThresholdedDeOrEnrichment,
         );
+    }
+
+    #[test]
+    fn classify_pmid_citation_is_literature_grounded() {
+        // A PMID citation token marks the sentence as a literature-support
+        // claim, verified against the PMID-anchored evidence matrix.
+        assert_eq!(
+            classify_contract("TP53 dysregulation is concordant with prior reports (PMID 12345678)"),
+            ClaimContract::LiteratureGrounded,
+        );
+        assert_eq!(
+            classify_contract("This matches earlier work (PMID: 23456789)"),
+            ClaimContract::LiteratureGrounded,
+        );
+    }
+
+    #[test]
+    fn classify_prior_literature_prose_is_literature_grounded() {
+        // Prior-literature / previous-finding / concordance prose, with no
+        // PMID, still routes to the literature-grounded contract.
+        for sentence in [
+            "TP53 is consistent with prior work in this disease",
+            "ACAN expression is concordant with previous findings",
+            "This result is supported by the literature",
+            "As previously reported, BRCA1 is downregulated here",
+        ] {
+            assert_eq!(
+                classify_contract(sentence),
+                ClaimContract::LiteratureGrounded,
+                "sentence: {sentence}",
+            );
+        }
+    }
+
+    #[test]
+    fn classify_explicit_threshold_wins_over_literature_cue() {
+        // An explicit checkable threshold assertion stays thresholded even
+        // when literature-grounding prose is present — the numeric assertion
+        // is verifiable against the table.
+        assert_eq!(
+            classify_contract("GENE1 passed FDR < 0.05, consistent with prior work"),
+            ClaimContract::ThresholdedDeOrEnrichment,
+        );
+    }
+
+    #[test]
+    fn literature_evidence_round_trips_and_is_omitted_when_none() {
+        // Present: serializes nested, deserializes back.
+        let claim = Claim {
+            entity: "TP53".into(),
+            direction: None,
+            effect_size: None,
+            pvalue: None,
+            source_table: None,
+            excerpt: "TP53 concordant (PMID 12345678)".into(),
+            contract: ClaimContract::LiteratureGrounded,
+            literature_evidence: Some(LiteratureEvidence {
+                finding_id: "finding_42".into(),
+                cited_pmids: vec![12345678, 23456789],
+            }),
+        };
+        let json = serde_json::to_string(&claim).unwrap();
+        assert!(json.contains("\"literature_evidence\""), "{json}");
+        assert!(json.contains("\"finding_id\":\"finding_42\""), "{json}");
+        let back: Claim = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            back.literature_evidence.as_ref().unwrap().cited_pmids,
+            vec![12345678, 23456789]
+        );
+
+        // Absent: field is skipped when None.
+        let bare = Claim {
+            entity: "X".into(),
+            direction: None,
+            effect_size: None,
+            pvalue: None,
+            source_table: None,
+            excerpt: "X".into(),
+            contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
+        };
+        let bare_json = serde_json::to_string(&bare).unwrap();
+        assert!(!bare_json.contains("literature_evidence"), "{bare_json}");
+    }
+
+    #[test]
+    fn old_claim_json_without_literature_evidence_defaults_none() {
+        let old = r#"{"entity":"ACAN","excerpt":"ACAN was upregulated"}"#;
+        let claim: Claim = serde_json::from_str(old).unwrap();
+        assert!(claim.literature_evidence.is_none());
+    }
+
+    #[test]
+    fn literature_thresholds_default_when_absent() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        assert_eq!(cfg.literature_min_papers, 2);
+        assert_eq!(cfg.literature_min_sources, 1);
+    }
+
+    #[test]
+    fn literature_thresholds_parse_from_policy() {
+        let mut p = policy_json();
+        p["verifiableEntities"]["literatureGrounding"] = json!({
+            "minPapers": 3,
+            "minSources": 2
+        });
+        let cfg = ExtractorConfig::from_policy(&p).unwrap();
+        assert_eq!(cfg.literature_min_papers, 3);
+        assert_eq!(cfg.literature_min_sources, 2);
     }
 }

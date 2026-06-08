@@ -416,6 +416,7 @@ fn verify_for_contract(
         ClaimContract::GroupComparison => verify_group_comparison(claim, index, cfg, cache),
         ClaimContract::Categorical => verify_categorical(claim, index, cfg, cache),
         ClaimContract::TimeSeriesSummary => verify_time_series(claim, index, cfg, cache),
+        ClaimContract::LiteratureGrounded => verify_literature_grounded(claim, index, cfg, cache),
     }
 }
 
@@ -1324,6 +1325,276 @@ fn resolve_evidence_table(package_root: &Path, evidence: &str) -> Option<PathBuf
     None
 }
 
+/// Resolve the package's `claims_evidence_matrix.csv` for a literature-grounded
+/// claim. Mirrors [`resolve_evidence_table`]'s deterministic, sorted lookup but
+/// for the single PMID-anchored prior-work matrix the
+/// `contextualize_findings_with_literature` atom writes.
+///
+/// Resolution order (each step deterministic):
+/// 1. Canonical path
+///    `runtime/outputs/contextualize_findings_with_literature/claims_evidence_matrix.csv`.
+/// 2. `results/tables/claims_evidence_matrix.csv`.
+/// 3. The first (sorted) `runtime/outputs/<task>/claims_evidence_matrix.csv`.
+///
+/// `finding_id`, `claimed_pmids`, and `cfg` are accepted for signature parity
+/// with the structured verifier and to keep the call site self-documenting; the
+/// matrix file is shared across findings, so the row filtering happens in
+/// [`verify_literature_grounded`] rather than at resolution time.
+fn resolve_evidence_literature(
+    package_root: &Path,
+    _finding_id: &str,
+    _claimed_pmids: &[u64],
+    _cfg: &ExtractorConfig,
+) -> Option<PathBuf> {
+    const MATRIX: &str = "claims_evidence_matrix.csv";
+    // 1. Canonical contextualize_findings_with_literature output.
+    let canonical = package_root
+        .join("runtime")
+        .join("outputs")
+        .join("contextualize_findings_with_literature")
+        .join(MATRIX);
+    if canonical.is_file() {
+        return Some(canonical);
+    }
+    // 2. results/tables.
+    let in_results = package_root.join("results").join("tables").join(MATRIX);
+    if in_results.is_file() {
+        return Some(in_results);
+    }
+    // 3. Any runtime/outputs/<task>/claims_evidence_matrix.csv, sorted.
+    let outputs = package_root.join("runtime").join("outputs");
+    if let Ok(rd) = std::fs::read_dir(&outputs) {
+        let mut dirs: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
+        dirs.sort();
+        for d in dirs {
+            let cand = d.join(MATRIX);
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
+/// One parsed row of `claims_evidence_matrix.csv`. Column meanings are pinned
+/// by `config/stage-atoms/schemas/claims_evidence_matrix.schema.json`.
+#[derive(Debug, Clone)]
+struct LiteratureRow {
+    finding_id: String,
+    entity: String,
+    prior_pmids: Vec<u64>,
+    concordance_flag: String,
+    source_kind: String,
+    verified: bool,
+}
+
+/// Load `claims_evidence_matrix.csv` into typed rows. `prior_pmids` is a
+/// `;`-joined list per the schema; empty / non-numeric tokens are dropped.
+/// The parse is pure CSV (comma-delimited, headers required) and tolerant of
+/// missing optional columns — only `finding_id` and `entity` are required to
+/// keep a row.
+fn load_literature_rows(path: &Path) -> Result<Vec<LiteratureRow>> {
+    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(b',')
+        .has_headers(true)
+        .flexible(true)
+        .from_reader(file);
+    let headers = reader.headers()?.clone();
+    let col = |name: &str| -> Option<usize> {
+        let needle = normalize(name);
+        headers.iter().position(|h| normalize(h) == needle)
+    };
+    let finding_idx = col("finding_id")
+        .ok_or_else(|| anyhow!("claims_evidence_matrix.csv missing finding_id column"))?;
+    let entity_idx = col("entity")
+        .ok_or_else(|| anyhow!("claims_evidence_matrix.csv missing entity column"))?;
+    let pmids_idx = col("prior_pmids");
+    let flag_idx = col("concordance_flag");
+    let source_idx = col("source_kind");
+    let verified_idx = col("verified");
+
+    let mut rows = Vec::new();
+    for record in reader.records() {
+        let record = record?;
+        let get = |i: Option<usize>| -> String {
+            i.and_then(|k| record.get(k)).unwrap_or("").trim().to_string()
+        };
+        let prior_pmids = pmids_idx
+            .and_then(|k| record.get(k))
+            .map(|raw| {
+                raw.split(';')
+                    .filter_map(|t| t.trim().parse::<u64>().ok())
+                    .collect::<Vec<u64>>()
+            })
+            .unwrap_or_default();
+        rows.push(LiteratureRow {
+            finding_id: record.get(finding_idx).unwrap_or("").trim().to_string(),
+            entity: record.get(entity_idx).unwrap_or("").trim().to_string(),
+            prior_pmids,
+            concordance_flag: get(flag_idx),
+            source_kind: get(source_idx),
+            verified: matches!(get(verified_idx).to_ascii_lowercase().as_str(), "true" | "1"),
+        });
+    }
+    Ok(rows)
+}
+
+/// Verify a literature-grounded support claim against the package's
+/// `claims_evidence_matrix.csv`. The `TableIndex` only carries resolved table
+/// paths, not the package root, so derive the root from the first indexed
+/// path's `results/tables` or `runtime/outputs/<task>` ancestor; if the index
+/// is empty the claim is `Unverifiable`.
+fn verify_literature_grounded(
+    claim: &Claim,
+    index: &TableIndex,
+    cfg: &ExtractorConfig,
+    _cache: &mut BTreeMap<PathBuf, CachedTable>,
+) -> ClaimStatus {
+    let Some(package_root) = package_root_from_index(index) else {
+        return ClaimStatus::Unverifiable {
+            reason: "no package root resolvable for literature grounding".into(),
+        };
+    };
+    verify_literature_grounded_at(claim, &package_root, cfg)
+}
+
+/// Derive a package root from any path the `TableIndex` resolved: walk up from a
+/// `results/tables/*` or `runtime/outputs/<task>/*` file to the package root.
+/// Returns `None` for an empty index or an unrecognized layout.
+fn package_root_from_index(index: &TableIndex) -> Option<PathBuf> {
+    let any = index.by_name.values().next()?;
+    let cur = any.parent()?;
+    // results/tables/<f> → up 2; runtime/outputs/<task>/<f> → up 3.
+    let comps: Vec<&std::ffi::OsStr> = cur.iter().collect();
+    let depth = if comps.iter().rev().take(2).any(|c| *c == "tables") {
+        2
+    } else if comps.iter().rev().take(3).any(|c| *c == "outputs") {
+        3
+    } else {
+        1
+    };
+    let mut cur = cur;
+    for _ in 0..depth {
+        cur = cur.parent()?;
+    }
+    Some(cur.to_path_buf())
+}
+
+/// Package-root-explicit core of literature-grounded verification. Separated
+/// from the index-derived wrapper so tests can drive it with a concrete root.
+fn verify_literature_grounded_at(
+    claim: &Claim,
+    package_root: &Path,
+    cfg: &ExtractorConfig,
+) -> ClaimStatus {
+    let Some(evidence) = claim.literature_evidence.as_ref() else {
+        return ClaimStatus::Unverifiable {
+            reason: "literature-grounded claim carries no finding_id / cited PMIDs".into(),
+        };
+    };
+    let Some(matrix_path) =
+        resolve_evidence_literature(package_root, &evidence.finding_id, &evidence.cited_pmids, cfg)
+    else {
+        return ClaimStatus::Unverifiable {
+            reason: "claims_evidence_matrix.csv not found in package".into(),
+        };
+    };
+    let rows = match load_literature_rows(&matrix_path) {
+        Ok(r) => r,
+        Err(e) => {
+            return ClaimStatus::Unverifiable {
+                reason: format!("claims_evidence_matrix.csv unreadable: {:#}", e),
+            }
+        }
+    };
+
+    // Rows backing this finding: prefer an exact finding_id match; fall back to
+    // entity match (older matrices keyed only by entity).
+    let entity_norm = normalize(&claim.entity);
+    let matched: Vec<&LiteratureRow> = rows
+        .iter()
+        .filter(|r| {
+            r.finding_id.eq_ignore_ascii_case(&evidence.finding_id)
+                || normalize(&r.entity) == entity_norm
+        })
+        .collect();
+    if matched.is_empty() {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "no claims_evidence_matrix row for finding `{}` / entity `{}`",
+                evidence.finding_id, claim.entity
+            ),
+        };
+    }
+
+    // Any matched row asserting opposite-direction prior literature contradicts
+    // a concordance claim → Mismatch.
+    if matched.iter().any(|r| r.concordance_flag == "opposite_direction") {
+        return ClaimStatus::Mismatch {
+            detail: format!(
+                "literature: matrix records opposite-direction prior finding for `{}`",
+                claim.entity
+            ),
+        };
+    }
+
+    // Every narrative-cited PMID must appear in the matrix's supporting set.
+    let mut supporting: std::collections::BTreeSet<u64> = std::collections::BTreeSet::new();
+    let mut sources: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut any_verified = false;
+    for r in &matched {
+        if r.verified {
+            any_verified = true;
+        }
+        for p in &r.prior_pmids {
+            supporting.insert(*p);
+        }
+        if !r.source_kind.is_empty() && r.source_kind != "none" {
+            sources.insert(r.source_kind.clone());
+        }
+    }
+    for cited in &evidence.cited_pmids {
+        if !supporting.contains(cited) {
+            return ClaimStatus::Mismatch {
+                detail: format!(
+                    "literature: narrative cites PMID {} but the matrix has no such supporting row for `{}`",
+                    cited, claim.entity
+                ),
+            };
+        }
+    }
+    if !any_verified {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "literature: no verified evidence row backs finding `{}`",
+                evidence.finding_id
+            ),
+        };
+    }
+    if supporting.len() < cfg.literature_min_papers {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "literature: {} supporting paper(s) for `{}`, policy requires >= {}",
+                supporting.len(),
+                claim.entity,
+                cfg.literature_min_papers
+            ),
+        };
+    }
+    if sources.len() < cfg.literature_min_sources {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "literature: {} distinct source kind(s) for `{}`, policy requires >= {}",
+                sources.len(),
+                claim.entity,
+                cfg.literature_min_sources
+            ),
+        };
+    }
+    ClaimStatus::Verified
+}
+
 /// Strip thousands separators and parse a captured count.
 fn parse_count(raw: &str) -> Option<f64> {
     raw.replace(',', "").parse::<f64>().ok()
@@ -1468,6 +1739,147 @@ fn verify_count_claim(text: &str, table_path: &Path, cfg: &ExtractorConfig) -> O
     ))
 }
 
+/// §3.6 narrative↔domain cross-check (aggregate-N half).
+///
+/// Verifies a narrative's reported aggregate count against a result table on
+/// TWO axes: (1) the count matches what the table actually contains — reusing
+/// the table-recompute in [`verify_count_claim`]; and (2) the count falls
+/// inside a domain-plausible `[reference_min, reference_max]` band (e.g. "DEGs
+/// for a 20k-gene human RNA-seq" should not be 0 nor 19,999).
+///
+/// Returns:
+/// * `Unverifiable` when `text` is not count-shaped (no recompute possible).
+/// * `Mismatch` when the count contradicts the table OR sits outside the band.
+/// * `Verified` only when both axes agree.
+pub fn verify_aggregate_n_in_range(
+    text: &str,
+    table_path: &Path,
+    cfg: &ExtractorConfig,
+    reference_min: f64,
+    reference_max: f64,
+) -> ClaimStatus {
+    // Axis 1: table concordance via the existing recompute path.
+    let table_status = match verify_count_claim(text, table_path, cfg) {
+        Some(s) => s,
+        None => {
+            return ClaimStatus::Unverifiable {
+                reason: "claim is not aggregate-count-shaped — no N to range-check".into(),
+            }
+        }
+    };
+    if matches!(table_status, ClaimStatus::Mismatch { .. }) {
+        return table_status;
+    }
+
+    // Axis 2: domain plausibility of the claimed N. Reparse the leading count.
+    let claimed_n = match COUNT_NOUN_RE
+        .captures(text)
+        .and_then(|c| c.get(1).map(|m| m.as_str().to_string()))
+        .and_then(|raw| parse_count(&raw))
+    {
+        Some(n) => n,
+        None => {
+            return ClaimStatus::Unverifiable {
+                reason: "could not parse a numeric N for domain range check".into(),
+            }
+        }
+    };
+    if claimed_n < reference_min || claimed_n > reference_max {
+        return ClaimStatus::Mismatch {
+            detail: format!(
+                "aggregate N {} is outside the domain-plausible range [{}, {}]",
+                claimed_n as i64, reference_min as i64, reference_max as i64
+            ),
+        };
+    }
+    ClaimStatus::Verified
+}
+
+/// §3.6 narrative↔domain cross-check (filter-threshold half).
+///
+/// A narrative reporting a *filtered* artifact (e.g. a "significant DE table")
+/// must declare its filter threshold ("padj < 0.05"); the cited artifact must
+/// then contain no row that violates it. Reuses the `THRESH_RE` parse and the
+/// per-row `lookup_numeric` probe.
+///
+/// Returns:
+/// * `Unverifiable` when the narrative states no threshold (the SME never
+///   declared a cut to enforce) or the table carries no matching p-value column.
+/// * `Mismatch` when at least one row in the artifact violates the stated cut.
+/// * `Verified` when every row with the named p-value honors the threshold.
+pub fn verify_narrative_threshold_honored(
+    text: &str,
+    table_path: &Path,
+    cfg: &ExtractorConfig,
+) -> ClaimStatus {
+    let Some(caps) = THRESH_RE.captures(text) else {
+        return ClaimStatus::Unverifiable {
+            reason: "narrative states no filter threshold to enforce against the artifact".into(),
+        };
+    };
+    let threshold_kw = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+    let threshold: f64 = match caps.get(2).and_then(|m| m.as_str().parse().ok()) {
+        Some(t) => t,
+        None => {
+            return ClaimStatus::Unverifiable {
+                reason: "could not parse the stated threshold value".into(),
+            }
+        }
+    };
+
+    let cached = match load_table_rows(table_path, &cfg.entity_columns) {
+        Ok(t) => t,
+        Err(e) => {
+            return ClaimStatus::Unverifiable {
+                reason: format!("artifact `{}` unreadable: {:#}", table_label(table_path), e),
+            }
+        }
+    };
+
+    // Probe against the p-value class the narrative names (adjusted vs raw),
+    // ordering the configured columns so the named class wins.
+    let want_adjusted = is_adjusted_pvalue_keyword(threshold_kw);
+    let (adjusted_cols, raw_cols): (Vec<String>, Vec<String>) = cfg
+        .pvalue_columns
+        .iter()
+        .cloned()
+        .partition(|c| is_adjusted_pvalue_keyword(c));
+    let pvalue_cols: Vec<String> = if want_adjusted {
+        adjusted_cols.into_iter().chain(raw_cols).collect()
+    } else {
+        raw_cols.into_iter().chain(adjusted_cols).collect()
+    };
+
+    let mut probed_any = false;
+    for row in &cached.rows {
+        if let Some(p) = lookup_numeric(&row.values, &pvalue_cols) {
+            probed_any = true;
+            if p.is_finite() && p >= threshold {
+                return ClaimStatus::Mismatch {
+                    detail: format!(
+                        "artifact `{}` row `{}` has {} {:.4e} >= stated threshold {:.4e}",
+                        table_label(table_path),
+                        row.entity,
+                        threshold_kw,
+                        p,
+                        threshold
+                    ),
+                };
+            }
+        }
+    }
+    if !probed_any {
+        return ClaimStatus::Unverifiable {
+            reason: format!(
+                "artifact `{}` has no `{}` column to enforce the stated threshold",
+                table_label(table_path),
+                threshold_kw
+            ),
+        };
+    }
+    ClaimStatus::Verified
+}
+
 /// Compare a claimed count against the recomputed `observed`, allowing a
 /// small relative band (counts vary with NA / tie handling) while still
 /// catching fabricated figures.
@@ -1583,6 +1995,7 @@ fn verify_one_structured(
             source_table,
             excerpt: excerpt.clone(),
             contract: crate::claim_contract::ClaimContract::ThresholdedDeOrEnrichment,
+            literature_evidence: None,
         },
         status,
         strength: ClaimStrength::Exploratory,
@@ -1740,6 +2153,18 @@ pub fn verify_claims_with_discovery(
     let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
     let mut verdicts = Vec::new();
     for claim in claims {
+        // Literature-grounded claims are verified against the package's
+        // claims_evidence_matrix.csv, never a numeric result table — route
+        // them before the table-discovery branch.
+        if claim.contract == ClaimContract::LiteratureGrounded {
+            let status = verify_literature_grounded_at(claim, package_root, cfg);
+            verdicts.push(ClaimVerdict {
+                claim: claim.clone(),
+                status,
+                strength: ClaimStrength::Exploratory,
+            });
+            continue;
+        }
         if claim.source_table.is_some() {
             let status = verify_for_contract(claim, &cited_index, cfg, &mut cache);
             verdicts.push(ClaimVerdict {
@@ -1842,6 +2267,7 @@ mod tests {
                 source_table: Some("primary_endpoint.tsv".into()),
                 excerpt: "TNF is upregulated in primary_endpoint".into(),
                 contract: crate::claim_contract::ClaimContract::NumericTableLookup,
+                literature_evidence: None,
             },
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,
@@ -1873,6 +2299,7 @@ mod tests {
                 source_table: Some("primary_endpoint_summary.tsv".into()),
                 excerpt: "Primary endpoint HR = 0.72".into(),
                 contract: crate::claim_contract::ClaimContract::NumericTableLookup,
+                literature_evidence: None,
             },
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,
@@ -1886,6 +2313,7 @@ mod tests {
                 source_table: Some("safety_summary.tsv".into()),
                 excerpt: "AE rates in safety set".into(),
                 contract: crate::claim_contract::ClaimContract::NumericTableLookup,
+                literature_evidence: None,
             },
             status: ClaimStatus::Verified,
             strength: ClaimStrength::Exploratory,
@@ -2403,6 +2831,7 @@ mod tests {
             source_table: Some("de_s1.tsv".into()),
             excerpt: "FLAT was upregulated (Table S1).".into(),
             contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
         };
         let report = verify_claims(&[claim], tmp.path(), &cfg);
         let v = report
@@ -2437,6 +2866,7 @@ mod tests {
             source_table: Some("de_s1.tsv".into()),
             excerpt: "RISE was upregulated (Table S1).".into(),
             contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
         };
         let report = verify_claims(&[claim], tmp.path(), &cfg);
         let v = report
@@ -2554,6 +2984,7 @@ mod tests {
             source_table: None,
             excerpt: "TNF was elevated".into(),
             contract: ClaimContract::GroupComparison,
+            literature_evidence: None,
         };
         let json = serde_json::to_string(&claim).unwrap();
         let round_tripped: Claim = serde_json::from_str(&json).unwrap();
@@ -2717,6 +3148,7 @@ mod tests {
             source_table: None,
             excerpt: "row".into(),
             contract: ClaimContract::NumericTableLookup,
+            literature_evidence: None,
         };
         let v = verify_claims_with_discovery(&[claim], tmp.path(), tmp.path(), &cfg);
         assert!(
@@ -2833,5 +3265,328 @@ mod tests {
             "significant near-zero up-claim should verify, got {:?}",
             v.status
         );
+    }
+
+    // ── Literature-grounded contract (WS-CV) ─────────────────────────────
+
+    /// Dispatch routes `LiteratureGrounded` into `verify_literature_grounded`.
+    /// With no matrix and an empty `TableIndex`, the package root cannot be
+    /// resolved → Unverifiable. The assertion is that the arm is reachable and
+    /// does not panic on an unmatched contract.
+    #[test]
+    fn literature_grounded_dispatch_is_reachable() {
+        use crate::claim_contract::ClaimContract;
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let claim = Claim {
+            entity: "TP53".into(),
+            direction: None,
+            effect_size: None,
+            pvalue: None,
+            source_table: None,
+            excerpt: "TP53 is concordant with prior work (PMID 12345678)".into(),
+            contract: ClaimContract::LiteratureGrounded,
+            literature_evidence: None,
+        };
+        let index = TableIndex::scan(std::path::Path::new("/nonexistent"));
+        let mut cache: BTreeMap<PathBuf, CachedTable> = BTreeMap::new();
+        let status = verify_for_contract(&claim, &index, &cfg, &mut cache);
+        assert!(matches!(status, ClaimStatus::Unverifiable { .. }));
+    }
+
+    #[test]
+    fn resolve_evidence_literature_finds_canonical_path() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        let dir = tmp
+            .path()
+            .join("runtime/outputs/contextualize_findings_with_literature");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("claims_evidence_matrix.csv"),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             finding_42,TP53,12345678;23456789,same_direction,pmc_oa_full_text,true\n",
+        )
+        .unwrap();
+        let resolved =
+            resolve_evidence_literature(tmp.path(), "finding_42", &[12345678], &cfg).unwrap();
+        assert!(resolved.ends_with("claims_evidence_matrix.csv"));
+    }
+
+    #[test]
+    fn resolve_evidence_literature_none_when_absent() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        assert!(resolve_evidence_literature(tmp.path(), "finding_x", &[1], &cfg).is_none());
+    }
+
+    #[test]
+    fn load_literature_rows_parses_pmids_and_flags() {
+        let tmp = tempdir().unwrap();
+        let p = tmp.path().join("claims_evidence_matrix.csv");
+        std::fs::write(
+            &p,
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             finding_42,TP53,12345678;23456789,same_direction,pmc_oa_full_text,true\n\
+             finding_9,EGFR,,no_prior_finding,none,false\n",
+        )
+        .unwrap();
+        let rows = load_literature_rows(&p).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].finding_id, "finding_42");
+        assert_eq!(rows[0].prior_pmids, vec![12345678, 23456789]);
+        assert_eq!(rows[0].concordance_flag, "same_direction");
+        assert_eq!(rows[0].source_kind, "pmc_oa_full_text");
+        assert!(rows[0].verified);
+        assert!(rows[1].prior_pmids.is_empty());
+        assert!(!rows[1].verified);
+    }
+
+    fn write_lit_matrix(root: &Path, body: &str) {
+        let dir = root.join("runtime/outputs/contextualize_findings_with_literature");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("claims_evidence_matrix.csv"), body).unwrap();
+    }
+
+    fn lit_claim(finding_id: &str, pmids: Vec<u64>) -> Claim {
+        Claim {
+            entity: "TP53".into(),
+            direction: None,
+            effect_size: None,
+            pvalue: None,
+            source_table: None,
+            excerpt: "TP53 is concordant with prior reports".into(),
+            contract: crate::claim_contract::ClaimContract::LiteratureGrounded,
+            literature_evidence: Some(crate::claim_extractor::LiteratureEvidence {
+                finding_id: finding_id.into(),
+                cited_pmids: pmids,
+            }),
+        }
+    }
+
+    #[test]
+    fn literature_grounded_verified_when_matrix_covers_cited_pmids() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             finding_42,TP53,12345678;23456789,same_direction,pmc_oa_full_text,true\n",
+        );
+        let status =
+            verify_literature_grounded_at(&lit_claim("finding_42", vec![12345678]), tmp.path(), &cfg);
+        assert!(matches!(status, ClaimStatus::Verified), "{status:?}");
+    }
+
+    #[test]
+    fn literature_grounded_mismatch_on_uncited_pmid() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             finding_42,TP53,12345678;23456789,same_direction,pmc_oa_full_text,true\n",
+        );
+        // Narrative cites a PMID the matrix does not contain → fabricated cite.
+        let status = verify_literature_grounded_at(
+            &lit_claim("finding_42", vec![99999999]),
+            tmp.path(),
+            &cfg,
+        );
+        assert!(matches!(status, ClaimStatus::Mismatch { .. }), "{status:?}");
+    }
+
+    #[test]
+    fn literature_grounded_mismatch_on_opposite_direction_prior() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             finding_42,TP53,12345678;23456789,opposite_direction,pmc_oa_full_text,true\n",
+        );
+        let status = verify_literature_grounded_at(
+            &lit_claim("finding_42", vec![12345678]),
+            tmp.path(),
+            &cfg,
+        );
+        assert!(matches!(status, ClaimStatus::Mismatch { .. }), "{status:?}");
+    }
+
+    #[test]
+    fn literature_grounded_unverifiable_below_min_papers() {
+        let mut p = policy_json();
+        p["verifiableEntities"]["literatureGrounding"] = json!({"minPapers": 2, "minSources": 1});
+        let cfg = ExtractorConfig::from_policy(&p).unwrap();
+        let tmp = tempdir().unwrap();
+        // Only ONE supporting PMID — below minPapers=2.
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             finding_42,TP53,12345678,same_direction,pmc_oa_full_text,true\n",
+        );
+        let status = verify_literature_grounded_at(
+            &lit_claim("finding_42", vec![12345678]),
+            tmp.path(),
+            &cfg,
+        );
+        assert!(matches!(status, ClaimStatus::Unverifiable { .. }), "{status:?}");
+    }
+
+    #[test]
+    fn literature_grounded_unverifiable_when_no_evidence_block() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             finding_42,TP53,12345678;23456789,same_direction,pmc_oa_full_text,true\n",
+        );
+        let mut claim = lit_claim("finding_42", vec![12345678]);
+        claim.literature_evidence = None;
+        let status = verify_literature_grounded_at(&claim, tmp.path(), &cfg);
+        assert!(matches!(status, ClaimStatus::Unverifiable { .. }), "{status:?}");
+    }
+
+    #[test]
+    fn discovery_routes_literature_grounded_to_matrix() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_lit_matrix(
+            tmp.path(),
+            "finding_id,entity,prior_pmids,concordance_flag,source_kind,verified\n\
+             TP53,TP53,12345678;23456789,same_direction,pmc_oa_full_text,true\n",
+        );
+        // No result table at all — a table-discovery path would return
+        // Unverifiable("not found in any result table"); the literature path
+        // must Verify against the matrix instead.
+        let claims = extract_claims(
+            "TP53 dysregulation is concordant with prior reports (PMID 12345678, PMID 23456789).",
+            &cfg,
+        );
+        let tp53 = claims
+            .iter()
+            .find(|c| c.entity == "TP53")
+            .cloned()
+            .expect("extracted TP53 claim");
+        assert_eq!(
+            tp53.contract,
+            crate::claim_contract::ClaimContract::LiteratureGrounded
+        );
+        let verdicts = verify_claims_with_discovery(&[tp53], tmp.path(), tmp.path(), &cfg);
+        assert!(
+            matches!(verdicts[0].status, ClaimStatus::Verified),
+            "{:?}",
+            verdicts[0].status
+        );
+    }
+
+    // ── §3.6 narrative↔domain cross-check ────────────────────────────────
+
+    #[test]
+    fn aggregate_n_within_domain_range_verifies() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de.tsv",
+            "gene\tlog2FC\tpadj\nA\t2.0\t0.001\nB\t-1.0\t0.02\nC\t1.0\t0.049\nD\t0.1\t0.5\n",
+        );
+        let table = resolve_evidence_table(tmp.path(), "de.tsv").unwrap();
+        // Narrative says 3 DEGs (padj<0.05); domain plausible 1..=1000.
+        let status = verify_aggregate_n_in_range(
+            "3 genes are differentially expressed (padj < 0.05)",
+            &table,
+            &cfg,
+            1.0,
+            1000.0,
+        );
+        assert!(matches!(status, ClaimStatus::Verified), "{status:?}");
+    }
+
+    #[test]
+    fn aggregate_n_outside_domain_range_mismatches() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de.tsv",
+            "gene\tlog2FC\tpadj\nA\t2.0\t0.001\nB\t-1.0\t0.02\nC\t1.0\t0.049\nD\t0.1\t0.5\n",
+        );
+        let table = resolve_evidence_table(tmp.path(), "de.tsv").unwrap();
+        // The TABLE recompute (3) agrees with the narrative, but a domain
+        // floor of 5000 makes 3 implausible for the declared cohort.
+        let status = verify_aggregate_n_in_range(
+            "3 genes are differentially expressed (padj < 0.05)",
+            &table,
+            &cfg,
+            5000.0,
+            20000.0,
+        );
+        assert!(matches!(status, ClaimStatus::Mismatch { .. }), "{status:?}");
+    }
+
+    #[test]
+    fn aggregate_n_unverifiable_when_not_count_shaped() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(tmp.path(), "de", "de.tsv", "gene\tlog2FC\tpadj\nA\t2.0\t0.001\n");
+        let table = resolve_evidence_table(tmp.path(), "de.tsv").unwrap();
+        let status =
+            verify_aggregate_n_in_range("the analysis was performed", &table, &cfg, 1.0, 100.0);
+        assert!(matches!(status, ClaimStatus::Unverifiable { .. }), "{status:?}");
+    }
+
+    #[test]
+    fn narrative_must_state_threshold() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        write_pkg_table(tmp.path(), "de", "de.tsv", "gene\tlog2FC\tpadj\nA\t2.0\t0.001\n");
+        let table = resolve_evidence_table(tmp.path(), "de.tsv").unwrap();
+        // No "padj < X" stated → Unverifiable (the SME never declared the cut).
+        let status =
+            verify_narrative_threshold_honored("we report the significant genes", &table, &cfg);
+        assert!(matches!(status, ClaimStatus::Unverifiable { .. }), "{status:?}");
+    }
+
+    #[test]
+    fn artifact_honors_stated_threshold_verifies() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // Every row satisfies padj < 0.05 (the "filtered DE table" contract).
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de.tsv",
+            "gene\tlog2FC\tpadj\nA\t2.0\t0.001\nB\t-1.0\t0.02\nC\t1.0\t0.049\n",
+        );
+        let table = resolve_evidence_table(tmp.path(), "de.tsv").unwrap();
+        let status = verify_narrative_threshold_honored(
+            "the filtered DE table reports genes at padj < 0.05",
+            &table,
+            &cfg,
+        );
+        assert!(matches!(status, ClaimStatus::Verified), "{status:?}");
+    }
+
+    #[test]
+    fn artifact_violates_stated_threshold_mismatches() {
+        let cfg = ExtractorConfig::from_policy(&policy_json()).unwrap();
+        let tmp = tempdir().unwrap();
+        // Row D leaks past the stated cut (padj 0.5 >= 0.05).
+        write_pkg_table(
+            tmp.path(),
+            "de",
+            "de.tsv",
+            "gene\tlog2FC\tpadj\nA\t2.0\t0.001\nB\t-1.0\t0.02\nD\t0.1\t0.5\n",
+        );
+        let table = resolve_evidence_table(tmp.path(), "de.tsv").unwrap();
+        let status = verify_narrative_threshold_honored(
+            "the filtered DE table reports genes at padj < 0.05",
+            &table,
+            &cfg,
+        );
+        assert!(matches!(status, ClaimStatus::Mismatch { .. }), "{status:?}");
     }
 }

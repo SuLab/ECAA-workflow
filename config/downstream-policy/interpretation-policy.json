@@ -150,11 +150,23 @@
     "tolerance": {
       "log2FcAbsoluteDelta": 0.05,
       "pvalueRelativeDelta": 0.1
+    },
+    "literatureGrounding": {
+      "minPapers": 2,
+      "minSources": 1
     }
   },
   "validationContract": {
     "requiredOutputs": [],
     "metrics": []
+  },
+  "literatureDefaults": {
+    "minPapers": 2,
+    "minSources": 1,
+    "matrixFile": "claims_evidence_matrix.csv",
+    "concordanceFlags": ["same_direction", "opposite_direction", "no_prior_finding", "unverifiable"],
+    "mismatchOnFlag": "opposite_direction",
+    "note": "Threshold defaults for the LiteratureGrounded claim contract. ExtractorConfig.from_policy reads verifiableEntities.literatureGrounding for the live minPapers / minSources; this block documents the package-side defaults and the claims_evidence_matrix.csv concordance vocabulary the verifier enforces."
   },
   "evidenceRules": [
     {
@@ -179,6 +191,18 @@
       "id": "pathway_claim_requires_method_and_db_version",
       "description": "Pathway / gene-set enrichment claims must cite the enrichment method (e.g. fgsea, gprofiler, gseapy) and the database version (e.g. Reactome 2025-09, GO 2025-Q3). The claimBoundary.requiresEvidence rule drives this — narrative without method+version cite is downgraded to an associative-only restatement.",
       "appliesTo": ["pathway_enriched", "pathway_depleted", "gene_set_enriched"],
+      "severity": "blocking"
+    },
+    {
+      "id": "literature_concordance_verified",
+      "description": "Any claim that an analytical finding is concordant with / consistent with / replicates prior literature must cite at least minPapers distinct PMIDs that the claims_evidence_matrix.csv records as verified supporting rows, drawn from at least minSources distinct source kinds. A cited PMID absent from the matrix, or a matrix row flagged opposite_direction, surfaces as a ClaimVerificationReport mismatch.",
+      "appliesTo": ["concordant_with_literature", "consistent_with_prior", "replicates_prior", "corroborates_prior"],
+      "severity": "blocking"
+    },
+    {
+      "id": "literature_support_requires_pmid",
+      "description": "A literature-grounded support claim must anchor to one or more PMID citations; concordance / prior-work language without a PMID citation cannot be cross-checked against the claims_evidence_matrix.csv prior-work rows and is downgraded to an unverifiable assertion.",
+      "appliesTo": ["concordant_with_literature", "consistent_with_prior", "replicates_prior", "corroborates_prior"],
       "severity": "blocking"
     }
   ],
