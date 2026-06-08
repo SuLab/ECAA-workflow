@@ -38,5 +38,8 @@ rules:
   - predicate: "side_call_kind == remediation"
     model: opus_4_8
     reason: side_call
+  - predicate: "side_call_kind == domain_critic"
+    model: opus_4_8
+    reason: side_call
   - predicate: "always"
     model: sonnet_4_6

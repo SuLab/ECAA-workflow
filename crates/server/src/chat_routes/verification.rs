@@ -369,6 +369,53 @@ pub async fn verify_task_endpoint(
         }
     }
 
+    // Advisory domain-correctness critic. Best-effort, never blocks:
+    // reads the verified narrative, asks the domain_critic side-call for
+    // a plausibility verdict, and writes it to the per-task sidecar
+    // `runtime/outputs/<task_id>/domain_critique.json`. A failure here is
+    // logged and swallowed — the verify response is unaffected, and no
+    // BlockerKind is involved. The verdict is advisory metadata only.
+    {
+        let narrative_path = &verified.narrative_path;
+        let outputs_dir = root.join("runtime").join("outputs");
+        // Re-jail the sidecar dir under the package root using the URL
+        // task_id (already validated above, re-validated here for the
+        // write so the path-jail is the last line on this write sink too).
+        if let Ok(task_out) = super::safe_segment_join(&outputs_dir, &task_id) {
+            if super::assert_under_root(&root, &task_out).is_ok() {
+                let narrative_text = std::fs::read_to_string(narrative_path).unwrap_or_default();
+                let stage_description = format!("stage {}", task_id);
+                let backend = app.conversation.llm_for_scoring();
+                let metrics = app.conversation.metrics();
+                match ecaa_workflow_conversation::side_calls::domain_critic::verify_stage_domain_correctness(
+                    backend,
+                    metrics,
+                    session_id,
+                    &task_id,
+                    &narrative_text,
+                    &stage_description,
+                )
+                .await
+                {
+                    Ok(verdict) => {
+                        let _ = std::fs::create_dir_all(&task_out);
+                        if let Ok(body) = serde_json::to_vec_pretty(&verdict) {
+                            let sidecar = task_out.join("domain_critique.json");
+                            if let Err(e) = std::fs::write(&sidecar, body) {
+                                tracing::warn!(error=%e, path=%sidecar.display(),
+                                    "[domain_critic] sidecar write skipped");
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error=%e, task_id=%task_id,
+                            "[domain_critic] advisory critique skipped");
+                    }
+                }
+            }
+        }
+    }
+
     Json(serde_json::json!({
         "report": verified.report,
         "narrative_path": verified.narrative_path,
@@ -453,5 +500,25 @@ mod tests {
             StatusCode::BAD_REQUEST,
             "traversal task_id must be rejected with 400"
         );
+    }
+
+    /// The domain_critique.json sidecar path must be derived under the
+    /// session's emitted package root via the path-jail helper, never by
+    /// raw join of the URL task_id. A traversal task_id is rejected
+    /// before any critic call or sidecar write.
+    #[tokio::test]
+    async fn domain_critique_sidecar_path_is_jailed() {
+        use crate::chat_routes::safe_segment_join;
+        let root = tempfile::TempDir::new().unwrap();
+        // A traversal segment must error out of safe_segment_join.
+        let err = safe_segment_join(&root.path().join("runtime").join("outputs"), "../escape");
+        assert!(err.is_err(), "traversal task_id must be rejected");
+        // A normal task_id resolves under the outputs dir.
+        let ok = safe_segment_join(
+            &root.path().join("runtime").join("outputs"),
+            "variant_calling",
+        )
+        .unwrap();
+        assert!(ok.starts_with(root.path()));
     }
 }
