@@ -2117,10 +2117,33 @@ impl Classifier {
             "strainphlan",
             "instrain",
             "strain phylog",
+            // mass-spec small-molecule omics (metabolite / lipid abundance
+            // panels) — no atom catalog for compound-level quantification.
+            "metabolomics",
+            "lipidomics",
         ];
         for token in OUT_OF_CATALOG_TOKENS {
             let needle = normalize_for_match(token);
             if !needle.is_empty() && normalized.contains(&needle) {
+                // Refined-A yield. An out-of-catalog token is not always
+                // the analytical subject — an SME may name a side dataset
+                // ("a little CyTOF data for orientation") while the actual
+                // ask is a fully catalog-supported analysis on a registered
+                // modality. Only when a registered modality GENUINELY fits
+                // the goal — the prose carries an independent, catalog-core
+                // analytical goal-pattern signal (≥2 distinct phrases that
+                // do NOT themselves overlap any out-of-catalog token,
+                // resolving to the same allow-listed kind) — do we yield:
+                // skip pinning out_of_catalog for this token and fall
+                // through to the goal_pattern loop, which synthesizes the
+                // real goal (e.g. differential_expression → bulk_rnaseq).
+                // Incidental topic mentions (a single stray phrase, or a
+                // goal-pattern whose kind is itself the out-of-catalog
+                // concept — survival, spatial, strain) do NOT pass the gate
+                // and keep the conservative generic_omics fallthrough.
+                if self.registered_modality_genuinely_fits(&normalized, OUT_OF_CATALOG_TOKENS) {
+                    continue;
+                }
                 // Hard precedence: return immediately with
                 // kind=out_of_catalog rather than continuing into the
                 // goal_pattern loop. A goal_pattern that matches but
@@ -2275,6 +2298,84 @@ impl Classifier {
             });
         }
         None
+    }
+
+    /// Catalog-core analytical kinds that may override an out-of-catalog
+    /// token when independently and strongly indicated. Deliberately tiny:
+    /// these are the analyses the atom catalog fully supports AND that are
+    /// NOT themselves the subject of any out-of-catalog method. Kinds such
+    /// as `survival_analysis`, `spatial_transcriptomics`, `strain_resolution`
+    /// and `metagenomics_taxonomic` are EXCLUDED on purpose — they describe
+    /// the very analysis a corresponding out-of-catalog token names (Cox /
+    /// Slide-seq / StrainPhlAn), so a goal-pattern hit on them is evidence
+    /// FOR the out-of-catalog routing, not against it.
+    const GENUINE_FIT_KINDS: &'static [&'static str] =
+        &["differential_expression", "variant_calling"];
+
+    /// Decide whether a registered (catalog) modality genuinely fits the
+    /// goal, so an incidental out-of-catalog token mention should yield to
+    /// it rather than force the `generic_omics` fallthrough.
+    ///
+    /// Genuine fit requires an INDEPENDENT, DOMINANT registered-analysis
+    /// signal: at least two DISTINCT goal-pattern phrases that
+    ///   1. produce a well-formed goal (non-empty `edam_data`),
+    ///   2. resolve to the SAME allow-listed catalog-core kind
+    ///      (`GENUINE_FIT_KINDS`), and
+    ///   3. do NOT overlap any out-of-catalog token (so the signal is
+    ///      independent of the out-of-catalog method itself).
+    ///
+    /// The ≥2-distinct-phrase requirement keeps the gate conservative:
+    /// a single incidental phrase (e.g. scATAC prose's lone "differential
+    /// accessibility") does not trip it, so out-of-catalog prompts keep
+    /// their `generic_omics` routing. `normalized` is the already
+    /// `normalize_for_match`-ed full prompt; `ooc_tokens` is the raw
+    /// out-of-catalog token list.
+    fn registered_modality_genuinely_fits(
+        &self,
+        normalized: &str,
+        ooc_tokens: &[&str],
+    ) -> bool {
+        let ooc_norm: Vec<String> = ooc_tokens
+            .iter()
+            .map(|t| normalize_for_match(t))
+            .filter(|t| !t.is_empty())
+            .collect();
+        let overlaps_ooc = |phrase: &str| -> bool {
+            ooc_norm
+                .iter()
+                .any(|t| phrase == t || phrase.contains(t.as_str()) || t.contains(phrase))
+        };
+
+        // Per allow-listed kind, collect the set of distinct clean phrases
+        // that matched. ≥2 in any single kind = genuine fit.
+        let mut clean_hits_by_kind: std::collections::BTreeMap<
+            &str,
+            std::collections::BTreeSet<String>,
+        > = std::collections::BTreeMap::new();
+
+        for pattern in &self.config.goal_patterns {
+            // Only well-formed (real edam_data) goal patterns count, and
+            // only those whose kind is in the catalog-core allow-list.
+            if pattern.edam_data.trim().is_empty() {
+                continue;
+            }
+            let kind = match pattern.modifiers.get("kind") {
+                Some(k) if Self::GENUINE_FIT_KINDS.contains(&k.as_str()) => k.as_str(),
+                _ => continue,
+            };
+            for phrase in &pattern.phrases {
+                let needle = normalize_for_match(phrase);
+                if needle.is_empty() || !normalized.contains(&needle) {
+                    continue;
+                }
+                if overlaps_ooc(&needle) {
+                    continue;
+                }
+                clean_hits_by_kind.entry(kind).or_default().insert(needle);
+            }
+        }
+
+        clean_hits_by_kind.values().any(|phrases| phrases.len() >= 2)
     }
 
     /// Extract accession IDs using prefix-based matching, then build hierarchy:
@@ -3660,6 +3761,66 @@ mod tests {
             Some("out_of_catalog"),
             "plain DE prompt must keep its real kind, got {:?}",
             de.modifiers
+        );
+    }
+
+    /// Refined-A yield: an out-of-catalog token mentioned only incidentally
+    /// must NOT override a registered modality that genuinely fits the goal.
+    /// Here a full bulk-RNA-seq DE pipeline (STAR / featureCounts / DESeq2,
+    /// two explicit DE goal-pattern phrases) is the analytical primary; the
+    /// "little CyTOF data for orientation" is side data. The goal must keep
+    /// its real `differential_expression` kind (NOT out_of_catalog) so the
+    /// composer routes to the bulk_rnaseq archetype, not generic_omics.
+    #[test]
+    fn out_of_catalog_yields_to_genuinely_fitting_registered_modality() {
+        let clf = load_classifier();
+        let prompt = "Standard bulk RNA-seq differential expression between two tumor \
+             conditions — STAR alignment, featureCounts, DESeq2 — we also have a little CyTOF \
+             data for orientation.";
+        let goal = clf
+            .extract_goal(prompt)
+            .expect("genuinely-fitting prompt must yield a goal");
+        assert_ne!(
+            goal.modifiers.get("kind").map(String::as_str),
+            Some("out_of_catalog"),
+            "incidental CyTOF mention must NOT pin out_of_catalog when bulk RNA-seq DE \
+             genuinely fits; got {:?}",
+            goal.modifiers
+        );
+        assert_eq!(
+            goal.modifiers.get("kind").map(String::as_str),
+            Some("differential_expression"),
+            "yielded goal must carry the real differential_expression kind; got {:?}",
+            goal.modifiers
+        );
+        // And the classifier's primary modality is the registered bulk_rnaseq,
+        // not the generic_omics fallthrough.
+        let r = clf.classify(prompt);
+        assert_eq!(r.modality, "bulk_rnaseq");
+    }
+
+    /// Conservative pin (must hold): a metabolomics-primary multi-omics
+    /// regression task mentions proteomics only incidentally — proteomics
+    /// does NOT genuinely fit a metabolite-abundance regression. The prose
+    /// carries NO well-formed registered analytical goal-pattern, so the
+    /// out-of-catalog signal (metabolomics / lipidomics) stands and the
+    /// prompt stays generic_omics.
+    #[test]
+    fn metabolomics_primary_stays_out_of_catalog() {
+        let clf = load_classifier();
+        let prompt = "Using multi-omics profiling data (CGM, clinical metadata, targeted \
+             metabolomics, lipidomics, and plasma proteomics), run a linear regression of each of \
+             ~974 metabolite abundances against systolic blood pressure with age and BMI as \
+             covariates; report the top hypertension-associated metabolites.";
+        let goal = clf
+            .extract_goal(prompt)
+            .expect("metabolomics-primary prompt must still pin an out-of-catalog goal");
+        assert_eq!(
+            goal.modifiers.get("kind").map(String::as_str),
+            Some("out_of_catalog"),
+            "metabolomics-primary prompt must stay out_of_catalog (proteomics is incidental); \
+             got {:?}",
+            goal.modifiers
         );
     }
 }
