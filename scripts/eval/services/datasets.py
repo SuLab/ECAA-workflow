@@ -61,6 +61,41 @@ def load_lock(path: Path) -> dict[str, LockEntry]:
     return out
 
 
+import re as _re_pins
+
+# A full git/HF object revision: exactly 40 lowercase-or-uppercase hex chars.
+_FULL_SHA_RE = _re_pins.compile(r"^[0-9a-fA-F]{40}$")
+# Branch/tag aliases that are NOT a frozen pin — a campaign must never run
+# against a moving target.
+_UNPINNED_ALIASES = {"main", "master", "head", "latest", "default"}
+
+
+def validate_lock_pins(entries: dict[str, LockEntry]) -> list[tuple[str, str]]:
+    """Reject any dataset revision that is not a frozen 40-char hex SHA.
+
+    Catches the two ways a campaign loses reproducibility: a branch/tag alias
+    (``main`` / ``HEAD`` / ``latest``) that moves under the run, and a
+    truncated/non-hex SHA. Applies to BOTH kinds (load_lock only enforced
+    40-char for git_repo). Returns the list of validated (name, revision) pairs
+    so a caller can echo what it froze. Raises ValueError on the first offender;
+    an empty lock is itself an error (a campaign with nothing pinned)."""
+    if not entries:
+        raise ValueError("datasets.lock has no entries — nothing is pinned")
+    validated: list[tuple[str, str]] = []
+    for name, e in sorted(entries.items()):
+        rev = (e.revision or "").strip()
+        if rev.lower() in _UNPINNED_ALIASES:
+            raise ValueError(
+                f"{name}: revision '{rev}' is an unpinned branch/tag alias; "
+                f"pin a full 40-char commit SHA")
+        if not _FULL_SHA_RE.match(rev):
+            raise ValueError(
+                f"{name}: revision '{rev}' is not a 40-char hex SHA "
+                f"(reproducible campaigns require a frozen pin)")
+        validated.append((name, rev))
+    return validated
+
+
 def datasets_lock_revisions() -> str:
     """One-line summary of the pinned dataset revisions for provenance stamping.
 

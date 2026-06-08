@@ -60,6 +60,11 @@ class Score:
     jaccard: Optional[float]          # Nekrut only
     error_cells: Optional[list[dict]] # Nekrut error-matrix cells; None for BBench
     judge_id: str                     # "gemini-3.1-pro" / "deterministic" / etc.
+    # Free-form per-row metadata bucket (no fixed schema). Keys in use include
+    # judge_cost_usd, cross_check, judge_exact/judge_kappa, partial_judging,
+    # incomplete_reason, and claim_groundedness (the WS-3 narrative-grounding
+    # visibility metric: {verified_count, total_claims, verified_pct,
+    # reference_type}). Aggregators read keys defensively, never assume presence.
     extra: dict = field(default_factory=dict)
 
 

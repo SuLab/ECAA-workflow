@@ -231,12 +231,32 @@ def _dimension_caveat_text(meta: dict) -> str | None:
     return base
 
 
-def _render_dimensions(meta: dict) -> list[str]:
+def _dimension_pair_counts(card: Scorecard) -> dict:
+    """Per-arm, per-dimension count of the Gemini-headline rows behind each
+    dimension mean. Partial-judging rows are excluded so the n matches the
+    population the dimension means were computed over (BiomniBench.report)."""
+    counts: dict[str, dict[str, int]] = {}
+    for r in card.rows:
+        if _is_partial_judging(r):
+            continue
+        if not isinstance(r.dimensions, dict):
+            continue
+        arm_counts = counts.setdefault(r.arm, {})
+        for dim in r.dimensions:
+            arm_counts[dim] = arm_counts.get(dim, 0) + 1
+    return counts
+
+
+def _render_dimensions(meta: dict, card: Scorecard) -> list[str]:
     """Render meta["dimensions"] (BiomniBench) as a per-dimension table.
 
     eval-05: when the dimension source is a heuristic (the default — the dataset
     defines no dimensions), a loud, unmissable caveat is rendered immediately
-    above the table so the numbers can't be lifted out as paper-faithful."""
+    above the table so the numbers can't be lifted out as paper-faithful.
+
+    WS-3: each granular delta is self-describing — it carries each arm's
+    Gemini-headline row count (n) and an attribution line stating the means are
+    Gemini-headline-derived with partial-judging rows excluded."""
     dims_meta: dict = meta["dimensions"]
     arms = sorted(dims_meta.keys())
     # Collect union of dimension names in insertion order.
@@ -255,19 +275,36 @@ def _render_dimensions(meta: dict) -> list[str]:
         lines.append("")
     ecaa_vals = dims_meta.get("ecaa", {})
     direct_vals = dims_meta.get("claude-direct", {})
+    counts = _dimension_pair_counts(card)
+    ecaa_n = counts.get("ecaa", {})
+    direct_n = counts.get("claude-direct", {})
 
-    lines.append("| dimension | ecaa | claude-direct | delta |")
-    lines.append("| --- | --- | --- | --- |")
+    # Attribution: every granular delta is Gemini-headline-derived (the paper
+    # judge) with partial-judging rows excluded, and carries each arm's n.
+    lines.append(
+        "Granular per-dimension deltas below are **Gemini-headline** means "
+        "(partial-judging rows excluded), each annotated with the arm's row "
+        "count (n). The delta is `ecaa − claude-direct` per dimension."
+    )
+    lines.append("")
+    lines.append(
+        "| dimension | ecaa | ecaa n | claude-direct | claude-direct n | delta |"
+    )
+    lines.append("| --- | --- | --- | --- | --- | --- |")
     for dim in all_dims:
         e = ecaa_vals.get(dim)
         d = direct_vals.get(dim)
         e_str = f"{e:.1f}" if e is not None else ""
         d_str = f"{d:.1f}" if d is not None else ""
+        en = ecaa_n.get(dim, 0)
+        dn = direct_n.get(dim, 0)
         if e is not None and d is not None:
             delta_str = f"{e - d:+.1f}"
         else:
             delta_str = ""
-        lines.append(f"| {dim} | {e_str} | {d_str} | {delta_str} |")
+        lines.append(
+            f"| {dim} | {e_str} | {en} | {d_str} | {dn} | {delta_str} |"
+        )
 
     if "published_best" in meta:
         lines.append("")
@@ -452,6 +489,74 @@ def _render_guard_outcomes(per_arm: dict) -> list[str]:
     return lines
 
 
+# ── WS-3: claim-groundedness dimension (ECAA narrative grounding, measured) ───
+#
+# Rolls per-row Score.extra["claim_groundedness"] (populated by the BiomniBench
+# plugin's heuristic extractor) up to per-arm totals. This is a VISIBILITY
+# metric rendered alongside the Gemini headline — it never gates a run and is
+# not a paper-faithful judge dimension. Reference types are unioned across rows:
+# an arm whose verified claims landed on BOTH result rows and PMIDs reports
+# "mixed".
+
+def _aggregate_claim_groundedness(card: Scorecard) -> dict:
+    """Roll Score.extra["claim_groundedness"] up to per-arm totals.
+    Returns {} when no row carries the metric."""
+    per_arm: dict[str, dict] = {}
+    ref_seen: dict[str, set[str]] = {}
+    for r in card.rows:
+        cg = (r.extra or {}).get("claim_groundedness")
+        if not isinstance(cg, dict):
+            continue
+        agg = per_arm.setdefault(r.arm, {
+            "verified_count": 0,
+            "total_claims": 0,
+            "verified_pct": 0.0,
+            "reference_type": "result_row",
+            "n_rows": 0,
+        })
+        agg["verified_count"] += int(cg.get("verified_count", 0) or 0)
+        agg["total_claims"] += int(cg.get("total_claims", 0) or 0)
+        agg["n_rows"] += 1
+        rt = cg.get("reference_type")
+        if isinstance(rt, str) and rt:
+            ref_seen.setdefault(r.arm, set()).add(rt)
+    for arm, agg in per_arm.items():
+        total = agg["total_claims"]
+        agg["verified_pct"] = (round(100.0 * agg["verified_count"] / total, 1)
+                               if total else 0.0)
+        seen = ref_seen.get(arm, set())
+        # Drop the default "result_row" placeholder when richer types are present.
+        meaningful = {s for s in seen if s != "result_row"} or seen
+        agg["reference_type"] = "mixed" if len(meaningful) > 1 else (
+            next(iter(meaningful)) if meaningful else "result_row")
+    return per_arm
+
+
+def _render_claim_groundedness(per_arm: dict) -> list[str]:
+    lines = ["", "## Claim groundedness (ECAA narrative grounding, measured)", ""]
+    lines.append(
+        "> **HEURISTIC — visibility only, NOT a judge dimension.** Each arm's "
+        "analytical narrative is split into claim-bearing sentences; a claim is "
+        "counted grounded when a salient token (number, identifier, or PMID) "
+        "re-appears in the run's own result rows. This is noisy in both "
+        "directions and is rendered ALONGSIDE the Gemini headline as a "
+        "value-visibility signal — it never gates a run or overrides the judge."
+    )
+    lines.append("")
+    lines.append(
+        "| arm | rows | grounded / total | grounded % | reference |"
+    )
+    lines.append("| --- | --- | --- | --- | --- |")
+    for arm in sorted(per_arm):
+        a = per_arm[arm]
+        lines.append(
+            f"| {arm} | {a['n_rows']} | "
+            f"{a['verified_count']}/{a['total_claims']} | "
+            f"{a['verified_pct']:.1f} | {a['reference_type']} |"
+        )
+    return lines
+
+
 def _p95(vals: list[float]) -> float:
     """Nearest-rank 95th percentile. Empty -> 0.0. Deterministic.
     For median use statistics.median (true average-of-middle, so [2,4] -> 3.0)."""
@@ -477,7 +582,17 @@ def _aggregate_session_metrics(card: Scorecard) -> dict:
             continue
         b = buckets.setdefault(r.arm, {"followup": [], "tte": [],
                                        "method_req": 0, "ambiguous": 0,
-                                       "coverage_gap": 0, "n": 0})
+                                       "coverage_gap": 0, "n": 0,
+                                       "session_ids": set(),
+                                       "n_no_sid": 0})
+        # A single chat intake can feed N error-matrix cells / trials, so
+        # multiple score rows share one session_id. Count UNIQUE session_ids;
+        # rows without a session_id can't be deduped, so they each count once.
+        sid = sm.get("session_id")
+        if isinstance(sid, str) and sid:
+            b["session_ids"].add(sid)
+        else:
+            b["n_no_sid"] += 1
         b["n"] += 1
         fc = sm.get("followup_count")
         if isinstance(fc, (int, float)):
@@ -490,8 +605,9 @@ def _aggregate_session_metrics(card: Scorecard) -> dict:
             b["ambiguous"] += 1
         b["coverage_gap"] += int(sm.get("coverage_gap_events") or 0)
     for arm, b in buckets.items():
+        n_sessions = len(b["session_ids"]) + b["n_no_sid"]
         per_arm[arm] = {
-            "n_sessions": b["n"],
+            "n_sessions": n_sessions,
             "median_followup_count": (float(median(b["followup"]))
                                       if b["followup"] else None),
             "p95_followup_count": (_p95(b["followup"])
@@ -501,8 +617,8 @@ def _aggregate_session_metrics(card: Scorecard) -> dict:
             "p95_time_to_emit_ms": (_p95(b["tte"])
                                     if b["tte"] else None),
             "method_recommendation_requests_total": b["method_req"],
-            "method_recommendation_request_rate": (b["method_req"] / b["n"]
-                                                   if b["n"] else None),
+            "method_recommendation_request_rate": (b["method_req"] / n_sessions
+                                                   if n_sessions else None),
             "ambiguous_session_count": b["ambiguous"],
             "coverage_gap_events_total": b["coverage_gap"],
         }
@@ -875,7 +991,9 @@ def _markdown(card: Scorecard) -> str:
                   # F12: rendered as its own readiness-gate section, not bullets.
                   "benchmarkable_set", "session_metrics",
                   # rendered as the per-judge arm-means table, not a scalar bullet.
-                  "per_judge_means"}
+                  "per_judge_means",
+                  # WS-3: rendered as the Claim groundedness table, not a bullet.
+                  "claim_groundedness"}
     if card.meta:
         for k, v in card.meta.items():
             if k not in _RICH_KEYS:
@@ -906,6 +1024,12 @@ def _markdown(card: Scorecard) -> str:
     # Gemini-only; this surfaces the reference-model-family (Anthropic) reading.
     lines += _render_per_judge_means(card)
 
+    # WS-3: claim-groundedness rendered ALONGSIDE the Gemini headline — a
+    # judge-independent value-visibility signal, not a judge dimension.
+    groundedness = _aggregate_claim_groundedness(card)
+    if groundedness:
+        lines += _render_claim_groundedness(groundedness)
+
     # eval-04: per-(task,trial) paired delta + bootstrap CI (the honest
     # headline). Falls back to nothing when there are no overlapping pairs.
     paired = paired_delta_summary(card)
@@ -935,7 +1059,7 @@ def _markdown(card: Scorecard) -> str:
         if "error_matrix" in card.meta:
             lines += _render_error_matrix(card.meta["error_matrix"])
         if "dimensions" in card.meta:
-            lines += _render_dimensions(card.meta)
+            lines += _render_dimensions(card.meta, card)
         if "judge_agreement" in card.meta:
             lines.append("")
             lines += _render_judge_agreement(card.meta["judge_agreement"])
@@ -974,6 +1098,11 @@ def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None, package_dir=
     guard = _aggregate_guard_outcomes(card)
     if guard and "guard_outcomes" not in meta:
         meta["guard_outcomes"] = guard
+    # WS-3: per-arm claim-groundedness rollup in the machine scorecard. A
+    # pre-set meta value (e.g. from a plugin) wins, mirroring guard_outcomes.
+    groundedness = _aggregate_claim_groundedness(card)
+    if groundedness and "claim_groundedness" not in meta:
+        meta["claim_groundedness"] = groundedness
     # Two-judge per-arm means (Gemini headline + Anthropic cross) in the machine
     # scorecard so a JSON reader gets both judges, not just the headline.
     if "per_judge_means" not in meta:
@@ -1053,6 +1182,27 @@ def _score_from_meta_row(r: dict) -> "Score":
                  r.get("judge_id", ""), r.get("extra", {}))
 
 
+def _parse_datasets_lock_details(datasets_lock: str) -> list[dict]:
+    """Parse the flat ``name=revision;...`` provenance string into a structured,
+    per-entry list so a reader (or an automated re-derivation) can pin each
+    dataset individually instead of re-splitting the one-line summary.
+
+    Each entry is ``{"name": str, "revision": str}``; a token without an ``=``
+    is preserved as ``{"name": <token>, "revision": ""}`` so a malformed or
+    fallback lock string still round-trips. Empty / "unknown" yields ``[]``."""
+    details: list[dict] = []
+    if not datasets_lock or datasets_lock == "unknown":
+        return details
+    for token in datasets_lock.split(";"):
+        token = token.strip()
+        if not token:
+            continue
+        name, sep, revision = token.partition("=")
+        details.append({"name": name.strip(),
+                        "revision": revision.strip() if sep else ""})
+    return details
+
+
 def write_public_scorecard(card: Scorecard, out_dir: Path, *, git_head: str,
                            datasets_lock: str, seed: int, arms: list[str],
                            trials: int) -> Path:
@@ -1061,7 +1211,11 @@ def write_public_scorecard(card: Scorecard, out_dir: Path, *, git_head: str,
     evidence committed under docs/eval-results/. Carries enough provenance
     (git HEAD, datasets.lock revs, seed, arms, trials) that any reader can
     re-derive the run; strips raw spend + wall-clock so the public artifact
-    exposes no operator-private cost."""
+    exposes no operator-private cost.
+
+    The ``datasets_lock`` one-liner is also broken out into a structured
+    per-entry ``datasets_lock_details`` list so each pinned dataset can be
+    re-derived individually without re-splitting the summary string."""
     out_dir.mkdir(parents=True, exist_ok=True)
     # Build the same derived meta the private scorecard does (paired delta,
     # guard outcomes, session metrics, locked methods, benchmarkable set) by
@@ -1071,9 +1225,11 @@ def write_public_scorecard(card: Scorecard, out_dir: Path, *, git_head: str,
         write_scorecard(card, Path(td))
         private = json.loads((Path(td) / "scorecard.json").read_text())
     meta = _redact(private.get("meta", {}))
+    lock_details = _parse_datasets_lock_details(datasets_lock)
     provenance = {
         "git_head": git_head,
         "datasets_lock": datasets_lock,
+        "datasets_lock_details": lock_details,
         "seed": seed,
         "arms": list(arms),
         "trials": trials,
@@ -1101,6 +1257,12 @@ def write_public_scorecard(card: Scorecard, out_dir: Path, *, git_head: str,
         "",
         f"- git_head: {git_head}",
         f"- datasets_lock: {datasets_lock}",
+    ]
+    if lock_details:
+        preamble.append("- datasets_lock_details:")
+        for d in lock_details:
+            preamble.append(f"  - {d['name']} = {d['revision']}")
+    preamble += [
         f"- seed: {seed}",
         f"- arms: {', '.join(arms)}",
         f"- trials: {trials}",

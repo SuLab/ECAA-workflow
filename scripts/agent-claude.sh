@@ -1051,7 +1051,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
       # substrate the shipped renderers need. Without this the image's bare
       # `python3` ordering is ambiguous and the agent burns turns probing which
       # interpreter has matplotlib. Empty $CANON_PY_BIN => image default PATH.
-      -e "PATH=${__SHIM_PATH_PREFIX}/opt/claude-code/node_modules/.bin:${CANON_PY_BIN:+$CANON_PY_BIN:}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      -e "PATH=${__SHIM_PATH_PREFIX}/opt/claude-code/node_modules/.bin:${CANON_PY_BIN:+$CANON_PY_BIN:}/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
     )
   fi
 

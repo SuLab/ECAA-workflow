@@ -34,6 +34,12 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = {"biomnibench": BiomniBench, "nekrutenko": Nekrutenko}
 
 
+class UnrunnablePackageError(RuntimeError):
+    """A package handed to an error-matrix cell has zero runnable (pending/ready)
+    tasks, so the harness would never advance it and the cell would score against
+    stale outputs. Raised instead of silently recovering."""
+
+
 def _git_head() -> str:
     """Resolve HEAD for the public scorecard's provenance stamp. Best-effort."""
     try:
@@ -44,12 +50,168 @@ def _git_head() -> str:
         return "unknown"
 
 
+def _datasets_lock_path() -> Path:
+    """Path to the committed dataset pin file. Indirected so tests can point at
+    a fixture lock."""
+    return REPO_ROOT / "scripts" / "eval" / "datasets.lock"
+
+
+def _validate_datasets_lock() -> None:
+    """Abort the campaign unless every dataset revision is a frozen 40-char SHA.
+
+    Runs before any fetch / agent invocation so an unpinned lock never silently
+    runs against a moving branch. Raises ValueError (caller maps to exit 2)."""
+    from scripts.eval.services.datasets import load_lock, validate_lock_pins
+    entries = load_lock(_datasets_lock_path())
+    pinned = validate_lock_pins(entries)
+    print(f"[freeze] datasets.lock pinned: "
+          f"{', '.join(f'{n}={r[:12]}' for n, r in pinned)}", file=sys.stderr)
+
+
+# Mirrors scorecard._BOOTSTRAP_SEED so the freeze record, the public scorecard,
+# and the bootstrap CI all carry the same seed.
+_CAMPAIGN_SEED = 1729
+
+
+def _campaign_freeze_record(*, benchmark: str, arms: list[str], trials: int,
+                            datasets_lock: str) -> dict:
+    """The pre-run provenance freeze for a whole campaign.
+
+    Captures the git HEAD the run launched from, the pinned dataset revisions,
+    the arms/trials/seed, and a single UTC frozen_at stamp. Everything except
+    frozen_at is deterministic from inputs."""
+    return {
+        "benchmark": benchmark,
+        "git_head": _git_head(),
+        "datasets_lock": datasets_lock,
+        "arms": list(arms),
+        "trials": trials,
+        "seed": _CAMPAIGN_SEED,
+        "frozen_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+
+
+def _write_campaign_freeze(run_dir: Path, record: dict, *, resuming: bool) -> Path:
+    """Persist the campaign freeze record to run_dir/CAMPAIGN-FREEZE.json.
+
+    The freeze is captured at FIRST launch and never re-stamped: on resume an
+    existing freeze is left untouched (the campaign's launch commit is the one
+    that matters, not the resume commit). A resume of a pre-freeze run dir
+    writes the record now so later resumes are anchored."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    out = run_dir / "CAMPAIGN-FREEZE.json"
+    if resuming and out.exists():
+        return out
+    tmp = out.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(record, indent=2, sort_keys=True))
+    tmp.replace(out)
+    return out
+
+
+def _write_run_manifest(run_dir: Path, *, benchmark: str, argv: list[str],
+                        arms: list[str], trials: int, max_iterations: int,
+                        intake_mode: str, error_matrix: bool, resuming: bool,
+                        freeze_head: str) -> Path:
+    """Persist the realized-run manifest to run_dir/run-manifest.json.
+
+    Records exactly how this run was invoked (argv, arms, trials, intake mode,
+    error-matrix flag) plus the frozen launch HEAD, so a reader can reconstruct
+    the command without re-deriving it from the journal. Re-written on every
+    (re)launch — the latest invocation is the authoritative manifest."""
+    run_dir.mkdir(parents=True, exist_ok=True)
+    out = run_dir / "run-manifest.json"
+    manifest = {
+        "benchmark": benchmark,
+        "argv": list(argv),
+        "arms": list(arms),
+        "trials": trials,
+        "max_iterations": max_iterations,
+        "intake_mode": intake_mode,
+        "error_matrix": bool(error_matrix),
+        "resuming": bool(resuming),
+        "freeze_head": freeze_head,
+        "written_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    tmp = out.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(manifest, indent=2, sort_keys=True))
+    tmp.replace(out)
+    return out
+
+
+def _assert_head_unchanged(freeze_head: str) -> None:
+    """Fail the campaign if git HEAD drifted from the frozen launch commit.
+
+    A run that recompiled mid-campaign (HEAD moved) is not reproducible from its
+    freeze record. Skipped when the freeze captured 'unknown' (non-git /
+    detached launch) — nothing to compare against."""
+    if not freeze_head or freeze_head == "unknown":
+        return
+    now = _git_head()
+    if now == "unknown":
+        return
+    if now != freeze_head:
+        raise RuntimeError(
+            f"HEAD moved during the campaign: frozen at {freeze_head[:12]}, "
+            f"now {now[:12]}. The run is not reproducible from its freeze; "
+            f"re-run from a clean checkout.")
+
+
+def render_prereg_freeze_stanza(freeze_path: Path) -> str:
+    """Render the prereg's 'Frozen-at commit SHA' stanza from a
+    CAMPAIGN-FREEZE.json. This is the concrete fill-in for the placeholder in
+    docs/eval-prereg/campaign-template.md — an operator copies this block into
+    the pre-registration BEFORE results are read."""
+    rec = json.loads(Path(freeze_path).read_text())
+    arms = ", ".join(rec.get("arms", []))
+    return (
+        "## Campaign freeze (provenance)\n\n"
+        f"- **Frozen-at commit SHA:** `{rec.get('git_head', 'unknown')}`\n"
+        f"- **Benchmark:** {rec.get('benchmark', '?')}\n"
+        f"- **Arms:** {arms}\n"
+        f"- **Trials:** {rec.get('trials', '?')}\n"
+        f"- **Seed:** {rec.get('seed', '?')}\n"
+        f"- **Datasets lock:** {rec.get('datasets_lock', '?')}\n"
+        f"- **Frozen at:** {rec.get('frozen_at', '?')}\n"
+    )
+
+
+def _reset_workflow_task_states(pkg: Path) -> None:
+    """Flip every task in WORKFLOW.json back to {"status": "pending"} so a copied
+    package re-runs from scratch instead of presenting a fully-terminal DAG the
+    harness skips. Best-effort: a missing/malformed WORKFLOW.json is left alone."""
+    wf = pkg / "WORKFLOW.json"
+    try:
+        data = json.loads(wf.read_text())
+    except (OSError, ValueError):
+        return
+    tasks = data.get("tasks")
+    if isinstance(tasks, dict):
+        for t in tasks.values():
+            if isinstance(t, dict):
+                t["state"] = {"status": "pending"}
+    elif isinstance(tasks, list):
+        for t in tasks:
+            if isinstance(t, dict):
+                t["state"] = {"status": "pending"}
+    else:
+        return
+    tmp = wf.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(wf)
+
+
 def _isolated_pkg_copy(src_pkg: Path, dest: Path) -> Path:
-    """Copy an emitted package tree to a fresh dir so each error-matrix cell
-    runs on a clean, re-runnable package (avoids completed-task state bleed)."""
+    """Copy an emitted package tree to a fresh dir so each error-matrix cell runs
+    on a clean, genuinely re-runnable package. Beyond the raw copy we (a) reset
+    every WORKFLOW.json task to pending and (b) delete runtime/outputs/* (the base
+    run's per-task VCFs / result.json), while PRESERVING inputs/ and any staged
+    reference — otherwise the harness sees a completed DAG, never re-runs, and the
+    fault-injection cell is scored against the base run's untouched outputs."""
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src_pkg, dest)
+    _reset_workflow_task_states(dest)
+    shutil.rmtree(dest / "runtime" / "outputs", ignore_errors=True)
     return dest
 
 
@@ -80,6 +242,26 @@ def _read_workflow_task_ids(pkg: Path) -> list[str]:
     except (OSError, ValueError):
         return []
     return list(data.get("tasks", {}).keys())
+
+
+def _ready_or_pending_task_count(pkg: Path) -> int:
+    """Number of tasks in WORKFLOW.json in a runnable state (pending or ready).
+    A package the harness can actually advance must have >=1. Returns 0 when the
+    file is absent/malformed so callers fail-closed (treat it as not runnable)."""
+    try:
+        data = json.loads((Path(pkg) / "WORKFLOW.json").read_text())
+    except (OSError, ValueError):
+        return 0
+    tasks = data.get("tasks")
+    items = (tasks.values() if isinstance(tasks, dict)
+             else tasks if isinstance(tasks, list) else [])
+    count = 0
+    for t in items:
+        st = t.get("state") if isinstance(t, dict) else None
+        status = st.get("status") if isinstance(st, dict) else st
+        if status in ("pending", "ready"):
+            count += 1
+    return count
 
 
 def _write_auto_approve_discoveries(pkg: Path) -> None:
@@ -315,6 +497,11 @@ def _ensure_package_for_cells(plugin, task, arm: Arm, base_rec: dict | None,
         if recorded and Path(recorded).exists():
             spec.package_dir = Path(recorded)
             spec.session_id = base_rec.get("session_id")
+            if _ready_or_pending_task_count(spec.package_dir) < 1:
+                raise UnrunnablePackageError(
+                    f"reused package {spec.package_dir} has 0 runnable "
+                    f"(pending/ready) tasks; refusing to score a cell against "
+                    f"stale outputs")
             return spec
     # Package gone (or never journaled) — re-emit.
     return _chat_intake_or_cli(plugin, task, arm, workdir, server)
@@ -348,10 +535,19 @@ def _cell_run_fn(spec, max_iter):
     Cells copy the emitted package to a fresh, unregistered dir and run the
     harness OFFLINE (session_id/server_url=None): cells measure fault-injection
     robustness, not session round-trip, and a copied package has no live session
-    binding. Keeping them sessionless keeps cells fully parallel + decoupled."""
+    binding. Keeping them sessionless keeps cells fully parallel + decoupled.
+
+    The per-cell copy resets task states to pending and clears stale outputs (see
+    _isolated_pkg_copy). We then assert >=1 runnable task before launch: if the
+    copy somehow has nothing to run we raise UnrunnablePackageError so the cell is
+    recorded errored rather than silently scored against an empty/stale package."""
     def _fn(cell_workdir, env):
         if spec.kind == "ecaa_package":
             pkg_copy = _isolated_pkg_copy(spec.package_dir, cell_workdir / "pkg")
+            if _ready_or_pending_task_count(pkg_copy) < 1:
+                raise UnrunnablePackageError(
+                    f"cell package copy {pkg_copy} has 0 runnable tasks after "
+                    f"reset; refusing to score against a non-runnable package")
             # capture=True: the harness stdout/stderr is the reference exec.log,
             # scanned for diagnose signals (offline cells don't stream anyway).
             return agent_runner.run_ecaa_package(
@@ -458,6 +654,15 @@ def main(argv: list[str]) -> int:
               "to run live benchmarks. This harness is operator-run and never in CI.")
         return 0
 
+    # Reproducibility gate: refuse to launch against an unpinned dataset (a
+    # branch alias like main/HEAD or a truncated/non-hex SHA), before any fetch
+    # or agent invocation.
+    try:
+        _validate_datasets_lock()
+    except (ValueError, OSError) as e:
+        print(f"ABORT: datasets.lock is unpinned/unreadable: {e}", file=sys.stderr)
+        return 2
+
     plugin = PLUGINS[args.benchmark]()
     arms = [Arm(a) for a in args.arms.split(",")]
     trials = 1 if args.smoke else args.trials
@@ -471,6 +676,21 @@ def main(argv: list[str]) -> int:
         run_dir = eval_runs_dir() / f"{args.benchmark}-{stamp}"
     journal = Journal(run_dir)
     resuming = bool(args.resume)
+
+    # Provenance freeze: stamp the launch commit + pins before any agent runs.
+    from scripts.eval.services.datasets import datasets_lock_revisions
+    _freeze = _campaign_freeze_record(
+        benchmark=args.benchmark, arms=[a.value for a in arms],
+        trials=trials, datasets_lock=datasets_lock_revisions())
+    _write_campaign_freeze(run_dir, _freeze, resuming=resuming)
+    _freeze_head = json.loads(
+        (run_dir / "CAMPAIGN-FREEZE.json").read_text()).get("git_head", "unknown")
+    _write_run_manifest(
+        run_dir, benchmark=args.benchmark, argv=list(argv),
+        arms=[a.value for a in arms], trials=trials,
+        max_iterations=args.max_iterations, intake_mode=_intake_mode(),
+        error_matrix=args.error_matrix, resuming=resuming,
+        freeze_head=_freeze_head)
 
     # Only consult the journal when explicitly resuming. A fresh run never skips
     # work or reconstructs from a pre-existing journal (guards against a stamp
@@ -739,6 +959,9 @@ def main(argv: list[str]) -> int:
              if (pkg := _package_dir_for_score(s, spec_by_key, base_recs)) is not None),
             None,
         )
+        # Reproducibility gate: a campaign that recompiled mid-run (HEAD moved
+        # off the frozen launch commit) is not reproducible from its freeze.
+        _assert_head_unchanged(_freeze_head)
         write_scorecard(card, run_dir, plugin=plugin, package_dir=ref_pkg)
         print(f"wrote {run_dir}/scorecard.md")
         # E2: also emit the cost-redacted, provenance-stamped public copy that

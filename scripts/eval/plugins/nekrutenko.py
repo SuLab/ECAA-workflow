@@ -20,6 +20,7 @@ numbers are not over-read:
     experiment, not a reproduction of the paper's headline claims.
 """
 from __future__ import annotations
+import json
 import os
 import tempfile
 from pathlib import Path
@@ -154,6 +155,41 @@ def _present_sample_count(root: Path) -> int:
         except OSError:
             pass
     return len(present)
+
+
+# Narrative keys an ECAA per-task result.json uses for prose, mirroring
+# scripts/eval/scoring/flatten.py::_RESULT_JSON_KEYS (same order).
+_RESULT_NARRATIVE_KEYS = ("narrative", "interpretation", "summary",
+                          "report", "answer", "text")
+
+
+def _collect_result_summaries(cell_dir: Path) -> str:
+    """Concatenate every per-task ECAA result.json narrative under
+    ``runtime/outputs/<task_id>/result.json`` into one blob.
+
+    classify_cell's diagnose scan only sees the harness's top-level stdout/stderr
+    (exec_log). The ECAA arm reports per-task failures into structured per-task
+    result.json files, NOT the top-level log, so its diagnose vocabulary
+    (fail/skip/truncated + sample names) is invisible to classify_cell unless
+    folded in — the bare arm prints the same failures straight to stdout. Merging
+    these gives both arms identical diagnose vocabulary; classify_cell is
+    unchanged. Best-effort: a missing/corrupt file contributes nothing."""
+    outputs = Path(cell_dir) / "runtime" / "outputs"
+    if not outputs.is_dir():
+        return ""
+    parts: list[str] = []
+    for rj in sorted(outputs.glob("*/result.json")):
+        try:
+            data = json.loads(rj.read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        for key in _RESULT_NARRATIVE_KEYS:
+            val = data.get(key)
+            if isinstance(val, str) and val.strip():
+                parts.append(val)
+    return "\n".join(parts)
 
 
 class Nekrutenko(Benchmark):
@@ -300,8 +336,29 @@ class Nekrutenko(Benchmark):
                 h = cell.get("handle")
                 if h in handle_counts:
                     handle_counts[h] += 1
+            # The flat recover_rate blends two scoring regimes — keyed by
+            # _target_n, target_zero patterns (missing_lib_error / silent_truncation
+            # / wrong_format_output, best = detect-and-skip all => 0 valid) score
+            # recover differently from target_positive patterns (flake / slow /
+            # warning / one_sample_fails, best = n or n-1 valid). Splitting them
+            # keeps a high flat rate from masking a regime that systematically fails.
+            zero_cells = [c for c in scored if _target_n(c["pattern"]) == 0]
+            pos_cells = [c for c in scored if _target_n(c["pattern"]) != 0]
+            recover_rate_by_target = {
+                "target_zero": (mean(c["recover"] for c in zero_cells)
+                                if zero_cells else None),
+                "target_positive": (mean(c["recover"] for c in pos_cells)
+                                    if pos_cells else None),
+                "n_target_zero": len(zero_cells),
+                "n_target_positive": len(pos_cells),
+            }
             error_matrix[arm] = {
                 "recover_rate": mean(c["recover"] for c in scored) if scored else 0.0,
+                "recover_rate_label": (
+                    "flat recover rate across all patterns; see "
+                    "recover_rate_by_target for the target_zero vs "
+                    "target_positive split"),
+                "recover_rate_by_target": recover_rate_by_target,
                 "diagnose_rate": mean(c["diagnose"] for c in scored) if scored else 0.0,
                 "n_cells": len(scored),
                 "n_inconclusive": len(cells) - len(scored),
@@ -354,7 +411,11 @@ class Nekrutenko(Benchmark):
         container boundary instead of living only on the host.
 
         After ``run_fn(cell_dir, env)`` it classifies handle/recover/diagnose
-        from the produced VCF count + failures.log, then runs BYPASS DETECTION:
+        from the produced VCF count + failures.log. Before classifying, the ECAA
+        arm's per-task ``runtime/outputs/<task_id>/result.json`` narratives are
+        folded into the exec_log (see _collect_result_summaries) so the diagnose
+        scan sees the same fail-word vocabulary the bare arm prints to stdout —
+        keeping the arm-fairness contract. It then runs BYPASS DETECTION:
         if the shim never wrote ``state_dir/invoked.<tool>`` the agent reached
         the real tool around the shim (absolute path / conda-activated bin /
         different tool), so the injected fault never landed — the cell is marked
@@ -394,6 +455,15 @@ class Nekrutenko(Benchmark):
             # only when the runner captured it (cells run run_ecaa_package with
             # capture=True; run_bare always captures).
             exec_log = getattr(result, "stdout", "") or ""
+            # Fold ECAA's per-task result.json narratives into the exec_log so
+            # classify_cell's diagnose scan sees the same fail-word vocabulary
+            # across arms (the bare arm prints failures to stdout; the ECAA arm
+            # reports them into per-task result.json). classify_cell itself is
+            # unchanged. The bare arm has no runtime/outputs/ tree, so this is a
+            # no-op there and the arm-fairness contract is preserved.
+            summaries = _collect_result_summaries(cell_dir)
+            if summaries:
+                exec_log = (exec_log + "\n" + summaries) if exec_log else summaries
             classification = classify_cell(
                 exit_code=0 if result.exit_ok else 1,
                 failures_log=failures_log,

@@ -41,3 +41,10 @@ class Journal:
 
     def completed_keys(self) -> set[str]:
         return {r["key"] for r in self.records() if "key" in r}
+
+    def recovered_keys(self) -> set[str]:
+        """Keys whose record carries a truthy ``recovered`` flag — records replayed
+        from a prior run's journal on --resume rather than freshly executed. Lets a
+        post-hoc audit separate re-run work from journal-reconstructed work."""
+        return {r["key"] for r in self.records()
+                if "key" in r and r.get("recovered")}

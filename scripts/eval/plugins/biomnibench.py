@@ -6,6 +6,7 @@ question. Scored by Gemini 3.1 Pro (headline) + Anthropic (cross-check).
 """
 from __future__ import annotations
 import json
+import re
 from pathlib import Path
 from statistics import mean
 from scripts.eval.benchmark import Arm, Benchmark, Output, RunSpec, Score, Scorecard, Task
@@ -37,6 +38,102 @@ _CONTAMINATION_DIRECTIVE = (
     "You may consult tool/library documentation, but not look up this task's "
     "answers."
 )
+
+
+# ── claim-groundedness (HEURISTIC visibility metric, NOT a gate) ──────────────
+#
+# NOISE CAVEAT: extraction is sentence-level keyword heuristics, not the Rust
+# claim_verifier. A claim "counts" iff a salient token (number / identifier /
+# PMID) re-appears in the flattened result rows. Both false positives (an
+# incidental token match) and false negatives (a paraphrased magnitude) are
+# expected. The scorecard renders this beside the Gemini headline as a
+# value-visibility signal — never to block a run or override the judge.
+
+# Sentences carrying any of these markers are treated as load-bearing CLAIMS.
+_CLAIM_MARKERS: tuple[str, ...] = (
+    "-fold", "fold change", "fold-change", "fold ",
+    "increase", "decrease", "upregulat", "downregulat",
+    "higher", "lower", "elevat", "reduc",
+    "significant", "p=", "p =", "p<", "p <", "p-value", "p value",
+    "correlat", "enrich", "associat", "differen",
+)
+
+# Salient tokens we attempt to re-find in the result rows: floats/ints,
+# UPPERCASE gene-symbol-shaped tokens, and PMIDs.
+_NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
+_GENE_RE = re.compile(r"\b[A-Z][A-Z0-9]{2,}\b")
+_PMID_RE = re.compile(r"\bPMID[:\s]*?(\d{4,9})\b", re.IGNORECASE)
+
+
+def _extract_claims(narrative: str) -> list[str]:
+    """Split ``narrative`` into sentences and keep only those bearing a
+    quantitative / directional / comparative claim marker. HEURISTIC."""
+    if not narrative or not narrative.strip():
+        return []
+    # Sentence split on ./!/? boundaries followed by whitespace; tolerant of
+    # decimals because the markers, not the period, decide inclusion.
+    raw = re.split(r"(?<=[.!?])\s+", narrative.strip())
+    claims: list[str] = []
+    for sent in raw:
+        s = sent.strip()
+        if not s:
+            continue
+        low = s.lower()
+        if any(m in low for m in _CLAIM_MARKERS):
+            claims.append(s)
+    return claims
+
+
+def _grounding_reference_type(*, has_row: bool, has_pmid: bool) -> str:
+    """Classify the evidence surface a run's verified claims landed on."""
+    if has_row and has_pmid:
+        return "mixed"
+    if has_pmid:
+        return "pmid"
+    # Default (incl. no-evidence) is the primary result-row reference surface.
+    return "result_row"
+
+
+def _claim_tokens(claim: str) -> tuple[list[str], list[str]]:
+    """Return (non_pmid_tokens, pmid_tokens) salient for grounding a claim."""
+    pmids = _PMID_RE.findall(claim)
+    nums = _NUM_RE.findall(claim)
+    genes = [g for g in _GENE_RE.findall(claim) if g != "PMID"]
+    return (nums + genes, pmids)
+
+
+def compute_claim_groundedness(narrative: str, result_text: str) -> dict:
+    """Heuristic claim-groundedness over a flattened run.
+
+    A claim is grounded when ANY of its salient tokens (number, gene-shaped
+    identifier, or PMID) re-appears in ``result_text``. Returns the shared
+    Score.extra["claim_groundedness"] shape. HEURISTIC — see module caveat."""
+    claims = _extract_claims(narrative)
+    total = len(claims)
+    if total == 0:
+        return {"verified_count": 0, "total_claims": 0,
+                "verified_pct": 0.0, "reference_type": "result_row"}
+    haystack = result_text or ""
+    haystack_pmids = set(_PMID_RE.findall(haystack))
+    verified = 0
+    matched_via_row = False
+    matched_via_pmid = False
+    for claim in claims:
+        non_pmid, pmids = _claim_tokens(claim)
+        hit_pmid = any(p in haystack_pmids for p in pmids)
+        hit_row = any(tok and tok in haystack for tok in non_pmid)
+        if hit_pmid or hit_row:
+            verified += 1
+            matched_via_pmid = matched_via_pmid or hit_pmid
+            matched_via_row = matched_via_row or hit_row
+    pct = round(100.0 * verified / total, 1)
+    return {
+        "verified_count": verified,
+        "total_claims": total,
+        "verified_pct": pct,
+        "reference_type": _grounding_reference_type(
+            has_row=matched_via_row, has_pmid=matched_via_pmid),
+    }
 
 
 class BiomniBench(Benchmark):
@@ -159,6 +256,11 @@ class BiomniBench(Benchmark):
         extra = {"judge_cost_usd": gemini_cost + anthropic_cost,
                  "gemini_cost_usd": gemini_cost,
                  "anthropic_cost_usd": anthropic_cost}
+        # Judge-independent claim-groundedness visibility metric. Computed from
+        # the run's own narrative vs its result rows, regardless of which
+        # judge(s) scored it.
+        extra["claim_groundedness"] = compute_claim_groundedness(
+            output.trace_md, output.answer_txt)
         if output.artifacts.get("incomplete_reason"):
             extra["incomplete_reason"] = output.artifacts["incomplete_reason"]
         if headline and cross:
@@ -184,6 +286,8 @@ class BiomniBench(Benchmark):
                      extra={"cross_check": cross["overall"],
                             "judge_exact": exact,
                             "judge_kappa": kappa,
+                            "claim_groundedness": compute_claim_groundedness(
+                                output.trace_md, output.answer_txt),
                             "judge_cost_usd": headline.get("cost_usd", 0.0) + cross.get("cost_usd", 0.0)})
 
     def report(self, scores):
