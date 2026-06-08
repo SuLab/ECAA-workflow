@@ -165,71 +165,45 @@ fn generic_omics_archetype_declares_literature_atoms() {
     );
 }
 
-/// B2b: the literature opt-in gate. With literature intent the atoms
-/// survive the prune; without it they (and their validate companions)
-/// are dropped so the catch-all DAG stays lean and byte-stable — the
-/// same gate the deterministic CLI `intake` path applies before lowering.
+/// B2b: literature contextualization is unconditional. The prune helper
+/// is a no-op: the literature atoms (and their validate companions)
+/// survive composition regardless of the `requested` flag — there is no
+/// opt-in gate. The catch-all DAG always carries the literature family.
 #[test]
-fn generic_omics_literature_gate_keeps_when_requested_drops_otherwise() {
+fn generic_omics_literature_atoms_always_survive() {
     use ecaa_workflow_core::composer::prune_literature_atoms_from_workflow_dag;
 
     let (atoms, archetypes) = workspace_config();
 
-    // Requested → atoms survive.
-    let mut kept = compose_generic_omics_bioinformatics(&atoms, &archetypes);
-    let dropped_when_requested = prune_literature_atoms_from_workflow_dag(&mut kept, true);
-    assert!(
-        dropped_when_requested.is_empty(),
-        "literature-requested prune must drop nothing; dropped {:?}",
-        dropped_when_requested
-    );
-    let kept_ids: std::collections::BTreeSet<&str> =
-        kept.nodes.iter().map(|n| n.id.as_str()).collect();
-    assert!(
-        kept_ids.contains("review_prior_work")
-            && kept_ids.contains("contextualize_findings_with_literature"),
-        "literature atoms must survive when requested; got {:?}",
-        kept_ids
-    );
-
-    // Not requested → atoms + their validate companions dropped.
-    let mut gated = compose_generic_omics_bioinformatics(&atoms, &archetypes);
-    let dropped = prune_literature_atoms_from_workflow_dag(&mut gated, false);
-    let gated_ids: std::collections::BTreeSet<&str> =
-        gated.nodes.iter().map(|n| n.id.as_str()).collect();
-    for lit in [
-        "review_prior_work",
-        "contextualize_findings_with_literature",
-        "validate_review_prior_work",
-        "validate_contextualize_findings_with_literature",
-    ] {
+    for requested in [true, false] {
+        let mut dag = compose_generic_omics_bioinformatics(&atoms, &archetypes);
+        let dropped = prune_literature_atoms_from_workflow_dag(&mut dag, requested);
         assert!(
-            !gated_ids.contains(lit),
-            "{lit} must be dropped when literature not requested; got {:?}",
-            gated_ids
-        );
-        assert!(
-            dropped.contains(lit),
-            "{lit} must be in the dropped set; got {:?}",
+            dropped.is_empty(),
+            "prune must be a no-op (requested={requested}); dropped {:?}",
             dropped
         );
-    }
-    // The lean catch-all terminals survive and reporting keeps a parent.
-    assert!(
-        gated_ids.contains("generic_summary")
-            && gated_ids.contains("reporting")
-            && gated_ids.contains("final_reporting"),
-        "core catch-all atoms must survive the literature prune; got {:?}",
-        gated_ids
-    );
-    // No edge dangles to a dropped literature node.
-    for e in &gated.edges {
-        let base = |s: &str| s.split("__").next().unwrap_or(s).to_string();
+        let ids: std::collections::BTreeSet<&str> =
+            dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        for lit in [
+            "review_prior_work",
+            "contextualize_findings_with_literature",
+            "validate_review_prior_work",
+            "validate_contextualize_findings_with_literature",
+        ] {
+            assert!(
+                ids.contains(lit),
+                "{lit} must survive unconditionally (requested={requested}); got {:?}",
+                ids
+            );
+        }
+        // The core catch-all terminals coexist with the literature family.
         assert!(
-            !dropped.contains(&base(&e.from_node)) && !dropped.contains(&base(&e.to_node)),
-            "edge {} -> {} references a dropped literature node",
-            e.from_node,
-            e.to_node
+            ids.contains("generic_summary")
+                && ids.contains("reporting")
+                && ids.contains("final_reporting"),
+            "core catch-all atoms must be present; got {:?}",
+            ids
         );
     }
 }

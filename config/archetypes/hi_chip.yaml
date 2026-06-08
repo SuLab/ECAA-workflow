@@ -47,9 +47,23 @@ atoms:
   - atom_id: pathway_enrichment
     required: false
     depends_on: [differential_loop_analysis]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [differential_loop_analysis, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [chromatin_loop_calling, differential_loop_analysis, peak_calling, pathway_enrichment]
+    depends_on:
+      - chromatin_loop_calling
+      - differential_loop_analysis
+      - peak_calling
+      - pathway_enrichment
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -64,6 +78,8 @@ claim_boundary: |
   inferences require integrating with expression / ChIP /
   perturbation evidence.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: differential_loop_analysis, to: contextualize_findings_with_literature }
   - { from: chromatin_loop_calling, to: reporting }
   - { from: differential_loop_analysis, to: reporting }
   - { from: pathway_enrichment, to: reporting }

@@ -3157,60 +3157,30 @@ fn try_build_via_composer(
     match dag_result {
         Ok(mut dag) => {
             let mut workflow_dag_for_session = output.workflow_dag.clone();
-            // Post-build intake-fact gates. v4 dispatch does not yet
-            // thread `IntakeContext` through `compose_v4_dispatch_full`,
-            // so the literature opt-in gate that `compose_with_intake`
-            // applies in slot_fill is bypassed for v4 sessions. Until
-            // the v4 planner takes intake facts as input, apply the
-            // same drop semantics here.
+            // Post-build intake-fact gates. Literature contextualization is
+            // unconditional: the review_prior_work +
+            // contextualize_findings_with_literature atoms (and their
+            // validate_* companions) always survive composition regardless
+            // of intake keywords, so no literature gate runs here.
             //
-            // The default semantics match slot_fill::compose_with_intake:
-            //   * `literature_review_requested = false` (default) →
-            //      drop `review_prior_work` + `contextualize_findings_*`
-            //      + their `validate_*` siblings. Surviving tasks lose
-            //      their `depends_on` edges to the dropped tasks.
-            //
-            // Additionally apply the counts-only-input gate when the
+            // The counts-only-input gate still applies: when the
             // SME-supplied inputs declare counts-matrix only (no FASTQ
-            // upstream) — FASTQ-level atoms are unreachable in that
-            // case and the composer's archetype catalog still includes
-            // them.
-            // Narrow opt-in: the literature atoms survive only when the
-            // SME prose explicitly asked for literature grounding. The v4
-            // planner doesn't thread IntakeContext, so we derive the flag
-            // here from the session prose (single source of truth:
-            // IntakeFacts::detect_literature_intent).
-            let literature_requested =
-                ecaa_workflow_core::intake_facts::IntakeFacts::detect_literature_intent(
-                    &session.intake_prose,
-                );
-            let dropped_lit = if literature_requested {
-                std::collections::BTreeSet::new()
-            } else {
-                apply_literature_opt_in_gate(&mut dag)
-            };
+            // upstream) the FASTQ-level atoms are unreachable and the
+            // composer's archetype catalog still includes them.
             let dropped_fastq = apply_counts_only_input_gate(&mut dag, session);
             if let Some(wf) = workflow_dag_for_session.as_mut() {
-                use ecaa_workflow_core::composer::LITERATURE_OPT_IN_ATOM_IDS;
-                let wf_dropped_lit = if literature_requested {
-                    std::collections::BTreeSet::new()
-                } else {
-                    prune_workflow_dag_roots_with_companions(wf, LITERATURE_OPT_IN_ATOM_IDS)
-                };
                 let wf_dropped_fastq = prune_counts_only_input_workflow_dag(wf, session);
-                if !wf_dropped_lit.is_empty() || !wf_dropped_fastq.is_empty() {
+                if !wf_dropped_fastq.is_empty() {
                     tracing::debug!(
                         session_id = %session.id,
-                        workflow_dag_dropped_literature = ?wf_dropped_lit,
                         workflow_dag_dropped_fastq_atoms = ?wf_dropped_fastq,
                         "rebuild_dag: applied intake-fact post-filters to authoritative WorkflowDag"
                     );
                 }
             }
-            if !dropped_lit.is_empty() || !dropped_fastq.is_empty() {
+            if !dropped_fastq.is_empty() {
                 tracing::info!(
                     session_id = %session.id,
-                    dropped_literature = ?dropped_lit,
                     dropped_fastq_atoms = ?dropped_fastq,
                     "rebuild_dag: applied intake-fact post-filters to v4 DAG"
                 );
@@ -3288,50 +3258,11 @@ fn try_build_via_composer(
     }
 }
 
-/// Literature opt-in gate post-filter. Applies the same drop
-/// semantics as `slot_fill::compose_with_intake`'s literature gate to
-/// the v4 DAG, since the v4 planner does not yet thread `IntakeContext`
-/// through `compose_v4_dispatch_full`.
-///
-/// Drops `review_prior_work` and `contextualize_findings_with_literature`
-/// (plus their `validate_*` siblings) when the session's intake facts
-/// indicate `literature_review_requested == false` (the default).
-/// Surviving tasks lose any `depends_on` edges to the dropped tasks —
-/// `reporting`'s dependency on `contextualize_findings_with_literature`
-/// becomes a no-op edge that the DAG drops automatically.
-///
-/// Returns the actually-dropped task ids (filtered to ones that
-/// existed) for audit logging.
-fn apply_literature_opt_in_gate(
-    dag: &mut ecaa_workflow_core::dag::DAG,
-) -> std::collections::BTreeSet<ecaa_workflow_core::dag::TaskId> {
-    // Until v4 threads intake_facts through, default to opt-out
-    // (matching slot_fill's default behavior — review_prior_work only
-    // surfaces when the SME explicitly opts in). The single source of
-    // truth for which atoms are "literature opt-in" lives in
-    // `composer::slot_fill::LITERATURE_OPT_IN_ATOM_IDS`; mirror its set
-    // here to keep the gate behavior consistent across composer paths.
-    use ecaa_workflow_core::composer::LITERATURE_OPT_IN_ATOM_IDS;
-    let present: Vec<&str> = LITERATURE_OPT_IN_ATOM_IDS
-        .iter()
-        .filter(|id| dag.tasks.contains_key(**id))
-        .copied()
-        .collect();
-    if present.is_empty() {
-        return std::collections::BTreeSet::new();
-    }
-    let dropped = dag.drop_tasks_with_validators(&present);
-    // Only return ids that were actually present in the DAG.
-    dropped
-        .into_iter()
-        .filter(|id| {
-            present.contains(&id.as_str())
-                || present
-                    .iter()
-                    .any(|p| format!("validate_{p}").as_str() == id.as_str())
-        })
-        .collect()
-}
+// Literature contextualization is unconditional — the v4 DAG retains
+// review_prior_work + contextualize_findings_with_literature (and their
+// validate_* companions) on every emission, so no literature opt-in gate
+// runs in rebuild_dag. The previous `apply_literature_opt_in_gate`
+// post-filter has been removed.
 
 fn companion_base_id(task_id: &str) -> &str {
     task_id

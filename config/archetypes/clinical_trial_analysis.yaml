@@ -66,6 +66,15 @@ atoms:
   - atom_id: clinical_sensitivity_analysis
     required: true
     depends_on: [clinical_endpoint_analysis]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [clinical_endpoint_analysis, review_prior_work]
   - atom_id: reporting
     required: true
     depends_on:
@@ -73,6 +82,7 @@ atoms:
       - clinical_safety_summary
       - clinical_subgroup_analysis
       - clinical_sensitivity_analysis
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -89,6 +99,8 @@ claim_boundary: |
   Do not make regulatory, efficacy, or safety-signal claims beyond what
   the SME has already asserted.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: clinical_endpoint_analysis, to: contextualize_findings_with_literature }
   - { from: clinical_endpoint_analysis, to: reporting }
   - { from: clinical_safety_summary, to: reporting }
   - { from: clinical_sensitivity_analysis, to: reporting }

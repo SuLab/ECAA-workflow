@@ -28,9 +28,21 @@ atoms:
   - atom_id: cdr3_clonotype_clustering
     required: false
     depends_on: [vdj_reconstruction]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [repertoire_diversity, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [repertoire_diversity, cdr3_clonotype_clustering]
+    depends_on:
+      - repertoire_diversity
+      - cdr3_clonotype_clustering
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -45,5 +57,7 @@ claim_boundary: |
   depth + per-cell recovery + clustering parameters alongside every
   diversity / clonotype output.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: repertoire_diversity, to: contextualize_findings_with_literature }
   - { from: cdr3_clonotype_clustering, to: reporting }
   - { from: repertoire_diversity, to: reporting }

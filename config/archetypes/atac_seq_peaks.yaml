@@ -39,9 +39,24 @@ atoms:
   - atom_id: motif_enrichment
     required: false
     depends_on: [peak_calling]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization: review_prior_work +
+    # contextualize_findings_with_literature are present in every emitted
+    # DAG so analysis findings are always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [peak_calling, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [peak_calling, peak_annotation, differential_accessibility, motif_enrichment]
+    # reporting also consumes contextualize_findings_with_literature so it
+    # doesn't dangle as an orphan operation node in the lowered DAG.
+    depends_on:
+      - peak_calling
+      - peak_annotation
+      - differential_accessibility
+      - motif_enrichment
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -58,8 +73,10 @@ claim_boundary: |
   every peak set. ATAC peaks differ from ChIP-seq peaks in that they
   reflect open chromatin, not TF-specific binding.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
   - { from: differential_accessibility, to: reporting }
   - { from: motif_enrichment, to: reporting }
   - { from: peak_annotation, to: reporting }
+  - { from: peak_calling, to: contextualize_findings_with_literature }
   - { from: peak_calling, to: reporting }
   - { from: raw_qc, to: sequence_trimming }

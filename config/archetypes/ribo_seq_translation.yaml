@@ -48,9 +48,21 @@ atoms:
   - atom_id: pathway_enrichment
     required: false
     depends_on: [translation_efficiency_de]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [translation_efficiency_de, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [translation_efficiency_de, pathway_enrichment]
+    depends_on:
+      - translation_efficiency_de
+      - pathway_enrichment
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -68,6 +80,8 @@ claim_boundary: |
   orthogonal validation. Report effect size + adjusted p-value +
   the RPF / mRNA pairing used.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: translation_efficiency_de, to: contextualize_findings_with_literature }
   - { from: normalisation, to: translation_efficiency_de }
   - { from: pathway_enrichment, to: reporting }
   - { from: raw_qc, to: sequence_trimming }

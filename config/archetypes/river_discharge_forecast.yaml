@@ -35,9 +35,20 @@ atoms:
   - atom_id: time_series_forecast_evaluate
     required: true
     depends_on: [time_series_model_fit]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [time_series_forecast_evaluate, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [time_series_forecast_evaluate]
+    depends_on:
+      - time_series_forecast_evaluate
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -51,5 +62,7 @@ claim_boundary: |
   model. Do not assert hydrologic causation, performance under unobserved
   climate regimes, or basin-physical interpretation beyond what the SME stated.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: time_series_forecast_evaluate, to: contextualize_findings_with_literature }
   - { from: data_import, to: hydrologic_qc }
   - { from: time_series_forecast_evaluate, to: reporting }

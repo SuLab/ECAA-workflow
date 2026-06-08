@@ -28,9 +28,20 @@ atoms:
   - atom_id: diversity_analysis
     required: true
     depends_on: [taxonomic_classification]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [diversity_analysis, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [diversity_analysis]
+    depends_on:
+      - diversity_analysis
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -45,6 +56,8 @@ claim_boundary: |
   associations, not causal effects. Report the classifier, reference DB
   build, and read depth alongside every diversity statistic.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: diversity_analysis, to: contextualize_findings_with_literature }
   - { from: diversity_analysis, to: reporting }
   - { from: raw_qc, to: sequence_trimming }
   - { from: taxonomic_classification, to: diversity_analysis }

@@ -229,15 +229,11 @@ async fn emit_steps(
     let compute_profiles_dir = policies_dir.parent().map(|p| p.join("compute-profiles"));
     let mut intake_facts =
         ecaa_workflow_core::intake_facts::IntakeFacts::from_classification(&classification);
-    // Narrow opt-in: persist literature_review_requested = true into
-    // policies/intake-facts.json only when the SME prose explicitly asked
-    // for literature grounding. Single source of truth:
-    // IntakeFacts::detect_literature_intent. Default false leaves the
-    // emitted facts byte-identical to a plain run.
-    intake_facts.literature_review_requested =
-        ecaa_workflow_core::intake_facts::IntakeFacts::detect_literature_intent(
-            &session.intake_prose,
-        );
+    // Literature contextualization is unconditional — every emitted DAG
+    // carries the review_prior_work + contextualize_findings_with_literature
+    // atoms, so policies/intake-facts.json records that the package was
+    // grounded against prior work.
+    intake_facts.literature_review_requested = true;
     // If the SME just amended a stage, thread the
     // amendment context through to the core emitter so it can write
     // `prov:wasDerivedFrom`, the `UpdateAction` entity, and

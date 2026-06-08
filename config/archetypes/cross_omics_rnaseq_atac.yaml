@@ -37,10 +37,18 @@ atoms:
   # the per-cell ATAC counts upstream of joint_wnn_integration.
   - { atom_id: differential_accessibility, depends_on: [joint_wnn_integration, cell_type_annotation], required: true }
   - { atom_id: peak_to_gene_linking, depends_on: [joint_wnn_integration, cell_type_annotation], required: true }
-  - { atom_id: reporting, depends_on: [differential_expression, differential_accessibility, peak_to_gene_linking], required: true }
+  # Unconditional literature contextualization: review_prior_work +
+  # contextualize_findings_with_literature are present in every emitted DAG
+  # so the cross-omics integration findings are grounded against prior work.
+  - { atom_id: review_prior_work, required: false }
+  - { atom_id: contextualize_findings_with_literature,
+      depends_on: [peak_to_gene_linking, review_prior_work], required: false }
+  - { atom_id: reporting, depends_on: [differential_expression, differential_accessibility, peak_to_gene_linking, contextualize_findings_with_literature], required: true }
   - { atom_id: final_reporting, depends_on: [reporting], required: true }
 slot_mappings: {}
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: peak_to_gene_linking, to: contextualize_findings_with_literature }
   - { from: cell_type_annotation, to: differential_accessibility }
   - { from: cell_type_annotation, to: differential_expression }
   - { from: cell_type_annotation, to: peak_to_gene_linking }

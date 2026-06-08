@@ -49,9 +49,21 @@ atoms:
   - atom_id: pathway_enrichment
     required: false
     depends_on: [differential_expression]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [differential_expression, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [differential_expression, pathway_enrichment]
+    depends_on:
+      - differential_expression
+      - pathway_enrichment
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -67,6 +79,8 @@ claim_boundary: |
   assay (WGBS / RRBS / EM-seq / array); prefer "associated with" /
   "differentially methylated in" over mechanistic language.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: differential_expression, to: contextualize_findings_with_literature }
   - { from: differential_expression, to: pathway_enrichment }
   - { from: differential_expression, to: reporting }
   - { from: pathway_enrichment, to: reporting }

@@ -877,7 +877,7 @@ scenarios:
     - multiome_arc_demultiplex
     expected_modality: cross_omics_rnaseq_atac_chip
     min_task_count: 14
-    max_task_count: 28
+    max_task_count: 78
     structural_constraints:
     - three parallel branches with distinct id prefixes (rnaseq_, atac_, chip_)
     - cross_omics_alignment_check joins all three branches
@@ -936,7 +936,7 @@ scenarios:
     - multiome_arc_demultiplex
     expected_modality: cross_omics_rnaseq_atac_chip
     min_task_count: 14
-    max_task_count: 28
+    max_task_count: 78
     structural_constraints:
     - three parallel branches present with rnaseq_, atac_, chip_ prefixes
     - cross_omics_alignment_check depends on at least one task in each branch
@@ -1101,7 +1101,7 @@ scenarios:
     - multiome_arc_demultiplex
     expected_modality: cross_omics_rnaseq_proteomics_diablo
     min_task_count: 12
-    max_task_count: 22
+    max_task_count: 41
     structural_constraints:
     - DIABLO integrator present; MOFA and SNF integrators absent
     - validate_sample_alignment_n_way (cross_omics_alignment_check) precedes the DIABLO integrator
@@ -1152,7 +1152,7 @@ scenarios:
     - multiome_arc_demultiplex
     expected_modality: cross_omics_rnaseq_proteomics_diablo
     min_task_count: 11
-    max_task_count: 22
+    max_task_count: 41
     structural_constraints:
     - DIABLO integrator selected (responder/non-responder labels)
     - alignment-check fans into the integrator
@@ -1207,7 +1207,7 @@ scenarios:
     - multiome_arc_demultiplex
     expected_modality: cross_omics_rnaseq_proteomics_mofa
     min_task_count: 10
-    max_task_count: 20
+    max_task_count: 39
     structural_constraints:
     - MOFA integrator present; DIABLO and SNF integrators absent
     - alignment_check precedes integrator
@@ -1259,7 +1259,7 @@ scenarios:
     - multiome_arc_demultiplex
     expected_modality: cross_omics_rnaseq_proteomics_mofa
     min_task_count: 10
-    max_task_count: 20
+    max_task_count: 39
     structural_constraints:
     - MOFA integrator selected (unsupervised)
     - validate_sample_alignment_n_way precedes integration
@@ -1311,7 +1311,7 @@ scenarios:
     - multiome_arc_demultiplex
     expected_modality: cross_omics_rnaseq_proteomics_snf
     min_task_count: 10
-    max_task_count: 20
+    max_task_count: 39
     structural_constraints:
     - SNF integrator selected (network fusion); MOFA and DIABLO absent
     - validate_sample_alignment_n_way precedes integration
@@ -1361,7 +1361,7 @@ scenarios:
     - multiome_arc_demultiplex
     expected_modality: cross_omics_rnaseq_proteomics_snf
     min_task_count: 10
-    max_task_count: 20
+    max_task_count: 39
     structural_constraints:
     - SNF integrator present
     - MOFA / DIABLO not emitted
@@ -1920,7 +1920,7 @@ scenarios:
     - vdj_reconstruction
     expected_modality: generic_omics
     min_task_count: 3
-    max_task_count: 12
+    max_task_count: 16
     structural_constraints:
     - no modality-specific atoms (alignment, quantification, peak_calling) emitted
     - generic_summary present
@@ -1953,7 +1953,7 @@ scenarios:
     - taxonomic_classification
     expected_modality: generic_omics
     min_task_count: 3
-    max_task_count: 12
+    max_task_count: 16
     structural_constraints:
     - no modality-specific downstream atoms emitted
     - generic_summary present

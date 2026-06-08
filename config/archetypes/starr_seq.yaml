@@ -33,9 +33,20 @@ atoms:
   - atom_id: enhancer_activity_calling
     required: true
     depends_on: [alignment]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [enhancer_activity_calling, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [enhancer_activity_calling]
+    depends_on:
+      - enhancer_activity_calling
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -50,5 +61,7 @@ claim_boundary: |
   Cross-validate with H3K27ac / DNase peaks at the same coordinates
   and with orthogonal reporter assays before naming target genes.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: enhancer_activity_calling, to: contextualize_findings_with_literature }
   - { from: enhancer_activity_calling, to: reporting }
   - { from: raw_qc, to: sequence_trimming }

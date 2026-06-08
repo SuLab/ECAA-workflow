@@ -29,9 +29,21 @@ atoms:
   - atom_id: neoantigen_filtering
     required: false
     depends_on: [netmhc_binding_prediction]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [netmhc_binding_prediction, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [netmhc_binding_prediction, neoantigen_filtering]
+    depends_on:
+      - netmhc_binding_prediction
+      - neoantigen_filtering
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -48,6 +60,8 @@ claim_boundary: |
   binding-predictor + threshold, and somatic-variant-call source
   alongside every neoantigen.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: netmhc_binding_prediction, to: contextualize_findings_with_literature }
   - { from: data_acquisition, to: hla_peptide_search }
   - { from: neoantigen_filtering, to: reporting }
   - { from: netmhc_binding_prediction, to: reporting }

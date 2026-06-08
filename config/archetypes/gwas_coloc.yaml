@@ -27,9 +27,20 @@ atoms:
   - atom_id: colocalization
     required: true
     depends_on: [gwas_summary_harmonization]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [colocalization, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [colocalization]
+    depends_on:
+      - colocalization
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -46,5 +57,7 @@ claim_boundary: |
   locus. Do not extrapolate across ancestries unless run with a matched
   LD reference.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: colocalization, to: contextualize_findings_with_literature }
   - { from: colocalization, to: reporting }
   - { from: data_acquisition, to: gwas_summary_harmonization }

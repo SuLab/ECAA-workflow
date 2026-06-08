@@ -768,7 +768,7 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     let compose_strict = ecaa_workflow_core::config::Config::from_env()
         .map(|c| c.compose_strict)
         .unwrap_or(false);
-    let mut output_compose =
+    let output_compose =
         ecaa_workflow_core::composer::compose_with_modalities_full_pref_strict(
             &goal,
             project_class_str,
@@ -784,20 +784,10 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
             compose_strict,
         )
         .map_err(|e| anyhow::anyhow!("v4 composer dispatch failed: {:?}", e))?;
-    // Narrow literature opt-in. The v4 planner doesn't thread
-    // IntakeContext, so the deterministic CLI path applies the same
-    // literature gate the conversation layer does: drop the opt-in
-    // literature atoms (+ their validate companions) unless the intake
-    // prose explicitly asked for literature grounding. Keeps a
-    // non-literature run byte-identical to a pre-literature DAG.
-    let literature_requested =
-        ecaa_workflow_core::intake_facts::IntakeFacts::detect_literature_intent(&intake_text);
-    if let Some(workflow_dag) = output_compose.workflow_dag.as_mut() {
-        ecaa_workflow_core::composer::prune_literature_atoms_from_workflow_dag(
-            workflow_dag,
-            literature_requested,
-        );
-    }
+    // Literature contextualization is unconditional — the
+    // review_prior_work + contextualize_findings_with_literature atoms
+    // are present in every emitted DAG regardless of intake keywords, so
+    // the deterministic CLI path applies no literature gate.
     let dag = if let Some(workflow_dag) = output_compose.workflow_dag.as_ref() {
         build_dag_from_workflow_dag(workflow_dag, &workflow_id)?
     } else {
@@ -849,9 +839,11 @@ fn run_intake(input: &str, output: &str, config: &str, emit_bco_flag: bool) -> R
     };
     let mut intake_facts =
         ecaa_workflow_core::intake_facts::IntakeFacts::from_classification(&full_clf);
-    // Persist the detected literature opt-in into policies/intake-facts.json
-    // so the emitted facts agree with the gated DAG.
-    intake_facts.literature_review_requested = literature_requested;
+    // Literature contextualization is unconditional — every emitted DAG
+    // carries the review_prior_work + contextualize_findings_with_literature
+    // atoms, so the persisted fact reflects that the package was grounded
+    // against prior work.
+    intake_facts.literature_review_requested = true;
     let composed_atoms: Vec<_> = output_compose
         .composition
         .atoms

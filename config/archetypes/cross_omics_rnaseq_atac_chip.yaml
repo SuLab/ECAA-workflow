@@ -73,9 +73,11 @@ claim_boundary: |
   signals, not validated regulatory programs. Per-branch effect sizes +
   adjusted p-values stay independent.
 ordering_only_edges:
+  - { from: atac_contextualize_findings_with_literature, to: atac_reporting }
   - { from: atac_differential_accessibility, to: atac_reporting }
   - { from: atac_motif_enrichment, to: atac_reporting }
   - { from: atac_peak_annotation, to: atac_reporting }
+  - { from: atac_peak_calling, to: atac_contextualize_findings_with_literature }
   - { from: atac_peak_calling, to: atac_reporting }
   - { from: atac_peak_calling, to: cross_omics_alignment_check }
   - { from: atac_raw_qc, to: atac_sequence_trimming }

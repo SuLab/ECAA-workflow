@@ -23,6 +23,7 @@ mod composer_v4_project_class_archetype;
 mod composer_v4_reporting_consumer_synthesis;
 mod composer_v4_scrnaseq_completeness;
 mod composer_v4_time_series_forecast_archetype;
+mod composer_v4_universal_literature;
 mod composer_v4_validate_companions;
 mod ordering_only_declaration;
 mod v3_alignment_status_baseline;

@@ -45,13 +45,28 @@ atoms:
   - atom_id: external_validation
     required: true
     depends_on: [predictive_model_fit]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [external_validation, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [calibration_audit, fairness_audit, external_validation]
+    depends_on:
+      - calibration_audit
+      - fairness_audit
+      - external_validation
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: external_validation, to: contextualize_findings_with_literature }
   - { from: calibration_audit, to: reporting }
   - { from: external_validation, to: reporting }
   - { from: fairness_audit, to: reporting }

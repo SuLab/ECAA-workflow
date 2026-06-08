@@ -60,11 +60,23 @@ atoms:
   - atom_id: pathway_enrichment
     required: false
     depends_on: [differential_expression]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [differential_expression, review_prior_work]
   - atom_id: reporting
     required: true
     # Consume pathway_enrichment alongside DE so it
     # doesn't dangle as an orphan when present.
-    depends_on: [differential_expression, pathway_enrichment]
+    depends_on:
+      - differential_expression
+      - pathway_enrichment
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -80,6 +92,8 @@ claim_boundary: |
   expression is statistical association across cells of the same called
   type; do not infer mechanism.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: differential_expression, to: contextualize_findings_with_literature }
   # DE runs *after* cell-type calling, but its actual data input is the
   # normalized counts from upstream `normalisation` (satisfied via that
   # atom's own edge). The depends_on here is a sequencing relation, not a

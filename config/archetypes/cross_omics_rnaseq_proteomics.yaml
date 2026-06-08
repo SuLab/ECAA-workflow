@@ -39,10 +39,17 @@ atoms:
   - { atom_id: protein_quantification,  alias: proteomics_protein_quantification,  depends_on: [proteomics_peptide_search],   required: true }
   - { atom_id: differential_expression, alias: proteomics_differential_abundance,  depends_on: [proteomics_protein_quantification], required: true }
   - { atom_id: pathway_enrichment,      alias: proteomics_pathway_enrichment,      depends_on: [proteomics_differential_abundance], required: false }
+  # Unconditional literature contextualization: review_prior_work +
+  # contextualize_findings_with_literature are present in every emitted DAG
+  # so the cross-omics findings are grounded against prior work.
+  - { atom_id: review_prior_work, required: false }
+  - { atom_id: contextualize_findings_with_literature,
+      depends_on: [rnaseq_differential_expression, review_prior_work], required: false }
   - { atom_id: reporting,               alias: cross_omics_thematic_comparison,
       # Consume pathway enrichments too so they don't orphan.
       depends_on: [rnaseq_differential_expression, proteomics_differential_abundance,
-                   rnaseq_pathway_enrichment, proteomics_pathway_enrichment], required: true }
+                   rnaseq_pathway_enrichment, proteomics_pathway_enrichment,
+                   contextualize_findings_with_literature], required: true }
   - { atom_id: final_reporting,         depends_on: [cross_omics_thematic_comparison], required: true }
 slot_mappings:
   contrast: rnaseq_differential_expression.inputs.contrast
@@ -61,6 +68,8 @@ claim_boundary: |
   independently; the join surfaces overlap and discordance, not
   causation.
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: cross_omics_thematic_comparison }
+  - { from: rnaseq_differential_expression, to: contextualize_findings_with_literature }
   - { from: proteomics_differential_abundance, to: cross_omics_thematic_comparison }
   - { from: proteomics_differential_abundance, to: proteomics_pathway_enrichment }
   - { from: proteomics_pathway_enrichment, to: cross_omics_thematic_comparison }

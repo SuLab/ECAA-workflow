@@ -55,9 +55,20 @@ atoms:
   - atom_id: differential_transcript_usage
     required: true
     depends_on: [isoform_discovery]
+  - atom_id: review_prior_work
+    required: false
+    # Unconditional literature contextualization:
+    # review_prior_work + contextualize_findings_with_literature
+    # are present in every emitted DAG so analysis findings are
+    # always grounded against prior work.
+  - atom_id: contextualize_findings_with_literature
+    required: false
+    depends_on: [differential_transcript_usage, review_prior_work]
   - atom_id: reporting
     required: true
-    depends_on: [differential_transcript_usage]
+    depends_on:
+      - differential_transcript_usage
+      - contextualize_findings_with_literature
   - atom_id: final_reporting
     required: true
     depends_on: [reporting]
@@ -74,6 +85,8 @@ claim_boundary: |
   requires orthogonal support (spike-in, matched short-read, or
   curated-annotation corroboration).
 ordering_only_edges:
+  - { from: contextualize_findings_with_literature, to: reporting }
+  - { from: differential_transcript_usage, to: contextualize_findings_with_literature }
   - { from: differential_transcript_usage, to: reporting }
   - { from: isoform_discovery, to: differential_transcript_usage }
   - { from: normalisation, to: isoform_discovery }

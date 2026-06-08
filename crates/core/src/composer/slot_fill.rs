@@ -117,66 +117,23 @@ pub const LITERATURE_OPT_IN_ATOM_IDS: &[&str] = &[
     "contextualize_findings_with_literature",
 ];
 
-/// Drop the opt-in literature atoms (and their `validate_*` companions)
-/// from a typed [`WorkflowDag`] unless the SME explicitly requested
-/// literature grounding.
+/// Literature contextualization is unconditional — the literature atoms
+/// are present in every emitted DAG regardless of intake keywords. This
+/// helper is therefore a no-op: it never prunes
+/// `review_prior_work` / `contextualize_findings_with_literature` (or
+/// their `validate_*` companions) from a typed [`WorkflowDag`].
 ///
-/// This is the WorkflowDag analog of the [`compose_with_intake`]
-/// literature gate. The v4 planner does not thread `IntakeContext`, so
-/// the deterministic CLI `intake` path (which lowers
-/// `ComposerOutput.workflow_dag` directly) and any other v4 caller call
-/// this to keep a non-literature run byte-identical to a pre-literature
-/// DAG. The conversation layer applies the equivalent gate on its own
-/// lowered DAG + WorkflowDag with edge-splicing; this helper handles the
-/// catch-all / standard-archetype shapes where the literature atoms are
-/// either leaf sources (`review_prior_work`) or single-consumer feeders
-/// of `reporting` (`contextualize_findings_with_literature`) which
-/// retains a non-literature parent, so a simple node+edge removal is
-/// sufficient.
+/// The signature (incl. the now-ignored `_requested` flag) is retained so
+/// the deterministic CLI `intake` path and the conversation layer keep a
+/// single call site; both pass through unchanged.
 ///
-/// No-op when `requested` is true. Returns the dropped node ids (for
-/// audit logging). Keeps the DAG byte-stable: removal preserves the
-/// existing sort order of surviving nodes/edges.
+/// Always returns the empty set (nothing dropped). Keeps the DAG
+/// byte-stable: no nodes/edges removed.
 pub fn prune_literature_atoms_from_workflow_dag(
-    dag: &mut crate::workflow_contracts::task_node::WorkflowDag,
-    requested: bool,
+    _dag: &mut crate::workflow_contracts::task_node::WorkflowDag,
+    _requested: bool,
 ) -> BTreeSet<String> {
-    if requested {
-        return BTreeSet::new();
-    }
-    // A node is dropped when it is one of the literature roots OR a
-    // `validate_<root>` companion of one. Edge endpoint ids carry an
-    // optional `__<port>` suffix from the v4 composer; strip it to
-    // recover the bare node id.
-    let is_literature_node = |id: &str| -> bool {
-        LITERATURE_OPT_IN_ATOM_IDS.contains(&id)
-            || id
-                .strip_prefix("validate_")
-                .map(|base| LITERATURE_OPT_IN_ATOM_IDS.contains(&base))
-                .unwrap_or(false)
-    };
-    let dropped: BTreeSet<String> = dag
-        .nodes
-        .iter()
-        .filter(|n| is_literature_node(n.id.as_str()))
-        .map(|n| n.id.clone())
-        .collect();
-    if dropped.is_empty() {
-        return dropped;
-    }
-    fn edge_base(endpoint: &str) -> &str {
-        endpoint.split("__").next().unwrap_or(endpoint)
-    }
-    dag.nodes.retain(|n| !dropped.contains(&n.id));
-    dag.edges.retain(|e| {
-        !dropped.contains(edge_base(&e.from_node)) && !dropped.contains(edge_base(&e.to_node))
-    });
-    for assumption in &mut dag.assumptions.entries {
-        assumption
-            .affects_nodes
-            .retain(|node_id| !dropped.contains(node_id));
-    }
-    dropped
+    BTreeSet::new()
 }
 
 /// Slot-fill-aware composition entry point.
@@ -204,27 +161,10 @@ pub fn compose_with_intake(
     intake: &IntakeContext<'_>,
 ) -> Result<CompositionResult, CompositionError> {
     let mut result = compose(goal, project_class, atom_reg, archetype_reg)?;
-    // Phase G — opt-in literature atom family. When the SME hasn't
-    // requested literature review, drop the atoms before slot-fill so
-    // the emitted DAG is byte-identical to a pre-literature DAG and
-    // existing scenarios are not regressed. Their stage_ids are also
-    // pruned from surviving atoms' depends_on edges.
-    if !intake.literature_review_requested {
-        let dropped: BTreeSet<String> = result
-            .atoms
-            .iter()
-            .filter(|c| LITERATURE_OPT_IN_ATOM_IDS.contains(&c.atom.id.as_str()))
-            .map(|c| c.stage_id.to_string())
-            .collect();
-        if !dropped.is_empty() {
-            result
-                .atoms
-                .retain(|c| !LITERATURE_OPT_IN_ATOM_IDS.contains(&c.atom.id.as_str()));
-            for c in result.atoms.iter_mut() {
-                c.depends_on.retain(|d| !dropped.contains(d));
-            }
-        }
-    }
+    // Literature contextualization is unconditional — the
+    // review_prior_work + contextualize_findings_with_literature atoms
+    // always survive composition regardless of intake keywords, so no
+    // literature gate runs here.
     if intake.port_mappings.is_some() {
         apply_slot_fill(&mut result, intake)?;
     }
