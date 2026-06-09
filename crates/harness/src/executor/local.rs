@@ -114,6 +114,18 @@ pub(super) const REQUIRED_INHERITED_KEYS: &[&str] = &[
     "EVAL_INJECT_PATTERN",
     "EVAL_INJECT_TARGET",
     "EVAL_INJECT_STATE",
+    // Codex executor backend. scripts/agent.sh reads ECAA_AGENT_BACKEND to
+    // select the wrapper; agent-codex.sh reads the rest for codex CLI install
+    // + auth. env_clear strips them before the agent shell runs otherwise, so
+    // the dispatcher would always fall back to the claude default.
+    "ECAA_AGENT_BACKEND",
+    "ECAA_OPENAI_API_KEY",
+    "ECAA_CODEX_AUTH_DIR",
+    "ECAA_CODEX_INSTALL_DIR",
+    "ECAA_AGENT_CODEX_MODEL",
+    "ECAA_AGENT_CODEX_VERSION",
+    "ECAA_AGENT_CODEX_DISABLE",
+    "ECAA_AGENT_CODEX_FORCE_REINSTALL",
 ];
 
 /// `ECAA_DISABLE_ENV_CLEAR=1` legacy bypass.
