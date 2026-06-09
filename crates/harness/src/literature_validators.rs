@@ -131,7 +131,14 @@ struct ClaimsMatrixRow {
 #[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 struct EvidenceManifest {
-    pub schema_version: u32,
+    // Unused by the validators; tolerate absent or non-numeric (codex writes a
+    // string) by ignoring the value entirely.
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub schema_version: serde_json::Value,
+    // Accept `sources` (codex's hand-rolled literature manifest top-level key)
+    // as an alias for the canonical `entries` — same per-source records.
+    #[serde(alias = "sources")]
     pub entries: Vec<EvidenceEntry>,
 }
 
@@ -161,14 +168,28 @@ struct EvidenceEntry {
     #[serde(default)]
     pub pmids_in_batch: Vec<String>,
     pub source_kind: String,
+    // codex names the snapshot path `source_text_path`; the canonical helper
+    // uses `path`. Accept both.
+    #[serde(alias = "source_text_path")]
     pub path: String,
+    // Secondary provenance metadata the validators store but do not gate on.
+    // Defaulted so a leaner hand-rolled manifest (codex omits these / spells
+    // sha256 without the `_binary` suffix) still deserializes and resolves.
+    #[serde(default, alias = "sha256")]
     pub sha256_binary: String,
+    #[serde(default)]
     pub sha256_extracted_text: String,
+    #[serde(default)]
     pub extracted_text_normalization: String,
+    #[serde(default)]
     pub bytes: u64,
+    #[serde(default)]
     pub retrieval_ts: String,
+    #[serde(default)]
     pub retrieval_query_id: String,
+    #[serde(default)]
     pub redistributable: bool,
+    #[serde(default)]
     pub license: String,
 }
 
@@ -707,22 +728,20 @@ pub fn run_redistributable_or_marked(
             // External PDFs are stored locally only — true is a contradiction.
             ("external_pdf_local_only", false) => true,
             ("external_pdf_local_only", true) => false,
-            // Paper-class OA / abstract / OpenAlex / Crossref records are
-            // genuinely CC/fair-use redistributable and MUST carry the mark.
-            (
-                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only"
-                | "pubmed_abstract" | "pubmed_efetch_xml_batch",
-                true,
-            ) => true,
-            (
-                "pmc_oa_full_text" | "openalex" | "crossref" | "abstract_only"
-                | "pubmed_abstract" | "pubmed_efetch_xml_batch",
-                false,
-            ) => false,
             // Tool-documentation pages are pages, not redistributed corpus —
             // either marking is legal.
             ("doc_page", _) => true,
-            _ => false,
+            // Every other source_kind is a literature/paper class — the
+            // canonical OA/abstract kinds (pmc_oa_full_text, openalex, crossref,
+            // abstract_only, pubmed_abstract, pubmed_efetch_xml_batch) AND the
+            // executor-specific spellings a hand-rolled manifest emits (codex's
+            // `pubmed` / `ncbi_efetch` / etc.). It MUST carry the redistributable
+            // mark to pass; an unmarked literature source still fails. This
+            // generalizes the prior fixed allow-list so a well-formed manifest
+            // isn't rejected on a source_kind spelling the list didn't enumerate,
+            // while the legal gate (external_pdf_local_only) stays strict.
+            (_, true) => true,
+            (_, false) => false,
         };
         if !consistent {
             return Err((
@@ -1573,6 +1592,57 @@ mod tests {
             "cross-task sibling snapshot must resolve; got {}",
             resolved.display()
         );
+    }
+
+    #[test]
+    fn validators_accept_codex_sources_manifest_schema() {
+        // Codex hand-rolls a well-formed but non-canonical evidence manifest:
+        // top-level `sources` (not `entries`), per-source `source_text_path`
+        // (not `path`) and `sha256` (not `sha256_binary`), omitting secondary
+        // metadata. The data is real (pmid + snapshot + quote); the validators
+        // must resolve it via field aliases + defaults.
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("prior_claims_matrix.csv");
+        write(&csv, "entity,entity_kind,pmid,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified\nMaxQuant,method,19029910,enables high peptide identification,0,pubmed_abstract,sha256:abc,2026-06-09T00:00:00Z,true,true\n");
+        let manifest = dir.path().join("evidence/manifest.json");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        write(
+            &manifest,
+            r#"{"schema_version":"2","row_count":1,"sources":[{"pmid":"19029910","source_kind":"pubmed_abstract","source_text_path":"pubmed_19029910.txt","sha256":"sha256:00","redistributable":true,"title":"MaxQuant","journal":"NBT"}]}"#,
+        );
+        write(
+            &manifest.parent().unwrap().join("pubmed_19029910.txt"),
+            "MaxQuant enables high peptide identification rates and quantification",
+        );
+        assert!(
+            run_evidence_quote_substring_match(&csv, &manifest).is_ok(),
+            "codex `sources` manifest must resolve via aliases (sources/source_text_path)"
+        );
+        assert!(
+            run_pmid_resolves(&csv, &manifest).is_ok(),
+            "pmid_resolves must find the entry in a `sources`-keyed manifest"
+        );
+    }
+
+    #[test]
+    fn redistributable_accepts_marked_literature_source_generically() {
+        // Generalized legal gate: any non-external-PDF source marked
+        // redistributable passes (covers executor-specific source_kind
+        // spellings like codex's), while external local PDFs stay strict.
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.path().join("evidence/manifest.json");
+        let hdr = "entity,entity_kind,pmid,evidence_quote,evidence_quote_offset,source_kind,source_hash,retrieval_ts,redistributable,verified";
+        let run = |sk: &str, redist: &str| {
+            let csv = dir.path().join("m.csv");
+            write(&csv, &format!("{hdr}\nX,gene,28123456,q,0,{sk},sha256:abc,2026-06-09T00:00:00Z,{redist},true\n"));
+            run_redistributable_or_marked(&csv, &manifest)
+        };
+        // codex / unknown literature source_kind, marked redistributable → ok.
+        assert!(run("pubmed", "true").is_ok());
+        assert!(run("ncbi_efetch", "true").is_ok());
+        // Legal gate preserved: external local PDF must NOT claim redistribution.
+        assert!(run("external_pdf_local_only", "true").is_err());
+        assert!(run("external_pdf_local_only", "false").is_ok());
     }
 
     #[test]
