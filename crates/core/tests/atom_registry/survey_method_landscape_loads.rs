@@ -70,6 +70,40 @@ fn survey_method_landscape_atom_loads_and_is_agent_assigned() {
     );
 }
 
+/// `review_prior_work` and `contextualize_findings_with_literature` BOTH
+/// retrieve primary literature (PubMed/PMC) the same way `survey_method_landscape`
+/// does, so they MUST declare the same bounded egress allowlist. Without it the
+/// emitted task carries the default no-network policy and the agent self-blocks
+/// with `LiteratureRetrievalNetworkNotAuthorized` — stalling the whole reporting
+/// chain on any literature-grounded DAG.
+#[test]
+fn literature_review_atoms_declare_network_egress() {
+    let reg =
+        AtomRegistry::load_from_dir(&config_root().join("stage-atoms")).expect("registry loads");
+    for id in [
+        "review_prior_work",
+        "contextualize_findings_with_literature",
+    ] {
+        let atom = reg
+            .get(id)
+            .unwrap_or_else(|| panic!("{id} must be registered"));
+        assert_eq!(
+            atom.safety.level,
+            SafetyLevel::Network,
+            "{id} retrieves literature and must declare SafetyLevel::Network"
+        );
+        match &atom.safety.network {
+            NetworkPolicy::None { allowlist } => {
+                assert!(
+                    allowlist.iter().any(|h| h == "eutils.ncbi.nlm.nih.gov"),
+                    "{id} egress allowlist must include eutils.ncbi.nlm.nih.gov; got {allowlist:?}"
+                );
+            }
+            other => panic!("{id} must declare a non-Bridge allowlist, got {other:?}"),
+        }
+    }
+}
+
 /// The non-PubMed validators (`claim_support_satisfied`, `doc_page_matches_tool`)
 /// are attached once their obligations land.
 #[test]

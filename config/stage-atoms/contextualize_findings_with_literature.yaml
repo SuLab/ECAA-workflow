@@ -95,6 +95,24 @@ figure_exempt:
   reason: "Structured-text outputs only."
   category: non_plottable
 resource_profile: { cpu: light, memory: small, gpu: false, runtime_class: minutes }
+safety:
+  # Retrieves primary literature (PubMed/PMC) + proceedings the same way
+  # survey_method_landscape does, so it carries the identical bounded egress
+  # allowlist. Without this block the atom defaults to no-network and the agent
+  # self-blocks with LiteratureRetrievalNetworkNotAuthorized.
+  level: network
+  network:
+    kind: none
+    allowlist:
+      - eutils.ncbi.nlm.nih.gov
+      - ftp.ncbi.nlm.nih.gov
+      - api.openalex.org
+      - api.crossref.org
+      - readthedocs.io
+      - bioconductor.org
+      - github.com
+      - raw.githubusercontent.com
+      - nf-co.re
 claim_boundary: |
   This atom emits row-level concordance flags ONLY. Each row references one
   upstream finding (finding_id), zero or more prior PMIDs, and a closed-set
