@@ -130,7 +130,10 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
                      session_id: str | None = None,
                      server_url: str | None = None,
                      capture: bool = False) -> RunResult:
-    agent = str(REPO_ROOT / "scripts" / "agent-claude.sh")
+    # Backend-selecting dispatcher: defaults to agent-claude.sh, switches to
+    # agent-codex.sh when ECAA_AGENT_BACKEND=codex. Default behaviour is
+    # byte-identical to invoking agent-claude.sh directly.
+    agent = str(REPO_ROOT / "scripts" / "agent.sh")
     # Per-task wall deadline (default 600s, env-tunable): variant calling + an
     # in-container tool install exceed the harness's 300s default. The harness
     # exposes --task-timeout (main.rs); the eval never passed it before.
