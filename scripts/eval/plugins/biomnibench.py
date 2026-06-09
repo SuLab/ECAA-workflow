@@ -29,6 +29,27 @@ _OUTPUT_CONTRACT = (
     "interpretation) to trace.md and a short structured answer to answer.txt."
 )
 
+def _find_nested(root: Path, name: str) -> Path | None:
+    """Shallowest descendant named ``name`` under ``root`` (excluding the root
+    itself), or None. Sorted by path depth so an agent's real deliverable at
+    ``<workdir>/app/answer.txt`` is recovered before any deeper, incidental
+    same-named file inside a staged dataset."""
+    matches = [p for p in root.rglob(name) if p.is_file() and p.parent != root]
+    if not matches:
+        return None
+    return min(matches, key=lambda p: (len(p.relative_to(root).parts), str(p)))
+
+
+def _read_first(*candidates) -> str:
+    """First readable, non-empty text among ``candidates`` (paths or None)."""
+    for c in candidates:
+        if c is not None and c.is_file():
+            text = c.read_text()
+            if text.strip():
+                return text
+    return ""
+
+
 _CONTAMINATION_DIRECTIVE = (
     "## Evaluation integrity\n"
     "This is a benchmark task. Base every result solely on the data files "
@@ -37,6 +58,17 @@ _CONTAMINATION_DIRECTIVE = (
     "answer key; derive all findings from your own analysis of the provided data. "
     "You may consult tool/library documentation, but not look up this task's "
     "answers."
+)
+
+# Defense-in-depth for the bare arm: some agents (notably codex/gpt-5.5) assume
+# an absolute `/app` deliverable path, then can't create it as a non-root
+# container user and silently nest the files under `<cwd>/app/`. Pin the output
+# location to the current working directory with the exact relative filenames.
+# Collect still recovers nested files, so this only reduces the failure rate.
+_BARE_PATH_DIRECTIVE = (
+    "\n\nIMPORTANT: write trace.md and answer.txt directly in your current "
+    "working directory using exactly those relative filenames. Do not use an "
+    "absolute path such as /app and do not create subdirectories for them."
 )
 
 
@@ -178,7 +210,8 @@ class BiomniBench(Benchmark):
             if src.exists():
                 stage_file(src, workdir / name)
         return RunSpec(arm, workdir, "bare",
-                       task.prompt + _OUTPUT_CONTRACT + "\n\n" + _CONTAMINATION_DIRECTIVE)
+                       task.prompt + _OUTPUT_CONTRACT + "\n\n"
+                       + _CONTAMINATION_DIRECTIVE + _BARE_PATH_DIRECTIVE)
 
     def collect(self, spec, run_dir):
         artifacts: dict = {}
@@ -202,10 +235,15 @@ class BiomniBench(Benchmark):
         else:
             trace_path = run_dir / "trace.md"
             answer_path = run_dir / "answer.txt"
-            if trace_path.exists() or answer_path.exists():
-                trace = trace_path.read_text() if trace_path.exists() else ""
-                answer = answer_path.read_text() if answer_path.exists() else ""
-            else:
+            # Prefer top-level deliverables, then recover ones an agent nested a
+            # directory or two down. Codex (gpt-5.5) assumes an absolute `/app`
+            # output path, can't mkdir at the container root as a non-root user,
+            # and falls back to `<workdir>/app/{trace,answer}`. The shallowest
+            # match wins so a staged dataset that happens to contain a same-named
+            # file can't shadow the agent's real deliverable.
+            trace = _read_first(trace_path, _find_nested(run_dir, "trace.md"))
+            answer = _read_first(answer_path, _find_nested(run_dir, "answer.txt"))
+            if not trace and not answer:
                 stdout_path = run_dir / "agent-stdout.json"
                 if stdout_path.exists():
                     raw = stdout_path.read_text()

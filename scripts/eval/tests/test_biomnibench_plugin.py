@@ -112,6 +112,34 @@ def test_collect_bare_empty_when_nothing_present(tmp_path):
     assert output.answer_txt == ""
 
 
+def test_collect_bare_recovers_nested_deliverables(tmp_path):
+    """An agent that writes trace.md/answer.txt one directory down (e.g. into
+    an ``app/`` subdir it created after a `/app` permission fallback) must still
+    be collected — recurse before falling back to the stdout transcript.
+
+    Reproduces the codex bare-arm = 0 artifact: codex assumed an absolute
+    ``/app`` deliverable path, couldn't mkdir at the container root as non-root,
+    and wrote ``<workdir>/app/{trace,answer}`` instead. The top-level lookup
+    missed them and graded the agent's apology transcript.
+    """
+    run_dir = tmp_path / "run"
+    nested = run_dir / "app"
+    nested.mkdir(parents=True)
+    (nested / "trace.md").write_text("NESTED TRACE: ran DE, 312 genes up")
+    (nested / "answer.txt").write_text("NESTED ANSWER: 312 upregulated genes")
+    # An apology transcript is present but must NOT win over the real deliverable.
+    (run_dir / "agent-stdout.json").write_text(
+        "Completed the analysis. Could not write /app; used a fallback path.")
+
+    spec = RunSpec(arm=Arm.CLAUDE_CODE_DIRECT, workdir=run_dir, kind="bare",
+                   instruction="some prompt")
+    output = BiomniBench().collect(spec, run_dir)
+
+    assert "NESTED ANSWER" in output.answer_txt
+    assert "NESTED TRACE" in output.trace_md
+    assert "apolog" not in output.answer_txt.lower()
+
+
 # ---------------------------------------------------------------------------
 # ECAA-arm incomplete-run detection
 # ---------------------------------------------------------------------------
