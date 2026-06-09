@@ -1,10 +1,11 @@
-//! Low-confidence atypical-shape prompts must fall through to
-//! `generic_omics` archetype which emits the universal
-//! `raw_qc → generic_summary` terminals. Without this, prompts like
+//! Low-confidence atypical-shape prompts must fall through to the
+//! `generic_omics` archetype, which emits the universal MODALITY-AGNOSTIC
+//! `data_acquisition → generic_summary` terminals. Without this, prompts like
 //! survival-only on bulk RNA, scATAC-only, microbiome strain-SNP
 //! bind to a modality archetype whose terminals (`reporting`,
 //! `final_reporting`) don't satisfy the corpus's universal-terminal
-//! requirement.
+//! requirement. The fallthrough must NOT include sequencing-specific `raw_qc`
+//! (FASTQ FastQC/MultiQC), which would hard-block on non-sequencing inputs.
 
 use anyhow::Result;
 use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
@@ -47,8 +48,9 @@ fn survival_genomics_emits_generic_summary() -> Result<()> {
     let atom_ids: std::collections::BTreeSet<&str> =
         result.atoms.iter().map(|a| a.atom.id.as_str()).collect();
     assert!(
-        atom_ids.contains("raw_qc") && atom_ids.contains("generic_summary"),
-        "survival-genomics prompt must emit raw_qc + generic_summary universal terminals; got {:?}",
+        atom_ids.contains("generic_summary") && !atom_ids.contains("raw_qc"),
+        "survival-genomics prompt must emit the modality-agnostic generic_summary \
+         terminal WITHOUT sequencing-specific raw_qc; got {:?}",
         atom_ids
     );
     Ok(())

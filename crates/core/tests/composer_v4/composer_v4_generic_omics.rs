@@ -1,9 +1,12 @@
 //! `generic_omics` archetype reachability.
 //!
 //! Off-topic prose that mentions omics data but carries no specific
-//! modality or goal phrase should compose into the universal `raw_qc →
-//! generic_summary` pipeline via the v4 dispatcher's
+//! modality or goal phrase should compose into the universal
+//! `data_acquisition → generic_summary` pipeline via the v4 dispatcher's
 //! `generic_omics`-modality + `research`-project-class fallback path.
+//! The fallback is MODALITY-AGNOSTIC: it must NOT include `raw_qc`
+//! (sequencing FastQC/MultiQC, which requires FASTQ `raw_reads`), or it
+//! hard-blocks on any non-sequencing input (e.g. tabular metabolomics).
 //! Further steps surface as SME-driven amendments rather than
 //! auto-emitted.
 
@@ -25,7 +28,9 @@ fn workspace_config() -> (AtomRegistry, ArchetypeRegistry) {
 
 /// Off-topic prose ("Run quality control on some omics data") — bare
 /// modality, no specific goal phrase. v4 dispatch must resolve to the
-/// `generic_omics` archetype's `raw_qc → generic_summary` pipeline.
+/// `generic_omics` archetype's MODALITY-AGNOSTIC pipeline:
+/// `data_acquisition → generic_summary`, with NO sequencing-specific
+/// `raw_qc` (which would block on tabular/non-FASTQ inputs).
 #[test]
 fn generic_omics_off_topic_prose_emits_executable_dag() {
     let (atoms, archetypes) = workspace_config();
@@ -66,10 +71,41 @@ fn generic_omics_off_topic_prose_emits_executable_dag() {
         .map(|c| c.stage_id.as_str())
         .collect();
 
+    // Reachability smoke only — the `research` path composes via the v4
+    // search seed (not the archetype scaffold), so it surfaces many atoms.
+    // The deterministic modality-agnostic guarantee is asserted on the
+    // archetype-scaffold (bioinformatics) path in
+    // `generic_omics_scaffold_is_modality_agnostic`.
     assert!(
-        stage_ids.iter().any(|s| s.contains("raw_qc")),
-        "generic_omics must reach raw_qc as starter node; got stages={:?}",
+        stage_ids.iter().any(|s| *s == "generic_summary"),
+        "generic_omics must reach generic_summary; got stages={:?}",
         stage_ids
+    );
+}
+
+/// The `generic_omics` archetype scaffold is the MODALITY-AGNOSTIC catch-all
+/// fallback: it must run `data_acquisition → generic_summary` with NO
+/// sequencing-specific `raw_qc`. `raw_qc` requires FASTQ `raw_reads`
+/// (`data:2044`), so a tabular/non-sequencing input (e.g. metabolomics) makes
+/// the agent hard-block (`MissingRawFastqInputs`), which stalls the whole
+/// reporting chain. QC belongs in the modality-specific sequencing archetypes,
+/// not the universal fallback.
+#[test]
+fn generic_omics_scaffold_is_modality_agnostic() {
+    let (atoms, archetypes) = workspace_config();
+    let workflow_dag = compose_generic_omics_bioinformatics(&atoms, &archetypes);
+    let node_ids: std::collections::BTreeSet<&str> =
+        workflow_dag.nodes.iter().map(|n| n.id.as_str()).collect();
+
+    assert!(
+        !node_ids.contains("raw_qc") && !node_ids.contains("validate_raw_qc"),
+        "generic_omics scaffold must NOT include raw_qc (sequencing FASTQ QC); got {:?}",
+        node_ids
+    );
+    assert!(
+        node_ids.contains("data_acquisition") && node_ids.contains("generic_summary"),
+        "generic_omics scaffold must run data_acquisition -> generic_summary; got {:?}",
+        node_ids
     );
 }
 

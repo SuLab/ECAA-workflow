@@ -1905,7 +1905,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms:
     - data_acquisition
@@ -1941,7 +1940,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms: []
     forbidden_atoms:
@@ -3359,7 +3357,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms:
     - data_acquisition
@@ -3406,7 +3403,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms:
     - data_acquisition
@@ -3461,7 +3457,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms:
     - data_acquisition
@@ -3511,7 +3506,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms:
     - data_acquisition
@@ -3561,7 +3555,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms:
     - data_acquisition
@@ -3610,7 +3603,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms:
     - data_acquisition
@@ -3656,7 +3648,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms:
     - data_acquisition
@@ -3710,7 +3701,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms:
     - data_acquisition
@@ -3760,7 +3750,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms:
     - data_acquisition
@@ -3806,7 +3795,6 @@ scenarios:
     '
   expected_dag:
     required_atoms:
-    - raw_qc
     - generic_summary
     optional_atoms:
     - data_acquisition

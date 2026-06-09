@@ -3,15 +3,16 @@ id: generic_omics
 version: "1.0.0"
 description: |
   Catch-all archetype for off-topic prose that mentions omics data but
-  carries no specific modality or goal phrase. Emits the universal
-  `raw_qc → generic_summary` pipeline so the SME sees something
-  runnable; further analysis steps surface as SME-driven amendments
-  rather than auto-emitted. Closes Phase 6.1 task B.2 of the v3+v4
-  100-percent-closure plan, retiring the last legacy taxonomy
-  fallback for bare-modality prose.
+  carries no specific modality or goal phrase. MODALITY-AGNOSTIC: emits
+  the universal `data_acquisition → generic_summary` pipeline so the SME
+  sees something runnable; further analysis steps surface as SME-driven
+  amendments rather than auto-emitted. Deliberately omits the
+  sequencing-specific `raw_qc` (FastQC/MultiQC over FASTQ `raw_reads`),
+  which hard-blocks on any non-sequencing input (e.g. tabular
+  metabolomics) — QC belongs in the modality-specific archetypes.
 sme_summary: |
-  Generic catch-all: run raw QC on the inputs and emit a summary
-  table. Further analysis surfaces as SME amendments.
+  Generic catch-all: summarize the provided inputs in a table.
+  Further analysis surfaces as SME amendments.
 goal_data: "data:0006"
 goal_format: "format:3475"
 project_class: bioinformatics
@@ -19,9 +20,6 @@ modality_hint: generic_omics
 atoms:
   - atom_id: data_acquisition
     required: true
-  - atom_id: raw_qc
-    required: true
-    depends_on: [data_acquisition]
   - atom_id: review_prior_work
     required: false
     # Literature-review atom. Gated by intake.literature_review_requested
@@ -32,7 +30,7 @@ atoms:
     # to a pre-literature catch-all DAG. Mirrors bulk_rnaseq_de.yaml.
   - atom_id: generic_summary
     required: true
-    depends_on: [raw_qc]
+    depends_on: [data_acquisition]
   - atom_id: contextualize_findings_with_literature
     required: false
     depends_on: [generic_summary, review_prior_work]
