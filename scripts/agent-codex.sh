@@ -12,7 +12,8 @@
 #
 # SCAFFOLDING SCOPE. This wrapper implements the load-bearing core: the
 # file-contract, heartbeat liveness, prompt assembly, a security-hardened
-# container run with the essential mounts, and the headless Codex invocation.
+# container run with the essential mounts, the headless Codex invocation, the
+# per-session CLI install (mirrors the Claude path), and ChatGPT/API-key auth.
 # The following agent-claude.sh features are INTENTIONALLY DEFERRED and can be
 # ported here as the Codex path hardens (each is independent of the contract):
 #   - per-task derived images (ECAA_PER_TASK_IMAGES), GPU passthrough,
@@ -20,12 +21,11 @@
 #     enforcement, the retry/transient-error reconciliation loop, and the
 #     cost/telemetry parse of the model's JSON (the metrics layer degrades
 #     gracefully on an unrecognised shape — see SessionMetrics "unknown model").
-# Operator prerequisites (NOT script-side):
-#   - the `codex` CLI must be runnable inside $CONTAINER_IMAGE. Either bake it
-#     into the image, or set ECAA_CODEX_BIN to a host codex binary that is
-#     ABI-compatible with the container; it is bind-mounted to /usr/local/bin.
-#   - Codex auth: set ECAA_OPENAI_API_KEY (threaded as OPENAI_API_KEY) and/or
-#     mount a ChatGPT-login ~/.codex via ECAA_CODEX_AUTH_DIR.
+# Auth (handled below, no operator pre-step beyond a host `codex login`):
+#   - ECAA_OPENAI_API_KEY → OPENAI_API_KEY (rotation-free headless), OR
+#   - a ChatGPT login dir (ECAA_CODEX_AUTH_DIR, default ~/.codex): auth.json +
+#     config.toml are COPIED into the per-task agent HOME so the container has
+#     writable, refreshable credentials without racing the host's dir.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
@@ -94,23 +94,64 @@ if [ -n "${ECAA_TASK_ID:-}" ]; then
     SCRATCH_ARGS+=(-v "$SCRATCH_DIR":"$SCRATCH_DIR":rw -e "ECAA_TASK_SCRATCH_DIR=$SCRATCH_DIR")
 fi
 
-# ── Codex CLI delivery: bind-mount a host codex binary unless the image
-#    already carries one. ECAA_CODEX_BIN may name an explicit path; otherwise
-#    fall back to the host's `codex` on PATH. When neither resolves we assume
-#    the image provides codex and mount nothing.
+# ── Codex CLI delivery — mirrors agent-claude.sh's per-session @anthropic-ai/
+#    claude-code install. `@openai/codex`'s `bin/codex.js` spawns a
+#    statically-linked musl native binary (@openai/codex-<platform>), so a
+#    host-side `npm install` of the linux-x64 package runs unchanged inside the
+#    linux-x64 analysis image. Install into a cache dir, bind-mount its
+#    node_modules to /opt/codex/node_modules:ro, and put .bin on the container
+#    PATH (bio-min already carries the node runtime the Claude path uses).
+#    ECAA_CODEX_BIN can point at an explicit host install's node_modules parent
+#    to skip the install; ECAA_AGENT_CODEX_DISABLE=1 falls back to an in-image
+#    codex.
 CODEX_BIN_ARGS=()
-__codex_bin="${ECAA_CODEX_BIN:-$(command -v codex 2>/dev/null || true)}"
-if [ -n "$__codex_bin" ] && [ -x "$__codex_bin" ]; then
-    CODEX_BIN_ARGS+=(-v "$__codex_bin":/usr/local/bin/codex:ro)
+CODEX_PATH_PREFIX=""
+if [ "${ECAA_AGENT_CODEX_DISABLE:-0}" != "1" ]; then
+    if [ -n "${ECAA_CODEX_INSTALL_DIR:-}" ]; then
+        CODEX_INSTALL_DIR="$ECAA_CODEX_INSTALL_DIR"
+    elif [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
+        CODEX_INSTALL_DIR="$ECAA_SESSION_CACHE_DIR/codex-cli"
+    else
+        CODEX_INSTALL_DIR="${ECAA_AGENT_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}/standalone-$(basename "$PACKAGE")/codex-cli"
+    fi
+    CODEX_PKG_JSON="$CODEX_INSTALL_DIR/node_modules/@openai/codex/package.json"
+    CODEX_VERSION="${ECAA_AGENT_CODEX_VERSION:-latest}"
+    __codex_installed=""
+    if [ -f "$CODEX_PKG_JSON" ] && [ "${ECAA_AGENT_CODEX_FORCE_REINSTALL:-0}" != "1" ]; then
+        __codex_installed="$(jq -r .version "$CODEX_PKG_JSON" 2>/dev/null || echo "")"
+    fi
+    if [ -z "$__codex_installed" ] && command -v npm >/dev/null 2>&1; then
+        mkdir -p "$CODEX_INSTALL_DIR" 2>/dev/null || true
+        echo "agent-codex.sh: installing @openai/codex@$CODEX_VERSION into $CODEX_INSTALL_DIR (one-time)..." >&2
+        npm install --prefix "$CODEX_INSTALL_DIR" --silent --no-audit --no-fund "@openai/codex@$CODEX_VERSION" >/dev/null 2>&1 || true
+        __codex_installed="$(jq -r .version "$CODEX_PKG_JSON" 2>/dev/null || echo "")"
+    fi
+    if [ -n "$__codex_installed" ]; then
+        CODEX_BIN_ARGS+=(-v "$CODEX_INSTALL_DIR/node_modules":/opt/codex/node_modules:ro)
+        CODEX_PATH_PREFIX="/opt/codex/node_modules/.bin:"
+        echo "agent-codex.sh: using codex $__codex_installed from mounted install." >&2
+    else
+        echo "agent-codex.sh: codex install unavailable; falling back to the image's bundled codex (if any)." >&2
+    fi
 fi
 
-# ── Codex auth: API key (preferred for headless) + optional ChatGPT-login dir.
+# ── Codex auth. ECAA_OPENAI_API_KEY (if set) is the rotation-free headless
+#    path. Otherwise use a ChatGPT login dir (ECAA_CODEX_AUTH_DIR, default
+#    ~/.codex): COPY auth.json + config.toml into the per-task agent HOME's
+#    .codex so the container reads writable credentials it can refresh in place
+#    (the ChatGPT token rotates) WITHOUT racing or mutating the host's dir.
 CODEX_AUTH_ARGS=()
 if [ -n "${ECAA_OPENAI_API_KEY:-}" ]; then
     CODEX_AUTH_ARGS+=(-e "OPENAI_API_KEY=$ECAA_OPENAI_API_KEY")
 fi
-if [ -n "${ECAA_CODEX_AUTH_DIR:-}" ] && [ -d "$ECAA_CODEX_AUTH_DIR" ]; then
-    CODEX_AUTH_ARGS+=(-v "$ECAA_CODEX_AUTH_DIR":"$HOME/.codex":ro)
+__codex_auth_src="${ECAA_CODEX_AUTH_DIR:-$HOME/.codex}"
+if [ -z "${ECAA_OPENAI_API_KEY:-}" ] && [ -f "$__codex_auth_src/auth.json" ]; then
+    mkdir -p "$AGENT_HOME_DIR/.codex" 2>/dev/null || true
+    cp "$__codex_auth_src/auth.json" "$AGENT_HOME_DIR/.codex/auth.json" 2>/dev/null || true
+    [ -f "$__codex_auth_src/config.toml" ] && cp "$__codex_auth_src/config.toml" "$AGENT_HOME_DIR/.codex/config.toml" 2>/dev/null || true
+    chmod 600 "$AGENT_HOME_DIR/.codex/auth.json" 2>/dev/null || true
+    # $HOME maps to AGENT_HOME_DIR in the container, so ~/.codex resolves to
+    # this writable copy — no extra mount needed.
 fi
 
 # ── Codex invocation. `codex exec` is the NON-INTERACTIVE subcommand (bare
@@ -147,6 +188,7 @@ docker run --rm \
     "${SCRATCH_ARGS[@]}" \
     -w "$PACKAGE" \
     -e "HOME=$HOME" \
+    -e "PATH=${CODEX_PATH_PREFIX}/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
     -e "ECAA_TASK_ID=${ECAA_TASK_ID:-}" \
     -e "ECAA_PACKAGE_ROOT=${ECAA_PACKAGE_ROOT:-$PACKAGE}" \
     "$CONTAINER_IMAGE" \
