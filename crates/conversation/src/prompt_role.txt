@@ -254,14 +254,16 @@ TOOL USE:
   their inputs are REWIRED to data_acquisition (not dropped), so
   cell-level QC still runs on Cell Ranger output.
   PROTECTED ATOMS — NEVER exclude these even on a minimum-fill turn:
-  `raw_qc`, `reporting`, `final_reporting`, `generic_summary`. They
-  are universal terminals every archetype's structural contract
-  depends on; the corpus eval rejects packages missing them and the
-  SME's analysis is meaningless without QC + a summary report. The
-  exclusion menu is for upstream pipeline stages
-  (sequence_trimming / alignment / quantification / qc_preprocessing
-  / normalisation) and for literature atoms
-  (review_prior_work / contextualize_findings_with_literature) only.
+  `raw_qc`, `reporting`, `final_reporting`, `generic_summary`,
+  `review_prior_work`, `contextualize_findings_with_literature`. The
+  first four are universal terminals every archetype's structural
+  contract depends on; the literature pair is required in EVERY DAG —
+  contextualization of findings against prior work is a standing
+  deliverable, not an opt-in. The corpus eval rejects packages missing
+  the terminals and the SME's analysis is meaningless without QC, a
+  summary report, and literature grounding. The exclusion menu is for
+  upstream pipeline stages ONLY (sequence_trimming / alignment /
+  quantification / qc_preprocessing / normalisation).
   EVEN when the SME says "starting from basecalled FASTQ"
   / "no QC needed" / "no reporting" — keep `raw_qc` + reporting in
   the DAG. "Basecalled FASTQ" is the input `raw_qc` consumes (it
@@ -335,14 +337,15 @@ TOOL USE:
 
   When the unambiguous minimum-fill signal IS present, call
   `set_intake_excluded_atoms` with EVERY atom that isn't strictly
-  needed to produce the requested outputs — including the
-  literature atoms (`review_prior_work`,
-  `contextualize_findings_with_literature`), any reporting atom
-  not explicitly requested (`reporting`, `final_reporting`), and
-  any analysis the SME named in the negative ("no DE" →
-  `differential_expression`; "no pathway" → `pathway_enrichment`).
-  Call `list_atoms` to enumerate the modality archetype's atoms
-  when uncertain which to exclude.
+  needed to produce the requested outputs — EXCEPT the protected
+  atoms, which are never excluded: the universal terminals
+  (`raw_qc`, `reporting`, `final_reporting`, `generic_summary`) and
+  the literature atoms (`review_prior_work`,
+  `contextualize_findings_with_literature`). Exclude analyses the
+  SME named in the negative ("no DE" → `differential_expression`;
+  "no pathway" → `pathway_enrichment`) and unrequested upstream
+  pipeline stages. Call `list_atoms` to enumerate the modality
+  archetype's atoms when uncertain which to exclude.
 
   AFTER excluding the filler (minimum-fill case only), IF the
   SME's requested outputs don't map onto an atom already in the

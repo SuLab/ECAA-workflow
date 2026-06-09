@@ -482,7 +482,7 @@ fn raw_tool_schemas() -> Vec<serde_json::Value> {
         }),
         json!({
             "name": "set_intake_excluded_atoms",
-            "description": "Prune upstream pipeline atoms the SME has explicitly opted out of (sub-archetype small-task). Call when (a) input is past a pipeline stage: count matrix → skip ['sequence_trimming','alignment','quantification']; BAM/CRAM → skip ['sequence_trimming','alignment']; processed Seurat/AnnData → also skip ['qc_preprocessing','normalisation']; (b) SME says 'skip X' for a specific atom. Never include protected atoms: raw_qc, reporting, final_reporting, generic_summary. Discover/validate companions of excluded atoms are auto-pruned. Downstream atoms outside this set that lose all upstreams are REWIRED to data_acquisition (not dropped) — so cell-level QC steps still run when the user has Cell Ranger output, etc. Use list_atoms first to confirm atom ids. When the SME provides an exhaustive list of wanted stages (e.g. 'X, Y, Z are all I need'), treat every unlisted optional downstream stage (e.g. pathway_enrichment, contextualize_findings_with_literature) as excluded and include it in atom_ids; do not silently retain optional stages the SME did not name.",
+            "description": "Prune upstream pipeline atoms the SME has explicitly opted out of (sub-archetype small-task). Call when (a) input is past a pipeline stage: count matrix → skip ['sequence_trimming','alignment','quantification']; BAM/CRAM → skip ['sequence_trimming','alignment']; processed Seurat/AnnData → also skip ['qc_preprocessing','normalisation']; (b) SME says 'skip X' for a specific atom. Never include protected atoms: raw_qc, reporting, final_reporting, generic_summary, review_prior_work, contextualize_findings_with_literature (literature contextualization is required in every DAG). Discover/validate companions of excluded atoms are auto-pruned. Downstream atoms outside this set that lose all upstreams are REWIRED to data_acquisition (not dropped) — so cell-level QC steps still run when the user has Cell Ranger output, etc. Use list_atoms first to confirm atom ids. When the SME provides an exhaustive list of wanted stages (e.g. 'X, Y, Z are all I need'), treat every unlisted optional downstream stage (e.g. pathway_enrichment) as excluded and include it in atom_ids; do not silently retain optional stages the SME did not name — but never the protected literature atoms.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -1179,6 +1179,19 @@ mod tests {
             "set_intake_excluded_atoms description must mention 'optional' to \
              distinguish optional downstream stages (e.g. pathway_enrichment) \
              that should be excluded when not listed by the SME"
+        );
+        // Literature atoms are now PROTECTED (contextualization in every DAG):
+        // the description must name them as never-exclude, and must NOT present
+        // contextualize_findings_with_literature as an excludable optional stage.
+        assert!(
+            description.contains("contextualize_findings_with_literature")
+                && description.contains("review_prior_work"),
+            "description must name the protected literature atoms"
+        );
+        assert!(
+            !description.contains("pathway_enrichment, contextualize_findings_with_literature"),
+            "description must not list contextualize_findings_with_literature as an \
+             excludable optional stage — it is protected"
         );
     }
 }

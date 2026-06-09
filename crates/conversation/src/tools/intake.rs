@@ -140,7 +140,19 @@ pub(super) fn set_intake_excluded_atoms(
     // suspenders alongside the prompt_role.txt PROTECTED ATOMS
     // guidance — refuse the call before it mutates session state
     // so a slipped LLM turn doesn't cascade into a bad emit.
-    const PROTECTED: &[&str] = &["raw_qc", "reporting", "final_reporting", "generic_summary"];
+    // raw_qc/reporting/final_reporting/generic_summary are universal terminals.
+    // review_prior_work + contextualize_findings_with_literature are protected
+    // too: literature contextualization is required in EVERY emitted DAG, so the
+    // LLM must not prune it via excluded_atoms (the composer adds it
+    // unconditionally; this refuses the exclusion path that would drop it).
+    const PROTECTED: &[&str] = &[
+        "raw_qc",
+        "reporting",
+        "final_reporting",
+        "generic_summary",
+        "review_prior_work",
+        "contextualize_findings_with_literature",
+    ];
     let mut requested_protected: Vec<&str> = Vec::new();
     for id in atom_ids {
         let t = id.trim();
@@ -154,7 +166,7 @@ pub(super) fn set_intake_excluded_atoms(
                 "atom_ids contains protected terminal atom(s): {:?} — these are required by every archetype and cannot be excluded",
                 requested_protected
             ),
-            hint: "Drop the protected ids from the exclusion list. raw_qc/reporting/final_reporting/generic_summary are universal terminals; even 'minimum-fill' DAGs must keep them. Exclude only upstream pipeline stages (sequence_trimming, alignment, quantification, qc_preprocessing, normalisation) and the literature atoms.".into(),
+            hint: "Drop the protected ids from the exclusion list. raw_qc/reporting/final_reporting/generic_summary are universal terminals and review_prior_work/contextualize_findings_with_literature are required in every DAG; even 'minimum-fill' DAGs must keep them. Exclude only upstream pipeline stages (sequence_trimming, alignment, quantification, qc_preprocessing, normalisation).".into(),
         });
     }
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
