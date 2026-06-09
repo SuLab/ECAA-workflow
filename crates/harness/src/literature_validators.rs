@@ -187,11 +187,17 @@ fn load_manifest(manifest_path: &Path) -> Result<EvidenceManifest, String> {
 /// Resolve an evidence-manifest entry's `path` to an on-disk file. The path may
 /// be evidence-dir-relative ("pmid_X.xml", the claims-matrix convention) OR
 /// task-dir-relative with an "evidence/" prefix (what agent_literature_fetch.py
-/// and the agent's PMC fetch write). Joining a prefixed path straight onto the
-/// evidence dir doubles it (evidence/evidence/…) and spuriously reports the
-/// artifact missing, so fall back to the stripped form. Returns the `direct`
-/// join when neither resolves (so callers still surface a missing-artifact
-/// error against a sensible path).
+/// and the agent's PMC fetch write) OR a cross-task sibling reference
+/// ("../review_prior_work/evidence/snapshots/<hash>") that
+/// contextualize_findings_with_literature writes when it dedups by reusing an
+/// upstream literature task's snapshots. Joining a prefixed path straight onto
+/// the evidence dir doubles it (evidence/evidence/…) and a `../sibling` path
+/// anchored at the evidence dir lands one level too shallow; both spuriously
+/// report the artifact missing. Try, in order: the direct evidence-dir join,
+/// the "evidence/"-stripped form, and the TASK-dir anchor (evidence_dir's
+/// parent) for cross-task `../` references. Returns the `direct` join when none
+/// resolves (so callers still surface a missing-artifact error against a
+/// sensible path).
 fn resolve_evidence_file(evidence_dir: &Path, entry_path: &str) -> std::path::PathBuf {
     let direct = evidence_dir.join(entry_path);
     if direct.exists() {
@@ -201,6 +207,14 @@ fn resolve_evidence_file(evidence_dir: &Path, entry_path: &str) -> std::path::Pa
         let stripped_join = evidence_dir.join(stripped);
         if stripped_join.exists() {
             return stripped_join;
+        }
+    }
+    // Task-dir anchor: a `../<sibling-task>/evidence/...` path is written
+    // relative to the task dir (evidence_dir's parent), not the evidence dir.
+    if let Some(task_dir) = evidence_dir.parent() {
+        let task_anchored = task_dir.join(entry_path);
+        if task_anchored.exists() {
+            return task_anchored;
         }
     }
     direct
@@ -1532,6 +1546,32 @@ mod tests {
         assert!(
             run_evidence_quote_substring_match(&csv, &manifest).is_ok(),
             "a PMID present only via pmids_in_batch must resolve to its batch snapshot"
+        );
+    }
+
+    #[test]
+    fn resolve_evidence_file_follows_cross_task_sibling_path() {
+        // contextualize_findings_with_literature dedups by reusing a sibling
+        // task's snapshots, recording manifest paths like
+        // `../review_prior_work/evidence/snapshots/<hash>` (relative to the TASK
+        // dir, not the manifest's own evidence/ dir). The resolver must anchor at
+        // the task dir too, else every claim row reports EvidenceArtifactMissing.
+        let root = TempDir::new().unwrap();
+        let outputs = root.path().join("runtime/outputs");
+        let ctx_ev = outputs.join("contextualize_findings_with_literature/evidence");
+        let sib_snap = outputs.join("review_prior_work/evidence/snapshots");
+        fs::create_dir_all(&ctx_ev).unwrap();
+        fs::create_dir_all(&sib_snap).unwrap();
+        fs::write(sib_snap.join("abc123"), "abstract text").unwrap();
+        // Manifest lives in ctx_ev; entry path is task-dir-relative cross-task.
+        let resolved = resolve_evidence_file(
+            &ctx_ev,
+            "../review_prior_work/evidence/snapshots/abc123",
+        );
+        assert!(
+            resolved.exists(),
+            "cross-task sibling snapshot must resolve; got {}",
+            resolved.display()
         );
     }
 
