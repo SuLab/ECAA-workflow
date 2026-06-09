@@ -149,7 +149,7 @@ if [ -z "${ECAA_OPENAI_API_KEY:-}" ] && [ -f "$__codex_auth_src/auth.json" ]; th
     mkdir -p "$AGENT_HOME_DIR/.codex" 2>/dev/null || true
     cp "$__codex_auth_src/auth.json" "$AGENT_HOME_DIR/.codex/auth.json" 2>/dev/null || true
     [ -f "$__codex_auth_src/config.toml" ] && cp "$__codex_auth_src/config.toml" "$AGENT_HOME_DIR/.codex/config.toml" 2>/dev/null || true
-    chmod 600 "$AGENT_HOME_DIR/.codex/auth.json" 2>/dev/null || true
+    chmod 600 "$AGENT_HOME_DIR/.codex/auth.json" "$AGENT_HOME_DIR/.codex/config.toml" 2>/dev/null || true
     # $HOME maps to AGENT_HOME_DIR in the container, so ~/.codex resolves to
     # this writable copy — no extra mount needed.
 fi
@@ -173,6 +173,7 @@ fi
 
 set +e
 docker run --rm \
+    --user "$(id -u):$(id -g)" \
     --read-only \
     --tmpfs "/tmp:rw,size=$ECAA_DOCKER_TMPFS_TMP_SIZE,mode=1777" \
     --tmpfs "/var/tmp:rw,size=$ECAA_DOCKER_TMPFS_VARTMP_SIZE,mode=1777" \
