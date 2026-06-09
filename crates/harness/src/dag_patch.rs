@@ -524,6 +524,78 @@ fn parse_state_patch(raw: &str) -> Result<StatePatch> {
         .map_err(|e| anyhow::anyhow!("unparseable state patch: {e}"))
 }
 
+/// Last-resort recovery when `state.patch.json` is unparseable: synthesize the
+/// terminal transition from the sibling `result.json` (the agent's reliable
+/// deliverable). The `to` state is derived from result.json's `status`, while
+/// `from` / `harness_run_id` / `dispatch_epoch` are taken from the malformed
+/// patch's still-parseable top-level fields so the recovered patch passes the
+/// same from-state and dispatch-identity guards a clean patch would. Returns
+/// `None` when there is no result.json, it is unreadable, or its `status` is
+/// not a recognized terminal — so a genuinely-malformed patch with no reliable
+/// deliverable still quarantines.
+fn recover_patch_from_result_json(raw: &str, patch_path: &Path) -> Option<StatePatch> {
+    // Identity from the malformed patch (best-effort; absent fields are fine —
+    // `apply_pending_patches` passes no expected identity, and the strict path's
+    // agents do carry these fields even when `to` is malformed).
+    let envelope: serde_json::Value = serde_json::from_str(extract_json_object(raw)).ok()?;
+    let from = envelope
+        .get("from")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let harness_run_id = envelope
+        .get("harness_run_id")
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    let dispatch_epoch = envelope
+        .get("dispatch_epoch")
+        .and_then(serde_json::Value::as_u64);
+
+    let result_path = patch_path.parent()?.join("result.json");
+    let result_raw = std::fs::read_to_string(&result_path).ok()?;
+    let result: serde_json::Value = serde_json::from_str(&result_raw).ok()?;
+    let status = result.get("status").and_then(|v| v.as_str())?;
+
+    let to = match status {
+        "completed" => TaskState::Completed {
+            result: result.clone(),
+        },
+        "blocked" => {
+            // Prefer the typed blocker_kind, then the human summary, so the
+            // recovered reason is actionable rather than "patch_unparseable".
+            let reason = result
+                .get("blocker_kind")
+                .and_then(|v| v.as_str())
+                .or_else(|| result.get("summary").and_then(|v| v.as_str()))
+                .unwrap_or("agent reported blocked (recovered from result.json)")
+                .to_string();
+            TaskState::Blocked {
+                record: BlockedRecord {
+                    reason,
+                    attempts: vec![],
+                },
+            }
+        }
+        "failed" => {
+            let reason = result
+                .get("summary")
+                .and_then(|v| v.as_str())
+                .unwrap_or("agent reported failed (recovered from result.json)")
+                .to_string();
+            TaskState::Failed { reason }
+        }
+        _ => return None,
+    };
+
+    Some(StatePatch {
+        schema_version: default_state_patch_schema_version(),
+        from,
+        harness_run_id,
+        dispatch_epoch,
+        to,
+        note: Some("recovered from result.json (state.patch.json was unparseable)".into()),
+    })
+}
+
 fn try_apply_patch(
     dag: &mut DAG,
     task_id: &str,
@@ -534,8 +606,33 @@ fn try_apply_patch(
     // agent can't OOM the harness through this trusted-input path.
     let raw = read_capped(patch_path, resolve_max_bytes())
         .with_context(|| format!("reading {}", patch_path.display()))?;
-    let patch: StatePatch =
-        parse_state_patch(&raw).with_context(|| format!("parsing {}", patch_path.display()))?;
+    let patch: StatePatch = match parse_state_patch(&raw) {
+        Ok(p) => p,
+        Err(parse_err) => {
+            // Tolerant recovery: some agents (codex/gpt-5.5 especially) write a
+            // `to` shape that is valid JSON but not a valid `TaskState` — e.g. a
+            // tagless Blocked record. The agent ALSO wrote result.json (the
+            // reliable deliverable). Recover the terminal state from result.json,
+            // preserving the malformed patch's dispatch identity so the
+            // from-state / identity / dep guards below still apply. Falls through
+            // to the canonical parse error (→ quarantine) when result.json is
+            // absent or carries no recognizable status.
+            match recover_patch_from_result_json(&raw, patch_path) {
+                Some(p) => {
+                    tracing::warn!(
+                        target: "patch",
+                        task_id = %task_id,
+                        "state.patch.json unparseable; recovered terminal state from result.json"
+                    );
+                    p
+                }
+                None => {
+                    return Err(parse_err)
+                        .with_context(|| format!("parsing {}", patch_path.display()));
+                }
+            }
+        }
+    };
     if let Some((expected_run_id, expected_epoch)) = expected_identity {
         if patch.harness_run_id.as_deref() != Some(expected_run_id)
             || patch.dispatch_epoch != Some(expected_epoch)
@@ -790,6 +887,123 @@ mod tests {
         assert!(dir
             .join("runtime/outputs/compute/state.patch.applied.json")
             .exists());
+    }
+
+    /// Codex non-deterministically writes a `to` shape that is valid JSON but
+    /// not a valid `TaskState` — e.g. a tagless Blocked record
+    /// (`{"record":{"attempts":[...]}}` missing the `"status":"blocked"` tag,
+    /// with attempts in the wrong shape). The agent ALSO writes result.json (the
+    /// reliable deliverable). Rather than quarantine the patch and mask the real
+    /// outcome behind `patch_unparseable`, the harness recovers the terminal
+    /// state from result.json, preserving the agent's actual blocker_kind.
+    #[test]
+    fn unparseable_patch_recovers_blocked_state_from_result_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        write_workflow(dir, &fixture_dag());
+        write_patch(
+            dir,
+            "compute",
+            &serde_json::json!({
+                "from": "running",
+                "harness_run_id": "r",
+                "dispatch_epoch": 1,
+                "to": { "record": { "attempts": [
+                    {"action": "checked inputs", "observation": "no FASTQ present"}
+                ] } }
+            }),
+        );
+        std::fs::write(
+            dir.join("runtime/outputs/compute/result.json"),
+            serde_json::json!({
+                "status": "blocked",
+                "blocker_kind": "MissingRawFastqInputs",
+                "summary": "no FASTQ inputs present"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let merged = apply_pending_patches(dir, &[TaskId::from("compute")]).unwrap();
+        match &merged.tasks.get("compute").unwrap().state {
+            TaskState::Blocked { record } => assert!(
+                record.reason.contains("MissingRawFastqInputs"),
+                "recovered block reason must carry the agent's blocker_kind; got {:?}",
+                record.reason
+            ),
+            other => panic!(
+                "expected Blocked recovered from result.json, got {:?}",
+                other
+            ),
+        }
+        let quarantined = std::fs::read_dir(dir.join("runtime/outputs/compute"))
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().contains("rejected"));
+        assert!(
+            !quarantined,
+            "patch must not be quarantined when result.json recovers the terminal state"
+        );
+    }
+
+    /// A completed run whose state.patch.json is unparseable is recovered as
+    /// Completed from result.json (deps are all met in the single-task fixture).
+    #[test]
+    fn unparseable_patch_recovers_completed_state_from_result_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        write_workflow(dir, &fixture_dag());
+        write_patch(
+            dir,
+            "compute",
+            &serde_json::json!({ "from": "running", "to": { "record": { "attempts": [] } } }),
+        );
+        std::fs::write(
+            dir.join("runtime/outputs/compute/result.json"),
+            serde_json::json!({ "status": "completed", "summary": "ran ok", "n_rows": 7 })
+                .to_string(),
+        )
+        .unwrap();
+        let merged = apply_pending_patches(dir, &[TaskId::from("compute")]).unwrap();
+        assert!(
+            matches!(
+                merged.tasks.get("compute").unwrap().state,
+                TaskState::Completed { .. }
+            ),
+            "expected Completed recovered from result.json"
+        );
+    }
+
+    /// With NO result.json, an unparseable patch still quarantines (no silent
+    /// recovery from thin air) — the genuine-malformed contract is preserved.
+    #[test]
+    fn unparseable_patch_without_result_json_still_quarantines() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        write_workflow(dir, &fixture_dag());
+        write_patch(
+            dir,
+            "compute",
+            &serde_json::json!({ "from": "running", "to": { "record": { "attempts": [] } } }),
+        );
+        let merged = apply_pending_patches(dir, &[TaskId::from("compute")]).unwrap();
+        // Blocked with the patch_unparseable reason (not recovered).
+        match &merged.tasks.get("compute").unwrap().state {
+            TaskState::Blocked { record } => assert!(
+                !record.reason.contains("MissingRawFastqInputs"),
+                "without result.json there is nothing to recover; got {:?}",
+                record.reason
+            ),
+            other => panic!("expected Blocked (patch_unparseable), got {:?}", other),
+        }
+        let quarantined = std::fs::read_dir(dir.join("runtime/outputs/compute"))
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().contains("rejected"));
+        assert!(
+            quarantined,
+            "unparseable patch with no result.json must quarantine"
+        );
     }
 
     #[test]
@@ -1677,7 +1891,8 @@ mod tests {
         ));
 
         // 2. Markdown-fenced canonical (codex loves ```json fences).
-        let fenced = "```json\n{\"to\":{\"status\":\"completed\",\"result\":{\"summary\":\"ok\"}}}\n```";
+        let fenced =
+            "```json\n{\"to\":{\"status\":\"completed\",\"result\":{\"summary\":\"ok\"}}}\n```";
         assert!(matches!(
             parse_state_patch(fenced).unwrap().to,
             TaskState::Completed { .. }
