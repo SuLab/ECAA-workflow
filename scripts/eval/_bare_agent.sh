@@ -24,6 +24,43 @@ IMAGE="${ECAA_DEFAULT_CONTAINER_IMAGE:-bio-min:local}"
 RUNTIME="${ECAA_CONTAINER_RUNTIME:-docker}"
 MODEL="${ECAA_EVAL_BARE_MODEL:-claude-sonnet-4-6}"
 
+# ── Codex backend (ECAA_AGENT_BACKEND=codex): run the bare arm with the Codex
+#    CLI instead of Claude Code, in the SAME container. Mirrors the claude path
+#    below (per-run HOME, mounted CLI node_modules, ChatGPT/API-key auth) but
+#    invokes `codex exec --yolo`. Gated so the default claude path is untouched.
+if [ "${ECAA_AGENT_BACKEND:-claude}" = "codex" ]; then
+  CODEX_HOME_DIR="${ECAA_EVAL_BARE_HOME:-$HOME/.ecaa-workflow/eval-bare-codex-home}"
+  mkdir -p "$CODEX_HOME_DIR/.codex"
+  __auth_src="${ECAA_CODEX_AUTH_DIR:-$HOME/.codex}"
+  if [ -z "${ECAA_OPENAI_API_KEY:-}" ] && [ -f "$__auth_src/auth.json" ]; then
+    cp "$__auth_src/auth.json" "$CODEX_HOME_DIR/.codex/auth.json" 2>/dev/null || true
+    [ -f "$__auth_src/config.toml" ] && cp "$__auth_src/config.toml" "$CODEX_HOME_DIR/.codex/config.toml" 2>/dev/null || true
+    chmod 600 "$CODEX_HOME_DIR/.codex/auth.json" 2>/dev/null || true
+  fi
+  CODEX_DIR="${ECAA_EVAL_BARE_CODEX_DIR:-$HOME/.ecaa-workflow/eval-bare-codex}"
+  if [ ! -e "$CODEX_DIR/node_modules/.bin/codex" ]; then
+    mkdir -p "$CODEX_DIR"
+    echo "_bare_agent.sh: installing @openai/codex into $CODEX_DIR (one-time)..." >&2
+    npm install --prefix "$CODEX_DIR" --silent --no-audit --no-fund \
+      "@openai/codex${ECAA_AGENT_CODEX_VERSION:+@$ECAA_AGENT_CODEX_VERSION}" >/dev/null 2>&1 || true
+  fi
+  CODEX_KEY_ARGS=()
+  [ -n "${ECAA_OPENAI_API_KEY:-}" ] && CODEX_KEY_ARGS+=(-e "OPENAI_API_KEY=$ECAA_OPENAI_API_KEY")
+  CODEX_MODEL_ARGS=()
+  [ -n "$MODEL" ] && CODEX_MODEL_ARGS+=(--model "$MODEL")
+  exec "$RUNTIME" run --rm \
+    --user "$(id -u):$(id -g)" \
+    -v "$WORKDIR":"$WORKDIR":rw \
+    -v "$CODEX_HOME_DIR":"$HOME":rw \
+    -v "$CODEX_DIR/node_modules":/opt/codex/node_modules:ro \
+    "${CODEX_KEY_ARGS[@]}" \
+    -e PATH="/opt/codex/node_modules/.bin:/opt/conda/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+    -w "$WORKDIR" \
+    -e "HOME=$HOME" \
+    "$IMAGE" \
+    codex exec --yolo --skip-git-repo-check "${CODEX_MODEL_ARGS[@]}" "$PROMPT"
+fi
+
 # Per-run claude HOME seeded with the host's subscription credentials. Mounted
 # rw because claude must write its OAuth refresh token + history. Kept separate
 # from the host $HOME/.claude so the operator's own session isn't clobbered.

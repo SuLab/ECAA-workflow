@@ -192,7 +192,7 @@ docker run --rm \
     -e "ECAA_TASK_ID=${ECAA_TASK_ID:-}" \
     -e "ECAA_PACKAGE_ROOT=${ECAA_PACKAGE_ROOT:-$PACKAGE}" \
     "$CONTAINER_IMAGE" \
-    codex exec --yolo "${CODEX_MODEL_ARGS[@]}" "$PROMPT" \
+    codex exec --yolo --skip-git-repo-check "${CODEX_MODEL_ARGS[@]}" "$PROMPT" \
     > >(if [ -n "$CODEX_OUT_LOG" ]; then tee "$CODEX_OUT_LOG"; else cat; fi) 2>&1
 CODEX_EXIT=$?
 set -e
