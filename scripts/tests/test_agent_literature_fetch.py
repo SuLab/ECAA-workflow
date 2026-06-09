@@ -188,6 +188,48 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
                 self.assertEqual(r["verified"], "true")
 
 
+    def test_candidate_override_groups_pmids_under_one_method(self):
+        """With an explicit candidate, every retrieved PMID is tagged with that
+        method (not the paper title) so corroboration (≥2 distinct PMIDs per
+        candidate) is satisfiable. The agent calls the helper per candidate."""
+        import tempfile
+
+        def fake_get_json(url, host, allowed_hosts):
+            return {"esearchresult": {"idlist": ["19029910", "30656827"]}}
+
+        def fake_get_text(url, host, allowed_hosts):
+            pmid = "19029910" if "19029910" in url else "30656827"
+            return (
+                "<PubmedArticleSet><PubmedArticle><MedlineCitation>"
+                f"<PMID>{pmid}</PMID><Article><ArticleTitle>Some paper {pmid}"
+                "</ArticleTitle><Abstract><AbstractText>Regression modelling "
+                "estimates covariate-adjusted associations between features and "
+                "an outcome.</AbstractText></Abstract></Article>"
+                "</MedlineCitation></PubmedArticle></PubmedArticleSet>"
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            alf._http_get_json = fake_get_json
+            alf._http_get_text = fake_get_text
+            alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="generic_summary",
+                query="regression modelling metabolomics blood pressure",
+                classes=["primary_literature"],
+                routes={"primary_literature": {"hosts": ["eutils.ncbi.nlm.nih.gov"]}},
+                candidate="regression_modeling",
+            )
+            rows = _read_csv_rows(out)
+            self.assertGreaterEqual(len(rows), 2)
+            cands = {r["candidate_method"] for r in rows}
+            self.assertEqual(cands, {"regression_modeling"})
+            # ≥2 distinct verified PMIDs under the single candidate.
+            pmids = {r["pmid"] for r in rows if r["verified"] == "true"}
+            self.assertGreaterEqual(len(pmids), 2)
+
+
 class ToolDocFetchTest(unittest.TestCase):
     def test_tool_doc_page_yields_url_entry_with_version_context(self):
         import tempfile

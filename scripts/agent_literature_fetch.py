@@ -509,6 +509,7 @@ def fetch_for_axis(
     classes: Optional[List[str]] = None,
     routes: Optional[Dict[str, Dict[str, Any]]] = None,
     curated: Optional[List[str]] = None,
+    candidate: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Retrieve method-landscape evidence for one analysis `axis`.
 
@@ -588,6 +589,15 @@ def fetch_for_axis(
             continue
 
         for f in findings:
+            # Candidate override: when the caller surveys a NAMED method
+            # (survey_method_landscape calls the helper once per candidate
+            # method), every retrieved source is tagged with that method so
+            # multiple PMIDs accumulate under ONE candidate — which is what the
+            # corroboration validator (≥`min_sources` distinct verified PMIDs
+            # per candidate) requires. Without it each paper becomes its own
+            # single-PMID candidate and no axis ever carries a valid default.
+            if candidate:
+                f["candidate"] = candidate
             # Snapshot bytes: tool-doc keeps the raw HTML; index hits store
             # the reconstructed quote text (the verbatim evidence) so the
             # substring-verify is exact and reproducible.
@@ -914,8 +924,10 @@ def _merge_curated_pool(
 def _main(argv: List[str]) -> int:
     args = list(argv[1:])
     curated: Optional[List[str]] = None
-    # Extract the optional `--curated a,b,c` flag wherever it appears so the
-    # positional `[class ...]` tail stays backward-compatible.
+    candidate: Optional[str] = None
+    # Extract the optional `--curated a,b,c` / `--candidate <method>` flags
+    # wherever they appear so the positional `[class ...]` tail stays
+    # backward-compatible.
     rest: List[str] = []
     i = 0
     while i < len(args):
@@ -928,12 +940,20 @@ def _main(argv: List[str]) -> int:
             curated = [c.strip() for c in a.split("=", 1)[1].split(",") if c.strip()]
             i += 1
             continue
+        if a == "--candidate" and i + 1 < len(args):
+            candidate = args[i + 1].strip() or None
+            i += 2
+            continue
+        if a.startswith("--candidate="):
+            candidate = a.split("=", 1)[1].strip() or None
+            i += 1
+            continue
         rest.append(a)
         i += 1
     if len(rest) < 3:
         sys.stderr.write(
             "usage: agent_literature_fetch.py <out_dir> <axis> <query> "
-            "[class ...] [--curated a,b,c]\n"
+            "[class ...] [--curated a,b,c] [--candidate <method>]\n"
         )
         return 2
     out_dir, axis, query = rest[0], rest[1], rest[2]
@@ -944,6 +964,7 @@ def _main(argv: List[str]) -> int:
         query=query,
         classes=classes,
         curated=curated,
+        candidate=candidate,
     )
     sys.stdout.write(json.dumps(summary) + "\n")
     return 0

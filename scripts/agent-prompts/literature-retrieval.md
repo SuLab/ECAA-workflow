@@ -16,11 +16,24 @@ entries) WILL be rejected and block the task. The helper emits the schema the
 validators expect, including the per-source `sha256`, `license`, and
 `redistributable` provenance fields.
 
-**Corroboration:** for every candidate method you surface, retrieve at least
-TWO independent verified sources (distinct PMIDs/DOIs) where they exist — a
-single-source candidate is flagged `insufficient_corroboration` by the
-post-task validators. If only one source genuinely exists for a candidate,
-retrieve it and proceed; do not fabricate a second.
+**Corroboration — call the helper ONCE PER CANDIDATE METHOD.** The
+corroboration validator wants ≥2 distinct verified PMIDs grouped under the SAME
+`candidate_method`. So iterate the axis's candidate methods (its task-spec
+`attributes.candidate_tools`) and run the helper once per method, passing
+`--candidate <method>` and a method-scoped query, e.g.
+
+```
+python /opt/ecaa/agent_literature_fetch.py <out_dir> <axis> \
+  "<method> <analysis context>" primary_literature --candidate <method>
+```
+
+`--candidate` tags every PMID the query returns with that one method, so the
+PMIDs accumulate under it (≥2 → corroborated). WITHOUT `--candidate` each paper
+becomes its own single-PMID candidate and the survey fails
+`insufficient_corroboration`. If only one source genuinely exists for a method,
+retrieve it and proceed; do not fabricate a second — the validator de-ranks an
+under-corroborated method rather than failing the axis, as long as some method
+on the axis is adequately corroborated.
 
 Your job on this task is to RETRIEVE and RECORD, not to rank, recommend,
 paraphrase, or synthesize. Honour the atom's `claim_boundary`: every row you
