@@ -1297,6 +1297,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     -v "$PACKAGE":"$PACKAGE":rw \
     -v "$AGENT_HOME_DIR":"$HOME":rw \
     -v "$SCRIPT_DIR/ecaa-install":/usr/local/bin/ecaa-install:ro \
+    -v "$SCRIPT_DIR/agent_literature_fetch.py":/opt/ecaa/agent_literature_fetch.py:ro \
     "${DOCKER_CACHE_ARGS[@]}" \
     "${DOCKER_SCRATCH_ARGS[@]}" \
     "${DOCKER_INPUT_BIND_ARGS[@]}" \

@@ -119,6 +119,75 @@ class OpenAlexFetchTest(unittest.TestCase):
             self.assertEqual(r["verified"], "true")
 
 
+class PrimaryLiteratureFetchTest(unittest.TestCase):
+    """PubMed esearch→efetch must emit validator-passing per-PMID evidence:
+    singular `pmid` on both the manifest entry and the CSV row,
+    source_kind=pubmed_abstract, redistributable=true, verified=true."""
+
+    def test_primary_literature_esearch_efetch_emits_per_pmid_evidence(self):
+        import tempfile
+
+        # esearch (JSON) returns two PMIDs; efetch (XML) returns one abstract
+        # record per request. The verbatim evidence quote must substring-match
+        # the extracted abstract text.
+        def fake_get_json(url, host, allowed_hosts):
+            assert "esearch" in url, f"primary-lit JSON call must be esearch: {url}"
+            assert host in allowed_hosts
+            return {"esearchresult": {"idlist": ["19029910", "30656827"]}}
+
+        def fake_get_text(url, host, allowed_hosts):
+            assert "efetch" in url, f"primary-lit text call must be efetch: {url}"
+            assert host in allowed_hosts
+            pmid = "19029910" if "19029910" in url else "30656827"
+            title = "MaxQuant enables high peptide identification rates"
+            return (
+                '<?xml version="1.0"?><PubmedArticleSet><PubmedArticle>'
+                f"<MedlineCitation><PMID>{pmid}</PMID><Article>"
+                f"<ArticleTitle>{title}</ArticleTitle>"
+                "<Abstract><AbstractText>MaxQuant enables high peptide "
+                "identification rates, individualized ppb-range mass "
+                "accuracies and proteome-wide protein quantification."
+                "</AbstractText></Abstract>"
+                "</Article></MedlineCitation></PubmedArticle></PubmedArticleSet>"
+            )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            out.mkdir()
+            alf._http_get_json = fake_get_json
+            alf._http_get_text = fake_get_text
+            alf.fetch_for_axis(
+                out_dir=str(out),
+                axis="peptide_search",
+                query="MaxQuant peptide identification",
+                classes=["primary_literature"],
+                routes={"primary_literature": {"hosts": ["eutils.ncbi.nlm.nih.gov"]}},
+            )
+
+            manifest = _read_manifest(out)
+            self.assertEqual(manifest["schema_version"], 2)
+            self.assertGreaterEqual(len(manifest["entries"]), 2)
+            for e in manifest["entries"]:
+                # run_pmid_resolves keys the manifest by SINGULAR pmid.
+                self.assertIn("pmid", e)
+                self.assertRegex(e["pmid"], r"^[1-9][0-9]{6,8}$")
+                self.assertEqual(e["source_kind"], "pubmed_abstract")
+                self.assertTrue(e["redistributable"])
+                # snapshot file exists on disk and hashes match.
+                snap = (out / "evidence" / e["path"]).read_bytes()
+                self.assertEqual(hashlib.sha256(snap).hexdigest(), e["sha256_binary"])
+
+            rows = _read_csv_rows(out)
+            self.assertGreaterEqual(len(rows), 2)
+            for r in rows:
+                self.assertRegex(r["pmid"], r"^[1-9][0-9]{6,8}$")
+                self.assertEqual(r["source_ref_kind"], "pmid")
+                self.assertEqual(r["source_ref"], r["pmid"])
+                self.assertEqual(r["source_kind"], "pubmed_abstract")
+                self.assertEqual(r["redistributable"], "true")
+                self.assertEqual(r["verified"], "true")
+
+
 class ToolDocFetchTest(unittest.TestCase):
     def test_tool_doc_page_yields_url_entry_with_version_context(self):
         import tempfile

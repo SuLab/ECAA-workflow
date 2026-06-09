@@ -7,9 +7,9 @@ bundled retrieval helper. The package `PROMPT.md` above and the per-task
 `task-spec.json` remain authoritative for what this stage must produce; the
 rules here are the cross-cutting retrieval contract.
 
-**Use the bundled helper `scripts/agent_literature_fetch.py` to write
-`method_landscape.csv` and `evidence/manifest.json` — do NOT hand-roll their
-schemas.** The post-task literature validators enforce the exact column set and
+**Use the bundled helper `/opt/ecaa/agent_literature_fetch.py` (mounted
+read-only into this container) to write `method_landscape.csv` and
+`evidence/manifest.json` — do NOT hand-roll their schemas.** The post-task literature validators enforce the exact column set and
 manifest fields documented below; a hand-rolled CSV or a manifest in any other
 shape (e.g. a top-level `sources` array, `artifact_path` keys, or PMID-only
 entries) WILL be rejected and block the task. The helper emits the schema the
@@ -64,16 +64,16 @@ allowlist, snapshots each source by content hash, and writes the manifest +
 CSV in the exact schema above:
 
 ```
-python scripts/agent_literature_fetch.py <out_dir> <axis> "<query>" [class ...]
+python /opt/ecaa/agent_literature_fetch.py <out_dir> <axis> "<query>" [class ...]
 ```
 
 where `<out_dir>` is `runtime/outputs/$ECAA_TASK_ID`, `<axis>` is the
 runtime method-choice axis (e.g. `alignment`, `differential_expression`),
 and the trailing `class` args are the source classes to query
 (`primary_literature`, `conference_proceedings`, `tool_documentation`). Run
-it once per axis. You can also `import agent_literature_fetch` and call
-`fetch_for_axis(...)` directly when you need to pass explicit `routes`
-(e.g. specific tool-doc URLs).
+it once per axis. You can also `import sys; sys.path.insert(0, "/opt/ecaa")`
+then `import agent_literature_fetch` and call `fetch_for_axis(...)` directly
+when you need to pass explicit `routes` (e.g. specific tool-doc URLs).
 
 Read the enabled source classes from `$ECAA_LIT_SOURCE_SCOPE` (and, when the
 harness injects it, the method-source authority knob). When neither is set,

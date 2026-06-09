@@ -63,6 +63,10 @@ CSV_COLUMNS = [
     "redistributable",
     "verified",
     "version_context",
+    # Singular PMID locator for primary-literature rows. The harness
+    # claims-matrix validators read this column directly; empty for
+    # non-PMID (DOI / URL / curated_baseline) rows.
+    "pmid",
 ]
 
 # Default index hosts per source class when a route lacks explicit hosts.
@@ -353,13 +357,104 @@ def _fetch_conference_proceedings(query: str, route: Dict[str, Any]) -> List[Dic
     return findings
 
 
-def _fetch_primary_literature_placeholder() -> List[Dict[str, Any]]:
-    """The E-utilities branch is owned by the PubMed-only path that already
-    lives in the harness/agent; a later workstream wires the full
-    esearch/efetch flow. The helper supports it via the same snapshot/manifest
-    plumbing once a caller passes findings, so emit nothing here rather than
-    guess at NCBI parsing."""
-    return []
+def _pubmed_extract_abstract(xml: str) -> Tuple[str, str, str]:
+    """Parse one PubMed efetch XML record → (pmid, title, abstract_text).
+
+    Concatenates every <AbstractText> (structured abstracts split it into
+    labelled sections). Returns empty strings for any field absent so the
+    caller can skip a record with no usable abstract."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return "", "", ""
+    art = root.find(".//PubmedArticle")
+    if art is None:
+        art = root
+    pmid_el = art.find(".//MedlineCitation/PMID")
+    pmid = (pmid_el.text or "").strip() if pmid_el is not None else ""
+    title_el = art.find(".//Article/ArticleTitle")
+    title = "".join(title_el.itertext()).strip() if title_el is not None else ""
+    abstract = " ".join(
+        "".join(a.itertext()).strip()
+        for a in art.findall(".//Abstract/AbstractText")
+    ).strip()
+    return pmid, title, abstract
+
+
+def _pubmed_evidence_quote(abstract: str) -> str:
+    """Pick a verbatim quote from an abstract: the first sentence (capped),
+    falling back to the whole abstract. Returned VERBATIM so the downstream
+    substring-verify against the stored snapshot is exact."""
+    abstract = abstract.strip()
+    if not abstract:
+        return ""
+    for end in (". ", "? ", "! "):
+        idx = abstract.find(end)
+        if 0 < idx <= 280:
+            return abstract[: idx + 1].strip()
+    return abstract[:280].strip()
+
+
+def _fetch_primary_literature(query: str, route: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """PubMed esearch→efetch retrieval emitting one finding per PMID.
+
+    esearch (JSON) maps the query to PMIDs; efetch (XML) fetches each record's
+    abstract. Each finding carries the SINGULAR pmid as its locator so the
+    snapshot/manifest plumbing writes a per-PMID entry — which is exactly what
+    the harness literature validators resolve against (run_pmid_resolves keys
+    the manifest by singular pmid; the redistributable gate accepts
+    `pubmed_abstract` as public-domain-fair-use). The snapshot bytes ARE the
+    extracted abstract text, so the evidence_quote substring-verify is exact.
+
+    Best-effort and bounded: at most `retmax` PMIDs; a record with no abstract
+    or a malformed efetch response is skipped (a transport failure propagates
+    to fetch_for_axis's per-class try/except → curated fallback)."""
+    hosts = route.get("hosts") or DEFAULT_ROUTES["primary_literature"]["hosts"]
+    host = next((h for h in hosts if "eutils" in h), hosts[0])
+    from urllib.parse import quote as _q
+
+    retmax = int(route.get("retmax", 6))
+    api_key = os.environ.get("ECAA_LIT_NCBI_API_KEY", "").strip()
+    key_qs = f"&api_key={api_key}" if api_key else ""
+
+    esearch_url = (
+        f"https://{host}/entrez/eutils/esearch.fcgi?db=pubmed"
+        f"&retmode=json&retmax={retmax}&term={_q(query)}{key_qs}"
+    )
+    payload = _http_get_json(esearch_url, host, hosts)
+    idlist = []
+    if isinstance(payload, dict):
+        idlist = (payload.get("esearchresult") or {}).get("idlist") or []
+
+    findings: List[Dict[str, Any]] = []
+    for pmid in idlist:
+        pmid = str(pmid).strip()
+        if not pmid.isdigit():
+            continue
+        efetch_url = (
+            f"https://{host}/entrez/eutils/efetch.fcgi?db=pubmed"
+            f"&retmode=xml&id={pmid}{key_qs}"
+        )
+        xml = _http_get_text(efetch_url, host, hosts)
+        got_pmid, title, abstract = _pubmed_extract_abstract(xml)
+        quote = _pubmed_evidence_quote(abstract)
+        if not quote:
+            continue
+        findings.append(
+            {
+                "candidate": title or query,
+                "source_ref": got_pmid or pmid,
+                "pmid": got_pmid or pmid,
+                "source_kind": "pubmed_abstract",
+                # snapshot bytes = the extracted abstract; quote is verbatim
+                # within it, so substring-verify is exact.
+                "quote": quote,
+                "_extracted": abstract,
+            }
+        )
+    return findings
 
 
 def _fetch_tool_documentation(query: str, route: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -468,7 +563,7 @@ def fetch_for_axis(
                 ref_kind = "url"
                 evidence_role = "capability_or_version"
             elif cls == "primary_literature":
-                findings = _fetch_primary_literature_placeholder()
+                findings = _fetch_primary_literature(query, route)
                 ref_kind = "pmid"
                 evidence_role = "recommendation_or_benchmark"
             else:
@@ -547,6 +642,14 @@ def fetch_for_axis(
             }
             if f.get("version_context"):
                 entry["version_context"] = f["version_context"]
+            # Singular `pmid` on the manifest entry AND the CSV row for
+            # PMID-locator findings: the harness `run_pmid_resolves` validator
+            # keys the manifest by singular `pmid`, and the claims-matrix
+            # `pmid` column anchors the per-row resolve. Without it a
+            # legitimately-retrieved abstract reports pmid_not_found.
+            pmid_val = str(f.get("pmid") or "") if ref_kind == "pmid" else ""
+            if pmid_val:
+                entry["pmid"] = pmid_val
             manifest["entries"].append(entry)
 
             row = {
@@ -564,6 +667,7 @@ def fetch_for_axis(
                 "redistributable": "true" if redistributable else "false",
                 "verified": "true" if verified else "false",
                 "version_context": f.get("version_context") or "",
+                "pmid": pmid_val,
             }
             rows_out.append(row)
 
