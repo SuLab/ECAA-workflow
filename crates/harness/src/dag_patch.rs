@@ -481,6 +481,49 @@ pub enum PatchOutcome {
     HeartbeatNoop,
 }
 
+/// Extract the JSON object body from raw patch text an LLM may have wrapped
+/// in markdown fences or surrounding prose: slice from the first `{` to the
+/// last `}`. Returns the trimmed input unchanged when no braces are present
+/// (so the strict parser still produces a faithful error).
+fn extract_json_object(raw: &str) -> &str {
+    match (raw.find('{'), raw.rfind('}')) {
+        (Some(a), Some(b)) if b >= a => &raw[a..=b],
+        _ => raw.trim(),
+    }
+}
+
+/// Tolerant `state.patch.json` parser. Accepts the canonical
+/// `{"to": {"status": ...}}` shape and recovers the common LLM deviations the
+/// strict struct rejects — markdown fences / surrounding prose (via
+/// [`extract_json_object`]) and a bare `TaskState` object written WITHOUT the
+/// `{"to": ...}` wrapper (the documented footgun: agents sometimes emit
+/// `{"status":"completed","result":{...}}` directly). The bare object is
+/// wrapped into a `StatePatch` so the agent's intent still applies. A patch
+/// that is neither a valid `StatePatch` nor a valid bare `TaskState` (e.g.
+/// completed with no `result`) still errors with the canonical diagnostic, so
+/// genuinely-malformed transitions still raise `PatchUnparseable`.
+fn parse_state_patch(raw: &str) -> Result<StatePatch> {
+    let json = extract_json_object(raw);
+    if let Ok(p) = serde_json::from_str::<StatePatch>(json) {
+        return Ok(p);
+    }
+    // Recovery: a bare TaskState emitted without the `to` wrapper.
+    if let Ok(to) = serde_json::from_str::<TaskState>(json) {
+        return Ok(StatePatch {
+            schema_version: default_state_patch_schema_version(),
+            from: None,
+            harness_run_id: None,
+            dispatch_epoch: None,
+            to,
+            note: None,
+        });
+    }
+    // Neither shape parsed — surface the canonical StatePatch error.
+    serde_json::from_str::<StatePatch>(json)
+        .map(|_| unreachable!("strict parse already failed above"))
+        .map_err(|e| anyhow::anyhow!("unparseable state patch: {e}"))
+}
+
 fn try_apply_patch(
     dag: &mut DAG,
     task_id: &str,
@@ -492,7 +535,7 @@ fn try_apply_patch(
     let raw = read_capped(patch_path, resolve_max_bytes())
         .with_context(|| format!("reading {}", patch_path.display()))?;
     let patch: StatePatch =
-        serde_json::from_str(&raw).with_context(|| format!("parsing {}", patch_path.display()))?;
+        parse_state_patch(&raw).with_context(|| format!("parsing {}", patch_path.display()))?;
     if let Some((expected_run_id, expected_epoch)) = expected_identity {
         if patch.harness_run_id.as_deref() != Some(expected_run_id)
             || patch.dispatch_epoch != Some(expected_epoch)
@@ -1616,5 +1659,46 @@ mod tests {
         let patch: StatePatch =
             serde_json::from_str(failed).expect("canonical failed patch must parse");
         assert!(matches!(patch.to, TaskState::Failed { .. }));
+    }
+
+    /// `parse_state_patch` is the tolerant entry point: it accepts the
+    /// canonical `{to:{...}}` shape AND recovers the common LLM deviations
+    /// (codex especially) that the strict struct rejects — markdown fences,
+    /// surrounding prose, and a bare `TaskState` object written WITHOUT the
+    /// `{"to": ...}` wrapper. A genuinely-incomplete patch (e.g. completed
+    /// with no result) still errors.
+    #[test]
+    fn parse_state_patch_recovers_common_llm_deviations() {
+        // 1. Canonical — unchanged.
+        let canon = r#"{"to":{"status":"completed","result":{"summary":"ok"}}}"#;
+        assert!(matches!(
+            parse_state_patch(canon).unwrap().to,
+            TaskState::Completed { .. }
+        ));
+
+        // 2. Markdown-fenced canonical (codex loves ```json fences).
+        let fenced = "```json\n{\"to\":{\"status\":\"completed\",\"result\":{\"summary\":\"ok\"}}}\n```";
+        assert!(matches!(
+            parse_state_patch(fenced).unwrap().to,
+            TaskState::Completed { .. }
+        ));
+
+        // 3. Bare TaskState WITHOUT the `to` wrapper — the documented footgun;
+        //    auto-wrap so the agent's intent still applies.
+        let bare = r#"{"status":"completed","result":{"summary":"ran the analysis"}}"#;
+        assert!(matches!(
+            parse_state_patch(bare).unwrap().to,
+            TaskState::Completed { .. }
+        ));
+
+        // 4. Bare blocked TaskState wrapped in prose.
+        let prose = "Here is my final state:\n{\"status\":\"blocked\",\"record\":{\"reason\":\"no FASTQ\",\"attempts\":[]}}\nDone.";
+        assert!(matches!(
+            parse_state_patch(prose).unwrap().to,
+            TaskState::Blocked { .. }
+        ));
+
+        // 5. Genuinely unparseable (completed, no result, no recoverable shape) still errors.
+        assert!(parse_state_patch(r#"{"status":"completed"}"#).is_err());
     }
 }
