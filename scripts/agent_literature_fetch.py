@@ -32,9 +32,11 @@ import json
 import os
 import re
 import sys
+import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -46,6 +48,17 @@ MANIFEST_SCHEMA_VERSION = 2
 EXTRACTED_TEXT_NORMALIZATION = "collapse_whitespace_lowercase_v1"
 USER_AGENT = "ecaa-workflow-literature-fetch/1 (+https://github.com/SuLab/ECAA-workflow)"
 HTTP_TIMEOUT_SECS = 30
+
+# NCBI E-utilities rate limits: 3 req/s per IP without an API key, 10 req/s
+# with ECAA_LIT_NCBI_API_KEY. The helper bursts esearch + N efetch per axis, so
+# without pacing it trips HTTP 429 instantly and degrades every axis to the
+# curated fallback (the real in-container retrieval blocker). Pace to stay just
+# under the limit and retry 429/503 with exponential backoff (honoring
+# Retry-After). Module-level so tests can zero the interval.
+_MIN_REQUEST_INTERVAL = 0.12 if os.environ.get("ECAA_LIT_NCBI_API_KEY", "").strip() else 0.35
+_HTTP_MAX_RETRIES = 4
+_HTTP_MAX_BACKOFF_SECS = 8.0
+_last_request_monotonic = [0.0]
 
 # CSV column order for method_landscape.csv (version_context optional, last).
 CSV_COLUMNS = [
@@ -144,9 +157,31 @@ def _http_get_text(url: str, host: str, allowed_hosts: List[str]) -> str:
 
 
 def _raw_get(url: str) -> bytes:
-    req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
-    with urlopen(req, timeout=HTTP_TIMEOUT_SECS) as resp:  # noqa: S310 (bounded host)
-        return resp.read()
+    attempt = 0
+    while True:
+        # Pace: keep at least _MIN_REQUEST_INTERVAL between egress calls so a
+        # burst of esearch+efetch stays under NCBI's per-IP rate limit.
+        wait = _MIN_REQUEST_INTERVAL - (_time.monotonic() - _last_request_monotonic[0])
+        if wait > 0:
+            _time.sleep(wait)
+        _last_request_monotonic[0] = _time.monotonic()
+        req = Request(url, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
+        try:
+            with urlopen(req, timeout=HTTP_TIMEOUT_SECS) as resp:  # noqa: S310 (bounded host)
+                return resp.read()
+        except HTTPError as e:
+            # 429 (rate limit) / 503 (transient) are retryable; back off and
+            # retry up to _HTTP_MAX_RETRIES, honoring a numeric Retry-After.
+            if e.code in (429, 503) and attempt < _HTTP_MAX_RETRIES:
+                retry_after = e.headers.get("Retry-After") if e.headers else None
+                try:
+                    backoff = float(retry_after) if retry_after else 2.0 ** attempt
+                except (TypeError, ValueError):
+                    backoff = 2.0 ** attempt
+                _time.sleep(min(backoff, _HTTP_MAX_BACKOFF_SECS))
+                attempt += 1
+                continue
+            raise
 
 
 # --------------------------------------------------------------------------

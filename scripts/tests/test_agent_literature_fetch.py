@@ -230,6 +230,64 @@ class PrimaryLiteratureFetchTest(unittest.TestCase):
             self.assertGreaterEqual(len(pmids), 2)
 
 
+class RateLimitRetryTest(unittest.TestCase):
+    """NCBI E-utilities rate-limit (3 req/s no key, 10 with key). _raw_get must
+    pace requests and retry 429/503 with backoff so a transient throttle does
+    not fail the whole axis to the curated fallback (the real in-container
+    blocker: a burst of esearch+efetch → instant HTTP 429)."""
+
+    def setUp(self):
+        self._orig_urlopen = alf.urlopen
+        self._orig_interval = alf._MIN_REQUEST_INTERVAL
+        alf._MIN_REQUEST_INTERVAL = 0.0  # keep the test fast
+
+    def tearDown(self):
+        alf.urlopen = self._orig_urlopen
+        alf._MIN_REQUEST_INTERVAL = self._orig_interval
+
+    def test_raw_get_retries_on_429_then_succeeds(self):
+        import urllib.error
+
+        calls = {"n": 0}
+
+        class FakeResp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def read(self):
+                return b"OK-BODY"
+
+        def fake_urlopen(req, timeout=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise urllib.error.HTTPError(
+                    "https://eutils.ncbi.nlm.nih.gov/x", 429,
+                    "Too Many Requests", {"Retry-After": "0"}, None
+                )
+            return FakeResp()
+
+        alf.urlopen = fake_urlopen
+        out = alf._raw_get("https://eutils.ncbi.nlm.nih.gov/x")
+        self.assertEqual(out, b"OK-BODY")
+        self.assertEqual(calls["n"], 2, "must retry once after a 429")
+
+    def test_raw_get_gives_up_after_max_retries(self):
+        import urllib.error
+
+        def always_429(req, timeout=None):
+            raise urllib.error.HTTPError(
+                "https://eutils.ncbi.nlm.nih.gov/x", 429, "Too Many Requests",
+                {"Retry-After": "0"}, None
+            )
+
+        alf.urlopen = always_429
+        with self.assertRaises(urllib.error.HTTPError):
+            alf._raw_get("https://eutils.ncbi.nlm.nih.gov/x")
+
+
 class ToolDocFetchTest(unittest.TestCase):
     def test_tool_doc_page_yields_url_entry_with_version_context(self):
         import tempfile
