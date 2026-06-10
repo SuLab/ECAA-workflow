@@ -530,7 +530,7 @@ expression: value
       "@id": "#step-survey_method_landscape",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
       "position": 7
     },
     {
