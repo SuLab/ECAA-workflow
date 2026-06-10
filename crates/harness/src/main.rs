@@ -2285,9 +2285,31 @@ fn run_loop(
         let now = chrono::Utc::now().timestamp() as u64;
         let mut stale_recovered: Vec<ecaa_workflow_core::ids::TaskId> = Vec::new();
         {
+            // C1 (H8): gate the in-loop stale-Running reset on the SAME
+            // LivenessProbe the WAL orphan recovery uses. A detached
+            // compute task (Seurat CCA, BPCells) can exceed its
+            // `task_timeout` while still actively touching `.heartbeat`;
+            // resetting it to Ready on the timeout verdict alone would
+            // re-dispatch and race two agents on the same task.
+            // `ECAA_HEARTBEAT_LIVENESS_SECS=0` selects AlwaysDeadProbe
+            // (legacy reset-on-timeout behavior).
+            let liveness_secs = heartbeat_liveness_window_secs();
+            let probe: Box<dyn LivenessProbe> = if liveness_secs == 0 {
+                Box::new(AlwaysDeadProbe)
+            } else {
+                Box::new(HeartbeatLivenessProbe {
+                    package_root: path.to_path_buf(),
+                    freshness_secs: liveness_secs,
+                })
+            };
             let guard = executor.lock().unwrap_or_else(|p| p.into_inner());
             for (tid, task) in dag.tasks.iter_mut() {
-                if matches!(task.state, TaskState::Running { .. }) && guard.is_task_stale(task, now)
+                if matches!(task.state, TaskState::Running { .. })
+                    && ecaa_workflow_harness::stale_reset::should_reset_stale_running(
+                        tid.as_str(),
+                        guard.is_task_stale(task, now),
+                        probe.as_ref(),
+                    )
                 {
                     task.state = TaskState::Ready;
                     stale_recovered.push(tid.clone());
