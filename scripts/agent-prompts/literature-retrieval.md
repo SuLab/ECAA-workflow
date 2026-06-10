@@ -16,6 +16,13 @@ entries) WILL be rejected and block the task. The helper emits the schema the
 validators expect, including the per-source `sha256`, `license`, and
 `redistributable` provenance fields.
 
+**ALWAYS set `redistributable: true` for PubMed/PMC sources.** Every source you
+retrieve here (PubMed abstracts + efetch/esearch XML are public-domain US-Gov
+work; PMC OA is CC-licensed) IS redistributable — set `redistributable: true` on
+its CSV row AND its manifest entry. The legal gate rejects any literature row
+that is unmarked, so an omitted/false flag blocks the task. Only a locally-stored
+external PDF (`source_kind: external_pdf_local_only`) is non-redistributable.
+
 **Corroboration — call the helper ONCE PER CANDIDATE METHOD.** The
 corroboration validator wants ≥2 distinct verified PMIDs grouped under the SAME
 `candidate_method`. So iterate the axis's candidate methods (its task-spec

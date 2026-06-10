@@ -114,14 +114,22 @@ struct ClaimsMatrixRow {
     // `curated_baseline` method_landscape rows emit an empty offset/redistributable/
     // verified; lenient deserializers map "" to 0/false so a no-evidence candidate
     // row does not fail the whole CSV parse (see de_u64_lenient / de_bool_lenient).
-    #[serde(deserialize_with = "de_u64_lenient")]
+    // codex names the start offset `quote_start`; defaulted so a CSV that omits
+    // it (offset-free containment match) still parses.
+    #[serde(default, deserialize_with = "de_u64_lenient", alias = "quote_start")]
     pub evidence_quote_offset: u64,
+    // codex spells these `source_type` / `source_sha256`; default+alias so its
+    // richer claims-matrix schema parses (the obligations key on the values, not
+    // the column name).
+    #[serde(default, alias = "source_type")]
     pub source_kind: String,
+    #[serde(default, alias = "source_sha256")]
     pub source_hash: String,
+    #[serde(default)]
     pub retrieval_ts: String,
-    #[serde(deserialize_with = "de_bool_lenient")]
+    #[serde(default, deserialize_with = "de_bool_lenient")]
     pub redistributable: bool,
-    #[serde(deserialize_with = "de_bool_lenient")]
+    #[serde(default, deserialize_with = "de_bool_lenient")]
     pub verified: bool,
 }
 
@@ -165,8 +173,13 @@ struct EvidenceEntry {
     /// Batched PubMed efetch: the PMIDs a single shared XML snapshot covers
     /// (one efetch request fetches many PMIDs). Locator indexing keys on each
     /// so a claim row citing any batch member resolves to this snapshot.
-    #[serde(default)]
+    /// codex spells this `pmids`; accept both.
+    #[serde(default, alias = "pmids")]
     pub pmids_in_batch: Vec<String>,
+    // codex names this `source_type`; the canonical helper uses `source_kind`.
+    // Defaulted + aliased so codex's hand-rolled manifest deserializes (the
+    // per-row legal gate reads the CSV's source_kind, not this entry field).
+    #[serde(default, alias = "source_type")]
     pub source_kind: String,
     // codex names the snapshot path `source_text_path`; the canonical helper
     // uses `path`. Accept both.
@@ -682,6 +695,32 @@ pub fn run_evidence_quote_substring_match(
 // Runner 3: redistributable_or_marked
 // ============================================================================
 
+/// Source-kind classes whose redistributability is KNOWN from the class itself,
+/// so a claim row need not carry an explicit `redistributable=true` mark to pass
+/// the legal gate. NLM E-utilities output (PubMed abstracts/efetch/esearch XML)
+/// is public-domain US government data; PMC OA is CC-licensed; OpenAlex/Crossref
+/// surface OA records. `external_pdf_local_only` is deliberately ABSENT (a
+/// locally-stored PDF is not redistributable) and matched strictly upstream.
+/// Token-substring match so executor-specific spellings (codex's
+/// `pubmed_abstract_with_pmc_front_xml_checked`, `pmc_front_or_abstract_xml_only`)
+/// are covered without enumerating every variant.
+fn source_kind_is_inherently_redistributable(source_kind: &str) -> bool {
+    // Scoped to NLM/PMC public + OA classes only (NLM E-utilities output is
+    // public-domain US-Gov work; PMC OA is CC). Metadata aggregators
+    // (openalex/crossref) and generic `abstract_only` are intentionally EXCLUDED
+    // — those still require an explicit redistributable mark, preserving the
+    // legal gate for sources whose underlying license isn't class-determined.
+    const REDISTRIBUTABLE_TOKENS: &[&str] = &[
+        "pmc_oa",
+        "pmc_front",
+        "pubmed_abstract",
+        "pubmed_efetch",
+        "pubmed_esearch",
+    ];
+    let sk = source_kind.to_ascii_lowercase();
+    !sk.contains("external_pdf") && REDISTRIBUTABLE_TOKENS.iter().any(|t| sk.contains(t))
+}
+
 /// Validates that every row in `claims_matrix.csv` references a redistributable source
 /// or is explicitly marked as non-redistributable in the `redistributable` column.
 pub fn run_redistributable_or_marked(
@@ -731,16 +770,16 @@ pub fn run_redistributable_or_marked(
             // Tool-documentation pages are pages, not redistributed corpus —
             // either marking is legal.
             ("doc_page", _) => true,
-            // Every other source_kind is a literature/paper class — the
-            // canonical OA/abstract kinds (pmc_oa_full_text, openalex, crossref,
-            // abstract_only, pubmed_abstract, pubmed_efetch_xml_batch) AND the
-            // executor-specific spellings a hand-rolled manifest emits (codex's
-            // `pubmed` / `ncbi_efetch` / etc.). It MUST carry the redistributable
-            // mark to pass; an unmarked literature source still fails. This
-            // generalizes the prior fixed allow-list so a well-formed manifest
-            // isn't rejected on a source_kind spelling the list didn't enumerate,
-            // while the legal gate (external_pdf_local_only) stays strict.
+            // A literature source explicitly marked redistributable passes.
             (_, true) => true,
+            // NLM/PMC public + OA classes are redistributable BY THEIR CLASS
+            // (NLM E-utilities data is public-domain; PMC OA is CC-licensed), so
+            // an unmarked row from these sources still passes — codex omits the
+            // flag but its PubMed/PMC evidence is legally redistributable. The
+            // legal gate stays strict for everything else: external_pdf_local_only
+            // is excluded above, and an unmarked source of an UNRECOGNISED class
+            // still fails.
+            (sk, false) if source_kind_is_inherently_redistributable(sk) => true,
             (_, false) => false,
         };
         if !consistent {
@@ -1521,9 +1560,15 @@ mod tests {
         // LEGAL GATE preserved: external local PDFs must NOT claim redistribution.
         assert!(run("external_pdf_local_only", "true").is_err());
         assert!(run("external_pdf_local_only", "false").is_ok());
-        // LEGAL GATE preserved: an OA source left UNMARKED still fails.
+        // LEGAL GATE preserved for non-NLM/PMC aggregators: an UNMARKED
+        // openalex/crossref source still fails (license not class-determined).
         assert!(run("openalex", "false").is_err());
-        assert!(run("pmc_oa_full_text", "false").is_err());
+        assert!(run("crossref", "false").is_err());
+        // NLM/PMC public + OA classes are redistributable BY CLASS: an UNMARKED
+        // pmc_oa / pubmed source now passes (NLM E-utilities + PMC OA are
+        // public-domain / CC). External PDFs (above) stay strict.
+        assert!(run("pmc_oa_full_text", "false").is_ok());
+        assert!(run("pubmed_abstract", "false").is_ok());
     }
 
     #[test]
@@ -1538,9 +1583,11 @@ mod tests {
         let csv = dir.path().join("m.csv");
         write(&csv, &format!("{hdr}\nMaxQuant,method,19029910,foo,0,pubmed_efetch_xml_batch,sha256:abc,2026-06-08T00:00:00Z,true,true\n"));
         assert!(run_redistributable_or_marked(&csv, &manifest).is_ok());
-        // Legal gate preserved: a public-domain abstract source left UNMARKED still fails.
+        // NLM/PMC public source unmarked now PASSES: redistributability is
+        // class-determined (PubMed efetch XML is public-domain US-Gov work), so a
+        // hand-rolled manifest that omits the flag (codex) is not blocked.
         write(&csv, &format!("{hdr}\nMaxQuant,method,19029910,foo,0,pubmed_efetch_xml_batch,sha256:abc,2026-06-08T00:00:00Z,false,true\n"));
-        assert!(run_redistributable_or_marked(&csv, &manifest).is_err());
+        assert!(run_redistributable_or_marked(&csv, &manifest).is_ok());
     }
 
     #[test]
@@ -1583,10 +1630,8 @@ mod tests {
         fs::create_dir_all(&sib_snap).unwrap();
         fs::write(sib_snap.join("abc123"), "abstract text").unwrap();
         // Manifest lives in ctx_ev; entry path is task-dir-relative cross-task.
-        let resolved = resolve_evidence_file(
-            &ctx_ev,
-            "../review_prior_work/evidence/snapshots/abc123",
-        );
+        let resolved =
+            resolve_evidence_file(&ctx_ev, "../review_prior_work/evidence/snapshots/abc123");
         assert!(
             resolved.exists(),
             "cross-task sibling snapshot must resolve; got {}",
@@ -1621,6 +1666,50 @@ mod tests {
         assert!(
             run_pmid_resolves(&csv, &manifest).is_ok(),
             "pmid_resolves must find the entry in a `sources`-keyed manifest"
+        );
+    }
+
+    #[test]
+    fn validators_accept_codex_real_pasilla_evidence_schema() {
+        // The exact schema codex (gpt-5.5) emits for review_prior_work, captured
+        // from a live pasilla run: claims CSV uses `source_type` (not source_kind),
+        // `quote_start` (not evidence_quote_offset), `source_sha256` (not
+        // source_hash), and OMITS source_kind / redistributable columns; the
+        // manifest entries use `source_type` (not source_kind) and `pmids` (plural).
+        // All three obligations must resolve it: schema spelling via aliases, and
+        // redistributability inferred from the NLM/PMC source class (codex omits
+        // the flag, but PubMed/PMC are public/OA).
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("prior_claims_matrix.csv");
+        write(
+            &csv,
+            "pmid,source_type,evidence_quote,quote_start,quote_end,verified,source_sha256,source_path\n\
+             20921232,pubmed_abstract_with_pmc_front_xml_checked,\"combined RNAi and mRNA-seq to identify exons\",10,54,True,sha256:abc,evidence/source_text_pmid_20921232.txt\n",
+        );
+        let manifest = dir.path().join("evidence/manifest.json");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        write(
+            &manifest,
+            r#"{"claim_boundary":"verbatim quotes","generated_at":"2026-06-09T00:00:00Z","task_id":"review_prior_work","entries":[{"path":"evidence/pubmed_20921232.xml","pmids":["20921232"],"source_type":"pubmed_efetch_xml","sha256":"sha256:xml"},{"path":"evidence/source_text_pmid_20921232.txt","pmid":"20921232","pmcid":"PMC3032923","source_type":"pubmed_abstract_with_pmc_front_xml_checked","sha256":"sha256:abc"}]}"#,
+        );
+        write(
+            &manifest
+                .parent()
+                .unwrap()
+                .join("source_text_pmid_20921232.txt"),
+            "We combined RNAi and mRNA-seq to identify exons regulated by Pasilla.",
+        );
+        assert!(
+            run_pmid_resolves(&csv, &manifest).is_ok(),
+            "pmid_resolves must accept codex's source_type/pmids manifest schema"
+        );
+        assert!(
+            run_evidence_quote_substring_match(&csv, &manifest).is_ok(),
+            "evidence_quote_substring_match must resolve codex's quote against the source"
+        );
+        assert!(
+            run_redistributable_or_marked(&csv, &manifest).is_ok(),
+            "redistributable_or_marked must pass NLM/PMC sources even when codex omits the flag"
         );
     }
 
