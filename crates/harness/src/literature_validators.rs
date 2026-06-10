@@ -1200,13 +1200,25 @@ fn minimum_independent_sources(csv_path: &Path) -> u64 {
 /// Two cases remain hard failures:
 ///   (a) a candidate EXPLICITLY tier-marked `defaultRecommended` (when the
 ///       optional `tier` column is present) that is not adequately supported —
-///       the survey makes a specific unsupported recommendation; and
-///   (b) an axis that presents ≥1 literature-eligible candidate but carries NO
-///       adequately-corroborated default — the axis cannot be recommended.
+///       the survey makes a specific unsupported recommendation. Corroboration
+///       here is PER-CANDIDATE: the marked default must itself carry ≥1 verified
+///       paper-class source AND ≥`minimumIndependentSources` distinct verified
+///       sources; and
+///   (b) a literature-eligible axis (≥1 candidate with a verified paper-class
+///       source) whose candidate set, TAKEN TOGETHER, cites fewer than
+///       `minimumIndependentSources` DISTINCT verified paper-class sources.
+///       Corroboration is an AXIS-level property — the axis's runtime
+///       method-choice is what is being grounded — so it may be distributed
+///       across candidates: thin per-candidate retrieval (one abstract per
+///       method) still corroborates the axis when independent methods cite
+///       independent papers. An axis grounded by only a single paper across all
+///       its candidates is genuinely under-corroborated and fails; an axis with
+///       no literature grounding at all (fully `curated_baseline` /
+///       tool-doc fallback) is not eligible and imposes no obligation.
 ///
 /// The method_landscape schema does not define a `tier` column today
 /// (`additionalProperties: false`), so in practice (a) never fires and the
-/// check reduces to per-axis recommendability. Tool-doc-only candidates are
+/// check reduces to axis-level corroboration (b). Tool-doc-only candidates are
 /// never literature_eligible, so they impose no corroboration obligation.
 ///
 /// `manifest_path` is unused (the corroboration policy is read from the
@@ -1258,7 +1270,12 @@ pub fn run_claim_support_satisfied(
         first_row: u64,
         tier_default: bool,
         paper_class_verified: u64,
+        /// Distinct verified sources of ANY class — drives per-candidate
+        /// corroboration for an explicit `defaultRecommended` (case a).
         verified_sources: std::collections::BTreeSet<String>,
+        /// Distinct verified PAPER-class source identities — unioned across an
+        /// axis's candidates for axis-level corroboration (case b).
+        paper_sources: std::collections::BTreeSet<String>,
         seen: bool,
     }
     let mut acc: BTreeMap<(String, String), Acc> = BTreeMap::new();
@@ -1301,10 +1318,14 @@ pub fn run_claim_support_satisfied(
             e.tier_default = true;
         }
         if verified {
-            if PAPER_CLASSES.contains(&class.as_str()) {
+            let is_paper = PAPER_CLASSES.contains(&class.as_str());
+            if is_paper {
                 e.paper_class_verified += 1;
             }
             if !source_id.is_empty() {
+                if is_paper {
+                    e.paper_sources.insert(source_id.clone());
+                }
                 e.verified_sources.insert(source_id);
             }
         }
@@ -1342,11 +1363,17 @@ pub fn run_claim_support_satisfied(
         }
     }
 
-    // (b) per-axis recommendability: an axis with any literature-eligible
-    // candidate must carry at least one adequately-corroborated default. The
-    // under-corroborated candidates on a still-recommendable axis are de-ranked
-    // (skipped), not failed.
-    let mut axis_has_valid: BTreeMap<&str, bool> = BTreeMap::new();
+    // (b) per-axis corroboration: a literature-eligible axis (≥1 candidate with
+    // a verified paper-class source) must cite ≥`min_sources` DISTINCT verified
+    // paper-class sources across its candidate set — corroboration is an
+    // axis-level property and may be distributed across candidates. This lets
+    // thin per-candidate retrieval (one abstract per method) still corroborate
+    // an axis when independent methods cite independent papers, while an axis
+    // grounded by only a single paper across ALL its candidates still fails.
+    // Non-eligible axes (fully curated_baseline / tool-doc fallback) carry no
+    // obligation. `acc` is a BTreeMap, so iteration is deterministic.
+    let mut axis_paper_sources: BTreeMap<&str, std::collections::BTreeSet<String>> =
+        BTreeMap::new();
     let mut axis_eligible_row: BTreeMap<&str, u64> = BTreeMap::new();
     for ((axis, _cand), a) in &acc {
         if a.paper_class_verified >= 1 {
@@ -1354,12 +1381,18 @@ pub fn run_claim_support_satisfied(
                 .entry(axis.as_str())
                 .and_modify(|r| *r = (*r).min(a.first_row))
                 .or_insert(a.first_row);
-            let v = axis_has_valid.entry(axis.as_str()).or_insert(false);
-            *v = *v || is_valid_default(a);
+        }
+        let set = axis_paper_sources.entry(axis.as_str()).or_default();
+        for s in &a.paper_sources {
+            set.insert(s.clone());
         }
     }
     for (axis, first_row) in &axis_eligible_row {
-        if !axis_has_valid.get(*axis).copied().unwrap_or(false) {
+        let distinct = axis_paper_sources
+            .get(*axis)
+            .map(|s| s.len() as u64)
+            .unwrap_or(0);
+        if distinct < min_sources {
             return Err((
                 *first_row,
                 lit_fail(
@@ -2542,9 +2575,15 @@ mod tests {
     }
 
     #[test]
-    fn claim_support_fails_axis_with_no_corroborated_default() {
-        // Two candidates on one axis, BOTH under-corroborated (1 source each):
-        // the axis has no recommendable default → InsufficientCorroboration.
+    fn claim_support_axis_corroboration_counts_distinct_sources_across_candidates() {
+        // Two candidates on one axis, each with a SINGLE (distinct) source. No
+        // single candidate reaches minimumIndependentSources (2), but the axis
+        // as a whole cites 2 distinct verified paper-class sources → the axis's
+        // method-choice IS corroborated. Corroboration is an axis-level property
+        // that may be distributed across candidates, so this PASSES. (Regression
+        // for the pasilla normalisation axis: thin PubMed retrieval returned one
+        // abstract per method — edger_tmm + sctransform — and the per-candidate
+        // bar flakily blocked an axis that is in fact doubly-grounded.)
         let dir = TempDir::new().unwrap();
         let csv = dir.path().join("method_landscape.csv");
         write(
@@ -2552,6 +2591,27 @@ mod tests {
             "axis,candidate_method,source_class,source_ref,verified\n\
              variant_filtering,gatk_hard_filter,primary_literature,30000001,true\n\
              variant_filtering,bcftools_filter,primary_literature,30000003,true\n",
+        );
+        assert!(
+            run_claim_support_satisfied(&csv, &dir.path().join("ignored")).is_ok(),
+            "axis citing 2 distinct papers across its candidates is corroborated"
+        );
+    }
+
+    #[test]
+    fn claim_support_fails_axis_grounded_by_single_paper() {
+        // An eligible axis whose candidates, taken together, cite only ONE
+        // distinct verified paper-class source (the same PMID under two methods)
+        // is genuinely under-corroborated → InsufficientCorroboration. This is
+        // the floor the axis-level rule preserves: distributed corroboration
+        // still requires ≥minimumIndependentSources DISTINCT papers.
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,source_ref,verified\n\
+             normalisation,deseq2_mor,primary_literature,30000777,true\n\
+             normalisation,edger_tmm,primary_literature,30000777,true\n",
         );
         let err = run_claim_support_satisfied(&csv, &dir.path().join("ignored")).unwrap_err();
         assert!(matches!(
@@ -2561,6 +2621,29 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn claim_support_thin_retrieval_axis_with_curated_fallback_passes() {
+        // Mirrors the live pasilla normalisation axis post-fix: two methods each
+        // grounded by a single distinct paper, plus source-less curated_baseline
+        // fallback rows for methods PubMed could not ground. The two papers
+        // corroborate the axis; the curated_baseline rows are skipped (not
+        // eligible, no obligation). Must PASS.
+        let dir = TempDir::new().unwrap();
+        let csv = dir.path().join("method_landscape.csv");
+        write(
+            &csv,
+            "axis,candidate_method,source_class,source_ref,verified\n\
+             normalisation,edger_tmm,primary_literature,19910308,true\n\
+             normalisation,sctransform,primary_literature,31870423,true\n\
+             normalisation,deseq2_vst,curated_baseline,,false\n\
+             normalisation,scran,curated_baseline,,false\n",
+        );
+        assert!(
+            run_claim_support_satisfied(&csv, &dir.path().join("ignored")).is_ok(),
+            "axis grounded by 2 distinct papers passes despite thin per-method retrieval"
+        );
     }
 
     // ====================================================================
