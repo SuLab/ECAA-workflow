@@ -132,6 +132,15 @@ blocking — naming the method IS the SME's selection (equivalent to an entry in
 when `spec_preferred_methods` is empty or two-or-more spec-preferred methods are
 env-available.
 
+When the discover node carries `attributes.goal_context` (or the
+`## Analysis objective` in `PROMPT.md` names a specific detection goal such as
+low-frequency / heteroplasmic variants), treat it as a GOAL signal on the
+`default_suitability` composite axis: rank candidates by fitness for that goal
+(an allele-frequency-window-aware filter suits a low-AF-tail goal; a
+depth/quality-only hard filter suits a high-confidence-germline goal). This
+shapes ranking only — it is NOT a threshold and NOT a mandated tool; you still
+choose, install, and record `decision.json::chosen` exactly as above.
+
 ### Iterate-until stages
 
 A `Cardinality::IterateUntil` stage is emitted as a 4-template scaffold
