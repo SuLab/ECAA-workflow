@@ -735,10 +735,17 @@ pub(super) async fn patch_ro_crate_metadata(
             "Per-axis delta between this package's ED/CF self-location and its lineage parent's (gained/lost extensibility + counterfactual mechanisms). Written only when this emission has a lineage parent with its own self-assessment. Informational — locates, does not validate.",
             "application/json",
         ),
+        // CC1 — catalog-coverage statement. Its OWN file + `@id`, distinct
+        // from M5's `runtime/coverage-statement.json` above. Sharing the M5
+        // path let M5's deterministic CoverageStatement clobber CC1's
+        // CoverageConfidence on disk, and — because `register_ro_crate_entity`
+        // is idempotent on `@id` — silently drop this CreativeWork from the
+        // `@graph` (H7). Written only when the package is not fully covered;
+        // excluded from the byte-diff baseline (session-state-dependent).
         (
-            "runtime/coverage-statement.json",
+            "runtime/catalog-coverage-statement.json",
             "Catalog-coverage statement (CC1)",
-            "SME-legible record of which requested modalities fell outside the validated catalog (uncovered_modalities) and the unresolved gap count, projected from the composer's gap signal. Written only when the package is not fully covered. Informational — communicates coverage uncertainty, does not validate.",
+            "SME-legible record of which requested modalities fell outside the validated catalog (uncovered_modalities) and the unresolved gap count, projected from the composer's gap signal. Written only when the package is not fully covered. Distinct from the M5 goal-branch coverage statement (runtime/coverage-statement.json). Informational — communicates coverage uncertainty, does not validate.",
             "application/json",
         ),
         // ECAA emit-time validation summary written by

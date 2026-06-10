@@ -180,12 +180,21 @@ async fn read_ed_cf_assessment(
     serde_json::from_slice(&bytes).ok()
 }
 
-/// Write `runtime/coverage-statement.json` when the session carries a
-/// not-fully-covered `coverage_confidence` (CC1-4). This durably records
-/// the catalog-coverage gap outside the UI so a reviewer reading the
-/// emitted package sees which modalities fell outside the validated
-/// catalog. Fully-covered (or absent) coverage writes no file — a clean
-/// package carries no gap statement. Excluded from the byte-diff baseline.
+/// Write `runtime/catalog-coverage-statement.json` when the session
+/// carries a not-fully-covered `coverage_confidence` (CC1-4). This
+/// durably records the catalog-coverage gap outside the UI so a reviewer
+/// reading the emitted package sees which modalities fell outside the
+/// validated catalog. Fully-covered (or absent) coverage writes no file —
+/// a clean package carries no gap statement. Excluded from the byte-diff
+/// baseline.
+///
+/// H7 — this is CC1's OWN file, distinct from M5's
+/// `runtime/coverage-statement.json` (`audit_log::write_coverage_statement`).
+/// M5 runs second in `emit_steps` whenever the session has a cached
+/// `WorkflowDag`; sharing one path let M5 silently clobber CC1's content
+/// on disk AND — because `register_ro_crate_entity` is idempotent on
+/// `@id` — drop CC1's CreativeWork from the `@graph`. The two writers now
+/// target two paths with two `@id`s so both statements always survive.
 pub(super) async fn write_coverage_statement(session: &Session, output_dir: &Path) -> Result<()> {
     let Some(cov) = session.coverage_confidence.as_ref() else {
         return Ok(());
@@ -196,7 +205,7 @@ pub(super) async fn write_coverage_statement(session: &Session, output_dir: &Pat
     let runtime = output_dir.join("runtime");
     tokio::fs::create_dir_all(&runtime).await?;
     let body = serde_json::to_vec_pretty(cov)?;
-    let path = runtime.join("coverage-statement.json");
+    let path = runtime.join("catalog-coverage-statement.json");
     crate::persistence::atomic_write_bytes_to(&path, &body)
         .await
         .with_context(|| format!("writing {}", path.display()))?;
@@ -314,7 +323,9 @@ mod ed_cf_delta_tests {
         write_coverage_statement(&session, dir.path())
             .await
             .unwrap();
-        let path = dir.path().join("runtime/coverage-statement.json");
+        // H7 — CC1 writes its OWN file, distinct from M5's
+        // `runtime/coverage-statement.json`.
+        let path = dir.path().join("runtime/catalog-coverage-statement.json");
         assert!(path.exists(), "partial coverage must write a statement");
         let v: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
         assert_eq!(v["uncovered_modalities"][0], "cytof");
@@ -329,8 +340,103 @@ mod ed_cf_delta_tests {
         s2.coverage_confidence = Some(CoverageConfidence::from_outcome(&full));
         write_coverage_statement(&s2, dir2.path()).await.unwrap();
         assert!(
-            !dir2.path().join("runtime/coverage-statement.json").exists(),
+            !dir2
+                .path()
+                .join("runtime/catalog-coverage-statement.json")
+                .exists(),
             "fully-covered package writes no coverage statement"
+        );
+    }
+
+    /// H7 — CC1 (not-fully-covered) and M5 (cached DAG) must produce TWO
+    /// distinct files so M5's emit cannot overwrite CC1's content, AND both
+    /// CreativeWork nodes must survive in the RO-Crate `@graph` (the
+    /// idempotent `register_ro_crate_entity` previously dropped CC1 because
+    /// it shared M5's `@id`).
+    #[tokio::test]
+    async fn cc1_and_m5_coverage_files_coexist_without_clobber() {
+        use crate::session::state::CoverageConfidence;
+        use ecaa_workflow_core::workflow_contracts::outcome::{ComposeOutcome, GapReport};
+        use ecaa_workflow_core::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+
+        let dir = tempfile::tempdir().unwrap();
+        let pkg = dir.path();
+
+        // Not-fully-covered → CC1 fires; cached WorkflowDag → M5 fires.
+        let outcome = ComposeOutcome::PartialDag {
+            dag: WorkflowDag::default(),
+            unresolved_gaps: vec![GapReport {
+                id: "unsatisfiable_modality:cytof".into(),
+                statement: "no satisfier".into(),
+                missing_port: None,
+                suggestions: vec![],
+            }],
+        };
+        let mut session = Session::new(false);
+        session.coverage_confidence = Some(CoverageConfidence::from_outcome(&outcome));
+        session.workflow_dag = Some(WorkflowDag {
+            nodes: vec![TaskNode::skeleton("de", "Differential expression")],
+            ..Default::default()
+        });
+
+        // Run BOTH writers in the same order `emit_steps` does (CC1 then M5).
+        write_coverage_statement(&session, pkg).await.unwrap();
+        crate::emit::audit_log::write_coverage_statement(&session, pkg)
+            .await
+            .unwrap();
+
+        let cc1 = pkg.join("runtime/catalog-coverage-statement.json");
+        let m5 = pkg.join("runtime/coverage-statement.json");
+        assert!(cc1.exists(), "CC1 must write catalog-coverage-statement.json");
+        assert!(m5.exists(), "M5 must write coverage-statement.json");
+
+        // CC1's content survives — M5 did not clobber it on disk.
+        let cc1_body = tokio::fs::read_to_string(&cc1).await.unwrap();
+        let cc1_v: serde_json::Value = serde_json::from_str(&cc1_body).unwrap();
+        assert_eq!(cc1_v["uncovered_modalities"][0], "cytof");
+
+        // M5's content is its own (CoverageStatement, not CoverageConfidence).
+        let m5_body = tokio::fs::read_to_string(&m5).await.unwrap();
+        let m5_v: serde_json::Value = serde_json::from_str(&m5_body).unwrap();
+        assert!(
+            m5_v.get("total_branches").is_some(),
+            "M5 file must be a CoverageStatement (total_branches present), got {m5_v}"
+        );
+
+        // Both CreativeWork nodes must survive in the @graph. Drive the
+        // real RO-Crate patcher over a minimal pre-staged crate.
+        std::fs::write(
+            pkg.join("ro-crate-metadata.json"),
+            r#"{
+              "@context": "https://w3id.org/ro/crate/1.1/context",
+              "@graph": [ { "@id": "./", "@type": "Dataset", "hasPart": [] } ]
+            }"#,
+        )
+        .unwrap();
+        crate::emit::ro_crate::patch_ro_crate_metadata(
+            pkg,
+            vec![],
+            vec![],
+            ecaa_workflow_core::provenance_tiers::ProvenanceTier::Private,
+        )
+        .await
+        .unwrap();
+        let metadata: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(pkg.join("ro-crate-metadata.json")).unwrap())
+                .unwrap();
+        let graph = metadata["@graph"].as_array().unwrap();
+        let has = |id: &str| {
+            graph
+                .iter()
+                .any(|e| e.get("@id").and_then(|v| v.as_str()) == Some(id))
+        };
+        assert!(
+            has("runtime/coverage-statement.json"),
+            "M5 CreativeWork node missing from @graph"
+        );
+        assert!(
+            has("runtime/catalog-coverage-statement.json"),
+            "CC1 CreativeWork node missing from @graph"
         );
     }
 }
