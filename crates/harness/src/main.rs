@@ -1497,8 +1497,14 @@ fn main() -> Result<()> {
     let mut dispatch_epoch: u64 = 0;
     {
         let records = read_dispatches(path);
+        // Read the DAG up front so the C2 sweep below can run even when
+        // the WAL is empty — a crash on the very first dispatch (before
+        // any record was appended) leaves a Running task with NO record
+        // AND an empty WAL, which the records-non-empty recovery block
+        // would never inspect.
+        let mut dag_for_recovery = read_dag(path)?;
+        let mut recovery_dag_dirty = false;
         if !records.is_empty() {
-            let mut dag_for_recovery = read_dag(path)?;
             // Liveness probe: heartbeat-mtime check unless
             // ECAA_HEARTBEAT_LIVENESS_SECS=0 selects the legacy
             // AlwaysDeadProbe (every Running task with a stale-deadline
@@ -1533,7 +1539,7 @@ fn main() -> Result<()> {
                 );
             }
             if report.orphaned_count > 0 {
-                write_dag(path, &dag_for_recovery)?;
+                recovery_dag_dirty = true;
                 tracing::info!(
                     target: "harness-wal",
                     count = report.orphaned_count,
@@ -1566,6 +1572,38 @@ fn main() -> Result<()> {
                     }
                 }
             }
+        }
+
+        // C2 (M10): re-block any Running task with NO WAL record (crash
+        // between write_dag and append_dispatch — recovery can't see it,
+        // so it would stay wedged Running). Runs after recovery so a
+        // record-bearing orphan is handled by recovery's
+        // liveness/denylist logic; only truly record-less tasks fall
+        // through here.
+        let swept = ecaa_workflow_harness::dispatch_wal::sweep_running_without_wal_record(
+            &mut dag_for_recovery,
+            &records,
+        );
+        if !swept.is_empty() {
+            recovery_dag_dirty = true;
+            tracing::warn!(
+                target: "harness-wal",
+                task_ids = %swept.join(", "),
+                "re-blocked Running task(s) with no WAL record (crash before append_dispatch)"
+            );
+            if let Some(ref pc) = progress {
+                for tid in &swept {
+                    if let Some(task) = dag_for_recovery.tasks.get(tid.as_str()) {
+                        if let TaskState::Blocked { record } = &task.state {
+                            pc.task_blocked(tid, &record.reason);
+                        }
+                    }
+                }
+            }
+        }
+
+        if recovery_dag_dirty {
+            write_dag(path, &dag_for_recovery)?;
         }
     }
 
@@ -2285,9 +2323,31 @@ fn run_loop(
         let now = chrono::Utc::now().timestamp() as u64;
         let mut stale_recovered: Vec<ecaa_workflow_core::ids::TaskId> = Vec::new();
         {
+            // C1 (H8): gate the in-loop stale-Running reset on the SAME
+            // LivenessProbe the WAL orphan recovery uses. A detached
+            // compute task (Seurat CCA, BPCells) can exceed its
+            // `task_timeout` while still actively touching `.heartbeat`;
+            // resetting it to Ready on the timeout verdict alone would
+            // re-dispatch and race two agents on the same task.
+            // `ECAA_HEARTBEAT_LIVENESS_SECS=0` selects AlwaysDeadProbe
+            // (legacy reset-on-timeout behavior).
+            let liveness_secs = heartbeat_liveness_window_secs();
+            let probe: Box<dyn LivenessProbe> = if liveness_secs == 0 {
+                Box::new(AlwaysDeadProbe)
+            } else {
+                Box::new(HeartbeatLivenessProbe {
+                    package_root: path.to_path_buf(),
+                    freshness_secs: liveness_secs,
+                })
+            };
             let guard = executor.lock().unwrap_or_else(|p| p.into_inner());
             for (tid, task) in dag.tasks.iter_mut() {
-                if matches!(task.state, TaskState::Running { .. }) && guard.is_task_stale(task, now)
+                if matches!(task.state, TaskState::Running { .. })
+                    && ecaa_workflow_harness::stale_reset::should_reset_stale_running(
+                        tid.as_str(),
+                        guard.is_task_stale(task, now),
+                        probe.as_ref(),
+                    )
                 {
                     task.state = TaskState::Ready;
                     stale_recovered.push(tid.clone());

@@ -22,10 +22,13 @@
 //!   envelope filter consumes both lists; local only consumes the
 //!   base.
 
-/// W3.1 — credentials shared across every executor path. Both the local
-/// executor's `env_clear` allowlist and the AWS SSM secret-filter use
-/// this set as the floor. Pure data — adding a new well-known
-/// credential here is always correct regardless of executor.
+/// W3.1 — credentials shared across every executor path (9 credentials;
+/// the count is pinned by `base_secret_keys_count_is_pinned` below). Both
+/// the local executor's `env_clear` allowlist (via the `SECRET_KEYS`
+/// alias in `local.rs`) and the AWS SSM secret-filter use this set as the
+/// floor. Pure data — adding a new well-known credential here is always
+/// correct regardless of executor, but bump the pinned count in the same
+/// change so the drift gate stays meaningful.
 pub(super) const BASE_SECRET_KEYS: &[&str] = &[
     "ECAA_ANTHROPIC_API_KEY",
     "ANTHROPIC_API_KEY",
@@ -65,6 +68,18 @@ mod tests {
             BASE_SECRET_KEYS.len(),
             9,
             "BASE_SECRET_KEYS length changed; if intentional, bump this assertion in the same commit"
+        );
+    }
+
+    /// L4 — the module comment must state the pinned count so an edit
+    /// that adds a credential without bumping the pin is obvious from the
+    /// doc comment alone, not just the test assertion.
+    #[test]
+    fn base_secret_keys_doc_states_count() {
+        let src = include_str!("_secrets.rs");
+        assert!(
+            src.contains("9 credentials") || src.contains("nine credentials"),
+            "_secrets.rs comment must state the pinned BASE_SECRET_KEYS count (L4)"
         );
     }
 

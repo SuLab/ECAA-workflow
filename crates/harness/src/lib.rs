@@ -29,6 +29,7 @@ pub mod sandbox_enforcer;
 pub mod scheduler;
 pub mod scratch_cleanup;
 pub mod sme_skip;
+pub mod stale_reset;
 pub mod stall_relay;
 pub mod validators;
 pub mod watchdog;

@@ -534,6 +534,41 @@ pub fn recover_orphaned_dispatches_with_denylist(
     report
 }
 
+/// Startup sweep (C2 / M10): re-block any `Running` task on disk that has
+/// NO `DispatchRecord` in the WAL under ANY run. Such a task is the
+/// signature of a crash in the window between `write_dag` (marks Running)
+/// and `append_dispatch` (writes the WAL record) — the orphan recovery
+/// can't see it (no prior record keys it, so `latest_prior.get(tid)`
+/// returns `None` and recovery `continue`s), so it would stay wedged
+/// `Running` forever. Returns the sorted ids re-blocked. Run this AFTER
+/// `recover_orphaned_dispatches_with_denylist` so a record-bearing
+/// orphan is handled by recovery (with its liveness/denylist logic) and
+/// only truly record-less tasks fall through to the sweep.
+///
+/// The blocker reason carries the same `[orphaned_by_crash]` marker the
+/// recovery path uses so the server's blocker mapper promotes it to a
+/// typed `BlockerKind::OrphanedByCrash` and the UI can offer a rerun.
+pub fn sweep_running_without_wal_record(dag: &mut DAG, records: &[DispatchRecord]) -> Vec<String> {
+    use std::collections::HashSet;
+    let recorded: HashSet<&str> = records.iter().map(|r| r.task_id.as_str()).collect();
+    let mut reblocked = Vec::new();
+    for (tid, task) in dag.tasks.iter_mut() {
+        if matches!(task.state, TaskState::Running { .. }) && !recorded.contains(tid.as_str()) {
+            task.state = TaskState::Blocked {
+                record: BlockedRecord {
+                    reason: format!(
+                        "[orphaned_by_crash] task={tid} prior_run=unknown at= — Running on disk with no WAL record (crash before dispatch was logged). Rerun to resume.",
+                    ),
+                    attempts: vec![],
+                },
+            };
+            reblocked.push(tid.to_string());
+        }
+    }
+    reblocked.sort();
+    reblocked
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
