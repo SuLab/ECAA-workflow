@@ -26,16 +26,10 @@ def _two_arm_card(benchmark="nekrutenko", meta=None):
 
 # ── eval-03: method-lock asymmetry ───────────────────────────────────────────
 
-def test_locked_methods_meta_records_ecaa_pins_and_bare_free():
-    card = _two_arm_card()
-    meta = locked_methods_meta(Nekrutenko(), card)
-    assert meta is not None
-    assert meta["ecaa"]["any_locked"] is True
-    assert {"stage": "alignment", "method": "bwa"} in meta["ecaa"]["pairs"]
-    assert {"stage": "variant_calling", "method": "lofreq"} in meta["ecaa"]["pairs"]
-    assert meta["claude-direct"]["any_locked"] is False
-    assert meta["claude-direct"]["pairs"] == []
-    assert meta["asymmetric"] is True
+def test_locked_methods_meta_none_when_nekrutenko_lock_dropped():
+    # WS-E: Nekrutenko no longer pins any method on either arm, so the
+    # locked_methods helper returns None (no method-lock section to render).
+    assert locked_methods_meta(Nekrutenko(), _two_arm_card()) is None
 
 
 def test_locked_methods_meta_none_when_no_arm_locks():
@@ -53,20 +47,25 @@ def test_locked_methods_meta_none_without_contract():
     assert locked_methods_meta(_NoContract(), _two_arm_card()) is None
 
 
-def test_write_scorecard_threads_locked_methods_into_json_and_md(tmp_path):
-    out = write_scorecard(_two_arm_card(), tmp_path, plugin=Nekrutenko())
-    data = json.loads((out / "scorecard.json").read_text())
-    lm = data["meta"]["locked_methods"]
-    assert lm["ecaa"]["any_locked"] is True
-    assert lm["claude-direct"]["any_locked"] is False
-    assert lm["asymmetric"] is True
+def test_write_scorecard_omits_locked_methods_when_lock_dropped(tmp_path):
+    # WS-E: the lock is dropped, so locked_methods_meta returns None and the
+    # method-lock section is omitted; the report()-set method_lock meta key is
+    # carried through instead and records the drop.
+    card = Nekrutenko().report([
+        Score("mtdna", "ecaa", 0, 90.0, {}, 0.9, None, "deterministic"),
+        Score("mtdna", "claude-direct", 0, 80.0, {}, 0.8, None, "deterministic"),
+    ])
+    out = write_scorecard(card, tmp_path, plugin=Nekrutenko())
+    written = json.loads((out / "scorecard.json").read_text())
+    assert "locked_methods" not in written["meta"], "lock helper returns None -> key omitted"
+    assert written["meta"]["method_lock"]["ecaa"]["any_locked"] is False
+    assert written["meta"]["method_lock"]["asymmetric"] is False
 
     md = (out / "scorecard.md").read_text()
-    assert "Method lock" in md
-    assert "bwa" in md and "lofreq" in md
-    assert "asymmetry" in md.lower()
-    # The bare arm row shows free, not pinned.
-    assert "_(none — free)_" in md
+    # No recipe-arm method-lock section is rendered anymore.
+    assert "Method lock (recipe arms pin canonical tools)" not in md
+    # The dropped-lock note is surfaced as a plain meta bullet.
+    assert "method_lock" in md
 
 
 def test_write_scorecard_without_plugin_omits_locked_methods(tmp_path):
@@ -76,10 +75,9 @@ def test_write_scorecard_without_plugin_omits_locked_methods(tmp_path):
 
 
 def test_nekrutenko_arm_enum_contract_holds():
-    # Guard against the Arm enum drifting away from what the helper feeds in.
+    # WS-E: both arms are now free; the Arm enum still resolves for either arm.
     plug = Nekrutenko()
-    assert plug.locked_methods(None, Arm.ECAA_WORKFLOW) == [
-        ("alignment", "bwa"), ("variant_calling", "lofreq")]
+    assert plug.locked_methods(None, Arm.ECAA_WORKFLOW) == []
     assert plug.locked_methods(None, Arm.CLAUDE_CODE_DIRECT) == []
 
 
