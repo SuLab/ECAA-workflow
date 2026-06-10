@@ -16,6 +16,13 @@ expected_artifacts:
   - summary_stats.tsv
   - manifest.json
   - result.json
+# Hard artifact the harness verifies before accepting completion. Naming
+# result.json here attaches this atom's `validators:` ids to the emitted
+# RequiredArtifact.validation_obligations (builder.rs::required_artifacts_for_stage),
+# so the AF-spectrum metrics written by the measurement script are gated.
+required_artifacts:
+  - path: result.json
+    min_size_bytes: 2
 required_figures:
   - manhattan
   - qq
@@ -25,6 +32,12 @@ attributes:
     - gatk_hard_filter
     - deepvariant_cnn
     - bcftools_filter
+    - lofreq_filter   # AF-expression filter (preserves low-AF heteroplasmic tail); ranked, never pinned
+    - vcffilter       # generic AF/INFO-expression filter, AF-window-aware
+  # Triggers the AF-spectrum measurement runbook injection in
+  # scripts/agent-claude.sh (gated on attributes.measurement_script) so the
+  # agent runs the byte-pinned lib/measure_af_spectrum.py verbatim.
+  measurement_script: measure_af_spectrum.py
 resource_profile:
   cpu: moderate
   memory: medium

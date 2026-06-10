@@ -484,6 +484,128 @@ fn emits_ed_cf_self_assessment_sidecar() {
 }
 
 #[test]
+fn emit_copies_af_spectrum_measurement_script_into_lib() {
+    let tmp = TempDir::new().unwrap();
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/downstream-policy");
+
+    emit_package(&EmitConfig {
+        objective: None,
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+        edge_kinds: None,
+    })
+    .expect("emit must succeed");
+
+    // The byte-pinned measurement script is copied unconditionally (like the
+    // plotting library) so any task carrying attributes.measurement_script can
+    // run `python3 lib/measure_af_spectrum.py` in the container.
+    assert!(
+        tmp.path().join("lib/measure_af_spectrum.py").is_file(),
+        "measure_af_spectrum.py must be copied into the package lib/"
+    );
+}
+
+/// Inertness regression test (the test whose absence let the gap ship).
+///
+/// An mtDNA-heteroplasmy variant package must emit the declarative
+/// validation contract to its FIXED dest (`policies/validation-contract.json`)
+/// AND at least one variant task must carry a non-empty
+/// `validation_obligations` set (attached via the atom's top-level
+/// `required_artifacts` -> `RequiredArtifact.validation_obligations`).
+///
+/// Both legs must hold together: the contract is the gate, the obligations
+/// are what the harness actually runs. This test only PASSES once WS-A wires
+/// the contract ref through the intake hop (here mirrored by setting
+/// `validation_contract_ref` directly, as the conversation path does) and
+/// WS-C/C4 attaches the `result.json` required-artifact with its validators.
+#[test]
+fn emit_mtdna_heteroplasmy_package_carries_contract_and_obligations() {
+    let tmp = TempDir::new().unwrap();
+    // A germline variant-calling DAG (the heteroplasmy path the eval
+    // exercises) routed through the variant_calling_germline archetype.
+    let dag = dag_from_archetype("variant_calling_germline", "variant_calling");
+    let clf = test_classification();
+    let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/downstream-policy");
+
+    emit_package(&EmitConfig {
+        objective: None,
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        // Mirrors the intake hop (WS-A Task A3): the conversation path threads
+        // the archetype's validation_contract_ref onto EmitConfig.
+        validation_contract_ref: Some("validation-contract-variants.json"),
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+        edge_kinds: None,
+    })
+    .expect("emit must succeed");
+
+    // Inertness gap A: the declarative contract must be wired to its FIXED dest.
+    assert!(
+        tmp.path().join("policies/validation-contract.json").exists(),
+        "policies/validation-contract.json missing — declarative contract never wired (inertness gap A)"
+    );
+
+    // The byte-pinned measurement script must be shipped (WS-C).
+    assert!(
+        tmp.path().join("lib/measure_af_spectrum.py").is_file(),
+        "lib/measure_af_spectrum.py missing — measurement step has no script (WS-C)"
+    );
+
+    // Inertness gap B: at least one variant task must carry a non-empty
+    // validation_obligations array (attached via the atom's top-level
+    // required_artifacts -> RequiredArtifact.validation_obligations).
+    let found_obligation = dag.tasks.iter().any(|(tid, task)| {
+        tid.as_str().contains("variant")
+            && task
+                .required_artifacts
+                .iter()
+                .any(|ra| !ra.validation_obligations.is_empty())
+    });
+    assert!(
+        found_obligation,
+        "no variant task carries a non-empty validation_obligations array (inertness gap B)"
+    );
+}
+
+#[test]
 fn emit_copies_plotting_library_into_runtime() {
     let tmp = TempDir::new().unwrap();
     let dag = rnaseq_dag();
