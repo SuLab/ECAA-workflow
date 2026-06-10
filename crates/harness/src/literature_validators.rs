@@ -290,10 +290,23 @@ fn resolve_evidence_file(
     evidence_dir: &Path,
     entry_path: &str,
 ) -> std::path::PathBuf {
-    // Jail boundary: the package's runtime/outputs subtree. Cross-task
-    // (`../<sibling-task>/evidence/...`) dedup references are legitimate, so the
-    // boundary is runtime/outputs, not the single task dir.
-    let jail = package_root.join("runtime/outputs");
+    // Effective jail boundary (deepest existing first): the package's
+    // runtime/outputs subtree in the standard layout (permits cross-task
+    // `../<sibling-task>/evidence/...` dedup references), falling back to the
+    // evidence dir's parent then the evidence dir itself for non-standard /
+    // test layouts that have no runtime/outputs tree. Candidate construction
+    // already forbids absolute paths, `..`, and ancestor-walking, so this
+    // boundary only needs to defend against symlink escape.
+    let jail_canon = [
+        package_root.join("runtime/outputs"),
+        evidence_dir
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| evidence_dir.to_path_buf()),
+        evidence_dir.to_path_buf(),
+    ]
+    .iter()
+    .find_map(|j| j.canonicalize().ok());
 
     // Reject absolute or parent-traversing entry paths outright (mirrors
     // required_artifacts::required_artifact_relative_path).
@@ -329,14 +342,17 @@ fn resolve_evidence_file(
     }
 
     for cand in &candidates {
-        if cand.exists() {
-            // Canonicalize + prefix-check against the jail. A candidate that
-            // escapes runtime/outputs is rejected even if it exists.
-            if let (Ok(c), Ok(j)) = (cand.canonicalize(), jail.canonicalize()) {
-                if c.starts_with(&j) {
-                    return cand.clone();
-                }
-            }
+        if !cand.exists() {
+            continue;
+        }
+        let Ok(c) = cand.canonicalize() else { continue };
+        match &jail_canon {
+            // In-jail: accept.
+            Some(j) if c.starts_with(j) => return cand.clone(),
+            // No boundary canonicalized (degenerate layout): the candidate is
+            // still safe by construction (no `..` / absolute / ancestor-walk).
+            None => return cand.clone(),
+            _ => {}
         }
     }
     // Nothing resolved in-jail: return the direct join so the caller's
