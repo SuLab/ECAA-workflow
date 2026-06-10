@@ -107,13 +107,11 @@ pub async fn propose_remediations(
         .send_turn(req)
         .await
         .context("remediation proposer LLM call failed")?;
-    if resp.stop_reason != StopReason::EndTurn {
-        return Err(anyhow!(
-            "remediation proposer expected end_turn, got {:?}",
-            resp.stop_reason
-        ));
-    }
 
+    // M13: bill the tokens the call actually consumed BEFORE the
+    // stop-reason check. A max_tokens-truncated response still burns
+    // tokens; recording after the early-return would silently lose them
+    // from side_call_cost_usd.
     metrics
         .record_side_call_usage(
             session_id,
@@ -124,6 +122,13 @@ pub async fn propose_remediations(
             resp.usage.cache_creation_input_tokens as u64,
         )
         .await;
+
+    if resp.stop_reason != StopReason::EndTurn {
+        return Err(anyhow!(
+            "remediation proposer expected end_turn, got {:?}",
+            resp.stop_reason
+        ));
+    }
 
     let mut suggestions = parse_suggestions(&resp.assistant_content)
         .with_context(|| format!("parsing proposer output: {}", resp.assistant_content))?;
@@ -276,6 +281,13 @@ mod tests {
                 stop: StopReason::EndTurn,
             })
         }
+        fn with_stop(canned: &str, stop: StopReason) -> Arc<Self> {
+            Arc::new(Self {
+                captured: StdMutex::new(Vec::new()),
+                canned: canned.to_string(),
+                stop,
+            })
+        }
     }
 
     #[async_trait]
@@ -407,6 +419,30 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("remediation attempts exhausted"));
+    }
+
+    #[tokio::test]
+    async fn max_tokens_truncation_still_bills_usage() {
+        // M13: a max_tokens-truncated proposer call still burns tokens.
+        // The usage MUST be billed into the side-call bucket BEFORE the
+        // stop-reason early-return; the call returns Err (non-end_turn)
+        // but the cost is real and must not vanish.
+        let backend = StubBackend::with_stop("[", StopReason::MaxTokens);
+        let metrics = MetricsStore::new();
+        let id = uuid::Uuid::new_v4();
+        let ctx = ProposerContext::default();
+        let res = propose_remediations(backend, &metrics, id, &oom_envelope(), &ctx).await;
+        assert!(
+            res.is_err(),
+            "a max_tokens-truncated proposer call must still surface as Err"
+        );
+        let snap = metrics.snapshot(id).await.unwrap();
+        assert!(
+            snap.side_call_cost_usd > 0.0,
+            "max_tokens-truncated side call must still bill into the side_call \
+             bucket (got {}); usage must be recorded before the stop-reason check (M13)",
+            snap.side_call_cost_usd
+        );
     }
 
     #[tokio::test]

@@ -112,13 +112,11 @@ pub async fn verify_stage_domain_correctness(
         .send_turn(req)
         .await
         .context("domain critic LLM call failed")?;
-    if resp.stop_reason != StopReason::EndTurn {
-        return Err(anyhow!(
-            "domain critic expected end_turn, got {:?}",
-            resp.stop_reason
-        ));
-    }
 
+    // M13: bill the tokens the call actually consumed BEFORE the
+    // stop-reason check. A max_tokens-truncated response still burns
+    // tokens; recording after the early-return would silently lose them
+    // from side_call_cost_usd.
     metrics
         .record_side_call_usage(
             session_id,
@@ -129,6 +127,13 @@ pub async fn verify_stage_domain_correctness(
             resp.usage.cache_creation_input_tokens as u64,
         )
         .await;
+
+    if resp.stop_reason != StopReason::EndTurn {
+        return Err(anyhow!(
+            "domain critic expected end_turn, got {:?}",
+            resp.stop_reason
+        ));
+    }
 
     parse_verdict(&resp.assistant_content)
         .with_context(|| format!("parsing domain critic output: {}", resp.assistant_content))
@@ -165,12 +170,21 @@ mod tests {
     struct StubBackend {
         captured: StdMutex<Vec<TurnRequest>>,
         canned: String,
+        stop: StopReason,
     }
     impl StubBackend {
         fn new(canned: &str) -> Arc<Self> {
             Arc::new(Self {
                 captured: StdMutex::new(Vec::new()),
                 canned: canned.to_string(),
+                stop: StopReason::EndTurn,
+            })
+        }
+        fn with_stop(canned: &str, stop: StopReason) -> Arc<Self> {
+            Arc::new(Self {
+                captured: StdMutex::new(Vec::new()),
+                canned: canned.to_string(),
+                stop,
             })
         }
     }
@@ -181,7 +195,7 @@ mod tests {
             Ok(TurnResponse {
                 assistant_content: self.canned.clone(),
                 tool_uses: Vec::new(),
-                stop_reason: StopReason::EndTurn,
+                stop_reason: self.stop,
                 usage: Usage {
                     input_tokens: 100,
                     output_tokens: 40,
@@ -300,6 +314,32 @@ mod tests {
             (snap.chat_cost_usd - 0.0).abs() < 1e-9,
             "chat bucket polluted by side-call: {}",
             snap.chat_cost_usd
+        );
+    }
+
+    #[tokio::test]
+    async fn max_tokens_truncation_still_bills_usage() {
+        // M13: a side-call truncated at max_tokens still burns tokens.
+        // The usage MUST be billed into the side-call bucket BEFORE the
+        // stop-reason early-return, otherwise the spend silently vanishes.
+        // The call still returns Err (non-end_turn), but the cost is real.
+        let backend = StubBackend::with_stop(
+            r#"{"verdict":"plausible","confidence":0.5,"failed_checks":[],"rationale":"trunc"#,
+            StopReason::MaxTokens,
+        );
+        let metrics = MetricsStore::new();
+        let id = uuid::Uuid::new_v4();
+        let res = verify_stage_domain_correctness(backend, &metrics, id, "s", "n", "d").await;
+        assert!(
+            res.is_err(),
+            "a max_tokens-truncated critic call must still surface as Err"
+        );
+        let snap = metrics.snapshot(id).await.unwrap();
+        assert!(
+            snap.side_call_cost_usd > 0.0,
+            "max_tokens-truncated side call must still bill into the side_call \
+             bucket (got {}); usage must be recorded before the stop-reason check (M13)",
+            snap.side_call_cost_usd
         );
     }
 
