@@ -14,6 +14,19 @@ publish = false
 # The parts of the file between the BEGIN HAKARI SECTION and END HAKARI SECTION comments
 # are managed by hakari.
 
+# M16: tokio "full" pinned in the HAKARI SECTION below is the CORRECT
+# feature union, not over-broad. hakari pins the union of every member's
+# tokio feature set; `crates/server` (the Axum HTTP+SSE backend)
+# legitimately declares `features = ["full"]` and exercises a broad
+# surface — fs, task, sync, time, process, io, runtime, signal, and net
+# (the runtime is hand-built rather than `#[tokio::main]`). `full` is
+# therefore the accurate union. This justification lives OUTSIDE the
+# HAKARI SECTION so `cargo hakari generate` will not overwrite it; the
+# `workspace_hack_tokio_full_is_justified` gate
+# (crates/conversation/tests/ws_d_doc_reconcile.rs) requires this `# M16:`
+# comment whenever `"full"` is pinned, so a future accidental over-broad
+# `full` from a member that does not need it is caught.
+
 ### BEGIN HAKARI SECTION
 [dependencies]
 bit-vec = { version = "0.8" }

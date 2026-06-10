@@ -76,6 +76,43 @@ fn python_validators_available() -> bool {
     }
 }
 
+/// True when `ECAA_CONFORMANCE_MODE` is set to a truthy value. The
+/// conformance gate (`make conformance`) sets it to `1`; under it the
+/// real SHACL projection is NOT optional.
+fn conformance_mode_active() -> bool {
+    matches!(
+        std::env::var("ECAA_CONFORMANCE_MODE")
+            .as_deref()
+            .unwrap_or("0"),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+/// Gate the SHACL-projection tests on dep availability.
+///
+/// Under `ECAA_CONFORMANCE_MODE` absent deps are a HARD failure — the
+/// conformance gate must actually shell pyshacl, so a silent skip would
+/// let it go green without validating anything (D5/H5). In default
+/// `make test` the deps are genuinely optional: returns `false` after a
+/// LOUD stderr notice so a deps-absent vacuous pass is never mistaken for
+/// a real SHACL pass.
+fn require_python_validators_or_skip(gate: &str) -> bool {
+    if python_validators_available() {
+        return true;
+    }
+    if conformance_mode_active() {
+        panic!(
+            "ECAA_CONFORMANCE_MODE is set but pyld/rdflib/pyshacl are not importable; \
+             {gate} cannot run real SHACL. Install:\n  {VALIDATOR_INSTALL_HINT}\n(D5/H5)"
+        );
+    }
+    eprintln!(
+        "\n>>> SKIP: pyld/rdflib/pyshacl absent — {gate} did NOT run (NOT a SHACL pass) <<<\n\
+         >>>   {VALIDATOR_INSTALL_HINT}\n"
+    );
+    false
+}
+
 /// Run `project_package.py <fixture>` and return (exit-code, stdout, stderr).
 fn run_projection(fixture: &str) -> (Option<i32>, String, String) {
     let output = Command::new("python3")
@@ -92,13 +129,7 @@ fn run_projection(fixture: &str) -> (Option<i32>, String, String) {
 
 #[test]
 fn shacl_fails_on_unjustified_method_choice() {
-    if !python_validators_available() {
-        eprintln!(
-            "\n>>> SKIP: pyld/rdflib/pyshacl not importable under python3 <<<\n\
-             >>> shacl_fails_on_unjustified_method_choice did NOT run — this is NOT a SHACL pass. <<<\n\
-             >>> Install the validator toolchain to run this gate for real:\n\
-             >>>   {VALIDATOR_INSTALL_HINT}\n"
-        );
+    if !require_python_validators_or_skip("shacl_fails_on_unjustified_method_choice") {
         return;
     }
 
@@ -120,13 +151,8 @@ fn shacl_fails_on_unjustified_method_choice() {
 
 #[test]
 fn shacl_passes_on_justified_method_choice_with_focus_nodes() {
-    if !python_validators_available() {
-        eprintln!(
-            "\n>>> SKIP: pyld/rdflib/pyshacl not importable under python3 <<<\n\
-             >>> shacl_passes_on_justified_method_choice_with_focus_nodes did NOT run — this is NOT a SHACL pass. <<<\n\
-             >>> Install the validator toolchain to run this gate for real:\n\
-             >>>   {VALIDATOR_INSTALL_HINT}\n"
-        );
+    if !require_python_validators_or_skip("shacl_passes_on_justified_method_choice_with_focus_nodes")
+    {
         return;
     }
 

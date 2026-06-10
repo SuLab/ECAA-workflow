@@ -59,6 +59,56 @@ fn validators_available() -> bool {
         .unwrap_or(false)
 }
 
+/// True when `ECAA_CONFORMANCE_MODE` is set to a truthy value. The
+/// conformance gate (`make conformance`) sets it to `1`; under it the
+/// external SHACL/OWL validators are NOT optional.
+fn conformance_mode_active() -> bool {
+    matches!(
+        std::env::var("ECAA_CONFORMANCE_MODE")
+            .as_deref()
+            .unwrap_or("0"),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+/// Gate the external-validator tests on dep availability.
+///
+/// Under `ECAA_CONFORMANCE_MODE` absent deps are a HARD failure — the
+/// conformance gate exists precisely to shell the real SHACL/OWL
+/// validators, so a silent skip would let the gate go green without ever
+/// validating anything (D5/H5). In default `make test` (no conformance
+/// flag) the deps are genuinely optional: returns `false` after a LOUD
+/// stderr notice so a deps-absent vacuous pass is never mistaken for a
+/// real external-validation pass.
+fn require_validators_or_skip(gate: &str) -> bool {
+    if validators_available() {
+        return true;
+    }
+    if conformance_mode_active() {
+        panic!(
+            "ECAA_CONFORMANCE_MODE is set but python3 + pyld/rdflib/pyshacl/owlready2 \
+             are not all importable; {gate} cannot run the real external validators. \
+             Install the toolchain:\n  {VALIDATOR_INSTALL_HINT}\n(D5/H5)"
+        );
+    }
+    eprintln!(
+        "\n>>> SKIP: validator deps absent — {gate} did NOT run (NOT a SHACL/OWL pass) <<<\n\
+         >>>   {VALIDATOR_INSTALL_HINT}\n"
+    );
+    false
+}
+
+#[test]
+#[serial_test::serial]
+fn conformance_mode_requires_validators_present() {
+    // When deps ARE installed this is a no-op true assertion. When absent
+    // under conformance mode the helper panics (the contract). Default
+    // test (no conformance flag) returns false and skips.
+    if validators_available() {
+        assert!(require_validators_or_skip("conformance_mode_self_test"));
+    }
+}
+
 /// Build a real DAG via the v4 composer (mirrors ablation_contract.rs).
 fn minimal_dag() -> ecaa_workflow_core::dag::DAG {
     use ecaa_workflow_core::archetype_registry::ArchetypeRegistry;
@@ -185,14 +235,9 @@ fn check_status(external: &serde_json::Value, name: &str) -> Option<String> {
 #[test]
 #[serial_test::serial]
 fn conformance_mode_runs_real_external_validators_and_writes_package_ttl() {
-    if !validators_available() {
-        eprintln!(
-            "\n>>> SKIP: python3 + pyld/rdflib/pyshacl/owlready2 not all importable <<<\n\
-             >>> conformance_mode_runs_real_external_validators_and_writes_package_ttl did NOT run \
-             — this is NOT an external SHACL/OWL pass. <<<\n\
-             >>> Install the validator toolchain to run this gate for real:\n\
-             >>>   {VALIDATOR_INSTALL_HINT}\n"
-        );
+    if !require_validators_or_skip(
+        "conformance_mode_runs_real_external_validators_and_writes_package_ttl",
+    ) {
         return;
     }
 
