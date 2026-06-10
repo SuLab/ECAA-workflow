@@ -87,7 +87,10 @@ struct ClaimsMatrixRow {
     // (evidence_quote_substring_match, redistributable_or_marked, …) fail to
     // parse the method_landscape CSV and report a spurious
     // EvidenceArtifactMissing at row 0.
-    #[serde(default)]
+    // `entity_id` is the contextualize atom's spelling of the entity key
+    // (gene/peak/variant id); accept it as an alias so the finding_id fallback
+    // can match the row's entity against an upstream PK.
+    #[serde(default, alias = "entity_id")]
     pub entity: String,
     #[serde(default)]
     pub entity_kind: String,
@@ -770,6 +773,19 @@ pub fn run_redistributable_or_marked(
         if row.source_kind == "none" {
             continue;
         }
+        // Source-less concordance rows carry NO prior literature by definition —
+        // a `no_prior_finding` row (no PMID matched for this entity) has an empty
+        // source_kind / source_ref_kind and an empty `redistributable` column.
+        // There is no source to subject to the legal gate, so skip it (mirrors
+        // the curated-baseline carve-out below). A row that DID cite a source
+        // still carries a non-empty source_kind and is gated normally.
+        if row.concordance_flag.as_deref() == Some("no_prior_finding")
+            || (row.source_kind.is_empty()
+                && row.source_ref_kind.as_deref().unwrap_or("").is_empty()
+                && row.pmid.as_deref().unwrap_or("").is_empty())
+        {
+            continue;
+        }
         // `curated_baseline` candidate rows are offline / thin-literature
         // placeholders carrying no real source (the locator validator
         // `run_source_resolves` already skips them). They legitimately have an
@@ -845,17 +861,34 @@ pub fn run_claim_row_has_finding_id(
             },
         )
     })?;
-    // Load findings table primary keys (first column or `id` column).
-    let mut findings_rdr = csv::Reader::from_path(findings_csv_path).map_err(|_| {
-        (
-            0,
-            ValidationFailureCause::LiteratureClaim {
-                row_index: 0,
-                artifact: artifact.clone(),
-                kind: LiteratureClaimFailureKind::EvidenceArtifactMissing,
-            },
-        )
-    })?;
+    // Load findings table primary keys (first column or `id` column). The
+    // findings file is delimiter-sniffed: the analysis atoms emit TAB-separated
+    // `.tsv` (de_results.tsv, peak_calls.tsv, variant_calls.tsv) — reading those
+    // with the comma default collapses every row into one field, so the bare
+    // gene/peak id never lands in `known` and every claim row spuriously orphans.
+    let delimiter = if findings_csv_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("tsv"))
+        .unwrap_or(false)
+    {
+        b'\t'
+    } else {
+        b','
+    };
+    let mut findings_rdr = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .from_path(findings_csv_path)
+        .map_err(|_| {
+            (
+                0,
+                ValidationFailureCause::LiteratureClaim {
+                    row_index: 0,
+                    artifact: artifact.clone(),
+                    kind: LiteratureClaimFailureKind::EvidenceArtifactMissing,
+                },
+            )
+        })?;
     let headers = findings_rdr.headers().cloned().map_err(|_| {
         (
             0,
@@ -883,7 +916,19 @@ pub fn run_claim_row_has_finding_id(
             Some(s) => s.clone(),
             None => continue,
         };
-        if !known.contains(&fid) {
+        // A finding_id resolves when it matches an upstream PK exactly, OR when
+        // it's a conventionally-prefixed/entity-keyed form of one. Agents form
+        // a stable finding identifier from the analysis-stage findings (e.g.
+        // `DE_FBgn0000043` for DE gene `FBgn0000043`, or carry the bare
+        // `entity_id`); the underlying finding is the same row. Accept:
+        //   - exact PK match;
+        //   - PK after stripping a leading `<STAGE>_` prefix (DE_/PE_/…);
+        //   - the row's own `entity_id` matching a PK (some atoms key on it).
+        let stripped = fid.split_once('_').map(|(_, rest)| rest).unwrap_or(&fid);
+        let resolved = known.contains(&fid)
+            || known.contains(stripped)
+            || (!row.entity.is_empty() && known.contains(&row.entity));
+        if !resolved {
             return Err((
                 i as u64,
                 ValidationFailureCause::LiteratureClaim {
@@ -1613,6 +1658,52 @@ mod tests {
         // hand-rolled manifest that omits the flag (codex) is not blocked.
         write(&csv, &format!("{hdr}\nMaxQuant,method,19029910,foo,0,pubmed_efetch_xml_batch,sha256:abc,2026-06-08T00:00:00Z,false,true\n"));
         assert!(run_redistributable_or_marked(&csv, &manifest).is_ok());
+    }
+
+    #[test]
+    fn claim_row_finding_id_reads_tab_separated_findings_and_normalizes_prefix() {
+        // The contextualize atom keys claim rows by `finding_id` (e.g.
+        // `DE_FBgn0000043`) / `entity_id` against the upstream DE findings file,
+        // which is TAB-separated `de_results.tsv` with a `gene_id` PK. Reading
+        // the TSV with the comma default collapsed every row into one field, so
+        // the bare gene id never matched and every row orphaned. The reader must
+        // sniff the .tsv delimiter, and the finding_id must resolve via the
+        // `DE_`-prefix-stripped form or the row's entity_id.
+        let dir = TempDir::new().unwrap();
+        let findings = dir.path().join("de_results.tsv");
+        write(
+            &findings,
+            "gene_id\tbaseMean\tlog2FoldChange\tpadj\nFBgn0000043\t1.0\t2.0\t0.01\n",
+        );
+        let csv = dir.path().join("claims_evidence_matrix.csv");
+        write(
+            &csv,
+            "finding_id,entity_id,pmid,evidence_quote,source_kind,concordance_flag,redistributable,verified\n\
+             DE_FBgn0000043,FBgn0000043,,,,no_prior_finding,,true\n",
+        );
+        assert!(
+            run_claim_row_has_finding_id(&csv, &findings).is_ok(),
+            "DE_-prefixed finding_id must resolve against the TSV gene_id PK"
+        );
+    }
+
+    #[test]
+    fn redistributable_skips_source_less_no_prior_finding_rows() {
+        // A `no_prior_finding` concordance row carries no source by definition
+        // (no PMID matched for the entity) → empty source_kind / redistributable.
+        // The legal gate must skip it, not fail it.
+        let dir = TempDir::new().unwrap();
+        let manifest = dir.path().join("evidence/manifest.json");
+        let csv = dir.path().join("claims_evidence_matrix.csv");
+        write(
+            &csv,
+            "finding_id,entity_id,pmid,evidence_quote,source_ref_kind,source_kind,concordance_flag,redistributable,verified\n\
+             DE_X,X,,,,,no_prior_finding,,true\n",
+        );
+        assert!(
+            run_redistributable_or_marked(&csv, &manifest).is_ok(),
+            "source-less no_prior_finding row must be skipped by the legal gate"
+        );
     }
 
     #[test]
