@@ -27,12 +27,18 @@ class RunResult:
     run_dir: Path
     stdout: str = ""
     resolved_blocks: list = field(default_factory=list)
+    relaunch_count: int = 0
 
 
 def _eval_max_relaunch() -> int:
-    """Bounded harness relaunches to auto-resolve guard-blocked tasks in an
-    unattended run. Default 0 = single-shot (preserve current behavior AND the
-    guard-outcome scoring); opt in with ECAA_EVAL_MAX_RELAUNCH=N."""
+    """Bounded harness relaunches to auto-resolve guard-blocked tasks.
+
+    SCORED runs are hard-pinned to 0 (single-shot) so the ECAA arm gets no
+    retry budget the bare arm lacks (H2 fairness). Relaunches are honored only
+    under the explicit diagnostic opt-in ECAA_EVAL_ALLOW_RELAUNCH=1; otherwise
+    ECAA_EVAL_MAX_RELAUNCH is ignored and 0 is returned."""
+    if os.environ.get("ECAA_EVAL_ALLOW_RELAUNCH", "0") != "1":
+        return 0
     try:
         return max(0, int(os.environ.get("ECAA_EVAL_MAX_RELAUNCH", "0")))
     except ValueError:
@@ -223,7 +229,8 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
         prev_completed = completed
         relaunches += 1
     return RunResult(proc.returncode == 0, time.time() - t0, package_dir,
-                     captured, resolved_blocks=resolved)
+                     captured, resolved_blocks=resolved,
+                     relaunch_count=relaunches)
 
 
 def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,

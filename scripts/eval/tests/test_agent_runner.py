@@ -144,6 +144,7 @@ def test_run_ecaa_package_single_shot_by_default(tmp_path, monkeypatch):
 def test_run_ecaa_package_relaunches_and_resolves_guard_block(tmp_path, monkeypatch):
     """ECAA_EVAL_MAX_RELAUNCH>=1: after the harness exits with a guard-blocked task,
     write the skip sme-decisions.json, flip blocked->ready, and relaunch (bounded)."""
+    monkeypatch.setenv("ECAA_EVAL_ALLOW_RELAUNCH", "1")  # H2: opt out of the scored-run 0-pin
     monkeypatch.setenv("ECAA_EVAL_MAX_RELAUNCH", "1")
     (tmp_path / "WORKFLOW.json").write_text(json.dumps({"tasks": {
         "survey_method_landscape": {"state": {"status": "blocked",
@@ -168,6 +169,7 @@ def test_run_ecaa_package_continues_incomplete_unblocked_dag(tmp_path, monkeypat
     """A harness that exits early (e.g. --max-iterations) with unblocked pending
     work — no blocked tasks — is relaunched to CONTINUE the DAG, as long as each
     launch makes forward progress (completes >=1 task)."""
+    monkeypatch.setenv("ECAA_EVAL_ALLOW_RELAUNCH", "1")  # H2: opt out of the scored-run 0-pin
     monkeypatch.setenv("ECAA_EVAL_MAX_RELAUNCH", "8")
     wf = tmp_path / "WORKFLOW.json"
     wf.write_text(json.dumps({"tasks": {
@@ -197,6 +199,7 @@ def test_run_ecaa_package_stops_when_no_progress_and_unblocked(tmp_path, monkeyp
     """An incomplete DAG with no blocked tasks and NO forward progress between
     launches is treated as wedged: stop after the second launch rather than
     spinning to the relaunch cap."""
+    monkeypatch.setenv("ECAA_EVAL_ALLOW_RELAUNCH", "1")  # H2: opt out of the scored-run 0-pin
     monkeypatch.setenv("ECAA_EVAL_MAX_RELAUNCH", "8")
     wf = tmp_path / "WORKFLOW.json"
     wf.write_text(json.dumps({"tasks": {
