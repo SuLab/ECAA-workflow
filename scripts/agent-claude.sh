@@ -1502,6 +1502,22 @@ else
   fi
 fi
 
+# Render-as-Contract: after a SUCCESSFUL compute (CLAUDE_EXIT=0), run the FIXED,
+# non-LLM figure render over the compute-output tables the agent just wrote.
+# Skipped after a failed/blocked compute. Best-effort: never fails the task (the
+# harness figure validator is the gate). Container mode reuses the compute image
+# + the same package bind-mount + the same --user via a second minimal docker
+# run; otherwise the host fallback runs the shipped entrypoint directly.
+if [ "$CLAUDE_EXIT" = "0" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
+  if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
+    render_required_figures "$PACKAGE" "$ECAA_TASK_ID" "container" \
+      "$CONTAINER_IMAGE" "$(id -u):$(id -g)" "$ECAA_DOCKER_TMPFS_TMP_SIZE"
+  else
+    render_required_figures "$PACKAGE" "$ECAA_TASK_ID" "host" \
+      "" "" "$ECAA_DOCKER_TMPFS_TMP_SIZE"
+  fi
+fi
+
 # Find the task id the agent just completed/advanced. Harness launches set
 # ECAA_TASK_ID, so prefer the exact task directory; the mtime fallback only
 # exists for legacy standalone invocations without an envelope.

@@ -689,4 +689,15 @@ if [ -n "${ECAA_TASK_ID:-}" ] && command -v jq >/dev/null 2>&1; then
   fi
 fi
 
+# Render-as-Contract: fixed, non-LLM post-compute figure render from the
+# stage's output tables (mirror of agent-claude.sh). Runs on this instance
+# where the compute outputs landed, before the result syncs back.
+if [ "$CLAUDE_EXIT" = "0" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
+  if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
+    render_required_figures "$PACKAGE" "$ECAA_TASK_ID" "container" "$CONTAINER_IMAGE" "$(id -u):$(id -g)" "${ECAA_DOCKER_TMPFS_TMP_SIZE:-1g}"
+  else
+    render_required_figures "$PACKAGE" "$ECAA_TASK_ID" "host" "" "" "${ECAA_DOCKER_TMPFS_TMP_SIZE:-1g}"
+  fi
+fi
+
 exit "$CLAUDE_EXIT"

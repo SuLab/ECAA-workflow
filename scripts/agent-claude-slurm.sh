@@ -487,6 +487,11 @@ if [ -n "$CONTAINER_IMAGE" ]; then
 EOF
       fi
       log_policy_opens "$OUT_LOG"
+      # Render-as-Contract: fixed, non-LLM post-compute figure render on the
+      # SLURM node (apptainer/podman/docker), where the compute outputs landed.
+      if [ "$CLAUDE_EXIT" = "0" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
+        render_required_figures "$PACKAGE" "$ECAA_TASK_ID" "$RT" "$CONTAINER_IMAGE" "$(id -u):$(id -g)" "1g"
+      fi
       exit "$CLAUDE_EXIT"
       ;;
     podman|docker)
@@ -615,6 +620,11 @@ EOF
 EOF
       fi
       log_policy_opens "$OUT_LOG"
+      # Render-as-Contract: fixed, non-LLM post-compute figure render on the
+      # SLURM node (apptainer/podman/docker), where the compute outputs landed.
+      if [ "$CLAUDE_EXIT" = "0" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
+        render_required_figures "$PACKAGE" "$ECAA_TASK_ID" "$RT" "$CONTAINER_IMAGE" "$(id -u):$(id -g)" "1g"
+      fi
       exit "$CLAUDE_EXIT"
       ;;
     *)
@@ -630,4 +640,8 @@ fi
   | tee "$OUT_LOG"
 CLAUDE_EXIT="${PIPESTATUS[0]}"
 log_policy_opens "$OUT_LOG"
+# Render-as-Contract: fixed, non-LLM post-compute figure render (host env on the node).
+if [ "$CLAUDE_EXIT" = "0" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
+  render_required_figures "$PACKAGE" "$ECAA_TASK_ID" "host" "" "" "1g"
+fi
 exit "$CLAUDE_EXIT"

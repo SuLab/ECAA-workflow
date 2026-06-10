@@ -388,3 +388,161 @@ enforce_turn_budget_limit() {
     mv "$tmp_patch" "$task_dir/state.patch.json"
     echo "[turn-budget] task $task_id exceeded cap ($num_turns > $max_turns); wrote blocked state.patch.json" >&2
 }
+
+# Render-as-Contract: the FIXED, non-LLM figure render step. The compute agent
+# (any language) writes the standardized figure-data-contract output TABLES
+# under runtime/outputs/<task_id>/ and does NOT render figures itself; this
+# function then runs the shipped runtime/plotting render entrypoint over those
+# tables. Rendering is fixed + language-uniform, so the agent's compute-language
+# choice carries no figure-path incentive.
+#
+# The render is BEST-EFFORT and never fails the task — the harness figure
+# validator is the gate that enforces figure presence. Re-rendering from the
+# tables is idempotent and OVERWRITES, which is intended (uniform figure
+# provenance regardless of how many times the step runs).
+#
+# Reads .spec.required_figures (list) + .spec.plot_stage_id from the task's
+# task-spec.json. Empty/absent required_figures => no-op. STAGE = plot_stage_id
+# when non-null/non-empty, else the task id; FIGS = comma-join of
+# required_figures. The render's stdout (the result-manifest JSON) is captured;
+# its stderr is tee'd into the task's progress.log.
+#
+# Args:
+#   $1 — PACKAGE (absolute package root)
+#   $2 — ECAA_TASK_ID
+#   $3 — mode: "container" when the compute ran in container mode (PRIMARY: a
+#        second minimal docker run reusing the compute image + the same package
+#        bind-mount + the same --user); anything else => host FALLBACK.
+#   $4 — CONTAINER_IMAGE (required for the container path; ignored on host)
+#   $5 — user spec for `docker run --user` (e.g. "1000:1000"); the SAME value
+#        the compute container used.
+#   $6 — /tmp tmpfs size for the render container (e.g. "$ECAA_DOCKER_TMPFS_TMP_SIZE").
+render_required_figures() {
+    local package="$1"
+    local task_id="$2"
+    local mode="$3"
+    local container_image="${4:-}"
+    local user_spec="${5:-}"
+    local tmpfs_tmp_size="${6:-1g}"
+
+    if [ -z "$task_id" ]; then
+        return 0
+    fi
+
+    local task_dir="$package/runtime/outputs/$task_id"
+    local spec_file="$task_dir/task-spec.json"
+    local progress_log="$task_dir/progress.log"
+    if [ ! -f "$spec_file" ]; then
+        echo "[render] no task-spec.json for $task_id; skipping figure render" >&2
+        return 0
+    fi
+
+    # Read .spec.required_figures (comma-joined) + .spec.plot_stage_id. Prefer
+    # jq; fall back to a small python3 one-liner so a jq-less host still renders.
+    local figs="" stage_id=""
+    if command -v jq >/dev/null 2>&1; then
+        figs="$(jq -r '(.spec.required_figures // []) | map(select(. != null and . != "")) | join(",")' "$spec_file" 2>/dev/null || echo "")"
+        stage_id="$(jq -r '.spec.plot_stage_id // ""' "$spec_file" 2>/dev/null || echo "")"
+    elif command -v python3 >/dev/null 2>&1; then
+        figs="$(python3 -c '
+import json, sys
+try:
+    spec = json.load(open(sys.argv[1])).get("spec") or {}
+    figs = [f for f in (spec.get("required_figures") or []) if f]
+    sys.stdout.write(",".join(figs))
+except Exception:
+    pass
+' "$spec_file" 2>/dev/null || echo "")"
+        stage_id="$(python3 -c '
+import json, sys
+try:
+    spec = json.load(open(sys.argv[1])).get("spec") or {}
+    sys.stdout.write(spec.get("plot_stage_id") or "")
+except Exception:
+    pass
+' "$spec_file" 2>/dev/null || echo "")"
+    else
+        echo "[render] neither jq nor python3 available; skipping figure render for $task_id" >&2
+        return 0
+    fi
+
+    if [ -z "$figs" ]; then
+        echo "[render] no required figures for $task_id; skipping figure render" >&2
+        return 0
+    fi
+
+    # STAGE = plot_stage_id when set, else the task id.
+    local stage="$task_id"
+    if [ -n "$stage_id" ]; then
+        stage="$stage_id"
+    fi
+
+    local rel_outputs="runtime/outputs/$task_id"
+    mkdir -p "$task_dir" 2>/dev/null || true
+
+    echo "[render] rendering required figures for $task_id (stage=$stage figures=$figs)" >&2
+
+    # PRIMARY: a second minimal container run reusing the compute image + the
+    # same package bind-mount + the same --user the compute used, dispatched on
+    # the executor's container runtime (docker/podman locally + on AWS;
+    # apptainer/singularity on SLURM). Hardened like the compute run where the
+    # engine supports it (read-only rootfs, tmpfs /tmp, dropped caps). Falls back
+    # to the host interpreter when no runtime/image is available. Captures stdout
+    # (the result-manifest JSON); tees stderr into progress.log.
+    local render_out=""
+    local render_host="( cd \"$package\" && PYTHONPATH=\"$package\" python3 -m runtime.plotting render --stage \"$stage\" --outputs \"$rel_outputs\" --required \"$figs\" )"
+    case "$mode" in
+        container|docker|podman)
+            local engine="docker"
+            [ "$mode" = "podman" ] && engine="podman"
+            if [ -n "$container_image" ] && command -v "$engine" >/dev/null 2>&1; then
+                local user_args=()
+                [ -n "$user_spec" ] && user_args=(--user "$user_spec")
+                render_out="$("$engine" run --rm \
+                    --read-only \
+                    --tmpfs "/tmp:rw,size=$tmpfs_tmp_size,mode=1777" \
+                    --security-opt no-new-privileges \
+                    --cap-drop=ALL \
+                    "${user_args[@]}" \
+                    -v "$package":"$package":rw \
+                    -w "$package" \
+                    "$container_image" \
+                    python3 -m runtime.plotting render \
+                      --stage "$stage" \
+                      --outputs "$rel_outputs" \
+                      --required "$figs" \
+                    2> >(tee -a "$progress_log" >&2) || true)"
+            else
+                render_out="$( eval "$render_host" 2> >(tee -a "$progress_log" >&2) || true)"
+            fi
+            ;;
+        apptainer|singularity)
+            local engine="$mode"
+            if [ -n "$container_image" ] && command -v "$engine" >/dev/null 2>&1; then
+                render_out="$("$engine" exec --containall \
+                    --bind "$package":"$package" \
+                    --pwd "$package" \
+                    "docker://$container_image" \
+                    python3 -m runtime.plotting render \
+                      --stage "$stage" \
+                      --outputs "$rel_outputs" \
+                      --required "$figs" \
+                    2> >(tee -a "$progress_log" >&2) || true)"
+            else
+                render_out="$( eval "$render_host" 2> >(tee -a "$progress_log" >&2) || true)"
+            fi
+            ;;
+        *)
+            # FALLBACK (host): run the shipped render entrypoint directly against
+            # the package on the host interpreter.
+            render_out="$( eval "$render_host" 2> >(tee -a "$progress_log" >&2) || true)"
+            ;;
+    esac
+
+    # Surface the result-manifest JSON (stdout of the render) for forensics; the
+    # render writes the figures themselves under $task_dir/figures/.
+    if [ -n "$render_out" ]; then
+        printf '[render] %s\n' "$render_out" >> "$progress_log" 2>/dev/null || true
+    fi
+    return 0
+}

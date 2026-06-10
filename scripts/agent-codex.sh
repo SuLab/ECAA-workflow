@@ -391,6 +391,18 @@ else
 fi
 set -e
 
+# Render-as-Contract: after a SUCCESSFUL compute (CODEX_EXIT=0), run the FIXED,
+# non-LLM figure render over the compute-output tables the agent just wrote.
+# Skipped after a failed compute. Best-effort: never fails the task (the harness
+# figure validator is the gate). Mirrors the agent-claude.sh container path —
+# a second minimal docker run reuses the compute image + the same package
+# bind-mount + the same --user.
+if [ "$CODEX_EXIT" -eq 0 ] && [ -n "${ECAA_TASK_ID:-}" ] \
+   && [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
+  render_required_figures "$PACKAGE" "$ECAA_TASK_ID" "container" \
+    "$CONTAINER_IMAGE" "$(id -u):$(id -g)" "$ECAA_DOCKER_TMPFS_TMP_SIZE"
+fi
+
 # The harness reconciles outcome from result.json / state.patch.json that the
 # agent wrote; the exit code is recorded but not authoritative. Surface a
 # non-zero codex exit for the harness's stderr_tail diagnostics.
