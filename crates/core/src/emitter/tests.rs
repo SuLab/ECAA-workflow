@@ -484,6 +484,49 @@ fn emits_ed_cf_self_assessment_sidecar() {
 }
 
 #[test]
+fn emit_copies_af_spectrum_measurement_script_into_lib() {
+    let tmp = TempDir::new().unwrap();
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let policies_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("config/downstream-policy");
+
+    emit_package(&EmitConfig {
+        objective: None,
+        output_dir: tmp.path(),
+        dag: &dag,
+        classification: &clf,
+        policies_dir: &policies_dir,
+        policy_allowlist: None,
+        claim_boundary: None,
+        compute_profiles_dir: None,
+        intake_facts: None,
+        amend_from: None,
+        amend_context: None,
+        validation_contract_ref: None,
+        preferred_container: None,
+        runtime_prereqs: None,
+        per_atom_runtime_prereqs: None,
+        stage_atoms_dir: None,
+        experimental_archetype: false,
+        edge_kinds: None,
+    })
+    .expect("emit must succeed");
+
+    // The byte-pinned measurement script is copied unconditionally (like the
+    // plotting library) so any task carrying attributes.measurement_script can
+    // run `python3 lib/measure_af_spectrum.py` in the container.
+    assert!(
+        tmp.path().join("lib/measure_af_spectrum.py").is_file(),
+        "measure_af_spectrum.py must be copied into the package lib/"
+    );
+}
+
+#[test]
 fn emit_copies_plotting_library_into_runtime() {
     let tmp = TempDir::new().unwrap();
     let dag = rnaseq_dag();
