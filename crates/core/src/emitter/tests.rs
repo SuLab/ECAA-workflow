@@ -1453,6 +1453,21 @@ fn prompt_md_includes_package_containment_and_git_sections() {
     );
 }
 
+#[test]
+fn prompt_gitignore_excludes_agent_home() {
+    // Belt-and-suspenders (C1): the per-task agent home holds
+    // credentials and provider state. The emitted package's
+    // `.gitignore` must exclude `runtime/agent-home/` so a credential
+    // leak can never be committed into the package git history.
+    let dag = rnaseq_dag();
+    let clf = test_classification();
+    let prompt = render_prompt(&dag, &clf, None, None);
+    assert!(
+        prompt.contains("runtime/agent-home/"),
+        "gitignore must exclude runtime/agent-home/"
+    );
+}
+
 // Phase B4 — the `context_md_surfaces_sme_decisions` and
 // `ro_crate_carries_sme_decisions_on_steps` tests exercised the
 // legacy `resolve_intake_methods` taxonomy path that auto-completes
