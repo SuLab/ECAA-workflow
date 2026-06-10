@@ -84,7 +84,18 @@ ${TASK_EXECUTION_BODY}"
 CONTAINER_IMAGE="${ECAA_DEFAULT_CONTAINER_IMAGE:-bio-min:local}"
 
 # ── Per-task scratch + agent HOME (writable; the container is --read-only).
-AGENT_HOME_DIR="${ECAA_AGENT_HOME_DIR:-$PACKAGE/runtime/agent-home}"
+# The agent HOME MUST live OUTSIDE the emitted package root. The ChatGPT
+# OAuth token is copied into $AGENT_HOME_DIR/.codex/auth.json below; keeping
+# it out of $PACKAGE means it is never served by the artifact route
+# (GET .../artifacts/*) nor staged by the provenance `git add -A`. Mirrors
+# agent-claude.sh's placement under the session / agent cache.
+if [ -n "${ECAA_AGENT_HOME_DIR:-}" ]; then
+    AGENT_HOME_DIR="$ECAA_AGENT_HOME_DIR"
+elif [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
+    AGENT_HOME_DIR="$ECAA_SESSION_CACHE_DIR/agent-codex-home"
+else
+    AGENT_HOME_DIR="${ECAA_AGENT_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}/standalone-$(basename "$PACKAGE")/agent-codex-home"
+fi
 mkdir -p "$AGENT_HOME_DIR" 2>/dev/null || true
 SCRATCH_ARGS=()
 if [ -n "${ECAA_TASK_ID:-}" ]; then
