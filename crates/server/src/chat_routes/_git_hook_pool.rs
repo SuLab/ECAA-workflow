@@ -7,11 +7,23 @@
 //! the pool and starve every other blocking call on the server
 //! (tokio::fs, child::wait, etc.).
 //!
-//! The pool bounds concurrent hooks at a fixed count + enforces a
-//! per-hook timeout, and DROPS rather than queues over-capacity hooks
-//! so a burst can never block the spawn() call or back-pressure the
-//! request path. The drop is observability-surfaced via a `warn!` log
-//! tagged with the originating `trigger`.
+//! The bound is a SEMAPHORE permit, not a dedicated blocking-pool
+//! thread: production caps concurrency at **8 permits** (`Semaphore`
+//! capacity, `app_state.rs`) with a **30s** per-hook wall-clock timeout.
+//! Each running hook holds one permit AND borrows one tokio
+//! blocking-pool thread for the duration of its `spawn_blocking` body;
+//! the permit — not the thread — is what bounds concurrency, so at most
+//! 8 of the ~512 blocking-pool threads can ever be tied up by git hooks.
+//!
+//! The pool DROPS rather than queues over-capacity hooks so a burst can
+//! never block the spawn() call or back-pressure the request path. A
+//! drop (pool saturated) or a 30s timeout is operator-visible: a
+//! `tracing::warn!(trigger, …)` always fires, and call sites that wire a
+//! [`DropNotifier`] additionally get a `(trigger, reason)` callback
+//! (`reason` ∈ {`"pool_saturated"`, `"timeout_secs=30"`}) they fan onto
+//! the per-session SSE broadcast as `ProvenanceCommitDropped` — so the
+//! elision shows as a gap in the recovery-point timeline, not just a
+//! stderr line.
 //!
 //! When a hook is dropped (pool saturated) or times out, call sites
 //! that supply a `DropNotifier` via [`GitHookPool::spawn_with_sink`]
@@ -141,6 +153,29 @@ impl GitHookPool {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// L13/WS-D7 — the module doc must state the real bound (8 permits /
+    /// 30s) and the drop-visibility contract so a reader does not have to
+    /// chase the constructor call site, and so the semaphore-permit (not
+    /// blocking-pool-thread) framing is unambiguous.
+    #[test]
+    fn module_doc_states_pool_bound_and_drop_visibility() {
+        let src = include_str!("_git_hook_pool.rs");
+        assert!(
+            src.contains("8 permits") && src.contains("30s"),
+            "_git_hook_pool.rs module doc must state the real bound (8 permits / 30s) (L13)"
+        );
+        assert!(
+            src.contains("SEMAPHORE permit, not a dedicated blocking-pool"),
+            "_git_hook_pool.rs doc must clarify the bound is a semaphore permit, \
+             not a blocking-pool thread (L13)"
+        );
+        assert!(
+            src.contains("pool_saturated") && src.contains("operator-visible"),
+            "_git_hook_pool.rs doc must note drops are operator-visible \
+             (warn + DropNotifier) (L13)"
+        );
+    }
 
     #[tokio::test]
     async fn spawn_runs_the_hook_under_capacity() {
