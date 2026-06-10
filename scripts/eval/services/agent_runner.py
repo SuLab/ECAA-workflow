@@ -233,7 +233,7 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
                      relaunch_count=relaunches)
 
 
-def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,
+def run_bare(workdir: Path, instruction: str, *, timeout: int | None = None,
              env: dict | None = None) -> RunResult:
     """Run the bare benchmark arm inside the bio-min:local container.
 
@@ -274,11 +274,18 @@ def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,
         if sysdir not in effective_env.get("PATH", "").split(os.pathsep):
             effective_env["PATH"] = effective_env.get("PATH", "") + os.pathsep + sysdir
 
+    # Arm-fair wall-clock: the bare arm shares the ECAA arm's whole-run ceiling
+    # (ECAA_EVAL_HARNESS_TIMEOUT, default 2h) instead of a separate, shorter 1h
+    # default that would advantage the ECAA arm. An explicit caller arg still
+    # wins (tests pin a small value).
+    effective_timeout = timeout if timeout is not None else int(
+        os.environ.get("ECAA_EVAL_HARNESS_TIMEOUT", "7200"))
+
     t0 = time.time()
     proc = subprocess.run(
         [agent_script, str(workdir)],
         cwd=str(REPO_ROOT),
-        timeout=timeout,
+        timeout=effective_timeout,
         env=effective_env,
         capture_output=True,
         text=True,
