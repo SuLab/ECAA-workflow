@@ -38,6 +38,60 @@ fn read_to_string(path: &Path) -> String {
     fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
 }
 
+/// Gate the CLAUDE.md doc-as-contract tests on the file's presence.
+///
+/// CLAUDE.md is gitignored / absent in a fresh OSS clone, so these gates
+/// cannot run there. The previous behaviour was a SILENT `return;` —
+/// which makes the test report green without validating anything, so a
+/// contributor could not tell a real pass from a vacuous skip.
+///
+/// New contract:
+/// - File present (internal-dev checkout) ⇒ returns `true`; the gate runs.
+/// - File absent + `ECAA_CONFORMANCE_MODE` set ⇒ HARD PANIC. The
+///   conformance gate is only ever run in the internal-dev checkout, which
+///   always carries CLAUDE.md; a missing file there is a setup error, not
+///   a license to skip.
+/// - File absent + opt-out `ECAA_ALLOW_MISSING_CLAUDE_MD` set ⇒ LOUD
+///   stderr skip notice + returns `false`. Preserves OSS-clone ergonomics
+///   for someone who has deliberately accepted the missing-doc trade-off.
+/// - File absent + neither env set ⇒ HARD PANIC pointing at the opt-out,
+///   so the gate actually fires for contributors who have CLAUDE.md and an
+///   absent-file regression can never pass silently.
+fn claude_md_present_or_skip(gate: &str) -> bool {
+    let path = repo_root().join("CLAUDE.md");
+    if path.exists() {
+        return true;
+    }
+    let env_set = |name: &str| {
+        matches!(
+            std::env::var(name).as_deref().unwrap_or("0"),
+            "1" | "true" | "yes" | "on"
+        )
+    };
+    if env_set("ECAA_CONFORMANCE_MODE") {
+        panic!(
+            "ECAA_CONFORMANCE_MODE is set but CLAUDE.md is absent; the \
+             doc-as-contract gate `{gate}` cannot run. Check out CLAUDE.md \
+             before running the conformance gate (WS-D4)."
+        );
+    }
+    if env_set("ECAA_ALLOW_MISSING_CLAUDE_MD") {
+        eprintln!(
+            "\n>>> SKIP: CLAUDE.md absent — `{gate}` did NOT run <<<\n\
+             >>> This is NOT a doc-contract pass (ECAA_ALLOW_MISSING_CLAUDE_MD \
+             opt-out is set). Run with CLAUDE.md present to enforce. <<<\n"
+        );
+        return false;
+    }
+    panic!(
+        "CLAUDE.md is absent and the doc-as-contract gate `{gate}` cannot \
+         run. This used to skip silently — a vacuous green. If you are on an \
+         OSS clone without CLAUDE.md, set ECAA_ALLOW_MISSING_CLAUDE_MD=1 to \
+         opt out explicitly; otherwise check out CLAUDE.md so the gate fires \
+         (WS-D4)."
+    );
+}
+
 // ── Greeting snapshot ──────────────────────────────────────────────────
 
 /// The greeting quoted in `USERS.md` must match the literal string
@@ -300,15 +354,10 @@ fn server_chat_route_count_matches_claim() {
 /// + crates/harness/src/executor/local.rs::warm_runtime_image.
 #[test]
 fn container_env_vars_documented_in_claude_md() {
-    // CLAUDE.md is gitignored / absent in a fresh OSS clone. Skip the
-    // drift gate when the file isn't present rather than failing the
-    // whole `cargo test` run; the gate still fires for contributors who
-    // have the internal-dev CLAUDE.md checked out locally.
-    let claude_path = repo_root().join("CLAUDE.md");
-    if !claude_path.exists() {
+    if !claude_md_present_or_skip("container_env_vars_documented_in_claude_md") {
         return;
     }
-    let claude = read_to_string(&claude_path);
+    let claude = read_to_string(&repo_root().join("CLAUDE.md"));
     let required = [
         "ECAA_CONTAINER_RUNTIME",
         "ECAA_DEFAULT_CONTAINER_IMAGE",
@@ -356,14 +405,10 @@ fn container_env_vars_documented_in_claude_md() {
 #[test]
 fn claude_md_does_not_hard_code_tool_count_integer() {
     use ecaa_workflow_conversation::Tool;
-    // CLAUDE.md is gitignored / absent in a fresh OSS clone. Skip when
-    // the file isn't present; the gate still fires when the
-    // internal-dev CLAUDE.md is checked out locally.
-    let claude_path = repo_root().join("CLAUDE.md");
-    if !claude_path.exists() {
+    if !claude_md_present_or_skip("claude_md_does_not_hard_code_tool_count_integer") {
         return;
     }
-    let claude = read_to_string(&claude_path);
+    let claude = read_to_string(&repo_root().join("CLAUDE.md"));
 
     // The forbidden literals — only these specific phrasings are
     // banned. Other uses of "16" (e.g., "16 MB", "16-bit") are fine.
@@ -406,20 +451,33 @@ fn claude_md_does_not_hard_code_tool_count_integer() {
 /// `HarnessBatcher::new`.
 #[test]
 fn harness_batch_window_env_var_documented_in_claude_md() {
-    // CLAUDE.md is gitignored / absent in a fresh OSS clone. Skip when
-    // the file isn't present; the gate still fires when the
-    // internal-dev CLAUDE.md is checked out locally.
-    let claude_path = repo_root().join("CLAUDE.md");
-    if !claude_path.exists() {
+    if !claude_md_present_or_skip("harness_batch_window_env_var_documented_in_claude_md") {
         return;
     }
-    let claude = read_to_string(&claude_path);
+    let claude = read_to_string(&repo_root().join("CLAUDE.md"));
     assert!(
         claude.contains("ECAA_HARNESS_BATCH_WINDOW_SECS"),
         "CLAUDE.md missing ECAA_HARNESS_BATCH_WINDOW_SECS. Add it to \
          the env-var section, or drop this test if the consumer was \
          removed."
     );
+}
+
+/// Self-test for the `claude_md_present_or_skip` contract: when CLAUDE.md
+/// is present (internal-dev checkout) the helper returns `true` and the
+/// doc-as-contract gates run for real. The absence paths (conformance
+/// hard-fail, opt-out skip, default hard-fail) panic by construction —
+/// the only way the helper returns is via the present-file path exercised
+/// here — so this guards against a regression that would re-introduce a
+/// silent vacuous pass (WS-D4).
+#[test]
+fn claude_md_present_or_skip_runs_gate_when_file_present() {
+    if repo_root().join("CLAUDE.md").exists() {
+        assert!(
+            claude_md_present_or_skip("conformance_mode_self_test"),
+            "helper must return true when CLAUDE.md is present so the gates run"
+        );
+    }
 }
 
 // ── Exhaustive env-var doc-gate ─────────────────────────────────────

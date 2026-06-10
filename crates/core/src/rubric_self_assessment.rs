@@ -230,8 +230,8 @@ mod tests {
     fn full_inputs() -> AssessmentInputs {
         AssessmentInputs {
             tool_count: 22,
-            atom_count: 93,
-            modality_count: 21,
+            atom_count: 97,
+            modality_count: 23,
             blocker_kind_count: 48,
             sandbox_default_strict: true,
             proposal_pipeline_present: true,
@@ -243,6 +243,26 @@ mod tests {
             claim_verification_present: true,
             audit_proof_present: true,
         }
+    }
+
+    /// The rubric fixture's `atom_count` / `modality_count` must track the
+    /// live config registries so the self-assessment never reports stale
+    /// architecture facts. These pins mirror the runtime count-baseline
+    /// gates in `crates/core/tests/modality_count_baseline.rs`,
+    /// `crates/core/tests/archetype_count_baseline.rs`, and
+    /// `crates/core/tests/atom_registry/atom_count_baseline.rs`. Bump them
+    /// in the same change that adds/removes an atom or modality manifest.
+    #[test]
+    fn full_inputs_fixture_matches_live_baselines() {
+        let f = full_inputs();
+        assert_eq!(
+            f.atom_count, 97,
+            "rubric fixture atom_count is stale (WS-D2)"
+        );
+        assert_eq!(
+            f.modality_count, 23,
+            "rubric fixture modality_count is stale (WS-D2)"
+        );
     }
 
     #[test]
@@ -279,7 +299,7 @@ mod tests {
 
     #[test]
     fn from_package_facts_derives_present_mechanisms() {
-        let inputs = AssessmentInputs::from_package_facts(93, 21, 22, 6);
+        let inputs = AssessmentInputs::from_package_facts(97, 23, 22, 6);
         // blocker_kind_count comes from core's BlockerKind enum count.
         assert!(inputs.blocker_kind_count > 0);
         // The architecture's standing mechanisms are present by construction.
@@ -294,7 +314,7 @@ mod tests {
         let schema_value = serde_json::to_value(schemars::schema_for!(EdCfSelfAssessment)).unwrap();
         let compiled = JSONSchema::compile(&schema_value).expect("schema compiles");
         let instance = serde_json::to_value(EdCfSelfAssessment::from_inputs(
-            &AssessmentInputs::from_package_facts(93, 21, 22, 6),
+            &AssessmentInputs::from_package_facts(97, 23, 22, 6),
         ))
         .unwrap();
         assert!(
