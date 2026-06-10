@@ -96,6 +96,7 @@ pub fn synthesize_discover_companions(
     dag: &mut WorkflowDag,
     atom_reg: &AtomRegistry,
     preferred: &crate::preferred_methods::PreferredMethods,
+    goal_context: Option<&str>,
 ) {
     // Snapshot the existing node ids so we can detect existing
     // companions without rescanning per iteration.
@@ -184,6 +185,23 @@ pub fn synthesize_discover_companions(
             "stage_class".into(),
             serde_json::Value::String(axis.clone()),
         );
+        // Stamp the SME analysis goal as discovery CONTEXT (not a method
+        // recommendation or a threshold) so the discover step can read it as
+        // a goal signal for the default_suitability ranking axis (e.g. a
+        // low-allele-frequency / heteroplasmy detection goal favors an
+        // AF-window-aware filter; a high-confidence-germline goal favors a
+        // depth/quality hard filter). The composer only shapes what discovery
+        // CONSIDERS — it never pins a tool or names a threshold. Gated on a
+        // non-empty (trimmed) goal so empty-goal packages stay byte-identical.
+        if let Some(g) = goal_context {
+            let g = g.trim();
+            if !g.is_empty() {
+                discover_node.attributes.insert(
+                    "goal_context".into(),
+                    serde_json::Value::String(g.to_string()),
+                );
+            }
+        }
         // Stamp the SME/intake preference so the lowering pass folds it
         // into `Task.spec.spec_preferred_methods` (turns ON the specMatch
         // axis + the rank-#1/auto-advance prompt rule) and flags the pool
@@ -769,6 +787,7 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
 
         let companions: Vec<&TaskNode> = dag
@@ -807,6 +826,7 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
 
         let companions: Vec<&TaskNode> = dag
@@ -838,6 +858,88 @@ mod tests {
         assert_discover_edges_present(&dag, &[("discover_alignment", &["alignment"])]);
     }
 
+    /// A non-empty SME goal is stamped as `goal_context` discovery context
+    /// on the synthesized discover node, no threshold leaks into any
+    /// attribute value, and the candidate pool surfaces an AF-window-aware
+    /// option (de-biased by Task D1). The composer shapes what discovery
+    /// CONSIDERS/ranks — it does not pin a tool or name a threshold.
+    ///
+    /// NOTE: the AF-window-aware pool assertion (`lofreq_filter` /
+    /// `vcffilter`) depends on Task D1 having added those options to
+    /// `config/stage-atoms/variant_filtering.yaml::attributes.candidate_tools`
+    /// (a separately-owned change). Until D1 lands this assertion fails on
+    /// the pool composition, not on the goal_context stamp.
+    #[test]
+    fn heteroplasmy_goal_stamps_goal_context_on_discover_variant_filtering() {
+        let reg = real_registry();
+        let mut dag = dag_with(vec![TaskNode::skeleton("variant_filtering", "test")]);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+            Some("Detect low-frequency heteroplasmic variants in chrM across 36 samples"),
+        );
+        let node = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "discover_variant_filtering")
+            .expect("discover_variant_filtering must be synthesized");
+        let goal = node
+            .attributes
+            .get("goal_context")
+            .and_then(|v| v.as_str())
+            .expect("goal_context must be stamped");
+        assert!(
+            goal.contains("heteroplasmic"),
+            "goal_context carries the SME goal prose"
+        );
+        // method-neutrality: no AF threshold number leaks into any attribute value.
+        for (_k, v) in &node.attributes {
+            if let Some(s) = v.as_str() {
+                assert!(
+                    !s.contains("0.01") && !s.contains("0.5"),
+                    "no threshold in attributes"
+                );
+            }
+        }
+        // pool still contains an AF-window-aware option (D1 dependency).
+        let opts = node
+            .attributes
+            .get("method_options")
+            .and_then(|v| v.as_array())
+            .expect("method_options present");
+        let opt_strs: Vec<&str> = opts.iter().filter_map(|v| v.as_str()).collect();
+        assert!(
+            opt_strs
+                .iter()
+                .any(|o| *o == "lofreq_filter" || *o == "vcffilter"),
+            "candidate pool must surface an AF-window-aware option"
+        );
+    }
+
+    /// Empty / whitespace-only goal must NOT stamp `goal_context` — the
+    /// empty-goal path stays byte-identical to a `None` goal.
+    #[test]
+    fn empty_goal_context_is_not_stamped() {
+        let reg = real_registry();
+        let mut dag = dag_with(vec![TaskNode::skeleton("alignment", "test")]);
+        synthesize_discover_companions(
+            &mut dag,
+            &reg,
+            &crate::preferred_methods::PreferredMethods::new(),
+            Some("   "),
+        );
+        let node = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "discover_alignment")
+            .expect("discover_alignment must be synthesized");
+        assert!(
+            node.attributes.get("goal_context").is_none(),
+            "whitespace-only goal must not stamp goal_context (byte-stable)"
+        );
+    }
+
     /// An atom with neither signal produces no companion.
     /// `data_acquisition` is an SME-assignee intake stage with no
     /// runtime method choice — no candidate_tools, no method_choice.
@@ -849,6 +951,7 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
         let companions: Vec<&TaskNode> = dag
             .nodes
@@ -882,6 +985,7 @@ mod tests {
                 &mut dag,
                 &reg,
                 &crate::preferred_methods::PreferredMethods::new(),
+                None,
             );
             // The dag should still contain only the original node;
             // any new node would have to be a `discover_*` companion
@@ -909,6 +1013,7 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
         let after_first_n = dag.nodes.len();
         let after_first_e = dag.edges.len();
@@ -920,6 +1025,7 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
         assert_eq!(
             dag.nodes.len(),
@@ -951,6 +1057,7 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
 
         let companions: Vec<&TaskNode> = dag
@@ -1024,6 +1131,7 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
 
         let discover_ids: Vec<String> = dag
@@ -1093,6 +1201,7 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
 
         // Lower the v4 WorkflowDag through the same path the
@@ -1147,7 +1256,7 @@ mod tests {
             stage: "variant_calling".into(),
             method: "Octopus".into(),
         }]);
-        synthesize_discover_companions(&mut dag, &reg, &pref);
+        synthesize_discover_companions(&mut dag, &reg, &pref, None);
         let node = dag
             .nodes
             .iter()
@@ -1204,7 +1313,7 @@ mod tests {
             stage: "variant_calling".into(),
             method: "mutect2".into(),
         }]);
-        synthesize_discover_companions(&mut dag_b, &reg, &pref_b);
+        synthesize_discover_companions(&mut dag_b, &reg, &pref_b, None);
         let node_b = dag_b
             .nodes
             .iter()
@@ -1218,7 +1327,7 @@ mod tests {
 
         // (c) no preference: NEITHER attribute present (byte-identical to today).
         let mut dag_c = dag_with(vec![TaskNode::skeleton("variant_calling", "test")]);
-        synthesize_discover_companions(&mut dag_c, &reg, &PreferredMethods::new());
+        synthesize_discover_companions(&mut dag_c, &reg, &PreferredMethods::new(), None);
         let node_c = dag_c
             .nodes
             .iter()
@@ -1252,6 +1361,7 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
 
         for (companion_id, expected_axis) in [
