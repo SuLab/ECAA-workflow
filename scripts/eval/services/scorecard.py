@@ -499,12 +499,17 @@ def _render_guard_outcomes(per_arm: dict) -> list[str]:
 # "mixed".
 
 def _aggregate_claim_groundedness(card: Scorecard) -> dict:
-    """Roll Score.extra["claim_groundedness"] up to per-arm totals.
-    Returns {} when no row carries the metric."""
+    """Roll the per-row narrative self-consistency metric up to per-arm totals.
+    Reads Score.extra["intra_narrative_self_consistency"] (L10 renamed key),
+    falling back to the legacy "claim_groundedness" key so older cards/fixtures
+    still aggregate. Returns {} when no row carries the metric."""
     per_arm: dict[str, dict] = {}
     ref_seen: dict[str, set[str]] = {}
     for r in card.rows:
-        cg = (r.extra or {}).get("claim_groundedness")
+        extra = r.extra or {}
+        cg = extra.get("intra_narrative_self_consistency")
+        if not isinstance(cg, dict):
+            cg = extra.get("claim_groundedness")
         if not isinstance(cg, dict):
             continue
         agg = per_arm.setdefault(r.arm, {
@@ -553,6 +558,61 @@ def _render_claim_groundedness(per_arm: dict) -> list[str]:
             f"| {arm} | {a['n_rows']} | "
             f"{a['verified_count']}/{a['total_claims']} | "
             f"{a['verified_pct']:.1f} | {a['reference_type']} |"
+        )
+    return lines
+
+
+# ── H2 fairness: per-row relaunch budget audit ───────────────────────────────
+#
+# SCORED runs hard-pin the ECAA relaunch budget to 0 (single-shot); the bare arm
+# has no relaunch loop at all. Surfacing the per-row relaunch_count + resolved
+# block ids makes any asymmetry auditable: a fair scored run shows 0 relaunches
+# and 0 resolved blocks on EVERY row. Reads Score.extra["relaunch_count"] /
+# Score.extra["resolved_blocks"] (threaded onto ECAA rows from RunResult by the
+# runner); returns {} when no row carries it so older/bare-only cards don't grow
+# an empty section.
+
+def _aggregate_relaunch(card: Scorecard) -> dict:
+    """Roll Score.extra["relaunch_count"] / ["resolved_blocks"] up per arm.
+    Returns {} when no row carries a relaunch count."""
+    per_arm: dict[str, dict] = {}
+    for r in card.rows:
+        extra = r.extra or {}
+        if "relaunch_count" not in extra and "resolved_blocks" not in extra:
+            continue
+        agg = per_arm.setdefault(r.arm, {
+            "total_relaunches": 0,
+            "rows_with_relaunch": 0,
+            "resolved_blocks": 0,
+            "n_rows": 0,
+        })
+        rc = int(extra.get("relaunch_count", 0) or 0)
+        rb = extra.get("resolved_blocks") or []
+        agg["total_relaunches"] += rc
+        agg["rows_with_relaunch"] += 1 if rc > 0 else 0
+        agg["resolved_blocks"] += len(rb) if isinstance(rb, (list, tuple)) else 0
+        agg["n_rows"] += 1
+    return per_arm
+
+
+def _render_relaunch(per_arm: dict) -> list[str]:
+    lines = ["", "## Relaunch budget (H2 arm-fairness audit)", ""]
+    lines.append(
+        "> Scored runs hard-pin the ECAA relaunch budget to 0 (single-shot); "
+        "the bare arm has no relaunch loop. A fair scored run shows 0 "
+        "relaunches and 0 resolved blocks on every row. Non-zero values mean "
+        "the diagnostic opt-in (ECAA_EVAL_ALLOW_RELAUNCH=1) was active — the "
+        "ECAA arm got retries the bare arm could not."
+    )
+    lines.append("")
+    lines.append(
+        "| arm | rows | total relaunches | rows w/ relaunch | resolved blocks |")
+    lines.append("| --- | --- | --- | --- | --- |")
+    for arm in sorted(per_arm):
+        a = per_arm[arm]
+        lines.append(
+            f"| {arm} | {a['n_rows']} | {a['total_relaunches']} | "
+            f"{a['rows_with_relaunch']} | {a['resolved_blocks']} |"
         )
     return lines
 
@@ -993,7 +1053,9 @@ def _markdown(card: Scorecard) -> str:
                   # rendered as the per-judge arm-means table, not a scalar bullet.
                   "per_judge_means",
                   # WS-3: rendered as the Claim groundedness table, not a bullet.
-                  "claim_groundedness"}
+                  "claim_groundedness",
+                  # H2: rendered as the Relaunch budget table, not a bullet.
+                  "relaunch"}
     if card.meta:
         for k, v in card.meta.items():
             if k not in _RICH_KEYS:
@@ -1029,6 +1091,12 @@ def _markdown(card: Scorecard) -> str:
     groundedness = _aggregate_claim_groundedness(card)
     if groundedness:
         lines += _render_claim_groundedness(groundedness)
+
+    # H2: per-arm relaunch-budget audit (arm fairness). Surfaced only when at
+    # least one row carries a relaunch_count.
+    relaunch = _aggregate_relaunch(card)
+    if relaunch:
+        lines += _render_relaunch(relaunch)
 
     # eval-04: per-(task,trial) paired delta + bootstrap CI (the honest
     # headline). Falls back to nothing when there are no overlapping pairs.
@@ -1103,6 +1171,11 @@ def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None, package_dir=
     groundedness = _aggregate_claim_groundedness(card)
     if groundedness and "claim_groundedness" not in meta:
         meta["claim_groundedness"] = groundedness
+    # H2: per-arm relaunch-budget audit in the machine scorecard. A pre-set
+    # meta value wins, mirroring guard_outcomes.
+    relaunch = _aggregate_relaunch(card)
+    if relaunch and "relaunch" not in meta:
+        meta["relaunch"] = relaunch
     # Two-judge per-arm means (Gemini headline + Anthropic cross) in the machine
     # scorecard so a JSON reader gets both judges, not just the headline.
     if "per_judge_means" not in meta:

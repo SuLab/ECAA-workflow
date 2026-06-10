@@ -27,12 +27,18 @@ class RunResult:
     run_dir: Path
     stdout: str = ""
     resolved_blocks: list = field(default_factory=list)
+    relaunch_count: int = 0
 
 
 def _eval_max_relaunch() -> int:
-    """Bounded harness relaunches to auto-resolve guard-blocked tasks in an
-    unattended run. Default 0 = single-shot (preserve current behavior AND the
-    guard-outcome scoring); opt in with ECAA_EVAL_MAX_RELAUNCH=N."""
+    """Bounded harness relaunches to auto-resolve guard-blocked tasks.
+
+    SCORED runs are hard-pinned to 0 (single-shot) so the ECAA arm gets no
+    retry budget the bare arm lacks (H2 fairness). Relaunches are honored only
+    under the explicit diagnostic opt-in ECAA_EVAL_ALLOW_RELAUNCH=1; otherwise
+    ECAA_EVAL_MAX_RELAUNCH is ignored and 0 is returned."""
+    if os.environ.get("ECAA_EVAL_ALLOW_RELAUNCH", "0") != "1":
+        return 0
     try:
         return max(0, int(os.environ.get("ECAA_EVAL_MAX_RELAUNCH", "0")))
     except ValueError:
@@ -120,8 +126,27 @@ def _auto_resolve_guard_block(package_dir: Path, task_id: str, reason: str) -> N
 def eval_model() -> str:
     """The single model BOTH arms run, so the ecaa-vs-direct delta isolates the
     scaffolding rather than model capability (the bare arm runs one model, so the
-    ECAA arm must too). Override with ECAA_EVAL_MODEL."""
-    return os.environ.get("ECAA_EVAL_MODEL", "claude-sonnet-4-6")
+    ECAA arm must too). Override with ECAA_EVAL_MODEL.
+
+    Backend-aware (M9): rejects a model id that cannot run on the selected
+    backend before it silently degrades a run — a ``claude-*`` id reaching the
+    codex backend, or a ``gpt-*``/``o*`` id reaching the claude backend."""
+    model = os.environ.get("ECAA_EVAL_MODEL", "claude-sonnet-4-6")
+    backend = os.environ.get("ECAA_AGENT_BACKEND", "claude").lower()
+    if backend == "codex" and model.startswith("claude-"):
+        raise ValueError(
+            f"eval_model misconfig: claude id {model!r} cannot run on the codex "
+            f"backend (ECAA_AGENT_BACKEND=codex); set ECAA_EVAL_MODEL to a "
+            f"codex/gpt model")
+    if backend != "codex" and (model.startswith("gpt-")
+                               or model.startswith("o1")
+                               or model.startswith("o3")
+                               or model.startswith("o4")):
+        raise ValueError(
+            f"eval_model misconfig: gpt/o id {model!r} cannot run on the claude "
+            f"backend (ECAA_AGENT_BACKEND={backend!r}); set ECAA_EVAL_MODEL to a "
+            f"claude model")
+    return model
 
 
 def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
@@ -223,10 +248,11 @@ def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
         prev_completed = completed
         relaunches += 1
     return RunResult(proc.returncode == 0, time.time() - t0, package_dir,
-                     captured, resolved_blocks=resolved)
+                     captured, resolved_blocks=resolved,
+                     relaunch_count=relaunches)
 
 
-def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,
+def run_bare(workdir: Path, instruction: str, *, timeout: int | None = None,
              env: dict | None = None) -> RunResult:
     """Run the bare benchmark arm inside the bio-min:local container.
 
@@ -267,11 +293,18 @@ def run_bare(workdir: Path, instruction: str, *, timeout: int = 3600,
         if sysdir not in effective_env.get("PATH", "").split(os.pathsep):
             effective_env["PATH"] = effective_env.get("PATH", "") + os.pathsep + sysdir
 
+    # Arm-fair wall-clock: the bare arm shares the ECAA arm's whole-run ceiling
+    # (ECAA_EVAL_HARNESS_TIMEOUT, default 2h) instead of a separate, shorter 1h
+    # default that would advantage the ECAA arm. An explicit caller arg still
+    # wins (tests pin a small value).
+    effective_timeout = timeout if timeout is not None else int(
+        os.environ.get("ECAA_EVAL_HARNESS_TIMEOUT", "7200"))
+
     t0 = time.time()
     proc = subprocess.run(
         [agent_script, str(workdir)],
         cwd=str(REPO_ROOT),
-        timeout=timeout,
+        timeout=effective_timeout,
         env=effective_env,
         capture_output=True,
         text=True,

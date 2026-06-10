@@ -118,7 +118,7 @@ def test_assemble_score_populates_claim_groundedness():
                   "levels": {"c1": "A"}, "cost_usd": 0.0},
     }
     s = BiomniBench().assemble_score(task, Arm.ECAA_WORKFLOW, _gnd_output(), 0, verdicts)
-    cg = s.extra["claim_groundedness"]
+    cg = s.extra["intra_narrative_self_consistency"]
     assert cg["total_claims"] == 1
     assert cg["verified_count"] == 1
     assert cg["verified_pct"] == 100.0
@@ -132,7 +132,7 @@ def test_assemble_score_groundedness_present_even_when_partial_judging():
     verdicts = {"cross": {"overall": 60.0, "dimensions": {}, "levels": {}, "cost_usd": 0.0}}
     s = BiomniBench().assemble_score(task, Arm.ECAA_WORKFLOW, _gnd_output(), 0, verdicts)
     assert s.extra["partial_judging"] is True
-    assert s.extra["claim_groundedness"]["total_claims"] == 1
+    assert s.extra["intra_narrative_self_consistency"]["total_claims"] == 1
 
 
 def test_score_sync_path_populates_claim_groundedness(monkeypatch):
@@ -145,7 +145,7 @@ def test_score_sync_path_populates_claim_groundedness(monkeypatch):
     monkeypatch.setattr("scripts.eval.plugins.biomnibench.judge", _fake_judge)
     task = Task(task_id="t1", prompt="q", inputs={}, rubric=_RUBRIC, answer_key=None)
     s = BiomniBench().score(task, Arm.ECAA_WORKFLOW, _gnd_output(), 0)
-    cg = s.extra["claim_groundedness"]
+    cg = s.extra["intra_narrative_self_consistency"]
     assert cg["total_claims"] == 1
     assert cg["verified_count"] == 1
     assert cg["verified_pct"] == 100.0

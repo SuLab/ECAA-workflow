@@ -31,10 +31,16 @@ _OUTPUT_CONTRACT = (
 
 def _find_nested(root: Path, name: str) -> Path | None:
     """Shallowest descendant named ``name`` under ``root`` (excluding the root
-    itself), or None. Sorted by path depth so an agent's real deliverable at
-    ``<workdir>/app/answer.txt`` is recovered before any deeper, incidental
-    same-named file inside a staged dataset."""
-    matches = [p for p in root.rglob(name) if p.is_file() and p.parent != root]
+    itself AND the staged ``inputs/`` subtree), or None. Excluding ``inputs/``
+    stops a deeper incidental same-named file inside a staged dataset from
+    shadowing the agent's real deliverable (L11). Sorted by path depth so
+    ``<workdir>/app/answer.txt`` is recovered before any deeper match."""
+    matches = [
+        p for p in root.rglob(name)
+        if p.is_file()
+        and p.parent != root
+        and "inputs" not in p.relative_to(root).parts
+    ]
     if not matches:
         return None
     return min(matches, key=lambda p: (len(p.relative_to(root).parts), str(p)))
@@ -134,12 +140,21 @@ def _claim_tokens(claim: str) -> tuple[list[str], list[str]]:
     return (nums + genes, pmids)
 
 
-def compute_claim_groundedness(narrative: str, result_text: str) -> dict:
-    """Heuristic claim-groundedness over a flattened run.
+def compute_intra_narrative_self_consistency(narrative: str,
+                                             result_text: str) -> dict:
+    """Intra-narrative self-consistency over a flattened run (renamed from
+    compute_claim_groundedness; L10).
 
-    A claim is grounded when ANY of its salient tokens (number, gene-shaped
-    identifier, or PMID) re-appears in ``result_text``. Returns the shared
-    Score.extra["claim_groundedness"] shape. HEURISTIC — see module caveat."""
+    This is NOT verification against ground truth — the judge never sees a gold
+    answer. A claim "counts" iff a salient token (number / gene-shaped
+    identifier / PMID) from the run's OWN narrative re-appears in the run's OWN
+    result text. It measures whether the narrative is internally consistent with
+    the rows it reports, mirroring the SPIRIT of the Rust ``claim_verifier`` but
+    heuristically and judge-independently. (When a real ``claim_verifier``
+    sidecar is present its verdicts are the authoritative source; this remains
+    the offline fallback the scorecard renders as a visibility signal.) Returns
+    the shared Score.extra["intra_narrative_self_consistency"] shape.
+    HEURISTIC — see module caveat."""
     claims = _extract_claims(narrative)
     total = len(claims)
     if total == 0:
@@ -166,6 +181,11 @@ def compute_claim_groundedness(narrative: str, result_text: str) -> dict:
         "reference_type": _grounding_reference_type(
             has_row=matched_via_row, has_pmid=matched_via_pmid),
     }
+
+
+# Backward-compat alias: existing call sites + fixtures may still reference the
+# old name; it delegates to the renamed function unchanged.
+compute_claim_groundedness = compute_intra_narrative_self_consistency
 
 
 class BiomniBench(Benchmark):
@@ -294,11 +314,12 @@ class BiomniBench(Benchmark):
         extra = {"judge_cost_usd": gemini_cost + anthropic_cost,
                  "gemini_cost_usd": gemini_cost,
                  "anthropic_cost_usd": anthropic_cost}
-        # Judge-independent claim-groundedness visibility metric. Computed from
-        # the run's own narrative vs its result rows, regardless of which
-        # judge(s) scored it.
-        extra["claim_groundedness"] = compute_claim_groundedness(
-            output.trace_md, output.answer_txt)
+        # Judge-independent intra-narrative self-consistency visibility metric.
+        # Computed from the run's own narrative vs its result rows, regardless of
+        # which judge(s) scored it.
+        extra["intra_narrative_self_consistency"] = \
+            compute_intra_narrative_self_consistency(
+                output.trace_md, output.answer_txt)
         if output.artifacts.get("incomplete_reason"):
             extra["incomplete_reason"] = output.artifacts["incomplete_reason"]
         if headline and cross:
@@ -324,8 +345,9 @@ class BiomniBench(Benchmark):
                      extra={"cross_check": cross["overall"],
                             "judge_exact": exact,
                             "judge_kappa": kappa,
-                            "claim_groundedness": compute_claim_groundedness(
-                                output.trace_md, output.answer_txt),
+                            "intra_narrative_self_consistency":
+                                compute_intra_narrative_self_consistency(
+                                    output.trace_md, output.answer_txt),
                             "judge_cost_usd": headline.get("cost_usd", 0.0) + cross.get("cost_usd", 0.0)})
 
     def report(self, scores):

@@ -24,6 +24,19 @@ IMAGE="${ECAA_DEFAULT_CONTAINER_IMAGE:-bio-min:local}"
 RUNTIME="${ECAA_CONTAINER_RUNTIME:-docker}"
 MODEL="${ECAA_EVAL_BARE_MODEL:-claude-sonnet-4-6}"
 
+# M9 defense-in-depth: reject a model id that cannot run on the selected
+# backend. eval_model() already guards the Python path; this guards a direct
+# script call that bypasses it.
+BACKEND="${ECAA_AGENT_BACKEND:-claude}"
+case "$BACKEND:$MODEL" in
+  codex:claude-*)
+    echo "FATAL: claude model '$MODEL' cannot run on codex backend" >&2
+    exit 3 ;;
+  claude:gpt-*|claude:o1*|claude:o3*|claude:o4*)
+    echo "FATAL: gpt/o model '$MODEL' cannot run on claude backend" >&2
+    exit 3 ;;
+esac
+
 # ── Codex backend (ECAA_AGENT_BACKEND=codex): run the bare arm with the Codex
 #    CLI instead of Claude Code, in the SAME container. Mirrors the claude path
 #    below (per-run HOME, mounted CLI node_modules, ChatGPT/API-key auth) but

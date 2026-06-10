@@ -17,6 +17,7 @@ reads ``tasks`` the same way (``data.get("tasks", {}).items()``).
 """
 from __future__ import annotations
 import json
+import os
 from pathlib import Path
 
 _NARRATIVE_NAMES = ("final_report.md", "report.md", "interpretation.md", "summary.md", "result.md")
@@ -204,25 +205,40 @@ def _result_json_claims_block(task_dir: Path) -> str:
     return "\n".join(lines) if len(lines) > 2 else ""
 
 
+def _augment_enabled() -> bool:
+    """Per-run narrative augmentation toggle. Default OFF so scored runs feed
+    the judge the SAME raw narrative on both arms (H1 fairness): the ECAA-only
+    structured-claims block is augmentation the bare arm cannot receive. Opt in
+    with ECAA_EVAL_NARRATIVE_AUGMENT=1 for diagnostics only."""
+    return os.environ.get("ECAA_EVAL_NARRATIVE_AUGMENT", "0") == "1"
+
+
 def flatten_outputs(outputs_dir: Path, workflow_json: Path) -> tuple[str, str]:
     tasks = _normalize_tasks(json.loads(Path(workflow_json).read_text())["tasks"])
     order = _topo(tasks)
     stage = {tid: _stage_of(tid, task) for tid, task in tasks.items()}
     sections = []
     terminal_id = _terminal_id(order, stage)
+    augment = _augment_enabled()
     for tid in order:
         narr = _narrative(outputs_dir / tid)
-        # The terminal report also gets its structured claims appended (exact
-        # intermediate counts + evidence pointers the prose report can omit).
-        if tid == terminal_id:
+        # The terminal report gets its structured claims appended ONLY when
+        # augmentation is explicitly opted in (default OFF for fair scoring):
+        # exact intermediate counts + evidence pointers the prose can omit, but
+        # detail the bare arm cannot receive.
+        if augment and tid == terminal_id:
             narr = (narr + _result_json_claims_block(outputs_dir / tid)).strip()
         if narr:
             sections.append(f"## Task: {tid} ({stage.get(tid,'')})\n\n{narr}")
     trace = "\n\n".join(sections)
     answer = ""
     if terminal_id:
-        answer = (_narrative(outputs_dir / terminal_id)
-                  + _result_json_claims_block(outputs_dir / terminal_id)).strip()
+        answer = _narrative(outputs_dir / terminal_id)
+        if augment:
+            answer = (answer + _result_json_claims_block(
+                outputs_dir / terminal_id)).strip()
+        else:
+            answer = answer.strip()
     return trace, answer
 
 
