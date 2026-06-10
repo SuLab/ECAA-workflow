@@ -2691,6 +2691,75 @@ fn branch_emit_adds_wasDerivedFrom_without_updateAction() {
     );
 }
 
+/// C4 (H6): the amend lineage hash must derive from the parent's
+/// path-independent identity (its own `package_run_id`, or its
+/// content-addressed `workflow_id`), NOT the parent's absolute path. The
+/// derived `package_run_id` lands in `WORKFLOW.json::run_id`, a BagIt
+/// payload file, so a path-dependent lineage would make amend emits
+/// non-reproducible across `$HOME` roots. Emit the SAME logical amendment
+/// (same child intake, same logical parent) from two different absolute
+/// roots and assert the child `run_id` is identical.
+#[test]
+fn amend_run_id_is_stable_across_parent_absolute_paths() {
+    fn emit_amend_run_id(root: &std::path::Path) -> String {
+        // Parent package under `root/parent` — emit_plain writes a
+        // WORKFLOW.json whose workflow_id + run_id are path-independent
+        // (derived from the composition inputs, not the directory).
+        let parent = root.join("parent");
+        std::fs::create_dir_all(&parent).unwrap();
+        emit_plain(&parent, &policies_dir());
+
+        // Child amends from that parent into `root/child`.
+        let child = root.join("child");
+        std::fs::create_dir_all(&child).unwrap();
+        let ctx = AmendContext {
+            reason: Some("Switch DE method".into()),
+            amended_stage: "differential_expression".into(),
+            invalidated_tasks: vec!["differential_expression".into()],
+        };
+        let dag = rnaseq_dag();
+        let clf = test_classification();
+        emit_package(&EmitConfig {
+            objective: None,
+            output_dir: &child,
+            dag: &dag,
+            classification: &clf,
+            policies_dir: &policies_dir(),
+            policy_allowlist: None,
+            claim_boundary: None,
+            compute_profiles_dir: None,
+            intake_facts: None,
+            amend_from: Some(parent.as_path()),
+            amend_context: Some(&ctx),
+            validation_contract_ref: None,
+            preferred_container: None,
+            runtime_prereqs: None,
+            per_atom_runtime_prereqs: None,
+            stage_atoms_dir: None,
+            experimental_archetype: false,
+            edge_kinds: None,
+        })
+        .expect("amend emit");
+
+        let wf: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(child.join("WORKFLOW.json")).unwrap()).unwrap();
+        wf["run_id"]
+            .as_str()
+            .expect("WORKFLOW.json must carry run_id")
+            .to_string()
+    }
+
+    let a = TempDir::new().unwrap();
+    let b = TempDir::new().unwrap();
+    let id_a = emit_amend_run_id(a.path());
+    let id_b = emit_amend_run_id(b.path());
+    assert_eq!(
+        id_a, id_b,
+        "amend run_id leaked the parent's absolute path into the hash; \
+         it must derive from the path-independent parent run_id / workflow_id"
+    );
+}
+
 // ── Whole-package byte-reproducibility ────────────────
 
 /// Mirror of `bagit::walk_for_manifest`'s exclusion set, applied at the

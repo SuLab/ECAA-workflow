@@ -164,6 +164,38 @@ pub struct AmendContext {
     pub invalidated_tasks: Vec<String>,
 }
 
+/// Resolve a path-independent lineage anchor for a parent package
+/// (C4 / H6). The returned string is hashed into the child's
+/// `package_run_id`, so it MUST NOT contain the parent's absolute path —
+/// that would leak `$HOME` into `WORKFLOW.json::run_id` and thus into
+/// `manifest-sha512.txt`, breaking cross-host byte reproducibility of
+/// amend/branch emits.
+///
+/// Preference order, each path-independent:
+/// 1. the parent's own `package_run_id` (`WORKFLOW.json::run_id`), itself
+///    content-addressed;
+/// 2. the parent's content-addressed `workflow_id` (via `read_parent_link`,
+///    which also tolerates missing/malformed parent metadata);
+/// 3. empty string (unreadable parent / no id) — identical to the base
+///    no-amend case, which is the correct fallback.
+fn parent_lineage_id(parent_dir: &Path) -> String {
+    let parent_run_id = std::fs::read(parent_dir.join("WORKFLOW.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|v| {
+            v.get("run_id")
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_string())
+        })
+        .filter(|s| !s.is_empty());
+    if let Some(run_id) = parent_run_id {
+        return run_id;
+    }
+    read_parent_link(parent_dir)
+        .map(|link| link.workflow_id)
+        .unwrap_or_default()
+}
+
 /// Walk every task in
 /// `dag` that carries a `ContainerSpec` and refuse emission if any
 /// container has an empty / all-zero-sentinel digest. The harness's
@@ -239,9 +271,20 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     // 8-4-4-4-12. This is not a standards-compliant UUID v5 (which uses a
     // SHA-1 namespace hash), but it is collision-resistant for our purposes
     // and keeps the field's string shape unchanged from the consumer's POV.
+    // Derive lineage from the parent's path-independent identity, NEVER
+    // its displayed absolute path. `package_run_id` is hashed from this
+    // string and lands in WORKFLOW.json::run_id + meta.run_id and
+    // ro-crate-metadata.json::additionalProperty[package_run_id] — all
+    // BagIt payload files outside the bagit.rs exclusion list — so an
+    // absolute parent path would contaminate manifest-sha512.txt and break
+    // cross-host byte reproducibility of amend/branch emits. Prefer the
+    // parent's own package_run_id (`WORKFLOW.json::run_id`; itself
+    // content-addressed and path-independent); fall back to the parent's
+    // content-addressed `workflow_id`; fall back to empty for non-amend /
+    // unreadable parents (identical to the base no-amend case, correct).
     let lineage_str = config
         .amend_from
-        .map(|p| p.display().to_string())
+        .map(parent_lineage_id)
         .unwrap_or_default();
     let hash_input = format!(
         "{}|{}|{}|{}|{}",

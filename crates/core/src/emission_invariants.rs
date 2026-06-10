@@ -1,14 +1,24 @@
 //! Architectural invariant.
 //!
-//! The compiler ALWAYS emits a package. Only the four conditions
-//! enumerated below prevent emission. Everything else becomes a DAG
-//! task and is handled at execution time, not at emission time.
+//! The compiler ALWAYS emits a package. Only the four human-required
+//! conditions enumerated below prevent emission. Everything else becomes
+//! a DAG task and is handled at execution time, not at emission time.
 //!
-//! This module is the load-bearing canonical statement of the rule.
-//! Grant v19 §A.S2 contains the same enumeration as prose; the
-//! parity test in `crates/core/tests/four_conditions_parity.rs`
-//! enforces grant↔code text alignment so drift in either is caught
-//! in CI.
+//! There is one additional deterministic, non-SME-facing gate that is
+//! defense-in-depth rather than a human decision: emission fails when a
+//! task's container reference is not digest-pinned. That check is
+//! `crate::emitter::validate_container_digests_pinned`, invoked as the
+//! first statement of `crate::emitter::emit_package` before any IO. It is
+//! the 5th emission-blocking condition; it is kept OUT of the array below
+//! because that array enumerates only the four SME/operator-facing
+//! conditions (the architectural "only four conditions block emission"
+//! rule is about those human-required gates).
+//!
+//! This module is the load-bearing canonical statement of the four-
+//! condition rule. The parity test in
+//! `crates/core/tests/misc/four_conditions_parity.rs` checks the const
+//! against a vendored fixture so drift is caught by the local gate (this
+//! slim OSS surface has no CI).
 
 /// The four human-required conditions that prevent the compiler
 /// from emitting a package. Order is stable; numbering matches
