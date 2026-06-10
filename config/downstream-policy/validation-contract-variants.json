@@ -117,6 +117,22 @@
           "target": "runtime/outputs/variant_filtering/result.json",
           "check": { "json_pointer": "/af_values", "stat": "p95", "op": "lte", "value": 1.0 },
           "severity": "recommended"
+        },
+        {
+          "id": "variant_filtering.het_tail_band_nonempty",
+          "description": "Heteroplasmy goal (design §3.1): the low-AF heteroplasmic band [noise_floor=0.01, homoplasmy_cutoff=0.5] must contain at least one surviving variant. An empty band means a heteroplasmic call was dropped (the under-call that lost the Nekrutenko eval). low_af_band_count is computed by the containerized AF-spectrum measurement (WS-C) from the post-filter VCF; the band edges are operator-authored reference bounds never handed to the agent.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 },
+          "severity": "required"
+        },
+        {
+          "id": "variant_filtering.no_sub_noise_floor_calls",
+          "description": "Heteroplasmy goal (design §3.1): no surviving variant may sit below the AF noise floor (0.01) — a call at AF<0.01 is an over-call (e.g. the AF=0.0016 artifact). sub_noise_floor_count is computed by the containerized AF-spectrum measurement (WS-C) from the post-filter VCF.",
+          "assertion_type": "numeric_threshold",
+          "target": "runtime/outputs/variant_filtering/result.json",
+          "check": { "json_pointer": "/sub_noise_floor_count", "op": "lte", "value": 0.0 },
+          "severity": "required"
         }
       ]
     }

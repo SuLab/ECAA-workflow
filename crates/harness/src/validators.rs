@@ -519,7 +519,19 @@ impl ValidatorRunner for VariantAfSpectrumPlausibleRunner {
     }
 
     fn run(&self, artifact_path: &Path) -> ValidatorOutcome {
-        let results = match read_json(&artifact_path.join("result.json")) {
+        let result_path = artifact_path.join("result.json");
+        // Fail closed when the measurement input is entirely absent: this is a
+        // goal-required check (the AF-spectrum measurement step did not run),
+        // so a missing result.json must surface as Failed (which has_failures
+        // counts) rather than the soft-skip Errored — otherwise a wrong call
+        // set is silently accepted. A present-but-malformed result.json is a
+        // genuine internal error and stays Errored (see read_json below).
+        if !result_path.exists() {
+            return ValidatorOutcome::Failed {
+                message: "AF-spectrum input (result.json) is absent — the measurement step did not run; failing closed so the wrong call set is not silently accepted".to_string(),
+            };
+        }
+        let results = match read_json(&result_path) {
             Ok(v) => v,
             Err(e) => return e,
         };
@@ -900,6 +912,22 @@ mod tests {
         write_result_json(tmp.path(), serde_json::json!({ "summary": "ok" }));
         let runner = VariantAfSpectrumPlausibleRunner;
         assert!(matches!(runner.run(tmp.path()), ValidatorOutcome::Errored { .. }));
+    }
+
+    #[test]
+    fn variant_af_spectrum_runner_fails_closed_when_result_json_absent() {
+        let tmp = TempDir::new().unwrap();
+        // No result.json written -> required input absent.
+        let runner = VariantAfSpectrumPlausibleRunner;
+        let outcome = runner.run(tmp.path());
+        // has_failures() counts only Failed, not Errored, so a missing
+        // required input must surface as Failed to block. A present-but-
+        // malformed result.json stays Errored (asserted above) — only the
+        // entirely-absent measurement input fails closed.
+        assert!(
+            matches!(outcome, ValidatorOutcome::Failed { .. }),
+            "missing required input must fail closed (Failed), got {outcome:?}"
+        );
     }
 
     #[test]
