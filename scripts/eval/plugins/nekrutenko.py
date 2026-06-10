@@ -234,14 +234,13 @@ class Nekrutenko(Benchmark):
         return RunSpec(arm, workdir, "bare", instr)
 
     def locked_methods(self, task, arm):
-        """Recipe eval: pin the paper's canonical tools (bwa + lofreq) on the
-        ECAA arm so the compiled DAG matches the Nekrutenko reference recipe and
-        the error-matrix injects against the same binaries the agent runs.
-        `alignment` / `variant_calling` are the composer's bare discover axes
-        for the variant_calling_germline archetype (sme-named strips any
-        `discover_` prefix). The bare arm gets no chat-intake, so [] there."""
-        if arm == Arm.ECAA_WORKFLOW:
-            return [("alignment", "bwa"), ("variant_calling", "lofreq")]
+        """Method-neutral eval: NO method is pinned on either arm. Discovery
+        (the discover_* companions ranked by survey_method_landscape) chooses
+        the aligner/caller at runtime for the ECAA arm, exactly as the bare arm
+        derives its own tools, so the two arms are compared free-choice.
+        (Previously the ECAA arm pinned alignment=bwa / variant_calling=lofreq;
+        that lock is dropped to close the Issue-4 fairness asymmetry. The
+        arm-fairness state is recorded in the scorecard meta via report().)"""
         return []
 
     def proposal_policy(self, task, arm):
@@ -390,6 +389,20 @@ class Nekrutenko(Benchmark):
                 "per_sample_macro_jaccard is the paper's primary M3 (per-sample "
                 "macro-mean). They differ when calls move between per-sample and "
                 "pooled organisation — read the per-sample number for paper parity.")
+        # WS-E: the ECAA method-lock was dropped — discovery chooses methods on
+        # BOTH arms now. Record it so the new (free-choice) comparison is never
+        # silently read against the old locked-arm 0.483 baseline.
+        meta["method_lock"] = {
+            "ecaa": {"any_locked": False},
+            "claude-direct": {"any_locked": False},
+            "asymmetric": False,
+            "note": (
+                "Method-lock DROPPED (WS-E): neither arm pins a method; the "
+                "discover_* companions choose the aligner/caller at runtime on "
+                "the ECAA arm, matching the bare arm's free-choice derivation. "
+                "Do NOT compare this run against the locked-arm 0.483 baseline."
+            ),
+        }
         return Scorecard(benchmark=self.name, rows=scores, meta=meta)
 
     def error_matrix_specs(self):

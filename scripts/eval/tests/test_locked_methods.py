@@ -17,15 +17,29 @@ def _biomni_task():
                 rubric={"criteria": []}, answer_key=None, meta={})
 
 
-def test_nekrutenko_locks_bwa_and_lofreq_on_ecaa_arm():
+def test_nekrutenko_locks_nothing_on_ecaa_arm():
+    # WS-E: the ECAA method-lock is dropped; discovery drives both arms.
     plug = Nekrutenko()
-    locked = plug.locked_methods(_nekrut_task(), Arm.ECAA_WORKFLOW)
-    assert locked == [("alignment", "bwa"), ("variant_calling", "lofreq")]
+    assert plug.locked_methods(_nekrut_task(), Arm.ECAA_WORKFLOW) == []
 
 
 def test_nekrutenko_locks_nothing_on_bare_arm():
     plug = Nekrutenko()
     assert plug.locked_methods(_nekrut_task(), Arm.CLAUDE_CODE_DIRECT) == []
+
+
+def test_report_records_method_lock_dropped_in_meta():
+    from scripts.eval.benchmark import Score
+    rows = [
+        Score("mtdna", "ecaa", 0, 100.0, {}, 1.0, [], "deterministic"),
+        Score("mtdna", "claude-direct", 0, 50.0, {}, 0.5, [], "deterministic"),
+    ]
+    card = Nekrutenko().report(rows)
+    ml = card.meta["method_lock"]
+    assert ml["ecaa"]["any_locked"] is False
+    assert ml["claude-direct"]["any_locked"] is False
+    assert ml["asymmetric"] is False
+    assert "DROPPED" in ml["note"]
 
 
 def test_biomnibench_locks_nothing_either_arm():
