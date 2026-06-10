@@ -1339,14 +1339,15 @@ fn main() -> Result<()> {
              flag (`unset ECAA_HARNESS_VALIDATION_LANE`)."
         );
     }
-    // Sandbox vs atom-safety surprise: when ECAA_LOCAL_SANDBOX is unset
-    // (no bubblewrap), an atom's `safety.network = None{allowlist=[]}`
-    // is interpreted as MIN-not-MAX semantics — the executor's
-    // `NetworkPolicy::Bridge` satisfies the atom's "I need no hosts to
-    // be reachable" declaration trivially, and full host network egress
-    // is permitted. Operators expecting `safety.network=None` to enforce
-    // an EGRESS DENY need bubblewrap sandboxing. Print once at startup
-    // so the implicit semantics are observable.
+    // Local executor does NOT enforce per-atom `safety.network`. Two gaps
+    // compound: `enforce_safety_policy` network-checks only Network/Exec-level
+    // atoms, so the deny-all default on Compute atoms (the majority) is never
+    // checked; and the local executor advertises `NetworkPolicy::Bridge` (full
+    // egress), so even checked atoms' allowlists are satisfied trivially. Real
+    // network enforcement lives on the SLURM and AWS executors (cgroup /
+    // security-group layer). Print once at startup so the local-only advisory
+    // semantics are observable. (bubblewrap adds PROCESS isolation for
+    // Exec/GeneratedCode atoms only — it does NOT add network enforcement.)
     if std::env::var("ECAA_LOCAL_SANDBOX")
         .ok()
         .map(|v| v.trim().is_empty() || v == "off")
@@ -1354,11 +1355,14 @@ fn main() -> Result<()> {
         && mode == "local"
     {
         eprintln!(
-            "[safety] ECAA_LOCAL_SANDBOX unset/off + executor=local: \
-             atom-level `safety.network=None` declarations are MIN-not-MAX \
-             — they do NOT block host network egress. Set \
-             ECAA_LOCAL_SANDBOX=bubblewrap to enforce egress deny via \
-             `--unshare-net` on declared atoms."
+            "[safety] executor=local: atom-level `safety.network` declarations \
+             are NOT enforced locally. Compute-level atoms (the majority) are \
+             never network-checked, and the local executor advertises full \
+             egress (Bridge), so an atom's egress-deny / allowlist is advisory \
+             only. For real network enforcement run on SLURM or AWS, which \
+             apply the policy at the cgroup / security-group layer. \
+             (ECAA_LOCAL_SANDBOX=bubblewrap adds PROCESS isolation for \
+             Exec/GeneratedCode atoms; it does NOT add network enforcement.)"
         );
     }
 

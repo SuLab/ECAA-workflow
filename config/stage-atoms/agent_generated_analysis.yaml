@@ -6,7 +6,9 @@ description: |
   The agent generates a self-contained script for an analysis step the
   catalog does not provide a fixed atom for. The generated code runs under
   mandatory process-isolation (bubblewrap on Local; equivalent on remote),
-  network-denied, with host secrets stripped. This atom exists to exercise
+  network-denied (enforced on SLURM/AWS; on the Local executor network is
+  NOT denied — see docs/known-limitations.md), with host secrets stripped.
+  This atom exists to exercise
   the Exec -> GeneratedByAgent -> ProcessIsolation defence-in-depth path in
   a shipped workflow; it is opt-in (seeded only behind an explicit
   "exploratory custom analysis" goal pattern).

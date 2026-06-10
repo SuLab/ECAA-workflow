@@ -19,7 +19,9 @@ Source classes and their index endpoints:
 The network layer is two monkeypatchable functions, `_http_get_json` and
 `_http_get_text`, each of which asserts the target host is on the caller's
 allowlist BEFORE any fetch (bounded egress at the helper level, in addition
-to the atom's `safety.network` allowlist enforced by the harness).
+to the atom's `safety.network` allowlist (enforced by the harness only on
+SLURM/AWS executors — NOT on the local executor, where egress is unrestricted;
+the helper-level allowlist below is the only egress bound in local runs)).
 
 Pure standard library: urllib, hashlib, json, csv, re. No pip installs.
 """
