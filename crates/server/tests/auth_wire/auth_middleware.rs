@@ -98,6 +98,39 @@ async fn cors_rejects_unknown_origin() {
 }
 
 #[tokio::test]
+async fn share_token_get_passes_bearer_when_auth_required() {
+    // GIVEN auth_middleware with require=true (token configured) AND shared
+    // URLs enabled, WHEN a GET carries ?share_token=... and NO Authorization
+    // header, THEN it is NOT 401'd by the bearer layer — it reaches the next
+    // layer (the "ok" handler). The bearer bouncer hands SAFE-method
+    // share-token requests to extract_principal, which fail-closes on an
+    // invalid token; the bearer layer no longer rejects them outright.
+    let prior = std::env::var("ECAA_SHARED_URLS_ENABLED").ok();
+    std::env::set_var("ECAA_SHARED_URLS_ENABLED", "1");
+
+    let cfg = AuthConfig {
+        token: Some("secret".into()),
+        require: true,
+    };
+    let resp = app(cfg)
+        .oneshot(
+            Request::builder()
+                .uri("/api/health?share_token=abc123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    match prior {
+        Some(v) => std::env::set_var("ECAA_SHARED_URLS_ENABLED", v),
+        None => std::env::remove_var("ECAA_SHARED_URLS_ENABLED"),
+    }
+
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn loopback_exempt_when_configured() {
     let cfg = AuthConfig {
         token: Some("secret".into()),

@@ -16,11 +16,34 @@
 use axum::{
     body::Body,
     extract::State,
-    http::{Request, StatusCode},
+    http::{Method, Request, StatusCode},
     middleware::Next,
     response::Response,
 };
 use subtle::ConstantTimeEq;
+
+/// Whether the shared-read-only-URL feature is on. Reads
+/// `ECAA_SHARED_URLS_ENABLED` via the same `env_bool` helper that
+/// `auth::principal::shared_urls_enabled` and `read_only::read_only_guard`
+/// use, so the share-token gate stays consistent across the bearer bouncer
+/// and `extract_principal`: tokens are honored iff the feature is enabled.
+fn shared_urls_enabled() -> bool {
+    ecaa_workflow_core::env_helpers::env_bool("ECAA_SHARED_URLS_ENABLED")
+}
+
+/// Whether the request carries a share-token, either as a `share_token=`
+/// query parameter or an `X-Share-Token` header. Used only to decide
+/// whether a SAFE-method request is eligible for the bearer-bouncer
+/// exemption; the token is NOT validated here — `extract_principal`
+/// fail-closes on an invalid token (403).
+fn request_carries_share_token(req: &Request<Body>) -> bool {
+    let has_query = req
+        .uri()
+        .query()
+        .map(|q| q.split('&').any(|kv| kv.starts_with("share_token=")))
+        .unwrap_or(false);
+    has_query || req.headers().contains_key("X-Share-Token")
+}
 
 /// Bearer-token authentication configuration loaded from env-vars.
 #[derive(Clone, Debug)]
@@ -67,6 +90,20 @@ pub async fn auth_middleware(
     let Some(expected) = cfg.token.as_deref() else {
         return unauthorized();
     };
+    // Share-link exemption (critical-analysis M5): a SAFE-method request
+    // carrying a share-token (query param or X-Share-Token header) is let
+    // past the bearer bouncer so `extract_principal` can resolve it to a
+    // read-only ShareViewer. Bearer cannot validate the token here (no app
+    // state); `extract_principal` fail-closes on an invalid token (403) and
+    // `read_only_guard` rejects every mutation, so this only opens GET/HEAD
+    // to share viewers — never a write path. A GET with no share-token still
+    // falls through to the bearer check below and 401s.
+    if shared_urls_enabled()
+        && matches!(*req.method(), Method::GET | Method::HEAD)
+        && request_carries_share_token(&req)
+    {
+        return next.run(req).await;
+    }
     // After `strip_prefix("Bearer ")`, the remaining bytes are the
     // claimed token. Refuse outright when the token carries any
     // surrounding whitespace — `trim()` would silently normalize
