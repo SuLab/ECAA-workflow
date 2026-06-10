@@ -396,19 +396,20 @@ pub fn read_confirmed_review_stages(
             }
         }
     }
-    // Auto-approve path (scripts/agent-prompts/task-execution.md):
-    // when an agent processes a discover_* task under the
-    // `runtime/.sme-auto-approve-discoveries` marker, it completes
-    // the task with `decision.auto_picked = true` and proceeds. The
-    // server-side `/sme-selection` handler is the only path that
-    // writes the `sme-review-confirmed-<task_id>.json` sidecar, so
-    // an auto-approved discover task left no review-gate signature
-    // for `filter_picks_respecting_sme_gate` to consume —
-    // every downstream compute task stayed pinned at Ready and the
-    // harness idle-looped until max-iterations. Promote any
+    // Auto-approve path (scripts/agent-prompts/task-execution.md +
+    // emitter PROMPT.md §2a): when an agent auto-advances a discover_*
+    // task on a spec-preferred method, it completes the task with
+    // `decision.auto_advanced = true` (the field both prompt contracts
+    // mandate) WITHOUT emitting AwaitingSmeApproval. The server-side
+    // `/sme-selection` handler is the only path that writes the
+    // `sme-review-confirmed-<task_id>.json` sidecar, so an auto-advanced
+    // discover task left no review-gate signature for
+    // `filter_picks_respecting_sme_gate` to consume — every downstream
+    // compute task stayed pinned at Ready and the harness idle-looped
+    // until max-iterations. Promote any
     // `runtime/outputs/<task_id>/decision.json` carrying
-    // `auto_picked = true` to a confirmed stage so the gate clears
-    // without an explicit SME click.
+    // `auto_advanced = true` (or the legacy alias `auto_picked = true`)
+    // to a confirmed stage so the gate clears without an explicit SME click.
     let outputs = runtime.join("outputs");
     if let Ok(out_entries) = std::fs::read_dir(&outputs) {
         for entry in out_entries.flatten() {
@@ -427,7 +428,8 @@ pub fn read_confirmed_review_stages(
                 continue;
             };
             if decision_json
-                .get("auto_picked")
+                .get("auto_advanced")
+                .or_else(|| decision_json.get("auto_picked"))
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false)
             {
@@ -746,23 +748,34 @@ mod tests {
     }
 
     #[test]
-    fn read_confirmed_review_stages_picks_up_auto_approved_decisions() {
-        let tmp = tempfile::tempdir().unwrap();
-        let decision_dir = tmp
-            .path()
-            .join("runtime")
-            .join("outputs")
-            .join("discover_normalisation");
-        std::fs::create_dir_all(&decision_dir).unwrap();
-        std::fs::write(
-            decision_dir.join("decision.json"),
-            r#"{"task_id":"discover_normalisation","auto_picked":true}"#,
-        )
-        .unwrap();
+    fn read_confirmed_review_stages_picks_up_auto_advanced_decisions() {
+        // The emitter PROMPT.md §2a + task-execution.md contract have the agent
+        // write `auto_advanced: true` (NOT `auto_picked`) when it auto-advances a
+        // spec-preferred discover pick. The gate must recognize that exact field,
+        // or every downstream compute task strands at Ready and the harness idles
+        // (the live himes/airway stall: discover_normalisation auto_advanced but
+        // normalisation never dispatched).
+        for field in ["auto_advanced", "auto_picked"] {
+            let tmp = tempfile::tempdir().unwrap();
+            let decision_dir = tmp
+                .path()
+                .join("runtime")
+                .join("outputs")
+                .join("discover_normalisation");
+            std::fs::create_dir_all(&decision_dir).unwrap();
+            std::fs::write(
+                decision_dir.join("decision.json"),
+                format!(r#"{{"task_id":"discover_normalisation","{field}":true}}"#),
+            )
+            .unwrap();
 
-        let stages = read_confirmed_review_stages(tmp.path());
-        assert!(stages.contains("discover_normalisation"));
-        assert_eq!(stages.len(), 1);
+            let stages = read_confirmed_review_stages(tmp.path());
+            assert!(
+                stages.contains("discover_normalisation"),
+                "decision.{field} = true must confirm the discover stage"
+            );
+            assert_eq!(stages.len(), 1);
+        }
     }
 
     #[test]
