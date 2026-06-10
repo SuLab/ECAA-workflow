@@ -365,6 +365,7 @@ pub fn plan(
             &mut dag,
             atom_reg,
             &ctx.preferred_methods,
+            Some(ctx.intent.goal.as_str()),
         );
         // Insert one `survey_method_landscape` task upstream of every
         // synthesized `discover_*` companion (and downstream of any
@@ -376,7 +377,9 @@ pub fn plan(
         // `survey → discover_*` edges so the lowering pass folds the
         // dependency into `Task.depends_on`.
         super::survey_method_landscape_synthesis::synthesize_survey_method_landscape(
-            &mut dag, atom_reg,
+            &mut dag,
+            atom_reg,
+            Some(ctx.intent.goal.as_str()),
         );
         // Wire stranded analytical atoms into the reporting terminal.
         // Some archetype shapes (multi-omics integrator slots,
@@ -516,12 +519,15 @@ pub fn plan(
                 &mut dag,
                 atom_reg,
                 &ctx.preferred_methods,
+                Some(ctx.intent.goal.as_str()),
             );
             // Insert the `survey_method_landscape` gate at parity with
             // the archetype-seed branch above — discover companions rank
             // from its method-landscape table, so it must gate them.
             super::survey_method_landscape_synthesis::synthesize_survey_method_landscape(
-                &mut dag, atom_reg,
+                &mut dag,
+                atom_reg,
+                Some(ctx.intent.goal.as_str()),
             );
             // Wire stranded analytical atoms into the reporting
             // terminal — see the archetype-seed branch above for the
