@@ -39,8 +39,7 @@ Operational scripts used by the Make targets and manual end-to-end runs, organiz
 
 | Script | Purpose |
 |---|---|
-| `verify-emit-reproducibility.sh` | Emits the same scenario twice and byte-diffs the packages (excluding the conversation/decision logs). |
-| `verify-reproducibility.sh` | Broader reproducibility sweep across scenarios. |
+| `verify-reproducibility.sh` | Emits scenarios twice and byte-diffs the packages (excluding the conversation/decision logs), across the scenario set. |
 | `regenerate-goldens.sh` | Regenerate golden fixtures after an intentional emit-shape change. |
 | `refresh-real-fixture.sh` | Refresh a real captured fixture package. |
 
