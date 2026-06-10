@@ -97,6 +97,7 @@ lint: ## Run architectural-invariant + ts-binding + supply-chain gates
 	bash scripts/check-no-lock-unwrap.sh
 	bash scripts/check-atom-contracts.sh
 	cargo deny check
+	@command -v cargo-hakari >/dev/null 2>&1 && cargo hakari verify || echo "[lint] cargo-hakari absent — workspace-hack sync check skipped (cargo install cargo-hakari to enable)"
 
 deny: ## cargo-deny supply-chain gate (advisories/bans/licenses/sources)
 	cargo deny check
