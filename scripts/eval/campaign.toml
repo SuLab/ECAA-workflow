@@ -31,3 +31,16 @@ judge = "gemini-3.1-pro"
 error_matrix = false
 public_tasks = 50                # 50 public HF tasks (held-out 50 excluded)
 trials = 3
+
+[run_env]
+# Budget caps are LIFTED for the campaign: a long discover_* (Opus) stage must
+# not be falsely blocked as TurnBudgetExceeded. The operator exports these
+# before launching (see scripts/eval/verify_campaign.py + the operator runbook
+# at docs/ecaa-spec/eval-campaign-runbook.md).
+lift_budget_caps = true
+
+[run_env.budget_env]
+ECAA_AGENT_BUDGET_USD_DISCOVER = "3.00"
+ECAA_AGENT_BUDGET_USD_VALIDATE = "1.25"
+ECAA_AGENT_BUDGET_USD_DATA_ACQ = "2.00"
+ECAA_AGENT_BUDGET_USD_ANALYTICAL = "3.00"

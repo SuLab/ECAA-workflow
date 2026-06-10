@@ -4,8 +4,13 @@ Code-only (no live gate). The operator runs this AFTER a live campaign to prove
 the committed evidence is manifest-compliant before publishing it."""
 from __future__ import annotations
 import json
+import re
 import sys
 from pathlib import Path
+
+# A frozen full object revision: exactly 40 hex chars. A provenance lock that
+# carries a floating ref (main/HEAD/a tag) is not reproducible evidence.
+_FROZEN_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
 
 try:
     import tomllib
@@ -34,6 +39,17 @@ def verify_run(run_dir: Path, manifest: dict | None = None) -> dict:
     rows = card.get("rows", [])
     benchmark = card.get("benchmark", "")
 
+    # (0a) Non-empty rows — a scorecard with no rows is not evidence.
+    if not rows:
+        raise CampaignViolation(f"{sc_path} has no rows — empty scorecard")
+
+    # (0b) Benchmark must be one the manifest declares — rejects placeholder
+    # cards (e.g. benchmark="fake").
+    known = {b["name"] for b in manifest.get("benchmarks", [])}
+    if known and benchmark not in known:
+        raise CampaignViolation(
+            f"benchmark {benchmark!r} not in manifest benchmarks {sorted(known)}")
+
     # (1) Required arms present.
     required_arms = set(manifest["campaign"]["arms"])
     present_arms = {r["arm"] for r in rows}
@@ -55,6 +71,15 @@ def verify_run(run_dir: Path, manifest: dict | None = None) -> dict:
         raise CampaignViolation(
             f"underpowered: {n_pairs} paired observations < manifest floor {floor}")
 
+    # (3b) Reject a degenerate scorecard where every row shares one constant
+    # overall (the signature of a synthesized/fake card, e.g. all 42.0). A real
+    # two-arm run varies across tasks/arms.
+    overalls = [r.get("overall") for r in rows if r.get("overall") is not None]
+    if len(overalls) >= 2 and len(set(overalls)) == 1:
+        raise CampaignViolation(
+            f"degenerate scorecard: all {len(overalls)} rows share constant "
+            f"overall={overalls[0]} — looks synthesized, not a real run")
+
     # (4) Benchmark judge/determinism matches the manifest entry (when known).
     bench_entry = next((b for b in manifest.get("benchmarks", [])
                         if b["name"] == benchmark), None)
@@ -63,6 +88,24 @@ def verify_run(run_dir: Path, manifest: dict | None = None) -> dict:
         if judged:
             raise CampaignViolation(
                 f"{benchmark} declared deterministic but {len(judged)} rows carry a judge")
+
+    # (5) Provenance datasets-lock must carry only frozen 40-hex SHAs (no
+    # floating refs like main/HEAD). Checked when the scorecard records a
+    # provenance lock string (flat ``name=revision;...`` form). Mirrors the
+    # live runner's datasets.lock pin contract so a published scorecard can't
+    # claim provenance against an unpinned ref.
+    prov = meta.get("provenance", {}) if isinstance(meta, dict) else {}
+    lock_str = prov.get("datasets_lock", "") if isinstance(prov, dict) else ""
+    if lock_str:
+        for entry in lock_str.split(";"):
+            entry = entry.strip()
+            if not entry or "=" not in entry:
+                continue
+            rev = entry.split("=", 1)[1].strip()
+            if not _FROZEN_SHA.match(rev):
+                raise CampaignViolation(
+                    f"provenance datasets_lock revision {rev!r} is not a frozen "
+                    f"40-hex SHA — reruns must pin")
 
     return {"compliant": True, "benchmark": benchmark, "n_pairs": n_pairs,
             "arms": sorted(present_arms), "seed": got_seed or want_seed}

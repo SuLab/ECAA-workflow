@@ -10,8 +10,10 @@ def _write_scorecard(run_dir: Path, *, benchmark, arms, n_pairs, seed=1729):
     rows = []
     for arm in arms:
         for i in range(n_pairs):
+            # Vary overall across rows so the card is not degenerate-constant
+            # (verify_run rejects an all-identical-overall scorecard).
             rows.append({"task_id": f"t{i}", "arm": arm, "trial": 0,
-                         "overall": 80.0, "dimensions": {}, "jaccard": None,
+                         "overall": 80.0 + i, "dimensions": {}, "jaccard": None,
                          "error_cells": None, "judge_id": "gemini-3.1-pro",
                          "extra": {}})
     meta = {"paired_delta": {"n_pairs": n_pairs, "min_power_pairs": 10},
