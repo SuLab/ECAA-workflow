@@ -306,11 +306,23 @@ async fn resolve_share_token(state: &ChatAppState, token: &str) -> Option<Reques
 }
 
 async fn resolve_harness_token(state: &ChatAppState, token: &str) -> Option<RequestPrincipal> {
-    // Stub: harness tokens are issued at /start_execution and stored on
-    // the ExecutionHandle. Full resolution will accept iff the token
-    // decodes a valid session_id from the state's execution map.
-    let _ = (state, token);
-    None // wired in subsequent task
+    // The raw token is issued at /start-execution and handed to the
+    // harness child via the `ECAA_HARNESS_TOKEN` env var; only its
+    // SHA-256 digest is retained, on the per-session `ExecutionHandle`
+    // (critical-analysis M6). Hash the presented token and scan the
+    // executions map for a handle whose stored digest matches. The
+    // compare is constant-time (`subtle::ConstantTimeEq`) so a partial
+    // match can't be brute-forced byte-by-byte through timing.
+    use sha2::{Digest, Sha256};
+    let presented: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+    for entry in state.executions.iter() {
+        if entry.value().harness_token_hash.ct_eq(&presented).into() {
+            return Some(RequestPrincipal::HarnessAgent {
+                session_id: *entry.key(),
+            });
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -399,6 +411,71 @@ mod tests {
         assert_eq!(
             extract_share_token_from_query(&format!("share_token={token}")),
             Some(token)
+        );
+    }
+
+    /// Build a minimal `ChatAppState` for unit tests. Reuses the
+    /// dependency-injection `with_backend` constructor (no API key / no
+    /// production sessions dir) so we get a real `executions` `DashMap`
+    /// to insert handles into. Async because `SessionStore::open` is
+    /// awaited on the ambient `#[tokio::test]` runtime (constructing a
+    /// nested `Runtime` inside a running one panics).
+    async fn test_chat_app_state() -> ChatAppState {
+        use ecaa_workflow_conversation::{MockLlmBackend, SessionStore};
+        use std::sync::Arc;
+        let tmp = tempfile::tempdir().unwrap();
+        let store = SessionStore::open(tmp.path()).await.unwrap();
+        let config_dir = tmp.path().join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let llm: Arc<dyn ecaa_workflow_conversation::LlmBackend> =
+            Arc::new(MockLlmBackend::new(vec![]));
+        // Leak the tempdir so the SessionStore-backed paths stay valid
+        // for the test's lifetime (the state is short-lived; no cleanup
+        // needed in a unit test).
+        std::mem::forget(tmp);
+        ChatAppState::with_backend(llm, store, config_dir)
+    }
+
+    /// `resolve_harness_token` resolves the presented raw token to a
+    /// session-scoped `HarnessAgent` iff its SHA-256 matches a stored
+    /// `harness_token_hash`; a wrong token resolves to `None`.
+    #[tokio::test]
+    async fn resolve_harness_token_matches_stored_hash() {
+        use crate::chat_routes::ExecutionHandle;
+        use sha2::{Digest, Sha256};
+
+        let state = test_chat_app_state().await;
+        let sid = Uuid::new_v4();
+        let token = "deadbeefharnesstoken";
+        let hash: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+
+        // Insert an ExecutionHandle carrying sha256(token) for sid.
+        let handle = ExecutionHandle::for_running(
+            4242,
+            4242,
+            std::path::PathBuf::from("/tmp/fake-pkg"),
+            "scripts/agent-claude.sh".into(),
+            hash,
+        );
+        state.executions.insert(sid, handle);
+
+        let p = resolve_harness_token(&state, token).await;
+        assert!(
+            matches!(p, Some(RequestPrincipal::HarnessAgent { session_id }) if session_id == sid),
+            "correct token must resolve to the session-scoped HarnessAgent"
+        );
+        assert!(
+            resolve_harness_token(&state, "wrong-token").await.is_none(),
+            "a non-matching token must resolve to None"
+        );
+        // The all-zero sentinel (used by exited/fixture handles) must
+        // never match a real presented token.
+        let sid2 = Uuid::new_v4();
+        let exited = ExecutionHandle::for_exited(99, 99, 0);
+        state.executions.insert(sid2, exited);
+        assert!(
+            resolve_harness_token(&state, token).await.is_some(),
+            "the genuine token still resolves with an all-zero-hash sibling present"
         );
     }
 }

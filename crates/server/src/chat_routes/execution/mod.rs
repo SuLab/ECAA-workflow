@@ -87,6 +87,7 @@ impl ExecutionHandle {
         pgid: u32,
         package_dir: std::path::PathBuf,
         agent_command: String,
+        harness_token_hash: [u8; 32],
     ) -> Self {
         Self {
             pid,
@@ -99,6 +100,7 @@ impl ExecutionHandle {
             stop_requested: Arc::new(AtomicBool::new(false)),
             paused_at: Arc::new(Mutex::new(None)),
             stop_requested_at: Arc::new(Mutex::new(None)),
+            harness_token_hash,
         }
     }
 
@@ -126,6 +128,11 @@ impl ExecutionHandle {
             stop_requested: Arc::new(AtomicBool::new(false)),
             paused_at: Arc::new(Mutex::new(None)),
             stop_requested_at: Arc::new(Mutex::new(None)),
+            // Exited handles never authenticate; the all-zero sentinel
+            // means "no harness token" (resolve_harness_token won't match
+            // a presented token against it because a real SHA-256 digest
+            // is never all-zero in practice).
+            harness_token_hash: [0u8; 32],
         }
     }
 }

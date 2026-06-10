@@ -1091,6 +1091,26 @@ async fn spawn_harness_for_session_reserved(
         }
     }
 
+    // Per-session harness self-token (critical-analysis M6). The raw
+    // token is handed to the child via the `ECAA_HARNESS_TOKEN` env var;
+    // only its SHA-256 digest is retained on the `ExecutionHandle`, so
+    // the harness authenticates back as a session-scoped `HarnessAgent`
+    // rather than borrowing the global admin `Owner` bearer. The harness
+    // echoes the raw token in the `X-Harness-Token` header on every
+    // per-session POST/GET; `resolve_harness_token` hashes it and
+    // constant-time-matches it against `harness_token_hash`.
+    let harness_token: String = {
+        use rand::RngCore;
+        let mut b = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut b);
+        hex::encode(b)
+    };
+    let harness_token_hash: [u8; 32] = {
+        use sha2::{Digest, Sha256};
+        Sha256::digest(harness_token.as_bytes()).into()
+    };
+    cmd.env("ECAA_HARNESS_TOKEN", &harness_token);
+
     clean_stale_sentinels(&package_dir).map_err(SpawnHarnessError::SentinelCleanup)?;
     // R3.4: clear any prior run's execution-status sidecar so the
     // auto-relaunch read path never observes a stale Completed status
@@ -1112,7 +1132,13 @@ async fn spawn_harness_for_session_reserved(
     // child-watcher task spawned below; clone it BEFORE constructing
     // the handle so the watcher can mutate it independently of the
     // executions map.
-    let handle = ExecutionHandle::for_running(pid, pgid, package_dir.clone(), agent_path.clone());
+    let handle = ExecutionHandle::for_running(
+        pid,
+        pgid,
+        package_dir.clone(),
+        agent_path.clone(),
+        harness_token_hash,
+    );
     let exit_status = handle.exit_status.clone();
 
     app.executions.insert(session_id, handle.clone());

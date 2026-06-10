@@ -1248,6 +1248,7 @@ mod tests {
             12345,
             std::path::PathBuf::from("/tmp/fake-pkg"),
             "/bin/true".to_string(),
+            [0u8; 32],
         );
         let exited = ExecutionHandle::for_exited(12346, 12346, 0);
         {

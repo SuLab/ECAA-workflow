@@ -97,6 +97,7 @@ mod tests {
             pgid,
             pkg.path().to_path_buf(),
             "scripts/agent-claude.sh".into(),
+            [0u8; 32],
         );
         app.executions.insert(id, handle);
         (id, pkg)
