@@ -531,6 +531,13 @@ def run_base(plugin, task, arm: Arm, trial: int, workdir: Path, max_iter: int,
         (workdir / "agent-stdout.json").write_text(res.stdout or "")
         out = plugin.collect(spec, workdir)
     out.exit_ok, out.wall_secs = res.exit_ok, res.wall_secs
+    # H2: surface the ECAA relaunch budget the bare arm structurally cannot use.
+    # `res` carries relaunch_count/resolved_blocks (0/[] on the bare arm); stash on
+    # out.artifacts so the base rec journals it (survives --resume) and
+    # `_attach_relaunch` later stamps it onto Score.extra for the scorecard.
+    out.artifacts = dict(out.artifacts or {})
+    out.artifacts["relaunch_count"] = getattr(res, "relaunch_count", 0)
+    out.artifacts["resolved_blocks"] = list(getattr(res, "resolved_blocks", []) or [])
     return out, spec
 
 
@@ -634,6 +641,22 @@ def _attach_session_metrics(scores: list[Score], metrics_by_key: dict) -> None:
             continue
         s.extra = dict(s.extra or {})
         s.extra["session_metrics"] = {k: snap.get(k) for k in _HARVESTED_METRIC_KEYS}
+
+
+def _attach_relaunch(scores: list[Score], relaunch_by_key: dict) -> None:
+    """Stamp the per-row ECAA relaunch budget onto each ECAA Score.extra
+    ("relaunch_count" + "resolved_blocks") so the scorecard surfaces the relaunch
+    budget the bare arm structurally cannot use (H2). Bare-arm rows have no
+    relaunch loop and are skipped. In-place; best-effort (keyed by base_key)."""
+    for s in scores:
+        if s.arm != Arm.ECAA_WORKFLOW.value:
+            continue
+        rec = relaunch_by_key.get(_base_key(s.task_id, s.arm, s.trial))
+        if not isinstance(rec, dict):
+            continue
+        s.extra = dict(s.extra or {})
+        s.extra["relaunch_count"] = int(rec.get("relaunch_count") or 0)
+        s.extra["resolved_blocks"] = rec.get("resolved_blocks") or []
 
 
 def _apply_task_filter(tasks: list, tasks_arg: "str | None") -> list:
@@ -779,6 +802,10 @@ def main(argv: list[str]) -> int:
                "exit_ok": out.exit_ok, "wall_secs": out.wall_secs,
                "session_id": getattr(spec, "session_id", None),
                "session_metrics": (out.artifacts.get("session_metrics")
+                                   if isinstance(out.artifacts, dict) else None),
+               "relaunch_count": (out.artifacts.get("relaunch_count")
+                                  if isinstance(out.artifacts, dict) else None),
+               "resolved_blocks": (out.artifacts.get("resolved_blocks")
                                    if isinstance(out.artifacts, dict) else None),
                "package_dir": (str(spec.package_dir)
                                if getattr(spec, "package_dir", None) else None)}
@@ -960,6 +987,25 @@ def main(argv: list[str]) -> int:
             if k not in metrics_by_key and isinstance(r.get("session_metrics"), dict):
                 metrics_by_key[k] = r["session_metrics"]
         _attach_session_metrics(scores, metrics_by_key)
+
+        # H2: surface the per-row ECAA relaunch count + resolved blocks. Source
+        # from live out.artifacts first (fresh runs), then the journal (--resume),
+        # mirroring the session-metrics harvest above.
+        relaunch_by_key: dict[str, dict] = {}
+        for k, out in out_by_key.items():
+            arts = getattr(out, "artifacts", None)
+            if isinstance(arts, dict) and "relaunch_count" in arts:
+                relaunch_by_key[k] = {
+                    "relaunch_count": arts.get("relaunch_count"),
+                    "resolved_blocks": arts.get("resolved_blocks") or [],
+                }
+        for k, r in base_recs.items():
+            if k not in relaunch_by_key and r.get("relaunch_count") is not None:
+                relaunch_by_key[k] = {
+                    "relaunch_count": r.get("relaunch_count"),
+                    "resolved_blocks": r.get("resolved_blocks") or [],
+                }
+        _attach_relaunch(scores, relaunch_by_key)
 
         card = plugin.report(scores)
         # Subset provenance + non-statistical caveat: when --tasks pinned a slice
