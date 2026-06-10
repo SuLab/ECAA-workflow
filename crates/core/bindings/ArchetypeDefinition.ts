@@ -108,6 +108,15 @@ ordering_only_edges: Array<OrderingOnlyEdge>,
  */
 claim_boundary?: string, 
 /**
+ * Filename (relative to `config/downstream-policy/`) of the
+ * declarative validation contract emitted as
+ * `policies/validation-contract.json` and read by the harness's
+ * `enforce_validation_contract`. `None` = no contract (the common
+ * case). Threaded onto `StageTaxonomy::validation_contract_ref` in
+ * `build_taxonomy_metadata_for_modality`.
+ */
+validation_contract_ref?: string, 
+/**
  * Project class this archetype targets. Constrains classifier-
  * driven matching: a clinical-trial archetype only matches
  * sessions where `project_class == ClinicalTrial`.
