@@ -245,6 +245,7 @@ fn walk_for_manifest(
             || rel == std::path::Path::new("runtime/ed-cf-self-assessment.json")
             || rel == std::path::Path::new("runtime/ed-cf-delta.json")
             || rel == std::path::Path::new("runtime/coverage-statement.json")
+            || rel == std::path::Path::new("runtime/catalog-coverage-statement.json")
             || rel == std::path::Path::new("runtime/validation-summary.json")
             || rel == std::path::Path::new("runtime/policy-decisions.jsonl")
             || rel == std::path::Path::new("runtime/decisions.jsonl.mac")
