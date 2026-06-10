@@ -792,25 +792,28 @@ pub fn run_evidence_quote_substring_match(
 /// Source-kind classes whose redistributability is KNOWN from the class itself,
 /// so a claim row need not carry an explicit `redistributable=true` mark to pass
 /// the legal gate. NLM E-utilities output (PubMed abstracts/efetch/esearch XML)
-/// is public-domain US government data; PMC OA is CC-licensed; OpenAlex/Crossref
-/// surface OA records. `external_pdf_local_only` is deliberately ABSENT (a
-/// locally-stored PDF is not redistributable) and matched strictly upstream.
-/// Token-substring match so executor-specific spellings (codex's
-/// `pubmed_abstract_with_pmc_front_xml_checked`, `pmc_front_or_abstract_xml_only`)
-/// are covered without enumerating every variant.
+/// is public-domain US government data; PMC OA is CC-licensed.
+/// `external_pdf_local_only` is deliberately EXCLUDED (a locally-stored PDF is
+/// not redistributable). Matched by the class PREFIX so executor-specific
+/// spellings (codex's `pubmed_abstract_with_pmc_front_xml_checked`,
+/// `pmc_front_or_abstract_xml_only`) are covered without enumerating every
+/// variant, while UNRELATED kinds that merely contain the token are not.
 fn source_kind_is_inherently_redistributable(source_kind: &str) -> bool {
     // Scoped to NLM/PMC public + OA classes only (NLM E-utilities output is
     // public-domain US-Gov work; PMC OA is CC). Metadata aggregators
     // (openalex/crossref) and generic `abstract_only` are intentionally EXCLUDED
     // — those still require an explicit redistributable mark, preserving the
     // legal gate for sources whose underlying license isn't class-determined.
-    // `pmc` covers every PubMed Central spelling (pmc_oa_full_text, pmc_front,
-    // pmc_xml_fulltext, …): NLM only serves OA / author-manuscript full text via
-    // PMC, all research-redistributable. external_pdf is excluded below.
-    const REDISTRIBUTABLE_TOKENS: &[&str] =
-        &["pmc", "pubmed_abstract", "pubmed_efetch", "pubmed_esearch"];
+    // Anchored at the START of the source_kind, not anywhere in it: NLM serves
+    // redistributable full text only under the `pmc_*` / `pubmed_*` class
+    // prefixes (`pmc` covers every PubMed Central spelling — pmc_oa_full_text,
+    // pmc_front, pmc_xml_fulltext, …). Unanchored `contains` let unrelated kinds
+    // (e.g. `camphor_db_export`) spoof the legal gate (critical-analysis M8).
     let sk = source_kind.to_ascii_lowercase();
-    !sk.contains("external_pdf") && REDISTRIBUTABLE_TOKENS.iter().any(|t| sk.contains(t))
+    if sk.starts_with("external_pdf") {
+        return false;
+    }
+    sk.starts_with("pmc") || sk.starts_with("pubmed_")
 }
 
 /// Validates that every row in `claims_matrix.csv` references a redistributable source
@@ -1903,6 +1906,32 @@ mod tests {
             "in-jail evidence must still resolve; got {}",
             ok.display()
         );
+    }
+
+    #[test]
+    fn redistributable_match_is_anchored_not_substring() {
+        // M8: the legal gate must anchor on the source_kind class PREFIX, not
+        // match the token anywhere in the string. Real PMC/PubMed spellings
+        // still pass; unrelated kinds that merely CONTAIN "pmc"/"pubmed" must not.
+        // pmc_*/pubmed_* spellings pass:
+        assert!(source_kind_is_inherently_redistributable("pmc_oa_full_text"));
+        assert!(source_kind_is_inherently_redistributable(
+            "pmc_front_or_abstract_xml_only"
+        ));
+        assert!(source_kind_is_inherently_redistributable(
+            "pubmed_abstract_with_pmc_front_xml_checked"
+        ));
+        assert!(source_kind_is_inherently_redistributable("pubmed_efetch"));
+        // Substring false-positives must NOT pass (the bug: unanchored
+        // contains("pmc")/contains("pubmed")).
+        assert!(!source_kind_is_inherently_redistributable(
+            "camphor_db_export"
+        ));
+        assert!(!source_kind_is_inherently_redistributable("campusing_corpus"));
+        assert!(!source_kind_is_inherently_redistributable(
+            "external_pdf_local_only"
+        ));
+        assert!(!source_kind_is_inherently_redistributable("openalex"));
     }
 
     #[test]
