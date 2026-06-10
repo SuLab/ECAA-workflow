@@ -155,13 +155,36 @@ $(cat "$SCRIPT_DIR/agent-prompts/literature-retrieval.md")"
   fi
 fi
 
+# AF-spectrum measurement runbook. When this task's spec declares
+# `attributes.measurement_script`, append the deterministic measurement
+# contract so the agent runs the byte-pinned lib/measure_af_spectrum.py
+# verbatim against its post-filter VCF (goal stated, no thresholds handed
+# over). Mirrors the literature-retrieval gate above. Best-effort: silently
+# skipped when jq is unavailable, WORKFLOW.json is absent, or the attribute
+# is empty/absent, which preserves byte-identical prompts for non-measurement
+# tasks.
+AF_MEASUREMENT_BLOCK=""
+if command -v jq >/dev/null 2>&1 \
+   && [ -n "${ECAA_TASK_ID:-}" ] \
+   && [ -f "$PACKAGE/WORKFLOW.json" ] \
+   && [ -f "$SCRIPT_DIR/agent-prompts/af-spectrum-measurement.md" ]; then
+  __measurement_script="$(jq -r --arg t "$ECAA_TASK_ID" \
+    '.tasks[$t].spec.attributes.measurement_script // ""' \
+    "$PACKAGE/WORKFLOW.json" 2>/dev/null || echo "")"
+  if [ -n "$__measurement_script" ]; then
+    AF_MEASUREMENT_BLOCK="
+
+$(cat "$SCRIPT_DIR/agent-prompts/af-spectrum-measurement.md")"
+  fi
+fi
+
 PROMPT="$(cat "$PACKAGE/PROMPT.md")${MEMORY_DISCIPLINE_BLOCK}
 
 ## Package location
 All paths are relative to: $PACKAGE
 ${RESOLVED_CONTEXT_BLOCK}
 
-${TASK_EXECUTION_BODY}${LITERATURE_RETRIEVAL_BLOCK}"
+${TASK_EXECUTION_BODY}${LITERATURE_RETRIEVAL_BLOCK}${AF_MEASUREMENT_BLOCK}"
 
 # Bundle D — harness agent cost ingestion.
 #
