@@ -149,12 +149,27 @@ export function connectChatStream(
   // the disconnect window would otherwise be lost forever.
   let openCount = 0
   let lastSeq = 0
+  // True once any connection has been established. Distinguishes the
+  // very first connection (where the first event's seq is not a gap)
+  // from a RECONNECT (where a high first-seq means the server advanced
+  // while we were disconnected and events were dropped).
+  let hadConnection = false
+  // Carries the pre-reconnect high-water seq across the lastSeq reset so
+  // the first post-reconnect event can compute the real dropped count.
+  let lastSeqBeforeReconnect = 0
   es.onopen = () => {
     openCount += 1
     if (openCount > 1) {
+      // Reconnect: stash the prior high-water seq, then reset lastSeq so
+      // a server that resumes at a low seq (counter reset) is not treated
+      // as a giant backward gap. The accurate resync now fires from the
+      // first post-reconnect message below; this onopen resync is the
+      // floor that fires even if NO further events arrive after the gap.
+      lastSeqBeforeReconnect = lastSeq
       lastSeq = 0
       onEvent({ type: 'resync_required', dropped: 0 })
     }
+    hadConnection = true
   }
 
   es.onmessage = (msg: MessageEvent) => {
@@ -165,15 +180,28 @@ export function connectChatStream(
         // the spawned-fanout vs sync-broadcast race no longer inverts
         // seqs, so a `<= lastSeq` event is now genuinely a late dup.
         if (parsed.seq <= lastSeq) return
-        // A forward gap (seq > lastSeq + 1) means the server-side
-        // broadcast dropped events for this subscriber. Keep this event
-        // but fire a resync so the consumer refetches state/transcript/
-        // DAG to reconverge. `lastSeq === 0` skips the very first event
-        // after (re)connect, which always looks like a gap.
-        if (lastSeq !== 0 && parsed.seq > lastSeq + 1) {
+        if (lastSeq === 0 && hadConnection && openCount > 1) {
+          // First event of a RECONNECT. Unlike a fresh first-ever
+          // connection (not a gap), a reconnect at a seq above the
+          // pre-reconnect high-water mark means the server advanced
+          // while we were disconnected — fire a resync with the real
+          // dropped count so the consumer refetches state/transcript/DAG.
+          if (parsed.seq > lastSeqBeforeReconnect + 1) {
+            onEvent({
+              type: 'resync_required',
+              dropped: parsed.seq - lastSeqBeforeReconnect - 1,
+            })
+          }
+        } else if (lastSeq !== 0 && parsed.seq > lastSeq + 1) {
+          // A forward gap (seq > lastSeq + 1) mid-stream means the
+          // server-side broadcast dropped events for this subscriber.
+          // Keep this event but fire a resync to reconverge.
           onEvent({ type: 'resync_required', dropped: parsed.seq - lastSeq - 1 })
         }
         lastSeq = parsed.seq
+        // Once we accept a post-reconnect event the stashed mark is
+        // consumed; clear it so a later mid-stream gap uses lastSeq.
+        lastSeqBeforeReconnect = 0
       }
       onEvent(parsed)
     } catch {

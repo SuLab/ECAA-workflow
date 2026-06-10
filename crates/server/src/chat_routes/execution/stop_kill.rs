@@ -8,6 +8,34 @@ use super::super::*;
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use uuid::Uuid;
 
+/// Returns the negative-pid argument for a process-group SIGTERM, or
+/// `None` when `pgid == 0`. A zero pgid would make `kill(-0, ...)`
+/// target the SERVER's own process group — never what a stop endpoint
+/// intends. This is the guard the surrounding comment promises (L1).
+#[cfg(unix)]
+fn pgroup_kill_target(pgid: u32) -> Option<i32> {
+    if pgid == 0 {
+        return None;
+    }
+    Some(-(pgid as i32))
+}
+
+#[cfg(all(test, unix))]
+mod ws_d_pgid_tests {
+    use super::pgroup_kill_target;
+
+    #[test]
+    fn zero_pgid_is_refused() {
+        // kill(-0, ...) would target the server's own process group.
+        assert_eq!(pgroup_kill_target(0), None);
+    }
+
+    #[test]
+    fn nonzero_pgid_yields_negative() {
+        assert_eq!(pgroup_kill_target(4242), Some(-4242));
+    }
+}
+
 /// `POST /api/chat/session/:id/execution/stop`
 ///
 /// Requests cooperative shutdown of the running harness by writing a
@@ -87,15 +115,25 @@ pub async fn post_kill_execution(
     // Negative pid → kill the entire process group.
     #[cfg(unix)]
     {
-        let pgid_i32 = pgid as i32;
+        // L1: refuse pgid == 0; kill(-0, ...) would signal the SERVER's
+        // own process group. `pgroup_kill_target` is the guard the
+        // comment below promises (closing the documented-but-missing
+        // TOCTOU/zero-pgid window).
+        let Some(neg_pgid) = pgroup_kill_target(pgid) else {
+            return (
+                StatusCode::CONFLICT,
+                "execution has no valid process group (pgid=0)",
+            )
+                .into_response();
+        };
         // libc::kill is `unsafe` because the kernel signal API is
         // FFI; the unsafety surface is the bare syscall, not our
         // logic. Workspace lint is `unsafe_code = "forbid"` (S5.32);
-        // this is the bounded waiver. We checked `pgid != 0` so the
-        // negative-pid form refers to our own process group, not "all
-        // processes the caller can signal".
+        // this is the bounded waiver. We checked `pgid != 0` via
+        // pgroup_kill_target, so the negative-pid form refers to our own
+        // task's process group, not "all processes the caller can signal".
         #[allow(unsafe_code)]
-        let r = unsafe { libc::kill(-pgid_i32, libc::SIGTERM) };
+        let r = unsafe { libc::kill(neg_pgid, libc::SIGTERM) };
         if r != 0 {
             let errno = std::io::Error::last_os_error();
             // ESRCH (no such process) is fine — already reaped.

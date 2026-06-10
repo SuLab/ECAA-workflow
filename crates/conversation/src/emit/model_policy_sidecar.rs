@@ -127,12 +127,44 @@ mod tests {
 
     /// api_version mirrors the on-wire `anthropic-version` HTTP
     /// header. Drift between this literal and the client.rs constant
-    /// silently corrupts the sidecar's hash baseline.
+    /// silently corrupts the sidecar's provenance baseline.
     #[test]
     fn api_version_matches_on_wire_header() {
         let session = Session::new(false);
         let s = build_for_session(&session);
         assert_eq!(s.api_version, "2023-06-01");
+    }
+
+    /// Cross-check the sidecar literal against the actual client header
+    /// (L8/WS-D7). The doc comment on `api_version` claims it matches the
+    /// `anthropic-version` header the client sends at the send_turn /
+    /// send_turn_streaming / count_tokens call sites. Pin both ends so a
+    /// future edit to either surface that drifts the version is caught
+    /// here rather than silently misrepresenting the wire contract in the
+    /// emitted model-policy sidecar.
+    #[test]
+    fn sidecar_api_version_pins_client_header() {
+        const WIRE_VERSION: &str = "2023-06-01";
+        let session = Session::new(false);
+        let s = build_for_session(&session);
+        assert_eq!(
+            s.api_version, WIRE_VERSION,
+            "sidecar api_version drifted from the documented wire version"
+        );
+
+        // The client sets `anthropic-version` at exactly three call sites
+        // (send_turn, send_turn_streaming, count_tokens). Assert the header
+        // literal still appears there so the sidecar's claim stays true.
+        let client_src = include_str!("../anthropic/client.rs");
+        let header_hits = client_src
+            .matches(&format!("\"anthropic-version\", \"{WIRE_VERSION}\""))
+            .count();
+        assert_eq!(
+            header_hits, 3,
+            "expected the anthropic-version {WIRE_VERSION} header at 3 client call \
+             sites (send_turn / send_turn_streaming / count_tokens); found {header_hits}. \
+             The sidecar's api_version doc claim has drifted from the client (L8)."
+        );
     }
 
     /// cache_ttl defaults to `ephemeral_5m` unless the operator
