@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def test_runbook_exists_and_covers_both_arms():
-    p = (Path(__file__).resolve().parents[2]
+    p = (Path(__file__).resolve().parents[3]
          / "docs" / "ecaa-spec" / "eval-campaign-runbook.md")
     assert p.exists(), "operator runbook missing"
     txt = p.read_text()
