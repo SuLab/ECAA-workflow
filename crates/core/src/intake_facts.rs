@@ -146,6 +146,24 @@ const LITERATURE_INTENT_KEYWORDS: &[&str] = &[
     "published",
 ];
 
+/// Construct a minimal supplied-product contract for an SME-declared input
+/// stage (called peaks / VCF / BAM). Mirrors `gene_count_matrix`'s shape
+/// (`description_only: false`) so `prune_supplied_upstream` and the dispatch
+/// seeding treat it like a concrete held artifact, not a description. Only
+/// the `semantic_type` IRI is load-bearing for pruning.
+fn supplied_product(
+    id: &str,
+    iri: &str,
+    label: &str,
+) -> crate::workflow_contracts::data_product::DataProductContract {
+    let mut dp = crate::workflow_contracts::data_product::DataProductContract::skeleton(
+        id,
+        crate::workflow_contracts::semantic_type::SemanticType::edam(iri, label),
+    );
+    dp.description_only = false;
+    dp
+}
+
 impl IntakeFacts {
     /// Detect explicit literature-grounding intent in intake prose.
     ///
@@ -176,48 +194,122 @@ impl IntakeFacts {
     /// the upstream chain that would otherwise produce it. Returns the available
     /// [`DataProductContract`], or `None` for the default raw (FASTQ) input.
     ///
-    /// Counts / expression-matrix only today (structured so BAM / VCF / peaks
-    /// slot in later). Keyed on counts-POSITIVE phrases — a bare "no FASTQ" is
-    /// too ambiguous to seed on alone.
+    /// Detection is MODALITY-GATED (M7). A supplied data product is only
+    /// honored when the requested modality actually has a producer for that
+    /// product in its archetype — otherwise `prune_supplied_upstream` finds no
+    /// producer and the seed is dead weight (or, worse, mis-seeds `available_data`
+    /// with a type the pipeline never makes). Concretely:
+    ///
+    /// - **counts matrix** (`data:3917`) — only RNA-counts modalities
+    ///   (`bulk_rnaseq`, `single_cell_rnaseq`, `long_read_rnaseq`,
+    ///   `spatial_transcriptomics`) carry a `quantification`/counts producer.
+    ///   A counts phrase on ChIP/ATAC/variant prose must NOT seed counts.
+    /// - **called peaks** (`data:1255`) — only peak-calling modalities
+    ///   (`chip_seq`, `atac_seq`, `cut_tag`, `chip_exo`).
+    /// - **called variants / VCF** (`data:3498`) — only `variant_calling`/`gwas`.
+    /// - **alignments / BAM** (`data:0863`) — modality-independent (every
+    ///   read-based pipeline has an `alignment` producer), so gated only on a
+    ///   known modality being present.
+    ///
+    /// `modality == None` (no classified modality in scope) fails SAFE to the
+    /// raw seed: no stage is detected. Each family requires a possession-marker
+    /// ("already" / "provided" / "prepared" / "start from" / "no raw") to
+    /// co-occur with the product NOUN — a bare standalone verb ("already
+    /// quantified") is too loose and is intentionally NOT a signal.
     pub fn detect_input_data_stage(
         prose: &str,
+        modality: Option<&str>,
     ) -> Option<crate::workflow_contracts::data_product::DataProductContract> {
+        // Without a classified modality we cannot prove a producer exists for
+        // any supplied product — fail safe to the raw (FASTQ) seed.
+        let modality = modality?;
         let lower = prose
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ")
             .to_lowercase();
-        // SUPPLIED-INPUT phrases only — the SME declares they already HOLD a
-        // counts matrix. Deliberately excludes pipeline-OUTPUT descriptions like
-        // "gene-level counts" / "count matrix" on their own, which appear in
-        // full-FASTQ-pipeline prose ("…alignment, gene-level counts, DESeq2…")
-        // and must NOT trigger pruning.
-        const COUNTS_SIGNALS: &[&str] = &[
-            "counts matrix already prepared",
-            "count matrix already prepared",
-            "counts already prepared",
-            "prepared counts matrix",
-            "start from counts",
-            "starting from counts",
-            "start from the counts",
-            "start from a counts",
-            "from counts matrix",
-            "from a counts matrix",
-            "from the counts matrix",
-            "already quantified",
-            "already counted",
-            "counts provided",
-            "provided counts",
-            "counts are provided",
-            "counts matrix provided",
-            "no raw fastq",
-            "no raw fastqs",
+
+        // Possession markers — the SME declares they already HOLD the product
+        // (vs. describing it as a pipeline STEP they want produced). A signal
+        // fires only when a possession marker AND the product noun BOTH appear,
+        // so pipeline-OUTPUT prose ("…alignment, gene-level counts, DESeq2…")
+        // is never mistaken for a supplied input.
+        const POSSESSION_MARKERS: &[&str] = &[
+            "already prepared",
+            "already have",
+            "already processed",
+            "provided",
+            "prepared",
+            "start from",
+            "starting from",
+            "no raw",
         ];
-        if COUNTS_SIGNALS.iter().any(|s| lower.contains(s)) {
+        let has_marker = |markers: &[&str]| markers.iter().any(|m| lower.contains(m));
+
+        // RNA-counts: gate on RNA-counts modalities + require a counts NOUN
+        // ("counts matrix" / "count matrix" / "counts") to co-occur with a
+        // possession marker. Bare standalone verbs ("already quantified",
+        // "already counted") are deliberately dropped — they read as a step,
+        // not a held artifact.
+        const RNA_COUNTS_MODALITIES: &[&str] = &[
+            "bulk_rnaseq",
+            "single_cell_rnaseq",
+            "long_read_rnaseq",
+            "spatial_transcriptomics",
+        ];
+        const COUNTS_NOUNS: &[&str] = &["counts matrix", "count matrix", "counts"];
+        if RNA_COUNTS_MODALITIES.contains(&modality)
+            && COUNTS_NOUNS.iter().any(|n| lower.contains(n))
+            && has_marker(POSSESSION_MARKERS)
+        {
             return Some(
                 crate::workflow_contracts::data_product::DataProductContract::gene_count_matrix(),
             );
         }
+
+        // Called peaks: gate on peak-calling modalities + a peak NOUN.
+        const PEAK_MODALITIES: &[&str] = &["chip_seq", "atac_seq", "cut_tag", "chip_exo"];
+        const PEAK_NOUNS: &[&str] =
+            &["called peaks", "peak calls", "narrowpeak", "peak set", "peaks"];
+        if PEAK_MODALITIES.contains(&modality)
+            && PEAK_NOUNS.iter().any(|n| lower.contains(n))
+            && has_marker(POSSESSION_MARKERS)
+        {
+            return Some(supplied_product(
+                "intake_called_peaks_0",
+                "data:1255",
+                "Called peaks",
+            ));
+        }
+
+        // Called variants / VCF: gate on variant modalities + a variant NOUN.
+        const VARIANT_MODALITIES: &[&str] = &["variant_calling", "gwas"];
+        const VARIANT_NOUNS: &[&str] =
+            &["vcf", "called variants", "variant calls", "variant set"];
+        if VARIANT_MODALITIES.contains(&modality)
+            && VARIANT_NOUNS.iter().any(|n| lower.contains(n))
+            && has_marker(POSSESSION_MARKERS)
+        {
+            return Some(supplied_product(
+                "intake_called_variants_0",
+                "data:3498",
+                "Sequence variant",
+            ));
+        }
+
+        // Alignments / BAM: modality-independent (read-based pipelines all have
+        // an `alignment` producer) but still require a known modality + a BAM
+        // NOUN + a possession marker.
+        const BAM_NOUNS: &[&str] =
+            &["bam file", "bam files", "aligned reads", "alignments", "bam"];
+        if BAM_NOUNS.iter().any(|n| lower.contains(n)) && has_marker(POSSESSION_MARKERS) {
+            return Some(supplied_product(
+                "intake_alignment_0",
+                "data:0863",
+                "Sequence alignment",
+            ));
+        }
+
         None
     }
 
@@ -522,18 +614,28 @@ mod tests {
     #[test]
     fn detect_input_data_stage_recognises_supplied_counts() {
         use crate::workflow_contracts::semantic_type::SemanticType;
-        // Counts supplied directly (pasilla-style) → counts product detected.
+        // Counts supplied directly (pasilla-style) on an RNA-counts modality →
+        // counts product detected. Each phrase pairs a counts NOUN with a
+        // possession marker.
         for prose in [
             "Counts matrix already prepared (14,599 genes x 7 samples). No raw FASTQs — start from counts matrix.",
             "differential expression starting from a counts matrix",
-            "We already quantified; run DE.",
+            "we already have the counts matrix prepared, run DE",
         ] {
-            let p = IntakeFacts::detect_input_data_stage(prose)
+            let p = IntakeFacts::detect_input_data_stage(prose, Some("bulk_rnaseq"))
                 .unwrap_or_else(|| panic!("expected a counts input stage for: {prose:?}"));
             match &p.semantic_type {
                 SemanticType::OntologyTerm { iri, .. } => assert_eq!(iri, "data:3917"),
                 other => panic!("expected counts ontology term, got {other:?}"),
             }
+        }
+        // Bare standalone verbs ("already quantified" / "already counted") are
+        // NO LONGER signals — they read as a pipeline step, not a held artifact.
+        for prose in ["We already quantified; run DE.", "samples already counted"] {
+            assert!(
+                IntakeFacts::detect_input_data_stage(prose, Some("bulk_rnaseq")).is_none(),
+                "bare quantify/count verb must NOT seed counts: {prose:?}"
+            );
         }
         // FASTQ input prose → no stage (default raw). Critically, a full
         // FASTQ-pipeline description that mentions producing "gene-level counts"
@@ -546,7 +648,7 @@ mod tests {
              and a differential expression test",
         ] {
             assert!(
-                IntakeFacts::detect_input_data_stage(prose).is_none(),
+                IntakeFacts::detect_input_data_stage(prose, Some("bulk_rnaseq")).is_none(),
                 "expected NO input stage (default raw) for: {prose:?}"
             );
         }

@@ -724,7 +724,10 @@ impl Classifier {
         // and matches phrases against the intake text. None when no
         // pattern matches OR when the config doesn't carry the block;
         // composer falls through to LLM-extracted goal in that case.
-        let goal = self.extract_goal(text);
+        // Thread the just-resolved primary modality so input-stage detection
+        // (C5/M7) can gate a supplied-product seed on a modality that actually
+        // produces that product.
+        let goal = self.extract_goal_with_modality(text, Some(modality.id.as_str()));
 
         // Surface secondary modality candidates when the SME
         // explicitly asked for cross-omics
@@ -2020,6 +2023,23 @@ impl Classifier {
     /// propagating an invalid goal. Defends against config drift +
     /// the LLM-extraction path that piggybacks on this output.
     pub fn extract_goal(&self, text: &str) -> Option<GoalSpec> {
+        // Public entry: no classified modality in scope, so input-stage
+        // detection is fail-safe (modality `None` seeds nothing). The
+        // production path goes through `extract_goal_with_modality` from
+        // `classify`, which threads the resolved modality so the gate can fire.
+        self.extract_goal_with_modality(text, None)
+    }
+
+    /// Modality-aware goal extraction (C5/M7). Identical to [`Self::extract_goal`]
+    /// except the caller supplies the already-classified modality so input-stage
+    /// detection can be gated on it. `classify` calls this from the point where
+    /// the primary modality is resolved (no recursion — `extract_goal` never
+    /// re-enters `classify`).
+    pub(crate) fn extract_goal_with_modality(
+        &self,
+        text: &str,
+        modality: Option<&str>,
+    ) -> Option<GoalSpec> {
         let mut goal = self.extract_goal_inner(text)?;
         // Input-stage-aware seeding: detect an SME-declared supplied product
         // ("counts matrix already prepared") on the FULL intake text — not the
@@ -2027,11 +2047,13 @@ impl Classifier {
         // type IRI in `modifiers` so `compose_v4_dispatch_full` can seed
         // `available_data` from it and prune the redundant producing-chain. Uses
         // the existing `modifiers` map to avoid a `GoalSpec` wire-field change.
+        // M7: detection is modality-gated, so a counts phrase on a non-RNA
+        // modality (or with no modality in scope) never mis-seeds.
         if !goal.modifiers.contains_key("available_input_stage") {
             if let Some(crate::workflow_contracts::semantic_type::SemanticType::OntologyTerm {
                 iri,
                 ..
-            }) = crate::intake_facts::IntakeFacts::detect_input_data_stage(text)
+            }) = crate::intake_facts::IntakeFacts::detect_input_data_stage(text, modality)
                 .map(|p| p.semantic_type)
             {
                 goal.modifiers.insert("available_input_stage".into(), iri);
