@@ -14,13 +14,19 @@
 # file-contract, heartbeat liveness, prompt assembly, a security-hardened
 # container run with the essential mounts, the headless Codex invocation, the
 # per-session CLI install (mirrors the Claude path), and ChatGPT/API-key auth.
+# EXPERIMENTAL backend: gated behind ECAA_AGENT_CODEX_EXPERIMENTAL=1 (refuses
+# to run otherwise) so it can't be selected silently in production.
 # The following agent-claude.sh features are INTENTIONALLY DEFERRED and can be
 # ported here as the Codex path hardens (each is independent of the contract):
 #   - per-task derived images (ECAA_PER_TASK_IMAGES), GPU passthrough,
-#     bubblewrap host-sandbox path, per-class budget caps + turn-budget
-#     enforcement, the retry/transient-error reconciliation loop, and the
-#     cost/telemetry parse of the model's JSON (the metrics layer degrades
-#     gracefully on an unrecognised shape — see SessionMetrics "unknown model").
+#     bubblewrap host-sandbox path, and the cost/telemetry parse of the model's
+#     JSON (the metrics layer degrades gracefully on an unrecognised shape —
+#     see SessionMetrics "unknown model").
+# Now ported from the Claude path: the memory/CPU resource fences
+# (DOCKER_MEMORY_ARGS/DOCKER_CPU_ARGS), the retry/transient-error
+# reconciliation loop (run_codex_with_retries), and a per-class budget — but
+# codex has NO native --max-budget-usd, so the budget is passed in as
+# ECAA_TASK_BUDGET_USD for the task-execution contract to SOFT-enforce only.
 # Auth (handled below, no operator pre-step beyond a host `codex login`):
 #   - ECAA_OPENAI_API_KEY → OPENAI_API_KEY (rotation-free headless), OR
 #   - a ChatGPT login dir (ECAA_CODEX_AUTH_DIR, default ~/.codex): auth.json +
@@ -45,6 +51,15 @@ if [ "$#" -lt 1 ]; then
     exit 2
 fi
 PACKAGE="$(realpath "$1")"
+
+# ── Experimental opt-in gate. Codex is an EXPERIMENTAL backend (no per-task
+#    images, GPU, or cost-telemetry parity with the claude path yet — see
+#    docs/known-limitations.md). Require explicit opt-in so it can't be
+#    selected silently in production.
+if [ "${ECAA_AGENT_CODEX_EXPERIMENTAL:-0}" != "1" ]; then
+    echo "agent-codex.sh: codex backend is experimental; set ECAA_AGENT_CODEX_EXPERIMENTAL=1 to use it." >&2
+    exit 2
+fi
 
 # ── Heartbeat liveness (mirrors agent-claude.sh): prove the task is alive so
 #    the harness stall-monitor doesn't false-block a long compute step. The
@@ -84,7 +99,18 @@ ${TASK_EXECUTION_BODY}"
 CONTAINER_IMAGE="${ECAA_DEFAULT_CONTAINER_IMAGE:-bio-min:local}"
 
 # ── Per-task scratch + agent HOME (writable; the container is --read-only).
-AGENT_HOME_DIR="${ECAA_AGENT_HOME_DIR:-$PACKAGE/runtime/agent-home}"
+# The agent HOME MUST live OUTSIDE the emitted package root. The ChatGPT
+# OAuth token is copied into $AGENT_HOME_DIR/.codex/auth.json below; keeping
+# it out of $PACKAGE means it is never served by the artifact route
+# (GET .../artifacts/*) nor staged by the provenance `git add -A`. Mirrors
+# agent-claude.sh's placement under the session / agent cache.
+if [ -n "${ECAA_AGENT_HOME_DIR:-}" ]; then
+    AGENT_HOME_DIR="$ECAA_AGENT_HOME_DIR"
+elif [ -n "${ECAA_SESSION_CACHE_DIR:-}" ]; then
+    AGENT_HOME_DIR="$ECAA_SESSION_CACHE_DIR/agent-codex-home"
+else
+    AGENT_HOME_DIR="${ECAA_AGENT_CACHE_DIR:-$HOME/.ecaa-workflow/agent-cache}/standalone-$(basename "$PACKAGE")/agent-codex-home"
+fi
 mkdir -p "$AGENT_HOME_DIR" 2>/dev/null || true
 SCRATCH_ARGS=()
 if [ -n "${ECAA_TASK_ID:-}" ]; then
@@ -164,6 +190,85 @@ CODEX_MODEL="${ECAA_AGENT_MODEL_OVERRIDE:-${ECAA_AGENT_CODEX_MODEL:-}}"
 CODEX_MODEL_ARGS=()
 [ -n "$CODEX_MODEL" ] && CODEX_MODEL_ARGS+=(--model "$CODEX_MODEL")
 
+# ── Per-task budget translation. Codex has NO native --max-budget-usd flag
+#    (the claude path's hard CLI ceiling), so the per-class budget is passed
+#    into the container as ECAA_TASK_BUDGET_USD for the task-execution
+#    contract to soft-enforce. Same class buckets + calibrated p99 caps as
+#    agent-claude.sh; per-class envs override defaults, ECAA_AGENT_BUDGET_USD
+#    overrides all classes, and `0` opts out. NOTE: this is advisory only —
+#    codex lacks a hard CLI budget cap (see docs/known-limitations.md).
+CODEX_BUDGET_ENV_ARGS=()
+if [ "${ECAA_AGENT_MODEL_TIER:-1}" = "1" ] && [ -n "${ECAA_TASK_ID:-}" ]; then
+  case "$ECAA_TASK_ID" in
+    validate_*)
+      _BUDGET="${ECAA_AGENT_BUDGET_USD_VALIDATE:-1.25}"
+      ;;
+    discover_*)
+      _BUDGET="${ECAA_AGENT_BUDGET_USD_DISCOVER:-3.00}"
+      ;;
+    data_acquisition|data_import)
+      _BUDGET="${ECAA_AGENT_BUDGET_USD_DATA_ACQ:-2.00}"
+      ;;
+    *)
+      # `kind: discovery` is a legacy spelling used by a handful of archetype
+      # atoms before the discover_/validate_ prefix convention. Cheap jq read
+      # gated on jq + WORKFLOW.json being present.
+      TID_KIND=""
+      if command -v jq >/dev/null 2>&1 && [ -f "$PACKAGE/WORKFLOW.json" ]; then
+        TID_KIND="$(jq -r --arg tid "$ECAA_TASK_ID" '
+          .tasks[$tid].kind | if type == "object" then (keys[0]) else . end
+        ' "$PACKAGE/WORKFLOW.json" 2>/dev/null)"
+      fi
+      if [ "$TID_KIND" = "discovery" ]; then
+        _BUDGET="${ECAA_AGENT_BUDGET_USD_DISCOVER:-3.00}"
+      else
+        _BUDGET="${ECAA_AGENT_BUDGET_USD_ANALYTICAL:-3.00}"
+      fi
+      ;;
+  esac
+  # Global override beats per-class.
+  _BUDGET="${ECAA_AGENT_BUDGET_USD:-$_BUDGET}"
+  # `0` opts out; any positive number is the dollar ceiling for soft enforcement.
+  if [ -n "$_BUDGET" ] && [ "$_BUDGET" != "0" ]; then
+    CODEX_BUDGET_ENV_ARGS+=(-e "ECAA_TASK_BUDGET_USD=$_BUDGET")
+  fi
+fi
+
+# ── Host-path memory cap. When ECAA_AGENT_MEMORY_CAP_GB is set we hand the
+#    cap to `docker run --memory=<N>g`; --memory-reservation (docker's
+#    MemoryHigh equivalent) at 85% so OOM-kill is the last resort. Falls back
+#    to the dynamic-sizing slice (ECAA_HW_MEMORY_GB) in container mode.
+#    Ported from agent-claude.sh (the non-systemd docker arm).
+DOCKER_MEMORY_ARGS=()
+AGENT_MEMORY_LIMIT_GB=""
+if [ -n "${ECAA_AGENT_MEMORY_CAP_GB:-}" ]; then
+  if ! [[ "$ECAA_AGENT_MEMORY_CAP_GB" =~ ^[0-9]+$ ]]; then
+    echo "agent-codex.sh: ECAA_AGENT_MEMORY_CAP_GB must be a positive integer (got '$ECAA_AGENT_MEMORY_CAP_GB'); ignoring." >&2
+  else
+    AGENT_MEMORY_LIMIT_GB="$ECAA_AGENT_MEMORY_CAP_GB"
+  fi
+elif [[ "${ECAA_HW_MEMORY_GB:-}" =~ ^[0-9]+$ ]] && [ "$ECAA_HW_MEMORY_GB" -gt 0 ]; then
+  # Dynamic local sizing provides a per-agent memory slice as ECAA_HW_MEMORY_GB.
+  # In container mode, make that an actual cgroup limit.
+  AGENT_MEMORY_LIMIT_GB="$ECAA_HW_MEMORY_GB"
+fi
+if [ -n "$AGENT_MEMORY_LIMIT_GB" ]; then
+  DOCKER_MEMORY_RESERVATION_MB=$((AGENT_MEMORY_LIMIT_GB * 1024 * 85 / 100))
+  DOCKER_MEMORY_ARGS=(
+    "--memory=${AGENT_MEMORY_LIMIT_GB}g"
+    "--memory-reservation=${DOCKER_MEMORY_RESERVATION_MB}m"
+  )
+fi
+
+# ── CPU cap. Pin the container to the dynamic-sizing CPU slice when present.
+#    Ported from agent-claude.sh.
+DOCKER_CPU_ARGS=()
+__agent_container_cpus="${ECAA_HW_NPROC_HINT:-${ECAA_HW_VCPUS_AVAILABLE:-}}"
+if [[ "$__agent_container_cpus" =~ ^[0-9]+$ ]] && [ "$__agent_container_cpus" -gt 0 ]; then
+  DOCKER_CPU_ARGS+=(--cpus "$__agent_container_cpus")
+fi
+unset __agent_container_cpus
+
 # Capture the run for logs/telemetry (best-effort; the contract is the files
 # the agent writes, not this stream).
 CODEX_OUT_LOG=""
@@ -171,8 +276,91 @@ if [ -n "${ECAA_TASK_ID:-}" ]; then
     CODEX_OUT_LOG="$PACKAGE/runtime/outputs/$ECAA_TASK_ID/agent-codex.log"
 fi
 
+# Return success when agent-codex.log's tail shows a transient transport
+# failure (socket/connection/network/5xx) rather than an agent-authored task
+# failure. Callers use this to retry the same task; deterministic analysis or
+# validation errors must NOT match here. Codex has no structured terminal JSON
+# like the claude path, so this greps the raw log tail for transient markers.
+codex_log_transient_error() {
+  local out_log="$1"
+  [ -f "$out_log" ] || return 1
+  tail -n 40 "$out_log" 2>/dev/null | grep -Eiq \
+    "socket connection was closed unexpectedly|connection reset|ECONNRESET|ETIMEDOUT|fetch failed|network error|timed out|temporarily unavailable|stream error|502 Bad Gateway|503 Service Unavailable|504 Gateway"
+}
+
+# Run codex while preserving wrapper cleanup on nonzero exits. A transient
+# API/socket failure can otherwise leave the task failed even though a retry
+# would be safe and cheap. The retry is narrow: no state.patch.json written,
+# the log tail classified as a transport error, and bounded attempts. Mirrors
+# run_claude_with_retries in agent-claude.sh.
+run_codex_with_retries() {
+  local max_attempts="${ECAA_AGENT_TRANSIENT_MAX_ATTEMPTS:-2}"
+  if ! [[ "$max_attempts" =~ ^[0-9]+$ ]] || [ "$max_attempts" -lt 1 ]; then
+    max_attempts=1
+  fi
+
+  local attempt=1
+  local exit_code=0
+  local task_dir=""
+  local patch_path=""
+  if [ -n "${ECAA_TASK_ID:-}" ]; then
+    task_dir="$PACKAGE/runtime/outputs/$ECAA_TASK_ID"
+    patch_path="$task_dir/state.patch.json"
+    mkdir -p "$task_dir" 2>/dev/null || true
+  fi
+
+  if [ -n "$CODEX_OUT_LOG" ]; then
+    : > "$CODEX_OUT_LOG"
+  fi
+  while :; do
+    if [ "$attempt" -gt 1 ] && [ -n "$task_dir" ]; then
+      printf '[agent-retry] retrying transient codex transport error (attempt %s/%s)\n' \
+        "$attempt" "$max_attempts" >> "$task_dir/progress.log" 2>/dev/null || true
+    fi
+
+    set +e
+    if [ -n "$CODEX_OUT_LOG" ]; then
+      "$@" 2>&1 | tee -a "$CODEX_OUT_LOG"
+      exit_code="${PIPESTATUS[0]}"
+    else
+      "$@" 2>&1
+      exit_code=$?
+    fi
+    set -e
+
+    if [ "$exit_code" = "0" ]; then
+      if codex_log_transient_error "$CODEX_OUT_LOG" \
+         && [ -n "$patch_path" ] \
+         && [ ! -s "$patch_path" ] \
+         && [ "$attempt" -lt "$max_attempts" ]; then
+        attempt=$((attempt + 1))
+        sleep 5
+        continue
+      fi
+      return 0
+    fi
+
+    if [ -n "$patch_path" ] && [ -s "$patch_path" ]; then
+      return "$exit_code"
+    fi
+
+    if codex_log_transient_error "$CODEX_OUT_LOG" \
+       && [ "$attempt" -lt "$max_attempts" ]; then
+      if [ -n "$task_dir" ]; then
+        printf '[agent-retry] transient codex transport error after attempt %s/%s; retrying\n' \
+          "$attempt" "$max_attempts" >> "$task_dir/progress.log" 2>/dev/null || true
+      fi
+      attempt=$((attempt + 1))
+      sleep 5
+      continue
+    fi
+
+    return "$exit_code"
+  done
+}
+
 set +e
-docker run --rm \
+if run_codex_with_retries docker run --rm \
     --user "$(id -u):$(id -g)" \
     --read-only \
     --tmpfs "/tmp:rw,size=$ECAA_DOCKER_TMPFS_TMP_SIZE,mode=1777" \
@@ -180,12 +368,15 @@ docker run --rm \
     --security-opt no-new-privileges \
     --cap-drop=ALL \
     --pids-limit "$ECAA_DOCKER_PIDS_LIMIT" \
+    "${DOCKER_MEMORY_ARGS[@]}" \
+    "${DOCKER_CPU_ARGS[@]}" \
     -v "$PACKAGE":"$PACKAGE":rw \
     -v "$AGENT_HOME_DIR":"$HOME":rw \
     -v "$SCRIPT_DIR/ecaa-install":/usr/local/bin/ecaa-install:ro \
     -v "$SCRIPT_DIR/agent_literature_fetch.py":/opt/ecaa/agent_literature_fetch.py:ro \
     "${CODEX_BIN_ARGS[@]}" \
     "${CODEX_AUTH_ARGS[@]}" \
+    "${CODEX_BUDGET_ENV_ARGS[@]}" \
     "${SCRATCH_ARGS[@]}" \
     -w "$PACKAGE" \
     -e "HOME=$HOME" \
@@ -193,9 +384,11 @@ docker run --rm \
     -e "ECAA_TASK_ID=${ECAA_TASK_ID:-}" \
     -e "ECAA_PACKAGE_ROOT=${ECAA_PACKAGE_ROOT:-$PACKAGE}" \
     "$CONTAINER_IMAGE" \
-    codex exec --yolo --skip-git-repo-check "${CODEX_MODEL_ARGS[@]}" "$PROMPT" \
-    > >(if [ -n "$CODEX_OUT_LOG" ]; then tee "$CODEX_OUT_LOG"; else cat; fi) 2>&1
-CODEX_EXIT=$?
+    codex exec --yolo --skip-git-repo-check "${CODEX_MODEL_ARGS[@]}" "$PROMPT"; then
+  CODEX_EXIT=0
+else
+  CODEX_EXIT=$?
+fi
 set -e
 
 # The harness reconciles outcome from result.json / state.patch.json that the

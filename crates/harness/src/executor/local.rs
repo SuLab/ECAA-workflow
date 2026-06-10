@@ -126,6 +126,10 @@ pub(super) const REQUIRED_INHERITED_KEYS: &[&str] = &[
     "ECAA_AGENT_CODEX_VERSION",
     "ECAA_AGENT_CODEX_DISABLE",
     "ECAA_AGENT_CODEX_FORCE_REINSTALL",
+    // Explicit experimental opt-in for the codex backend. agent-codex.sh
+    // refuses to run unless this is `1`; env_clear would strip it before the
+    // wrapper sees it, so the gate would always fail without it in the allowlist.
+    "ECAA_AGENT_CODEX_EXPERIMENTAL",
 ];
 
 /// `ECAA_DISABLE_ENV_CLEAR=1` legacy bypass.
