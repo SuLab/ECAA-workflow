@@ -251,6 +251,33 @@ fn resolve_evidence_file(evidence_dir: &Path, entry_path: &str) -> std::path::Pa
             return task_anchored;
         }
     }
+    // Ancestor-walk anchor: a PACKAGE-ROOT-relative path (codex writes
+    // "runtime/outputs/<task>/evidence/sources/PMID_X.txt") resolves from some
+    // ancestor of the evidence dir. Try each ancestor up to the filesystem root.
+    let mut anc = evidence_dir.parent();
+    while let Some(a) = anc {
+        let joined = a.join(entry_path);
+        if joined.exists() {
+            return joined;
+        }
+        anc = a.parent();
+    }
+    // Basename fallback: the file lives under the evidence dir (or a common
+    // subdir) regardless of how the manifest spelled the path prefix. Robust
+    // against any executor's path convention (codex nests under sources/, the
+    // canonical helper writes flat, contextualize reuses snapshots/).
+    if let Some(base) = std::path::Path::new(entry_path).file_name() {
+        for sub in ["", "sources", "raw", "snapshots"] {
+            let cand = if sub.is_empty() {
+                evidence_dir.join(base)
+            } else {
+                evidence_dir.join(sub).join(base)
+            };
+            if cand.exists() {
+                return cand;
+            }
+        }
+    }
     direct
 }
 
@@ -710,13 +737,11 @@ fn source_kind_is_inherently_redistributable(source_kind: &str) -> bool {
     // (openalex/crossref) and generic `abstract_only` are intentionally EXCLUDED
     // — those still require an explicit redistributable mark, preserving the
     // legal gate for sources whose underlying license isn't class-determined.
-    const REDISTRIBUTABLE_TOKENS: &[&str] = &[
-        "pmc_oa",
-        "pmc_front",
-        "pubmed_abstract",
-        "pubmed_efetch",
-        "pubmed_esearch",
-    ];
+    // `pmc` covers every PubMed Central spelling (pmc_oa_full_text, pmc_front,
+    // pmc_xml_fulltext, …): NLM only serves OA / author-manuscript full text via
+    // PMC, all research-redistributable. external_pdf is excluded below.
+    const REDISTRIBUTABLE_TOKENS: &[&str] =
+        &["pmc", "pubmed_abstract", "pubmed_efetch", "pubmed_esearch"];
     let sk = source_kind.to_ascii_lowercase();
     !sk.contains("external_pdf") && REDISTRIBUTABLE_TOKENS.iter().any(|t| sk.contains(t))
 }
@@ -1640,6 +1665,37 @@ mod tests {
     }
 
     #[test]
+    fn resolve_evidence_file_handles_package_root_relative_and_nested_paths() {
+        // codex writes a PACKAGE-ROOT-relative source_text_path
+        // ("runtime/outputs/review_prior_work/evidence/sources/PMID_X.txt") and
+        // nests the file under evidence/sources/. The resolver must find it via
+        // the ancestor-walk OR the basename fallback, regardless of prefix.
+        let root = TempDir::new().unwrap();
+        let ev = root
+            .path()
+            .join("runtime/outputs/review_prior_work/evidence");
+        fs::create_dir_all(ev.join("sources")).unwrap();
+        fs::write(ev.join("sources/PMID_20921232.txt"), "abstract text").unwrap();
+        // Package-root-relative path (resolves via ancestor-walk).
+        let r1 = resolve_evidence_file(
+            &ev,
+            "runtime/outputs/review_prior_work/evidence/sources/PMID_20921232.txt",
+        );
+        assert!(
+            r1.exists(),
+            "package-root-relative path must resolve; got {}",
+            r1.display()
+        );
+        // A bare basename / odd prefix resolves via the sources/ basename fallback.
+        let r2 = resolve_evidence_file(&ev, "weird/prefix/PMID_20921232.txt");
+        assert!(
+            r2.exists(),
+            "basename fallback must find the nested file; got {}",
+            r2.display()
+        );
+    }
+
+    #[test]
     fn validators_accept_codex_sources_manifest_schema() {
         // Codex hand-rolls a well-formed but non-canonical evidence manifest:
         // top-level `sources` (not `entries`), per-source `source_text_path`
@@ -1729,9 +1785,16 @@ mod tests {
         // codex / unknown literature source_kind, marked redistributable → ok.
         assert!(run("pubmed", "true").is_ok());
         assert!(run("ncbi_efetch", "true").is_ok());
-        // Legal gate preserved: external local PDF must NOT claim redistribution.
+        // NLM/PMC classes pass UNMARKED via class inference (any `pmc*` spelling,
+        // incl. codex's `pmc_xml_fulltext`; PMC serves only OA/author-MS full text).
+        assert!(run("pmc_xml_fulltext", "false").is_ok());
+        assert!(run("pmc_oa_full_text", "false").is_ok());
+        assert!(run("pubmed_abstract", "false").is_ok());
+        // Legal gate preserved: external local PDF must NOT claim redistribution,
+        // and an unmarked non-NLM/non-PMC source still fails.
         assert!(run("external_pdf_local_only", "true").is_err());
         assert!(run("external_pdf_local_only", "false").is_ok());
+        assert!(run("some_random_blog", "false").is_err());
     }
 
     #[test]
