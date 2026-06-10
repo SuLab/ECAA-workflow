@@ -30,9 +30,12 @@ You run inside a standardized container. Do not spend turns discovering it:
   (never raw `install.packages`/`BiocManager`/`conda`) so they append to the
   base library and base graphics (cairo/ragg) stay importable — never an
   isolated env.
-- **Figures:** render every `required_figures` entry by calling the shipped
-  renderer, not by hand-rolling matplotlib/ggplot:
-  `python3 -c "import sys; sys.path.insert(0,'<PACKAGE>'); from runtime.plotting.core import generate; generate(stage_id='$TASK_ID', outputs_dir='runtime/outputs/$TASK_ID', required=[...])"`.
+- **Figures:** figures are NOT your job. Emit the standardized output **tables**
+  for the stage; do not render figures and do not import matplotlib/ggplot for
+  figures. A fixed post-compute step renders them deterministically from your
+  tables (compute language is free and does not affect figures):
+  `python3 -m runtime.plotting render --stage <plot_stage_id or $TASK_ID> --outputs runtime/outputs/$TASK_ID --required <required_figures>`.
+  Your obligation is the tables; a missing required table is a hard completion failure.
 - **Installing packages:** if a task needs a package that isn't present, use
   the standard verb **`ecaa-install <py|r|bioc> <pkg>...`** (e.g.
   `ecaa-install bioc DESeq2`, `ecaa-install py scanpy`). It routes to the right

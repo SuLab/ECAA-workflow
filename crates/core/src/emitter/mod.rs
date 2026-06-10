@@ -282,10 +282,7 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     // content-addressed and path-independent); fall back to the parent's
     // content-addressed `workflow_id`; fall back to empty for non-amend /
     // unreadable parents (identical to the base no-amend case, correct).
-    let lineage_str = config
-        .amend_from
-        .map(parent_lineage_id)
-        .unwrap_or_default();
+    let lineage_str = config.amend_from.map(parent_lineage_id).unwrap_or_default();
     let hash_input = format!(
         "{}|{}|{}|{}|{}",
         config.dag.workflow_id,
@@ -429,8 +426,12 @@ pub fn emit_package(config: &EmitConfig) -> Result<()> {
     crate::fs_helpers::atomic_write_bytes_sync(&dir.join("CONTEXT.md"), context_payload.as_bytes())
         .context("writing CONTEXT.md")?;
 
-    let prompt_payload =
-        render_prompt(config.dag, config.classification, config.claim_boundary, config.objective);
+    let prompt_payload = render_prompt(
+        config.dag,
+        config.classification,
+        config.claim_boundary,
+        config.objective,
+    );
     crate::fs_helpers::atomic_write_bytes_sync(&dir.join("PROMPT.md"), prompt_payload.as_bytes())
         .context("writing PROMPT.md")?;
 
@@ -903,28 +904,20 @@ When `runtime/outputs/<task_id>/sme-decisions.json` carries a chosen option from
 \n\
 The validator distinguishes 'agent gave up' (rejected) from 'SME explicitly authorized skip' (accepted) by the presence of `skipped_per_sme` / `dropped_per_sme` + `sme_chosen_option_id` in the result. Without those markers, the empty-completion rule above applies and the harness will re-block.\n\
 \n\
-## Figures (REQUIRED when the task spec has `required_figures`)\n\
+## Figures (the data-table contract — REQUIRED when the task spec has `required_figures`)\n\
 \n\
-Every compute task whose `spec.required_figures` is non-empty MUST produce each listed figure under `runtime/outputs/<task_id>/figures/<figure_id>.png` and `<figure_id>.pdf` **before** marking the task `completed`. Use the shared plotting library shipped with this package. If `task.spec.plot_stage_id` is present, pass that value as `stage_id`; otherwise pass the task id:\n\
+Figures are NOT your job. Emit your analysis outputs as the standardized data TABLES for this stage (the renderer reads these; if `task.spec.plot_stage_id` is present it names the renderer stage). Do NOT render figures yourself and do NOT import matplotlib or ggplot for figures — figures are rendered deterministically from your tables by a fixed post-compute step:\n\
 \n\
-```python\n\
-import sys\n\
-from pathlib import Path\n\
-sys.path.insert(0, str(Path.cwd()))  # so `runtime.plotting` resolves\n\
-from runtime.plotting.core import generate\n\
-mf = generate(\n\
-    stage_id=task_spec.get(\"plot_stage_id\", \"<task_id>\"),\n\
-    outputs_dir=Path(\"runtime/outputs/<task_id>\"),\n\
-    required=<task.spec.required_figures>,\n\
-)\n\
-# mf.written is a dict of figure_id -> path; include it in task.state.result\n\
+```\n\
+python3 -m runtime.plotting render --stage <plot_stage_id or task_id> \\\n\
+    --outputs runtime/outputs/<task_id> --required <task.spec.required_figures>\n\
 ```\n\
 \n\
-The harness treats missing required figure PNG/PDF files and a missing `figures/manifest.json` as a hard completion failure. If input artifacts are absent, block the task with a concrete missing-input reason instead of completing with skipped required figures. Do NOT silently omit figures from the result.\n\
+Your obligation is the TABLES. Emitting the required output tables is mandatory; a missing table that prevents rendering a required figure is a hard completion failure. Your compute language is free (Python or R) and does not affect figures — the render step is language-uniform and reads only your tables, so pick whatever fits the method.\n\
 \n\
-The library owns determinism (Agg backend, stripped metadata, seeded RNG, theme baseline from `runtime/plotting/theme.json`). Output is dual-format: a 300dpi PNG and a vector PDF for every figure. Do NOT import matplotlib directly — go through `runtime.plotting.core` helpers (`violin`, `bar`, `scatter`, `volcano`, `heatmap`) plus `categorical_palette(n)` for any categorical encoding (Wong/Glasbey colorblind-safe; never `tab10`/`tab20`) so every figure across the package is byte-reproducible.\n\
+The harness treats missing required figure PNG/PDF files and a missing `figures/manifest.json` as a hard completion failure. If input artifacts are absent, block the task with a concrete missing-input reason instead of completing with skipped required tables. Do NOT silently omit a required table from the result.\n\
 \n\
-**For R-based tasks** (Seurat / DESeq2 / Bioconductor), source the parallel R-side library at `runtime/plotting_r/core.R` and call `ecaa_savefig(plot, path, stage_id=...)`. Both renderers consume the same `theme.json`, the same Wong palette, and produce figures at the same figure_id catalog so the validator's `figures_present` check is renderer-agnostic. The R catalog is a subset of the Python one: if `ecaa_known_figures(stage_id)` is empty for your stage (no R module covers it yet), do NOT emit zero figures — render the required figure_ids with the Python library (`runtime/plotting/`) from the output tables you already wrote. Figures are data-derived, the Python catalog is complete, and emitting zero required figures is a hard completion failure.\n\n\
+The render step owns determinism FOR you (Agg backend, stripped metadata, seeded RNG, theme baseline from `runtime/plotting/theme.json`, dual-format 300dpi PNG + vector PDF, Wong/Glasbey colorblind-safe palettes). You do not configure any of that — you only write the tables, and the same figures come out byte-reproducibly regardless of which language produced them.\n\n\
 ## Hardware-aware execution\n\
 \n\
 You run under a harness that passes a per-task hardware envelope in environment variables (prefix `ECAA_HW_`). Never ignore these vars. Parse `ECAA_HW_TOOL_THREAD_CURVES`, `ECAA_HW_ENV_OVERRIDES`, `ECAA_HW_INTAKE_FACTS`, `ECAA_HW_CONCURRENT_PEERS_BY_CLASS` as JSON; the rest are plain scalars.\n\
@@ -1357,3 +1350,59 @@ pub(crate) fn collect_sme_decisions(dag: &DAG) -> Vec<SmeDecision> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod figure_contract_tests {
+    use super::render_prompt;
+    use super::AGENT_EXECUTOR_BRIEF;
+    use crate::classify::ClassificationResult;
+    use crate::dag::DAG;
+
+    // The figures steer is static text on every PROMPT.md, independent of DAG
+    // content, so an empty DAG + default classification is enough to exercise it.
+    fn empty_dag() -> DAG {
+        serde_json::from_value(serde_json::json!({
+            "version": "1.0.0",
+            "workflow_id": "test",
+            "current_task": null,
+            "tasks": {},
+        }))
+        .expect("minimal DAG deserializes")
+    }
+
+    #[test]
+    fn prompt_steers_figures_to_the_data_table_contract() {
+        let prompt = render_prompt(&empty_dag(), &ClassificationResult::default(), None, None);
+
+        // (a) The fixed post-compute render step is named, and the agent is told
+        // NOT to render figures itself.
+        assert!(
+            prompt.contains("python3 -m runtime.plotting render"),
+            "PROMPT.md must name the fixed render entrypoint"
+        );
+        assert!(
+            prompt.to_lowercase().contains("do not"),
+            "PROMPT.md must carry the render-it-yourself prohibition"
+        );
+
+        // (b) The old 'render it yourself' library call must be gone — figures are
+        // a data-table contract, not an in-task plotting obligation.
+        assert!(
+            !prompt.contains("from runtime.plotting.core import generate"),
+            "the render-it-yourself snippet must not appear in PROMPT.md"
+        );
+
+        // (c) AGENT-EXECUTOR.md (shipped into every package as a SECOND
+        // agent-facing steer) must carry the same data-table contract. Regression
+        // guard for the missed-steer class: a second steer that still said
+        // 'render it yourself' would silently contradict PROMPT.md.
+        assert!(
+            AGENT_EXECUTOR_BRIEF.contains("python3 -m runtime.plotting render"),
+            "AGENT-EXECUTOR.md must name the fixed render entrypoint"
+        );
+        assert!(
+            !AGENT_EXECUTOR_BRIEF.contains("from runtime.plotting.core import generate"),
+            "AGENT-EXECUTOR.md must not carry the render-it-yourself snippet"
+        );
+    }
+}

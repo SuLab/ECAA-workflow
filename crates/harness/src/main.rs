@@ -5216,9 +5216,9 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
                 "note": "`Rscript` on PATH. Install extra R packages with `ecaa-install r|bioc` so they land in the user library appended to the base .libPaths() — base graphics (cairo/ragg) stay importable. Do NOT create an isolated R/conda env, which drops base packages."
             },
             "figure_rendering": {
-                "use": "runtime/plotting",
-                "how": "python3 -c \"import sys; sys.path.insert(0, '<PACKAGE>'); from runtime.plotting.core import generate; generate(stage_id='<task_id>', outputs_dir='runtime/outputs/<task_id>', required=[...])\"",
-                "note": "Render every required figure via the shipped renderer. Do not hand-roll matplotlib/ggplot figures."
+                "use": "python3 -m runtime.plotting render",
+                "how": "python3 -m runtime.plotting render --stage <plot_stage_id or task_id> --outputs runtime/outputs/<task_id> --required <required_figures>",
+                "note": "Figures are NOT your job: emit the standardized output tables for the stage. A fixed post-compute step renders them deterministically from your tables. Do not render figures or hand-roll matplotlib/ggplot. Compute language (Python or R) does not affect figures."
             },
             "install": {
                 "command": "ecaa-install <ecosystem> <pkg>...",
