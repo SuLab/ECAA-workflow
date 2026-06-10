@@ -407,6 +407,49 @@ impl DataProductContract {
     /// and recursively decompose into the upstream chain
     /// (normalisation → qc_preprocessing → quantification →
     /// alignment → sequence_trimming → raw_qc → data_acquisition).
+    /// A gene-level raw count matrix (`data:3917` / `format:3475`,
+    /// `raw_counts`) — the output shape of the `quantification` atom and
+    /// the input shape of `qc_preprocessing`. Used as the declared
+    /// `available_data` when an SME supplies counts directly ("counts
+    /// matrix already prepared, no FASTQs"), so input-stage pruning can
+    /// match it against the `quantification` producer and drop the
+    /// upstream FASTQ chain.
+    pub fn gene_count_matrix() -> Self {
+        Self {
+            id: "intake_gene_count_matrix_0".into(),
+            semantic_type: SemanticType::OntologyTerm {
+                iri: "data:3917".into(),
+                label: "Count matrix".into(),
+                ontology_version: Some("EDAM-1.25".into()),
+            },
+            physical: PhysicalRepresentation {
+                uri: None,
+                digest: None,
+                size_bytes: None,
+                media_type: Some("text/tab-separated-values".into()),
+            },
+            biological: BiologicalContext {
+                organism: Some("Homo sapiens".into()),
+                feature_space: Some("gene".into()),
+                ..Default::default()
+            },
+            assay: None,
+            statistical: Some(StatisticalState {
+                is_raw: true,
+                normalization: None,
+                transformation: None,
+                batch_corrected: false,
+                uncertainty_model: None,
+            }),
+            structural_schema: None,
+            cardinality: Cardinality::One,
+            identifiers: Vec::new(),
+            privacy: PrivacyClass::Internal,
+            quality: Vec::new(),
+            description_only: false,
+        }
+    }
+
     /// Fixture for the v4 backward-search tests.
     pub fn sample_de_table() -> Self {
         Self {

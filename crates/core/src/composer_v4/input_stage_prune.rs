@@ -1,0 +1,388 @@
+//! Input-stage-aware pruning.
+//!
+//! When the SME supplies a processed data product directly ("counts matrix
+//! already prepared… no raw FASTQs"), the declared product is surfaced on
+//! `intent.available_data`. The lifted archetype scaffold, however, still
+//! contains the full upstream chain that would *produce* that product
+//! (`raw_qc → sequence_trimming → alignment → quantification` for counts). Those
+//! tasks have no inputs (the SME has counts, not reads), so they block at
+//! runtime and strand everything downstream.
+//!
+//! This pass drops the redundant producing-chain and rewires the first real
+//! consumer to the data-staging anchor (`data_acquisition` / `data_import`),
+//! which now stages the supplied product. It runs immediately after
+//! `lift_to_workflow_dag` and BEFORE companion synthesis, so no
+//! `discover_*`/`validate_*` companions are ever created for pruned tasks.
+
+use crate::workflow_contracts::data_product::DataProductContract;
+use crate::workflow_contracts::edge::EdgeContract;
+use crate::workflow_contracts::semantic_type::SemanticType;
+use crate::workflow_contracts::task_node::{TaskNode, WorkflowDag};
+use std::collections::BTreeSet;
+
+/// Staging anchors that ingest SME-supplied data. Never pruned; the rewire
+/// target for a supplied product.
+const SUPPLY_ANCHORS: &[&str] = &["data_acquisition", "data_import"];
+
+/// FASTQ / raw sequence reads — the default raw input seed, never a "supplied
+/// processed product" worth pruning toward.
+const RAW_INPUT_IRI: &str = "data:2044";
+
+fn type_iri(st: &SemanticType) -> Option<&str> {
+    match st {
+        SemanticType::OntologyTerm { iri, .. } => Some(iri.as_str()),
+        _ => None,
+    }
+}
+
+fn product_iri(p: &DataProductContract) -> Option<&str> {
+    type_iri(&p.semantic_type)
+}
+
+/// Does node `n` expose an OUTPUT port of semantic type `iri`?
+fn node_produces(n: &TaskNode, iri: &str) -> bool {
+    n.outputs
+        .iter()
+        .any(|o| type_iri(&o.semantic_type) == Some(iri))
+}
+
+/// Transitive ancestors of `target` (every node with a forward path to it).
+fn ancestors(target: &str, edges: &[EdgeContract]) -> BTreeSet<String> {
+    let mut anc = BTreeSet::new();
+    let mut stack = vec![target.to_string()];
+    while let Some(cur) = stack.pop() {
+        for e in edges.iter().filter(|e| e.to_node == cur) {
+            if anc.insert(e.from_node.clone()) {
+                stack.push(e.from_node.clone());
+            }
+        }
+    }
+    anc
+}
+
+/// Prune the redundant producing-chain for every supplied product in
+/// `available`. Returns the ids removed (for assumption-ledger logging).
+pub fn prune_supplied_upstream(
+    dag: &mut WorkflowDag,
+    available: &[DataProductContract],
+) -> Vec<String> {
+    let mut removed_all = Vec::new();
+    for product in available {
+        let Some(iri) = product_iri(product) else {
+            continue;
+        };
+        if iri == RAW_INPUT_IRI {
+            continue;
+        }
+        // Producer candidates: non-anchor nodes exposing this output type.
+        let producers: Vec<String> = dag
+            .nodes
+            .iter()
+            .filter(|n| node_produces(n, iri) && !SUPPLY_ANCHORS.contains(&n.id.as_str()))
+            .map(|n| n.id.clone())
+            .collect();
+        if producers.is_empty() {
+            continue;
+        }
+        // Pick the MOST-UPSTREAM producer: the one with no other same-type
+        // producer among its ancestors. (A downstream re-producer like a
+        // filtered-counts step must not be chosen, or we'd prune the consumer
+        // we mean to keep.) Deterministic tie-break by id.
+        let mut roots: Vec<String> = producers
+            .iter()
+            .filter(|c| {
+                let anc = ancestors(c, &dag.edges);
+                !producers.iter().any(|p| p != *c && anc.contains(p))
+            })
+            .cloned()
+            .collect();
+        roots.sort();
+        let Some(q) = roots.into_iter().next() else {
+            continue;
+        };
+
+        // Prune set = Q ∪ ancestors(Q), minus the supply anchors.
+        let anc = ancestors(&q, &dag.edges);
+        let prune: BTreeSet<String> = anc
+            .into_iter()
+            .chain(std::iter::once(q.clone()))
+            .filter(|id| !SUPPLY_ANCHORS.contains(&id.as_str()))
+            .collect();
+
+        // The supply anchor we rewire onto (must exist in the DAG).
+        let Some(anchor) = SUPPLY_ANCHORS
+            .iter()
+            .find(|a| dag.nodes.iter().any(|n| &n.id == *a))
+            .map(|a| a.to_string())
+        else {
+            continue;
+        };
+
+        // SAFETY: never over-prune. Every pruned node OTHER than Q must feed
+        // only the prune set (Q's own consumers are exempt — they get rewired).
+        // If any pruned ancestor branches out to a KEPT task, abort this product.
+        let clean = prune.iter().filter(|id| **id != q).all(|id| {
+            dag.edges
+                .iter()
+                .filter(|e| &e.from_node == id)
+                .all(|e| prune.contains(&e.to_node))
+        });
+        if !clean {
+            continue;
+        }
+
+        // Copy Q's producing output port onto the anchor so the rewired
+        // consumer edges keep a typed source.
+        if let Some(port) = dag.nodes.iter().find(|n| n.id == q).and_then(|n| {
+            n.outputs
+                .iter()
+                .find(|o| type_iri(&o.semantic_type) == Some(iri))
+                .cloned()
+        }) {
+            if let Some(anchor_node) = dag.nodes.iter_mut().find(|n| n.id == anchor) {
+                if !node_produces(anchor_node, iri) {
+                    anchor_node.outputs.push(port);
+                }
+            }
+        }
+
+        // Rewire Q's consumers onto the anchor.
+        for e in dag.edges.iter_mut() {
+            if e.from_node == q {
+                e.from_node = anchor.clone();
+            }
+        }
+
+        // Remove the prune set + any `discover_*`/`validate_*` companions for
+        // pruned ids (defensive — at the planner call site none exist yet).
+        let mut remove = prune.clone();
+        for p in &prune {
+            for prefix in ["discover_", "validate_"] {
+                let companion = format!("{prefix}{p}");
+                if dag.nodes.iter().any(|n| n.id == companion) {
+                    remove.insert(companion);
+                }
+            }
+        }
+        dag.nodes.retain(|n| !remove.contains(&n.id));
+        dag.edges
+            .retain(|e| !remove.contains(&e.from_node) && !remove.contains(&e.to_node));
+        removed_all.extend(remove);
+    }
+    removed_all.sort();
+    removed_all.dedup();
+    removed_all
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workflow_contracts::edge::{CompatibilityProof, EdgeKind};
+    use crate::workflow_contracts::port::PortContract;
+
+    fn out(name: &str, iri: &str) -> PortContract {
+        PortContract::with_semantic_type(name, SemanticType::edam(iri, ""))
+    }
+    fn inp(name: &str, iri: &str) -> PortContract {
+        PortContract::with_semantic_type(name, SemanticType::edam(iri, ""))
+    }
+    fn node(id: &str, inputs: Vec<PortContract>, outputs: Vec<PortContract>) -> TaskNode {
+        let mut n = TaskNode::skeleton(id, id);
+        n.inputs = inputs;
+        n.outputs = outputs;
+        n
+    }
+    fn edge(from: &str, to: &str) -> EdgeContract {
+        EdgeContract {
+            from_node: from.into(),
+            from_port: "out".into(),
+            to_node: to.into(),
+            to_port: "in".into(),
+            proof: CompatibilityProof::default(),
+            kind: EdgeKind::TypedDataFlow,
+            chain_of_custody: None,
+        }
+    }
+
+    const FASTQ: &str = "data:2044";
+    const BAM: &str = "data:2572";
+    const COUNTS: &str = "data:3917";
+    const DE: &str = "data:0951";
+
+    /// A full bulk-RNA-seq chain. Supplying counts must drop
+    /// raw_qc/alignment/quantification, keep + rewire qc_preprocessing onto
+    /// data_acquisition, and leave differential_expression intact.
+    #[test]
+    fn supplied_counts_prunes_fastq_chain_and_rewires() {
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                node("data_acquisition", vec![], vec![out("staged", "data:2531")]),
+                node(
+                    "raw_qc",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("qc", "data:2914")],
+                ),
+                node(
+                    "alignment",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("bam", BAM)],
+                ),
+                node(
+                    "quantification",
+                    vec![inp("bam", BAM)],
+                    vec![out("counts", COUNTS)],
+                ),
+                node(
+                    "qc_preprocessing",
+                    vec![inp("counts", COUNTS)],
+                    vec![out("filtered", COUNTS)],
+                ),
+                node(
+                    "differential_expression",
+                    vec![inp("filt", COUNTS)],
+                    vec![out("de", DE)],
+                ),
+            ],
+            edges: vec![
+                edge("data_acquisition", "raw_qc"),
+                edge("raw_qc", "alignment"),
+                edge("alignment", "quantification"),
+                edge("quantification", "qc_preprocessing"),
+                edge("qc_preprocessing", "differential_expression"),
+            ],
+            ..Default::default()
+        };
+        let removed =
+            prune_supplied_upstream(&mut dag, &[DataProductContract::gene_count_matrix()]);
+
+        let ids: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        // FASTQ chain dropped.
+        for gone in ["raw_qc", "alignment", "quantification"] {
+            assert!(!ids.contains(gone), "{gone} must be pruned; got {ids:?}");
+            assert!(
+                removed.iter().any(|r| r == gone),
+                "removed should list {gone}"
+            );
+        }
+        // Consumer + analysis + anchor kept.
+        for kept in [
+            "data_acquisition",
+            "qc_preprocessing",
+            "differential_expression",
+        ] {
+            assert!(ids.contains(kept), "{kept} must survive; got {ids:?}");
+        }
+        // qc_preprocessing rewired onto data_acquisition; the old quantification
+        // edge is gone.
+        assert!(
+            dag.edges
+                .iter()
+                .any(|e| e.from_node == "data_acquisition" && e.to_node == "qc_preprocessing"),
+            "qc_preprocessing must be rewired onto data_acquisition; edges={:?}",
+            dag.edges
+                .iter()
+                .map(|e| (e.from_node.clone(), e.to_node.clone()))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !dag.edges
+                .iter()
+                .any(|e| e.from_node == "quantification" || e.to_node == "quantification"),
+            "no edges may reference the pruned quantification node"
+        );
+        // data_acquisition now exposes the counts output type so the rewired
+        // edge keeps a typed source.
+        let da = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "data_acquisition")
+            .unwrap();
+        assert!(
+            node_produces(da, COUNTS),
+            "data_acquisition must expose the supplied counts type"
+        );
+    }
+
+    /// No supplied stage (FASTQ default) → no pruning.
+    #[test]
+    fn raw_fastq_input_is_not_pruned() {
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                node("data_acquisition", vec![], vec![out("reads", FASTQ)]),
+                node(
+                    "raw_qc",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("qc", "data:2914")],
+                ),
+                node(
+                    "quantification",
+                    vec![inp("bam", BAM)],
+                    vec![out("counts", COUNTS)],
+                ),
+            ],
+            edges: vec![
+                edge("data_acquisition", "raw_qc"),
+                edge("raw_qc", "quantification"),
+            ],
+            ..Default::default()
+        };
+        // FASTQ seed (data:2044) must be a no-op even though it's "available".
+        let removed =
+            prune_supplied_upstream(&mut dag, &[DataProductContract::sample_paired_fastq()]);
+        assert!(
+            removed.is_empty(),
+            "FASTQ default seed must not prune anything"
+        );
+        assert_eq!(dag.nodes.len(), 3);
+    }
+
+    /// A pruned ancestor that ALSO feeds a kept task must abort the prune
+    /// (never over-prune a branch).
+    #[test]
+    fn branch_escape_aborts_prune() {
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                node("data_acquisition", vec![], vec![out("staged", "data:2531")]),
+                node(
+                    "alignment",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("bam", BAM)],
+                ),
+                node(
+                    "quantification",
+                    vec![inp("bam", BAM)],
+                    vec![out("counts", COUNTS)],
+                ),
+                node(
+                    "qc_preprocessing",
+                    vec![inp("counts", COUNTS)],
+                    vec![out("filt", COUNTS)],
+                ),
+                // alignment ALSO feeds a kept structural-variant branch → not a clean chain.
+                node(
+                    "sv_calling",
+                    vec![inp("bam", BAM)],
+                    vec![out("sv", "data:3498")],
+                ),
+                node("reporting", vec![inp("sv", "data:3498")], vec![]),
+            ],
+            edges: vec![
+                edge("data_acquisition", "alignment"),
+                edge("alignment", "quantification"),
+                edge("quantification", "qc_preprocessing"),
+                edge("alignment", "sv_calling"),
+                edge("sv_calling", "reporting"),
+            ],
+            ..Default::default()
+        };
+        let removed =
+            prune_supplied_upstream(&mut dag, &[DataProductContract::gene_count_matrix()]);
+        assert!(
+            removed.is_empty(),
+            "alignment feeds a kept SV branch — prune must abort, got {removed:?}"
+        );
+    }
+}

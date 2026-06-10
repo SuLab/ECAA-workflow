@@ -1092,13 +1092,11 @@ impl Classifier {
                     )
                     || MARKER_COMPANION_INTENT.iter().any(|(marker, pairs)| {
                         normalized_text.contains(marker)
-                            && pairs.iter().any(|(p, s)| {
-                                *p == primary.id.as_str() && *s == m.id.as_str()
-                            })
+                            && pairs
+                                .iter()
+                                .any(|(p, s)| *p == primary.id.as_str() && *s == m.id.as_str())
                     });
-                if *hits == 1
-                    && !explicitly_signaled
-                    && conf < SINGLE_HIT_COMPANION_MIN_CONFIDENCE
+                if *hits == 1 && !explicitly_signaled && conf < SINGLE_HIT_COMPANION_MIN_CONFIDENCE
                 {
                     return None;
                 }
@@ -2022,6 +2020,27 @@ impl Classifier {
     /// propagating an invalid goal. Defends against config drift +
     /// the LLM-extraction path that piggybacks on this output.
     pub fn extract_goal(&self, text: &str) -> Option<GoalSpec> {
+        let mut goal = self.extract_goal_inner(text)?;
+        // Input-stage-aware seeding: detect an SME-declared supplied product
+        // ("counts matrix already prepared") on the FULL intake text — not the
+        // short matched goal-phrase that lands in `source_prose` — and stash its
+        // type IRI in `modifiers` so `compose_v4_dispatch_full` can seed
+        // `available_data` from it and prune the redundant producing-chain. Uses
+        // the existing `modifiers` map to avoid a `GoalSpec` wire-field change.
+        if !goal.modifiers.contains_key("available_input_stage") {
+            if let Some(crate::workflow_contracts::semantic_type::SemanticType::OntologyTerm {
+                iri,
+                ..
+            }) = crate::intake_facts::IntakeFacts::detect_input_data_stage(text)
+                .map(|p| p.semantic_type)
+            {
+                goal.modifiers.insert("available_input_stage".into(), iri);
+            }
+        }
+        Some(goal)
+    }
+
+    fn extract_goal_inner(&self, text: &str) -> Option<GoalSpec> {
         let normalized = normalize_for_match(text);
 
         // Pre-scan: integrator + protocol keywords → modifier entries.
@@ -2330,11 +2349,7 @@ impl Classifier {
     /// their `generic_omics` routing. `normalized` is the already
     /// `normalize_for_match`-ed full prompt; `ooc_tokens` is the raw
     /// out-of-catalog token list.
-    fn registered_modality_genuinely_fits(
-        &self,
-        normalized: &str,
-        ooc_tokens: &[&str],
-    ) -> bool {
+    fn registered_modality_genuinely_fits(&self, normalized: &str, ooc_tokens: &[&str]) -> bool {
         let ooc_norm: Vec<String> = ooc_tokens
             .iter()
             .map(|t| normalize_for_match(t))
@@ -2375,7 +2390,9 @@ impl Classifier {
             }
         }
 
-        clean_hits_by_kind.values().any(|phrases| phrases.len() >= 2)
+        clean_hits_by_kind
+            .values()
+            .any(|phrases| phrases.len() >= 2)
     }
 
     /// Extract accession IDs using prefix-based matching, then build hierarchy:

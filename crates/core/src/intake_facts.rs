@@ -171,6 +171,56 @@ impl IntakeFacts {
         lower.contains("compared to literature") || lower.contains("compared to the literature")
     }
 
+    /// Detect a declared INPUT data stage in the SME prose — a processed data
+    /// product the SME already holds, so input-stage-aware composition can prune
+    /// the upstream chain that would otherwise produce it. Returns the available
+    /// [`DataProductContract`], or `None` for the default raw (FASTQ) input.
+    ///
+    /// Counts / expression-matrix only today (structured so BAM / VCF / peaks
+    /// slot in later). Keyed on counts-POSITIVE phrases — a bare "no FASTQ" is
+    /// too ambiguous to seed on alone.
+    pub fn detect_input_data_stage(
+        prose: &str,
+    ) -> Option<crate::workflow_contracts::data_product::DataProductContract> {
+        let lower = prose
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        // SUPPLIED-INPUT phrases only — the SME declares they already HOLD a
+        // counts matrix. Deliberately excludes pipeline-OUTPUT descriptions like
+        // "gene-level counts" / "count matrix" on their own, which appear in
+        // full-FASTQ-pipeline prose ("…alignment, gene-level counts, DESeq2…")
+        // and must NOT trigger pruning.
+        const COUNTS_SIGNALS: &[&str] = &[
+            "counts matrix already prepared",
+            "count matrix already prepared",
+            "counts already prepared",
+            "prepared counts matrix",
+            "start from counts",
+            "starting from counts",
+            "start from the counts",
+            "start from a counts",
+            "from counts matrix",
+            "from a counts matrix",
+            "from the counts matrix",
+            "already quantified",
+            "already counted",
+            "counts provided",
+            "provided counts",
+            "counts are provided",
+            "counts matrix provided",
+            "no raw fastq",
+            "no raw fastqs",
+        ];
+        if COUNTS_SIGNALS.iter().any(|s| lower.contains(s)) {
+            return Some(
+                crate::workflow_contracts::data_product::DataProductContract::gene_count_matrix(),
+            );
+        }
+        None
+    }
+
     /// Extract a minimal IntakeFacts snapshot from the classifier
     /// output. Scaling fields remain `None`; call
     /// `with_scaling_from_map` or `from_classification_with_scaling`
@@ -467,6 +517,39 @@ mod tests {
         assert_eq!(facts.sample_count, Some(10));
         // No new fields leak into IntakeFacts.
         assert!(facts.coverage_depth.is_none());
+    }
+
+    #[test]
+    fn detect_input_data_stage_recognises_supplied_counts() {
+        use crate::workflow_contracts::semantic_type::SemanticType;
+        // Counts supplied directly (pasilla-style) → counts product detected.
+        for prose in [
+            "Counts matrix already prepared (14,599 genes x 7 samples). No raw FASTQs — start from counts matrix.",
+            "differential expression starting from a counts matrix",
+            "We already quantified; run DE.",
+        ] {
+            let p = IntakeFacts::detect_input_data_stage(prose)
+                .unwrap_or_else(|| panic!("expected a counts input stage for: {prose:?}"));
+            match &p.semantic_type {
+                SemanticType::OntologyTerm { iri, .. } => assert_eq!(iri, "data:3917"),
+                other => panic!("expected counts ontology term, got {other:?}"),
+            }
+        }
+        // FASTQ input prose → no stage (default raw). Critically, a full
+        // FASTQ-pipeline description that mentions producing "gene-level counts"
+        // as a STEP must NOT trigger pruning (recount3-airway regression).
+        for prose in [
+            "bulk RNA-seq FASTQ files, align to GRCh38 and quantify with salmon",
+            "call variants from whole-genome sequencing reads",
+            "bulk RNA-seq FASTQs, four donors; FastQC and adapter trimming, \
+             splice-aware alignment, gene-level counts, DESeq2-style normalization, \
+             and a differential expression test",
+        ] {
+            assert!(
+                IntakeFacts::detect_input_data_stage(prose).is_none(),
+                "expected NO input stage (default raw) for: {prose:?}"
+            );
+        }
     }
 
     #[test]

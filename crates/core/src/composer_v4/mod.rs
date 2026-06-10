@@ -9,6 +9,7 @@ pub mod companion_synthesis;
 pub mod dag_mutation;
 pub mod discover_companion_synthesis;
 pub mod forward_search;
+pub mod input_stage_prune;
 pub mod interpretation_synthesis;
 pub mod meet_in_middle;
 mod multi_branch_synthesis;

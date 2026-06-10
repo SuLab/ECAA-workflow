@@ -330,6 +330,23 @@ pub fn plan(
         .unwrap_or(false);
     if let Some(seed) = archetype_seed {
         let mut dag = lift_to_workflow_dag(&seed.composition, ctx, goal, archetype_reg);
+        // Input-stage-aware pruning. When the SME supplied a processed product
+        // (declared on `intent.available_data`, e.g. a counts matrix), drop the
+        // now-redundant producing-chain (`raw_qc → … → quantification`) and
+        // rewire the first real consumer onto the data-staging anchor. Runs
+        // BEFORE companion synthesis so no `discover_*`/`validate_*` companions
+        // are ever created for pruned tasks. No-op when only a raw seed is
+        // available (the common case), so FASTQ pipelines are untouched.
+        let pruned =
+            super::input_stage_prune::prune_supplied_upstream(&mut dag, &ctx.intent.available_data);
+        if !pruned.is_empty() {
+            tracing::info!(
+                target: "composer",
+                pruned = ?pruned,
+                "input_stage_prune: SME supplied a processed product; dropped the redundant \
+                 producing-chain and rewired consumers onto the data-staging anchor"
+            );
+        }
         // Synthesize `validate_*` companions for
         // result-producing atoms. Mirrors v2's `emit_stage` post-pass
         // so v4 emissions reach parity with the v2 baseline.
@@ -398,10 +415,7 @@ pub fn plan(
         // `data_import`). Additive only — appends ports so a later
         // unsourced-prune pass can treat a registered external input
         // (e.g. a gene-set / GMT collection) as a valid in-DAG source.
-        super::source_typing::surface_registered_source_ports(
-            &mut dag,
-            &ctx.intent.available_data,
-        );
+        super::source_typing::surface_registered_source_ports(&mut dag, &ctx.intent.available_data);
         let score = score_dag(&dag, ctx, archetype_reg);
         let summary = summarize_dag(&dag, &score);
         alternatives.push(RankedAlternative {
@@ -3283,8 +3297,13 @@ mod tests {
         let project_class = "research";
 
         // Flag OFF — no interpretation node.
-        let mut ctx_off =
-            planning_context_for_goal_with_intake("rnaseq-off", &goal, Some("bulk_rnaseq"), None, &[]);
+        let mut ctx_off = planning_context_for_goal_with_intake(
+            "rnaseq-off",
+            &goal,
+            Some("bulk_rnaseq"),
+            None,
+            &[],
+        );
         ctx_off.compose_interpretation = false;
         let res_off = plan(&ctx_off, &goal, project_class, &atom_reg, &archetype_reg);
         if let Some(alt) = res_off.alternatives.first() {
@@ -3298,8 +3317,13 @@ mod tests {
         }
 
         // Flag ON — interpretation node + validate companion present.
-        let mut ctx_on =
-            planning_context_for_goal_with_intake("rnaseq-on", &goal, Some("bulk_rnaseq"), None, &[]);
+        let mut ctx_on = planning_context_for_goal_with_intake(
+            "rnaseq-on",
+            &goal,
+            Some("bulk_rnaseq"),
+            None,
+            &[],
+        );
         ctx_on.compose_interpretation = true;
         let res_on = plan(&ctx_on, &goal, project_class, &atom_reg, &archetype_reg);
         let dag_on = &res_on
@@ -3313,7 +3337,11 @@ mod tests {
                 .iter()
                 .any(|n| n.id == "biological_interpretation"),
             "flag on must inject interpretation; nodes={:?}",
-            dag_on.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>()
+            dag_on
+                .nodes
+                .iter()
+                .map(|n| n.id.as_str())
+                .collect::<Vec<_>>()
         );
         assert!(
             dag_on

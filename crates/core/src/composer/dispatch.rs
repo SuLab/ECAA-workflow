@@ -369,16 +369,36 @@ pub(crate) fn compose_v4_dispatch_full(
     // The seed key respects the post-rewrite `effective_project_class`
     // so bug-#9 rerouted scenarios (GWAS misrouted to clinical_trial)
     // get the right seed shape.
-    let available_data = if matches!(
-        effective_project_class.as_str(),
-        "clinical_trial" | "time_series_forecast"
-    ) {
-        vec![
-            crate::workflow_contracts::data_product::DataProductContract::sample_dataset_descriptor(
-            ),
-        ]
-    } else {
-        seed_available_data_for_modalities(target_modalities)
+    let available_data = {
+        let base = if matches!(
+            effective_project_class.as_str(),
+            "clinical_trial" | "time_series_forecast"
+        ) {
+            vec![
+                crate::workflow_contracts::data_product::DataProductContract::sample_dataset_descriptor(
+                ),
+            ]
+        } else {
+            seed_available_data_for_modalities(target_modalities)
+        };
+        // Input-stage-aware seeding: if the classifier detected an SME-declared
+        // supplied product on the full intake text (stamped into
+        // `goal.modifiers["available_input_stage"]` as its type IRI), seed THAT
+        // instead of the raw default so `input_stage_prune` drops the
+        // now-redundant producing-chain. Default raw seed otherwise.
+        match goal
+            .modifiers
+            .get("available_input_stage")
+            .map(String::as_str)
+        {
+            Some("data:3917") => {
+                vec![
+                    crate::workflow_contracts::data_product::DataProductContract::gene_count_matrix(
+                    ),
+                ]
+            }
+            _ => base,
+        }
     };
 
     // Thread the full modality slice (primary +
