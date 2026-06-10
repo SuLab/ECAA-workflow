@@ -11,7 +11,7 @@ anyhow.workspace = true
 serde = { workspace = true }
 serde_json.workspace = true
 serde_yaml_ng.workspace = true
-ecaa-workflow-core = { path = "../core" }
+ecaa-workflow-core = { version = "0.1", path = "../core" }
 
 [dev-dependencies]
 tempfile.workspace = true
