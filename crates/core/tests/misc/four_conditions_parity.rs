@@ -1,7 +1,14 @@
-//! Grant v19 §A.S2 ↔ code load-bearing parity test.
+//! Emission-conditions parity test (load-bearing).
+//!
 //! The four conditions preventing emission must match between the
-//! canonical Rust const and the grant prose. Test fails if either
-//! drifts without the other.
+//! canonical Rust const (`FOUR_CONDITIONS_PREVENTING_EMISSION`) and the
+//! vendored prose fixture (`tests/fixtures/ws_d_emission_conditions.md`).
+//! The fixture is checked-in (not gitignored), so the parity check
+//! actually RUNS in default `make test` — this slim OSS surface has no CI,
+//! so the local gate is the only line of defense and a vacuous skip would
+//! be invisible. The fixture also documents the deterministic 5th
+//! defense-in-depth gate (`validate_container_digests_pinned`), which is
+//! kept OUT of the length-4 const by design.
 
 use ecaa_workflow_core::emission_invariants::FOUR_CONDITIONS_PREVENTING_EMISSION;
 use std::path::PathBuf;
@@ -15,6 +22,10 @@ fn grant_path() -> PathBuf {
         .join("literature/PAR-26-040-grant-proposal-rewrite-v19.md")
 }
 
+fn vendored_fixture_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ws_d_emission_conditions.md")
+}
+
 #[test]
 fn rust_const_lists_exactly_four_conditions() {
     assert_eq!(
@@ -22,6 +33,61 @@ fn rust_const_lists_exactly_four_conditions() {
         4,
         "the architectural rule lists exactly four; got {}",
         FOUR_CONDITIONS_PREVENTING_EMISSION.len()
+    );
+}
+
+/// Durable, always-running parity check against the vendored fixture.
+/// Replaces the gitignored-grant prose check (which `#[ignore]`s itself
+/// when `literature/` is absent), so the local gate enforces parity for
+/// real instead of silently no-op'ing.
+#[test]
+fn const_phrases_match_vendored_fixture() {
+    let text =
+        std::fs::read_to_string(vendored_fixture_path()).expect("vendored fixture must exist");
+    for (i, condition) in FOUR_CONDITIONS_PREVENTING_EMISSION.iter().enumerate() {
+        // Distinctive phrase from each condition; mirrors the grant-prose
+        // match arms below so the two checks stay aligned.
+        let key_phrase = match i {
+            0 => "cannot be classified into any modality",
+            1 => "schema-validation failure on a required intake field",
+            2 => "Explicit SME rejection at the confirmation gate",
+            3 => "emission-side analogue to",
+            _ => unreachable!(),
+        };
+        assert!(
+            text.contains(key_phrase),
+            "condition {} key phrase {:?} not found in vendored fixture: {}",
+            i + 1,
+            key_phrase,
+            condition
+        );
+    }
+}
+
+/// The module doc comment in `emission_invariants.rs` must (a) cite the
+/// REAL parity-test path (`tests/misc/...`), (b) NOT claim CI catches
+/// drift (this OSS surface has none), and (c) document the digest-pin gate
+/// as the deterministic 5th emission-blocking condition.
+#[test]
+fn doc_comment_cites_correct_parity_path_and_digest_gate() {
+    let src = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/emission_invariants.rs"),
+    )
+    .expect("read emission_invariants.rs");
+    assert!(
+        src.contains("crates/core/tests/misc/four_conditions_parity.rs"),
+        "emission_invariants.rs doc comment must cite the real parity-test path \
+         (tests/misc/...), not the wrong tests/four_conditions_parity.rs (WS-D3)"
+    );
+    assert!(
+        !src.contains("is caught\n//! in CI"),
+        "emission_invariants.rs claims CI catches drift; this slim OSS surface \
+         has no CI — drift is caught by the local gate (WS-D3)"
+    );
+    assert!(
+        src.contains("validate_container_digests_pinned"),
+        "emission_invariants.rs must document the digest-pin gate as the \
+         deterministic 5th emission-blocking condition (WS-D3)"
     );
 }
 
