@@ -134,6 +134,16 @@ pub struct ArchetypeDefinition {
     #[ts(optional)]
     pub claim_boundary: Option<String>,
 
+    /// Filename (relative to `config/downstream-policy/`) of the
+    /// declarative validation contract emitted as
+    /// `policies/validation-contract.json` and read by the harness's
+    /// `enforce_validation_contract`. `None` = no contract (the common
+    /// case). Threaded onto `StageTaxonomy::validation_contract_ref` in
+    /// `build_taxonomy_metadata_for_modality`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub validation_contract_ref: Option<String>,
+
     /// Project class this archetype targets. Constrains classifier-
     /// driven matching: a clinical-trial archetype only matches
     /// sessions where `project_class == ClinicalTrial`.
@@ -460,6 +470,7 @@ mod tests {
             cross_dependencies: vec![],
             ordering_only_edges: vec![],
             claim_boundary: None,
+            validation_contract_ref: None,
             project_class: "bioinformatics".into(),
             modality_hint: None,
             goal_kind_hint: None,
@@ -526,6 +537,7 @@ atoms:
             cross_dependencies: vec![],
             ordering_only_edges: vec![],
             claim_boundary: None,
+            validation_contract_ref: None,
             project_class: "clinical_trial".into(),
             modality_hint: None,
             goal_kind_hint: None,
@@ -572,6 +584,7 @@ atoms:
             cross_dependencies: vec![],
             ordering_only_edges: vec![],
             claim_boundary: None,
+            validation_contract_ref: None,
             project_class: "bioinformatics".into(),
             modality_hint: Some("cross_omics_rnaseq_proteomics".into()),
             goal_kind_hint: None,
@@ -623,6 +636,7 @@ atoms:
             cross_dependencies: vec![],
             ordering_only_edges: vec![],
             claim_boundary: None,
+            validation_contract_ref: None,
             project_class: "bioinformatics".into(),
             modality_hint: None,
             goal_kind_hint: None,

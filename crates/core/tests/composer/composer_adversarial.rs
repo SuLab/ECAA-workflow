@@ -262,6 +262,7 @@ fn synth_archetype(
         cross_dependencies: vec![],
         ordering_only_edges: vec![],
         claim_boundary: None,
+        validation_contract_ref: None,
         project_class: project_class.into(),
         modality_hint: None,
         goal_kind_hint: None,
