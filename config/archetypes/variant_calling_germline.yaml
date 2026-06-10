@@ -13,6 +13,7 @@ goal_data: "data:3498"
 goal_format: "format:3016"
 project_class: bioinformatics
 modality_hint: variant_calling
+validation_contract_ref: validation-contract-variants.json
 atoms:
   - atom_id: data_acquisition
     required: true

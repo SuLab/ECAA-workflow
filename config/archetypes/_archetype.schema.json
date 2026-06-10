@@ -226,6 +226,11 @@
       "minLength": 1,
       "description": "claim_boundary directive carried into the emitted package's interpretation policy. Mirrors the field on AtomDefinition but at the archetype level the boundary is the union of every atom's boundary plus the archetype-level addendum."
     },
+    "validation_contract_ref": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Filename (relative to config/downstream-policy/) of the declarative validation contract; emitter copies it to policies/validation-contract.json and the harness enforce_validation_contract reads it."
+    },
     "project_class": {
       "type": "string",
       "enum": ["bioinformatics", "clinical_trial", "time_series_forecast"],
