@@ -96,8 +96,13 @@ struct ClaimsMatrixRow {
     pub entity_kind: String,
     #[serde(default)]
     pub pmid: Option<String>,
+    // Raw cell, NOT Vec<String>: the csv crate cannot deserialize a delimited
+    // single cell (e.g. "20921232|22279750|...") into a Vec struct-field — a Vec
+    // field greedily consumes the rest of the record and derails the row ("expected
+    // field, got end of row"). Storing the raw string keeps the parse robust; use
+    // `prior_pmid_list()` to split it (pipe / comma / semicolon / whitespace / JSON).
     #[serde(default)]
-    pub prior_pmids: Option<Vec<String>>,
+    pub prior_pmids: Option<String>,
     // Typed-locator columns. Absent on legacy PMID-only rows (which
     // anchor via `pmid`/`prior_pmids`); present on locator-generalized
     // rows where `source_ref_kind` selects the dispatch branch.
@@ -111,8 +116,17 @@ struct ClaimsMatrixRow {
     pub evidence_role: Option<String>,
     #[serde(default)]
     pub version_context: Option<String>,
-    #[serde(default)]
+    // agents spell the concordance column `concordance` (claude) or
+    // `concordance_flag` (canonical); accept both.
+    #[serde(default, alias = "concordance")]
     pub concordance_flag: Option<String>,
+    // The LAST hard-required field, and the recurring parse-breaker: a single
+    // renamed/absent column here failed the WHOLE CSV parse, bailing every
+    // obligation at row 0 (codex/claude each picked a different spelling —
+    // `evidence_quote_excerpt`, etc.). Default + alias so ClaimsMatrixRow now has
+    // NO hard-required field: the CSV always parses and each obligation evaluates
+    // on what's present (a no_prior_finding row legitimately has an empty quote).
+    #[serde(default, alias = "evidence_quote_excerpt", alias = "quote")]
     pub evidence_quote: String,
     // `curated_baseline` method_landscape rows emit an empty offset/redistributable/
     // verified; lenient deserializers map "" to 0/false so a no-evidence candidate
@@ -136,6 +150,44 @@ struct ClaimsMatrixRow {
     pub verified: bool,
 }
 
+impl ClaimsMatrixRow {
+    /// Split the raw `prior_pmids` cell into a PMID list, tolerating every
+    /// delimiter agents use: a JSON array (`["a","b"]`), or pipe / comma /
+    /// semicolon / whitespace separation. Empty/absent → empty list.
+    fn prior_pmid_list(&self) -> Vec<String> {
+        let raw = match &self.prior_pmids {
+            Some(s) if !s.trim().is_empty() && s.trim() != "[]" => s.trim(),
+            _ => return Vec::new(),
+        };
+        if let Ok(v) = serde_json::from_str::<Vec<String>>(raw) {
+            return v
+                .into_iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        raw.split(['|', ',', ';', ' ', '\t', '\n'])
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+}
+
+/// A row that does NOT assert a concordance direction: `no_prior_finding` (no
+/// prior work for the entity) or `unverifiable` (prior work found but its
+/// direction is not determinable). The evidence-backing obligations
+/// (`pmid_resolves` / `evidence_quote_substring_match` / `redistributable_or_marked`)
+/// exist to substantiate an ASSERTED concordance (`same_direction` /
+/// `opposite_direction`), so they skip non-asserting rows — a row that makes no
+/// concordance claim cannot have an unbacked one. `concordance_flag_in_closed_set`
+/// still validates that the flag itself is in the closed vocabulary.
+fn row_makes_no_concordance_claim(row: &ClaimsMatrixRow) -> bool {
+    matches!(
+        row.concordance_flag.as_deref(),
+        Some("no_prior_finding") | Some("unverifiable")
+    )
+}
+
 // Serde shape mirror of `evidence-manifest.json`; `schema_version` is read by
 // load_manifest's downstream validators on schema drift but the wrapper struct
 // itself does not consume every field directly.
@@ -147,9 +199,13 @@ struct EvidenceManifest {
     #[serde(default)]
     #[allow(dead_code)]
     pub schema_version: serde_json::Value,
-    // Accept `sources` (codex's hand-rolled literature manifest top-level key)
-    // as an alias for the canonical `entries` — same per-source records.
-    #[serde(alias = "sources")]
+    // Accept `sources` (codex's hand-rolled top-level key) as an alias for the
+    // canonical `entries`. Default to empty: a summary manifest with no per-source
+    // entries is legitimate — contextualize reuses the upstream review_prior_work
+    // claims (no new fetch), and a run with no ASSERTED concordance rows has no
+    // evidence to manifest. An absent `entries` must not fail load_manifest; the
+    // per-row gates already skip non-asserting rows.
+    #[serde(default, alias = "sources")]
     pub entries: Vec<EvidenceEntry>,
 }
 
@@ -403,12 +459,14 @@ pub fn run_pmid_resolves(
     let pmid_re = regex::Regex::new(r"^[1-9][0-9]{6,8}$").unwrap();
 
     for (i, row) in rows.iter().enumerate() {
+        // Non-asserting rows (no_prior_finding / unverifiable) make no concordance
+        // claim, so their (often absent) cited PMIDs are not load-bearing evidence.
+        if row_makes_no_concordance_claim(row) {
+            continue;
+        }
         // Collect candidate PMIDs from row (upstream uses `pmid`, downstream uses `prior_pmids`).
-        let pmids: Vec<&String> = row
-            .pmid
-            .iter()
-            .chain(row.prior_pmids.iter().flat_map(|v| v.iter()))
-            .collect();
+        let prior = row.prior_pmid_list();
+        let pmids: Vec<&String> = row.pmid.iter().chain(prior.iter()).collect();
         // no_prior_finding rows legitimately have zero pmids; that's not a failure here.
         for pmid in pmids {
             if !pmid_re.is_match(pmid) {
@@ -720,6 +778,11 @@ pub fn run_evidence_quote_substring_match(
     let package_root = package_root_from_evidence_dir(manifest_dir);
 
     for (i, row) in rows.iter().enumerate() {
+        // Non-asserting rows (no_prior_finding / unverifiable) carry no asserted
+        // quote to substantiate; skip (an unverifiable row's quote is exploratory).
+        if row_makes_no_concordance_claim(row) {
+            continue;
+        }
         // no_prior_finding rows have source_kind == "none" and empty quote; skip.
         if row.source_kind == "none" {
             continue;
@@ -737,7 +800,7 @@ pub fn run_evidence_quote_substring_match(
         let locator = row
             .pmid
             .clone()
-            .or_else(|| row.prior_pmids.as_ref().and_then(|v| v.first().cloned()))
+            .or_else(|| row.prior_pmid_list().into_iter().next())
             .or_else(|| row.source_ref.clone());
         let locator = match locator {
             Some(l) if !l.is_empty() => l,
@@ -856,13 +919,13 @@ pub fn run_redistributable_or_marked(
         if row.source_kind == "none" {
             continue;
         }
-        // Source-less concordance rows carry NO prior literature by definition —
-        // a `no_prior_finding` row (no PMID matched for this entity) has an empty
-        // source_kind / source_ref_kind and an empty `redistributable` column.
-        // There is no source to subject to the legal gate, so skip it (mirrors
-        // the curated-baseline carve-out below). A row that DID cite a source
-        // still carries a non-empty source_kind and is gated normally.
-        if row.concordance_flag.as_deref() == Some("no_prior_finding")
+        // Non-asserting rows (no_prior_finding / unverifiable) make no concordance
+        // claim, and source-less rows carry no prior literature by definition (empty
+        // source_kind / source_ref_kind / pmid). There is no asserted source to
+        // subject to the legal gate, so skip (mirrors the curated-baseline carve-out
+        // below). A row that DID assert + cite a source carries a non-empty
+        // source_kind and is gated normally.
+        if row_makes_no_concordance_claim(row)
             || (row.source_kind.is_empty()
                 && row.source_ref_kind.as_deref().unwrap_or("").is_empty()
                 && row.pmid.as_deref().unwrap_or("").is_empty())
@@ -1426,15 +1489,15 @@ pub fn run_doc_page_matches_tool(
         };
         let raw = fs::read_to_string(resolve_evidence_file(&package_root, ev_dir, &entry.path))
             .map_err(|_| {
-            (
-                i as u64,
-                lit_fail(
+                (
                     i as u64,
-                    &artifact,
-                    LiteratureClaimFailureKind::EvidenceArtifactMissing,
-                ),
-            )
-        })?;
+                    lit_fail(
+                        i as u64,
+                        &artifact,
+                        LiteratureClaimFailureKind::EvidenceArtifactMissing,
+                    ),
+                )
+            })?;
         let normalized = collapse_whitespace_lowercase_v1(&raw);
         let token = collapse_whitespace_lowercase_v1(&candidate);
         if token.is_empty() || !normalized.contains(&token) {
@@ -1773,6 +1836,57 @@ mod tests {
     }
 
     #[test]
+    fn validators_accept_claude_contextualize_schema() {
+        // The exact contextualize_findings_with_literature schema claude emits
+        // (captured from a live pasilla run): claims CSV uses `concordance` (not
+        // concordance_flag), `prior_pmids` PIPE-delimited (not a JSON Vec),
+        // `evidence_quote_excerpt` (not evidence_quote), with 852 no_prior_finding
+        // rows + 1 `unverifiable` row citing 6 PMIDs; and a SUMMARY manifest with
+        // NO `entries`/`sources` field (contextualize reuses upstream claims, no
+        // new fetch). Every obligation must resolve it: pipe-split prior_pmids,
+        // column aliases, the entries-default manifest, and skipping the
+        // non-asserting unverifiable row (which makes no concordance claim).
+        let dir = TempDir::new().unwrap();
+        let findings = dir.path().join("de_results.tsv");
+        write(&findings, "gene_id\tbaseMean\tlog2FoldChange\tpadj\nFBgn0039155\t730\t-4.6\t1e-159\nFBgn0024288\t50\t0.3\t0.9\n");
+        let csv = dir.path().join("claims_evidence_matrix.csv");
+        write(
+            &csv,
+            "finding_id,baseMean,log2FoldChange,padj,concordance,prior_pmids,prior_axes,evidence_quote_excerpt\n\
+             FBgn0039155,730,-4.6,1e-159,no_prior_finding,,,\n\
+             FBgn0024288,50,0.3,0.9,unverifiable,20921232|22279750|22623672,splicing,Alternative splicing is generally controlled by proteins\n",
+        );
+        let manifest = dir.path().join("evidence/manifest.json");
+        fs::create_dir_all(manifest.parent().unwrap()).unwrap();
+        // Summary manifest: NO entries/sources field.
+        write(
+            &manifest,
+            r#"{"task_id":"contextualize_findings_with_literature","n_findings":2,"concordance_summary":{"no_prior_finding":1,"unverifiable":1}}"#,
+        );
+        for (name, ok) in [
+            ("pmid_resolves", run_pmid_resolves(&csv, &manifest).is_ok()),
+            (
+                "evidence_quote_substring_match",
+                run_evidence_quote_substring_match(&csv, &manifest).is_ok(),
+            ),
+            (
+                "redistributable_or_marked",
+                run_redistributable_or_marked(&csv, &manifest).is_ok(),
+            ),
+            (
+                "concordance_flag_in_closed_set",
+                run_concordance_flag_in_closed_set(&csv, &manifest).is_ok(),
+            ),
+            (
+                "claim_row_has_finding_id",
+                run_claim_row_has_finding_id(&csv, &findings).is_ok(),
+            ),
+        ] {
+            assert!(ok, "{name} must pass on claude's contextualize schema (pipe prior_pmids, evidence_quote_excerpt, unverifiable row, entries-less manifest)");
+        }
+    }
+
+    #[test]
     fn redistributable_skips_source_less_no_prior_finding_rows() {
         // A `no_prior_finding` concordance row carries no source by definition
         // (no PMID matched for the entity) → empty source_kind / redistributable.
@@ -1930,7 +2044,9 @@ mod tests {
         // match the token anywhere in the string. Real PMC/PubMed spellings
         // still pass; unrelated kinds that merely CONTAIN "pmc"/"pubmed" must not.
         // pmc_*/pubmed_* spellings pass:
-        assert!(source_kind_is_inherently_redistributable("pmc_oa_full_text"));
+        assert!(source_kind_is_inherently_redistributable(
+            "pmc_oa_full_text"
+        ));
         assert!(source_kind_is_inherently_redistributable(
             "pmc_front_or_abstract_xml_only"
         ));
@@ -1943,7 +2059,9 @@ mod tests {
         assert!(!source_kind_is_inherently_redistributable(
             "camphor_db_export"
         ));
-        assert!(!source_kind_is_inherently_redistributable("campusing_corpus"));
+        assert!(!source_kind_is_inherently_redistributable(
+            "campusing_corpus"
+        ));
         assert!(!source_kind_is_inherently_redistributable(
             "external_pdf_local_only"
         ));
