@@ -96,6 +96,16 @@ pub struct ExecutionHandle {
     pub paused_at: Arc<std::sync::Mutex<Option<chrono::DateTime<chrono::Utc>>>>,
     /// Timestamp when a stop was requested; `None` until `/execution/stop` is called.
     pub stop_requested_at: Arc<std::sync::Mutex<Option<chrono::DateTime<chrono::Utc>>>>,
+    /// SHA-256 of the per-session harness self-token (critical-analysis M6).
+    /// The raw token is injected into the harness child via the
+    /// `ECAA_HARNESS_TOKEN` env var at spawn; only this digest is retained
+    /// server-side. `auth::principal::resolve_harness_token` hashes the
+    /// presented `X-Harness-Token` header and constant-time-compares it
+    /// against this field across the `executions` map so the harness is
+    /// principal'd as a session-scoped `HarnessAgent` rather than the
+    /// global admin `Owner`. The all-zero value is the "no token" sentinel
+    /// used by test/fixture handles that never authenticate.
+    pub harness_token_hash: [u8; 32],
 }
 
 impl ExecutionHandle {

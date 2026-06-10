@@ -43,6 +43,7 @@ use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
 
+use crate::auth::principal::RequestPrincipal;
 use crate::chat_routes::ChatAppState;
 
 /// Header injected by the upstream auth proxy after it has authenticated
@@ -158,6 +159,23 @@ pub async fn verify_owner_middleware(
     // Any caller is authorized.
     if session.owner_user == LOCAL_OWNER_SENTINEL {
         return next.run(req).await;
+    }
+
+    // 4b. Harness self-token (critical-analysis M6). `extract_principal`
+    // runs OUTSIDE this layer (see the layer order in `lib.rs::run`), so
+    // by the time we get here the request carries a `RequestPrincipal`
+    // extension. A `HarnessAgent` minted by `resolve_harness_token` is
+    // pinned to exactly one session id (the SHA-256 of its self-token
+    // matched that session's `ExecutionHandle::harness_token_hash`). Allow
+    // it through for its OWN session only — it must never reach a sibling
+    // session's routes even though it shares no `X-Scripps-User` header.
+    if let Some(RequestPrincipal::HarnessAgent {
+        session_id: principal_sid,
+    }) = req.extensions().get::<RequestPrincipal>()
+    {
+        if *principal_sid == session_id {
+            return next.run(req).await;
+        }
     }
 
     // 5. Strict-compare path. Header MUST be present and must equal the

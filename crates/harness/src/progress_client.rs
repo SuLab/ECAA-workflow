@@ -369,6 +369,17 @@ pub struct ProgressClient {
     /// is just a record for `is_session_pausing_dispatch` and the
     /// `auth_token()` accessor used by integration tests.
     auth_token: Option<String>,
+    /// Per-session harness self-token (critical-analysis M6), read from
+    /// `ECAA_HARNESS_TOKEN` at construction. Sent in the `X-Harness-Token`
+    /// header on every per-session request alongside the bearer header so
+    /// the server principal's the harness as a session-scoped
+    /// `HarnessAgent` (`resolve_harness_token`) rather than the global
+    /// admin `Owner`. The bearer is still attached because it remains the
+    /// edge bouncer (`auth_middleware`); the harness token is the
+    /// principal `verify_owner` allows for its own session. `None` when
+    /// the env var is unset (e.g. a manually-launched harness in dev) —
+    /// in that case requests fall back to bearer-only resolution.
+    harness_token: Option<String>,
     /// Injected clock for `last_success_at` health stamps. The sender
     /// thread receives a shared Arc clone so both the main thread and the
     /// sender use the same clock source. `WallClock` at production; tests
@@ -440,6 +451,15 @@ impl ProgressClient {
             .ok()
             .filter(|t| !t.is_empty());
 
+        // Per-session harness self-token (critical-analysis M6). Injected
+        // into this process's env by the server at spawn
+        // (`spawn_harness_for_session_reserved`). Sent in `X-Harness-Token`
+        // on every per-session request so `resolve_harness_token`
+        // principal's us as a session-scoped `HarnessAgent`.
+        let harness_token = std::env::var("ECAA_HARNESS_TOKEN")
+            .ok()
+            .filter(|t| !t.is_empty());
+
         // Capacity 256 chosen so a WAL recovery
         // emitting up to ~256 `task_blocked` events back-to-back
         // queues without dropping; harness loops with thousands of
@@ -454,6 +474,7 @@ impl ProgressClient {
         let sender_health = health.clone();
         let sender_pkg = package_dir.clone();
         let sender_token = auth_token.clone();
+        let sender_harness_token = harness_token.clone();
         let sender_clock = clock.clone();
         let sender_first_post = first_post_sent.clone();
         let sender_skew = clock_skew_blocker.clone();
@@ -464,6 +485,7 @@ impl ProgressClient {
                     sender_session,
                     sender_base,
                     sender_token,
+                    sender_harness_token,
                     rx,
                     sender_health,
                     sender_pkg,
@@ -488,6 +510,7 @@ impl ProgressClient {
             base_url,
             session_id,
             auth_token,
+            harness_token,
             clock,
             events_dropped: std::sync::Arc::new(AtomicU64::new(0)),
             first_post_sent,
@@ -712,6 +735,9 @@ impl ProgressClient {
         if let Some(tok) = self.auth_token.as_deref() {
             req = req.set("Authorization", &format!("Bearer {tok}"));
         }
+        if let Some(ht) = self.harness_token.as_deref() {
+            req = req.set("X-Harness-Token", ht);
+        }
         let response = req.call().map_err(|e| anyhow::anyhow!("GET {url}: {e}"))?;
         let text = response
             .into_string()
@@ -750,6 +776,9 @@ impl ProgressClient {
         let mut req = self.dispatch_gate_agent.get(&url);
         if let Some(tok) = self.auth_token.as_deref() {
             req = req.set("Authorization", &format!("Bearer {tok}"));
+        }
+        if let Some(ht) = self.harness_token.as_deref() {
+            req = req.set("X-Harness-Token", ht);
         }
         let text = req.call().ok()?.into_string().ok()?;
         let v: serde_json::Value = serde_json::from_str(&text).ok()?;
@@ -1136,6 +1165,7 @@ fn sender_loop(
     session_id: String,
     base_url: String,
     auth_token: Option<String>,
+    harness_token: Option<String>,
     rx: std::sync::mpsc::Receiver<SenderJob>,
     health: std::sync::Arc<std::sync::Mutex<HealthCounters>>,
     package_dir: std::sync::Arc<std::sync::Mutex<Option<std::path::PathBuf>>>,
@@ -1214,6 +1244,11 @@ fn sender_loop(
             let mut req = agent.post(&url);
             if let Some(tok) = auth_token.as_deref() {
                 req = req.set("Authorization", &format!("Bearer {tok}"));
+            }
+            // Per-session harness self-token (M6): identifies us as the
+            // session-scoped `HarnessAgent` to `verify_owner`.
+            if let Some(ht) = harness_token.as_deref() {
+                req = req.set("X-Harness-Token", ht);
             }
             match req.send_json(&body) {
                 Ok(resp) => {
