@@ -3,14 +3,16 @@
 #
 # This is the REAL local enforcement gate for the OSS repo: there is no GitHub
 # CI, so a push must not proceed unless the full local gate is green. The gate is
-#   make lint        — architectural-invariant + ts-binding + supply-chain checks
-#   make test        — cargo nextest + doc tests across the workspace
-#   make conformance — ECAA conformance suite in block-on-fail mode
+#   make lint                   — architectural-invariant + ts-binding + supply-chain checks
+#   make test                   — cargo nextest + doc tests across the workspace
+#   make conformance            — ECAA conformance suite in block-on-fail mode
+#   make verify-reproducibility — emit several scenarios twice each; SHA-compare (M18)
 # Any failure aborts the push (non-zero exit).
 #
-# Emergency opt-out: set ECAA_SKIP_PREPUSH_TESTS=1 to skip the (slow) `make test`
-# and `make conformance` stages. `make lint` always runs — it is cheap and is the
-# minimum bar. Use the opt-out only when you know what you are doing.
+# Emergency opt-out: set ECAA_SKIP_PREPUSH_TESTS=1 to skip the (slow) `make test`,
+# `make conformance`, and `make verify-reproducibility` stages. `make lint` always
+# runs — it is cheap and is the minimum bar. Use the opt-out only when you know
+# what you are doing.
 set -euo pipefail
 
 # Run from the repo root so `make` finds the Makefile regardless of where git
@@ -35,4 +37,7 @@ make test
 echo "[pre-push] running: make conformance"
 make conformance
 
-echo "[pre-push] all gates passed (lint + test + conformance); push allowed"
+echo "[pre-push] running: make verify-reproducibility"
+make verify-reproducibility
+
+echo "[pre-push] all gates passed (lint + test + conformance + verify-reproducibility); push allowed"
