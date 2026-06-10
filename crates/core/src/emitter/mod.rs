@@ -1038,6 +1038,7 @@ runtime/r-libs/\n\
 runtime/outputs/*/tmp/\n\
 runtime/outputs/*/.heartbeat\n\
 inputs/\n\
+runtime/agent-home/\n\
 runtime/outputs/*/data/\n\
 *.mtx\n\
 *.mtx.gz\n\
