@@ -1202,7 +1202,7 @@ fn build_taxonomy_metadata_for_modality(
         description: archetype.description.clone(),
         policies: None,
         claim_boundary: archetype.claim_boundary.clone(),
-        validation_contract_ref: None,
+        validation_contract_ref: archetype.validation_contract_ref.clone(),
         project_class: Some(project_class),
         preferred_container: preferred_container_str,
         runtime_baseline: archetype.runtime_baseline.clone(),
@@ -1542,4 +1542,31 @@ fn auto_register_pending_hints(session: &mut crate::session::Session) {
         session.inputs.push(registration);
     }
     session.pending_input_hints = retained;
+}
+
+#[cfg(test)]
+mod validation_contract_hop_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn variant_calling_taxonomy_carries_contract_ref() {
+        let config_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("config");
+        let tax = build_taxonomy_metadata_for_modality(
+            "variant_calling",
+            ecaa_workflow_core::project_class::ProjectClass::Bioinformatics,
+            &config_dir,
+        )
+        .expect("taxonomy build must succeed");
+        assert_eq!(
+            tax.validation_contract_ref.as_deref(),
+            Some("validation-contract-variants.json"),
+            "StageTaxonomy must inherit the archetype's validation_contract_ref"
+        );
+    }
 }
