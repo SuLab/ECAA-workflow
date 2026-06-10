@@ -6,7 +6,12 @@ description: |
   runtime method-choice axis in the workflow, gather candidate methods and
   PMID/DOI/URL-anchored evidence, conditioned on the specific data
   (organism, protocol, sample count, missingness from the upstream QC +
-  sample-manifest) and the analysis goal/modality. Honors
+  sample-manifest) and the analysis goal/modality. When the task carries
+  an attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL
+  SCOPE — gather candidate methods + evidence relevant to that goal (e.g. a
+  low-allele-frequency / heteroplasmy detection goal widens retrieval toward
+  AF-window-aware candidates). This conditions WHAT is retrieved only; it is
+  never a ranking or recommendation instruction. Honors
   config/downstream-policy/source-discovery-policy.json. Emit a
   method_landscape.csv where every row is locator-anchored with a
   substring-verified evidence_quote. No synthesis; no ranking (the

@@ -66,7 +66,11 @@ const DATA_CHARACTERIZATION_PRODUCERS: &[&str] = &[
 /// synthesized `discover_*` companion and downstream of any
 /// data-characterization producer present. Mutates `dag` in place.
 /// Idempotent. Keeps the DAG byte-stable (re-sorts nodes + edges).
-pub fn synthesize_survey_method_landscape(dag: &mut WorkflowDag, atom_reg: &AtomRegistry) {
+pub fn synthesize_survey_method_landscape(
+    dag: &mut WorkflowDag,
+    atom_reg: &AtomRegistry,
+    goal_context: Option<&str>,
+) {
     let discover_ids: Vec<String> = dag
         .nodes
         .iter()
@@ -97,6 +101,23 @@ pub fn synthesize_survey_method_landscape(dag: &mut WorkflowDag, atom_reg: &Atom
             "atom_id".into(),
             serde_json::Value::String(SURVEY_ID.into()),
         );
+        // Stamp the SME analysis goal as RETRIEVAL SCOPE for the survey:
+        // "gather candidate methods + evidence relevant to this goal" (e.g.
+        // an AF-window-aware low-allele-frequency / heteroplasmy detection
+        // goal). This conditions WHAT the survey retrieves — it is NOT a
+        // ranking or recommendation instruction, so it stays inside the
+        // survey atom's claim_boundary (no synthesis, no ranking; the
+        // discover_* atoms rank deterministically from the table). Gated on a
+        // non-empty (trimmed) goal so empty-goal packages stay byte-identical.
+        if let Some(g) = goal_context {
+            let g = g.trim();
+            if !g.is_empty() {
+                node.attributes.insert(
+                    "goal_context".into(),
+                    serde_json::Value::String(g.to_string()),
+                );
+            }
+        }
         dag.nodes.push(node);
     }
 
@@ -244,8 +265,9 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
-        synthesize_survey_method_landscape(&mut dag, &reg);
+        synthesize_survey_method_landscape(&mut dag, &reg, None);
 
         let surveys: Vec<&TaskNode> = dag
             .nodes
@@ -289,11 +311,74 @@ mod tests {
 
         // Idempotent.
         let before = (dag.nodes.len(), dag.edges.len());
-        synthesize_survey_method_landscape(&mut dag, &reg);
+        synthesize_survey_method_landscape(&mut dag, &reg, None);
         assert_eq!(
             (dag.nodes.len(), dag.edges.len()),
             before,
             "second pass is a no-op"
+        );
+    }
+
+    /// A non-empty SME goal is stamped as `goal_context` retrieval-scope
+    /// context on the synthesized survey node (so retrieval gathers
+    /// goal-relevant candidates), staying inside the survey atom's
+    /// claim_boundary (no ranking).
+    #[test]
+    fn survey_node_stamps_goal_context_when_present() {
+        let reg = real_registry();
+        let mut dag = dag_with(vec![
+            TaskNode::skeleton("variant_filtering", "test"),
+            TaskNode::synthesize_discover(
+                "discover_variant_filtering",
+                "variant_filtering",
+                &["bcftools_filter".to_string()],
+                "variant_filtering",
+            ),
+        ]);
+        synthesize_survey_method_landscape(
+            &mut dag,
+            &reg,
+            Some("Detect low-frequency heteroplasmic variants in chrM"),
+        );
+        let survey = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "survey_method_landscape")
+            .expect("survey node synthesized");
+        assert!(
+            survey
+                .attributes
+                .get("goal_context")
+                .and_then(|v| v.as_str())
+                .map(|s| s.contains("heteroplasmic"))
+                .unwrap_or(false),
+            "survey node carries goal_context"
+        );
+    }
+
+    /// Empty / whitespace-only goal must NOT stamp `goal_context` on the
+    /// survey node — the empty-goal path stays byte-identical to `None`.
+    #[test]
+    fn survey_empty_goal_context_is_not_stamped() {
+        let reg = real_registry();
+        let mut dag = dag_with(vec![
+            TaskNode::skeleton("variant_filtering", "test"),
+            TaskNode::synthesize_discover(
+                "discover_variant_filtering",
+                "variant_filtering",
+                &["bcftools_filter".to_string()],
+                "variant_filtering",
+            ),
+        ]);
+        synthesize_survey_method_landscape(&mut dag, &reg, Some("   "));
+        let survey = dag
+            .nodes
+            .iter()
+            .find(|n| n.id == "survey_method_landscape")
+            .expect("survey node synthesized");
+        assert!(
+            survey.attributes.get("goal_context").is_none(),
+            "whitespace-only goal must not stamp goal_context (byte-stable)"
         );
     }
 
@@ -307,8 +392,9 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
-        synthesize_survey_method_landscape(&mut dag, &reg);
+        synthesize_survey_method_landscape(&mut dag, &reg, None);
         assert!(
             !dag.nodes.iter().any(|n| n.id == "survey_method_landscape"),
             "no discover companions → no survey task"
@@ -336,8 +422,9 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
-        synthesize_survey_method_landscape(&mut dag, &reg);
+        synthesize_survey_method_landscape(&mut dag, &reg, None);
 
         let lowered =
             crate::builder::build_dag_from_workflow_dag(&dag, "wf").expect("lower v4 dag");
@@ -388,8 +475,9 @@ mod tests {
             &mut dag,
             &reg,
             &crate::preferred_methods::PreferredMethods::new(),
+            None,
         );
-        synthesize_survey_method_landscape(&mut dag, &reg);
+        synthesize_survey_method_landscape(&mut dag, &reg, None);
         assert!(
             dag.edges.iter().any(
                 |e| e.from_node == "data_acquisition" && e.to_node == "survey_method_landscape"
