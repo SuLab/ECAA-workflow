@@ -5791,6 +5791,81 @@ mod read_dag_tests {
     }
 
     #[test]
+    fn het_band_empty_fails_numeric_threshold() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/variant_filtering")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_filtering/result.json"),
+            serde_json::json!({ "low_af_band_count": 0, "sub_noise_floor_count": 0 }).to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        let a = serde_json::json!({
+            "id": "variant_filtering.het_tail_band_nonempty",
+            "assertion_type": "numeric_threshold",
+            "target": "runtime/outputs/variant_filtering/result.json",
+            "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 }
+        });
+        assert!(!run_assertion(pkg, &a, &empty), "empty het band must fail (dropped het)");
+    }
+
+    #[test]
+    fn het_band_present_passes_numeric_threshold() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/variant_filtering")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_filtering/result.json"),
+            serde_json::json!({ "low_af_band_count": 1, "sub_noise_floor_count": 0 }).to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        let a = serde_json::json!({
+            "id": "variant_filtering.het_tail_band_nonempty",
+            "assertion_type": "numeric_threshold",
+            "target": "runtime/outputs/variant_filtering/result.json",
+            "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 }
+        });
+        assert!(run_assertion(pkg, &a, &empty), "non-empty het band must pass");
+    }
+
+    #[test]
+    fn sub_noise_floor_overcall_fails_numeric_threshold() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/variant_filtering")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_filtering/result.json"),
+            serde_json::json!({ "low_af_band_count": 2, "sub_noise_floor_count": 1 }).to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        let a = serde_json::json!({
+            "id": "variant_filtering.no_sub_noise_floor_calls",
+            "assertion_type": "numeric_threshold",
+            "target": "runtime/outputs/variant_filtering/result.json",
+            "check": { "json_pointer": "/sub_noise_floor_count", "op": "lte", "value": 0.0 }
+        });
+        assert!(!run_assertion(pkg, &a, &empty), "any sub-noise-floor call must fail (over-call)");
+    }
+
+    #[test]
+    fn missing_af_metric_fails_closed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        // No result.json written -> missing file -> read_json_pointer_f64 None -> fail.
+        let empty = std::collections::BTreeMap::new();
+        let a = serde_json::json!({
+            "id": "variant_filtering.het_tail_band_nonempty",
+            "assertion_type": "numeric_threshold",
+            "target": "runtime/outputs/variant_filtering/result.json",
+            "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 }
+        });
+        assert!(!run_assertion(pkg, &a, &empty), "missing metric must fail closed (pessimistic)");
+    }
+
+    #[test]
     fn numeric_distribution_checks_p_stats_against_bounds() {
         let tmp = tempfile::tempdir().unwrap();
         let pkg = tmp.path();
