@@ -92,19 +92,27 @@ writer of task state.
 
 ### Figures obligation
 
-If the task spec lists `required_figures`, you must produce each one. The
-package bundles the rendering library under `runtime/plotting/` (and
-`runtime/plotting_r/`); render figures with it from this task's real
-result tables — do not stub, fabricate, or copy placeholder images. Write
-the figure files under `runtime/outputs/$ECAA_TASK_ID/` and list their
-paths in `result.json::figures`. A completed analytical stage that is
-missing its declared figures is not done.
+Do not author figure-rendering code. Run your compute in whichever language
+fits the analysis — Python or R, your choice — because the compute language
+has no bearing on figures. Do not import `matplotlib`, `ggplot2`, or any
+plotting toolkit to draw figures, and do not write figures yourself.
 
-The R catalog (`runtime/plotting_r/`) is a subset of the Python one. If you
-worked in R and `ecaa_known_figures(stage_id)` is empty for your stage,
-render the required figures with the Python library (`runtime/plotting/`)
-from the output tables instead — never emit zero figures because the R
-renderer for your stage is missing.
+Instead, emit the standardized figure-data-contract output **tables** for the
+stage under `runtime/outputs/$ECAA_TASK_ID/`. A fixed, non-LLM Python render
+step then turns those tables into the declared figures for you:
+
+```
+python3 -m runtime.plotting render --stage <STAGE> \
+  --outputs runtime/outputs/$ECAA_TASK_ID --required <required_figures>
+```
+
+So your obligation is the tables, not the images. If the task spec's
+`required_figures` is empty or absent, the render step is a no-op and there is
+nothing to do. Otherwise, every required figure has source tables it is
+rendered from: produce those tables from this task's real results — do not
+stub, fabricate, or copy placeholder data. Missing a required output table is
+a hard completion failure: an analytical stage that did not emit the tables
+its declared figures are rendered from is not done.
 
 ### Discovery tasks (`discover_*`)
 
