@@ -345,6 +345,64 @@ pub(super) fn disposition_for(filename: &str) -> String {
     format!("{kind}; filename=\"{filename}\"")
 }
 
+/// Reserved sub-paths that must never be served by `get_artifact`, even
+/// though they may physically live under the package root (e.g. a misuse
+/// or an `ECAA_AGENT_HOME_DIR` override that placed agent credentials
+/// inside the package). Defense-in-depth behind the primary fix that
+/// moves the codex agent HOME out of the package (critical-analysis C1).
+fn is_reserved_artifact_path(rel: &std::path::Path) -> bool {
+    use std::path::Component;
+    // Block the agent-home subtree wholesale.
+    if rel.starts_with("runtime/agent-home") {
+        return true;
+    }
+    for comp in rel.components() {
+        if let Component::Normal(os) = comp {
+            let name = os.to_string_lossy();
+            // Credential-bearing dot-dirs and files.
+            if matches!(
+                name.as_ref(),
+                ".codex"
+                    | ".claude"
+                    | ".aws"
+                    | ".ssh"
+                    | ".config"
+                    | "auth.json"
+                    | ".credentials.json"
+                    | "credentials"
+            ) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod reserved_path_tests {
+    use super::is_reserved_artifact_path;
+    use std::path::Path;
+
+    #[test]
+    fn blocks_agent_home_and_credential_paths() {
+        assert!(is_reserved_artifact_path(Path::new(
+            "runtime/agent-home/.codex/auth.json"
+        )));
+        assert!(is_reserved_artifact_path(Path::new(
+            "runtime/outputs/t1/.claude/config"
+        )));
+        assert!(is_reserved_artifact_path(Path::new("some/dir/auth.json")));
+    }
+
+    #[test]
+    fn allows_normal_artifacts() {
+        assert!(!is_reserved_artifact_path(Path::new(
+            "runtime/outputs/t1/figures/volcano.png"
+        )));
+        assert!(!is_reserved_artifact_path(Path::new("WORKFLOW.json")));
+    }
+}
+
 /// static artifact fetch, scoped to the session's
 /// emitted package root. Traversal attempts return 403.
 pub async fn get_artifact(
@@ -360,11 +418,19 @@ pub async fn get_artifact(
     let Ok(root_canon) = root.canonicalize() else {
         return (StatusCode::NOT_FOUND, "package root missing on disk").into_response();
     };
-    let requested = root.join(rel_path.trim_start_matches('/'));
+    let rel = std::path::Path::new(rel_path.trim_start_matches('/'));
+    // Reserved-path denylist (C1 defense-in-depth): refuse credential /
+    // agent-home paths before any filesystem touch.
+    if is_reserved_artifact_path(rel) {
+        return (StatusCode::FORBIDDEN, "reserved path").into_response();
+    }
+    let requested = root.join(rel);
     let Ok(canon) = requested.canonicalize() else {
         return (StatusCode::NOT_FOUND, "artifact not found").into_response();
     };
-    if !canon.starts_with(&root_canon) {
+    // Path-jail per RC-17: canonical resolved path must stay under the
+    // canonical package root (handles symlink escapes, not just `..`).
+    if super::super::_path_jail::assert_under_root(&root_canon, &canon).is_err() {
         return (StatusCode::FORBIDDEN, "path escapes package root").into_response();
     }
     if !canon.is_file() {
