@@ -499,12 +499,17 @@ def _render_guard_outcomes(per_arm: dict) -> list[str]:
 # "mixed".
 
 def _aggregate_claim_groundedness(card: Scorecard) -> dict:
-    """Roll Score.extra["claim_groundedness"] up to per-arm totals.
-    Returns {} when no row carries the metric."""
+    """Roll the per-row narrative self-consistency metric up to per-arm totals.
+    Reads Score.extra["intra_narrative_self_consistency"] (L10 renamed key),
+    falling back to the legacy "claim_groundedness" key so older cards/fixtures
+    still aggregate. Returns {} when no row carries the metric."""
     per_arm: dict[str, dict] = {}
     ref_seen: dict[str, set[str]] = {}
     for r in card.rows:
-        cg = (r.extra or {}).get("claim_groundedness")
+        extra = r.extra or {}
+        cg = extra.get("intra_narrative_self_consistency")
+        if not isinstance(cg, dict):
+            cg = extra.get("claim_groundedness")
         if not isinstance(cg, dict):
             continue
         agg = per_arm.setdefault(r.arm, {
