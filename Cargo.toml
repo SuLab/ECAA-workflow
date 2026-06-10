@@ -44,9 +44,9 @@ anyhow = "1"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 # `derive` feature is the only consumer flavour across the workspace
-# (cli, harness, eval-adapters, eval-baselines all use #[derive(Parser)]
-# on their argument structs). One pin keeps the proc-macro toolchain
-# version in sync across all four sites.
+# (cli, harness, eval-adapters all use #[derive(Parser)] on their
+# argument structs). One pin keeps the proc-macro toolchain version
+# in sync across those sites.
 clap = { version = "4", features = ["derive"] }
 csv = "1"
 # Sharded concurrent map. Conversation uses per-session mutex
@@ -188,8 +188,8 @@ assert_cmd = "2"
 # `.unwrap()`s.
 [workspace.lints.rust]
 unsafe_code = "deny"
-# Every production crate (core/conversation/server/harness/cli/
-# eval-baselines) is at zero `unreachable_pub` warnings. The deny
+# Every production crate (core/conversation/server/harness/cli) is
+# at zero `unreachable_pub` warnings. The deny
 # ratchet locks the gate so any new pub item must justify
 # cross-crate visibility.
 unreachable_pub = "deny"

@@ -5,7 +5,7 @@
 - **Rust** — pinned via [`rust-toolchain.toml`](./rust-toolchain.toml). `rustup` installs the channel automatically on first `cargo` invocation. Required components (`rustfmt`, `clippy`, `rust-src`) are part of the pin.
 - **mold linker** — `apt install mold` (Debian/Ubuntu), `dnf install mold` (Fedora), `brew install mold` (macOS). `.cargo/config.toml` routes the linker through it.
 - **cargo-nextest** *(optional)* — `cargo install --locked cargo-nextest`. Process-per-test runner; falls back to `cargo test` when absent.
-- **sccache** *(optional)* — `cargo install --locked sccache && export RUSTC_WRAPPER=sccache`. Compile cache.
+- **sccache** *(required)* — `cargo install --locked sccache`. `.cargo/config.toml` sets `rustc-wrapper = "sccache"` unconditionally, so the build fails without it on PATH; `make doctor` surfaces its absence. (No manual `RUSTC_WRAPPER` export needed.)
 - **cargo-hakari** *(required if you touch any `Cargo.toml`)* — `cargo install --locked cargo-hakari`. Regenerate `workspace-hack` with `cargo hakari generate && cargo hakari manage-deps --yes`.
 - **bacon** *(optional)* — `cargo install --locked bacon`. Background `cargo check`/`test`/`clippy` for the inner loop; `bacon.toml` pre-configures jobs.
 - **Node.js 20+** and **npm** — for the web UI in `ui/` and the Playwright e2e tier.
