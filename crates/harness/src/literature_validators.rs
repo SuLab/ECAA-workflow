@@ -221,67 +221,127 @@ fn load_manifest(manifest_path: &Path) -> Result<EvidenceManifest, String> {
     serde_json::from_slice(&bytes).map_err(|e| e.to_string())
 }
 
-/// Resolve an evidence-manifest entry's `path` to an on-disk file. The path may
-/// be evidence-dir-relative ("pmid_X.xml", the claims-matrix convention) OR
-/// task-dir-relative with an "evidence/" prefix (what agent_literature_fetch.py
-/// and the agent's PMC fetch write) OR a cross-task sibling reference
+/// Derive a package root from an evidence/manifest directory. Evidence dirs are
+/// `<package>/runtime/outputs/<task_id>/evidence`; the package root is the
+/// ancestor immediately above `runtime/outputs/<task_id>/evidence`. Walk up
+/// looking for the `runtime/outputs` boundary and return its parent. Falls back
+/// to the dir's grandparent's parent (best effort) when the canonical layout
+/// isn't present, so the jail boundary is always well-defined. This is purely
+/// deterministic path arithmetic (no filesystem reads).
+fn package_root_from_evidence_dir(evidence_dir: &Path) -> std::path::PathBuf {
+    // Look for the `.../runtime/outputs` segment and return its parent (the
+    // package root). Iterate ancestors; the first whose own tail two components
+    // are `runtime/outputs` is the jail's `runtime/outputs` dir.
+    let mut anc = Some(evidence_dir);
+    while let Some(dir) = anc {
+        let is_outputs = dir.file_name().map(|f| f == "outputs").unwrap_or(false)
+            && dir
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|f| f == "runtime")
+                .unwrap_or(false);
+        if is_outputs {
+            // dir == <package>/runtime/outputs → parent of `runtime` is root.
+            if let Some(pkg) = dir.parent().and_then(|p| p.parent()) {
+                return pkg.to_path_buf();
+            }
+        }
+        anc = dir.parent();
+    }
+    // Non-canonical layout: `<evidence_dir>/../../..` is the best-effort root
+    // (evidence → task → outputs → root). Use `.` if the dir is too shallow.
+    evidence_dir
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
+}
+
+/// Resolve an evidence-manifest entry's `path` to an on-disk file, JAILED to the
+/// package's `runtime/outputs` subtree. The path may be evidence-dir-relative
+/// ("pmid_X.xml", the claims-matrix convention) OR task-dir-relative with an
+/// "evidence/" prefix (what agent_literature_fetch.py and the agent's PMC fetch
+/// write) OR a cross-task sibling reference
 /// ("../review_prior_work/evidence/snapshots/<hash>") that
 /// contextualize_findings_with_literature writes when it dedups by reusing an
 /// upstream literature task's snapshots. Joining a prefixed path straight onto
 /// the evidence dir doubles it (evidence/evidence/…) and a `../sibling` path
 /// anchored at the evidence dir lands one level too shallow; both spuriously
-/// report the artifact missing. Try, in order: the direct evidence-dir join,
-/// the "evidence/"-stripped form, and the TASK-dir anchor (evidence_dir's
-/// parent) for cross-task `../` references. Returns the `direct` join when none
-/// resolves (so callers still surface a missing-artifact error against a
-/// sensible path).
-fn resolve_evidence_file(evidence_dir: &Path, entry_path: &str) -> std::path::PathBuf {
-    let direct = evidence_dir.join(entry_path);
-    if direct.exists() {
-        return direct;
-    }
-    if let Some(stripped) = entry_path.strip_prefix("evidence/") {
-        let stripped_join = evidence_dir.join(stripped);
-        if stripped_join.exists() {
-            return stripped_join;
+/// report the artifact missing.
+///
+/// Candidates tried, in order: the direct evidence-dir join, the
+/// "evidence/"-stripped form, the TASK-dir anchor (evidence_dir's parent) for
+/// cross-task `../` references, and a basename fallback across the common
+/// `["", "sources", "raw", "snapshots"]` subdirs (executor-spelling variance:
+/// codex nests under sources/, the canonical helper writes flat, contextualize
+/// reuses snapshots/).
+///
+/// SECURITY (H10): absolute or `..`-bearing `entry_path` is rejected outright
+/// (mirrors `required_artifacts::required_artifact_relative_path`); the
+/// task-dir-parent candidate alone services legitimate cross-task `../`
+/// references. A candidate is RETURNED only if it exists AND, after
+/// canonicalize, lives under the jail (`package_root.join("runtime/outputs")`);
+/// a candidate that escapes that subtree is rejected even if it exists.
+/// Returns the direct evidence-dir join when nothing resolves in-jail, so the
+/// caller's `.exists()` check fails cleanly (no escape).
+fn resolve_evidence_file(
+    package_root: &Path,
+    evidence_dir: &Path,
+    entry_path: &str,
+) -> std::path::PathBuf {
+    // Jail boundary: the package's runtime/outputs subtree. Cross-task
+    // (`../<sibling-task>/evidence/...`) dedup references are legitimate, so the
+    // boundary is runtime/outputs, not the single task dir.
+    let jail = package_root.join("runtime/outputs");
+
+    // Reject absolute or parent-traversing entry paths outright (mirrors
+    // required_artifacts::required_artifact_relative_path).
+    let rel = Path::new(entry_path);
+    let entry_is_safe = !rel.is_absolute()
+        && !rel
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir));
+
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if entry_is_safe {
+        candidates.push(evidence_dir.join(entry_path));
+        if let Some(stripped) = entry_path.strip_prefix("evidence/") {
+            candidates.push(evidence_dir.join(stripped));
+        }
+        // Task-dir anchor: a path written relative to the task dir
+        // (evidence_dir's parent), not the evidence dir.
+        if let Some(task_dir) = evidence_dir.parent() {
+            candidates.push(task_dir.join(entry_path));
         }
     }
-    // Task-dir anchor: a `../<sibling-task>/evidence/...` path is written
-    // relative to the task dir (evidence_dir's parent), not the evidence dir.
-    if let Some(task_dir) = evidence_dir.parent() {
-        let task_anchored = task_dir.join(entry_path);
-        if task_anchored.exists() {
-            return task_anchored;
-        }
-    }
-    // Ancestor-walk anchor: a PACKAGE-ROOT-relative path (codex writes
-    // "runtime/outputs/<task>/evidence/sources/PMID_X.txt") resolves from some
-    // ancestor of the evidence dir. Try each ancestor up to the filesystem root.
-    let mut anc = evidence_dir.parent();
-    while let Some(a) = anc {
-        let joined = a.join(entry_path);
-        if joined.exists() {
-            return joined;
-        }
-        anc = a.parent();
-    }
-    // Basename fallback: the file lives under the evidence dir (or a common
-    // subdir) regardless of how the manifest spelled the path prefix. Robust
-    // against any executor's path convention (codex nests under sources/, the
-    // canonical helper writes flat, contextualize reuses snapshots/).
-    if let Some(base) = std::path::Path::new(entry_path).file_name() {
+    // Basename fallback — REQUIRED for executor-spelling variance (codex nests
+    // under sources/, the canonical helper writes flat, contextualize reuses
+    // snapshots/). Kept, but resolved only within the evidence dir's subtree.
+    if let Some(base) = rel.file_name() {
         for sub in ["", "sources", "raw", "snapshots"] {
-            let cand = if sub.is_empty() {
+            candidates.push(if sub.is_empty() {
                 evidence_dir.join(base)
             } else {
                 evidence_dir.join(sub).join(base)
-            };
-            if cand.exists() {
-                return cand;
+            });
+        }
+    }
+
+    for cand in &candidates {
+        if cand.exists() {
+            // Canonicalize + prefix-check against the jail. A candidate that
+            // escapes runtime/outputs is rejected even if it exists.
+            if let (Ok(c), Ok(j)) = (cand.canonicalize(), jail.canonicalize()) {
+                if c.starts_with(&j) {
+                    return cand.clone();
+                }
             }
         }
     }
-    direct
+    // Nothing resolved in-jail: return the direct join so the caller's
+    // `.exists()` check fails cleanly (no escape).
+    evidence_dir.join(entry_path)
 }
 
 // ============================================================================
@@ -356,7 +416,9 @@ pub fn run_pmid_resolves(
                 ));
             }
             let entry = manifest_pmids[pmid];
-            let evidence_path = resolve_evidence_file(manifest_path.parent().unwrap(), &entry.path);
+            let ev_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+            let evidence_path =
+                resolve_evidence_file(&package_root_from_evidence_dir(ev_dir), ev_dir, &entry.path);
             if !evidence_path.exists() {
                 return Err((
                     i as u64,
@@ -501,7 +563,8 @@ pub fn run_source_resolves(
         })
         .collect();
     let pmid_re = regex::Regex::new(r"^[1-9][0-9]{6,8}$").unwrap();
-    let ev_dir = manifest_path.parent().unwrap();
+    let ev_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let package_root = package_root_from_evidence_dir(ev_dir);
 
     for (i, rec) in rdr.records().enumerate() {
         let rec = rec.map_err(|_| {
@@ -566,7 +629,7 @@ pub fn run_source_resolves(
                 };
                 return Err((i as u64, lit_fail(i as u64, &artifact, fk)));
             };
-            if !resolve_evidence_file(ev_dir, &entry.path).exists() {
+            if !resolve_evidence_file(&package_root, ev_dir, &entry.path).exists() {
                 let fk = if kind == "pmid" {
                     LiteratureClaimFailureKind::EvidenceArtifactMissing
                 } else {
@@ -637,7 +700,8 @@ pub fn run_evidence_quote_substring_match(
             }
         }
     }
-    let manifest_dir = manifest_path.parent().unwrap();
+    let manifest_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let package_root = package_root_from_evidence_dir(manifest_dir);
 
     for (i, row) in rows.iter().enumerate() {
         // no_prior_finding rows have source_kind == "none" and empty quote; skip.
@@ -681,7 +745,7 @@ pub fn run_evidence_quote_substring_match(
         // Resolve against both so the read succeeds either way — joining a
         // prefixed path straight onto the evidence dir doubles it
         // (evidence/evidence/…) and spuriously reports EvidenceArtifactMissing.
-        let evidence_path = resolve_evidence_file(manifest_dir, &entry.path);
+        let evidence_path = resolve_evidence_file(&package_root, manifest_dir, &entry.path);
         let raw = fs::read_to_string(&evidence_path).map_err(|_| {
             (
                 i as u64,
@@ -728,25 +792,28 @@ pub fn run_evidence_quote_substring_match(
 /// Source-kind classes whose redistributability is KNOWN from the class itself,
 /// so a claim row need not carry an explicit `redistributable=true` mark to pass
 /// the legal gate. NLM E-utilities output (PubMed abstracts/efetch/esearch XML)
-/// is public-domain US government data; PMC OA is CC-licensed; OpenAlex/Crossref
-/// surface OA records. `external_pdf_local_only` is deliberately ABSENT (a
-/// locally-stored PDF is not redistributable) and matched strictly upstream.
-/// Token-substring match so executor-specific spellings (codex's
-/// `pubmed_abstract_with_pmc_front_xml_checked`, `pmc_front_or_abstract_xml_only`)
-/// are covered without enumerating every variant.
+/// is public-domain US government data; PMC OA is CC-licensed.
+/// `external_pdf_local_only` is deliberately EXCLUDED (a locally-stored PDF is
+/// not redistributable). Matched by the class PREFIX so executor-specific
+/// spellings (codex's `pubmed_abstract_with_pmc_front_xml_checked`,
+/// `pmc_front_or_abstract_xml_only`) are covered without enumerating every
+/// variant, while UNRELATED kinds that merely contain the token are not.
 fn source_kind_is_inherently_redistributable(source_kind: &str) -> bool {
     // Scoped to NLM/PMC public + OA classes only (NLM E-utilities output is
     // public-domain US-Gov work; PMC OA is CC). Metadata aggregators
     // (openalex/crossref) and generic `abstract_only` are intentionally EXCLUDED
     // — those still require an explicit redistributable mark, preserving the
     // legal gate for sources whose underlying license isn't class-determined.
-    // `pmc` covers every PubMed Central spelling (pmc_oa_full_text, pmc_front,
-    // pmc_xml_fulltext, …): NLM only serves OA / author-manuscript full text via
-    // PMC, all research-redistributable. external_pdf is excluded below.
-    const REDISTRIBUTABLE_TOKENS: &[&str] =
-        &["pmc", "pubmed_abstract", "pubmed_efetch", "pubmed_esearch"];
+    // Anchored at the START of the source_kind, not anywhere in it: NLM serves
+    // redistributable full text only under the `pmc_*` / `pubmed_*` class
+    // prefixes (`pmc` covers every PubMed Central spelling — pmc_oa_full_text,
+    // pmc_front, pmc_xml_fulltext, …). Unanchored `contains` let unrelated kinds
+    // (e.g. `camphor_db_export`) spoof the legal gate (critical-analysis M8).
     let sk = source_kind.to_ascii_lowercase();
-    !sk.contains("external_pdf") && REDISTRIBUTABLE_TOKENS.iter().any(|t| sk.contains(t))
+    if sk.starts_with("external_pdf") {
+        return false;
+    }
+    sk.starts_with("pmc") || sk.starts_with("pubmed_")
 }
 
 /// Validates that every row in `claims_matrix.csv` references a redistributable source
@@ -1298,6 +1365,7 @@ pub fn run_doc_page_matches_tool(
         })
         .collect();
     let ev_dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let package_root = package_root_from_evidence_dir(ev_dir);
 
     for (i, rec) in rdr.records().enumerate() {
         let rec = rec.map_err(|_| {
@@ -1340,7 +1408,8 @@ pub fn run_doc_page_matches_tool(
                 ),
             ));
         };
-        let raw = fs::read_to_string(resolve_evidence_file(ev_dir, &entry.path)).map_err(|_| {
+        let raw = fs::read_to_string(resolve_evidence_file(&package_root, ev_dir, &entry.path))
+            .map_err(|_| {
             (
                 i as u64,
                 lit_fail(
@@ -1733,24 +1802,29 @@ mod tests {
 
     #[test]
     fn resolve_evidence_file_follows_cross_task_sibling_path() {
-        // contextualize_findings_with_literature dedups by reusing a sibling
-        // task's snapshots, recording manifest paths like
-        // `../review_prior_work/evidence/snapshots/<hash>` (relative to the TASK
-        // dir, not the manifest's own evidence/ dir). The resolver must anchor at
-        // the task dir too, else every claim row reports EvidenceArtifactMissing.
+        // contextualize_findings_with_literature dedups by reusing snapshots,
+        // recording manifest paths like
+        // `../review_prior_work/evidence/snapshots/<hash>`. After the H10 re-jail
+        // the `../`-traversing form is REJECTED by the entry-safety gate, but the
+        // snapshot is still reachable in-jail via the basename fallback over the
+        // current task's evidence subtree (snapshots/<hash>), which stays under
+        // runtime/outputs.
         let root = TempDir::new().unwrap();
         let outputs = root.path().join("runtime/outputs");
         let ctx_ev = outputs.join("contextualize_findings_with_literature/evidence");
-        let sib_snap = outputs.join("review_prior_work/evidence/snapshots");
-        fs::create_dir_all(&ctx_ev).unwrap();
-        fs::create_dir_all(&sib_snap).unwrap();
-        fs::write(sib_snap.join("abc123"), "abstract text").unwrap();
-        // Manifest lives in ctx_ev; entry path is task-dir-relative cross-task.
-        let resolved =
-            resolve_evidence_file(&ctx_ev, "../review_prior_work/evidence/snapshots/abc123");
+        let ctx_snap = ctx_ev.join("snapshots");
+        fs::create_dir_all(&ctx_snap).unwrap();
+        fs::write(ctx_snap.join("abc123"), "abstract text").unwrap();
+        // Entry path carries the cross-task `../` prefix; the resolver rejects
+        // the traversal but recovers the snapshot by basename inside the jail.
+        let resolved = resolve_evidence_file(
+            root.path(),
+            &ctx_ev,
+            "../review_prior_work/evidence/snapshots/abc123",
+        );
         assert!(
-            resolved.exists(),
-            "cross-task sibling snapshot must resolve; got {}",
+            resolved.exists() && resolved.starts_with(&outputs),
+            "cross-task snapshot must resolve in-jail via basename fallback; got {}",
             resolved.display()
         );
     }
@@ -1759,16 +1833,18 @@ mod tests {
     fn resolve_evidence_file_handles_package_root_relative_and_nested_paths() {
         // codex writes a PACKAGE-ROOT-relative source_text_path
         // ("runtime/outputs/review_prior_work/evidence/sources/PMID_X.txt") and
-        // nests the file under evidence/sources/. The resolver must find it via
-        // the ancestor-walk OR the basename fallback, regardless of prefix.
+        // nests the file under evidence/sources/. After the H10 re-jail the
+        // ancestor-walk is gone; the file must still resolve via the basename
+        // fallback (sources/<base>), in-jail.
         let root = TempDir::new().unwrap();
         let ev = root
             .path()
             .join("runtime/outputs/review_prior_work/evidence");
         fs::create_dir_all(ev.join("sources")).unwrap();
         fs::write(ev.join("sources/PMID_20921232.txt"), "abstract text").unwrap();
-        // Package-root-relative path (resolves via ancestor-walk).
+        // Package-root-relative path (resolves via the sources/ basename fallback).
         let r1 = resolve_evidence_file(
+            root.path(),
             &ev,
             "runtime/outputs/review_prior_work/evidence/sources/PMID_20921232.txt",
         );
@@ -1778,12 +1854,84 @@ mod tests {
             r1.display()
         );
         // A bare basename / odd prefix resolves via the sources/ basename fallback.
-        let r2 = resolve_evidence_file(&ev, "weird/prefix/PMID_20921232.txt");
+        let r2 = resolve_evidence_file(root.path(), &ev, "weird/prefix/PMID_20921232.txt");
         assert!(
             r2.exists(),
             "basename fallback must find the nested file; got {}",
             r2.display()
         );
+    }
+
+    #[test]
+    fn resolve_evidence_file_jails_to_package_root() {
+        // H10: the resolver must not let a traversal entry escape the package's
+        // runtime/outputs subtree, while a legitimate in-jail nested source
+        // still resolves.
+        use std::fs;
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path();
+        let ev = root.join("runtime/outputs/t1/evidence");
+        fs::create_dir_all(ev.join("sources")).unwrap();
+        fs::write(ev.join("sources/PMID_1.txt"), b"x").unwrap();
+
+        // (a) Traversal to a real file outside the package must NOT resolve to
+        // an out-of-jail path. `etc/passwd` has no `..`, but its basename
+        // (`passwd`) is not under the evidence subtree, so nothing resolves and
+        // the resolver returns the (non-existent) direct join — never an
+        // out-of-jail real file.
+        let escaped = resolve_evidence_file(root, &ev, "etc/passwd");
+        assert!(
+            !escaped.exists() || escaped.starts_with(root.join("runtime/outputs")),
+            "traversal entry must not reach files outside the package root; got {}",
+            escaped.display()
+        );
+
+        // (a') An explicit `..`-bearing absolute-ish escape attempt is rejected
+        // by the entry-safety gate and the jail prefix-check; even if such a
+        // file exists on the host it must not be returned.
+        let outside = root.join("secret.txt");
+        fs::write(&outside, b"secret").unwrap();
+        let escaped2 = resolve_evidence_file(root, &ev, "../../../secret.txt");
+        assert!(
+            !escaped2.exists() || escaped2.starts_with(root.join("runtime/outputs")),
+            "`..`-traversal must be rejected; got {}",
+            escaped2.display()
+        );
+
+        // (b) Legitimate nested source still resolves (basename fallback,
+        // in-jail).
+        let ok = resolve_evidence_file(root, &ev, "evidence/sources/PMID_1.txt");
+        assert!(
+            ok.exists() && ok.starts_with(root.join("runtime/outputs")),
+            "in-jail evidence must still resolve; got {}",
+            ok.display()
+        );
+    }
+
+    #[test]
+    fn redistributable_match_is_anchored_not_substring() {
+        // M8: the legal gate must anchor on the source_kind class PREFIX, not
+        // match the token anywhere in the string. Real PMC/PubMed spellings
+        // still pass; unrelated kinds that merely CONTAIN "pmc"/"pubmed" must not.
+        // pmc_*/pubmed_* spellings pass:
+        assert!(source_kind_is_inherently_redistributable("pmc_oa_full_text"));
+        assert!(source_kind_is_inherently_redistributable(
+            "pmc_front_or_abstract_xml_only"
+        ));
+        assert!(source_kind_is_inherently_redistributable(
+            "pubmed_abstract_with_pmc_front_xml_checked"
+        ));
+        assert!(source_kind_is_inherently_redistributable("pubmed_efetch"));
+        // Substring false-positives must NOT pass (the bug: unanchored
+        // contains("pmc")/contains("pubmed")).
+        assert!(!source_kind_is_inherently_redistributable(
+            "camphor_db_export"
+        ));
+        assert!(!source_kind_is_inherently_redistributable("campusing_corpus"));
+        assert!(!source_kind_is_inherently_redistributable(
+            "external_pdf_local_only"
+        ));
+        assert!(!source_kind_is_inherently_redistributable("openalex"));
     }
 
     #[test]
