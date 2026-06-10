@@ -283,14 +283,37 @@ impl AtomRegistry {
                             id
                         ));
                     }
-                    cel_interpreter::Program::compile(cel_src).map_err(|e| {
-                        anyhow!(
-                            "atom {} excludes CEL expression `{}` failed to compile: {:?}",
-                            id,
-                            cel_src,
-                            e
-                        )
-                    })?;
+                    // cel-interpreter 0.10's ANTLR-rust parser PANICS on
+                    // certain genuinely-malformed inputs instead of
+                    // returning Err. Wrap compilation in catch_unwind so a
+                    // malformed `cel:` exclude becomes a clean
+                    // validate_consistency error rather than crashing the
+                    // registry load. AssertUnwindSafe is sound here: the
+                    // closure borrows only an owned String and discards the
+                    // compiled Program, so no broken invariant can leak out.
+                    let cel_src_owned = cel_src.to_string();
+                    let compile_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                        || cel_interpreter::Program::compile(&cel_src_owned),
+                    ));
+                    match compile_result {
+                        Ok(Ok(_program)) => {}
+                        Ok(Err(e)) => {
+                            return Err(anyhow!(
+                                "atom {} excludes CEL expression `{}` failed to compile: {:?}",
+                                id,
+                                cel_src,
+                                e
+                            ));
+                        }
+                        Err(_panic) => {
+                            return Err(anyhow!(
+                                "atom {} excludes CEL expression `{}` is malformed \
+                                 (CEL parser panicked)",
+                                id,
+                                cel_src
+                            ));
+                        }
+                    }
                     continue;
                 }
                 if !self.atoms.contains_key(excl) {
@@ -812,22 +835,46 @@ excludes:
         );
     }
 
-    /// Malformed CEL note. The cel-interpreter 0.10
-    /// ANTLR-rust parser panics through antlr4rust on certain
-    /// genuinely-malformed inputs (see `expression.rs::cel_evaluator_unbound_identifier_surfaces_error`
-    /// for the documented workaround pattern). `Program::compile`
-    /// rejects valid-but-typoed expressions cleanly; some sequences
-    /// of stray operators trip the parser at a layer below our
-    /// `?`-via-`Result` surface. The structural guarantee
-    /// `validate_consistency` provides — well-formed CEL compiles, an
-    /// empty `cel:` is rejected — is exercised by the two preceding
-    /// tests. The narrower antlr-panic case is a cel-interpreter
-    /// upstream bug; revisit when we either pin a future cel-rust
-    /// release that fixes the antlr bridge, or swap the
-    /// `ExpressionEvaluator` impl.
+    /// Malformed CEL must surface as a clean `validate_consistency` Err,
+    /// NOT a panic out of the cel-interpreter 0.10 ANTLR-rust parser.
+    /// `Program::compile` rejects valid-but-typoed expressions cleanly,
+    /// but some stray-operator / unbalanced-token sequences trip the
+    /// parser at a layer below our `?`-via-`Result` surface — those
+    /// panic through antlr4rust. The `catch_unwind` guard at the compile
+    /// site converts that panic into the same clean error path, so this
+    /// test can assert clean-Err behavior regardless of which class the
+    /// chosen input falls into. The error must name the offending atom
+    /// and CEL so a registry-load failure is diagnosable.
     #[test]
-    #[ignore = "cel-interpreter 0.10 ANTLR parser panics rather than returning Err on certain malformed inputs; tracked for next-quarter cel-rust upgrade"]
-    fn excludes_rejects_malformed_cel() {}
+    fn excludes_rejects_malformed_cel() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Unbalanced-paren / trailing-operator token stream that the
+        // 0.10 ANTLR layer panics on rather than returning Err.
+        write_atom(
+            tmp.path(),
+            "malformed_cel_atom",
+            r#"id: malformed_cel_atom
+version: "1.0.0"
+role: operation
+description: "Deliberately malformed CEL exclusion."
+edam_operation: operation:0292
+assignee: agent
+excludes:
+  - "cel:intake.organism.taxon_id != (("
+"#,
+        );
+        let reg = AtomRegistry::load_from_dir(tmp.path()).unwrap();
+        let result = reg.validate_consistency();
+        assert!(
+            result.is_err(),
+            "malformed CEL must yield a clean Err, not panic"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("malformed_cel_atom") && msg.contains("CEL"),
+            "error must name the offending atom + CEL: got {msg}"
+        );
+    }
 
     #[test]
     fn iter_is_id_sorted() {
