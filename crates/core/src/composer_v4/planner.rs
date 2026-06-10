@@ -3822,17 +3822,30 @@ mod tests {
         let primary = res.alternatives.first().expect("a primary alternative");
         let ids: std::collections::BTreeSet<&str> =
             primary.dag.nodes.iter().map(|n| n.id.as_str()).collect();
-        // The raw-read producing-chain must be gone from the SELECTED primary.
-        for gone in ["alignment", "quantification"] {
+        // The raw-read producing-chain must be gone from the SELECTED primary
+        // (supplied counts prune alignment/quantification/raw_qc).
+        for gone in ["alignment", "quantification", "raw_qc"] {
             assert!(
                 !ids.contains(gone),
                 "supplied counts must prune `{gone}` from the primary DAG; got {ids:?}"
             );
         }
-        // The downstream analysis terminal survives.
+        // The counts-consuming downstream analysis + terminal report survive.
+        // The goal (bulk_rnaseq + a differential-expression-family table) routes to a
+        // `*_de` analysis terminal — its exact spelling (differential_expression /
+        // translation_efficiency_de / …) is the composer's normal goal→archetype
+        // routing, orthogonal to the prune — so assert the family, not one name.
         assert!(
-            ids.contains("differential_expression"),
-            "differential_expression must survive the prune; got {ids:?}"
+            ids.contains("final_reporting"),
+            "the terminal report must survive the prune; got {ids:?}"
+        );
+        assert!(
+            ids.iter().any(|id| {
+                (id.ends_with("_de") || id.contains("differential"))
+                    && !id.starts_with("discover_")
+                    && !id.starts_with("validate_")
+            }),
+            "a differential-expression-family analysis must survive the prune; got {ids:?}"
         );
     }
 }
