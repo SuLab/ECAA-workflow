@@ -126,8 +126,27 @@ def _auto_resolve_guard_block(package_dir: Path, task_id: str, reason: str) -> N
 def eval_model() -> str:
     """The single model BOTH arms run, so the ecaa-vs-direct delta isolates the
     scaffolding rather than model capability (the bare arm runs one model, so the
-    ECAA arm must too). Override with ECAA_EVAL_MODEL."""
-    return os.environ.get("ECAA_EVAL_MODEL", "claude-sonnet-4-6")
+    ECAA arm must too). Override with ECAA_EVAL_MODEL.
+
+    Backend-aware (M9): rejects a model id that cannot run on the selected
+    backend before it silently degrades a run — a ``claude-*`` id reaching the
+    codex backend, or a ``gpt-*``/``o*`` id reaching the claude backend."""
+    model = os.environ.get("ECAA_EVAL_MODEL", "claude-sonnet-4-6")
+    backend = os.environ.get("ECAA_AGENT_BACKEND", "claude").lower()
+    if backend == "codex" and model.startswith("claude-"):
+        raise ValueError(
+            f"eval_model misconfig: claude id {model!r} cannot run on the codex "
+            f"backend (ECAA_AGENT_BACKEND=codex); set ECAA_EVAL_MODEL to a "
+            f"codex/gpt model")
+    if backend != "codex" and (model.startswith("gpt-")
+                               or model.startswith("o1")
+                               or model.startswith("o3")
+                               or model.startswith("o4")):
+        raise ValueError(
+            f"eval_model misconfig: gpt/o id {model!r} cannot run on the claude "
+            f"backend (ECAA_AGENT_BACKEND={backend!r}); set ECAA_EVAL_MODEL to a "
+            f"claude model")
+    return model
 
 
 def run_ecaa_package(package_dir: Path, *, max_iterations: int = 60,
