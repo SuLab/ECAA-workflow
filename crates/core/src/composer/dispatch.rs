@@ -385,7 +385,10 @@ pub(crate) fn compose_v4_dispatch_full(
         // supplied product on the full intake text (stamped into
         // `goal.modifiers["available_input_stage"]` as its type IRI), seed THAT
         // instead of the raw default so `input_stage_prune` drops the
-        // now-redundant producing-chain. Default raw seed otherwise.
+        // now-redundant producing-chain. The IRI is already modality-gated by
+        // `detect_input_data_stage` (C5/M7), so seeding here is safe — and the
+        // prune no-ops anyway when no producer for the IRI exists in the lifted
+        // DAG. Default raw seed otherwise.
         match goal
             .modifiers
             .get("available_input_stage")
@@ -396,6 +399,20 @@ pub(crate) fn compose_v4_dispatch_full(
                     crate::workflow_contracts::data_product::DataProductContract::gene_count_matrix(
                     ),
                 ]
+            }
+            Some(iri @ ("data:1255" | "data:3498" | "data:0863")) => {
+                let label = match iri {
+                    "data:1255" => "Called peaks",
+                    "data:3498" => "Sequence variant",
+                    _ => "Sequence alignment",
+                };
+                let mut dp =
+                    crate::workflow_contracts::data_product::DataProductContract::skeleton(
+                        format!("intake_supplied_{}", iri.replace(':', "_")),
+                        crate::workflow_contracts::semantic_type::SemanticType::edam(iri, label),
+                    );
+                dp.description_only = false;
+                vec![dp]
             }
             _ => base,
         }

@@ -238,27 +238,21 @@ pub fn plan(
             archetype_reg,
         );
         if cross_omics.is_none() {
-            let comp = super::multi_branch_synthesis::compose_branches(
+            let mut comp = super::multi_branch_synthesis::compose_branches(
                 ctx,
                 goal,
                 project_class,
                 atom_reg,
                 archetype_reg,
             );
+            // I2/I3 + I1 — prune any supplied-upstream chain on the final
+            // multi-branch DAG and run the warn-only coherence gate. The
+            // multi-branch path never ran `prune_supplied_upstream`, so a
+            // supplied product would otherwise strand its producing-chain.
+            // Run BEFORE scoring so the score reflects the pruned shape.
+            finalize_primary_dag(&mut comp.dag, ctx, archetype_reg);
             let score = score_dag(&comp.dag, ctx, archetype_reg);
             let summary = summarize_dag(&comp.dag, &score);
-            // Pillar D seam — runs beside policy evaluation. Surfaces
-            // orphan-strand + modality-mismatch findings (warn-only). The
-            // modality detector reuses Pillar B's affiliation source of
-            // truth (`off_modality_node_ids`), so it cannot false-positive
-            // where `goal_relevance_penalty` is 0.
-            let coherence = super::coherence_gate::evaluate(&comp.dag, ctx, archetype_reg);
-            if !coherence.findings.is_empty() {
-                tracing::warn!(
-                    findings = ?coherence.findings,
-                    "multi-branch coherence gate flagged potential incoherence"
-                );
-            }
             let effective_sandbox = ctx
                 .sandbox_policy
                 .clone()
@@ -778,8 +772,18 @@ pub fn plan(
         );
     }
 
-    let primary_dag = alternatives[0].dag.clone();
+    let mut primary_dag = alternatives[0].dag.clone();
     let primary_score = alternatives[0].score.clone();
+
+    // I2/I3 + I1 — run input-stage pruning + the warn-only coherence gate on
+    // the FINAL selected primary DAG. The archetype-seed alternative was
+    // already pruned at lift time (so this is a no-op there), but a
+    // search-driven primary never saw `prune_supplied_upstream` and would
+    // otherwise strand a supplied product's producing-chain. Keep
+    // `alternatives[0]` in sync with the returned primary so the slate the SME
+    // sees matches what was emitted.
+    finalize_primary_dag(&mut primary_dag, ctx, archetype_reg);
+    alternatives[0].dag = primary_dag.clone();
 
     // Determine outcome shape from the primary's score + content.
     // Apply the sandbox policy's GeneratedCode refusal sweep
@@ -797,6 +801,47 @@ pub fn plan(
     PlannerResult {
         primary: outcome,
         alternatives,
+    }
+}
+
+/// Finalize the SELECTED primary `WorkflowDag` before it is returned to the
+/// caller, regardless of which branch produced it (I2/I3 + I1).
+///
+/// 1. **Input-stage pruning (C5/I2/I3).** The archetype-seed branch prunes the
+///    redundant producing-chain pre-companion (`prune_supplied_upstream` at the
+///    seed lift site). The multi-branch + search-driven branches build their
+///    DAG WITHOUT that pass, so a supplied product (counts/peaks/VCF/BAM on
+///    `intent.available_data`) would leave the producing-chain stranded.
+///    Running the prune on the final DAG closes that gap. Idempotent: an
+///    already-pruned DAG has no producer left for the supplied product, so the
+///    pass is a no-op there.
+/// 2. **Coherence gate (D7j/I1).** Warn-only orphan-strand + modality-mismatch
+///    detection. Previously wired ONLY inside the multi-branch dispatch arm;
+///    running it here means EVERY primary DAG (primary/single-archetype path
+///    included) is coherence-checked. Never blocks — surfaces via tracing.
+///
+/// Both passes are warn/no-op-safe: the emitted DAG only ever SHRINKS (prune)
+/// or is logged (coherence); neither invents nodes.
+fn finalize_primary_dag(
+    dag: &mut WorkflowDag,
+    ctx: &PlanningContext,
+    archetype_reg: &ArchetypeRegistry,
+) {
+    let pruned =
+        super::input_stage_prune::prune_supplied_upstream(dag, &ctx.intent.available_data);
+    if !pruned.is_empty() {
+        tracing::info!(
+            target: "composer",
+            pruned = ?pruned,
+            "finalize_primary_dag: pruned supplied upstream on the selected primary DAG"
+        );
+    }
+    let coherence = super::coherence_gate::evaluate(dag, ctx, archetype_reg);
+    if !coherence.findings.is_empty() {
+        tracing::warn!(
+            findings = ?coherence.findings,
+            "coherence gate flagged potential incoherence on the selected primary DAG"
+        );
     }
 }
 
@@ -3706,6 +3751,88 @@ mod tests {
             !matches!(outcome, ComposeOutcome::Refusal { .. }),
             "HumanReviewed GeneratedCode must NOT be refused, got {:?}",
             outcome
+        );
+    }
+
+    /// D7j (I1) — the coherence gate must be reachable on the PRIMARY
+    /// single-archetype path, not only multi-branch dispatch. A coherent
+    /// bulk-RNA-seq composition must yield zero coherence findings (and the
+    /// gate must not panic). This exercises `finalize_primary_dag`'s gate call
+    /// over the real lifted DAG.
+    #[test]
+    fn primary_dag_passes_through_coherence_gate() {
+        use std::path::Path;
+        let atom_reg =
+            AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("arches");
+        let goal = GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some("differential expression table".into()),
+            confidence: 0.8,
+        };
+        let ctx = planning_context_for_goal_with_intake(
+            "coh-primary",
+            &goal,
+            Some("bulk_rnaseq"),
+            Some("research"),
+            &[],
+        );
+        let res = plan(&ctx, &goal, "research", &atom_reg, &archetype_reg);
+        let primary = res.alternatives.first().expect("a primary alternative");
+        let eval = super::super::coherence_gate::evaluate(&primary.dag, &ctx, &archetype_reg);
+        assert!(
+            eval.findings.is_empty(),
+            "coherent primary archetype produced coherence findings: {:?}",
+            eval.findings
+        );
+    }
+
+    /// C5 (I2/I3) — input-stage pruning must run on the FINAL selected primary
+    /// DAG. Supplying a counts matrix on `available_data` for a bulk-RNA-seq
+    /// plan must drop the redundant FASTQ producing-chain (`alignment` /
+    /// `quantification`) from the primary DAG, regardless of which branch
+    /// produced it.
+    #[test]
+    fn supplied_counts_prunes_final_primary_dag() {
+        use std::path::Path;
+        let atom_reg =
+            AtomRegistry::load_from_dir(Path::new("../../config/stage-atoms")).expect("atoms");
+        let archetype_reg =
+            ArchetypeRegistry::load_from_dir(Path::new("../../config/archetypes")).expect("arches");
+        let goal = GoalSpec {
+            edam_data: "data:0951".into(),
+            edam_format: Some("format:3475".into()),
+            modifiers: BTreeMap::new(),
+            source_prose: Some("differential expression table".into()),
+            confidence: 0.8,
+        };
+        let supplied =
+            [crate::workflow_contracts::data_product::DataProductContract::gene_count_matrix()];
+        let ctx = planning_context_for_goal_with_intake(
+            "prune-primary",
+            &goal,
+            Some("bulk_rnaseq"),
+            Some("research"),
+            &supplied,
+        );
+        let res = plan(&ctx, &goal, "research", &atom_reg, &archetype_reg);
+        let primary = res.alternatives.first().expect("a primary alternative");
+        let ids: std::collections::BTreeSet<&str> =
+            primary.dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        // The raw-read producing-chain must be gone from the SELECTED primary.
+        for gone in ["alignment", "quantification"] {
+            assert!(
+                !ids.contains(gone),
+                "supplied counts must prune `{gone}` from the primary DAG; got {ids:?}"
+            );
+        }
+        // The downstream analysis terminal survives.
+        assert!(
+            ids.contains("differential_expression"),
+            "differential_expression must survive the prune; got {ids:?}"
         );
     }
 }
