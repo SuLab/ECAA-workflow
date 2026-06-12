@@ -95,7 +95,11 @@ mkdir -p "$BARE_HOME/.claude"
 __seed_lock="$BARE_HOME/.cred-seed.lock"
 (
   flock 9
-  if [ -f "$HOME/.claude/.credentials.json" ]; then
+  # Skip seeding the ~8h-rotating /login credential when a long-lived
+  # CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) is set — the token is forwarded
+  # into the container below and outranks any mounted creds, so copying them is
+  # both redundant and re-introduces the rotation-clobber race this flock guards.
+  if [ -z "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && [ -f "$HOME/.claude/.credentials.json" ]; then
     if [ ! -f "$BARE_HOME/.claude/.credentials.json" ] \
        || [ "$HOME/.claude/.credentials.json" -nt "$BARE_HOME/.claude/.credentials.json" ]; then
       install -m 600 "$HOME/.claude/.credentials.json" "$BARE_HOME/.claude/.credentials.json"
@@ -138,6 +142,24 @@ if [ -n "${ECAA_EVAL_SHIM_DIR:-}" ]; then
   CONTAINER_PATH="$ECAA_EVAL_SHIM_DIR:$CONTAINER_PATH"
 fi
 
+# Eval-only token hot-swap (mirrors agent-claude.sh): re-source the executor
+# OAuth token from the operator env file each invocation so it can be swapped
+# mid-run without restarting the eval. No-op in production (file absent).
+if [ -f "$HOME/.ecaa-workflow/eval.env" ]; then
+  # shellcheck disable=SC1091
+  . "$HOME/.ecaa-workflow/eval.env"
+fi
+
+# Forward the long-lived subscription OAuth token (claude setup-token) into the
+# container when set, so the bare arm authenticates with the same one-year token
+# as the ECAA arm instead of the ~8h-rotating mounted creds. The `-e VAR` (no
+# value) form passes it from this script's environment, keeping the literal token
+# out of the docker process argv.
+DOCKER_OAUTH_ARGS=()
+if [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+  DOCKER_OAUTH_ARGS+=(-e CLAUDE_CODE_OAUTH_TOKEN)
+fi
+
 # Clean container run (mirrors the validated minimal invocation). The container
 # runs as the host uid so files written to the rw-mounted workdir are owned by
 # the operator. claude writes trace.md/answer.txt (or whatever the prompt asks)
@@ -148,6 +170,7 @@ exec "$RUNTIME" run --rm \
   -v "$BARE_HOME":"$HOME":rw \
   -v "$CC_DIR/node_modules":/opt/claude-code/node_modules:ro \
   "${DOCKER_SHIM_ARGS[@]}" \
+  "${DOCKER_OAUTH_ARGS[@]}" \
   -e PATH="$CONTAINER_PATH" \
   -w "$WORKDIR" \
   -e "HOME=$HOME" \

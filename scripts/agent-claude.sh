@@ -551,9 +551,36 @@ fi
 if [ "${ECAA_AGENT_DEBUG:-0}" = "1" ] \
    && [ -n "${AGENT_TRACE_LOG:-}" ] \
    && [ -f "${AGENT_TRACE_LOG}" ] \
-   && grep -qE 'ANTHROPIC_API_KEY=sk-[A-Za-z0-9_-]{8}' "$AGENT_TRACE_LOG" 2>/dev/null; then
-    echo "FATAL: agent-trace.log contains literal API key — aborting" >&2
+   && grep -qE '(ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN)=sk-[A-Za-z0-9_-]{8}' "$AGENT_TRACE_LOG" 2>/dev/null; then
+    echo "FATAL: agent-trace.log contains a literal API key / OAuth token — aborting" >&2
     exit 99
+fi
+
+# Eval-only token hot-swap: re-source the executor OAuth token from the operator
+# env file on EVERY invocation, so the token can be swapped (e.g. quota
+# balancing) mid-run without restarting the harness/eval. The harness re-execs
+# this script per task, so the next dispatch picks up the new value while any
+# in-flight task keeps the token it launched with. No-op in production (the file
+# is an eval artifact and is absent there).
+if [ -f "$HOME/.ecaa-workflow/eval.env" ]; then
+  # shellcheck disable=SC1091
+  . "$HOME/.ecaa-workflow/eval.env"
+fi
+
+# Long-lived subscription OAuth token (from `claude setup-token`). When set in
+# subscription mode, the executor authenticates with this one-year token via
+# CLAUDE_CODE_OAUTH_TOKEN instead of the ~8h-rotating ~/.claude/.credentials.json
+# — removing the mid-campaign token-expiry failure that otherwise strands long
+# runs. Honored ONLY in subscription billing: in api mode ANTHROPIC_API_KEY is
+# set and outranks the token (auth precedence ANTHROPIC_API_KEY >
+# CLAUDE_CODE_OAUTH_TOKEN > mounted subscription creds), so the token path is not
+# activated there. When active we forward the token into the container at the run
+# sites below AND skip the credential copy + refresh loop (the token supersedes
+# the mounted creds, and skipping removes the rotation-clobber race entirely).
+ECAA_OAUTH_TOKEN_ACTIVE=0
+if [ "${ECAA_AGENT_BILLING:-subscription}" = "subscription" ] \
+   && [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ]; then
+  ECAA_OAUTH_TOKEN_ACTIVE=1
 fi
 
 # Model tiering (§R-5 — on by default; opt out with ECAA_AGENT_MODEL_TIER=0).
@@ -930,6 +957,22 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     DOCKER_SECRET_ENV_ARGS+=(--env-file "$DOCKER_SECRET_ENV_FILE")
     { set -x; } 2>/dev/null
   fi
+  # Subscription OAuth token path: forward CLAUDE_CODE_OAUTH_TOKEN into the
+  # container via a 0600 env-file (docker does NOT inherit the parent env, so an
+  # explicit pass is required; the env-file keeps the literal token out of the
+  # process argv and out of agent-trace.log). Reuses DOCKER_SECRET_ENV_FILE when
+  # the api branch already created one (mutually exclusive with this in
+  # practice). The file is removed by the cleanup_heartbeat EXIT trap.
+  if [ "$ECAA_OAUTH_TOKEN_ACTIVE" = "1" ]; then
+    { set +x; } 2>/dev/null
+    if [ -z "${DOCKER_SECRET_ENV_FILE:-}" ]; then
+      DOCKER_SECRET_ENV_FILE="$(mktemp -t agent-docker-env.XXXXXX)"
+      chmod 600 "$DOCKER_SECRET_ENV_FILE" 2>/dev/null || true
+      DOCKER_SECRET_ENV_ARGS+=(--env-file "$DOCKER_SECRET_ENV_FILE")
+    fi
+    printf 'CLAUDE_CODE_OAUTH_TOKEN=%s\n' "$CLAUDE_CODE_OAUTH_TOKEN" >> "$DOCKER_SECRET_ENV_FILE"
+    { set -x; } 2>/dev/null
+  fi
 
   # GPU passthrough. When the per-task `gpu_required` flag is on AND a
   # non-zero GPU count is declared, hand the GPU into the container.
@@ -1231,7 +1274,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
   # the per-session copy is FRESHER than the host copy. When the host
   # is newer (mtime comparison), reseed — the operator just changed
   # accounts and the per-session cache must follow.
-  if [ -f "$HOME/.claude/.credentials.json" ]; then
+  if [ "$ECAA_OAUTH_TOKEN_ACTIVE" != "1" ] && [ -f "$HOME/.claude/.credentials.json" ]; then
     if [ ! -f "$AGENT_CLAUDE_DIR/.credentials.json" ] \
        || [ "$HOME/.claude/.credentials.json" -nt "$AGENT_CLAUDE_DIR/.credentials.json" ]; then
       cp "$HOME/.claude/.credentials.json" "$AGENT_CLAUDE_DIR/.credentials.json" 2>/dev/null || true
@@ -1268,7 +1311,7 @@ if [ -n "$CONTAINER_IMAGE" ] && command -v docker >/dev/null 2>&1; then
     echo "agent-claude.sh: ECAA_AGENT_CRED_REFRESH_SECS='$__cred_refresh_secs' invalid (need 0 or integer >=5); using default 15" >&2
     __cred_refresh_secs=15
   fi
-  if [ "$__cred_refresh_secs" != "0" ] && [ -f "$HOME/.claude/.credentials.json" ]; then
+  if [ "$__cred_refresh_secs" != "0" ] && [ "$ECAA_OAUTH_TOKEN_ACTIVE" != "1" ] && [ -f "$HOME/.claude/.credentials.json" ]; then
     # When two agents in the same session run
     # concurrently (ECAA_HARNESS_CONCURRENCY>1), their refresh loops
     # would race on the per-session credentials file. flock the loop
