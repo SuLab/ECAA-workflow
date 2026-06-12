@@ -244,7 +244,32 @@ impl IntakeFacts {
             "starting from",
             "no raw",
         ];
-        let has_marker = |markers: &[&str]| markers.iter().any(|m| lower.contains(m));
+        // Clause segmentation for marker↔noun BINDING. A supplied-product signal
+        // requires a possession marker AND the product noun to occur in the SAME
+        // clause — not merely somewhere in the prose. Without this binding, a
+        // variant-calling intake whose GOAL sentence names the OUTPUT ("…writing
+        // one VCF per sample…") and whose INPUT sentence states a RAW product is
+        // "provided" ("The input FASTQ files … are provided") cross-matches: the
+        // unbound marker seeds a supplied data:3498 product, which
+        // `composer::dispatch` turns into an available product and
+        // `input_stage_prune::prune_supplied_upstream` then uses to DELETE the
+        // entire variant-PRODUCING chain (raw_qc → align → variant_calling) and
+        // rewire `variant_filtering` onto the ingest anchor with a type-violating
+        // `data_acquisition.variants` (data:3498) edge. The marker must bind to
+        // the noun, not merely co-occur in the document.
+        let clauses: Vec<&str> = lower
+            .split(|c: char| matches!(c, '.' | ';' | '!' | '?' | '\n'))
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        // True iff some single clause contains BOTH a possession marker AND one
+        // of `nouns`. Replaces the prior document-wide co-occurrence check.
+        let bound = |nouns: &[&str]| -> bool {
+            clauses.iter().any(|cl| {
+                POSSESSION_MARKERS.iter().any(|m| cl.contains(m))
+                    && nouns.iter().any(|n| cl.contains(n))
+            })
+        };
 
         // RNA-counts: gate on RNA-counts modalities + require a counts NOUN
         // ("counts matrix" / "count matrix" / "counts") to co-occur with a
@@ -258,10 +283,7 @@ impl IntakeFacts {
             "spatial_transcriptomics",
         ];
         const COUNTS_NOUNS: &[&str] = &["counts matrix", "count matrix", "counts"];
-        if RNA_COUNTS_MODALITIES.contains(&modality)
-            && COUNTS_NOUNS.iter().any(|n| lower.contains(n))
-            && has_marker(POSSESSION_MARKERS)
-        {
+        if RNA_COUNTS_MODALITIES.contains(&modality) && bound(COUNTS_NOUNS) {
             return Some(
                 crate::workflow_contracts::data_product::DataProductContract::gene_count_matrix(),
             );
@@ -271,10 +293,7 @@ impl IntakeFacts {
         const PEAK_MODALITIES: &[&str] = &["chip_seq", "atac_seq", "cut_tag", "chip_exo"];
         const PEAK_NOUNS: &[&str] =
             &["called peaks", "peak calls", "narrowpeak", "peak set", "peaks"];
-        if PEAK_MODALITIES.contains(&modality)
-            && PEAK_NOUNS.iter().any(|n| lower.contains(n))
-            && has_marker(POSSESSION_MARKERS)
-        {
+        if PEAK_MODALITIES.contains(&modality) && bound(PEAK_NOUNS) {
             return Some(supplied_product(
                 "intake_called_peaks_0",
                 "data:1255",
@@ -286,10 +305,7 @@ impl IntakeFacts {
         const VARIANT_MODALITIES: &[&str] = &["variant_calling", "gwas"];
         const VARIANT_NOUNS: &[&str] =
             &["vcf", "called variants", "variant calls", "variant set"];
-        if VARIANT_MODALITIES.contains(&modality)
-            && VARIANT_NOUNS.iter().any(|n| lower.contains(n))
-            && has_marker(POSSESSION_MARKERS)
-        {
+        if VARIANT_MODALITIES.contains(&modality) && bound(VARIANT_NOUNS) {
             return Some(supplied_product(
                 "intake_called_variants_0",
                 "data:3498",
@@ -302,7 +318,7 @@ impl IntakeFacts {
         // NOUN + a possession marker.
         const BAM_NOUNS: &[&str] =
             &["bam file", "bam files", "aligned reads", "alignments", "bam"];
-        if BAM_NOUNS.iter().any(|n| lower.contains(n)) && has_marker(POSSESSION_MARKERS) {
+        if bound(BAM_NOUNS) {
             return Some(supplied_product(
                 "intake_alignment_0",
                 "data:0863",
@@ -651,6 +667,52 @@ mod tests {
                 IntakeFacts::detect_input_data_stage(prose, Some("bulk_rnaseq")).is_none(),
                 "expected NO input stage (default raw) for: {prose:?}"
             );
+        }
+    }
+
+    #[test]
+    fn detect_input_data_stage_variant_calling_goal_is_not_supplied_variants() {
+        // Regression (composer prune bug): the Nekrutenko mtDNA intake. The GOAL
+        // sentence names the pipeline OUTPUT ("…writing one VCF per sample…") and a
+        // SEPARATE sentence states the RAW input is provided ("The input FASTQ files
+        // and the chrM reference are provided…"). The possession marker ("provided")
+        // binds to FASTQ, NOT to the VCF output — so NO supplied-variant product may
+        // be detected. A false positive here makes the dispatcher seed a synthetic
+        // data:3498 product, which `input_stage_prune::prune_supplied_upstream` uses
+        // to delete the entire raw_qc→align→variant_calling chain and emit a
+        // type-violating `data_acquisition.variants → variant_filtering` edge.
+        let prose = "Perform per-sample germline variant calling on four paired-end \
+            Illumina mitochondrial (chrM) sequencing samples: align reads with bwa, \
+            sort and index with samtools, then run variant calling with lofreq to \
+            detect the full spectrum of short variants (SNVs and indels) in each \
+            sample — including low-frequency heteroplasmic variants, not only \
+            fixed/homoplasmic sites — writing one VCF per sample, and finally build \
+            a collapsed per-variant table across samples. The input FASTQ files and \
+            the chrM reference are provided in the inputs/ directory of this analysis; \
+            use those exact files as the data source — do not synthesize, simulate, \
+            or download substitute reads or references.";
+        assert!(
+            IntakeFacts::detect_input_data_stage(prose, Some("variant_calling")).is_none(),
+            "a variant-CALLING goal with FASTQ provided must NOT be read as supplied variants"
+        );
+    }
+
+    #[test]
+    fn detect_input_data_stage_genuinely_supplied_variants_still_detected() {
+        // True positive must survive the binding fix: a possession marker and a
+        // variant noun in the SAME clause = the SME really holds called variants
+        // and wants only downstream work — pruning the calling chain is correct.
+        use crate::workflow_contracts::semantic_type::SemanticType;
+        for prose in [
+            "We already have called variants in a VCF; just filter and annotate.",
+            "start from the provided VCF of called variants",
+        ] {
+            let p = IntakeFacts::detect_input_data_stage(prose, Some("variant_calling"))
+                .unwrap_or_else(|| panic!("expected supplied variants for: {prose:?}"));
+            match &p.semantic_type {
+                SemanticType::OntologyTerm { iri, .. } => assert_eq!(iri, "data:3498"),
+                other => panic!("expected variant ontology term, got {other:?}"),
+            }
         }
     }
 
