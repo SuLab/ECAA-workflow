@@ -385,4 +385,126 @@ mod tests {
             "alignment feeds a kept SV branch — prune must abort, got {removed:?}"
         );
     }
+
+    /// Supplying CALLED PEAKS (data:1255, the type `detect_input_data_stage`
+    /// emits for chip_seq/atac_seq/cut_tag/chip_exo) must drop the
+    /// raw_qc→alignment→peak_calling producing chain and rewire the first real
+    /// consumer (differential_accessibility) onto data_acquisition. Locks the
+    /// COMPOSER-PRUNE class for the PEAKS branch — the same generic
+    /// `prune_supplied_upstream` logic the counts test covers, exercised on a
+    /// peak-calling-shaped DAG.
+    #[test]
+    fn supplied_peaks_prunes_peak_calling_chain_and_rewires() {
+        const PEAKS: &str = "data:1255";
+        const ALIGNED: &str = "data:0863";
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                node("data_acquisition", vec![], vec![out("staged", "data:2531")]),
+                node("raw_qc", vec![inp("reads", FASTQ)], vec![out("qc", "data:2914")]),
+                node("alignment", vec![inp("reads", FASTQ)], vec![out("bam", ALIGNED)]),
+                node("peak_calling", vec![inp("bam", ALIGNED)], vec![out("peaks", PEAKS)]),
+                node(
+                    "differential_accessibility",
+                    vec![inp("peaks", PEAKS)],
+                    vec![out("acc", "data:3753")],
+                ),
+            ],
+            edges: vec![
+                edge("data_acquisition", "raw_qc"),
+                edge("raw_qc", "alignment"),
+                edge("alignment", "peak_calling"),
+                edge("peak_calling", "differential_accessibility"),
+            ],
+            ..Default::default()
+        };
+        let supplied =
+            DataProductContract::skeleton("intake_peaks_0", SemanticType::edam(PEAKS, "Called peaks"));
+        let removed = prune_supplied_upstream(&mut dag, &[supplied]);
+        let ids: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        for gone in ["raw_qc", "alignment", "peak_calling"] {
+            assert!(!ids.contains(gone), "{gone} must be pruned; got {ids:?}");
+            assert!(removed.iter().any(|r| r == gone), "removed should list {gone}");
+        }
+        for kept in ["data_acquisition", "differential_accessibility"] {
+            assert!(ids.contains(kept), "{kept} must survive; got {ids:?}");
+        }
+        assert!(
+            dag.edges.iter().any(|e| e.from_node == "data_acquisition"
+                && e.to_node == "differential_accessibility"),
+            "differential_accessibility must be rewired onto data_acquisition; edges={:?}",
+            dag.edges
+                .iter()
+                .map(|e| (e.from_node.clone(), e.to_node.clone()))
+                .collect::<Vec<_>>()
+        );
+        let da = dag.nodes.iter().find(|n| n.id == "data_acquisition").unwrap();
+        assert!(
+            node_produces(da, PEAKS),
+            "data_acquisition must expose the supplied called-peaks type"
+        );
+    }
+
+    /// Supplying ALIGNED READS (data:0863 BAM, the modality-independent type
+    /// `detect_input_data_stage` emits for any read-based pipeline) must drop the
+    /// raw_qc→sequence_trimming→alignment chain and rewire the first real
+    /// consumer (variant_calling) onto data_acquisition. Locks the COMPOSER-PRUNE
+    /// class for the BAM branch.
+    #[test]
+    fn supplied_bam_prunes_alignment_chain_and_rewires() {
+        const ALIGNED: &str = "data:0863";
+        let mut dag = WorkflowDag {
+            id: "t".into(),
+            nodes: vec![
+                node("data_acquisition", vec![], vec![out("staged", "data:2531")]),
+                node("raw_qc", vec![inp("reads", FASTQ)], vec![out("qc", "data:2914")]),
+                node(
+                    "sequence_trimming",
+                    vec![inp("reads", FASTQ)],
+                    vec![out("trimmed", FASTQ)],
+                ),
+                node("alignment", vec![inp("reads", FASTQ)], vec![out("bam", ALIGNED)]),
+                node(
+                    "variant_calling",
+                    vec![inp("bam", ALIGNED)],
+                    vec![out("vcf", "data:3498")],
+                ),
+            ],
+            edges: vec![
+                edge("data_acquisition", "raw_qc"),
+                edge("raw_qc", "sequence_trimming"),
+                edge("sequence_trimming", "alignment"),
+                edge("alignment", "variant_calling"),
+            ],
+            ..Default::default()
+        };
+        let supplied = DataProductContract::skeleton(
+            "intake_alignment_0",
+            SemanticType::edam(ALIGNED, "Sequence alignment"),
+        );
+        let removed = prune_supplied_upstream(&mut dag, &[supplied]);
+        let ids: BTreeSet<&str> = dag.nodes.iter().map(|n| n.id.as_str()).collect();
+        for gone in ["raw_qc", "sequence_trimming", "alignment"] {
+            assert!(!ids.contains(gone), "{gone} must be pruned; got {ids:?}");
+            assert!(removed.iter().any(|r| r == gone), "removed should list {gone}");
+        }
+        for kept in ["data_acquisition", "variant_calling"] {
+            assert!(ids.contains(kept), "{kept} must survive; got {ids:?}");
+        }
+        assert!(
+            dag.edges
+                .iter()
+                .any(|e| e.from_node == "data_acquisition" && e.to_node == "variant_calling"),
+            "variant_calling must be rewired onto data_acquisition; edges={:?}",
+            dag.edges
+                .iter()
+                .map(|e| (e.from_node.clone(), e.to_node.clone()))
+                .collect::<Vec<_>>()
+        );
+        let da = dag.nodes.iter().find(|n| n.id == "data_acquisition").unwrap();
+        assert!(
+            node_produces(da, ALIGNED),
+            "data_acquisition must expose the supplied alignment type"
+        );
+    }
 }
