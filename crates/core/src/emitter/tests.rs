@@ -603,6 +603,30 @@ fn emit_mtdna_heteroplasmy_package_carries_contract_and_obligations() {
         found_obligation,
         "no variant task carries a non-empty validation_obligations array (inertness gap B)"
     );
+
+    // Inertness gap C (measurement delivery): the variant_filtering task must
+    // surface `spec.attributes.measurement_script` in the emitted DAG so the
+    // AF-spectrum runbook gate in scripts/agent-claude.sh fires and the
+    // byte-pinned lib/measure_af_spectrum.py actually runs. Without it the
+    // measurement never produces low_af_band_count, the REQUIRED
+    // het_tail_band_nonempty assertion fails closed on a missing metric, and the
+    // task re-blocks instead of catching a dropped low-AF heteroplasmic call.
+    let filtering_script = dag.tasks.iter().find_map(|(_tid, task)| {
+        if task.source_atom_id.as_deref() != Some("variant_filtering") {
+            return None;
+        }
+        task.spec
+            .as_ref()
+            .and_then(|s| s.get("attributes"))
+            .and_then(|a| a.get("measurement_script"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+    });
+    assert_eq!(
+        filtering_script.as_deref(),
+        Some("measure_af_spectrum.py"),
+        "variant_filtering task must carry spec.attributes.measurement_script — measurement runbook never fires (inertness gap C)"
+    );
 }
 
 #[test]

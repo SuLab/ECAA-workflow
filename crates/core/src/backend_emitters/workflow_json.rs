@@ -497,12 +497,19 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
     // prompt-assembly gate in scripts/agent-claude.sh keys on
     // `spec.attributes.retrieval_tools` to append the literature-retrieval
     // runbook (the CSV column list + manifest schema + the bundled
-    // agent_literature_fetch.py helper). Without hoisting these into
-    // `spec.attributes` the gate never fires, the runbook is never delivered,
-    // and the agent hand-rolls a non-conforming manifest/CSV that the Phase-13
-    // literature validators reject. Additive: the `attributes` key is emitted
-    // only when the atom declares ≥1 of these, so non-literature tasks keep
-    // their byte-reproducible spec shape.
+    // agent_literature_fetch.py helper). The `variant_filtering` atom likewise
+    // declares `measurement_script` (= measure_af_spectrum.py); the AF-spectrum
+    // gate in scripts/agent-claude.sh keys on
+    // `spec.attributes.measurement_script` to append the deterministic
+    // measurement runbook so the byte-pinned lib/measure_af_spectrum.py runs and
+    // writes low_af_band_count — the metric the REQUIRED het_tail_band_nonempty
+    // assertion reads. Without hoisting these into `spec.attributes` the gate
+    // never fires, the runbook is never delivered, and either the agent
+    // hand-rolls a non-conforming manifest/CSV that the literature validators
+    // reject, or the het-band assertion fails closed on a missing metric and the
+    // task re-blocks instead of catching a dropped low-AF heteroplasmic call.
+    // Additive: the `attributes` key is emitted only when the atom declares ≥1
+    // of these, so other tasks keep their byte-reproducible spec shape.
     // Promoted hypothesized-node analytical contract (assumptions +
     // failure_modes + declared tests), stamped onto node.attributes by
     // `hypothesized_proposal::proposal_to_transient_task_node`. Surfacing them
@@ -521,6 +528,7 @@ fn lower_task(node: &TaskNode, depends_on: Vec<TaskId>) -> Result<Task, EmitErro
         "source_scope_env",
         "candidate_tools",
         "claim_boundary",
+        "measurement_script",
     ] {
         if let Some(v) = node.attributes.get(key) {
             attrs_map.insert(key.into(), v.clone());
@@ -972,6 +980,39 @@ mod tests {
         assert_eq!(result.dag.tasks.len(), 2);
         assert!(result.dag.tasks.contains_key("align_reads"));
         assert!(result.dag.tasks.contains_key("quantify_features"));
+    }
+
+    #[test]
+    fn lowering_passes_measurement_script_into_spec_attributes() {
+        // A `variant_filtering`-shaped node carries
+        // `attributes.measurement_script` (authored on the atom YAML,
+        // preserved onto `node.attributes` by `TaskNode::from_atom`). The
+        // emitter must surface it at `spec.attributes.measurement_script`
+        // so the `agent-claude.sh` AF-spectrum runbook gate
+        // (`jq '.tasks[t].spec.attributes.measurement_script'`) fires and
+        // the byte-pinned `lib/measure_af_spectrum.py` actually runs.
+        // Without this passthrough the `het_tail_band_nonempty` assertion
+        // fails closed on a missing metric and the task re-blocks instead
+        // of catching a dropped low-AF heteroplasmic call.
+        let mut node = quantify_node();
+        node.attributes.insert(
+            "measurement_script".into(),
+            serde_json::Value::String("measure_af_spectrum.py".into()),
+        );
+
+        let task = lower_task(&node, vec![]).expect("lowering a measurement node succeeds");
+
+        let attrs = task
+            .spec
+            .as_ref()
+            .and_then(|s| s.get("attributes"))
+            .and_then(|v| v.as_object())
+            .expect("spec.attributes object present when measurement_script is set");
+        assert_eq!(
+            attrs.get("measurement_script").and_then(|v| v.as_str()),
+            Some("measure_af_spectrum.py"),
+            "measurement_script must reach spec.attributes so the AF-spectrum runbook gate fires",
+        );
     }
 
     #[test]

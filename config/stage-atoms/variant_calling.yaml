@@ -21,6 +21,14 @@ attributes:
     - strelka2
     - dragen
     - lofreq
+  # Triggers the AF-spectrum measurement runbook injection in
+  # scripts/agent-claude.sh (gated on attributes.measurement_script) so the
+  # agent runs the byte-pinned lib/measure_af_spectrum.py verbatim against its
+  # CALLED VCF. variant_calling and variant_filtering both run it so the
+  # cross-stage `filtered_le_called` / `sample_count_consistent` assertions and
+  # the per-stage AF-spectrum / per-sample-count assertions read deterministic,
+  # operator-authored metrics from result.json on BOTH ends of the comparison.
+  measurement_script: measure_af_spectrum.py
 resource_profile:
   cpu: heavy
   memory: large
@@ -49,6 +57,13 @@ outputs:
       iri: "format:3016"
       label: "VCF"
     privacy_class: internal
+# Hard artifact the harness verifies before accepting completion. Naming
+# result.json attaches this atom's validators to the emitted
+# RequiredArtifact.validation_obligations and gates the AF-spectrum metrics the
+# measurement script writes (same contract as variant_filtering).
+required_artifacts:
+  - path: result.json
+    min_size_bytes: 2
 # Validator obligations run by the harness against the emitted VCF +
 # result.json. companion_synthesis synthesizes validate_variant_calling
 # from this list; the harness routes each id to its ValidatorRunner.
