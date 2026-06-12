@@ -119,7 +119,10 @@ def variance_explained_elbow(ctx: FigureContext, out: Path) -> Optional[Path]:
         # Clip to ratios in [0, 1] defensively.
         ve = np.clip(np.asarray(ve, dtype=float), 0.0, 1.0)
         cum = np.cumsum(ve)
-        ax.plot(range(1, len(cum) + 1), cum, marker="o", markersize=3, label=str(run.get("id", "run")))
+        ax.plot(
+            range(1, len(cum) + 1), cum, marker="o", markersize=3,
+            label=str(run.get("id", "run")),
+        )
         plotted_any = True
     if not plotted_any:
         raise FileNotFoundError("no variance_explained data in any run")

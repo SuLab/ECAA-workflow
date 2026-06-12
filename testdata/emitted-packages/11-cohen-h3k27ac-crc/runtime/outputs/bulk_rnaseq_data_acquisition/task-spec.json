@@ -24,6 +24,7 @@
       "manifest.json",
       "result.json"
     ],
+    "plot_stage_id": "data_acquisition",
     "required_figures": [
       "samples_per_study"
     ]

@@ -86,6 +86,9 @@
           "@id": "runtime/audit-proof-report.json"
         },
         {
+          "@id": "runtime/ed-cf-self-assessment.json"
+        },
+        {
           "@id": "runtime/validation-summary.json"
         },
         {
@@ -93,15 +96,6 @@
         },
         {
           "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png"
-        },
-        {
-          "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_violin.png"
-        },
-        {
-          "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/raw_qc/figures/qc_summary_bar.png"
         },
         {
           "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png"
@@ -114,7 +108,7 @@
       "mainEntity": {
         "@id": "WORKFLOW.json"
       },
-      "name": "computational biology — Catch-all archetype for off-topic prose that mentions omics data but\ncarries no specific modality or goal phrase. Emits the universal\n`raw_qc → generic_summary` pipeline so the SME sees something\nrunnable; further analysis steps surface as SME-driven amendments\nrather than auto-emitted. Closes Phase 6.1 task B.2 of the v3+v4\n100-percent-closure plan, retiring the last legacy taxonomy\nfallback for bare-modality prose.\n"
+      "name": "computational biology — Catch-all archetype for off-topic prose that mentions omics data but\ncarries no specific modality or goal phrase. MODALITY-AGNOSTIC: emits\nthe universal `data_acquisition → generic_summary` pipeline so the SME\nsees something runnable; further analysis steps surface as SME-driven\namendments rather than auto-emitted. Deliberately omits the\nsequencing-specific `raw_qc` (FastQC/MultiQC over FASTQ `raw_reads`),\nwhich hard-blocks on any non-sequencing input (e.g. tabular\nmetabolomics) — QC belongs in the modality-specific archetypes.\n"
     },
     {
       "@id": "WORKFLOW.json",
@@ -141,22 +135,34 @@
       },
       "step": [
         {
+          "@id": "#step-review_prior_work"
+        },
+        {
+          "@id": "#step-validate_review_prior_work"
+        },
+        {
           "@id": "#step-data_acquisition"
         },
         {
           "@id": "#step-validate_data_acquisition"
         },
         {
-          "@id": "#step-raw_qc"
+          "@id": "#step-survey_method_landscape"
         },
         {
-          "@id": "#step-validate_raw_qc"
+          "@id": "#step-discover_generic_summary"
         },
         {
           "@id": "#step-generic_summary"
         },
         {
           "@id": "#step-validate_generic_summary"
+        },
+        {
+          "@id": "#step-contextualize_findings_with_literature"
+        },
+        {
+          "@id": "#step-validate_contextualize_findings_with_literature"
         },
         {
           "@id": "#step-reporting"
@@ -290,6 +296,13 @@
       "name": "Audit-proof invariant report"
     },
     {
+      "@id": "runtime/ed-cf-self-assessment.json",
+      "@type": "CreativeWork",
+      "description": "Deterministic self-location of the system in the Extensibility-Dimension / Counterfactual-Floor design space. Informational — locates, does not validate.",
+      "encodingFormat": "application/json",
+      "name": "ED/CF rubric self-assessment"
+    },
+    {
       "@id": "runtime/validation-summary.json",
       "@type": "CreativeWork",
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
@@ -303,74 +316,102 @@
       "name": "Mus musculus"
     },
     {
+      "@id": "#step-review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "position": 1
+    },
+    {
+      "@id": "#step-validate_review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "position": 2
+    },
+    {
       "@id": "#step-data_acquisition",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 1
+      "position": 3
     },
     {
       "@id": "#step-validate_data_acquisition",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 2
+      "position": 4
     },
     {
-      "@id": "#step-raw_qc",
+      "@id": "#step-survey_method_landscape",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 3
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "position": 5
     },
     {
-      "@id": "#step-validate_raw_qc",
+      "@id": "#step-discover_generic_summary",
       "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 4
+      "additionalType": "discovery",
+      "name": "Discover method for generic_summary (options: descriptive_statistics, hypothesis_testing, correlation_analysis, regression_modeling, dimensionality_reduction, clustering). Surface set_intake_method.",
+      "position": 6
     },
     {
       "@id": "#step-generic_summary",
       "@type": "HowToStep",
       "additionalType": "gate",
       "name": "Universal catch-all summary atom paired with `raw_qc` for the\n`generic_omics` archetype. Consumes the QC metrics table and emits a\nper-sample summary table plus a high-level QC-flag JSON. Used as the\nfallback pipeline when intake prose mentions omics data but carries\nno specific modality or goal phrase; subsequent analysis steps\nsurface as SME-driven amendments rather than auto-emitted (Phase 6.1\nB2 of the v3+v4 100-percent-closure plan).\n",
-      "position": 5
+      "position": 7
     },
     {
       "@id": "#step-validate_generic_summary",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Universal catch-all summary atom paired with `raw_qc` for the\n`generic_omics` archetype. Consumes the QC metrics table and emits a\nper-sample summary table plus a high-level QC-flag JSON. Used as the\nfallback pipeline when intake prose mentions omics data but carries\nno specific modality or goal phrase; subsequent analysis steps\nsurface as SME-driven amendments rather than auto-emitted (Phase 6.1\nB2 of the v3+v4 100-percent-closure plan).\n",
-      "position": 6
+      "position": 8
+    },
+    {
+      "@id": "#step-contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 9
+    },
+    {
+      "@id": "#step-validate_contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 10
     },
     {
       "@id": "#step-reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 7
+      "position": 11
     },
     {
       "@id": "#step-validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 8
+      "position": 12
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 9
+      "position": 13
     },
     {
       "@id": "#step-validate_final_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 10
+      "position": 14
     },
     {
       "@id": "runtime/outputs/data_acquisition/figures/samples_per_study.png",
@@ -396,45 +437,6 @@
       "name": "final_reporting — summary_dashboard",
       "schema:about": {
         "@id": "#step-final_reporting"
-      }
-    },
-    {
-      "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_violin.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'raw_qc' via runtime/plotting/stages/raw_qc.py.",
-      "encodingFormat": "image/png",
-      "name": "raw_qc — per_sample_metric_violin",
-      "schema:about": {
-        "@id": "#step-raw_qc"
-      }
-    },
-    {
-      "@id": "runtime/outputs/raw_qc/figures/per_sample_metric_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'raw_qc' via runtime/plotting/stages/raw_qc.py.",
-      "encodingFormat": "image/png",
-      "name": "raw_qc — per_sample_metric_bar",
-      "schema:about": {
-        "@id": "#step-raw_qc"
-      }
-    },
-    {
-      "@id": "runtime/outputs/raw_qc/figures/qc_summary_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'raw_qc' via runtime/plotting/stages/raw_qc.py.",
-      "encodingFormat": "image/png",
-      "name": "raw_qc — qc_summary_bar",
-      "schema:about": {
-        "@id": "#step-raw_qc"
       }
     },
     {
@@ -473,6 +475,36 @@
       "rationale": "Composed for modality `atac_seq` (domain `computational biology`)."
     },
     {
+      "@id": "#parameter-connection/generic_summary__to__contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-generic_summary#output"
+      },
+      "targetParameter": {
+        "@id": "#step-contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/review_prior_work__to__contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_generic_summary",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-survey_method_landscape#output"
+      },
+      "targetParameter": {
+        "@id": "#step-discover_generic_summary#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/reporting__to__final_reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -483,23 +515,33 @@
       }
     },
     {
-      "@id": "#parameter-connection/raw_qc__to__generic_summary",
+      "@id": "#parameter-connection/data_acquisition__to__generic_summary",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-raw_qc#output"
+        "@id": "#step-data_acquisition#output"
       },
       "targetParameter": {
         "@id": "#step-generic_summary#input"
       }
     },
     {
-      "@id": "#parameter-connection/data_acquisition__to__raw_qc",
+      "@id": "#parameter-connection/discover_generic_summary__to__generic_summary",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-data_acquisition#output"
+        "@id": "#step-discover_generic_summary#output"
       },
       "targetParameter": {
-        "@id": "#step-raw_qc#input"
+        "@id": "#step-generic_summary#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/contextualize_findings_with_literature__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
       }
     },
     {
@@ -510,6 +552,26 @@
       },
       "targetParameter": {
         "@id": "#step-reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/data_acquisition__to__survey_method_landscape",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-data_acquisition#output"
+      },
+      "targetParameter": {
+        "@id": "#step-survey_method_landscape#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/contextualize_findings_with_literature__to__validate_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_contextualize_findings_with_literature#input"
       }
     },
     {
@@ -543,16 +605,6 @@
       }
     },
     {
-      "@id": "#parameter-connection/raw_qc__to__validate_raw_qc",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-raw_qc#output"
-      },
-      "targetParameter": {
-        "@id": "#step-validate_raw_qc#input"
-      }
-    },
-    {
       "@id": "#parameter-connection/reporting__to__validate_reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -561,6 +613,70 @@
       "targetParameter": {
         "@id": "#step-validate_reporting#input"
       }
+    },
+    {
+      "@id": "#parameter-connection/review_prior_work__to__validate_review_prior_work",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_review_prior_work#input"
+      }
+    },
+    {
+      "@id": "A:claim_completeness",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "claim_completeness",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:cross_graph_integrity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "cross_graph_integrity",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:decision_justification",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "decision_justification",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:equivalence_failure",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "equivalence_failure",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:evidence_coverage",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "evidence_coverage",
+      "verdict": "warn"
+    },
+    {
+      "@id": "A:substrate_validity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "substrate_validity",
+      "verdict": "unverified"
     }
   ]
 }

@@ -20,6 +20,14 @@
   },
   "source_atom_id": "clustering",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "leiden",
+        "louvain",
+        "kmeans",
+        "hierarchical"
+      ]
+    },
     "expected_artifacts": [
       "cluster_assignments.tsv",
       "resolution_sweep.json",

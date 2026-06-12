@@ -2,6 +2,7 @@
   "assignee": "agent",
   "container": null,
   "depends_on": [
+    "contextualize_findings_with_literature",
     "differential_expression",
     "pathway_enrichment"
   ],

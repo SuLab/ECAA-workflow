@@ -45,15 +45,18 @@ def _load_isoforms(p: Path) -> Optional[dict]:
         with open_text(p) as f:
             header = f.readline().rstrip("\n").split("\t")
             t_idx = next(
-                (i for i, h in enumerate(header) if h.lower() in ("transcript", "transcript_id", "tx")),
+                (i for i, h in enumerate(header)
+                 if h.lower() in ("transcript", "transcript_id", "tx")),
                 None,
             )
             s_idx = next(
-                (i for i, h in enumerate(header) if h.lower() in ("exon_starts", "starts", "blockstarts")),
+                (i for i, h in enumerate(header)
+                 if h.lower() in ("exon_starts", "starts", "blockstarts")),
                 None,
             )
             e_idx = next(
-                (i for i, h in enumerate(header) if h.lower() in ("exon_ends", "ends", "blockends")),
+                (i for i, h in enumerate(header)
+                 if h.lower() in ("exon_ends", "ends", "blockends")),
                 None,
             )
             sd_idx = next(

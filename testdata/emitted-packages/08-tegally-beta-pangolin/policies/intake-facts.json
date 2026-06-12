@@ -2,5 +2,5 @@
   "modality": "variant_calling",
   "project_class": "bioinformatics",
   "methods": [],
-  "literature_review_requested": false
+  "literature_review_requested": true
 }

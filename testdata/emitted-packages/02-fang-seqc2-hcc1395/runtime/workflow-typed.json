@@ -1,0 +1,755 @@
+{
+  "workflow_id": "workflow-cdd7cf7c037e",
+  "name": "workflow-cdd7cf7c037e",
+  "atom_registry_snapshot_id": "atomreg:sha256:922ece4661f84e11",
+  "steps": [
+    {
+      "step_id": "alignment",
+      "parameters": {},
+      "dependencies": [
+        "discover_alignment",
+        "sequence_trimming"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "review_prior_work",
+        "variant_annotation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "data_acquisition",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_alignment",
+      "parameters": {},
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_variant_annotation",
+      "parameters": {},
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_variant_calling",
+      "parameters": {},
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_variant_filtering",
+      "parameters": {},
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "final_reporting",
+      "parameters": {},
+      "dependencies": [
+        "reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "raw_qc",
+      "parameters": {},
+      "dependencies": [
+        "data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "reporting",
+      "parameters": {},
+      "dependencies": [
+        "contextualize_findings_with_literature",
+        "variant_annotation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "review_prior_work",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "discover_sequence_trimming",
+        "raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "survey_method_landscape",
+      "parameters": {},
+      "dependencies": [
+        "data_acquisition",
+        "raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_alignment",
+      "parameters": {},
+      "dependencies": [
+        "alignment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "contextualize_findings_with_literature"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_data_acquisition",
+      "parameters": {},
+      "dependencies": [
+        "data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_final_reporting",
+      "parameters": {},
+      "dependencies": [
+        "final_reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_raw_qc",
+      "parameters": {},
+      "dependencies": [
+        "raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_reporting",
+      "parameters": {},
+      "dependencies": [
+        "reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_review_prior_work",
+      "parameters": {},
+      "dependencies": [
+        "review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "sequence_trimming"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_variant_annotation",
+      "parameters": {},
+      "dependencies": [
+        "variant_annotation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_variant_calling",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_variant_filtering",
+      "parameters": {},
+      "dependencies": [
+        "variant_filtering"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_annotation",
+      "parameters": {},
+      "dependencies": [
+        "discover_variant_annotation",
+        "variant_filtering"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling",
+      "parameters": {},
+      "dependencies": [
+        "alignment",
+        "discover_variant_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_filtering",
+      "parameters": {},
+      "dependencies": [
+        "discover_variant_filtering",
+        "variant_calling"
+      ],
+      "estimated_duration": 1800
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "alignment.out->validate_alignment.in",
+      "source_node_id": "alignment",
+      "target_node_id": "validate_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "alignment.out->variant_calling.in",
+      "source_node_id": "alignment",
+      "target_node_id": "variant_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "contextualize_findings_with_literature.out->reporting.in",
+      "source_node_id": "contextualize_findings_with_literature",
+      "target_node_id": "reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "contextualize_findings_with_literature.out->validate_contextualize_findings_with_literature.in",
+      "source_node_id": "contextualize_findings_with_literature",
+      "target_node_id": "validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "data_acquisition.out->raw_qc.in",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "raw_qc",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "data_acquisition.out->survey_method_landscape.in",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "data_acquisition.out->validate_data_acquisition.in",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "validate_data_acquisition",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "discover_alignment.out->alignment.in",
+      "source_node_id": "discover_alignment",
+      "target_node_id": "alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "discover_sequence_trimming.out->sequence_trimming.in",
+      "source_node_id": "discover_sequence_trimming",
+      "target_node_id": "sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "discover_variant_annotation.out->variant_annotation.in",
+      "source_node_id": "discover_variant_annotation",
+      "target_node_id": "variant_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "discover_variant_calling.out->variant_calling.in",
+      "source_node_id": "discover_variant_calling",
+      "target_node_id": "variant_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "discover_variant_filtering.out->variant_filtering.in",
+      "source_node_id": "discover_variant_filtering",
+      "target_node_id": "variant_filtering",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "final_reporting.out->validate_final_reporting.in",
+      "source_node_id": "final_reporting",
+      "target_node_id": "validate_final_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "raw_qc.out->sequence_trimming.in",
+      "source_node_id": "raw_qc",
+      "target_node_id": "sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "raw_qc.out->survey_method_landscape.in",
+      "source_node_id": "raw_qc",
+      "target_node_id": "survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "raw_qc.out->validate_raw_qc.in",
+      "source_node_id": "raw_qc",
+      "target_node_id": "validate_raw_qc",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "reporting.out->final_reporting.in",
+      "source_node_id": "reporting",
+      "target_node_id": "final_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "reporting.out->validate_reporting.in",
+      "source_node_id": "reporting",
+      "target_node_id": "validate_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "review_prior_work.out->contextualize_findings_with_literature.in",
+      "source_node_id": "review_prior_work",
+      "target_node_id": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "review_prior_work.out->validate_review_prior_work.in",
+      "source_node_id": "review_prior_work",
+      "target_node_id": "validate_review_prior_work",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "sequence_trimming.out->alignment.in",
+      "source_node_id": "sequence_trimming",
+      "target_node_id": "alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "sequence_trimming.out->validate_sequence_trimming.in",
+      "source_node_id": "sequence_trimming",
+      "target_node_id": "validate_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "survey_method_landscape.out->discover_alignment.in",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "survey_method_landscape.out->discover_sequence_trimming.in",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "survey_method_landscape.out->discover_variant_annotation.in",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_variant_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "survey_method_landscape.out->discover_variant_calling.in",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_variant_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "survey_method_landscape.out->discover_variant_filtering.in",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_variant_filtering",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_annotation.out->contextualize_findings_with_literature.in",
+      "source_node_id": "variant_annotation",
+      "target_node_id": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_annotation.out->reporting.in",
+      "source_node_id": "variant_annotation",
+      "target_node_id": "reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_annotation.out->validate_variant_annotation.in",
+      "source_node_id": "variant_annotation",
+      "target_node_id": "validate_variant_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling.out->validate_variant_calling.in",
+      "source_node_id": "variant_calling",
+      "target_node_id": "validate_variant_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling.out->variant_filtering.in",
+      "source_node_id": "variant_calling",
+      "target_node_id": "variant_filtering",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_filtering.out->validate_variant_filtering.in",
+      "source_node_id": "variant_filtering",
+      "target_node_id": "validate_variant_filtering",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_filtering.out->variant_annotation.in",
+      "source_node_id": "variant_filtering",
+      "target_node_id": "variant_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    }
+  ],
+  "parameter_mappings": [
+    {
+      "source_step": "discover_alignment",
+      "source_output": "out",
+      "target_step": "alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "sequence_trimming",
+      "source_output": "out",
+      "target_step": "alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "review_prior_work",
+      "source_output": "out",
+      "target_step": "contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_annotation",
+      "source_output": "out",
+      "target_step": "contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "out",
+      "target_step": "discover_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "out",
+      "target_step": "discover_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "out",
+      "target_step": "discover_variant_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "out",
+      "target_step": "discover_variant_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "out",
+      "target_step": "discover_variant_filtering",
+      "target_input": "in"
+    },
+    {
+      "source_step": "reporting",
+      "source_output": "out",
+      "target_step": "final_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "out",
+      "target_step": "raw_qc",
+      "target_input": "in"
+    },
+    {
+      "source_step": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_annotation",
+      "source_output": "out",
+      "target_step": "reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "discover_sequence_trimming",
+      "source_output": "out",
+      "target_step": "sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "raw_qc",
+      "source_output": "out",
+      "target_step": "sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "out",
+      "target_step": "survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "raw_qc",
+      "source_output": "out",
+      "target_step": "survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "alignment",
+      "source_output": "out",
+      "target_step": "validate_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "validate_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "out",
+      "target_step": "validate_data_acquisition",
+      "target_input": "in"
+    },
+    {
+      "source_step": "final_reporting",
+      "source_output": "out",
+      "target_step": "validate_final_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "raw_qc",
+      "source_output": "out",
+      "target_step": "validate_raw_qc",
+      "target_input": "in"
+    },
+    {
+      "source_step": "reporting",
+      "source_output": "out",
+      "target_step": "validate_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "review_prior_work",
+      "source_output": "out",
+      "target_step": "validate_review_prior_work",
+      "target_input": "in"
+    },
+    {
+      "source_step": "sequence_trimming",
+      "source_output": "out",
+      "target_step": "validate_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_annotation",
+      "source_output": "out",
+      "target_step": "validate_variant_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling",
+      "source_output": "out",
+      "target_step": "validate_variant_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_filtering",
+      "source_output": "out",
+      "target_step": "validate_variant_filtering",
+      "target_input": "in"
+    },
+    {
+      "source_step": "discover_variant_annotation",
+      "source_output": "out",
+      "target_step": "variant_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_filtering",
+      "source_output": "out",
+      "target_step": "variant_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "alignment",
+      "source_output": "out",
+      "target_step": "variant_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "discover_variant_calling",
+      "source_output": "out",
+      "target_step": "variant_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "discover_variant_filtering",
+      "source_output": "out",
+      "target_step": "variant_filtering",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling",
+      "source_output": "out",
+      "target_step": "variant_filtering",
+      "target_input": "in"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "organism",
+      "type": "string",
+      "value": "Homo sapiens",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_0",
+      "type": "string",
+      "value": "Bowtie2",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_1",
+      "type": "string",
+      "value": "GATK HaplotypeCaller",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_2",
+      "type": "string",
+      "value": "DeepVariant",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_3",
+      "type": "string",
+      "value": "Mutect2",
+      "source": "intake"
+    }
+  ],
+  "validation_rules": [
+    {
+      "rule_id": "discover_alignment:requires_sme_review",
+      "target_step": "discover_alignment",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_sequence_trimming:requires_sme_review",
+      "target_step": "discover_sequence_trimming",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_variant_annotation:requires_sme_review",
+      "target_step": "discover_variant_annotation",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_variant_calling:requires_sme_review",
+      "target_step": "discover_variant_calling",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_variant_filtering:requires_sme_review",
+      "target_step": "discover_variant_filtering",
+      "severity": "hard"
+    }
+  ],
+  "metadata": {
+    "complexity": "complex",
+    "tags": [
+      "discovery",
+      "operation",
+      "validation",
+      "variant_calling"
+    ],
+    "categories": [
+      "genomics"
+    ],
+    "use_cases": [
+      "kind"
+    ]
+  }
+}

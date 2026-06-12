@@ -8,5 +8,5 @@
     "DESeq2",
     "edgeR"
   ],
-  "literature_review_requested": false
+  "literature_review_requested": true
 }

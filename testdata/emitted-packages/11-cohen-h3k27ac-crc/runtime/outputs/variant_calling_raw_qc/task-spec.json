@@ -25,7 +25,7 @@
       "manifest.json",
       "result.json"
     ],
-    "plot_stage_id": "variant_calling_quality_control",
+    "plot_stage_id": "quality_control",
     "required_figures": [
       "per_sample_metric_violin",
       "per_sample_metric_bar",

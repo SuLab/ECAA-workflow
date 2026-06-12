@@ -1,0 +1,30 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "survey_method_landscape"
+  ],
+  "description": "Discover method for peak_to_gene_linking (options: signac_linkpeaks, archr_peak2gene, cicero). Surface set_intake_method.",
+  "kind": {
+    "discovery": "best_practice"
+  },
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "discover_peak_to_gene_linking",
+  "spec": {
+    "stage_class": "peak_to_gene_linking"
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "discover_peak_to_gene_linking"
+}

@@ -26,8 +26,8 @@ def peptide_length_distribution(ctx, out):
     if not lengths:
         raise ValueError("no peptide lengths")
     counts: dict = {}
-    for L in lengths:
-        counts[L] = counts.get(L, 0) + 1
+    for plen in lengths:
+        counts[plen] = counts.get(plen, 0) + 1
     names = [str(k) for k in sorted(counts)]
     values = [float(counts[int(n)]) for n in names]
     return bar(names=names, values=values, title="Peptide length distribution",

@@ -1,0 +1,49 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "discover_joint_wnn_integration",
+    "multiome_arc_demultiplex",
+    "normalisation"
+  ],
+  "description": "Joint dimensionality reduction over paired single-cell RNA +\nATAC matrices via weighted nearest neighbors (WNN). Produces a\njoint UMAP embedding + joint Leiden clusters that respect both\nmodalities. Seurat v5 WNN at runtime; Signac for the ATAC\nembedding upstream.\n",
+  "kind": "computation",
+  "resource_class": "memory_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "joint_wnn_integration",
+  "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "seurat_wnn",
+        "muon",
+        "mofa_plus"
+      ],
+      "claim_boundary": "WNN clusters are joint statistical groupings that respect both\nmodalities — they are not biological cell-type assignments\nwithout downstream marker-based annotation. The WNN weights\nper cell quantify which modality drives each cell's cluster\nmembership; report the modality-balance histogram.\n"
+    },
+    "expected_artifacts": [
+      "joint_embedding.h5",
+      "joint_clusters.tsv",
+      "wnn_summary.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "joint_wnn",
+    "required_figures": [
+      "wnn_umap",
+      "cluster_composition_bar"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "joint_wnn_integration"
+}

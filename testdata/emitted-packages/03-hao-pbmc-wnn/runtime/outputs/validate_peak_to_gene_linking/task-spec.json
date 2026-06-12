@@ -1,0 +1,26 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "peak_to_gene_linking"
+  ],
+  "description": "Validate outputs of: Link ATAC-derived peaks to RNA-derived gene expression within\nshared nuclei to identify regulatory peak-to-gene relationships.\nSignac LinkPeaks / ArchR addPeak2GeneLinks / cicero at runtime.\nStandard inputs: per-cluster differential peaks + DE genes;\noutputs candidate cis-regulatory edges with statistical support.\n",
+  "kind": "validation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "validate_peak_to_gene_linking",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "validate_peak_to_gene_linking"
+}

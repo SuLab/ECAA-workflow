@@ -1,0 +1,619 @@
+{
+  "workflow_id": "workflow-60af1323f173",
+  "name": "workflow-60af1323f173",
+  "atom_registry_snapshot_id": "atomreg:sha256:922ece4661f84e11",
+  "steps": [
+    {
+      "step_id": "contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "differential_expression",
+        "review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "data_acquisition",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "differential_expression",
+      "parameters": {},
+      "dependencies": [
+        "discover_differential_expression",
+        "protein_quantification"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_differential_expression",
+      "parameters": {},
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_pathway_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_peptide_search",
+      "parameters": {},
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_protein_quantification",
+      "parameters": {},
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "final_reporting",
+      "parameters": {},
+      "dependencies": [
+        "reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "pathway_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "differential_expression",
+        "discover_pathway_enrichment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "peptide_search",
+      "parameters": {},
+      "dependencies": [
+        "data_acquisition",
+        "discover_peptide_search"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "protein_quantification",
+      "parameters": {},
+      "dependencies": [
+        "discover_protein_quantification",
+        "peptide_search"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "reporting",
+      "parameters": {},
+      "dependencies": [
+        "contextualize_findings_with_literature",
+        "differential_expression",
+        "pathway_enrichment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "review_prior_work",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "survey_method_landscape",
+      "parameters": {},
+      "dependencies": [
+        "data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "contextualize_findings_with_literature"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_data_acquisition",
+      "parameters": {},
+      "dependencies": [
+        "data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_differential_expression",
+      "parameters": {},
+      "dependencies": [
+        "differential_expression"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_final_reporting",
+      "parameters": {},
+      "dependencies": [
+        "final_reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_pathway_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "pathway_enrichment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_peptide_search",
+      "parameters": {},
+      "dependencies": [
+        "peptide_search"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_protein_quantification",
+      "parameters": {},
+      "dependencies": [
+        "protein_quantification"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_reporting",
+      "parameters": {},
+      "dependencies": [
+        "reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_review_prior_work",
+      "parameters": {},
+      "dependencies": [
+        "review_prior_work"
+      ],
+      "estimated_duration": 1800
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "contextualize_findings_with_literature.out->reporting.in",
+      "source_node_id": "contextualize_findings_with_literature",
+      "target_node_id": "reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "contextualize_findings_with_literature.out->validate_contextualize_findings_with_literature.in",
+      "source_node_id": "contextualize_findings_with_literature",
+      "target_node_id": "validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "data_acquisition.out->peptide_search.in",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "peptide_search",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "data_acquisition.out->survey_method_landscape.in",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "data_acquisition.out->validate_data_acquisition.in",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "validate_data_acquisition",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "differential_expression.out->contextualize_findings_with_literature.in",
+      "source_node_id": "differential_expression",
+      "target_node_id": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "differential_expression.out->pathway_enrichment.in",
+      "source_node_id": "differential_expression",
+      "target_node_id": "pathway_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "differential_expression.out->reporting.in",
+      "source_node_id": "differential_expression",
+      "target_node_id": "reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "differential_expression.out->validate_differential_expression.in",
+      "source_node_id": "differential_expression",
+      "target_node_id": "validate_differential_expression",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "discover_differential_expression.out->differential_expression.in",
+      "source_node_id": "discover_differential_expression",
+      "target_node_id": "differential_expression",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "discover_pathway_enrichment.out->pathway_enrichment.in",
+      "source_node_id": "discover_pathway_enrichment",
+      "target_node_id": "pathway_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "discover_peptide_search.out->peptide_search.in",
+      "source_node_id": "discover_peptide_search",
+      "target_node_id": "peptide_search",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "discover_protein_quantification.out->protein_quantification.in",
+      "source_node_id": "discover_protein_quantification",
+      "target_node_id": "protein_quantification",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "final_reporting.out->validate_final_reporting.in",
+      "source_node_id": "final_reporting",
+      "target_node_id": "validate_final_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "pathway_enrichment.out->reporting.in",
+      "source_node_id": "pathway_enrichment",
+      "target_node_id": "reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "pathway_enrichment.out->validate_pathway_enrichment.in",
+      "source_node_id": "pathway_enrichment",
+      "target_node_id": "validate_pathway_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "peptide_search.out->protein_quantification.in",
+      "source_node_id": "peptide_search",
+      "target_node_id": "protein_quantification",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "peptide_search.out->validate_peptide_search.in",
+      "source_node_id": "peptide_search",
+      "target_node_id": "validate_peptide_search",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "protein_quantification.out->differential_expression.in",
+      "source_node_id": "protein_quantification",
+      "target_node_id": "differential_expression",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "protein_quantification.out->validate_protein_quantification.in",
+      "source_node_id": "protein_quantification",
+      "target_node_id": "validate_protein_quantification",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "reporting.out->final_reporting.in",
+      "source_node_id": "reporting",
+      "target_node_id": "final_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "reporting.out->validate_reporting.in",
+      "source_node_id": "reporting",
+      "target_node_id": "validate_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "review_prior_work.out->contextualize_findings_with_literature.in",
+      "source_node_id": "review_prior_work",
+      "target_node_id": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "review_prior_work.out->validate_review_prior_work.in",
+      "source_node_id": "review_prior_work",
+      "target_node_id": "validate_review_prior_work",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "survey_method_landscape.out->discover_differential_expression.in",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_differential_expression",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "survey_method_landscape.out->discover_pathway_enrichment.in",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_pathway_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "survey_method_landscape.out->discover_peptide_search.in",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_peptide_search",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "survey_method_landscape.out->discover_protein_quantification.in",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_protein_quantification",
+      "source_output": "out",
+      "target_input": "in"
+    }
+  ],
+  "parameter_mappings": [
+    {
+      "source_step": "differential_expression",
+      "source_output": "out",
+      "target_step": "contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "review_prior_work",
+      "source_output": "out",
+      "target_step": "contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "discover_differential_expression",
+      "source_output": "out",
+      "target_step": "differential_expression",
+      "target_input": "in"
+    },
+    {
+      "source_step": "protein_quantification",
+      "source_output": "out",
+      "target_step": "differential_expression",
+      "target_input": "in"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "out",
+      "target_step": "discover_differential_expression",
+      "target_input": "in"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "out",
+      "target_step": "discover_pathway_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "out",
+      "target_step": "discover_peptide_search",
+      "target_input": "in"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "out",
+      "target_step": "discover_protein_quantification",
+      "target_input": "in"
+    },
+    {
+      "source_step": "reporting",
+      "source_output": "out",
+      "target_step": "final_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "differential_expression",
+      "source_output": "out",
+      "target_step": "pathway_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "discover_pathway_enrichment",
+      "source_output": "out",
+      "target_step": "pathway_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "out",
+      "target_step": "peptide_search",
+      "target_input": "in"
+    },
+    {
+      "source_step": "discover_peptide_search",
+      "source_output": "out",
+      "target_step": "peptide_search",
+      "target_input": "in"
+    },
+    {
+      "source_step": "discover_protein_quantification",
+      "source_output": "out",
+      "target_step": "protein_quantification",
+      "target_input": "in"
+    },
+    {
+      "source_step": "peptide_search",
+      "source_output": "out",
+      "target_step": "protein_quantification",
+      "target_input": "in"
+    },
+    {
+      "source_step": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "differential_expression",
+      "source_output": "out",
+      "target_step": "reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "pathway_enrichment",
+      "source_output": "out",
+      "target_step": "reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "out",
+      "target_step": "survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "validate_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "out",
+      "target_step": "validate_data_acquisition",
+      "target_input": "in"
+    },
+    {
+      "source_step": "differential_expression",
+      "source_output": "out",
+      "target_step": "validate_differential_expression",
+      "target_input": "in"
+    },
+    {
+      "source_step": "final_reporting",
+      "source_output": "out",
+      "target_step": "validate_final_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "pathway_enrichment",
+      "source_output": "out",
+      "target_step": "validate_pathway_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "peptide_search",
+      "source_output": "out",
+      "target_step": "validate_peptide_search",
+      "target_input": "in"
+    },
+    {
+      "source_step": "protein_quantification",
+      "source_output": "out",
+      "target_step": "validate_protein_quantification",
+      "target_input": "in"
+    },
+    {
+      "source_step": "reporting",
+      "source_output": "out",
+      "target_step": "validate_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "review_prior_work",
+      "source_output": "out",
+      "target_step": "validate_review_prior_work",
+      "target_input": "in"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "organism",
+      "type": "string",
+      "value": "Homo sapiens",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_0",
+      "type": "string",
+      "value": "limma-voom",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_1",
+      "type": "string",
+      "value": "MaxQuant",
+      "source": "intake"
+    }
+  ],
+  "validation_rules": [
+    {
+      "rule_id": "discover_differential_expression:requires_sme_review",
+      "target_step": "discover_differential_expression",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_pathway_enrichment:requires_sme_review",
+      "target_step": "discover_pathway_enrichment",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_peptide_search:requires_sme_review",
+      "target_step": "discover_peptide_search",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_protein_quantification:requires_sme_review",
+      "target_step": "discover_protein_quantification",
+      "severity": "hard"
+    }
+  ],
+  "metadata": {
+    "complexity": "complex",
+    "tags": [
+      "discovery",
+      "operation",
+      "proteomics",
+      "validation"
+    ],
+    "categories": [
+      "proteomics"
+    ],
+    "use_cases": [
+      "kind"
+    ]
+  }
+}

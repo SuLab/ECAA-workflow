@@ -20,6 +20,14 @@
   },
   "source_atom_id": "sequence_trimming",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "trimmomatic",
+        "cutadapt",
+        "fastp",
+        "trim_galore"
+      ]
+    },
     "expected_artifacts": [
       "retention_summary.json",
       "manifest.json",

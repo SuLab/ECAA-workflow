@@ -2,7 +2,11 @@
 
 **Modality:** single_cell_rnaseq
 **Domain:** computational biology
-**Description:** 
+**Description:** Paired single-cell RNA + ATAC analysis. Base scaffold: QC,
+preprocessing, joint integration, clustering, cell-type annotation,
+peak-to-gene linking. Protocol-specific demultiplexing or barcode-
+matching steps come from the `protocol` slot.
+
 **EDAM topic:** topic:3308
 **EDAM operation:** operation:3432
 **Confidence:** high (100%)

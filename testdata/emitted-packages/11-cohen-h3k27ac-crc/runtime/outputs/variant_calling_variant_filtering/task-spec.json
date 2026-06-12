@@ -20,12 +20,24 @@
   },
   "source_atom_id": "variant_filtering",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "vqsr",
+        "gatk_hard_filter",
+        "deepvariant_cnn",
+        "bcftools_filter",
+        "lofreq_filter",
+        "vcffilter"
+      ],
+      "measurement_script": "measure_af_spectrum.py"
+    },
     "expected_artifacts": [
       "filtered_variants.vcf",
       "summary_stats.tsv",
       "manifest.json",
       "result.json"
     ],
+    "plot_stage_id": "variant_filtering",
     "required_figures": [
       "manhattan",
       "qq"

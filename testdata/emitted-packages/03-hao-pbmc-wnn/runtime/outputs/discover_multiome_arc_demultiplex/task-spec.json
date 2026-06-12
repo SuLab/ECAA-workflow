@@ -1,0 +1,30 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "survey_method_landscape"
+  ],
+  "description": "Discover method for multiome_arc_demultiplex (options: cellranger_arc). Surface set_intake_method.",
+  "kind": {
+    "discovery": "best_practice"
+  },
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "discover_multiome_arc_demultiplex",
+  "spec": {
+    "stage_class": "multiome_arc_demultiplex"
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "discover_multiome_arc_demultiplex"
+}

@@ -18,6 +18,88 @@
       "kind": "computation",
       "resource_class": "memory_heavy",
       "source_atom_id": "alignment",
+      "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "star",
+            "hisat2",
+            "bwa_mem2",
+            "bwa_mem",
+            "minimap2",
+            "bowtie2"
+          ]
+        }
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "atac_seq_contextualize_findings_with_literature": {
+      "assignee": "agent",
+      "depends_on": [
+        "atac_seq_peak_calling",
+        "atac_seq_review_prior_work"
+      ],
+      "description": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "kind": "computation",
+      "required_artifacts": [
+        {
+          "path": "claims_evidence_matrix.csv",
+          "schema_ref": "schemas/claims_evidence_matrix.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked",
+            "claim_row_has_finding_id",
+            "concordance_flag_in_closed_set"
+          ]
+        },
+        {
+          "path": "evidence/manifest.json",
+          "schema_ref": "schemas/literature_evidence_manifest.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked",
+            "claim_row_has_finding_id",
+            "concordance_flag_in_closed_set"
+          ]
+        }
+      ],
+      "resource_class": "cpu_heavy",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
+      "source_atom_id": "contextualize_findings_with_literature",
+      "spec": {
+        "attributes": {
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+        },
+        "expected_artifacts": [
+          "claims_evidence_matrix.csv",
+          "literature_search_protocol.md",
+          "citation_verification_report.md",
+          "evidence/manifest.json",
+          "result.json"
+        ]
+      },
       "state": {
         "status": "pending"
       }
@@ -37,6 +119,7 @@
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "data_acquisition",
         "required_figures": [
           "samples_per_study"
         ]
@@ -56,13 +139,21 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "differential_accessibility",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "diffbind",
+            "deseq2",
+            "edger",
+            "csaw"
+          ]
+        },
         "expected_artifacts": [
           "differential_peaks.tsv",
           "diffacc_summary.json",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "atac_seq_differential_accessibility",
+        "plot_stage_id": "differential_accessibility",
         "required_figures": [
           "volcano",
           "ma_plot",
@@ -206,6 +297,13 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "motif_enrichment",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "homer_findmotifsgenome",
+            "meme_chip",
+            "monalisa"
+          ]
+        },
         "expected_artifacts": [
           "enriched_motifs.tsv",
           "motif_occurrences.tsv",
@@ -213,7 +311,7 @@
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "atac_seq_motif_enrichment",
+        "plot_stage_id": "motif_enrichment",
         "required_figures": [
           "motif_enrichment_table",
           "motif_logo_grid"
@@ -234,13 +332,20 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "peak_annotation",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "chipseeker",
+            "homer_annotatepeaks",
+            "great"
+          ]
+        },
         "expected_artifacts": [
           "peak_annotation.tsv",
           "annotation_summary.json",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "atac_seq_peak_annotation",
+        "plot_stage_id": "peak_annotation",
         "required_figures": [
           "peak_feature_distribution",
           "tss_distance_distribution"
@@ -261,12 +366,21 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "peak_calling",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "macs2",
+            "macs3",
+            "seacr",
+            "genrich"
+          ]
+        },
         "expected_artifacts": [
           "peaks.bed",
           "peak_summary.json",
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "peak_calling",
         "required_figures": [
           "profile_pileup",
           "coverage_track",
@@ -293,7 +407,7 @@
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "atac_seq_quality_control",
+        "plot_stage_id": "quality_control",
         "required_figures": [
           "per_sample_metric_violin",
           "per_sample_metric_bar",
@@ -307,6 +421,7 @@
     "atac_seq_reporting": {
       "assignee": "agent",
       "depends_on": [
+        "atac_seq_contextualize_findings_with_literature",
         "atac_seq_differential_accessibility",
         "atac_seq_motif_enrichment",
         "atac_seq_peak_annotation",
@@ -322,9 +437,88 @@
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "reporting",
         "required_figures": [
           "concordance_heatmap",
           "pathway_overlap_bar"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "atac_seq_review_prior_work": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "kind": "computation",
+      "required_artifacts": [
+        {
+          "path": "prior_claims_matrix.csv",
+          "schema_ref": "schemas/literature_claims_matrix.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        },
+        {
+          "path": "evidence/manifest.json",
+          "schema_ref": "schemas/literature_evidence_manifest.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        },
+        {
+          "min_size_bytes": 1,
+          "path": "citation_verification_report.md",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        }
+      ],
+      "resource_class": "cpu_heavy",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
+      "source_atom_id": "review_prior_work",
+      "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in prior_claims_matrix.csv is a verbatim quote from one PMID's\navailable source text (PMC OA full-text XML, abstract, or — under explicit\nscope — a locally-fetched PDF). Do NOT paraphrase, summarize, or synthesize\nacross PMIDs. Do NOT assert biological fact, mechanism, or causation. Do NOT\nassert whether the prior work agrees or disagrees with anything — that is\nthe downstream contextualization atom's role, and even there it is row-wise\nmechanical, not narrative. Rows whose evidence_quote does not exactly\nsubstring-match the retrieved source are emitted with verified=false and\nsurface as BlockerKind::ValidationFailed { LiteratureClaim }.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
+        "expected_artifacts": [
+          "prior_claims_matrix.csv",
+          "literature_search_protocol.md",
+          "citation_verification_report.md",
+          "evidence/manifest.json",
+          "result.json"
         ]
       },
       "state": {
@@ -342,12 +536,20 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "sequence_trimming",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "trimmomatic",
+            "cutadapt",
+            "fastp",
+            "trim_galore"
+          ]
+        },
         "expected_artifacts": [
           "retention_summary.json",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "atac_seq_preprocessing",
+        "plot_stage_id": "preprocessing",
         "required_figures": [
           "retention_bar"
         ]
@@ -362,7 +564,7 @@
         "atac_seq_data_acquisition",
         "atac_seq_raw_qc"
       ],
-      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
       "kind": "computation",
       "required_artifacts": [
         {
@@ -411,6 +613,15 @@
       },
       "source_atom_id": "survey_method_landscape",
       "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in method_landscape.csv is a verbatim quote from one resolvable\nsource (PMID/DOI/URL), with its locator, source_class, and evidence_role.\nDo NOT rank, recommend, paraphrase, or synthesize. Ranking is the\ndownstream discover_* atom's deterministic job. Rows whose evidence_quote\ndoes not substring-match the retrieved snapshot are emitted verified=false.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
         "expected_artifacts": [
           "method_landscape.csv",
           "method_landscape.json",
@@ -431,6 +642,19 @@
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_alignment",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "atac_seq_validate_contextualize_findings_with_literature": {
+      "assignee": "agent",
+      "depends_on": [
+        "atac_seq_contextualize_findings_with_literature"
+      ],
+      "description": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_contextualize_findings_with_literature",
       "state": {
         "status": "pending"
       }
@@ -537,6 +761,19 @@
         "status": "pending"
       }
     },
+    "atac_seq_validate_review_prior_work": {
+      "assignee": "agent",
+      "depends_on": [
+        "atac_seq_review_prior_work"
+      ],
+      "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_review_prior_work",
+      "state": {
+        "status": "pending"
+      }
+    },
     "atac_seq_validate_sequence_trimming": {
       "assignee": "agent",
       "depends_on": [
@@ -560,6 +797,18 @@
       "kind": "computation",
       "resource_class": "memory_heavy",
       "source_atom_id": "alignment",
+      "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "star",
+            "hisat2",
+            "bwa_mem2",
+            "bwa_mem",
+            "minimap2",
+            "bowtie2"
+          ]
+        }
+      },
       "state": {
         "status": "pending"
       }
@@ -597,8 +846,31 @@
         }
       ],
       "resource_class": "cpu_heavy",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
       "source_atom_id": "contextualize_findings_with_literature",
       "spec": {
+        "attributes": {
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+        },
         "expected_artifacts": [
           "claims_evidence_matrix.csv",
           "literature_search_protocol.md",
@@ -626,6 +898,7 @@
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "data_acquisition",
         "required_figures": [
           "samples_per_study"
         ]
@@ -645,12 +918,23 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "differential_expression",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "deseq2",
+            "edger",
+            "limma_voom",
+            "mast",
+            "wilcoxon"
+          ],
+          "claim_boundary": "Differential expression is statistical association, not biological causation.\nReport effect-size + adjusted p-value + the reference factor level for every\ncontrast. Avoid mechanistic language; prefer \"associated with\" / \"enriched in\"\nover \"drives\" / \"causes\".\n"
+        },
         "expected_artifacts": [
           "de_results.tsv",
           "de_summary.json",
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "differential_expression",
         "required_figures": [
           "volcano",
           "top_features_heatmap"
@@ -797,13 +1081,22 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "normalisation",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "deseq2_vst",
+            "edger_tmm",
+            "scran",
+            "seurat_lognormalize",
+            "sctransform"
+          ]
+        },
         "expected_artifacts": [
           "normalized_counts_index.json",
           "hvg_list.tsv",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "bulk_rnaseq_normalization",
+        "plot_stage_id": "normalization",
         "required_figures": [
           "mean_variance",
           "hvg_count_bar"
@@ -824,13 +1117,22 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "pathway_enrichment",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "fgsea",
+            "clusterprofiler",
+            "gsea",
+            "enrichr"
+          ],
+          "claim_boundary": "Enrichment is a statistical signal that a gene set is over-represented at\nthe top / bottom of a ranked list. It does not establish that the pathway\nis biologically activated or repressed in the experimental system.\n"
+        },
         "expected_artifacts": [
           "pathway_results.tsv",
           "pathway_summary.json",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "bulk_rnaseq_biological_interpretation",
+        "plot_stage_id": "biological_interpretation",
         "required_figures": [
           "top_enriched_terms"
         ]
@@ -855,7 +1157,7 @@
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "bulk_rnaseq_quality_control",
+        "plot_stage_id": "quality_control",
         "required_figures": [
           "per_sample_metric_violin",
           "per_sample_metric_bar",
@@ -876,6 +1178,17 @@
       "kind": "computation",
       "resource_class": "memory_heavy",
       "source_atom_id": "quantification",
+      "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "salmon",
+            "kallisto",
+            "featurecounts",
+            "htseq",
+            "rsem"
+          ]
+        }
+      },
       "state": {
         "status": "pending"
       }
@@ -896,7 +1209,7 @@
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "bulk_rnaseq_quality_control",
+        "plot_stage_id": "quality_control",
         "required_figures": [
           "per_sample_metric_violin",
           "per_sample_metric_bar",
@@ -924,6 +1237,7 @@
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "reporting",
         "required_figures": [
           "concordance_heatmap",
           "pathway_overlap_bar"
@@ -968,8 +1282,37 @@
         }
       ],
       "resource_class": "cpu_heavy",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
       "source_atom_id": "review_prior_work",
       "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in prior_claims_matrix.csv is a verbatim quote from one PMID's\navailable source text (PMC OA full-text XML, abstract, or — under explicit\nscope — a locally-fetched PDF). Do NOT paraphrase, summarize, or synthesize\nacross PMIDs. Do NOT assert biological fact, mechanism, or causation. Do NOT\nassert whether the prior work agrees or disagrees with anything — that is\nthe downstream contextualization atom's role, and even there it is row-wise\nmechanical, not narrative. Rows whose evidence_quote does not exactly\nsubstring-match the retrieved source are emitted with verified=false and\nsurface as BlockerKind::ValidationFailed { LiteratureClaim }.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
         "expected_artifacts": [
           "prior_claims_matrix.csv",
           "literature_search_protocol.md",
@@ -993,12 +1336,20 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "sequence_trimming",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "trimmomatic",
+            "cutadapt",
+            "fastp",
+            "trim_galore"
+          ]
+        },
         "expected_artifacts": [
           "retention_summary.json",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "bulk_rnaseq_preprocessing",
+        "plot_stage_id": "preprocessing",
         "required_figures": [
           "retention_bar"
         ]
@@ -1013,7 +1364,7 @@
         "bulk_rnaseq_data_acquisition",
         "bulk_rnaseq_raw_qc"
       ],
-      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
       "kind": "computation",
       "required_artifacts": [
         {
@@ -1062,6 +1413,15 @@
       },
       "source_atom_id": "survey_method_landscape",
       "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in method_landscape.csv is a verbatim quote from one resolvable\nsource (PMID/DOI/URL), with its locator, source_class, and evidence_role.\nDo NOT rank, recommend, paraphrase, or synthesize. Ranking is the\ndownstream discover_* atom's deterministic job. Rows whose evidence_quote\ndoes not substring-match the retrieved snapshot are emitted verified=false.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
         "expected_artifacts": [
           "method_landscape.csv",
           "method_landscape.json",
@@ -1250,6 +1610,18 @@
       "kind": "computation",
       "resource_class": "memory_heavy",
       "source_atom_id": "alignment",
+      "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "star",
+            "hisat2",
+            "bwa_mem2",
+            "bwa_mem",
+            "minimap2",
+            "bowtie2"
+          ]
+        }
+      },
       "state": {
         "status": "pending"
       }
@@ -1287,8 +1659,31 @@
         }
       ],
       "resource_class": "cpu_heavy",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
       "source_atom_id": "contextualize_findings_with_literature",
       "spec": {
+        "attributes": {
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+        },
         "expected_artifacts": [
           "claims_evidence_matrix.csv",
           "literature_search_protocol.md",
@@ -1316,6 +1711,7 @@
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "data_acquisition",
         "required_figures": [
           "samples_per_study"
         ]
@@ -1438,6 +1834,13 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "motif_enrichment",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "homer_findmotifsgenome",
+            "meme_chip",
+            "monalisa"
+          ]
+        },
         "expected_artifacts": [
           "enriched_motifs.tsv",
           "motif_occurrences.tsv",
@@ -1445,7 +1848,7 @@
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "chip_seq_motif_enrichment",
+        "plot_stage_id": "motif_enrichment",
         "required_figures": [
           "motif_enrichment_table",
           "motif_logo_grid"
@@ -1466,13 +1869,20 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "peak_annotation",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "chipseeker",
+            "homer_annotatepeaks",
+            "great"
+          ]
+        },
         "expected_artifacts": [
           "peak_annotation.tsv",
           "annotation_summary.json",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "chip_seq_peak_annotation",
+        "plot_stage_id": "peak_annotation",
         "required_figures": [
           "peak_feature_distribution",
           "tss_distance_distribution"
@@ -1493,12 +1903,21 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "peak_calling",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "macs2",
+            "macs3",
+            "seacr",
+            "genrich"
+          ]
+        },
         "expected_artifacts": [
           "peaks.bed",
           "peak_summary.json",
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "peak_calling",
         "required_figures": [
           "profile_pileup",
           "coverage_track",
@@ -1525,7 +1944,7 @@
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "chip_seq_quality_control",
+        "plot_stage_id": "quality_control",
         "required_figures": [
           "per_sample_metric_violin",
           "per_sample_metric_bar",
@@ -1554,6 +1973,7 @@
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "reporting",
         "required_figures": [
           "concordance_heatmap",
           "pathway_overlap_bar"
@@ -1598,8 +2018,37 @@
         }
       ],
       "resource_class": "cpu_heavy",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
       "source_atom_id": "review_prior_work",
       "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in prior_claims_matrix.csv is a verbatim quote from one PMID's\navailable source text (PMC OA full-text XML, abstract, or — under explicit\nscope — a locally-fetched PDF). Do NOT paraphrase, summarize, or synthesize\nacross PMIDs. Do NOT assert biological fact, mechanism, or causation. Do NOT\nassert whether the prior work agrees or disagrees with anything — that is\nthe downstream contextualization atom's role, and even there it is row-wise\nmechanical, not narrative. Rows whose evidence_quote does not exactly\nsubstring-match the retrieved source are emitted with verified=false and\nsurface as BlockerKind::ValidationFailed { LiteratureClaim }.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
         "expected_artifacts": [
           "prior_claims_matrix.csv",
           "literature_search_protocol.md",
@@ -1623,12 +2072,20 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "sequence_trimming",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "trimmomatic",
+            "cutadapt",
+            "fastp",
+            "trim_galore"
+          ]
+        },
         "expected_artifacts": [
           "retention_summary.json",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "chip_seq_preprocessing",
+        "plot_stage_id": "preprocessing",
         "required_figures": [
           "retention_bar"
         ]
@@ -1643,7 +2100,7 @@
         "chip_seq_data_acquisition",
         "chip_seq_raw_qc"
       ],
-      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
       "kind": "computation",
       "required_artifacts": [
         {
@@ -1692,6 +2149,15 @@
       },
       "source_atom_id": "survey_method_landscape",
       "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in method_landscape.csv is a verbatim quote from one resolvable\nsource (PMID/DOI/URL), with its locator, source_class, and evidence_role.\nDo NOT rank, recommend, paraphrase, or synthesize. Ranking is the\ndownstream discover_* atom's deterministic job. Rows whose evidence_quote\ndoes not substring-match the retrieved snapshot are emitted verified=false.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
         "expected_artifacts": [
           "method_landscape.csv",
           "method_landscape.json",
@@ -1854,6 +2320,9 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "final_reporting",
       "spec": {
+        "attributes": {
+          "claim_boundary": "Findings-first: lead with the validated result rows and the\nbiological_interpretation narrative (when present), then methods and\ncaveats. Restate findings exactly as produced by upstream validated\ntasks — every claim traces to an emitted result row or to an\ninterpretation statement that itself cites one. Do not introduce\nclaims that aren't backed by an emitted artifact; do not soften or\nstrengthen effect-size language; do not recommend methods the\npipeline did not run.\n\nThis report is the read-and-evaluated deliverable, so carry the upstream\nsubstance FORWARD into it rather than collapsing to a thin digest: the\nfindings, their interpretation, and the data/source grounding the\nupstream tasks already recorded must appear in the report itself, not be\nleft behind in per-task outputs or the trace. This is faithful\nre-emission under the trace-to-artifact rule above — NOT license to pad\nwith generic prose, and NOT license to add any finding, theme, value, or\ncitation that no upstream artifact produced (an unsupported addition is a\nfabrication, worse than an omission). Generic reporting discipline only;\ndo not tailor content to any external grading rubric.\n"
+        },
         "expected_artifacts": [
           "final_report.md",
           "dashboard_index.json",
@@ -1872,6 +2341,7 @@
       "assignee": "agent",
       "depends_on": [
         "atac_seq_validate_alignment",
+        "atac_seq_validate_contextualize_findings_with_literature",
         "atac_seq_validate_data_acquisition",
         "atac_seq_validate_differential_accessibility",
         "atac_seq_validate_final_reporting",
@@ -1880,6 +2350,7 @@
         "atac_seq_validate_peak_calling",
         "atac_seq_validate_raw_qc",
         "atac_seq_validate_reporting",
+        "atac_seq_validate_review_prior_work",
         "atac_seq_validate_sequence_trimming",
         "bulk_rnaseq_validate_alignment",
         "bulk_rnaseq_validate_contextualize_findings_with_literature",
@@ -1927,6 +2398,7 @@
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "reporting",
         "required_figures": [
           "concordance_heatmap",
           "pathway_overlap_bar"
@@ -1946,6 +2418,18 @@
       "kind": "computation",
       "resource_class": "memory_heavy",
       "source_atom_id": "alignment",
+      "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "star",
+            "hisat2",
+            "bwa_mem2",
+            "bwa_mem",
+            "minimap2",
+            "bowtie2"
+          ]
+        }
+      },
       "state": {
         "status": "pending"
       }
@@ -1983,8 +2467,31 @@
         }
       ],
       "resource_class": "cpu_heavy",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
       "source_atom_id": "contextualize_findings_with_literature",
       "spec": {
+        "attributes": {
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+        },
         "expected_artifacts": [
           "claims_evidence_matrix.csv",
           "literature_search_protocol.md",
@@ -2012,6 +2519,7 @@
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "data_acquisition",
         "required_figures": [
           "samples_per_study"
         ]
@@ -2105,7 +2613,7 @@
       "depends_on": [
         "variant_calling_survey_method_landscape"
       ],
-      "description": "Discover method for variant_filtering (options: vqsr, gatk_hard_filter, deepvariant_cnn, bcftools_filter). Surface set_intake_method.",
+      "description": "Discover method for variant_filtering (options: vqsr, gatk_hard_filter, deepvariant_cnn, bcftools_filter, lofreq_filter, vcffilter). Surface set_intake_method.",
       "kind": {
         "discovery": "best_practice"
       },
@@ -2135,7 +2643,7 @@
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "variant_calling_quality_control",
+        "plot_stage_id": "quality_control",
         "required_figures": [
           "per_sample_metric_violin",
           "per_sample_metric_bar",
@@ -2162,6 +2670,7 @@
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "reporting",
         "required_figures": [
           "concordance_heatmap",
           "pathway_overlap_bar"
@@ -2206,8 +2715,37 @@
         }
       ],
       "resource_class": "cpu_heavy",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
       "source_atom_id": "review_prior_work",
       "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in prior_claims_matrix.csv is a verbatim quote from one PMID's\navailable source text (PMC OA full-text XML, abstract, or — under explicit\nscope — a locally-fetched PDF). Do NOT paraphrase, summarize, or synthesize\nacross PMIDs. Do NOT assert biological fact, mechanism, or causation. Do NOT\nassert whether the prior work agrees or disagrees with anything — that is\nthe downstream contextualization atom's role, and even there it is row-wise\nmechanical, not narrative. Rows whose evidence_quote does not exactly\nsubstring-match the retrieved source are emitted with verified=false and\nsurface as BlockerKind::ValidationFailed { LiteratureClaim }.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
         "expected_artifacts": [
           "prior_claims_matrix.csv",
           "literature_search_protocol.md",
@@ -2231,12 +2769,20 @@
       "resource_class": "cpu_heavy",
       "source_atom_id": "sequence_trimming",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "trimmomatic",
+            "cutadapt",
+            "fastp",
+            "trim_galore"
+          ]
+        },
         "expected_artifacts": [
           "retention_summary.json",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "variant_calling_preprocessing",
+        "plot_stage_id": "preprocessing",
         "required_figures": [
           "retention_bar"
         ]
@@ -2251,7 +2797,7 @@
         "variant_calling_data_acquisition",
         "variant_calling_raw_qc"
       ],
-      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
       "kind": "computation",
       "required_artifacts": [
         {
@@ -2300,6 +2846,15 @@
       },
       "source_atom_id": "survey_method_landscape",
       "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in method_landscape.csv is a verbatim quote from one resolvable\nsource (PMID/DOI/URL), with its locator, source_class, and evidence_role.\nDo NOT rank, recommend, paraphrase, or synthesize. Ranking is the\ndownstream discover_* atom's deterministic job. Rows whose evidence_quote\ndoes not substring-match the retrieved snapshot are emitted verified=false.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
         "expected_artifacts": [
           "method_landscape.csv",
           "method_landscape.json",
@@ -2462,6 +3017,16 @@
       "kind": "computation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "variant_annotation",
+      "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "vep",
+            "annovar",
+            "snpeff"
+          ],
+          "claim_boundary": "Variant annotations are computational predictions. ClinVar pathogenicity is\ncurator-assigned and may lag literature. Do not assert clinical interpretation\nbeyond the cited annotation source.\n"
+        }
+      },
       "state": {
         "status": "pending"
       }
@@ -2474,8 +3039,32 @@
       ],
       "description": "Call germline or somatic SNVs / indels from aligned reads. HaplotypeCaller /\nDeepVariant / Mutect2 / Strelka2 selected at runtime by experimental design\n(germline cohort vs tumor-normal pair vs tumor-only).\n",
       "kind": "computation",
+      "required_artifacts": [
+        {
+          "min_size_bytes": 2,
+          "path": "result.json",
+          "validation_obligations": [
+            "coordinate_in_contig",
+            "deterministic_or_bounded_variance",
+            "variant_af_spectrum_plausible"
+          ]
+        }
+      ],
       "resource_class": "memory_heavy",
       "source_atom_id": "variant_calling",
+      "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "haplotypecaller",
+            "deepvariant",
+            "mutect2",
+            "strelka2",
+            "dragen",
+            "lofreq"
+          ],
+          "measurement_script": "measure_af_spectrum.py"
+        }
+      },
       "state": {
         "status": "pending"
       }
@@ -2488,15 +3077,38 @@
       ],
       "description": "Filter raw variant calls by VQSR / hard filters / CNN-based quality scores.\necaax namespace per EDAM audit — operation:3225 (variant classification) is\nsemantic creep for filtering.\n",
       "kind": "computation",
+      "required_artifacts": [
+        {
+          "min_size_bytes": 2,
+          "path": "result.json",
+          "validation_obligations": [
+            "p_value_in_unit_interval",
+            "coordinate_in_contig",
+            "variant_filtered_count_consistency"
+          ]
+        }
+      ],
       "resource_class": "cpu_heavy",
       "source_atom_id": "variant_filtering",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "vqsr",
+            "gatk_hard_filter",
+            "deepvariant_cnn",
+            "bcftools_filter",
+            "lofreq_filter",
+            "vcffilter"
+          ],
+          "measurement_script": "measure_af_spectrum.py"
+        },
         "expected_artifacts": [
           "filtered_variants.vcf",
           "summary_stats.tsv",
           "manifest.json",
           "result.json"
         ],
+        "plot_stage_id": "variant_filtering",
         "required_figures": [
           "manhattan",
           "qq"

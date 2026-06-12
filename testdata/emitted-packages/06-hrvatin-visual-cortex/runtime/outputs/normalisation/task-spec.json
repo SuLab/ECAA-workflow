@@ -20,6 +20,15 @@
   },
   "source_atom_id": "normalisation",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "deseq2_vst",
+        "edger_tmm",
+        "scran",
+        "seurat_lognormalize",
+        "sctransform"
+      ]
+    },
     "expected_artifacts": [
       "normalized_counts_index.json",
       "hvg_list.tsv",

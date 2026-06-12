@@ -20,6 +20,16 @@
   },
   "source_atom_id": "cell_type_annotation",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "celltypist",
+        "singler",
+        "azimuth",
+        "sctype",
+        "marker_panel"
+      ],
+      "claim_boundary": "Cell-type calls are statistical assignments, not pathology. Report the\nreference / panel / marker set used alongside every label. Do not infer\nfunctional state from identity alone.\n"
+    },
     "expected_artifacts": [
       "celltype_assignments.tsv",
       "marker_panel_audit.json",

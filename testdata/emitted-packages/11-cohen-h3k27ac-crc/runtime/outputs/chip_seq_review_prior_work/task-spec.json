@@ -7,9 +7,19 @@
   "resource_class": "cpu_heavy",
   "safety": {
     "code_execution": "none",
-    "level": "compute",
+    "level": "network",
     "network": {
-      "allowlist": [],
+      "allowlist": [
+        "eutils.ncbi.nlm.nih.gov",
+        "ftp.ncbi.nlm.nih.gov",
+        "api.openalex.org",
+        "api.crossref.org",
+        "readthedocs.io",
+        "bioconductor.org",
+        "github.com",
+        "raw.githubusercontent.com",
+        "nf-co.re"
+      ],
       "kind": "none"
     },
     "provisioning": "declared_only",
@@ -17,6 +27,15 @@
   },
   "source_atom_id": "review_prior_work",
   "spec": {
+    "attributes": {
+      "claim_boundary": "Every row in prior_claims_matrix.csv is a verbatim quote from one PMID's\navailable source text (PMC OA full-text XML, abstract, or — under explicit\nscope — a locally-fetched PDF). Do NOT paraphrase, summarize, or synthesize\nacross PMIDs. Do NOT assert biological fact, mechanism, or causation. Do NOT\nassert whether the prior work agrees or disagrees with anything — that is\nthe downstream contextualization atom's role, and even there it is row-wise\nmechanical, not narrative. Rows whose evidence_quote does not exactly\nsubstring-match the retrieved source are emitted with verified=false and\nsurface as BlockerKind::ValidationFailed { LiteratureClaim }.\n",
+      "retrieval_tools": [
+        "pubmed_eutilities_esearch",
+        "pubmed_eutilities_efetch_pmc_xml",
+        "pubmed_eutilities_efetch_abstract"
+      ],
+      "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+    },
     "expected_artifacts": [
       "prior_claims_matrix.csv",
       "literature_search_protocol.md",

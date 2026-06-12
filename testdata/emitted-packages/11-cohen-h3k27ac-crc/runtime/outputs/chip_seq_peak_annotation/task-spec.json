@@ -20,13 +20,20 @@
   },
   "source_atom_id": "peak_annotation",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "chipseeker",
+        "homer_annotatepeaks",
+        "great"
+      ]
+    },
     "expected_artifacts": [
       "peak_annotation.tsv",
       "annotation_summary.json",
       "manifest.json",
       "result.json"
     ],
-    "plot_stage_id": "chip_seq_peak_annotation",
+    "plot_stage_id": "peak_annotation",
     "required_figures": [
       "peak_feature_distribution",
       "tss_distance_distribution"

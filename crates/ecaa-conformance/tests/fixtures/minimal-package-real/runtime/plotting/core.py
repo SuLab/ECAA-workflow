@@ -1097,6 +1097,22 @@ def violin(
     return savefig(fig, out)
 
 
+def _bar_fill_palette(n: int) -> List[str]:
+    """Fill colors for a bar chart.
+
+    Identical to ``categorical_palette`` except a *single* bar never fills
+    pure black. The Wong colorblind-safe palette leads with black (#000000),
+    which is the right reference color for a line/scatter series but, for a
+    lone bar, reads as a broken or blank render rather than a category color —
+    and the x-axis label already names the one category. Multi-bar charts keep
+    the canonical Wong ordering (black encodes the reference category and is
+    perceptually distinct alongside the chromatic entries)."""
+    palette = list(categorical_palette(n, name="bar"))
+    if n == 1 and palette and palette[0].lower() in ("#000000", "#000", "black", "k"):
+        return [next((c for c in _WONG_PALETTE if c.lower() != "#000000"), "#0072B2")]
+    return palette
+
+
 def bar(
     names: List[str],
     values: List[float],
@@ -1128,7 +1144,7 @@ def bar(
     if annotate_counts is None:
         annotate_counts = n <= 20
     fig, ax = plt.subplots(figsize=figsize)
-    palette = categorical_palette(n, name="bar")
+    palette = _bar_fill_palette(n)
     positions = np.arange(n)
 
     err = None
@@ -1311,17 +1327,26 @@ def volcano(
     n_total = int(len(log_fc))
     ax.set_title(f"{title}\nn = {n_total} features")
 
-    # Up/down counts in the upper corners, axis-coords so they don't
-    # collide with points regardless of data range.
+    # Reserve headroom at the top so the top-N gene labels (placed near
+    # their points, which cluster at high −log10 p) don't collide with the
+    # up/down count annotations pinned in the upper corners.
+    _y0, _y1 = ax.get_ylim()
+    if np.isfinite(_y0) and np.isfinite(_y1) and _y1 > _y0:
+        ax.set_ylim(_y0, _y1 + 0.12 * (_y1 - _y0))
+    # Up/down counts in the upper corners, axis-coords so they don't collide
+    # with points regardless of data range. A white bbox + high z-order keeps
+    # them legible even if a gene label lands nearby.
+    _count_bbox = dict(boxstyle="round,pad=0.2", facecolor="white",
+                       edgecolor="none", alpha=0.85)
     ax.text(
-        0.99, 0.97, f"↑ {n_up}",
+        0.99, 0.98, f"↑ {n_up}",
         transform=ax.transAxes, ha="right", va="top",
-        color=sig_up, fontweight="bold",
+        color=sig_up, fontweight="bold", zorder=6, bbox=_count_bbox,
     )
     ax.text(
-        0.01, 0.97, f"↓ {n_down}",
+        0.01, 0.98, f"↓ {n_down}",
         transform=ax.transAxes, ha="left", va="top",
-        color=sig_down, fontweight="bold",
+        color=sig_down, fontweight="bold", zorder=6, bbox=_count_bbox,
     )
 
     if labels is not None and label_top_n > 0:
@@ -1377,13 +1402,13 @@ def _hierarchical_order(
             arr = np.nan_to_num(arr, nan=0.0)
     try:
         d = pdist(arr, metric="euclidean")
-        Z = linkage(d, method=method)
+        Z = linkage(d, method=method)  # noqa: N806  # Z is scipy linkage matrix convention
     except (ValueError, FloatingPointError):  # pragma: no cover
         return None, None
     return np.asarray(leaves_list(Z)), np.asarray(Z)
 
 
-def _draw_dendrogram(ax: "plt.Axes", Z: np.ndarray, *, orientation: str) -> None:
+def _draw_dendrogram(ax: "plt.Axes", Z: np.ndarray, *, orientation: str) -> None:  # noqa: N803  # Z is scipy linkage matrix convention
     """Lightweight matplotlib dendrogram from a linkage matrix. We do
     this manually instead of using scipy.cluster.hierarchy.dendrogram
     so colors/linewidths follow the theme.
@@ -1452,13 +1477,13 @@ def heatmap(
 
     row_order = np.arange(n_rows)
     col_order = np.arange(n_cols)
-    Z_rows = Z_cols = None
+    Z_rows = Z_cols = None  # noqa: N806  # Z_rows/Z_cols are scipy linkage matrix convention
     if cluster_rows:
-        ro, Z_rows = _hierarchical_order(matrix, axis=0)
+        ro, Z_rows = _hierarchical_order(matrix, axis=0)  # noqa: N806
         if ro is not None:
             row_order = ro
     if cluster_cols:
-        co, Z_cols = _hierarchical_order(matrix, axis=1)
+        co, Z_cols = _hierarchical_order(matrix, axis=1)  # noqa: N806
         if co is not None:
             col_order = co
 
@@ -1497,11 +1522,56 @@ def heatmap(
 
     vmax = float(np.nanmax(np.abs(ordered))) if ordered.size else 1.0
     vmin = -vmax if center is not None else float(np.nanmin(ordered))
-    im = ax_heat.imshow(ordered, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
-    ax_heat.set_xticks(range(len(ordered_cols)))
+    if use_grid:
+        # scipy dendrogram leaf centers live at 5, 15, 25, ... .  Use the
+        # same coordinate system for the shared heatmap axes; otherwise the
+        # dendrogram autoscale squeezes imshow's default 0, 1, 2, ... cells
+        # into a thin strip.
+        x_ticks = (
+            np.arange(len(ordered_cols), dtype=float) * 10.0 + 5.0
+            if Z_cols is not None
+            else np.arange(len(ordered_cols), dtype=float)
+        )
+        y_ticks = (
+            np.arange(len(ordered_rows), dtype=float) * 10.0 + 5.0
+            if Z_rows is not None
+            else np.arange(len(ordered_rows), dtype=float)
+        )
+        x_left, x_right = (
+            (0.0, 10.0 * len(ordered_cols))
+            if Z_cols is not None
+            else (-0.5, len(ordered_cols) - 0.5)
+        )
+        y_bottom, y_top = (
+            (10.0 * len(ordered_rows), 0.0)
+            if Z_rows is not None
+            else (len(ordered_rows) - 0.5, -0.5)
+        )
+        im = ax_heat.imshow(
+            ordered,
+            cmap=cmap,
+            aspect="auto",
+            vmin=vmin,
+            vmax=vmax,
+            extent=(x_left, x_right, y_bottom, y_top),
+            origin="upper",
+        )
+        ax_heat.set_xlim(x_left, x_right)
+        ax_heat.set_ylim(y_bottom, y_top)
+    else:
+        im = ax_heat.imshow(ordered, cmap=cmap, aspect="auto", vmin=vmin, vmax=vmax)
+        x_ticks = np.arange(len(ordered_cols), dtype=float)
+        y_ticks = np.arange(len(ordered_rows), dtype=float)
+    ax_heat.set_xticks(x_ticks)
     ax_heat.set_xticklabels(ordered_cols, rotation=45, ha="right")
-    ax_heat.set_yticks(range(len(ordered_rows)))
+    ax_heat.set_yticks(y_ticks)
     ax_heat.set_yticklabels(ordered_rows)
+    if use_grid and Z_rows is not None:
+        dendro_label_pad = max(
+            8.0,
+            figsize[0] * row_dendro_w / (row_dendro_w + 1.0 + 0.05) * 72.0 + 4.0,
+        )
+        ax_heat.tick_params(axis="y", pad=dendro_label_pad)
     if not use_grid:
         ax_heat.set_title(title)
     cbar = fig.colorbar(im, cax=ax_cbar, ax=None if ax_cbar else ax_heat,
@@ -1675,6 +1745,31 @@ def _col(frame: Any, name: str, *, optional: bool = False) -> Optional[np.ndarra
         if optional:
             return None
         raise ValueError(f"required column '{name}' not present in input frame")
+
+
+def _optional_float_col(values: Optional[np.ndarray]) -> Optional[np.ndarray]:
+    """Convert an optional numeric column, treating blanks as missing.
+
+    Optional overlays such as forecast actuals often contain future rows
+    where the observed value is intentionally absent. Those blanks should
+    not prevent rendering the forecast interval and point estimate.
+    """
+    if values is None:
+        return None
+    converted: List[float] = []
+    for value in np.asarray(values, dtype=object):
+        if value is None:
+            converted.append(float("nan"))
+            continue
+        text = str(value).strip()
+        if not text or text.lower() in {"nan", "na", "none", "null"}:
+            converted.append(float("nan"))
+            continue
+        try:
+            converted.append(float(value))
+        except (TypeError, ValueError):
+            converted.append(float("nan"))
+    return np.asarray(converted, dtype=float)
 
 
 _CHROM_NUMERIC_ORDER: Tuple[str, ...] = tuple(
@@ -1942,7 +2037,9 @@ def miami(
     sig_color = palette.get("sig_up", "#D55E00")
     palette_alt = (palette.get("non_sig", "#999999"), "#444444")
 
-    def _virtualize(c: np.ndarray, p: np.ndarray) -> Tuple[np.ndarray, np.ndarray, List[float], float]:
+    def _virtualize(
+        c: np.ndarray, p: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray, List[float], float]:
         cs = np.asarray([str(x) for x in c])
         cursor = 0.0
         virt = np.zeros(len(p), dtype=float)
@@ -2315,7 +2412,6 @@ def kaplan_meier(
         levels = list(dict.fromkeys(str(g) for g in group_arr))
         groups = [(lvl, np.asarray([str(g) == lvl for g in group_arr])) for lvl in levels]
 
-    palette = THEME.get("palette", {})
     colors = categorical_palette(max(len(groups), 1))
 
     if show_at_risk_table and len(groups) > 0:
@@ -2801,7 +2897,7 @@ def adverse_event_bar(
             ax.barh(y, totals, color=sev_colors[0],
                     edgecolor="#333333", linewidth=0.2)
         ax.set_yticks(y)
-        ax.set_yticklabels([str(l) for l in labels])
+        ax.set_yticklabels([str(lbl) for lbl in labels])
         ax.invert_yaxis()
         ax.set_xlabel("count")
     else:
@@ -2818,7 +2914,7 @@ def adverse_event_bar(
             ax.bar(x, totals, color=sev_colors[0],
                    edgecolor="#333333", linewidth=0.2)
         ax.set_xticks(x)
-        ax.set_xticklabels([str(l) for l in labels], rotation=45, ha="right")
+        ax.set_xticklabels([str(lbl) for lbl in labels], rotation=45, ha="right")
         ax.set_ylabel("count")
     if sev_levels:
         ax.legend(title="severity", loc="best", frameon=False,
@@ -3209,7 +3305,8 @@ def sashimi(
         x_max = float(np.nanmax(ends_arr[valid]))
         ax.plot([x_min, x_max], [0, 0], color="#333333", linewidth=0.6)
         ax.set_xlim(x_min, x_max)
-        ax.set_ylim(-0.1, max(float(np.nanmax(ends_arr[valid] - starts_arr[valid])) / 8.0 * 1.3, 1.0))
+        span_max = float(np.nanmax(ends_arr[valid] - starts_arr[valid]))
+        ax.set_ylim(-0.1, max(span_max / 8.0 * 1.3, 1.0))
     ax.set_yticks([])
     ax.set_xlabel("genomic position (bp)")
     ax.set_title(f"{title}\nn = {int(valid.sum())} junctions")
@@ -3291,7 +3388,6 @@ def ridgeline(
     levels = list(dict.fromkeys(str(g) for g in group))
     colors = categorical_palette(max(len(levels), 1))
 
-    palette = THEME.get("palette", {})
     fig, ax = plt.subplots(figsize=figsize)
     n_levels = len(levels)
     if n_levels == 0:
@@ -3713,6 +3809,7 @@ def forecast_ribbon(
     lower_col: str = "lower",
     upper_col: str = "upper",
     actual_col: Optional[str] = "actual",
+    group_col: Optional[str] = None,
     figsize: Tuple[float, float] = (8.0, 4.5),
 ) -> Path:
     """Point + interval forecast ribbon. Plots the point forecast as a
@@ -3737,43 +3834,107 @@ def forecast_ribbon(
     actual = (
         _col(frame, actual_col, optional=True) if actual_col else None
     )
+    actual_values = _optional_float_col(actual)
+    groups = _col(frame, group_col, optional=True) if group_col else None
 
     palette = THEME.get("palette", {})
     forecast_color = palette.get("sig_up", "#D55E00")
     actual_color = palette.get("sig_down", "#0072B2")
     band_color = palette.get("non_sig", "#999999")
 
-    # Sort by time so the line and ribbon track contiguously even if the
-    # caller passed un-ordered rows.
-    try:
-        order = np.argsort(time, kind="stable")
-    except TypeError:
-        # Heterogeneous time keys (e.g. mixed strings) — preserve input order.
-        order = np.arange(len(time))
-    t = np.asarray(time)[order]
-    v = value[order]
-    lo = lower[order]
-    hi = upper[order]
+    raw_time = np.asarray(time)
+    if np.issubdtype(raw_time.dtype, np.number):
+        x_all = raw_time.astype(float)
+        label_lookup: Optional[Dict[float, str]] = None
+    else:
+        labels = [str(x) for x in raw_time]
+        ordered_labels = sorted(dict.fromkeys(labels))
+        label_to_x = {label: float(i) for i, label in enumerate(ordered_labels)}
+        x_all = np.asarray([label_to_x[label] for label in labels], dtype=float)
+        label_lookup = {x: label for label, x in label_to_x.items()}
 
     fig, ax = plt.subplots(figsize=figsize)
-    ax.fill_between(
-        t, lo, hi,
-        color=band_color, alpha=0.30, linewidth=0,
-        label="prediction interval",
-    )
-    ax.plot(t, v, color=forecast_color, linewidth=1.4,
-            label="forecast", zorder=3)
 
-    if actual is not None and len(actual):
-        a = np.asarray(actual, dtype=float)[order]
-        ax.plot(t, a, color=actual_color, linewidth=1.0,
-                alpha=0.85, label="actual", zorder=2)
+    if groups is not None and len(groups):
+        group_arr = np.asarray(groups, dtype=object)
+        group_names = [str(g) for g in dict.fromkeys(group_arr)]
+        colors = categorical_palette(len(group_names), name="forecast_ribbon")
+        for idx, group_name in enumerate(group_names):
+            mask = group_arr.astype(str) == group_name
+            order = np.argsort(x_all[mask], kind="stable")
+            gx = x_all[mask][order]
+            gv = value[mask][order]
+            glo = lower[mask][order]
+            ghi = upper[mask][order]
+            color = colors[idx]
+            ax.fill_between(
+                gx,
+                glo,
+                ghi,
+                color=color,
+                alpha=0.12,
+                linewidth=0,
+                label=f"{group_name} interval" if idx == 0 else None,
+            )
+            ax.plot(
+                gx,
+                gv,
+                color=color,
+                linewidth=1.1,
+                label=str(group_name),
+                zorder=3,
+            )
+            if actual_values is not None and len(actual_values):
+                ga = actual_values[mask][order]
+                finite = np.isfinite(ga)
+                if not finite.any():
+                    continue
+                ax.plot(
+                    gx[finite],
+                    ga[finite],
+                    color=color,
+                    linewidth=0.8,
+                    linestyle=":",
+                    alpha=0.75,
+                    zorder=2,
+                )
+    else:
+        # Sort by time so the line and ribbon track contiguously even if the
+        # caller passed un-ordered rows.
+        order = np.argsort(x_all, kind="stable")
+        t = x_all[order]
+        v = value[order]
+        lo = lower[order]
+        hi = upper[order]
+
+        ax.fill_between(
+            t, lo, hi,
+            color=band_color, alpha=0.30, linewidth=0,
+            label="prediction interval",
+        )
+        ax.plot(t, v, color=forecast_color, linewidth=1.4,
+                label="forecast", zorder=3)
+
+        if actual_values is not None and len(actual_values):
+            a = actual_values[order]
+            finite = np.isfinite(a)
+            if finite.any():
+                ax.plot(t[finite], a[finite], color=actual_color, linewidth=1.0,
+                        alpha=0.85, label="actual", zorder=2)
+
+    if label_lookup:
+        ticks = sorted(label_lookup)
+        if len(ticks) > 12:
+            step = int(np.ceil(len(ticks) / 12))
+            ticks = ticks[::step]
+        ax.set_xticks(ticks)
+        ax.set_xticklabels([label_lookup[t] for t in ticks], rotation=45, ha="right")
 
     ax.set_xlabel(time_col)
     ax.set_ylabel(value_col)
     ax.legend(loc="best", frameon=False,
               fontsize=THEME.get("fonts", {}).get("legend_pt", 7))
-    ax.set_title(f"{title}\nn = {len(v)} forecast points")
+    ax.set_title(f"{title}\nn = {len(value)} forecast points")
     return savefig(fig, out)
 
 
@@ -3948,13 +4109,27 @@ def decomposition_panel(
         ("seasonal", seasonal, seas_color),
         ("residual", residual, resid_color),
     ]
+    # Plot against an integer position axis so a long categorical/string
+    # time column (e.g. 96 monthly "YYYY-MM" labels) doesn't render one
+    # overlapping tick per point. Tick labels are downsampled from `t` to
+    # at most `max_ticks` and rotated, which keeps the shared x-axis
+    # legible regardless of whether `t` is string, numeric, or datetime.
+    x = np.arange(n)
     for ax, (label, series_y, color) in zip(axes, rows):
-        ax.plot(t, series_y, color=color, linewidth=1.0)
+        ax.plot(x, series_y, color=color, linewidth=1.0)
         ax.set_ylabel(label)
         if label == "residual":
             ax.axhline(0.0, color="#444444", linewidth=0.3, linestyle="--")
 
-    axes[-1].set_xlabel(time_col)
+    ax_bottom = axes[-1]
+    max_ticks = 12
+    step = max(1, int(np.ceil(n / max_ticks)))
+    tick_pos = np.arange(0, n, step)
+    ax_bottom.set_xticks(tick_pos)
+    ax_bottom.set_xticklabels(
+        [str(np.asarray(t)[i]) for i in tick_pos], rotation=45, ha="right"
+    )
+    ax_bottom.set_xlabel(time_col)
     axes[0].set_title(f"{title}\nn = {n}, period = {period}")
     return savefig(fig, out)
 

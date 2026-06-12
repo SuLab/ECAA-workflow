@@ -86,170 +86,89 @@
           "@id": "runtime/audit-proof-report.json"
         },
         {
+          "@id": "runtime/ed-cf-self-assessment.json"
+        },
+        {
           "@id": "runtime/validation-summary.json"
         },
         {
-          "@id": "runtime/outputs/atac_seq_data_acquisition/figures/samples_per_study.png"
+          "@id": "runtime/outputs/cell_type_annotation/figures/umap_by_celltype.png"
         },
         {
-          "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/volcano.png"
+          "@id": "runtime/outputs/cell_type_annotation/figures/celltype_size_bar.png"
         },
         {
-          "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/ma_plot.png"
+          "@id": "runtime/outputs/clustering/figures/umap_clusters.png"
         },
         {
-          "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/diff_heatmap.png"
+          "@id": "runtime/outputs/clustering/figures/cluster_size_bar.png"
         },
         {
-          "@id": "runtime/outputs/atac_seq_motif_enrichment/figures/motif_enrichment_table.png"
+          "@id": "runtime/outputs/data_acquisition/figures/samples_per_study.png"
         },
         {
-          "@id": "runtime/outputs/atac_seq_motif_enrichment/figures/motif_logo_grid.png"
+          "@id": "runtime/outputs/differential_accessibility/figures/volcano.png"
         },
         {
-          "@id": "runtime/outputs/atac_seq_peak_annotation/figures/peak_feature_distribution.png"
+          "@id": "runtime/outputs/differential_accessibility/figures/ma_plot.png"
         },
         {
-          "@id": "runtime/outputs/atac_seq_peak_annotation/figures/tss_distance_distribution.png"
+          "@id": "runtime/outputs/differential_accessibility/figures/diff_heatmap.png"
         },
         {
-          "@id": "runtime/outputs/atac_seq_peak_calling/figures/profile_pileup.png"
+          "@id": "runtime/outputs/differential_expression/figures/volcano.png"
         },
         {
-          "@id": "runtime/outputs/atac_seq_peak_calling/figures/coverage_track.png"
-        },
-        {
-          "@id": "runtime/outputs/atac_seq_peak_calling/figures/peak_saturation.png"
-        },
-        {
-          "@id": "runtime/outputs/atac_seq_raw_qc/figures/per_sample_metric_violin.png"
-        },
-        {
-          "@id": "runtime/outputs/atac_seq_raw_qc/figures/per_sample_metric_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/atac_seq_raw_qc/figures/qc_summary_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/atac_seq_reporting/figures/concordance_heatmap.png"
-        },
-        {
-          "@id": "runtime/outputs/atac_seq_reporting/figures/pathway_overlap_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/atac_seq_sequence_trimming/figures/retention_bar.png"
+          "@id": "runtime/outputs/differential_expression/figures/top_features_heatmap.png"
         },
         {
           "@id": "runtime/outputs/final_reporting/figures/summary_dashboard.png"
         },
         {
-          "@id": "runtime/outputs/multi_modal_thematic_comparison/figures/concordance_heatmap.png"
+          "@id": "runtime/outputs/joint_wnn_integration/figures/wnn_umap.png"
         },
         {
-          "@id": "runtime/outputs/multi_modal_thematic_comparison/figures/pathway_overlap_bar.png"
+          "@id": "runtime/outputs/joint_wnn_integration/figures/cluster_composition_bar.png"
         },
         {
-          "@id": "runtime/outputs/single_cell_rnaseq_batch_correction/figures/mixing_score_bar.png"
+          "@id": "runtime/outputs/multiome_arc_demultiplex/figures/paired_capture_summary.png"
         },
         {
-          "@id": "runtime/outputs/single_cell_rnaseq_batch_correction/figures/umap_pre_post.png"
+          "@id": "runtime/outputs/normalisation/figures/mean_variance.png"
         },
         {
-          "@id": "runtime/outputs/single_cell_rnaseq_cell_type_annotation/figures/umap_by_celltype.png"
+          "@id": "runtime/outputs/normalisation/figures/hvg_count_bar.png"
         },
         {
-          "@id": "runtime/outputs/single_cell_rnaseq_cell_type_annotation/figures/celltype_size_bar.png"
+          "@id": "runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png"
         },
         {
-          "@id": "runtime/outputs/single_cell_rnaseq_clustering/figures/umap_clusters.png"
+          "@id": "runtime/outputs/peak_to_gene_linking/figures/peak_to_gene_arc.png"
         },
         {
-          "@id": "runtime/outputs/single_cell_rnaseq_clustering/figures/cluster_size_bar.png"
+          "@id": "runtime/outputs/peak_to_gene_linking/figures/links_per_cluster_bar.png"
         },
         {
-          "@id": "runtime/outputs/single_cell_rnaseq_data_acquisition/figures/samples_per_study.png"
+          "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png"
         },
         {
-          "@id": "runtime/outputs/single_cell_rnaseq_differential_expression/figures/volcano.png"
+          "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_bar.png"
         },
         {
-          "@id": "runtime/outputs/single_cell_rnaseq_differential_expression/figures/top_features_heatmap.png"
+          "@id": "runtime/outputs/qc_preprocessing/figures/qc_summary_bar.png"
         },
         {
-          "@id": "runtime/outputs/single_cell_rnaseq_dimensionality_reduction/figures/variance_explained_elbow.png"
+          "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png"
         },
         {
-          "@id": "runtime/outputs/single_cell_rnaseq_dimensionality_reduction/figures/embedding_scatter.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_normalisation/figures/mean_variance.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_normalisation/figures/hvg_count_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_pathway_enrichment/figures/top_enriched_terms.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_qc_preprocessing/figures/per_sample_metric_violin.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_qc_preprocessing/figures/per_sample_metric_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_qc_preprocessing/figures/qc_summary_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_raw_qc/figures/per_sample_metric_violin.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_raw_qc/figures/per_sample_metric_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_raw_qc/figures/qc_summary_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_reporting/figures/concordance_heatmap.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_reporting/figures/pathway_overlap_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_rnaseq_sequence_trimming/figures/retention_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_vdj_cdr3_clonotype_clustering/figures/public_clonotype_size_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_vdj_cdr3_clonotype_clustering/figures/clonotype_network.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_vdj_data_acquisition/figures/samples_per_study.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_vdj_repertoire_diversity/figures/clonal_frequency_rank.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_vdj_repertoire_diversity/figures/v_segment_usage_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_vdj_reporting/figures/concordance_heatmap.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_vdj_reporting/figures/pathway_overlap_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_vdj_vdj_reconstruction/figures/chain_assignment_per_cell_bar.png"
-        },
-        {
-          "@id": "runtime/outputs/single_cell_vdj_vdj_reconstruction/figures/cdr3_length_distribution.png"
+          "@id": "runtime/outputs/reporting/figures/pathway_overlap_bar.png"
         }
       ],
       "license": "https://www.apache.org/licenses/LICENSE-2.0",
       "mainEntity": {
         "@id": "WORKFLOW.json"
       },
-      "name": "computational biology — "
+      "name": "computational biology — Paired single-cell RNA + ATAC analysis. Base scaffold: QC,\npreprocessing, joint integration, clustering, cell-type annotation,\npeak-to-gene linking. Protocol-specific demultiplexing or barcode-\nmatching steps come from the `protocol` slot.\n"
     },
     {
       "@id": "WORKFLOW.json",
@@ -276,259 +195,124 @@
       },
       "step": [
         {
-          "@id": "#step-single_cell_vdj_validate_final_reporting"
+          "@id": "#step-review_prior_work"
         },
         {
-          "@id": "#step-single_cell_vdj_data_acquisition"
+          "@id": "#step-validate_review_prior_work"
         },
         {
-          "@id": "#step-single_cell_vdj_validate_data_acquisition"
+          "@id": "#step-data_acquisition"
         },
         {
-          "@id": "#step-single_cell_vdj_survey_method_landscape"
+          "@id": "#step-validate_data_acquisition"
         },
         {
-          "@id": "#step-single_cell_vdj_discover_vdj_reconstruction"
+          "@id": "#step-qc_preprocessing"
         },
         {
-          "@id": "#step-single_cell_vdj_vdj_reconstruction"
+          "@id": "#step-validate_qc_preprocessing"
         },
         {
-          "@id": "#step-single_cell_vdj_validate_vdj_reconstruction"
+          "@id": "#step-survey_method_landscape"
         },
         {
-          "@id": "#step-single_cell_vdj_discover_repertoire_diversity"
+          "@id": "#step-discover_peak_to_gene_linking"
         },
         {
-          "@id": "#step-single_cell_vdj_repertoire_diversity"
+          "@id": "#step-discover_pathway_enrichment"
         },
         {
-          "@id": "#step-single_cell_vdj_validate_repertoire_diversity"
+          "@id": "#step-discover_normalisation"
         },
         {
-          "@id": "#step-single_cell_vdj_discover_cdr3_clonotype_clustering"
+          "@id": "#step-discover_multiome_arc_demultiplex"
         },
         {
-          "@id": "#step-single_cell_vdj_cdr3_clonotype_clustering"
+          "@id": "#step-discover_joint_wnn_integration"
         },
         {
-          "@id": "#step-single_cell_vdj_validate_cdr3_clonotype_clustering"
+          "@id": "#step-discover_differential_expression"
         },
         {
-          "@id": "#step-single_cell_vdj_reporting"
+          "@id": "#step-discover_differential_accessibility"
         },
         {
-          "@id": "#step-single_cell_vdj_validate_reporting"
+          "@id": "#step-discover_clustering"
         },
         {
-          "@id": "#step-single_cell_rnaseq_validate_final_reporting"
+          "@id": "#step-discover_cell_type_annotation"
         },
         {
-          "@id": "#step-single_cell_rnaseq_data_acquisition"
+          "@id": "#step-normalisation"
         },
         {
-          "@id": "#step-single_cell_rnaseq_validate_data_acquisition"
+          "@id": "#step-validate_normalisation"
         },
         {
-          "@id": "#step-single_cell_rnaseq_raw_qc"
+          "@id": "#step-multiome_arc_demultiplex"
         },
         {
-          "@id": "#step-single_cell_rnaseq_validate_raw_qc"
+          "@id": "#step-validate_multiome_arc_demultiplex"
         },
         {
-          "@id": "#step-single_cell_rnaseq_survey_method_landscape"
+          "@id": "#step-joint_wnn_integration"
         },
         {
-          "@id": "#step-single_cell_rnaseq_discover_sequence_trimming"
+          "@id": "#step-validate_joint_wnn_integration"
         },
         {
-          "@id": "#step-single_cell_rnaseq_discover_quantification"
+          "@id": "#step-clustering"
         },
         {
-          "@id": "#step-single_cell_rnaseq_discover_pathway_enrichment"
+          "@id": "#step-validate_clustering"
         },
         {
-          "@id": "#step-single_cell_rnaseq_discover_normalisation"
+          "@id": "#step-cell_type_annotation"
         },
         {
-          "@id": "#step-single_cell_rnaseq_discover_dimensionality_reduction"
+          "@id": "#step-validate_cell_type_annotation"
         },
         {
-          "@id": "#step-single_cell_rnaseq_discover_differential_expression"
+          "@id": "#step-peak_to_gene_linking"
         },
         {
-          "@id": "#step-single_cell_rnaseq_discover_clustering"
+          "@id": "#step-validate_peak_to_gene_linking"
         },
         {
-          "@id": "#step-single_cell_rnaseq_discover_cell_type_annotation"
+          "@id": "#step-contextualize_findings_with_literature"
         },
         {
-          "@id": "#step-single_cell_rnaseq_discover_batch_correction"
+          "@id": "#step-validate_contextualize_findings_with_literature"
         },
         {
-          "@id": "#step-single_cell_rnaseq_discover_alignment"
+          "@id": "#step-differential_expression"
         },
         {
-          "@id": "#step-single_cell_rnaseq_sequence_trimming"
+          "@id": "#step-validate_differential_expression"
         },
         {
-          "@id": "#step-single_cell_rnaseq_validate_sequence_trimming"
+          "@id": "#step-pathway_enrichment"
         },
         {
-          "@id": "#step-single_cell_rnaseq_alignment"
+          "@id": "#step-validate_pathway_enrichment"
         },
         {
-          "@id": "#step-single_cell_rnaseq_validate_alignment"
+          "@id": "#step-differential_accessibility"
         },
         {
-          "@id": "#step-single_cell_rnaseq_quantification"
+          "@id": "#step-validate_differential_accessibility"
         },
         {
-          "@id": "#step-single_cell_rnaseq_validate_quantification"
+          "@id": "#step-reporting"
         },
         {
-          "@id": "#step-single_cell_rnaseq_qc_preprocessing"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_validate_qc_preprocessing"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_normalisation"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_validate_normalisation"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_batch_correction"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_validate_batch_correction"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_integration"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_validate_integration"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_dimensionality_reduction"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_validate_dimensionality_reduction"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_clustering"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_validate_clustering"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_cell_type_annotation"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_validate_cell_type_annotation"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_differential_expression"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_validate_differential_expression"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_pathway_enrichment"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_validate_pathway_enrichment"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_reporting"
-        },
-        {
-          "@id": "#step-single_cell_rnaseq_validate_reporting"
-        },
-        {
-          "@id": "#step-atac_seq_validate_final_reporting"
-        },
-        {
-          "@id": "#step-atac_seq_data_acquisition"
-        },
-        {
-          "@id": "#step-atac_seq_validate_data_acquisition"
-        },
-        {
-          "@id": "#step-atac_seq_raw_qc"
-        },
-        {
-          "@id": "#step-atac_seq_validate_raw_qc"
-        },
-        {
-          "@id": "#step-atac_seq_survey_method_landscape"
-        },
-        {
-          "@id": "#step-atac_seq_discover_sequence_trimming"
-        },
-        {
-          "@id": "#step-atac_seq_discover_peak_calling"
-        },
-        {
-          "@id": "#step-atac_seq_discover_peak_annotation"
-        },
-        {
-          "@id": "#step-atac_seq_discover_motif_enrichment"
-        },
-        {
-          "@id": "#step-atac_seq_discover_differential_accessibility"
-        },
-        {
-          "@id": "#step-atac_seq_discover_alignment"
-        },
-        {
-          "@id": "#step-atac_seq_sequence_trimming"
-        },
-        {
-          "@id": "#step-atac_seq_validate_sequence_trimming"
-        },
-        {
-          "@id": "#step-atac_seq_alignment"
-        },
-        {
-          "@id": "#step-atac_seq_validate_alignment"
-        },
-        {
-          "@id": "#step-atac_seq_peak_calling"
-        },
-        {
-          "@id": "#step-atac_seq_validate_peak_calling"
-        },
-        {
-          "@id": "#step-atac_seq_peak_annotation"
-        },
-        {
-          "@id": "#step-atac_seq_validate_peak_annotation"
-        },
-        {
-          "@id": "#step-atac_seq_motif_enrichment"
-        },
-        {
-          "@id": "#step-atac_seq_validate_motif_enrichment"
-        },
-        {
-          "@id": "#step-atac_seq_differential_accessibility"
-        },
-        {
-          "@id": "#step-atac_seq_validate_differential_accessibility"
-        },
-        {
-          "@id": "#step-atac_seq_reporting"
-        },
-        {
-          "@id": "#step-atac_seq_validate_reporting"
-        },
-        {
-          "@id": "#step-multi_modal_thematic_comparison"
+          "@id": "#step-validate_reporting"
         },
         {
           "@id": "#step-final_reporting"
+        },
+        {
+          "@id": "#step-validate_final_reporting"
         }
       ]
     },
@@ -650,6 +434,13 @@
       "name": "Audit-proof invariant report"
     },
     {
+      "@id": "runtime/ed-cf-self-assessment.json",
+      "@type": "CreativeWork",
+      "description": "Deterministic self-location of the system in the Extensibility-Dimension / Counterfactual-Floor design space. Informational — locates, does not validate.",
+      "encodingFormat": "application/json",
+      "name": "ED/CF rubric self-assessment"
+    },
+    {
       "@id": "runtime/validation-summary.json",
       "@type": "CreativeWork",
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
@@ -663,819 +454,413 @@
       "name": "Homo sapiens"
     },
     {
-      "@id": "#step-single_cell_vdj_validate_final_reporting",
+      "@id": "#step-review_prior_work",
       "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "additionalType": "computation",
+      "name": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
       "position": 1
     },
     {
-      "@id": "#step-single_cell_vdj_data_acquisition",
+      "@id": "#step-validate_review_prior_work",
       "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
       "position": 2
     },
     {
-      "@id": "#step-single_cell_vdj_validate_data_acquisition",
+      "@id": "#step-data_acquisition",
       "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "additionalType": "computation",
+      "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
       "position": 3
     },
     {
-      "@id": "#step-single_cell_vdj_survey_method_landscape",
+      "@id": "#step-validate_data_acquisition",
       "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
       "position": 4
     },
     {
-      "@id": "#step-single_cell_vdj_discover_vdj_reconstruction",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for vdj_reconstruction (options: cellranger_vdj, bd_rhapsody_vdj, mixcr_singlecell, immcantation_changeo). Surface set_intake_method.",
-      "position": 5
-    },
-    {
-      "@id": "#step-single_cell_vdj_vdj_reconstruction",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Reconstruct productive T-cell-receptor (TRA/TRB) or B-cell-receptor\n(IGH/IGK/IGL) contig pairs per cell from single-cell V(D)J library\nreads. Cell Ranger V(D)J / BD Rhapsody V(D)J / MiXCR-single-cell /\nImmcantation at runtime. Output is a per-cell receptor-chain\nassignment table (productive only by default).\n",
-      "position": 6
-    },
-    {
-      "@id": "#step-single_cell_vdj_validate_vdj_reconstruction",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Reconstruct productive T-cell-receptor (TRA/TRB) or B-cell-receptor\n(IGH/IGK/IGL) contig pairs per cell from single-cell V(D)J library\nreads. Cell Ranger V(D)J / BD Rhapsody V(D)J / MiXCR-single-cell /\nImmcantation at runtime. Output is a per-cell receptor-chain\nassignment table (productive only by default).\n",
-      "position": 7
-    },
-    {
-      "@id": "#step-single_cell_vdj_discover_repertoire_diversity",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for repertoire_diversity (options: alakazam, tcrdist3, immunarch). Surface set_intake_method.",
-      "position": 8
-    },
-    {
-      "@id": "#step-single_cell_vdj_repertoire_diversity",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Compute repertoire-diversity summary statistics per donor:\nShannon entropy, clonal-frequency rank distribution, V/J\ngene-segment usage, CDR3 length distribution. For B cells:\nper-donor somatic-hypermutation rate via IMGT comparison.\n",
-      "position": 9
-    },
-    {
-      "@id": "#step-single_cell_vdj_validate_repertoire_diversity",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Compute repertoire-diversity summary statistics per donor:\nShannon entropy, clonal-frequency rank distribution, V/J\ngene-segment usage, CDR3 length distribution. For B cells:\nper-donor somatic-hypermutation rate via IMGT comparison.\n",
-      "position": 10
-    },
-    {
-      "@id": "#step-single_cell_vdj_discover_cdr3_clonotype_clustering",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for cdr3_clonotype_clustering (options: tcrdist3, gliph2, scoper, immcantation). Surface set_intake_method.",
-      "position": 11
-    },
-    {
-      "@id": "#step-single_cell_vdj_cdr3_clonotype_clustering",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Cluster CDR3 amino-acid sequences across donors to detect public\nclonotypes (shared TCR/BCR sequences across individuals,\npotentially antigen-responsive). TCRdist3 / GLIPH2 for T cells;\nSCOPer / Immcantation for B-cell SHM-aware clustering.\n",
-      "position": 12
-    },
-    {
-      "@id": "#step-single_cell_vdj_validate_cdr3_clonotype_clustering",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Cluster CDR3 amino-acid sequences across donors to detect public\nclonotypes (shared TCR/BCR sequences across individuals,\npotentially antigen-responsive). TCRdist3 / GLIPH2 for T cells;\nSCOPer / Immcantation for B-cell SHM-aware clustering.\n",
-      "position": 13
-    },
-    {
-      "@id": "#step-single_cell_vdj_reporting",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 14
-    },
-    {
-      "@id": "#step-single_cell_vdj_validate_reporting",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 15
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_final_reporting",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 16
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_data_acquisition",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 17
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_data_acquisition",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 18
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_raw_qc",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 19
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_raw_qc",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 20
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_survey_method_landscape",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
-      "position": 21
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_discover_sequence_trimming",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
-      "position": 22
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_discover_quantification",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for quantification (options: salmon, kallisto, featurecounts, htseq, rsem). Surface set_intake_method.",
-      "position": 23
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_discover_pathway_enrichment",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
-      "position": 24
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_discover_normalisation",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
-      "position": 25
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_discover_dimensionality_reduction",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for dimensionality_reduction (options: pca, umap, tsne, phate). Surface set_intake_method.",
-      "position": 26
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_discover_differential_expression",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
-      "position": 27
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_discover_clustering",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for clustering (options: leiden, louvain, kmeans, hierarchical, seurat). Surface set_intake_method.",
-      "position": 28
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_discover_cell_type_annotation",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for cell_type_annotation (options: celltypist, singler, azimuth, sctype, marker_panel). Surface set_intake_method.",
-      "position": 29
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_discover_batch_correction",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for batch_correction (options: harmony, scvi, bbknn, mnn_correct, combat, seurat_cca). Surface set_intake_method.",
-      "position": 30
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_discover_alignment",
-      "@type": "HowToStep",
-      "additionalType": "discovery",
-      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
-      "position": 31
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_sequence_trimming",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 32
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_sequence_trimming",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 33
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_alignment",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 34
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_alignment",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 35
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_quantification",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
-      "position": 36
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_quantification",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
-      "position": 37
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_qc_preprocessing",
+      "@id": "#step-qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
-      "position": 38
+      "position": 5
     },
     {
-      "@id": "#step-single_cell_rnaseq_validate_qc_preprocessing",
+      "@id": "#step-validate_qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
-      "position": 39
+      "position": 6
     },
     {
-      "@id": "#step-single_cell_rnaseq_normalisation",
+      "@id": "#step-survey_method_landscape",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 40
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "position": 7
     },
     {
-      "@id": "#step-single_cell_rnaseq_validate_normalisation",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 41
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_batch_correction",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
-      "position": 42
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_batch_correction",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
-      "position": 43
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_integration",
-      "@type": "HowToStep",
-      "additionalType": "gate",
-      "name": "Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
-      "position": 44
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_integration",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
-      "position": 45
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_dimensionality_reduction",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
-      "position": 46
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_dimensionality_reduction",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
-      "position": 47
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_clustering",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
-      "position": 48
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_clustering",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
-      "position": 49
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_cell_type_annotation",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
-      "position": 50
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_cell_type_annotation",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
-      "position": 51
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_differential_expression",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
-      "position": 52
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_differential_expression",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
-      "position": 53
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_pathway_enrichment",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
-      "position": 54
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_pathway_enrichment",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
-      "position": 55
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_reporting",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 56
-    },
-    {
-      "@id": "#step-single_cell_rnaseq_validate_reporting",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 57
-    },
-    {
-      "@id": "#step-atac_seq_validate_final_reporting",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 58
-    },
-    {
-      "@id": "#step-atac_seq_data_acquisition",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 59
-    },
-    {
-      "@id": "#step-atac_seq_validate_data_acquisition",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 60
-    },
-    {
-      "@id": "#step-atac_seq_raw_qc",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 61
-    },
-    {
-      "@id": "#step-atac_seq_validate_raw_qc",
-      "@type": "HowToStep",
-      "additionalType": "validation",
-      "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 62
-    },
-    {
-      "@id": "#step-atac_seq_survey_method_landscape",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
-      "position": 63
-    },
-    {
-      "@id": "#step-atac_seq_discover_sequence_trimming",
+      "@id": "#step-discover_peak_to_gene_linking",
       "@type": "HowToStep",
       "additionalType": "discovery",
-      "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
-      "position": 64
+      "name": "Discover method for peak_to_gene_linking (options: signac_linkpeaks, archr_peak2gene, cicero). Surface set_intake_method.",
+      "position": 8
     },
     {
-      "@id": "#step-atac_seq_discover_peak_calling",
+      "@id": "#step-discover_pathway_enrichment",
       "@type": "HowToStep",
       "additionalType": "discovery",
-      "name": "Discover method for peak_calling (options: macs2, macs3, seacr, genrich). Surface set_intake_method.",
-      "position": 65
+      "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
+      "position": 9
     },
     {
-      "@id": "#step-atac_seq_discover_peak_annotation",
+      "@id": "#step-discover_normalisation",
       "@type": "HowToStep",
       "additionalType": "discovery",
-      "name": "Discover method for peak_annotation (options: chipseeker, homer_annotatepeaks, great). Surface set_intake_method.",
-      "position": 66
+      "name": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
+      "position": 10
     },
     {
-      "@id": "#step-atac_seq_discover_motif_enrichment",
+      "@id": "#step-discover_multiome_arc_demultiplex",
       "@type": "HowToStep",
       "additionalType": "discovery",
-      "name": "Discover method for motif_enrichment (options: homer_findmotifsgenome, meme_chip, monalisa). Surface set_intake_method.",
-      "position": 67
+      "name": "Discover method for multiome_arc_demultiplex (options: cellranger_arc). Surface set_intake_method.",
+      "position": 11
     },
     {
-      "@id": "#step-atac_seq_discover_differential_accessibility",
+      "@id": "#step-discover_joint_wnn_integration",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for joint_wnn_integration (options: seurat_wnn, muon, mofa_plus). Surface set_intake_method.",
+      "position": 12
+    },
+    {
+      "@id": "#step-discover_differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
+      "position": 13
+    },
+    {
+      "@id": "#step-discover_differential_accessibility",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for differential_accessibility (options: diffbind, deseq2, edger, csaw). Surface set_intake_method.",
-      "position": 68
+      "position": 14
     },
     {
-      "@id": "#step-atac_seq_discover_alignment",
+      "@id": "#step-discover_clustering",
       "@type": "HowToStep",
       "additionalType": "discovery",
-      "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
-      "position": 69
+      "name": "Discover method for clustering (options: leiden, louvain, kmeans, hierarchical, seurat). Surface set_intake_method.",
+      "position": 15
     },
     {
-      "@id": "#step-atac_seq_sequence_trimming",
+      "@id": "#step-discover_cell_type_annotation",
+      "@type": "HowToStep",
+      "additionalType": "discovery",
+      "name": "Discover method for cell_type_annotation (options: celltypist, singler, azimuth, sctype, marker_panel). Surface set_intake_method.",
+      "position": 16
+    },
+    {
+      "@id": "#step-normalisation",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 70
+      "name": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "position": 17
     },
     {
-      "@id": "#step-atac_seq_validate_sequence_trimming",
+      "@id": "#step-validate_normalisation",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 71
+      "name": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
+      "position": 18
     },
     {
-      "@id": "#step-atac_seq_alignment",
+      "@id": "#step-multiome_arc_demultiplex",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 72
+      "name": "Demultiplex 10x Multiome ARC libraries — joint RNA + ATAC capture\non the same nuclei via the 10x ARC v1 chemistry. Produces per-\nnucleus paired (rna_counts, atac_fragments) keyed on a shared\ncell barcode. Cell Ranger ARC at runtime.\n",
+      "position": 19
     },
     {
-      "@id": "#step-atac_seq_validate_alignment",
+      "@id": "#step-validate_multiome_arc_demultiplex",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 73
+      "name": "Validate outputs of: Demultiplex 10x Multiome ARC libraries — joint RNA + ATAC capture\non the same nuclei via the 10x ARC v1 chemistry. Produces per-\nnucleus paired (rna_counts, atac_fragments) keyed on a shared\ncell barcode. Cell Ranger ARC at runtime.\n",
+      "position": 20
     },
     {
-      "@id": "#step-atac_seq_peak_calling",
+      "@id": "#step-joint_wnn_integration",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
-      "position": 74
+      "name": "Joint dimensionality reduction over paired single-cell RNA +\nATAC matrices via weighted nearest neighbors (WNN). Produces a\njoint UMAP embedding + joint Leiden clusters that respect both\nmodalities. Seurat v5 WNN at runtime; Signac for the ATAC\nembedding upstream.\n",
+      "position": 21
     },
     {
-      "@id": "#step-atac_seq_validate_peak_calling",
+      "@id": "#step-validate_joint_wnn_integration",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
-      "position": 75
+      "name": "Validate outputs of: Joint dimensionality reduction over paired single-cell RNA +\nATAC matrices via weighted nearest neighbors (WNN). Produces a\njoint UMAP embedding + joint Leiden clusters that respect both\nmodalities. Seurat v5 WNN at runtime; Signac for the ATAC\nembedding upstream.\n",
+      "position": 22
     },
     {
-      "@id": "#step-atac_seq_peak_annotation",
+      "@id": "#step-clustering",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
-      "position": 76
+      "name": "Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
+      "position": 23
     },
     {
-      "@id": "#step-atac_seq_validate_peak_annotation",
+      "@id": "#step-validate_clustering",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
-      "position": 77
+      "name": "Validate outputs of: Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
+      "position": 24
     },
     {
-      "@id": "#step-atac_seq_motif_enrichment",
+      "@id": "#step-cell_type_annotation",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
-      "position": 78
+      "name": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "position": 25
     },
     {
-      "@id": "#step-atac_seq_validate_motif_enrichment",
+      "@id": "#step-validate_cell_type_annotation",
       "@type": "HowToStep",
       "additionalType": "validation",
-      "name": "Validate outputs of: Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
-      "position": 79
+      "name": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
+      "position": 26
     },
     {
-      "@id": "#step-atac_seq_differential_accessibility",
+      "@id": "#step-peak_to_gene_linking",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Link ATAC-derived peaks to RNA-derived gene expression within\nshared nuclei to identify regulatory peak-to-gene relationships.\nSignac LinkPeaks / ArchR addPeak2GeneLinks / cicero at runtime.\nStandard inputs: per-cluster differential peaks + DE genes;\noutputs candidate cis-regulatory edges with statistical support.\n",
+      "position": 27
+    },
+    {
+      "@id": "#step-validate_peak_to_gene_linking",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Link ATAC-derived peaks to RNA-derived gene expression within\nshared nuclei to identify regulatory peak-to-gene relationships.\nSignac LinkPeaks / ArchR addPeak2GeneLinks / cicero at runtime.\nStandard inputs: per-cluster differential peaks + DE genes;\noutputs candidate cis-regulatory edges with statistical support.\n",
+      "position": 28
+    },
+    {
+      "@id": "#step-contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 29
+    },
+    {
+      "@id": "#step-validate_contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 30
+    },
+    {
+      "@id": "#step-differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "position": 31
+    },
+    {
+      "@id": "#step-validate_differential_expression",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
+      "position": 32
+    },
+    {
+      "@id": "#step-pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 33
+    },
+    {
+      "@id": "#step-validate_pathway_enrichment",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
+      "position": 34
+    },
+    {
+      "@id": "#step-differential_accessibility",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
-      "position": 80
+      "position": 35
     },
     {
-      "@id": "#step-atac_seq_validate_differential_accessibility",
+      "@id": "#step-validate_differential_accessibility",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
-      "position": 81
+      "position": 36
     },
     {
-      "@id": "#step-atac_seq_reporting",
+      "@id": "#step-reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 82
+      "position": 37
     },
     {
-      "@id": "#step-atac_seq_validate_reporting",
+      "@id": "#step-validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 83
-    },
-    {
-      "@id": "#step-multi_modal_thematic_comparison",
-      "@type": "HowToStep",
-      "additionalType": "computation",
-      "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 84
+      "position": 38
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 85
+      "position": 39
     },
     {
-      "@id": "runtime/outputs/atac_seq_data_acquisition/figures/samples_per_study.png",
+      "@id": "#step-validate_final_reporting",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "position": 40
+    },
+    {
+      "@id": "runtime/outputs/cell_type_annotation/figures/umap_by_celltype.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'samples_per_study' produced by stage 'atac_seq_data_acquisition' via runtime/plotting/stages/atac_seq_data_acquisition.py.",
+      "description": "Diagnostic figure 'umap_by_celltype' produced by stage 'cell_type_annotation' via runtime/plotting/stages/cell_type_annotation.py.",
       "encodingFormat": "image/png",
-      "name": "atac_seq_data_acquisition — samples_per_study",
+      "name": "cell_type_annotation — umap_by_celltype",
       "schema:about": {
-        "@id": "#step-atac_seq_data_acquisition"
+        "@id": "#step-cell_type_annotation"
       }
     },
     {
-      "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/volcano.png",
+      "@id": "runtime/outputs/cell_type_annotation/figures/celltype_size_bar.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'volcano' produced by stage 'atac_seq_differential_accessibility' via runtime/plotting/stages/atac_seq_differential_accessibility.py.",
+      "description": "Diagnostic figure 'celltype_size_bar' produced by stage 'cell_type_annotation' via runtime/plotting/stages/cell_type_annotation.py.",
       "encodingFormat": "image/png",
-      "name": "atac_seq_differential_accessibility — volcano",
+      "name": "cell_type_annotation — celltype_size_bar",
       "schema:about": {
-        "@id": "#step-atac_seq_differential_accessibility"
+        "@id": "#step-cell_type_annotation"
       }
     },
     {
-      "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/ma_plot.png",
+      "@id": "runtime/outputs/clustering/figures/umap_clusters.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'ma_plot' produced by stage 'atac_seq_differential_accessibility' via runtime/plotting/stages/atac_seq_differential_accessibility.py.",
+      "description": "Diagnostic figure 'umap_clusters' produced by stage 'clustering' via runtime/plotting/stages/clustering.py.",
       "encodingFormat": "image/png",
-      "name": "atac_seq_differential_accessibility — ma_plot",
+      "name": "clustering — umap_clusters",
       "schema:about": {
-        "@id": "#step-atac_seq_differential_accessibility"
+        "@id": "#step-clustering"
       }
     },
     {
-      "@id": "runtime/outputs/atac_seq_differential_accessibility/figures/diff_heatmap.png",
+      "@id": "runtime/outputs/clustering/figures/cluster_size_bar.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'diff_heatmap' produced by stage 'atac_seq_differential_accessibility' via runtime/plotting/stages/atac_seq_differential_accessibility.py.",
+      "description": "Diagnostic figure 'cluster_size_bar' produced by stage 'clustering' via runtime/plotting/stages/clustering.py.",
       "encodingFormat": "image/png",
-      "name": "atac_seq_differential_accessibility — diff_heatmap",
+      "name": "clustering — cluster_size_bar",
       "schema:about": {
-        "@id": "#step-atac_seq_differential_accessibility"
+        "@id": "#step-clustering"
       }
     },
     {
-      "@id": "runtime/outputs/atac_seq_motif_enrichment/figures/motif_enrichment_table.png",
+      "@id": "runtime/outputs/data_acquisition/figures/samples_per_study.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'motif_enrichment_table' produced by stage 'atac_seq_motif_enrichment' via runtime/plotting/stages/atac_seq_motif_enrichment.py.",
+      "description": "Diagnostic figure 'samples_per_study' produced by stage 'data_acquisition' via runtime/plotting/stages/data_acquisition.py.",
       "encodingFormat": "image/png",
-      "name": "atac_seq_motif_enrichment — motif_enrichment_table",
+      "name": "data_acquisition — samples_per_study",
       "schema:about": {
-        "@id": "#step-atac_seq_motif_enrichment"
+        "@id": "#step-data_acquisition"
       }
     },
     {
-      "@id": "runtime/outputs/atac_seq_motif_enrichment/figures/motif_logo_grid.png",
+      "@id": "runtime/outputs/differential_accessibility/figures/volcano.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'motif_logo_grid' produced by stage 'atac_seq_motif_enrichment' via runtime/plotting/stages/atac_seq_motif_enrichment.py.",
+      "description": "Diagnostic figure 'volcano' produced by stage 'differential_accessibility' via runtime/plotting/stages/differential_accessibility.py.",
       "encodingFormat": "image/png",
-      "name": "atac_seq_motif_enrichment — motif_logo_grid",
+      "name": "differential_accessibility — volcano",
       "schema:about": {
-        "@id": "#step-atac_seq_motif_enrichment"
+        "@id": "#step-differential_accessibility"
       }
     },
     {
-      "@id": "runtime/outputs/atac_seq_peak_annotation/figures/peak_feature_distribution.png",
+      "@id": "runtime/outputs/differential_accessibility/figures/ma_plot.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'peak_feature_distribution' produced by stage 'atac_seq_peak_annotation' via runtime/plotting/stages/atac_seq_peak_annotation.py.",
+      "description": "Diagnostic figure 'ma_plot' produced by stage 'differential_accessibility' via runtime/plotting/stages/differential_accessibility.py.",
       "encodingFormat": "image/png",
-      "name": "atac_seq_peak_annotation — peak_feature_distribution",
+      "name": "differential_accessibility — ma_plot",
       "schema:about": {
-        "@id": "#step-atac_seq_peak_annotation"
+        "@id": "#step-differential_accessibility"
       }
     },
     {
-      "@id": "runtime/outputs/atac_seq_peak_annotation/figures/tss_distance_distribution.png",
+      "@id": "runtime/outputs/differential_accessibility/figures/diff_heatmap.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'tss_distance_distribution' produced by stage 'atac_seq_peak_annotation' via runtime/plotting/stages/atac_seq_peak_annotation.py.",
+      "description": "Diagnostic figure 'diff_heatmap' produced by stage 'differential_accessibility' via runtime/plotting/stages/differential_accessibility.py.",
       "encodingFormat": "image/png",
-      "name": "atac_seq_peak_annotation — tss_distance_distribution",
+      "name": "differential_accessibility — diff_heatmap",
       "schema:about": {
-        "@id": "#step-atac_seq_peak_annotation"
+        "@id": "#step-differential_accessibility"
       }
     },
     {
-      "@id": "runtime/outputs/atac_seq_peak_calling/figures/profile_pileup.png",
+      "@id": "runtime/outputs/differential_expression/figures/volcano.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'profile_pileup' produced by stage 'atac_seq_peak_calling' via runtime/plotting/stages/atac_seq_peak_calling.py.",
+      "description": "Diagnostic figure 'volcano' produced by stage 'differential_expression' via runtime/plotting/stages/differential_expression.py.",
       "encodingFormat": "image/png",
-      "name": "atac_seq_peak_calling — profile_pileup",
+      "name": "differential_expression — volcano",
       "schema:about": {
-        "@id": "#step-atac_seq_peak_calling"
+        "@id": "#step-differential_expression"
       }
     },
     {
-      "@id": "runtime/outputs/atac_seq_peak_calling/figures/coverage_track.png",
+      "@id": "runtime/outputs/differential_expression/figures/top_features_heatmap.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'coverage_track' produced by stage 'atac_seq_peak_calling' via runtime/plotting/stages/atac_seq_peak_calling.py.",
+      "description": "Diagnostic figure 'top_features_heatmap' produced by stage 'differential_expression' via runtime/plotting/stages/differential_expression.py.",
       "encodingFormat": "image/png",
-      "name": "atac_seq_peak_calling — coverage_track",
+      "name": "differential_expression — top_features_heatmap",
       "schema:about": {
-        "@id": "#step-atac_seq_peak_calling"
-      }
-    },
-    {
-      "@id": "runtime/outputs/atac_seq_peak_calling/figures/peak_saturation.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'peak_saturation' produced by stage 'atac_seq_peak_calling' via runtime/plotting/stages/atac_seq_peak_calling.py.",
-      "encodingFormat": "image/png",
-      "name": "atac_seq_peak_calling — peak_saturation",
-      "schema:about": {
-        "@id": "#step-atac_seq_peak_calling"
-      }
-    },
-    {
-      "@id": "runtime/outputs/atac_seq_raw_qc/figures/per_sample_metric_violin.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'atac_seq_raw_qc' via runtime/plotting/stages/atac_seq_raw_qc.py.",
-      "encodingFormat": "image/png",
-      "name": "atac_seq_raw_qc — per_sample_metric_violin",
-      "schema:about": {
-        "@id": "#step-atac_seq_raw_qc"
-      }
-    },
-    {
-      "@id": "runtime/outputs/atac_seq_raw_qc/figures/per_sample_metric_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'atac_seq_raw_qc' via runtime/plotting/stages/atac_seq_raw_qc.py.",
-      "encodingFormat": "image/png",
-      "name": "atac_seq_raw_qc — per_sample_metric_bar",
-      "schema:about": {
-        "@id": "#step-atac_seq_raw_qc"
-      }
-    },
-    {
-      "@id": "runtime/outputs/atac_seq_raw_qc/figures/qc_summary_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'atac_seq_raw_qc' via runtime/plotting/stages/atac_seq_raw_qc.py.",
-      "encodingFormat": "image/png",
-      "name": "atac_seq_raw_qc — qc_summary_bar",
-      "schema:about": {
-        "@id": "#step-atac_seq_raw_qc"
-      }
-    },
-    {
-      "@id": "runtime/outputs/atac_seq_reporting/figures/concordance_heatmap.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'atac_seq_reporting' via runtime/plotting/stages/atac_seq_reporting.py.",
-      "encodingFormat": "image/png",
-      "name": "atac_seq_reporting — concordance_heatmap",
-      "schema:about": {
-        "@id": "#step-atac_seq_reporting"
-      }
-    },
-    {
-      "@id": "runtime/outputs/atac_seq_reporting/figures/pathway_overlap_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'atac_seq_reporting' via runtime/plotting/stages/atac_seq_reporting.py.",
-      "encodingFormat": "image/png",
-      "name": "atac_seq_reporting — pathway_overlap_bar",
-      "schema:about": {
-        "@id": "#step-atac_seq_reporting"
-      }
-    },
-    {
-      "@id": "runtime/outputs/atac_seq_sequence_trimming/figures/retention_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'retention_bar' produced by stage 'atac_seq_sequence_trimming' via runtime/plotting/stages/atac_seq_sequence_trimming.py.",
-      "encodingFormat": "image/png",
-      "name": "atac_seq_sequence_trimming — retention_bar",
-      "schema:about": {
-        "@id": "#step-atac_seq_sequence_trimming"
+        "@id": "#step-differential_expression"
       }
     },
     {
@@ -1492,445 +877,172 @@
       }
     },
     {
-      "@id": "runtime/outputs/multi_modal_thematic_comparison/figures/concordance_heatmap.png",
+      "@id": "runtime/outputs/joint_wnn_integration/figures/wnn_umap.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'multi_modal_thematic_comparison' via runtime/plotting/stages/multi_modal_thematic_comparison.py.",
+      "description": "Diagnostic figure 'wnn_umap' produced by stage 'joint_wnn_integration' via runtime/plotting/stages/joint_wnn_integration.py.",
       "encodingFormat": "image/png",
-      "name": "multi_modal_thematic_comparison — concordance_heatmap",
+      "name": "joint_wnn_integration — wnn_umap",
       "schema:about": {
-        "@id": "#step-multi_modal_thematic_comparison"
+        "@id": "#step-joint_wnn_integration"
       }
     },
     {
-      "@id": "runtime/outputs/multi_modal_thematic_comparison/figures/pathway_overlap_bar.png",
+      "@id": "runtime/outputs/joint_wnn_integration/figures/cluster_composition_bar.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'multi_modal_thematic_comparison' via runtime/plotting/stages/multi_modal_thematic_comparison.py.",
+      "description": "Diagnostic figure 'cluster_composition_bar' produced by stage 'joint_wnn_integration' via runtime/plotting/stages/joint_wnn_integration.py.",
       "encodingFormat": "image/png",
-      "name": "multi_modal_thematic_comparison — pathway_overlap_bar",
+      "name": "joint_wnn_integration — cluster_composition_bar",
       "schema:about": {
-        "@id": "#step-multi_modal_thematic_comparison"
+        "@id": "#step-joint_wnn_integration"
       }
     },
     {
-      "@id": "runtime/outputs/single_cell_rnaseq_batch_correction/figures/mixing_score_bar.png",
+      "@id": "runtime/outputs/multiome_arc_demultiplex/figures/paired_capture_summary.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'mixing_score_bar' produced by stage 'single_cell_rnaseq_batch_correction' via runtime/plotting/stages/single_cell_rnaseq_batch_correction.py.",
+      "description": "Diagnostic figure 'paired_capture_summary' produced by stage 'multiome_arc_demultiplex' via runtime/plotting/stages/multiome_arc_demultiplex.py.",
       "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_batch_correction — mixing_score_bar",
+      "name": "multiome_arc_demultiplex — paired_capture_summary",
       "schema:about": {
-        "@id": "#step-single_cell_rnaseq_batch_correction"
+        "@id": "#step-multiome_arc_demultiplex"
       }
     },
     {
-      "@id": "runtime/outputs/single_cell_rnaseq_batch_correction/figures/umap_pre_post.png",
+      "@id": "runtime/outputs/normalisation/figures/mean_variance.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'umap_pre_post' produced by stage 'single_cell_rnaseq_batch_correction' via runtime/plotting/stages/single_cell_rnaseq_batch_correction.py.",
+      "description": "Diagnostic figure 'mean_variance' produced by stage 'normalisation' via runtime/plotting/stages/normalisation.py.",
       "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_batch_correction — umap_pre_post",
+      "name": "normalisation — mean_variance",
       "schema:about": {
-        "@id": "#step-single_cell_rnaseq_batch_correction"
+        "@id": "#step-normalisation"
       }
     },
     {
-      "@id": "runtime/outputs/single_cell_rnaseq_cell_type_annotation/figures/umap_by_celltype.png",
+      "@id": "runtime/outputs/normalisation/figures/hvg_count_bar.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'umap_by_celltype' produced by stage 'single_cell_rnaseq_cell_type_annotation' via runtime/plotting/stages/single_cell_rnaseq_cell_type_annotation.py.",
+      "description": "Diagnostic figure 'hvg_count_bar' produced by stage 'normalisation' via runtime/plotting/stages/normalisation.py.",
       "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_cell_type_annotation — umap_by_celltype",
+      "name": "normalisation — hvg_count_bar",
       "schema:about": {
-        "@id": "#step-single_cell_rnaseq_cell_type_annotation"
+        "@id": "#step-normalisation"
       }
     },
     {
-      "@id": "runtime/outputs/single_cell_rnaseq_cell_type_annotation/figures/celltype_size_bar.png",
+      "@id": "runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'celltype_size_bar' produced by stage 'single_cell_rnaseq_cell_type_annotation' via runtime/plotting/stages/single_cell_rnaseq_cell_type_annotation.py.",
+      "description": "Diagnostic figure 'top_enriched_terms' produced by stage 'pathway_enrichment' via runtime/plotting/stages/pathway_enrichment.py.",
       "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_cell_type_annotation — celltype_size_bar",
+      "name": "pathway_enrichment — top_enriched_terms",
       "schema:about": {
-        "@id": "#step-single_cell_rnaseq_cell_type_annotation"
+        "@id": "#step-pathway_enrichment"
       }
     },
     {
-      "@id": "runtime/outputs/single_cell_rnaseq_clustering/figures/umap_clusters.png",
+      "@id": "runtime/outputs/peak_to_gene_linking/figures/peak_to_gene_arc.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'umap_clusters' produced by stage 'single_cell_rnaseq_clustering' via runtime/plotting/stages/single_cell_rnaseq_clustering.py.",
+      "description": "Diagnostic figure 'peak_to_gene_arc' produced by stage 'peak_to_gene_linking' via runtime/plotting/stages/peak_to_gene_linking.py.",
       "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_clustering — umap_clusters",
+      "name": "peak_to_gene_linking — peak_to_gene_arc",
       "schema:about": {
-        "@id": "#step-single_cell_rnaseq_clustering"
+        "@id": "#step-peak_to_gene_linking"
       }
     },
     {
-      "@id": "runtime/outputs/single_cell_rnaseq_clustering/figures/cluster_size_bar.png",
+      "@id": "runtime/outputs/peak_to_gene_linking/figures/links_per_cluster_bar.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'cluster_size_bar' produced by stage 'single_cell_rnaseq_clustering' via runtime/plotting/stages/single_cell_rnaseq_clustering.py.",
+      "description": "Diagnostic figure 'links_per_cluster_bar' produced by stage 'peak_to_gene_linking' via runtime/plotting/stages/peak_to_gene_linking.py.",
       "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_clustering — cluster_size_bar",
+      "name": "peak_to_gene_linking — links_per_cluster_bar",
       "schema:about": {
-        "@id": "#step-single_cell_rnaseq_clustering"
+        "@id": "#step-peak_to_gene_linking"
       }
     },
     {
-      "@id": "runtime/outputs/single_cell_rnaseq_data_acquisition/figures/samples_per_study.png",
+      "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'samples_per_study' produced by stage 'single_cell_rnaseq_data_acquisition' via runtime/plotting/stages/single_cell_rnaseq_data_acquisition.py.",
+      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'qc_preprocessing' via runtime/plotting/stages/qc_preprocessing.py.",
       "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_data_acquisition — samples_per_study",
+      "name": "qc_preprocessing — per_sample_metric_violin",
       "schema:about": {
-        "@id": "#step-single_cell_rnaseq_data_acquisition"
+        "@id": "#step-qc_preprocessing"
       }
     },
     {
-      "@id": "runtime/outputs/single_cell_rnaseq_differential_expression/figures/volcano.png",
+      "@id": "runtime/outputs/qc_preprocessing/figures/per_sample_metric_bar.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'volcano' produced by stage 'single_cell_rnaseq_differential_expression' via runtime/plotting/stages/single_cell_rnaseq_differential_expression.py.",
+      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'qc_preprocessing' via runtime/plotting/stages/qc_preprocessing.py.",
       "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_differential_expression — volcano",
+      "name": "qc_preprocessing — per_sample_metric_bar",
       "schema:about": {
-        "@id": "#step-single_cell_rnaseq_differential_expression"
+        "@id": "#step-qc_preprocessing"
       }
     },
     {
-      "@id": "runtime/outputs/single_cell_rnaseq_differential_expression/figures/top_features_heatmap.png",
+      "@id": "runtime/outputs/qc_preprocessing/figures/qc_summary_bar.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'top_features_heatmap' produced by stage 'single_cell_rnaseq_differential_expression' via runtime/plotting/stages/single_cell_rnaseq_differential_expression.py.",
+      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'qc_preprocessing' via runtime/plotting/stages/qc_preprocessing.py.",
       "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_differential_expression — top_features_heatmap",
+      "name": "qc_preprocessing — qc_summary_bar",
       "schema:about": {
-        "@id": "#step-single_cell_rnaseq_differential_expression"
+        "@id": "#step-qc_preprocessing"
       }
     },
     {
-      "@id": "runtime/outputs/single_cell_rnaseq_dimensionality_reduction/figures/variance_explained_elbow.png",
+      "@id": "runtime/outputs/reporting/figures/concordance_heatmap.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'variance_explained_elbow' produced by stage 'single_cell_rnaseq_dimensionality_reduction' via runtime/plotting/stages/single_cell_rnaseq_dimensionality_reduction.py.",
+      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
       "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_dimensionality_reduction — variance_explained_elbow",
+      "name": "reporting — concordance_heatmap",
       "schema:about": {
-        "@id": "#step-single_cell_rnaseq_dimensionality_reduction"
+        "@id": "#step-reporting"
       }
     },
     {
-      "@id": "runtime/outputs/single_cell_rnaseq_dimensionality_reduction/figures/embedding_scatter.png",
+      "@id": "runtime/outputs/reporting/figures/pathway_overlap_bar.png",
       "@type": [
         "File",
         "ImageObject"
       ],
-      "description": "Diagnostic figure 'embedding_scatter' produced by stage 'single_cell_rnaseq_dimensionality_reduction' via runtime/plotting/stages/single_cell_rnaseq_dimensionality_reduction.py.",
+      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'reporting' via runtime/plotting/stages/reporting.py.",
       "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_dimensionality_reduction — embedding_scatter",
+      "name": "reporting — pathway_overlap_bar",
       "schema:about": {
-        "@id": "#step-single_cell_rnaseq_dimensionality_reduction"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_normalisation/figures/mean_variance.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'mean_variance' produced by stage 'single_cell_rnaseq_normalisation' via runtime/plotting/stages/single_cell_rnaseq_normalisation.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_normalisation — mean_variance",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_normalisation"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_normalisation/figures/hvg_count_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'hvg_count_bar' produced by stage 'single_cell_rnaseq_normalisation' via runtime/plotting/stages/single_cell_rnaseq_normalisation.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_normalisation — hvg_count_bar",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_normalisation"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_pathway_enrichment/figures/top_enriched_terms.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'top_enriched_terms' produced by stage 'single_cell_rnaseq_pathway_enrichment' via runtime/plotting/stages/single_cell_rnaseq_pathway_enrichment.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_pathway_enrichment — top_enriched_terms",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_pathway_enrichment"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_qc_preprocessing/figures/per_sample_metric_violin.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'single_cell_rnaseq_qc_preprocessing' via runtime/plotting/stages/single_cell_rnaseq_qc_preprocessing.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_qc_preprocessing — per_sample_metric_violin",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_qc_preprocessing"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_qc_preprocessing/figures/per_sample_metric_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'single_cell_rnaseq_qc_preprocessing' via runtime/plotting/stages/single_cell_rnaseq_qc_preprocessing.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_qc_preprocessing — per_sample_metric_bar",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_qc_preprocessing"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_qc_preprocessing/figures/qc_summary_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'single_cell_rnaseq_qc_preprocessing' via runtime/plotting/stages/single_cell_rnaseq_qc_preprocessing.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_qc_preprocessing — qc_summary_bar",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_qc_preprocessing"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_raw_qc/figures/per_sample_metric_violin.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'per_sample_metric_violin' produced by stage 'single_cell_rnaseq_raw_qc' via runtime/plotting/stages/single_cell_rnaseq_raw_qc.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_raw_qc — per_sample_metric_violin",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_raw_qc"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_raw_qc/figures/per_sample_metric_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'per_sample_metric_bar' produced by stage 'single_cell_rnaseq_raw_qc' via runtime/plotting/stages/single_cell_rnaseq_raw_qc.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_raw_qc — per_sample_metric_bar",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_raw_qc"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_raw_qc/figures/qc_summary_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'qc_summary_bar' produced by stage 'single_cell_rnaseq_raw_qc' via runtime/plotting/stages/single_cell_rnaseq_raw_qc.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_raw_qc — qc_summary_bar",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_raw_qc"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_reporting/figures/concordance_heatmap.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'single_cell_rnaseq_reporting' via runtime/plotting/stages/single_cell_rnaseq_reporting.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_reporting — concordance_heatmap",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_reporting"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_reporting/figures/pathway_overlap_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'single_cell_rnaseq_reporting' via runtime/plotting/stages/single_cell_rnaseq_reporting.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_reporting — pathway_overlap_bar",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_reporting"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_rnaseq_sequence_trimming/figures/retention_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'retention_bar' produced by stage 'single_cell_rnaseq_sequence_trimming' via runtime/plotting/stages/single_cell_rnaseq_sequence_trimming.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_rnaseq_sequence_trimming — retention_bar",
-      "schema:about": {
-        "@id": "#step-single_cell_rnaseq_sequence_trimming"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_vdj_cdr3_clonotype_clustering/figures/public_clonotype_size_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'public_clonotype_size_bar' produced by stage 'single_cell_vdj_cdr3_clonotype_clustering' via runtime/plotting/stages/single_cell_vdj_cdr3_clonotype_clustering.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_vdj_cdr3_clonotype_clustering — public_clonotype_size_bar",
-      "schema:about": {
-        "@id": "#step-single_cell_vdj_cdr3_clonotype_clustering"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_vdj_cdr3_clonotype_clustering/figures/clonotype_network.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'clonotype_network' produced by stage 'single_cell_vdj_cdr3_clonotype_clustering' via runtime/plotting/stages/single_cell_vdj_cdr3_clonotype_clustering.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_vdj_cdr3_clonotype_clustering — clonotype_network",
-      "schema:about": {
-        "@id": "#step-single_cell_vdj_cdr3_clonotype_clustering"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_vdj_data_acquisition/figures/samples_per_study.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'samples_per_study' produced by stage 'single_cell_vdj_data_acquisition' via runtime/plotting/stages/single_cell_vdj_data_acquisition.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_vdj_data_acquisition — samples_per_study",
-      "schema:about": {
-        "@id": "#step-single_cell_vdj_data_acquisition"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_vdj_repertoire_diversity/figures/clonal_frequency_rank.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'clonal_frequency_rank' produced by stage 'single_cell_vdj_repertoire_diversity' via runtime/plotting/stages/single_cell_vdj_repertoire_diversity.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_vdj_repertoire_diversity — clonal_frequency_rank",
-      "schema:about": {
-        "@id": "#step-single_cell_vdj_repertoire_diversity"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_vdj_repertoire_diversity/figures/v_segment_usage_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'v_segment_usage_bar' produced by stage 'single_cell_vdj_repertoire_diversity' via runtime/plotting/stages/single_cell_vdj_repertoire_diversity.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_vdj_repertoire_diversity — v_segment_usage_bar",
-      "schema:about": {
-        "@id": "#step-single_cell_vdj_repertoire_diversity"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_vdj_reporting/figures/concordance_heatmap.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'concordance_heatmap' produced by stage 'single_cell_vdj_reporting' via runtime/plotting/stages/single_cell_vdj_reporting.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_vdj_reporting — concordance_heatmap",
-      "schema:about": {
-        "@id": "#step-single_cell_vdj_reporting"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_vdj_reporting/figures/pathway_overlap_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'pathway_overlap_bar' produced by stage 'single_cell_vdj_reporting' via runtime/plotting/stages/single_cell_vdj_reporting.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_vdj_reporting — pathway_overlap_bar",
-      "schema:about": {
-        "@id": "#step-single_cell_vdj_reporting"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_vdj_vdj_reconstruction/figures/chain_assignment_per_cell_bar.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'chain_assignment_per_cell_bar' produced by stage 'single_cell_vdj_vdj_reconstruction' via runtime/plotting/stages/single_cell_vdj_vdj_reconstruction.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_vdj_vdj_reconstruction — chain_assignment_per_cell_bar",
-      "schema:about": {
-        "@id": "#step-single_cell_vdj_vdj_reconstruction"
-      }
-    },
-    {
-      "@id": "runtime/outputs/single_cell_vdj_vdj_reconstruction/figures/cdr3_length_distribution.png",
-      "@type": [
-        "File",
-        "ImageObject"
-      ],
-      "description": "Diagnostic figure 'cdr3_length_distribution' produced by stage 'single_cell_vdj_vdj_reconstruction' via runtime/plotting/stages/single_cell_vdj_vdj_reconstruction.py.",
-      "encodingFormat": "image/png",
-      "name": "single_cell_vdj_vdj_reconstruction — cdr3_length_distribution",
-      "schema:about": {
-        "@id": "#step-single_cell_vdj_vdj_reconstruction"
+        "@id": "#step-reporting"
       }
     },
     {
@@ -1939,1378 +1051,622 @@
         "Plan",
         "p-plan:Plan"
       ],
-      "matchedArchetype": "v4:data:3917",
+      "matchedArchetype": "cross_omics_rnaseq_atac",
       "rationale": "Composed for modality `single_cell_rnaseq` (domain `computational biology`)."
     },
     {
-      "@id": "#parameter-connection/atac_seq_discover_alignment__to__atac_seq_alignment",
+      "@id": "#parameter-connection/clustering__to__cell_type_annotation",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_discover_alignment#output"
+        "@id": "#step-clustering#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_alignment#input"
+        "@id": "#step-cell_type_annotation#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_sequence_trimming__to__atac_seq_alignment",
+      "@id": "#parameter-connection/discover_cell_type_annotation__to__cell_type_annotation",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_sequence_trimming#output"
+        "@id": "#step-discover_cell_type_annotation#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_alignment#input"
+        "@id": "#step-cell_type_annotation#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_discover_differential_accessibility__to__atac_seq_differential_accessibility",
+      "@id": "#parameter-connection/discover_clustering__to__clustering",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_discover_differential_accessibility#output"
+        "@id": "#step-discover_clustering#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_differential_accessibility#input"
+        "@id": "#step-clustering#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_peak_calling__to__atac_seq_differential_accessibility",
+      "@id": "#parameter-connection/joint_wnn_integration__to__clustering",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_peak_calling#output"
+        "@id": "#step-joint_wnn_integration#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_differential_accessibility#input"
+        "@id": "#step-clustering#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_alignment",
+      "@id": "#parameter-connection/peak_to_gene_linking__to__contextualize_findings_with_literature",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_survey_method_landscape#output"
+        "@id": "#step-peak_to_gene_linking#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_discover_alignment#input"
+        "@id": "#step-contextualize_findings_with_literature#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_differential_accessibility",
+      "@id": "#parameter-connection/review_prior_work__to__contextualize_findings_with_literature",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_survey_method_landscape#output"
+        "@id": "#step-review_prior_work#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_discover_differential_accessibility#input"
+        "@id": "#step-contextualize_findings_with_literature#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_motif_enrichment",
+      "@id": "#parameter-connection/cell_type_annotation__to__differential_accessibility",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_survey_method_landscape#output"
+        "@id": "#step-cell_type_annotation#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_discover_motif_enrichment#input"
+        "@id": "#step-differential_accessibility#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_peak_annotation",
+      "@id": "#parameter-connection/discover_differential_accessibility__to__differential_accessibility",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_survey_method_landscape#output"
+        "@id": "#step-discover_differential_accessibility#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_discover_peak_annotation#input"
+        "@id": "#step-differential_accessibility#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_peak_calling",
+      "@id": "#parameter-connection/joint_wnn_integration__to__differential_accessibility",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_survey_method_landscape#output"
+        "@id": "#step-joint_wnn_integration#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_discover_peak_calling#input"
+        "@id": "#step-differential_accessibility#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_survey_method_landscape__to__atac_seq_discover_sequence_trimming",
+      "@id": "#parameter-connection/cell_type_annotation__to__differential_expression",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_survey_method_landscape#output"
+        "@id": "#step-cell_type_annotation#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_discover_sequence_trimming#input"
+        "@id": "#step-differential_expression#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_discover_motif_enrichment__to__atac_seq_motif_enrichment",
+      "@id": "#parameter-connection/discover_differential_expression__to__differential_expression",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_discover_motif_enrichment#output"
+        "@id": "#step-discover_differential_expression#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_motif_enrichment#input"
+        "@id": "#step-differential_expression#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_peak_calling__to__atac_seq_motif_enrichment",
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_cell_type_annotation",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_peak_calling#output"
+        "@id": "#step-survey_method_landscape#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_motif_enrichment#input"
+        "@id": "#step-discover_cell_type_annotation#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_discover_peak_annotation__to__atac_seq_peak_annotation",
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_clustering",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_discover_peak_annotation#output"
+        "@id": "#step-survey_method_landscape#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_peak_annotation#input"
+        "@id": "#step-discover_clustering#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_peak_calling__to__atac_seq_peak_annotation",
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_differential_accessibility",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_peak_calling#output"
+        "@id": "#step-survey_method_landscape#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_peak_annotation#input"
+        "@id": "#step-discover_differential_accessibility#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_alignment__to__atac_seq_peak_calling",
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_differential_expression",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_alignment#output"
+        "@id": "#step-survey_method_landscape#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_peak_calling#input"
+        "@id": "#step-discover_differential_expression#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_discover_peak_calling__to__atac_seq_peak_calling",
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_joint_wnn_integration",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_discover_peak_calling#output"
+        "@id": "#step-survey_method_landscape#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_peak_calling#input"
+        "@id": "#step-discover_joint_wnn_integration#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_data_acquisition__to__atac_seq_raw_qc",
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_multiome_arc_demultiplex",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_data_acquisition#output"
+        "@id": "#step-survey_method_landscape#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_raw_qc#input"
+        "@id": "#step-discover_multiome_arc_demultiplex#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_differential_accessibility__to__atac_seq_reporting",
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_normalisation",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_differential_accessibility#output"
+        "@id": "#step-survey_method_landscape#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_reporting#input"
+        "@id": "#step-discover_normalisation#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_motif_enrichment__to__atac_seq_reporting",
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_pathway_enrichment",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_motif_enrichment#output"
+        "@id": "#step-survey_method_landscape#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_reporting#input"
+        "@id": "#step-discover_pathway_enrichment#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_peak_annotation__to__atac_seq_reporting",
+      "@id": "#parameter-connection/survey_method_landscape__to__discover_peak_to_gene_linking",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_peak_annotation#output"
+        "@id": "#step-survey_method_landscape#output"
       },
       "targetParameter": {
-        "@id": "#step-atac_seq_reporting#input"
+        "@id": "#step-discover_peak_to_gene_linking#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_peak_calling__to__atac_seq_reporting",
+      "@id": "#parameter-connection/reporting__to__final_reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_peak_calling#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_reporting#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_discover_sequence_trimming__to__atac_seq_sequence_trimming",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_discover_sequence_trimming#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_sequence_trimming#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_raw_qc__to__atac_seq_sequence_trimming",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_raw_qc#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_sequence_trimming#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_data_acquisition__to__atac_seq_survey_method_landscape",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_data_acquisition#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_survey_method_landscape#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_raw_qc__to__atac_seq_survey_method_landscape",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_raw_qc#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_survey_method_landscape#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_alignment__to__atac_seq_validate_alignment",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_alignment#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_validate_alignment#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_data_acquisition__to__atac_seq_validate_data_acquisition",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_data_acquisition#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_validate_data_acquisition#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_differential_accessibility__to__atac_seq_validate_differential_accessibility",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_differential_accessibility#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_validate_differential_accessibility#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_motif_enrichment__to__atac_seq_validate_motif_enrichment",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_motif_enrichment#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_validate_motif_enrichment#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_peak_annotation__to__atac_seq_validate_peak_annotation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_peak_annotation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_validate_peak_annotation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_peak_calling__to__atac_seq_validate_peak_calling",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_peak_calling#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_validate_peak_calling#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_raw_qc__to__atac_seq_validate_raw_qc",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_raw_qc#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_validate_raw_qc#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_reporting__to__atac_seq_validate_reporting",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_reporting#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_validate_reporting#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/atac_seq_sequence_trimming__to__atac_seq_validate_sequence_trimming",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-atac_seq_sequence_trimming#output"
-      },
-      "targetParameter": {
-        "@id": "#step-atac_seq_validate_sequence_trimming#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/multi_modal_thematic_comparison__to__final_reporting",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#output"
+        "@id": "#step-reporting#output"
       },
       "targetParameter": {
         "@id": "#step-final_reporting#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_validate_alignment__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/discover_joint_wnn_integration__to__joint_wnn_integration",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_validate_alignment#output"
+        "@id": "#step-discover_joint_wnn_integration#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-joint_wnn_integration#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_validate_data_acquisition__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/multiome_arc_demultiplex__to__joint_wnn_integration",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_validate_data_acquisition#output"
+        "@id": "#step-multiome_arc_demultiplex#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-joint_wnn_integration#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_validate_differential_accessibility__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/normalisation__to__joint_wnn_integration",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_validate_differential_accessibility#output"
+        "@id": "#step-normalisation#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-joint_wnn_integration#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_validate_final_reporting__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/data_acquisition__to__multiome_arc_demultiplex",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_validate_final_reporting#output"
+        "@id": "#step-data_acquisition#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-multiome_arc_demultiplex#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_validate_motif_enrichment__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/discover_multiome_arc_demultiplex__to__multiome_arc_demultiplex",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_validate_motif_enrichment#output"
+        "@id": "#step-discover_multiome_arc_demultiplex#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-multiome_arc_demultiplex#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_validate_peak_annotation__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/discover_normalisation__to__normalisation",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_validate_peak_annotation#output"
+        "@id": "#step-discover_normalisation#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-normalisation#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_validate_peak_calling__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/qc_preprocessing__to__normalisation",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_validate_peak_calling#output"
+        "@id": "#step-qc_preprocessing#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-normalisation#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_validate_raw_qc__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/differential_expression__to__pathway_enrichment",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_validate_raw_qc#output"
+        "@id": "#step-differential_expression#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-pathway_enrichment#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_validate_reporting__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/discover_pathway_enrichment__to__pathway_enrichment",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_validate_reporting#output"
+        "@id": "#step-discover_pathway_enrichment#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-pathway_enrichment#input"
       }
     },
     {
-      "@id": "#parameter-connection/atac_seq_validate_sequence_trimming__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/cell_type_annotation__to__peak_to_gene_linking",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-atac_seq_validate_sequence_trimming#output"
+        "@id": "#step-cell_type_annotation#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-peak_to_gene_linking#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_alignment__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/discover_peak_to_gene_linking__to__peak_to_gene_linking",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_alignment#output"
+        "@id": "#step-discover_peak_to_gene_linking#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-peak_to_gene_linking#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_batch_correction__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/joint_wnn_integration__to__peak_to_gene_linking",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_batch_correction#output"
+        "@id": "#step-joint_wnn_integration#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-peak_to_gene_linking#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_cell_type_annotation__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/data_acquisition__to__qc_preprocessing",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_cell_type_annotation#output"
+        "@id": "#step-data_acquisition#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-qc_preprocessing#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_clustering__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/contextualize_findings_with_literature__to__reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_clustering#output"
+        "@id": "#step-contextualize_findings_with_literature#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-reporting#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_data_acquisition__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/differential_accessibility__to__reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_data_acquisition#output"
+        "@id": "#step-differential_accessibility#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-reporting#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_differential_expression__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/differential_expression__to__reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_differential_expression#output"
+        "@id": "#step-differential_expression#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-reporting#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_dimensionality_reduction__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/pathway_enrichment__to__reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_dimensionality_reduction#output"
+        "@id": "#step-pathway_enrichment#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-reporting#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_final_reporting__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/peak_to_gene_linking__to__reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_final_reporting#output"
+        "@id": "#step-peak_to_gene_linking#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-reporting#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_integration__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/data_acquisition__to__survey_method_landscape",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_integration#output"
+        "@id": "#step-data_acquisition#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-survey_method_landscape#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_normalisation__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/qc_preprocessing__to__survey_method_landscape",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_normalisation#output"
+        "@id": "#step-qc_preprocessing#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-survey_method_landscape#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_pathway_enrichment__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/cell_type_annotation__to__validate_cell_type_annotation",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_pathway_enrichment#output"
+        "@id": "#step-cell_type_annotation#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_cell_type_annotation#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_qc_preprocessing__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/clustering__to__validate_clustering",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_qc_preprocessing#output"
+        "@id": "#step-clustering#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_clustering#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_quantification__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/contextualize_findings_with_literature__to__validate_contextualize_findings_with_literature",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_quantification#output"
+        "@id": "#step-contextualize_findings_with_literature#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_contextualize_findings_with_literature#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_raw_qc__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/data_acquisition__to__validate_data_acquisition",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_raw_qc#output"
+        "@id": "#step-data_acquisition#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_data_acquisition#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_reporting__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/differential_accessibility__to__validate_differential_accessibility",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_reporting#output"
+        "@id": "#step-differential_accessibility#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_differential_accessibility#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_validate_sequence_trimming__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/differential_expression__to__validate_differential_expression",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_sequence_trimming#output"
+        "@id": "#step-differential_expression#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_differential_expression#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_vdj_validate_cdr3_clonotype_clustering__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/final_reporting__to__validate_final_reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_vdj_validate_cdr3_clonotype_clustering#output"
+        "@id": "#step-final_reporting#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_final_reporting#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_vdj_validate_data_acquisition__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/joint_wnn_integration__to__validate_joint_wnn_integration",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_vdj_validate_data_acquisition#output"
+        "@id": "#step-joint_wnn_integration#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_joint_wnn_integration#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_vdj_validate_final_reporting__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/multiome_arc_demultiplex__to__validate_multiome_arc_demultiplex",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_vdj_validate_final_reporting#output"
+        "@id": "#step-multiome_arc_demultiplex#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_multiome_arc_demultiplex#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_vdj_validate_repertoire_diversity__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/normalisation__to__validate_normalisation",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_vdj_validate_repertoire_diversity#output"
+        "@id": "#step-normalisation#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_normalisation#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_vdj_validate_reporting__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/pathway_enrichment__to__validate_pathway_enrichment",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_vdj_validate_reporting#output"
+        "@id": "#step-pathway_enrichment#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_pathway_enrichment#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_vdj_validate_vdj_reconstruction__to__multi_modal_thematic_comparison",
+      "@id": "#parameter-connection/peak_to_gene_linking__to__validate_peak_to_gene_linking",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_vdj_validate_vdj_reconstruction#output"
+        "@id": "#step-peak_to_gene_linking#output"
       },
       "targetParameter": {
-        "@id": "#step-multi_modal_thematic_comparison#input"
+        "@id": "#step-validate_peak_to_gene_linking#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_discover_alignment__to__single_cell_rnaseq_alignment",
+      "@id": "#parameter-connection/qc_preprocessing__to__validate_qc_preprocessing",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_alignment#output"
+        "@id": "#step-qc_preprocessing#output"
       },
       "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_alignment#input"
+        "@id": "#step-validate_qc_preprocessing#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_sequence_trimming__to__single_cell_rnaseq_alignment",
+      "@id": "#parameter-connection/reporting__to__validate_reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_sequence_trimming#output"
+        "@id": "#step-reporting#output"
       },
       "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_alignment#input"
+        "@id": "#step-validate_reporting#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_discover_batch_correction__to__single_cell_rnaseq_batch_correction",
+      "@id": "#parameter-connection/review_prior_work__to__validate_review_prior_work",
       "@type": "ParameterConnection",
       "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_batch_correction#output"
+        "@id": "#step-review_prior_work#output"
       },
       "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_batch_correction#input"
+        "@id": "#step-validate_review_prior_work#input"
       }
     },
     {
-      "@id": "#parameter-connection/single_cell_rnaseq_normalisation__to__single_cell_rnaseq_batch_correction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_normalisation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_batch_correction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_clustering__to__single_cell_rnaseq_cell_type_annotation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_clustering#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_cell_type_annotation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_discover_cell_type_annotation__to__single_cell_rnaseq_cell_type_annotation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_cell_type_annotation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_cell_type_annotation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_dimensionality_reduction__to__single_cell_rnaseq_clustering",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_dimensionality_reduction#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_clustering#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_discover_clustering__to__single_cell_rnaseq_clustering",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_clustering#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_clustering#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_cell_type_annotation__to__single_cell_rnaseq_differential_expression",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_cell_type_annotation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_differential_expression#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_discover_differential_expression__to__single_cell_rnaseq_differential_expression",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_differential_expression#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_differential_expression#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_discover_dimensionality_reduction__to__single_cell_rnaseq_dimensionality_reduction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_dimensionality_reduction#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_dimensionality_reduction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_integration__to__single_cell_rnaseq_dimensionality_reduction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_integration#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_dimensionality_reduction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_normalisation__to__single_cell_rnaseq_dimensionality_reduction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_normalisation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_dimensionality_reduction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_survey_method_landscape__to__single_cell_rnaseq_discover_alignment",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_alignment#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_survey_method_landscape__to__single_cell_rnaseq_discover_batch_correction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_batch_correction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_survey_method_landscape__to__single_cell_rnaseq_discover_cell_type_annotation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_cell_type_annotation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_survey_method_landscape__to__single_cell_rnaseq_discover_clustering",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_clustering#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_survey_method_landscape__to__single_cell_rnaseq_discover_differential_expression",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_differential_expression#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_survey_method_landscape__to__single_cell_rnaseq_discover_dimensionality_reduction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_dimensionality_reduction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_survey_method_landscape__to__single_cell_rnaseq_discover_normalisation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_normalisation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_survey_method_landscape__to__single_cell_rnaseq_discover_pathway_enrichment",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_pathway_enrichment#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_survey_method_landscape__to__single_cell_rnaseq_discover_quantification",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_quantification#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_survey_method_landscape__to__single_cell_rnaseq_discover_sequence_trimming",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_sequence_trimming#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_batch_correction__to__single_cell_rnaseq_integration",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_batch_correction#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_integration#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_discover_normalisation__to__single_cell_rnaseq_normalisation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_normalisation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_normalisation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_qc_preprocessing__to__single_cell_rnaseq_normalisation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_qc_preprocessing#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_normalisation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_differential_expression__to__single_cell_rnaseq_pathway_enrichment",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_differential_expression#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_pathway_enrichment#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_discover_pathway_enrichment__to__single_cell_rnaseq_pathway_enrichment",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_pathway_enrichment#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_pathway_enrichment#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_quantification__to__single_cell_rnaseq_qc_preprocessing",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_quantification#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_qc_preprocessing#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_alignment__to__single_cell_rnaseq_quantification",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_alignment#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_quantification#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_discover_quantification__to__single_cell_rnaseq_quantification",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_quantification#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_quantification#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_data_acquisition__to__single_cell_rnaseq_raw_qc",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_data_acquisition#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_raw_qc#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_differential_expression__to__single_cell_rnaseq_reporting",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_differential_expression#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_reporting#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_pathway_enrichment__to__single_cell_rnaseq_reporting",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_pathway_enrichment#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_reporting#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_discover_sequence_trimming__to__single_cell_rnaseq_sequence_trimming",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_discover_sequence_trimming#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_sequence_trimming#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_raw_qc__to__single_cell_rnaseq_sequence_trimming",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_raw_qc#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_sequence_trimming#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_data_acquisition__to__single_cell_rnaseq_survey_method_landscape",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_data_acquisition#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_raw_qc__to__single_cell_rnaseq_survey_method_landscape",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_raw_qc#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_survey_method_landscape#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_alignment__to__single_cell_rnaseq_validate_alignment",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_alignment#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_alignment#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_batch_correction__to__single_cell_rnaseq_validate_batch_correction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_batch_correction#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_batch_correction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_cell_type_annotation__to__single_cell_rnaseq_validate_cell_type_annotation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_cell_type_annotation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_cell_type_annotation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_clustering__to__single_cell_rnaseq_validate_clustering",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_clustering#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_clustering#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_data_acquisition__to__single_cell_rnaseq_validate_data_acquisition",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_data_acquisition#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_data_acquisition#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_differential_expression__to__single_cell_rnaseq_validate_differential_expression",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_differential_expression#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_differential_expression#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_dimensionality_reduction__to__single_cell_rnaseq_validate_dimensionality_reduction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_dimensionality_reduction#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_dimensionality_reduction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_integration__to__single_cell_rnaseq_validate_integration",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_integration#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_integration#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_normalisation__to__single_cell_rnaseq_validate_normalisation",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_normalisation#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_normalisation#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_pathway_enrichment__to__single_cell_rnaseq_validate_pathway_enrichment",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_pathway_enrichment#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_pathway_enrichment#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_qc_preprocessing__to__single_cell_rnaseq_validate_qc_preprocessing",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_qc_preprocessing#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_qc_preprocessing#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_quantification__to__single_cell_rnaseq_validate_quantification",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_quantification#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_quantification#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_raw_qc__to__single_cell_rnaseq_validate_raw_qc",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_raw_qc#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_raw_qc#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_reporting__to__single_cell_rnaseq_validate_reporting",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_reporting#output"
+      "@id": "A:claim_completeness",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
       },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_reporting#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_rnaseq_sequence_trimming__to__single_cell_rnaseq_validate_sequence_trimming",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_rnaseq_sequence_trimming#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_rnaseq_validate_sequence_trimming#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_discover_cdr3_clonotype_clustering__to__single_cell_vdj_cdr3_clonotype_clustering",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_discover_cdr3_clonotype_clustering#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_cdr3_clonotype_clustering#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_vdj_reconstruction__to__single_cell_vdj_cdr3_clonotype_clustering",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_vdj_reconstruction#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_cdr3_clonotype_clustering#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_survey_method_landscape__to__single_cell_vdj_discover_cdr3_clonotype_clustering",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_discover_cdr3_clonotype_clustering#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_survey_method_landscape__to__single_cell_vdj_discover_repertoire_diversity",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_discover_repertoire_diversity#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_survey_method_landscape__to__single_cell_vdj_discover_vdj_reconstruction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_survey_method_landscape#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_discover_vdj_reconstruction#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_discover_repertoire_diversity__to__single_cell_vdj_repertoire_diversity",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_discover_repertoire_diversity#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_repertoire_diversity#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_vdj_reconstruction__to__single_cell_vdj_repertoire_diversity",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_vdj_reconstruction#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_repertoire_diversity#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_cdr3_clonotype_clustering__to__single_cell_vdj_reporting",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_cdr3_clonotype_clustering#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_reporting#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_repertoire_diversity__to__single_cell_vdj_reporting",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_repertoire_diversity#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_reporting#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_data_acquisition__to__single_cell_vdj_survey_method_landscape",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_data_acquisition#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_survey_method_landscape#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_cdr3_clonotype_clustering__to__single_cell_vdj_validate_cdr3_clonotype_clustering",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_cdr3_clonotype_clustering#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_validate_cdr3_clonotype_clustering#input"
-      }
-    },
-    {
-      "@id": "#parameter-connection/single_cell_vdj_data_acquisition__to__single_cell_vdj_validate_data_acquisition",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_data_acquisition#output"
-      },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_validate_data_acquisition#input"
-      }
+      "invariant_id": "claim_completeness",
+      "verdict": "unverified"
     },
     {
-      "@id": "#parameter-connection/single_cell_vdj_repertoire_diversity__to__single_cell_vdj_validate_repertoire_diversity",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_repertoire_diversity#output"
+      "@id": "A:cross_graph_integrity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
       },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_validate_repertoire_diversity#input"
-      }
+      "invariant_id": "cross_graph_integrity",
+      "verdict": "unverified"
     },
     {
-      "@id": "#parameter-connection/single_cell_vdj_reporting__to__single_cell_vdj_validate_reporting",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_reporting#output"
+      "@id": "A:decision_justification",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
       },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_validate_reporting#input"
-      }
+      "invariant_id": "decision_justification",
+      "verdict": "unverified"
     },
     {
-      "@id": "#parameter-connection/single_cell_vdj_vdj_reconstruction__to__single_cell_vdj_validate_vdj_reconstruction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_vdj_reconstruction#output"
+      "@id": "A:equivalence_failure",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
       },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_validate_vdj_reconstruction#input"
-      }
+      "invariant_id": "equivalence_failure",
+      "verdict": "unverified"
     },
     {
-      "@id": "#parameter-connection/single_cell_vdj_data_acquisition__to__single_cell_vdj_vdj_reconstruction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_data_acquisition#output"
+      "@id": "A:evidence_coverage",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
       },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_vdj_reconstruction#input"
-      }
+      "invariant_id": "evidence_coverage",
+      "verdict": "warn"
     },
     {
-      "@id": "#parameter-connection/single_cell_vdj_discover_vdj_reconstruction__to__single_cell_vdj_vdj_reconstruction",
-      "@type": "ParameterConnection",
-      "sourceParameter": {
-        "@id": "#step-single_cell_vdj_discover_vdj_reconstruction#output"
+      "@id": "A:substrate_validity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
       },
-      "targetParameter": {
-        "@id": "#step-single_cell_vdj_vdj_reconstruction#input"
-      }
+      "invariant_id": "substrate_validity",
+      "verdict": "unverified"
     }
   ]
 }

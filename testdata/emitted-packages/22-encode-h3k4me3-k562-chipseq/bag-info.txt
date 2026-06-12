@@ -1,4 +1,4 @@
 Source-Organization: Scripps Research
 External-Description: ecaa-workflow emitted RO-Crate package
 Bagging-Date: 2037-01-18
-Payload-Oxum: 763128.113
+Payload-Oxum: 830097.119

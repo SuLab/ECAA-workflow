@@ -1,56 +1,56 @@
 {
-  "schema_version": "0.1",
   "ecaa_version": "0.2",
-  "min_reader_version": "0.2",
-  "package_iri": "ro-crate-metadata.json",
-  "evaluated_at": "2026-06-02T00:44:33.254977963+00:00",
+  "evaluated_at": "2026-06-12T21:40:56.823682634+00:00",
   "evaluator": {
     "impl": "ecaa-workflow-audit-proof",
-    "version": "0.1.0",
-    "policy": "warn-only"
+    "policy": "warn-only",
+    "version": "0.1.0"
   },
+  "min_reader_version": "0.2",
+  "package_iri": "ro-crate-metadata.json",
+  "schema_version": "0.1",
   "verdicts": [
     {
+      "detail": "no verified claims; signed verdict sink absent",
       "id": "claim_completeness",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
-      "id": "decision_justification",
-      "status": "unverified",
       "detail": "no method-choice decisions present",
+      "id": "decision_justification",
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
+      "detail": "15 output(s) not referenced and not marked unused: runtime/outputs/data_acquisition/figures/samples_per_study.png, runtime/outputs/final_reporting/figures/summary_dashboard.png, runtime/outputs/motif_enrichment/figures/motif_enrichment_table.png, runtime/outputs/motif_enrichment/figures/motif_logo_grid.png, runtime/outputs/peak_annotation/figures/peak_feature_distribution.png, runtime/outputs/peak_annotation/figures/tss_distance_distribution.png, runtime/outputs/peak_calling/figures/coverage_track.png, runtime/outputs/peak_calling/figures/peak_saturation.png, runtime/outputs/peak_calling/figures/profile_pileup.png, runtime/outputs/raw_qc/figures/per_sample_metric_bar.png, runtime/outputs/raw_qc/figures/per_sample_metric_violin.png, runtime/outputs/raw_qc/figures/qc_summary_bar.png, runtime/outputs/reporting/figures/concordance_heatmap.png, runtime/outputs/reporting/figures/pathway_overlap_bar.png, runtime/outputs/sequence_trimming/figures/retention_bar.png",
       "id": "evidence_coverage",
-      "status": "warn",
-      "detail": "36 output(s) not referenced and not marked unused: workflow:discover_alignment, workflow:sequence_trimming, workflow:peak_calling, workflow:review_prior_work, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:reporting, workflow:discover_motif_enrichment, workflow:peak_calling, workflow:discover_peak_annotation, workflow:peak_calling, workflow:alignment, workflow:discover_peak_calling, workflow:data_acquisition, workflow:contextualize_findings_with_literature, workflow:motif_enrichment, workflow:peak_annotation, workflow:peak_calling, workflow:discover_sequence_trimming, workflow:raw_qc, workflow:data_acquisition, workflow:raw_qc, workflow:alignment, workflow:contextualize_findings_with_literature, workflow:data_acquisition, workflow:final_reporting, workflow:motif_enrichment, workflow:peak_annotation, workflow:peak_calling, workflow:raw_qc, workflow:reporting, workflow:review_prior_work, workflow:sequence_trimming",
-      "n_inspected": 36,
-      "n_violations": 36
+      "n_inspected": 15,
+      "n_violations": 15,
+      "status": "warn"
     },
     {
+      "detail": "no re-execution performed (Q absent)",
       "id": "equivalence_failure",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
+      "detail": "no cross-graph references present",
       "id": "cross_graph_integrity",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
-      "id": "substrate_validity",
-      "status": "unverified",
       "detail": "runcrate not run",
+      "id": "substrate_validity",
       "n_inspected": 1,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     }
   ]
 }

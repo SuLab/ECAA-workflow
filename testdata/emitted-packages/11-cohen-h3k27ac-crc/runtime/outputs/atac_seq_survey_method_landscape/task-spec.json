@@ -5,7 +5,7 @@
     "atac_seq_data_acquisition",
     "atac_seq_raw_qc"
   ],
-  "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+  "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
   "kind": "computation",
   "resource_class": "cpu_heavy",
   "safety": {
@@ -30,6 +30,15 @@
   },
   "source_atom_id": "survey_method_landscape",
   "spec": {
+    "attributes": {
+      "claim_boundary": "Every row in method_landscape.csv is a verbatim quote from one resolvable\nsource (PMID/DOI/URL), with its locator, source_class, and evidence_role.\nDo NOT rank, recommend, paraphrase, or synthesize. Ranking is the\ndownstream discover_* atom's deterministic job. Rows whose evidence_quote\ndoes not substring-match the retrieved snapshot are emitted verified=false.\n",
+      "retrieval_tools": [
+        "pubmed_eutilities_esearch",
+        "pubmed_eutilities_efetch_pmc_xml",
+        "pubmed_eutilities_efetch_abstract"
+      ],
+      "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+    },
     "expected_artifacts": [
       "method_landscape.csv",
       "method_landscape.json",

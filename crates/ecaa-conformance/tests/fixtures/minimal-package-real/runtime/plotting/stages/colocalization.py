@@ -18,7 +18,7 @@ Manifest contract:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 import numpy as np
 

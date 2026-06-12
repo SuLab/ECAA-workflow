@@ -25,6 +25,7 @@
       "manifest.json",
       "result.json"
     ],
+    "plot_stage_id": "reporting",
     "required_figures": [
       "concordance_heatmap",
       "pathway_overlap_bar"

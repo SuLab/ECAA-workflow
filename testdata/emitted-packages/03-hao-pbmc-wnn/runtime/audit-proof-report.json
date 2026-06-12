@@ -1,56 +1,56 @@
 {
-  "schema_version": "0.1",
   "ecaa_version": "0.2",
-  "min_reader_version": "0.2",
-  "package_iri": "ro-crate-metadata.json",
-  "evaluated_at": "2026-06-02T00:44:03.059217765+00:00",
+  "evaluated_at": "2026-06-12T21:40:47.148028001+00:00",
   "evaluator": {
     "impl": "ecaa-workflow-audit-proof",
-    "version": "0.1.0",
-    "policy": "warn-only"
+    "policy": "warn-only",
+    "version": "0.1.0"
   },
+  "min_reader_version": "0.2",
+  "package_iri": "ro-crate-metadata.json",
+  "schema_version": "0.1",
   "verdicts": [
     {
+      "detail": "no verified claims; signed verdict sink absent",
       "id": "claim_completeness",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
-      "id": "decision_justification",
-      "status": "unverified",
       "detail": "no method-choice decisions present",
+      "id": "decision_justification",
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
+      "detail": "24 output(s) not referenced and not marked unused: runtime/outputs/cell_type_annotation/figures/celltype_size_bar.png, runtime/outputs/cell_type_annotation/figures/umap_by_celltype.png, runtime/outputs/clustering/figures/cluster_size_bar.png, runtime/outputs/clustering/figures/umap_clusters.png, runtime/outputs/data_acquisition/figures/samples_per_study.png, runtime/outputs/differential_accessibility/figures/diff_heatmap.png, runtime/outputs/differential_accessibility/figures/ma_plot.png, runtime/outputs/differential_accessibility/figures/volcano.png, runtime/outputs/differential_expression/figures/top_features_heatmap.png, runtime/outputs/differential_expression/figures/volcano.png, runtime/outputs/final_reporting/figures/summary_dashboard.png, runtime/outputs/joint_wnn_integration/figures/cluster_composition_bar.png, runtime/outputs/joint_wnn_integration/figures/wnn_umap.png, runtime/outputs/multiome_arc_demultiplex/figures/paired_capture_summary.png, runtime/outputs/normalisation/figures/hvg_count_bar.png, runtime/outputs/normalisation/figures/mean_variance.png, runtime/outputs/pathway_enrichment/figures/top_enriched_terms.png, runtime/outputs/peak_to_gene_linking/figures/links_per_cluster_bar.png, runtime/outputs/peak_to_gene_linking/figures/peak_to_gene_arc.png, runtime/outputs/qc_preprocessing/figures/per_sample_metric_bar.png, runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png, runtime/outputs/qc_preprocessing/figures/qc_summary_bar.png, runtime/outputs/reporting/figures/concordance_heatmap.png, runtime/outputs/reporting/figures/pathway_overlap_bar.png",
       "id": "evidence_coverage",
-      "status": "warn",
-      "detail": "137 output(s) not referenced and not marked unused: workflow:atac_seq_discover_alignment, workflow:atac_seq_sequence_trimming, workflow:atac_seq_discover_differential_accessibility, workflow:atac_seq_peak_calling, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_survey_method_landscape, workflow:atac_seq_discover_motif_enrichment, workflow:atac_seq_peak_calling, workflow:atac_seq_discover_peak_annotation, workflow:atac_seq_peak_calling, workflow:atac_seq_alignment, workflow:atac_seq_discover_peak_calling, workflow:atac_seq_data_acquisition, workflow:atac_seq_differential_accessibility, workflow:atac_seq_motif_enrichment, workflow:atac_seq_peak_annotation, workflow:atac_seq_peak_calling, workflow:atac_seq_discover_sequence_trimming, workflow:atac_seq_raw_qc, workflow:atac_seq_data_acquisition, workflow:atac_seq_raw_qc, workflow:atac_seq_alignment, workflow:atac_seq_data_acquisition, workflow:atac_seq_differential_accessibility, workflow:atac_seq_motif_enrichment, workflow:atac_seq_peak_annotation, workflow:atac_seq_peak_calling, workflow:atac_seq_raw_qc, workflow:atac_seq_reporting, workflow:atac_seq_sequence_trimming, workflow:multi_modal_thematic_comparison, workflow:atac_seq_validate_alignment, workflow:atac_seq_validate_data_acquisition, workflow:atac_seq_validate_differential_accessibility, workflow:atac_seq_validate_final_reporting, workflow:atac_seq_validate_motif_enrichment, workflow:atac_seq_validate_peak_annotation, workflow:atac_seq_validate_peak_calling, workflow:atac_seq_validate_raw_qc, workflow:atac_seq_validate_reporting, workflow:atac_seq_validate_sequence_trimming, workflow:single_cell_rnaseq_validate_alignment, workflow:single_cell_rnaseq_validate_batch_correction, workflow:single_cell_rnaseq_validate_cell_type_annotation, workflow:single_cell_rnaseq_validate_clustering, workflow:single_cell_rnaseq_validate_data_acquisition, workflow:single_cell_rnaseq_validate_differential_expression, workflow:single_cell_rnaseq_validate_dimensionality_reduction, workflow:single_cell_rnaseq_validate_final_reporting, workflow:single_cell_rnaseq_validate_integration, workflow:single_cell_rnaseq_validate_normalisation, workflow:single_cell_rnaseq_validate_pathway_enrichment, workflow:single_cell_rnaseq_validate_qc_preprocessing, workflow:single_cell_rnaseq_validate_quantification, workflow:single_cell_rnaseq_validate_raw_qc, workflow:single_cell_rnaseq_validate_reporting, workflow:single_cell_rnaseq_validate_sequence_trimming, workflow:single_cell_vdj_validate_cdr3_clonotype_clustering, workflow:single_cell_vdj_validate_data_acquisition, workflow:single_cell_vdj_validate_final_reporting, workflow:single_cell_vdj_validate_repertoire_diversity, workflow:single_cell_vdj_validate_reporting, workflow:single_cell_vdj_validate_vdj_reconstruction, workflow:single_cell_rnaseq_discover_alignment, workflow:single_cell_rnaseq_sequence_trimming, workflow:single_cell_rnaseq_discover_batch_correction, workflow:single_cell_rnaseq_normalisation, workflow:single_cell_rnaseq_clustering, workflow:single_cell_rnaseq_discover_cell_type_annotation, workflow:single_cell_rnaseq_dimensionality_reduction, workflow:single_cell_rnaseq_discover_clustering, workflow:single_cell_rnaseq_cell_type_annotation, workflow:single_cell_rnaseq_discover_differential_expression, workflow:single_cell_rnaseq_discover_dimensionality_reduction, workflow:single_cell_rnaseq_integration, workflow:single_cell_rnaseq_normalisation, workflow:single_cell_rnaseq_survey_method_landscape, workflow:single_cell_rnaseq_survey_method_landscape, workflow:single_cell_rnaseq_survey_method_landscape, workflow:single_cell_rnaseq_survey_method_landscape, workflow:single_cell_rnaseq_survey_method_landscape, workflow:single_cell_rnaseq_survey_method_landscape, workflow:single_cell_rnaseq_survey_method_landscape, workflow:single_cell_rnaseq_survey_method_landscape, workflow:single_cell_rnaseq_survey_method_landscape, workflow:single_cell_rnaseq_survey_method_landscape, workflow:single_cell_rnaseq_batch_correction, workflow:single_cell_rnaseq_discover_normalisation, workflow:single_cell_rnaseq_qc_preprocessing, workflow:single_cell_rnaseq_differential_expression, workflow:single_cell_rnaseq_discover_pathway_enrichment, workflow:single_cell_rnaseq_quantification, workflow:single_cell_rnaseq_alignment, workflow:single_cell_rnaseq_discover_quantification, workflow:single_cell_rnaseq_data_acquisition, workflow:single_cell_rnaseq_differential_expression, workflow:single_cell_rnaseq_pathway_enrichment, workflow:single_cell_rnaseq_discover_sequence_trimming, workflow:single_cell_rnaseq_raw_qc, workflow:single_cell_rnaseq_data_acquisition, workflow:single_cell_rnaseq_raw_qc, workflow:single_cell_rnaseq_alignment, workflow:single_cell_rnaseq_batch_correction, workflow:single_cell_rnaseq_cell_type_annotation, workflow:single_cell_rnaseq_clustering, workflow:single_cell_rnaseq_data_acquisition, workflow:single_cell_rnaseq_differential_expression, workflow:single_cell_rnaseq_dimensionality_reduction, workflow:single_cell_rnaseq_integration, workflow:single_cell_rnaseq_normalisation, workflow:single_cell_rnaseq_pathway_enrichment, workflow:single_cell_rnaseq_qc_preprocessing, workflow:single_cell_rnaseq_quantification, workflow:single_cell_rnaseq_raw_qc, workflow:single_cell_rnaseq_reporting, workflow:single_cell_rnaseq_sequence_trimming, workflow:single_cell_vdj_discover_cdr3_clonotype_clustering, workflow:single_cell_vdj_vdj_reconstruction, workflow:single_cell_vdj_survey_method_landscape, workflow:single_cell_vdj_survey_method_landscape, workflow:single_cell_vdj_survey_method_landscape, workflow:single_cell_vdj_discover_repertoire_diversity, workflow:single_cell_vdj_vdj_reconstruction, workflow:single_cell_vdj_cdr3_clonotype_clustering, workflow:single_cell_vdj_repertoire_diversity, workflow:single_cell_vdj_data_acquisition, workflow:single_cell_vdj_cdr3_clonotype_clustering, workflow:single_cell_vdj_data_acquisition, workflow:single_cell_vdj_repertoire_diversity, workflow:single_cell_vdj_reporting, workflow:single_cell_vdj_vdj_reconstruction, workflow:single_cell_vdj_data_acquisition, workflow:single_cell_vdj_discover_vdj_reconstruction",
-      "n_inspected": 137,
-      "n_violations": 137
+      "n_inspected": 24,
+      "n_violations": 24,
+      "status": "warn"
     },
     {
+      "detail": "no re-execution performed (Q absent)",
       "id": "equivalence_failure",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
+      "detail": "no cross-graph references present",
       "id": "cross_graph_integrity",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
-      "id": "substrate_validity",
-      "status": "unverified",
       "detail": "runcrate not run",
+      "id": "substrate_validity",
       "n_inspected": 1,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     }
   ]
 }

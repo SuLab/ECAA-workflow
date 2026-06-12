@@ -1,0 +1,47 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "discover_taxonomic_classification",
+    "sequence_trimming"
+  ],
+  "description": "Assign taxonomic identities to metagenomic reads or contigs. Kraken2 /\nMetaPhlAn / QIIME2 (DADA2 / Deblur) / Bracken selected at runtime by\nmodality (shotgun vs amplicon).\n",
+  "kind": "computation",
+  "resource_class": "memory_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "taxonomic_classification",
+  "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "kraken2",
+        "metaphlan",
+        "qiime2_dada2",
+        "qiime2_deblur",
+        "bracken",
+        "centrifuge"
+      ]
+    },
+    "expected_artifacts": [
+      "taxonomic_profile.tsv",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "taxonomic_profiling",
+    "required_figures": [
+      "taxonomic_stacked_bar"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "taxonomic_classification"
+}

@@ -1,0 +1,359 @@
+{
+  "workflow_id": "workflow-ca268c8fba9b",
+  "name": "workflow-ca268c8fba9b",
+  "atom_registry_snapshot_id": "atomreg:sha256:922ece4661f84e11",
+  "steps": [
+    {
+      "step_id": "contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "review_prior_work",
+        "time_series_forecast_evaluate"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "data_import",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "final_reporting",
+      "parameters": {},
+      "dependencies": [
+        "reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "reporting",
+      "parameters": {},
+      "dependencies": [
+        "contextualize_findings_with_literature",
+        "time_series_forecast_evaluate"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "review_prior_work",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "time_series_decompose",
+      "parameters": {},
+      "dependencies": [
+        "data_import"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "time_series_forecast_evaluate",
+      "parameters": {},
+      "dependencies": [
+        "time_series_model_fit"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "time_series_model_fit",
+      "parameters": {},
+      "dependencies": [
+        "time_series_decompose"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "contextualize_findings_with_literature"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_data_import",
+      "parameters": {},
+      "dependencies": [
+        "data_import"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_final_reporting",
+      "parameters": {},
+      "dependencies": [
+        "final_reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_reporting",
+      "parameters": {},
+      "dependencies": [
+        "reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_review_prior_work",
+      "parameters": {},
+      "dependencies": [
+        "review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_time_series_decompose",
+      "parameters": {},
+      "dependencies": [
+        "time_series_decompose"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_time_series_forecast_evaluate",
+      "parameters": {},
+      "dependencies": [
+        "time_series_forecast_evaluate"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_time_series_model_fit",
+      "parameters": {},
+      "dependencies": [
+        "time_series_model_fit"
+      ],
+      "estimated_duration": 1800
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "contextualize_findings_with_literature.out->reporting.in",
+      "source_node_id": "contextualize_findings_with_literature",
+      "target_node_id": "reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "contextualize_findings_with_literature.out->validate_contextualize_findings_with_literature.in",
+      "source_node_id": "contextualize_findings_with_literature",
+      "target_node_id": "validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "data_import.out->time_series_decompose.in",
+      "source_node_id": "data_import",
+      "target_node_id": "time_series_decompose",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "data_import.out->validate_data_import.in",
+      "source_node_id": "data_import",
+      "target_node_id": "validate_data_import",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "final_reporting.out->validate_final_reporting.in",
+      "source_node_id": "final_reporting",
+      "target_node_id": "validate_final_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "reporting.out->final_reporting.in",
+      "source_node_id": "reporting",
+      "target_node_id": "final_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "reporting.out->validate_reporting.in",
+      "source_node_id": "reporting",
+      "target_node_id": "validate_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "review_prior_work.out->contextualize_findings_with_literature.in",
+      "source_node_id": "review_prior_work",
+      "target_node_id": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "review_prior_work.out->validate_review_prior_work.in",
+      "source_node_id": "review_prior_work",
+      "target_node_id": "validate_review_prior_work",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "time_series_decompose.out->time_series_model_fit.in",
+      "source_node_id": "time_series_decompose",
+      "target_node_id": "time_series_model_fit",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "time_series_decompose.out->validate_time_series_decompose.in",
+      "source_node_id": "time_series_decompose",
+      "target_node_id": "validate_time_series_decompose",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "time_series_forecast_evaluate.out->contextualize_findings_with_literature.in",
+      "source_node_id": "time_series_forecast_evaluate",
+      "target_node_id": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "time_series_forecast_evaluate.out->reporting.in",
+      "source_node_id": "time_series_forecast_evaluate",
+      "target_node_id": "reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "time_series_forecast_evaluate.out->validate_time_series_forecast_evaluate.in",
+      "source_node_id": "time_series_forecast_evaluate",
+      "target_node_id": "validate_time_series_forecast_evaluate",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "time_series_model_fit.out->time_series_forecast_evaluate.in",
+      "source_node_id": "time_series_model_fit",
+      "target_node_id": "time_series_forecast_evaluate",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "time_series_model_fit.out->validate_time_series_model_fit.in",
+      "source_node_id": "time_series_model_fit",
+      "target_node_id": "validate_time_series_model_fit",
+      "source_output": "out",
+      "target_input": "in"
+    }
+  ],
+  "parameter_mappings": [
+    {
+      "source_step": "review_prior_work",
+      "source_output": "out",
+      "target_step": "contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "time_series_forecast_evaluate",
+      "source_output": "out",
+      "target_step": "contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "reporting",
+      "source_output": "out",
+      "target_step": "final_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "time_series_forecast_evaluate",
+      "source_output": "out",
+      "target_step": "reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "data_import",
+      "source_output": "out",
+      "target_step": "time_series_decompose",
+      "target_input": "in"
+    },
+    {
+      "source_step": "time_series_model_fit",
+      "source_output": "out",
+      "target_step": "time_series_forecast_evaluate",
+      "target_input": "in"
+    },
+    {
+      "source_step": "time_series_decompose",
+      "source_output": "out",
+      "target_step": "time_series_model_fit",
+      "target_input": "in"
+    },
+    {
+      "source_step": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "validate_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "data_import",
+      "source_output": "out",
+      "target_step": "validate_data_import",
+      "target_input": "in"
+    },
+    {
+      "source_step": "final_reporting",
+      "source_output": "out",
+      "target_step": "validate_final_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "reporting",
+      "source_output": "out",
+      "target_step": "validate_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "review_prior_work",
+      "source_output": "out",
+      "target_step": "validate_review_prior_work",
+      "target_input": "in"
+    },
+    {
+      "source_step": "time_series_decompose",
+      "source_output": "out",
+      "target_step": "validate_time_series_decompose",
+      "target_input": "in"
+    },
+    {
+      "source_step": "time_series_forecast_evaluate",
+      "source_output": "out",
+      "target_step": "validate_time_series_forecast_evaluate",
+      "target_input": "in"
+    },
+    {
+      "source_step": "time_series_model_fit",
+      "source_output": "out",
+      "target_step": "validate_time_series_model_fit",
+      "target_input": "in"
+    }
+  ],
+  "parameters": [],
+  "validation_rules": [],
+  "metadata": {
+    "complexity": "complex",
+    "tags": [
+      "operation",
+      "time_series_forecast",
+      "validation"
+    ],
+    "categories": [],
+    "use_cases": [
+      "kind"
+    ]
+  }
+}

@@ -20,6 +20,13 @@
   },
   "source_atom_id": "motif_enrichment",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "homer_findmotifsgenome",
+        "meme_chip",
+        "monalisa"
+      ]
+    },
     "expected_artifacts": [
       "enriched_motifs.tsv",
       "motif_occurrences.tsv",
@@ -27,7 +34,7 @@
       "manifest.json",
       "result.json"
     ],
-    "plot_stage_id": "atac_seq_motif_enrichment",
+    "plot_stage_id": "motif_enrichment",
     "required_figures": [
       "motif_enrichment_table",
       "motif_logo_grid"

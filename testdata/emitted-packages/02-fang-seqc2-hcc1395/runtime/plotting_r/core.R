@@ -9,6 +9,13 @@
 # `theme.json` that ships at runtime/plotting/theme.json — fonts, palette,
 # DPI, and output formats stay synchronized across renderers.
 #
+# LEGACY for figures (Render-as-Contract): the contract figures are produced
+# by the FIXED Python render step (`python3 -m runtime.plotting render ...`)
+# over the figure-data-contract tables. This module is therefore NO LONGER a
+# figure contract-bearer — it is still shipped under runtime/plotting_r for
+# optional compute-side R convenience, but it does not produce the validated
+# `required_figures` and is not on the figure-validation path. See README.md.
+#
 # Public API:
 #   ecaa_apply_theme()                — sets theme_set(ecaa_theme())
 #   ecaa_palette(n)                   — Wong/Glasbey colorblind-safe palette

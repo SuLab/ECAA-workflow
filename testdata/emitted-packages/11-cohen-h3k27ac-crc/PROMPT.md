@@ -17,7 +17,7 @@ You are executing one harness-dispatched task from a computational biology workf
 - Completed: 0
 - Ready: 0
 - Blocked: 0
-- Pending: 114
+- Pending: 118
 
 ## Rules
 - Execute only the task named by `ECAA_TASK_ID`
@@ -121,28 +121,20 @@ When `runtime/outputs/<task_id>/sme-decisions.json` carries a chosen option from
 
 The validator distinguishes 'agent gave up' (rejected) from 'SME explicitly authorized skip' (accepted) by the presence of `skipped_per_sme` / `dropped_per_sme` + `sme_chosen_option_id` in the result. Without those markers, the empty-completion rule above applies and the harness will re-block.
 
-## Figures (REQUIRED when the task spec has `required_figures`)
+## Figures (the data-table contract — REQUIRED when the task spec has `required_figures`)
 
-Every compute task whose `spec.required_figures` is non-empty MUST produce each listed figure under `runtime/outputs/<task_id>/figures/<figure_id>.png` and `<figure_id>.pdf` **before** marking the task `completed`. Use the shared plotting library shipped with this package. If `task.spec.plot_stage_id` is present, pass that value as `stage_id`; otherwise pass the task id:
+Figures are NOT your job. Emit your analysis outputs as the standardized data TABLES for this stage (the renderer reads these; if `task.spec.plot_stage_id` is present it names the renderer stage). Do NOT render figures yourself and do NOT import matplotlib or ggplot for figures — figures are rendered deterministically from your tables by a fixed post-compute step:
 
-```python
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path.cwd()))  # so `runtime.plotting` resolves
-from runtime.plotting.core import generate
-mf = generate(
-stage_id=task_spec.get("plot_stage_id", "<task_id>"),
-outputs_dir=Path("runtime/outputs/<task_id>"),
-required=<task.spec.required_figures>,
-)
-# mf.written is a dict of figure_id -> path; include it in task.state.result
+```
+python3 -m runtime.plotting render --stage <plot_stage_id or task_id> \
+--outputs runtime/outputs/<task_id> --required <task.spec.required_figures>
 ```
 
-The harness treats missing required figure PNG/PDF files and a missing `figures/manifest.json` as a hard completion failure. If input artifacts are absent, block the task with a concrete missing-input reason instead of completing with skipped required figures. Do NOT silently omit figures from the result.
+Your obligation is the TABLES. Emitting the required output tables is mandatory; a missing table that prevents rendering a required figure is a hard completion failure. Your compute language is free (Python or R) and does not affect figures — the render step is language-uniform and reads only your tables, so pick whatever fits the method.
 
-The library owns determinism (Agg backend, stripped metadata, seeded RNG, theme baseline from `runtime/plotting/theme.json`). Output is dual-format: a 300dpi PNG and a vector PDF for every figure. Do NOT import matplotlib directly — go through `runtime.plotting.core` helpers (`violin`, `bar`, `scatter`, `volcano`, `heatmap`) plus `categorical_palette(n)` for any categorical encoding (Wong/Glasbey colorblind-safe; never `tab10`/`tab20`) so every figure across the package is byte-reproducible.
+The harness treats missing required figure PNG/PDF files and a missing `figures/manifest.json` as a hard completion failure. If input artifacts are absent, block the task with a concrete missing-input reason instead of completing with skipped required tables. Do NOT silently omit a required table from the result.
 
-**For R-based tasks** (Seurat / DESeq2 / Bioconductor), source the parallel R-side library at `runtime/plotting_r/core.R` and call `ecaa_savefig(plot, path, stage_id=...)`. Both renderers consume the same `theme.json`, the same Wong palette, and produce figures at the same figure_id catalog so the validator's `figures_present` check is renderer-agnostic. The R catalog is a subset of the Python one: if `ecaa_known_figures(stage_id)` is empty for your stage (no R module covers it yet), do NOT emit zero figures — render the required figure_ids with the Python library (`runtime/plotting/`) from the output tables you already wrote. Figures are data-derived, the Python catalog is complete, and emitting zero required figures is a hard completion failure.
+The render step owns determinism FOR you (Agg backend, stripped metadata, seeded RNG, theme baseline from `runtime/plotting/theme.json`, dual-format 300dpi PNG + vector PDF, Wong/Glasbey colorblind-safe palettes). You do not configure any of that — you only write the tables, and the same figures come out byte-reproducibly regardless of which language produced them.
 
 ## Hardware-aware execution
 
@@ -174,8 +166,9 @@ Run these probes before any heavy work and log the results to `runtime/outputs/<
 
 - **Effective core budget**: `cores = min(detected_cores, ECAA_HW_RECOMMENDED_THREADS or detected_cores)`. The env var is a ceiling, not a target. If unset, use the full detected count.
 - **Reserve 1 core** for the orchestrator process: `usable = max(1, cores - 1)`.
-- **Inner thread budget per unit**: pick from `ECAA_HW_TOOL_THREAD_CURVES[your-tool]` if your tool is listed; otherwise default to `min(4, usable)` for BLAS-heavy R/Python (SCTransform, DESeq2, Seurat anchor finding) or `1` for pure-Python single-threaded code.
-- **Outer worker count**: `outer_workers = max(1, floor(usable / inner_threads_per_unit))`. Total active threads stay bounded: `outer_workers * inner_threads_per_unit ≤ usable`.
+- **Decide outer workers FIRST, from the work**: `outer_workers = max(1, min(units, usable))`. A single work unit (`units == 1`) means `outer_workers = 1` — do NOT fan out.
+- **Then give each worker the remaining budget**: `inner_threads_per_unit = max(1, floor(usable / outer_workers))`. CRITICAL: when `units == 1`, this is the FULL `usable` budget — one big multithreaded operation. A single heavy matrix op (log1p/CPM normalisation, PCA, Harmony, SCTransform, DESeq2 on a >100k-cell or >1e8-nnz matrix) MUST run multithreaded: numpy/scipy/sklearn/Seurat all dispatch through BLAS, so this is NOT "pure-Python single-threaded" — never set `inner_threads_per_unit = 1` for it. If your tool is in `ECAA_HW_TOOL_THREAD_CURVES`, cap at that value; otherwise use the full `inner_threads_per_unit` just computed. Running a billion-nonzero normalisation at 1 thread when 19+ cores are free is the most common cause of a task blowing its turn/time budget — use the cores you were given.
+- Total active threads stay bounded: `outer_workers * inner_threads_per_unit ≤ usable`.
 - **Memory check**: estimate per-worker memory (e.g. an SCTransform on a 30k-cell Seurat object ≈ 6 GiB). If `outer_workers * per_worker_gib > available_gib`, reduce `outer_workers` until it fits, OR switch to BPCells/DelayedArray on-disk backing per the memory-discipline policy.
 
 ### Step 3 — Fan out
@@ -199,6 +192,15 @@ Run these probes before any heavy work and log the results to `runtime/outputs/<
 - One-shot work that fits in a single core-second
 - Stage spec explicitly says "single-process" or `parallel_processable: false`
 - Memory budget can't accommodate even 2 workers (use the on-disk libraries instead)
+
+### Execution discipline on large data — do NOT thrash
+
+For a dataset at scale (>100k cells, >1e8 matrix nonzeros, multi-GB inputs), a single vectorised step legitimately takes MINUTES. That is normal and expected — it is NOT a sign your script is wrong.
+
+- **Commit to ONE library approach and let it run.** Pick the standard tool for the operation (scanpy/anndata or Seurat for scRNA-seq; scipy.sparse for matrix ops) and run it to completion. Do NOT abandon a running computation and rewrite the script just because a step is taking several minutes — `log1p`/normalisation/PCA/Harmony on ~1M cells routinely take 5–20 minutes even fully multithreaded. Watch `progress.log` / heartbeat, not the wall clock.
+- **NEVER fall back to single-threaded text tools** (`awk`, `sed`, `cut`, hand-rolled line parsers) for numeric matrix operations. They are far SLOWER than a BLAS-backed `scipy`/`numpy`/Seurat call on the same data, not faster, and they throw away the thread budget you were given. If a vectorised approach is slow, the fix is more threads / a chunked-but-still-vectorised pass / an on-disk backend (BPCells, DelayedArray, anndata-on-disk) — never a switch to text processing.
+- **Only rewrite on a real ERROR.** Rewrite your script when it raised an exception or produced wrong output — not on a hunch that a different strategy might be faster. Each speculative rewrite costs turns and budget; two or three rewrites will exhaust your per-task turn cap and block the task with no result.
+- **If memory is the constraint**, process in row/column chunks with the SAME vectorised library (e.g. iterate `scipy.sparse` blocks, or use anndata `backed='r'`), keeping each chunk multithreaded — do not drop to a scalar/text loop.
 
 ### Required logging
 
@@ -306,6 +308,20 @@ runtime/cache/
 runtime/r-libs/
 runtime/outputs/*/tmp/
 runtime/outputs/*/.heartbeat
+inputs/
+runtime/agent-home/
+runtime/outputs/*/data/
+*.mtx
+*.mtx.gz
+*.h5
+*.h5ad
+*.loom
+*.bam
+*.bai
+*.cram
+*.fastq
+*.fastq.gz
+*.fq.gz
 *.pyc
 __pycache__/
 .Rhistory

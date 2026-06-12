@@ -2,7 +2,8 @@
   "assignee": "agent",
   "container": null,
   "depends_on": [
-    "raw_qc"
+    "data_acquisition",
+    "discover_generic_summary"
   ],
   "description": "Universal catch-all summary atom paired with `raw_qc` for the\n`generic_omics` archetype. Consumes the QC metrics table and emits a\nper-sample summary table plus a high-level QC-flag JSON. Used as the\nfallback pipeline when intake prose mentions omics data but carries\nno specific modality or goal phrase; subsequent analysis steps\nsurface as SME-driven amendments rather than auto-emitted (Phase 6.1\nB2 of the v3+v4 100-percent-closure plan).\n",
   "kind": "gate",
@@ -19,6 +20,16 @@
   },
   "source_atom_id": "generic_summary",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "descriptive_statistics",
+        "hypothesis_testing",
+        "correlation_analysis",
+        "regression_modeling",
+        "dimensionality_reduction",
+        "clustering"
+      ]
+    },
     "expected_artifacts": [
       "summary_table.tsv",
       "qc_flags.json",

@@ -1,0 +1,26 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "multiome_arc_demultiplex"
+  ],
+  "description": "Validate outputs of: Demultiplex 10x Multiome ARC libraries — joint RNA + ATAC capture\non the same nuclei via the 10x ARC v1 chemistry. Produces per-\nnucleus paired (rna_counts, atac_fragments) keyed on a shared\ncell barcode. Cell Ranger ARC at runtime.\n",
+  "kind": "validation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "validate_multiome_arc_demultiplex",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "validate_multiome_arc_demultiplex"
+}

@@ -5,7 +5,7 @@ You are executing one harness-dispatched task from a computational biology workf
 preprocess, cell-level QC, normalise, optional batch correction +
 integration sweep, dimensionality reduction, cluster, annotate cell
 types, test cluster-vs-rest or cross-condition DE, then pathway
-enrichment. Mirrors today's `config/stage-taxonomies/single-cell.yaml`.
+enrichment.
 
 
 ## Dispatch Contract
@@ -22,7 +22,7 @@ enrichment. Mirrors today's `config/stage-taxonomies/single-cell.yaml`.
 - Completed: 0
 - Ready: 0
 - Blocked: 0
-- Pending: 42
+- Pending: 44
 
 ## Rules
 - Execute only the task named by `ECAA_TASK_ID`
@@ -49,11 +49,53 @@ per-stage records.
 
 Before composite-scoring any `discover_*` candidate pool:
 
-1. **Read `runtime/env_capability.json`** (harness-written at startup). For each candidate method, check required capabilities against the report. Candidates whose required capability is unavailable get tagged `{ env_capability_skip: true, missing: [cap...] }` in `decision.json::candidate_pool_full` and are excluded from composite scoring. This prevents silent Python-analog substitution when a spec pins an R/SCENIC/lisi tool that isn't installed.
+1. **Read `runtime/env_capability.json`** (harness-written at startup). Two sections both inform candidate scoring:
+- `capabilities` carries six coarse-grained signals — `r_seurat`, `r_cellchat`, `pyscenic`, `python_lisi`, `cellranger_version`, `rna_velocity_capable` — for the historical spec-preference flags.
+- `methods` carries per-method availability for every common candidate (DE: deseq2 / edger / limma_voom / mast / dexseq / drimseq; normalisation: scran / sctransform / deseq2_vst / edger_tmm / seurat_lognormalize; pathway: fgsea / clusterprofiler / gsea / enrichr; clustering: leiden / louvain / umap / phate; integration: harmony / bbknn / scvi / mnn_correct / combat; multi-omics: mofa2 / mofa_plus / mixomics_diablo; cell-type: celltypist / singler / sctype / azimuth; peaks: macs2 / chipseeker / diffbind / csaw; spatial: bayesspace / banksy / squidpy_neighbors; coloc: coloc / susie_coloc / hyprcoloc). Each entry is `{ available: bool, language: "python"|"r", probe_target: <import-name> }`.
+For each candidate method, check `methods.<id>.available` (or the legacy `capabilities` flag when the method isn't in the `methods` map yet). Candidates whose required capability is unavailable get tagged `{ env_capability_skip: true, missing: [cap...] }` in `decision.json::candidate_pool_full` and are DOWN-RANKED (not excluded — the install-at-task-start path may still install them). This signals which methods will need a `pip` / `BiocManager` / `conda` install before they can run, so the discover step can prefer in-image methods when scoring is close.
 
 2. **Apply `task.spec.spec_preferred_methods` boosts.** When the stage's task spec carries a non-empty `spec_preferred_methods: {method_id: rationale}` map, apply a `+0.30` boost on the `spec_match` composite axis to every candidate whose `method_id` is a key in that map. Record the boost in `decision.json::candidate_pool_full[i].spec_match_applied` + cite the rationale. Spec-preferred candidates that are env-available MUST outrank non-spec candidates of otherwise equal score. Set `decision.json::spec_preference_applied = true` when the final pick was re-ranked by the boost.
 
-Together these rules mean: spec-preferred tools that ARE in the env get picked automatically; spec-preferred tools that AREN'T fall through cleanly with a structured `env_capability_skip` rationale rather than silently swapping to a Python analog.
+2a. **Spec-preferred methods rank #1 and auto-advance.** When `task.spec.spec_preferred_methods` is non-empty, every `method_id` in it was explicitly requested by the SME / named in the project description — it is a hard instruction, not a hint. If `task.spec.candidate_pool_augmented == true`, the requested method was added to the candidate pool even though it is absent from the atom's curated `candidate_tools`; treat it as a first-class candidate (do NOT discard it as a typo) and probe/install it like any other method. After the `+0.30` boost, the highest-scoring spec-preferred candidate that is env-available (or installable) MUST be ranked #1. When exactly ONE spec-preferred method is the #1 env-available candidate, AUTO-ADVANCE: record `decision.json::chosen = <that id>`, `spec_preference_applied = true`, `auto_advanced = true`, and COMPLETE the discover task WITHOUT emitting `AwaitingSmeApproval` — the SME already chose by naming it. Fall back to surfacing the SME selection only when `spec_preferred_methods` is empty, none of its members are env-available-or-installable, or two-or-more spec-preferred methods are env-available (genuine ambiguity → block for the SME to pick).
+
+3. **specMatch renormalization when spec_preferred_methods is empty.** If `task.spec.spec_preferred_methods` is absent or empty, the `specMatch` axis has no input source and its 0.30 weight budget would otherwise be wasted. The policy's `compositeScoreWeights.renormalizeWhenAxisMissing` field lists axes that trigger weight redistribution in this case. For each axis in that list whose input source is absent: redistribute its weight proportionally among the remaining axes so the effective weights still sum to 1.0. The formula for the 4-axis case (specMatch missing): `eff_weight_i = policy_weight_i / (sum of remaining policy weights)`. Apply effective weights, compute composite, and record `decision.json::spec_match_renormalized = true` + `spec_match_effective_weights = {defaultSuitability: <v>, robustness: <v>, adoption: <v>, operationalFit: <v>}` in the decision JSON so the audit trail documents the redistribution. **Do NOT apply renormalization when `spec_preferred_methods` is non-empty** — in that case the specMatch axis IS scored (some candidates get the boost; others score 0.0), and the weight stays at 0.30.
+
+2b. **Apply `qualityGatePenalties` and check default eligibility.** After computing the composite score (steps 1–3 above), apply gate penalties and evaluate eligibility before assigning tiers:
+
+2b-1. For each candidate, count blocking quality-gate failures and non-blocking quality-gate failures (read from `qualityGateResults` in the candidate metadata, or from any gate evaluation your discovery step performed). Subtract `policy.qualityGatePenalties.blocking` (−1.0) per blocking failure and `policy.qualityGatePenalties.nonBlocking` (−0.25) per non-blocking failure from the composite score. Penalties stack additively. If `qualityGatePenalties` is absent from the policy, skip this sub-step (backward-compat). Record `decision.json::candidate_pool_full[i].quality_gate_penalty_total = <delta>` (the sum of all gate penalties for this candidate, e.g. −1.25 for 1 blocking + 1 non-blocking).
+
+2b-2. For each candidate, evaluate every criterion in `policy.defaultEligibilityCriteria` as a boolean predicate:
+- `"no_blocking_quality_gates"`: candidate has zero blocking gate failures.
+- `"confidence_not_low"`: candidate.confidence != "low".
+- `"has_supporting_evidence"`: candidate has >= 1 supporting evidence record.
+- `"has_high_quality_support"`: candidate has >= 1 evidence record whose class is in `policy.citationMinimum.highQualitySourceTypes` (official source / independent benchmark / primary literature).
+- `"no_contradictory_claims"`: candidate has zero evidence records flagged contradicted / mixed / unresolved / retracted (see `policy.contradiction.blockingStatuses`).
+- `"no_freshness_issues"`: candidate claim freshness status is in `policy.freshness.acceptableStatuses`.
+- `"literature_eligibility_confirmed"`: candidate's `literature_eligible` flag is `true`.
+A candidate fails default-eligibility if it fails ANY criterion. If `defaultEligibilityCriteria` is absent from the policy, treat every candidate as eligible (backward-compat). Record `decision.json::candidate_pool_full[i].passes_default_eligibility_criteria = <bool>` and `failed_criteria = [<list of failed criterion names>]`.
+
+2b-3. Tier assignment respects the eligibility flag. The `defaultRecommended` tier requires the candidate to satisfy ALL criteria in `defaultEligibilityCriteria` (i.e. `passes_default_eligibility_criteria == true`). Candidates that fail eligibility may still appear as `tentative` or `alternative` but must NOT be selected as the `defaultRecommended` pick. When the top-composite candidate is ineligible, promote the highest-scoring eligible candidate to `defaultRecommended`; if no eligible candidate exists, block for SME review rather than recommending an ineligible default.
+
+Together these rules mean: spec-preferred tools that ARE in the env get picked automatically; spec-preferred tools that AREN'T fall through cleanly with a structured `env_capability_skip` rationale rather than silently swapping to a Python analog. Stages where no method preferences were expressed score all candidates on the remaining 4 axes at full budget. Quality-gate failures reduce composite scores and exclude top-scoring candidates from the default-recommended tier when eligibility criteria are unmet.
+
+## Execution-time method availability — install the libraries the method needs
+
+The discover-step `env_capability` check above only probes a fixed set of known capabilities (R+Seurat, R+CellChat, pySCENIC, python_lisi, rna_velocity, cellranger). The base image (`bio-min:local` or equivalent) ships a curated baseline — numpy / scipy / pandas / scikit-learn / etc. — but it does NOT include every method any discover-step or SME pinning might choose. **The executor agent owns runtime package installation.** When the selected method (whether picked by the discover step's composite scoring or pinned via `sme-decisions.json::method_substitution`) needs a library the env doesn't have, INSTALL IT.
+
+The flow at task start:
+
+1. **Resolve the chosen method** from `sme-decisions.json` (`method_substitution.chosen`), the upstream `discover_*` decision (`runtime/outputs/discover_<stage>/decision.json::chosen`), or — if neither pins one — pick from `attributes.candidate_tools` using the same composite-scoring rationale.
+2. **Probe importability** of the package(s) the method requires (`python -c 'import gseapy'`, `Rscript -e 'library(fgsea)'`, etc.). On a clean import, proceed.
+3. **On `ModuleNotFoundError` / package-not-found**, install at task start. Default channel per language:
+- **Python wheels:** `pip install <name>` (or `pip install <name>==<version>` when the discover decision pins a version).
+- **R / Bioconductor:** `Rscript -e 'if (!requireNamespace("BiocManager", quietly=TRUE)) install.packages("BiocManager"); BiocManager::install("<name>", update=FALSE, ask=FALSE)'` for Bioconductor packages (fgsea, clusterProfiler, DESeq2, edgeR, limma, …); plain `install.packages("<name>")` for CRAN.
+- **Conda / bioconda:** `conda install -y -c bioconda -c conda-forge <name>` when neither pip nor BiocManager carries it and the base image has conda.
+- Capture the install transcript to `runtime/outputs/<task_id>/scripts/00_install.log` and record `language_packages_installed: [{name, version, channel}]` in `result.json` so the package stays auditable.
+4. **Re-probe** after install. If the import now succeeds, run the method as-pinned. If the install itself failed (network blocked, package name doesn't exist on the channel, build dependency missing), THEN re-block with `awaiting_structured_decision` and `decision_points_for_sme: ["switch to <available_alternative>", "skip stage"]`. The install failure goes into the blocker's `evidence` block.
+
+Treat the install as part of the method's setup, not as an exceptional event. The base image is intentionally minimal; expanding the toolbox at task time is the expected path, not a fallback.
+
+What you must NOT do: import the chosen library, catch `ModuleNotFoundError`, and emit a `method_note` claiming "functionally equivalent" with an in-task reimplementation. The result is no longer reproducible against the named method, and the package's claim that it ran the pinned tool is false. "Custom prerank GSEA using numpy/scipy" is not gseapy; "manual Welch's t-test" is not DESeq2. If you genuinely cannot install the requested library, RE-BLOCK — do not silently substitute.
 
 ## SME-supplied data inputs (consult BEFORE public-repo discovery)
 
@@ -66,7 +108,7 @@ When the SME has registered local data (file present at `runtime/inputs.json`, a
 
 This rule is independent of the env_capability and spec_preferred_methods rules above and runs FIRST: an SME-registered input always takes precedence over any other ranking signal.
 
-## Empty-completion is NOT permitted
+## Empty-completion is NOT permitted (with one carve-out)
 
 When you apply the available SME decisions and still cannot produce non-empty output (e.g. header-only tables, all-zero counts, every compartment failing a minimum-samples gate, any sentinel like `overall_<stage>_not_run: true`), you MUST re-block the task rather than mark it `completed` with an empty result. Write a new `blocker.json` with narrower `decision_points_for_sme` (for example: 'sample-level age TSV required', 'pick a different threshold', 'alternative grouping variable'), set `task.state.status = "blocked"`, and stop. Do not silently advance the DAG past an empty computation.
 
@@ -74,28 +116,30 @@ The harness + validator enforce this:
 - Any completed task whose result carries an `overall_*_not_run: true` key is automatically re-blocked by the harness on the next iteration.
 - Any completed compute task whose output tables (listed under `manifest.downstream_handoff` or the stage's canonical layout) contain zero data rows is flagged PASS-WITH-WARN by its validator.
 
-## Figures (REQUIRED when the task spec has `required_figures`)
+### Carve-out: SME-acknowledged skip is TERMINAL — DO NOT re-block
 
-Every compute task whose `spec.required_figures` is non-empty MUST produce each listed figure under `runtime/outputs/<task_id>/figures/<figure_id>.png` and `<figure_id>.pdf` **before** marking the task `completed`. Use the shared plotting library shipped with this package. If `task.spec.plot_stage_id` is present, pass that value as `stage_id`; otherwise pass the task id:
+When `runtime/outputs/<task_id>/sme-decisions.json` carries a chosen option from the closed skip-intent vocabulary, the SME has explicitly authorized completing the task with an empty/sentinel result and the harness's silent-completion guard will accept it. Writing a NEW `blocker.json` after this point creates an infinite loop — the agent reblocks, the harness short-circuits the reblock and dispatches you again, you reblock again. Recognized skip-intent option ids:
 
-```python
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path.cwd()))  # so `runtime.plotting` resolves
-from runtime.plotting.core import generate
-mf = generate(
-stage_id=task_spec.get("plot_stage_id", "<task_id>"),
-outputs_dir=Path("runtime/outputs/<task_id>"),
-required=<task.spec.required_figures>,
-)
-# mf.written is a dict of figure_id -> path; include it in task.state.result
+- `emit_skip_sentinel_row`, `skip_with_deviation`, `skip_with_documented_deviation` — emit a 1-row skip sentinel CSV and status=`completed`. Result must include `skipped_per_sme: true`, `sme_chosen_option_id: <id>`, and a `claim_boundary_note` documenting downstream effects.
+- `mark_task_failed_documented_deviation` — status=`failed`, same markers (`sme_chosen_option_id`, `claim_boundary_note`). Downstream dependents may need their own SME skip decisions.
+- `drop_stage_from_workflow`, `apply_workflow_amend_then_resume` — status=`completed` with `dropped_per_sme: true` + `sme_chosen_option_id`. Do NOT emit a follow-up 'drop routing' question; the SME's chosen path IS the routing. The harness will not re-dispatch downstream consumers.
+
+The validator distinguishes 'agent gave up' (rejected) from 'SME explicitly authorized skip' (accepted) by the presence of `skipped_per_sme` / `dropped_per_sme` + `sme_chosen_option_id` in the result. Without those markers, the empty-completion rule above applies and the harness will re-block.
+
+## Figures (the data-table contract — REQUIRED when the task spec has `required_figures`)
+
+Figures are NOT your job. Emit your analysis outputs as the standardized data TABLES for this stage (the renderer reads these; if `task.spec.plot_stage_id` is present it names the renderer stage). Do NOT render figures yourself and do NOT import matplotlib or ggplot for figures — figures are rendered deterministically from your tables by a fixed post-compute step:
+
+```
+python3 -m runtime.plotting render --stage <plot_stage_id or task_id> \
+--outputs runtime/outputs/<task_id> --required <task.spec.required_figures>
 ```
 
-The harness treats missing required figure PNG/PDF files and a missing `figures/manifest.json` as a hard completion failure. If input artifacts are absent, block the task with a concrete missing-input reason instead of completing with skipped required figures. Do NOT silently omit figures from the result.
+Your obligation is the TABLES. Emitting the required output tables is mandatory; a missing table that prevents rendering a required figure is a hard completion failure. Your compute language is free (Python or R) and does not affect figures — the render step is language-uniform and reads only your tables, so pick whatever fits the method.
 
-The library owns determinism (Agg backend, stripped metadata, seeded RNG, theme baseline from `runtime/plotting/theme.json`). Output is dual-format: a 300dpi PNG and a vector PDF for every figure. Do NOT import matplotlib directly — go through `runtime.plotting.core` helpers (`violin`, `bar`, `scatter`, `volcano`, `heatmap`) plus `categorical_palette(n)` for any categorical encoding (Wong/Glasbey colorblind-safe; never `tab10`/`tab20`) so every figure across the package is byte-reproducible.
+The harness treats missing required figure PNG/PDF files and a missing `figures/manifest.json` as a hard completion failure. If input artifacts are absent, block the task with a concrete missing-input reason instead of completing with skipped required tables. Do NOT silently omit a required table from the result.
 
-**For R-based tasks** (Seurat / DESeq2 / Bioconductor), source the parallel R-side library at `runtime/plotting_r/core.R` and call `ecaa_savefig(plot, path, stage_id=...)`. Both renderers consume the same `theme.json`, the same Wong palette, and produce figures at the same figure_id catalog so the validator's `figures_present` check is renderer-agnostic.
+The render step owns determinism FOR you (Agg backend, stripped metadata, seeded RNG, theme baseline from `runtime/plotting/theme.json`, dual-format 300dpi PNG + vector PDF, Wong/Glasbey colorblind-safe palettes). You do not configure any of that — you only write the tables, and the same figures come out byte-reproducibly regardless of which language produced them.
 
 ## Hardware-aware execution
 
@@ -269,6 +313,20 @@ runtime/cache/
 runtime/r-libs/
 runtime/outputs/*/tmp/
 runtime/outputs/*/.heartbeat
+inputs/
+runtime/agent-home/
+runtime/outputs/*/data/
+*.mtx
+*.mtx.gz
+*.h5
+*.h5ad
+*.loom
+*.bam
+*.bai
+*.cram
+*.fastq
+*.fastq.gz
+*.fq.gz
 *.pyc
 __pycache__/
 .Rhistory
@@ -327,6 +385,12 @@ top_candidate: <name>
 ```
 
 This way the SME's selection (when it lands) gets its own commit on top, and the diff cleanly shows what the SME changed. NEVER `git reset --hard` or `git rebase -i` — append commits, never rewrite history.
+
+## Analysis objective (as stated by the SME at intake)
+
+single cell scRNA-seq from human IVD samples comparing degenerated and healthy single cell scRNA-seq from human IVD samples comparing degenerated and healthy
+
+This is the SME's stated goal for the whole analysis. Honor it when choosing methods, parameters, and what to report at each stage; it does not override a task's spec or the claim boundary.
 
 ## Claim boundary (non-negotiable)
 

@@ -3,12 +3,13 @@
 **Modality:** atac_seq
 **Domain:** computational biology
 **Description:** Catch-all archetype for off-topic prose that mentions omics data but
-carries no specific modality or goal phrase. Emits the universal
-`raw_qc → generic_summary` pipeline so the SME sees something
-runnable; further analysis steps surface as SME-driven amendments
-rather than auto-emitted. Closes Phase 6.1 task B.2 of the v3+v4
-100-percent-closure plan, retiring the last legacy taxonomy
-fallback for bare-modality prose.
+carries no specific modality or goal phrase. MODALITY-AGNOSTIC: emits
+the universal `data_acquisition → generic_summary` pipeline so the SME
+sees something runnable; further analysis steps surface as SME-driven
+amendments rather than auto-emitted. Deliberately omits the
+sequencing-specific `raw_qc` (FastQC/MultiQC over FASTQ `raw_reads`),
+which hard-blocks on any non-sequencing input (e.g. tabular
+metabolomics) — QC belongs in the modality-specific archetypes.
 
 **EDAM topic:** topic:3179
 **EDAM operation:** operation:3222

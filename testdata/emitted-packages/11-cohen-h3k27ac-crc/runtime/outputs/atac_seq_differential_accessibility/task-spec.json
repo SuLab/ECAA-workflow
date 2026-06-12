@@ -20,13 +20,21 @@
   },
   "source_atom_id": "differential_accessibility",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "diffbind",
+        "deseq2",
+        "edger",
+        "csaw"
+      ]
+    },
     "expected_artifacts": [
       "differential_peaks.tsv",
       "diffacc_summary.json",
       "manifest.json",
       "result.json"
     ],
-    "plot_stage_id": "atac_seq_differential_accessibility",
+    "plot_stage_id": "differential_accessibility",
     "required_figures": [
       "volcano",
       "ma_plot",

@@ -1,0 +1,26 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "quantification"
+  ],
+  "description": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
+  "kind": "validation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "validate_quantification",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "validate_quantification"
+}

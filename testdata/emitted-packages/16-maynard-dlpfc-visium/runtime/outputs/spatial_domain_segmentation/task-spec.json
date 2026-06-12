@@ -20,6 +20,14 @@
   },
   "source_atom_id": "spatial_domain_segmentation",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "banksy",
+        "bayesspace",
+        "squidpy_neighbors",
+        "graphst"
+      ]
+    },
     "expected_artifacts": [
       "spatial_domains.tsv",
       "adjacency_graph.json",

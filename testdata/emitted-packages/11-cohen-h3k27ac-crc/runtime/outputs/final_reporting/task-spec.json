@@ -19,6 +19,9 @@
   },
   "source_atom_id": "final_reporting",
   "spec": {
+    "attributes": {
+      "claim_boundary": "Findings-first: lead with the validated result rows and the\nbiological_interpretation narrative (when present), then methods and\ncaveats. Restate findings exactly as produced by upstream validated\ntasks — every claim traces to an emitted result row or to an\ninterpretation statement that itself cites one. Do not introduce\nclaims that aren't backed by an emitted artifact; do not soften or\nstrengthen effect-size language; do not recommend methods the\npipeline did not run.\n\nThis report is the read-and-evaluated deliverable, so carry the upstream\nsubstance FORWARD into it rather than collapsing to a thin digest: the\nfindings, their interpretation, and the data/source grounding the\nupstream tasks already recorded must appear in the report itself, not be\nleft behind in per-task outputs or the trace. This is faithful\nre-emission under the trace-to-artifact rule above — NOT license to pad\nwith generic prose, and NOT license to add any finding, theme, value, or\ncitation that no upstream artifact produced (an unsupported addition is a\nfabrication, worse than an omission). Generic reporting discipline only;\ndo not tailor content to any external grading rubric.\n"
+    },
     "expected_artifacts": [
       "final_report.md",
       "dashboard_index.json",

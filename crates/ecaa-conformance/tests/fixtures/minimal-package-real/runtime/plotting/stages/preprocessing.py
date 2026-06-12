@@ -12,7 +12,7 @@ Expected inputs:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 

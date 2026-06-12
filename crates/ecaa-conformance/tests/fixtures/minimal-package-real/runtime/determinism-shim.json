@@ -12,7 +12,7 @@
   },
   "temp_path_policy": {
     "strategy": "stable-by-task-id",
-    "root": "/tmp"
+    "root": "runtime/scratch"
   },
   "locale": "en_US.UTF-8",
   "timezone": "UTC",

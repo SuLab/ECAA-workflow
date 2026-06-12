@@ -1,0 +1,48 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "cell_type_annotation",
+    "discover_peak_to_gene_linking",
+    "joint_wnn_integration"
+  ],
+  "description": "Link ATAC-derived peaks to RNA-derived gene expression within\nshared nuclei to identify regulatory peak-to-gene relationships.\nSignac LinkPeaks / ArchR addPeak2GeneLinks / cicero at runtime.\nStandard inputs: per-cluster differential peaks + DE genes;\noutputs candidate cis-regulatory edges with statistical support.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "peak_to_gene_linking",
+  "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "signac_linkpeaks",
+        "archr_peak2gene",
+        "cicero"
+      ],
+      "claim_boundary": "Peak-to-gene links are statistical correlations between\nper-nucleus chromatin accessibility and gene expression. They\ndo not directly establish causal regulation — orthogonal\nevidence (TF perturbation, eQTL data, reporter assays) is\nrequired before any regulatory-mechanism claim.\n"
+    },
+    "expected_artifacts": [
+      "peak_to_gene_links.tsv",
+      "linking_summary.json",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "peak_to_gene",
+    "required_figures": [
+      "peak_to_gene_arc",
+      "links_per_cluster_bar"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "peak_to_gene_linking"
+}

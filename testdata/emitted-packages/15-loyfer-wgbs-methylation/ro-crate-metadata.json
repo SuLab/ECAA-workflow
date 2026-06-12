@@ -86,6 +86,9 @@
           "@id": "runtime/audit-proof-report.json"
         },
         {
+          "@id": "runtime/ed-cf-self-assessment.json"
+        },
+        {
           "@id": "runtime/validation-summary.json"
         },
         {
@@ -168,6 +171,12 @@
       },
       "step": [
         {
+          "@id": "#step-review_prior_work"
+        },
+        {
+          "@id": "#step-validate_review_prior_work"
+        },
+        {
           "@id": "#step-data_acquisition"
         },
         {
@@ -241,6 +250,12 @@
         },
         {
           "@id": "#step-validate_pathway_enrichment"
+        },
+        {
+          "@id": "#step-contextualize_findings_with_literature"
+        },
+        {
+          "@id": "#step-validate_contextualize_findings_with_literature"
         },
         {
           "@id": "#step-reporting"
@@ -374,6 +389,13 @@
       "name": "Audit-proof invariant report"
     },
     {
+      "@id": "runtime/ed-cf-self-assessment.json",
+      "@type": "CreativeWork",
+      "description": "Deterministic self-location of the system in the Extensibility-Dimension / Counterfactual-Floor design space. Informational — locates, does not validate.",
+      "encodingFormat": "application/json",
+      "name": "ED/CF rubric self-assessment"
+    },
+    {
       "@id": "runtime/validation-summary.json",
       "@type": "CreativeWork",
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
@@ -387,207 +409,235 @@
       "name": "Homo sapiens"
     },
     {
+      "@id": "#step-review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "position": 1
+    },
+    {
+      "@id": "#step-validate_review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "position": 2
+    },
+    {
       "@id": "#step-data_acquisition",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 1
+      "position": 3
     },
     {
       "@id": "#step-validate_data_acquisition",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 2
+      "position": 4
     },
     {
       "@id": "#step-raw_qc",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 3
+      "position": 5
     },
     {
       "@id": "#step-validate_raw_qc",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 4
+      "position": 6
     },
     {
       "@id": "#step-survey_method_landscape",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
-      "position": 5
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "position": 7
     },
     {
       "@id": "#step-discover_sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
-      "position": 6
+      "position": 8
     },
     {
       "@id": "#step-discover_quantification",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for quantification (options: salmon, kallisto, featurecounts, htseq, rsem). Surface set_intake_method.",
-      "position": 7
+      "position": 9
     },
     {
       "@id": "#step-discover_pathway_enrichment",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
-      "position": 8
+      "position": 10
     },
     {
       "@id": "#step-discover_normalisation",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
-      "position": 9
+      "position": 11
     },
     {
       "@id": "#step-discover_differential_expression",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
-      "position": 10
+      "position": 12
     },
     {
       "@id": "#step-discover_alignment",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
-      "position": 11
+      "position": 13
     },
     {
       "@id": "#step-sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 12
+      "position": 14
     },
     {
       "@id": "#step-validate_sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 13
+      "position": 15
     },
     {
       "@id": "#step-alignment",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 14
+      "position": 16
     },
     {
       "@id": "#step-validate_alignment",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 15
+      "position": 17
     },
     {
       "@id": "#step-quantification",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
-      "position": 16
+      "position": 18
     },
     {
       "@id": "#step-validate_quantification",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
-      "position": 17
+      "position": 19
     },
     {
       "@id": "#step-qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
-      "position": 18
+      "position": 20
     },
     {
       "@id": "#step-validate_qc_preprocessing",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
-      "position": 19
+      "position": 21
     },
     {
       "@id": "#step-normalisation",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 20
+      "position": 22
     },
     {
       "@id": "#step-validate_normalisation",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
-      "position": 21
+      "position": 23
     },
     {
       "@id": "#step-differential_expression",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
-      "position": 22
+      "position": 24
     },
     {
       "@id": "#step-validate_differential_expression",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
-      "position": 23
+      "position": 25
     },
     {
       "@id": "#step-pathway_enrichment",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
-      "position": 24
+      "position": 26
     },
     {
       "@id": "#step-validate_pathway_enrichment",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
-      "position": 25
+      "position": 27
+    },
+    {
+      "@id": "#step-contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 28
+    },
+    {
+      "@id": "#step-validate_contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 29
     },
     {
       "@id": "#step-reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 26
+      "position": 30
     },
     {
       "@id": "#step-validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 27
+      "position": 31
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 28
+      "position": 32
     },
     {
       "@id": "#step-validate_final_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 29
+      "position": 33
     },
     {
       "@id": "runtime/outputs/data_acquisition/figures/samples_per_study.png",
@@ -827,6 +877,26 @@
       }
     },
     {
+      "@id": "#parameter-connection/differential_expression__to__contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-differential_expression#output"
+      },
+      "targetParameter": {
+        "@id": "#step-contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/review_prior_work__to__contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-contextualize_findings_with_literature#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/discover_differential_expression__to__differential_expression",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -997,6 +1067,16 @@
       }
     },
     {
+      "@id": "#parameter-connection/contextualize_findings_with_literature__to__reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-reporting#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/differential_expression__to__reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -1064,6 +1144,16 @@
       },
       "targetParameter": {
         "@id": "#step-validate_alignment#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/contextualize_findings_with_literature__to__validate_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_contextualize_findings_with_literature#input"
       }
     },
     {
@@ -1157,6 +1247,16 @@
       }
     },
     {
+      "@id": "#parameter-connection/review_prior_work__to__validate_review_prior_work",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-validate_review_prior_work#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/sequence_trimming__to__validate_sequence_trimming",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -1165,6 +1265,60 @@
       "targetParameter": {
         "@id": "#step-validate_sequence_trimming#input"
       }
+    },
+    {
+      "@id": "A:claim_completeness",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "claim_completeness",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:cross_graph_integrity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "cross_graph_integrity",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:decision_justification",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "decision_justification",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:equivalence_failure",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "equivalence_failure",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:evidence_coverage",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "evidence_coverage",
+      "verdict": "warn"
+    },
+    {
+      "@id": "A:substrate_validity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "substrate_validity",
+      "verdict": "unverified"
     }
   ]
 }

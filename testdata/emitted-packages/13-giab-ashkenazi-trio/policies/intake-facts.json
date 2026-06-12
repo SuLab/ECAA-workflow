@@ -7,5 +7,5 @@
     "GATK HaplotypeCaller",
     "DeepVariant"
   ],
-  "literature_review_requested": false
+  "literature_review_requested": true
 }

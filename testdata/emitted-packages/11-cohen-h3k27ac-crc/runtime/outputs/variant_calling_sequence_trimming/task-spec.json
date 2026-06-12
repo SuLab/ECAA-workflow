@@ -20,12 +20,20 @@
   },
   "source_atom_id": "sequence_trimming",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "trimmomatic",
+        "cutadapt",
+        "fastp",
+        "trim_galore"
+      ]
+    },
     "expected_artifacts": [
       "retention_summary.json",
       "manifest.json",
       "result.json"
     ],
-    "plot_stage_id": "variant_calling_preprocessing",
+    "plot_stage_id": "preprocessing",
     "required_figures": [
       "retention_bar"
     ]

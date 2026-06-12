@@ -1,0 +1,30 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "survey_method_landscape"
+  ],
+  "description": "Discover method for joint_wnn_integration (options: seurat_wnn, muon, mofa_plus). Surface set_intake_method.",
+  "kind": {
+    "discovery": "best_practice"
+  },
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "discover_joint_wnn_integration",
+  "spec": {
+    "stage_class": "joint_wnn_integration"
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "discover_joint_wnn_integration"
+}

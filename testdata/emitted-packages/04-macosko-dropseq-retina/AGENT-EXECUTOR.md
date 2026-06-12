@@ -22,17 +22,25 @@ job is to execute exactly one task in this RO-Crate package and return.
 
 You run inside a standardized container. Do not spend turns discovering it:
 
-- **Python:** use `python3` on `PATH` (equivalently `$ECAA_PY`) — the canonical
-  interpreter selected for this image, carrying the scientific-python substrate
-  (numpy/pandas/matplotlib). Do **not** search for or test alternate
+- **Python:** use `python3` on `PATH` (equivalently `$ECAA_PY`) — the Python
+  interpreter selected for this image. Do **not** search for or test alternate
   interpreters. If an import is genuinely missing, `ecaa-install py <pkg>`.
-- **R:** use `Rscript`. Install extra R packages with `ecaa-install r|bioc`
-  (never raw `install.packages`/`BiocManager`/`conda`) so they append to the
-  base library and base graphics (cairo/ragg) stay importable — never an
-  isolated env.
-- **Figures:** render every `required_figures` entry by calling the shipped
-  renderer, not by hand-rolling matplotlib/ggplot:
-  `python3 -c "import sys; sys.path.insert(0,'<PACKAGE>'); from runtime.plotting.core import generate; generate(stage_id='$TASK_ID', outputs_dir='runtime/outputs/$TASK_ID', required=[...])"`.
+- **R:** use `Rscript` — the R interpreter selected for this image. Install
+  extra R packages with `ecaa-install r|bioc` (never raw
+  `install.packages`/`BiocManager`/`conda`) so they append to the base library
+  and base graphics (cairo/ragg) stay importable — never an isolated env.
+- **Compute language is your free choice.** Python and R are both first-class
+  here; neither is privileged. Pick whichever fits the method — the choice does
+  not affect figures (those are rendered downstream from your tables, below).
+- **Figures:** figures are NOT your job. Emit the standardized output **tables**
+  for the stage; do not render figures and do not import matplotlib/ggplot for
+  figures. A fixed post-compute step renders them deterministically from your
+  tables (compute language is free and does not affect figures):
+  `python3 -m runtime.plotting render --stage <plot_stage_id or $TASK_ID> --outputs runtime/outputs/$TASK_ID --required <required_figures>`.
+  Your obligation is the tables; a missing required table is a hard completion failure.
+  The `runtime/plotting` (Python) and `runtime/plotting_r` (R) trees are the
+  render step's own internals — do not read, import, or mimic them, and do not
+  let their presence sway your compute-language choice.
 - **Installing packages:** if a task needs a package that isn't present, use
   the standard verb **`ecaa-install <py|r|bioc> <pkg>...`** (e.g.
   `ecaa-install bioc DESeq2`, `ecaa-install py scanpy`). It routes to the right
@@ -52,7 +60,17 @@ You run inside a standardized container. Do not spend turns discovering it:
 4. Write `runtime/outputs/$TASK_ID/result.json` with:
    - `task_id`
    - `status`: `completed` | `blocked` | `failed`
-   - `claims`: list of factual claims you made, each with evidence path
+   - `claims`: list of `{ "claim": "<assertion>", "evidence": "<table path>" }`
+     objects — every factual numeric assertion you make, each pointing at the
+     result table that backs it. For **confirmatory stages** (differential
+     expression, abundance, enrichment, variant/peak calling, endpoint
+     analysis) this list is MANDATORY and is the sole input to the package's
+     recall floor: the package carries an expected-claim manifest
+     (`policies/interpretation-policy.json` → `verifiableEntities.expected`),
+     and any `required` expectation you do not address with a structured,
+     evidence-backed claim is recorded as a coverage gap that fails the
+     `claim_completeness` invariant and re-blocks the task. Cite the exact
+     output table path so the verifier resolves it without ambiguity.
    - `figures`: list of figure file paths you produced
    - `narrative`: optional human-readable summary
 5. Stop. Do not iterate.

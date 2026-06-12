@@ -1,0 +1,24 @@
+{
+  "counterfactual_floor": {
+    "mechanisms": [
+      "audit_proof_report",
+      "emit_confirmation_latch",
+      "high_impact_alone_in_turn_gating",
+      "runtime_claim_verification",
+      "sandbox_default_strict"
+    ],
+    "score": 1.0
+  },
+  "disclaimer": "This report LOCATES the system in the ED/CF design space; it does NOT validate the package. Consistency is not validity.",
+  "extensibility": {
+    "mechanisms": [
+      "external_registry_import_tiers",
+      "gap_proposal_pipeline",
+      "llm_assisted_authoring",
+      "local_extension_graduation",
+      "schema_version_migration"
+    ],
+    "score": 1.0
+  },
+  "schema_version": "0.1"
+}

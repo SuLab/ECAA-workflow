@@ -51,7 +51,9 @@ def manifest_path(manifest: Dict[str, Any], outputs_dir: Path, *keys: str) -> Op
     return p if p.exists() else None
 
 
-def load_tsv_columns(path: Path, columns: Dict[str, Tuple[str, ...]]) -> Optional[Dict[str, np.ndarray]]:
+def load_tsv_columns(
+    path: Path, columns: Dict[str, Tuple[str, ...]]
+) -> Optional[Dict[str, np.ndarray]]:
     """Load a TSV file, returning the requested columns by candidate
     header names. `columns` maps the canonical name (used by the
     primitive) to a tuple of acceptable header aliases.

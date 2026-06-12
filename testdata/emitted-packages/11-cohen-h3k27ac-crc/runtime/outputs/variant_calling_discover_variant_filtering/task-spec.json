@@ -4,7 +4,7 @@
   "depends_on": [
     "variant_calling_survey_method_landscape"
   ],
-  "description": "Discover method for variant_filtering (options: vqsr, gatk_hard_filter, deepvariant_cnn, bcftools_filter). Surface set_intake_method.",
+  "description": "Discover method for variant_filtering (options: vqsr, gatk_hard_filter, deepvariant_cnn, bcftools_filter, lofreq_filter, vcffilter). Surface set_intake_method.",
   "kind": {
     "discovery": "best_practice"
   },

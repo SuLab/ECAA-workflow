@@ -1,0 +1,48 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "review_prior_work",
+    "time_series_forecast_evaluate"
+  ],
+  "description": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "network",
+    "network": {
+      "allowlist": [
+        "eutils.ncbi.nlm.nih.gov",
+        "ftp.ncbi.nlm.nih.gov",
+        "api.openalex.org",
+        "api.crossref.org",
+        "readthedocs.io",
+        "bioconductor.org",
+        "github.com",
+        "raw.githubusercontent.com",
+        "nf-co.re"
+      ],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "contextualize_findings_with_literature",
+  "spec": {
+    "attributes": {
+      "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+    },
+    "expected_artifacts": [
+      "claims_evidence_matrix.csv",
+      "literature_search_protocol.md",
+      "citation_verification_report.md",
+      "evidence/manifest.json",
+      "result.json"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "contextualize_findings_with_literature"
+}

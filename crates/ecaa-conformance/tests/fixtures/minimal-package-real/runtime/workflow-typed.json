@@ -1,0 +1,1281 @@
+{
+  "workflow_id": "composed:v4_bioinformatics_data:0951",
+  "name": "composed:v4_bioinformatics_data:0951",
+  "atom_registry_snapshot_id": "atomreg:sha256:922ece4661f84e11",
+  "steps": [
+    {
+      "step_id": "alignment",
+      "tool_id": "alignment",
+      "parameters": {},
+      "dependencies": [
+        "discover_alignment",
+        "sequence_trimming"
+      ],
+      "estimated_duration": 5400
+    },
+    {
+      "step_id": "batch_correction",
+      "tool_id": "batch_correction",
+      "parameters": {
+        "required_figures": [
+          "mixing_score_bar",
+          "umap_pre_post"
+        ]
+      },
+      "dependencies": [
+        "discover_batch_correction",
+        "normalisation"
+      ],
+      "estimated_duration": 5400
+    },
+    {
+      "step_id": "cell_type_annotation",
+      "tool_id": "cell_type_annotation",
+      "parameters": {
+        "required_figures": [
+          "umap_by_celltype",
+          "celltype_size_bar"
+        ]
+      },
+      "dependencies": [
+        "clustering",
+        "discover_cell_type_annotation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "clustering",
+      "tool_id": "clustering",
+      "parameters": {
+        "required_figures": [
+          "umap_clusters",
+          "cluster_size_bar"
+        ]
+      },
+      "dependencies": [
+        "dimensionality_reduction",
+        "discover_clustering"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "contextualize_findings_with_literature",
+      "tool_id": "contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "differential_expression",
+        "review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "data_acquisition",
+      "tool_id": "data_acquisition",
+      "parameters": {
+        "required_figures": [
+          "samples_per_study"
+        ]
+      },
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "differential_expression",
+      "tool_id": "differential_expression",
+      "parameters": {
+        "required_figures": [
+          "volcano",
+          "top_features_heatmap"
+        ]
+      },
+      "dependencies": [
+        "cell_type_annotation",
+        "discover_differential_expression"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "dimensionality_reduction",
+      "tool_id": "dimensionality_reduction",
+      "parameters": {
+        "required_figures": [
+          "variance_explained_elbow",
+          "embedding_scatter"
+        ]
+      },
+      "dependencies": [
+        "discover_dimensionality_reduction",
+        "integration",
+        "normalisation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_alignment",
+      "tool_id": "discover_alignment",
+      "parameters": {
+        "stage_class": "alignment"
+      },
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_batch_correction",
+      "tool_id": "discover_batch_correction",
+      "parameters": {
+        "stage_class": "batch_correction"
+      },
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_cell_type_annotation",
+      "tool_id": "discover_cell_type_annotation",
+      "parameters": {
+        "stage_class": "cell_type_annotation"
+      },
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_clustering",
+      "tool_id": "discover_clustering",
+      "parameters": {
+        "stage_class": "clustering"
+      },
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_differential_expression",
+      "tool_id": "discover_differential_expression",
+      "parameters": {
+        "stage_class": "differential_expression"
+      },
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_dimensionality_reduction",
+      "tool_id": "discover_dimensionality_reduction",
+      "parameters": {
+        "stage_class": "dimensionality_reduction"
+      },
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_normalisation",
+      "tool_id": "discover_normalisation",
+      "parameters": {
+        "stage_class": "normalisation"
+      },
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_quantification",
+      "tool_id": "discover_quantification",
+      "parameters": {
+        "stage_class": "quantification"
+      },
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_sequence_trimming",
+      "tool_id": "discover_sequence_trimming",
+      "parameters": {
+        "stage_class": "sequence_trimming"
+      },
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "final_reporting",
+      "tool_id": "final_reporting",
+      "parameters": {
+        "required_figures": [
+          "summary_dashboard"
+        ]
+      },
+      "dependencies": [
+        "reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "integration",
+      "tool_id": "integration",
+      "parameters": {},
+      "dependencies": [
+        "batch_correction"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "normalisation",
+      "tool_id": "normalisation",
+      "parameters": {
+        "plot_stage_id": "normalization",
+        "required_figures": [
+          "mean_variance",
+          "hvg_count_bar"
+        ]
+      },
+      "dependencies": [
+        "discover_normalisation",
+        "qc_preprocessing"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "qc_preprocessing",
+      "tool_id": "qc_preprocessing",
+      "parameters": {
+        "plot_stage_id": "quality_control",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ]
+      },
+      "dependencies": [
+        "quantification"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "quantification",
+      "tool_id": "quantification",
+      "parameters": {},
+      "dependencies": [
+        "alignment",
+        "discover_quantification"
+      ],
+      "estimated_duration": 5400
+    },
+    {
+      "step_id": "raw_qc",
+      "tool_id": "raw_qc",
+      "parameters": {
+        "plot_stage_id": "quality_control",
+        "required_figures": [
+          "per_sample_metric_violin",
+          "per_sample_metric_bar",
+          "qc_summary_bar"
+        ]
+      },
+      "dependencies": [
+        "data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "reporting",
+      "tool_id": "reporting",
+      "parameters": {
+        "required_figures": [
+          "concordance_heatmap",
+          "pathway_overlap_bar"
+        ]
+      },
+      "dependencies": [
+        "contextualize_findings_with_literature",
+        "differential_expression"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "review_prior_work",
+      "tool_id": "review_prior_work",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "sequence_trimming",
+      "tool_id": "sequence_trimming",
+      "parameters": {
+        "plot_stage_id": "preprocessing",
+        "required_figures": [
+          "retention_bar"
+        ]
+      },
+      "dependencies": [
+        "discover_sequence_trimming",
+        "raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "survey_method_landscape",
+      "tool_id": "survey_method_landscape",
+      "parameters": {},
+      "dependencies": [
+        "data_acquisition",
+        "raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_alignment",
+      "tool_id": "validate_alignment",
+      "parameters": {},
+      "dependencies": [
+        "alignment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_batch_correction",
+      "tool_id": "validate_batch_correction",
+      "parameters": {},
+      "dependencies": [
+        "batch_correction"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_cell_type_annotation",
+      "tool_id": "validate_cell_type_annotation",
+      "parameters": {},
+      "dependencies": [
+        "cell_type_annotation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_clustering",
+      "tool_id": "validate_clustering",
+      "parameters": {},
+      "dependencies": [
+        "clustering"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_contextualize_findings_with_literature",
+      "tool_id": "validate_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "contextualize_findings_with_literature"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_data_acquisition",
+      "tool_id": "validate_data_acquisition",
+      "parameters": {},
+      "dependencies": [
+        "data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_differential_expression",
+      "tool_id": "validate_differential_expression",
+      "parameters": {},
+      "dependencies": [
+        "differential_expression"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_dimensionality_reduction",
+      "tool_id": "validate_dimensionality_reduction",
+      "parameters": {},
+      "dependencies": [
+        "dimensionality_reduction"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_final_reporting",
+      "tool_id": "validate_final_reporting",
+      "parameters": {},
+      "dependencies": [
+        "final_reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_integration",
+      "tool_id": "validate_integration",
+      "parameters": {},
+      "dependencies": [
+        "integration"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_normalisation",
+      "tool_id": "validate_normalisation",
+      "parameters": {},
+      "dependencies": [
+        "normalisation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_qc_preprocessing",
+      "tool_id": "validate_qc_preprocessing",
+      "parameters": {},
+      "dependencies": [
+        "qc_preprocessing"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_quantification",
+      "tool_id": "validate_quantification",
+      "parameters": {},
+      "dependencies": [
+        "quantification"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_raw_qc",
+      "tool_id": "validate_raw_qc",
+      "parameters": {},
+      "dependencies": [
+        "raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_reporting",
+      "tool_id": "validate_reporting",
+      "parameters": {},
+      "dependencies": [
+        "reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_review_prior_work",
+      "tool_id": "validate_review_prior_work",
+      "parameters": {},
+      "dependencies": [
+        "review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_sequence_trimming",
+      "tool_id": "validate_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "sequence_trimming"
+      ],
+      "estimated_duration": 1800
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "alignment.aligned_reads->quantification.aligned_reads",
+      "source_node_id": "alignment",
+      "target_node_id": "quantification",
+      "source_output": "aligned_reads",
+      "target_input": "aligned_reads"
+    },
+    {
+      "edge_id": "alignment.aligned_reads->validate_alignment.validated_artifact",
+      "source_node_id": "alignment",
+      "target_node_id": "validate_alignment",
+      "source_output": "aligned_reads",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "batch_correction.corrected_counts->integration.corrected_matrices",
+      "source_node_id": "batch_correction",
+      "target_node_id": "integration",
+      "source_output": "corrected_counts",
+      "target_input": "corrected_matrices"
+    },
+    {
+      "edge_id": "batch_correction.corrected_counts->validate_batch_correction.validated_artifact",
+      "source_node_id": "batch_correction",
+      "target_node_id": "validate_batch_correction",
+      "source_output": "corrected_counts",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "cell_type_annotation.celltype_assignments->differential_expression.residual_in_3",
+      "source_node_id": "cell_type_annotation",
+      "target_node_id": "differential_expression",
+      "source_output": "celltype_assignments",
+      "target_input": "residual_in_3"
+    },
+    {
+      "edge_id": "cell_type_annotation.celltype_assignments->validate_cell_type_annotation.validated_artifact",
+      "source_node_id": "cell_type_annotation",
+      "target_node_id": "validate_cell_type_annotation",
+      "source_output": "celltype_assignments",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "clustering.cluster_assignments->cell_type_annotation.residual_in_2",
+      "source_node_id": "clustering",
+      "target_node_id": "cell_type_annotation",
+      "source_output": "cluster_assignments",
+      "target_input": "residual_in_2"
+    },
+    {
+      "edge_id": "clustering.cluster_assignments->validate_clustering.validated_artifact",
+      "source_node_id": "clustering",
+      "target_node_id": "validate_clustering",
+      "source_output": "cluster_assignments",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "contextualize_findings_with_literature.claims_evidence_matrix->reporting.aggregated_results",
+      "source_node_id": "contextualize_findings_with_literature",
+      "target_node_id": "reporting",
+      "source_output": "claims_evidence_matrix",
+      "target_input": "aggregated_results"
+    },
+    {
+      "edge_id": "contextualize_findings_with_literature.claims_evidence_matrix->validate_contextualize_findings_with_literature.validated_artifact",
+      "source_node_id": "contextualize_findings_with_literature",
+      "target_node_id": "validate_contextualize_findings_with_literature",
+      "source_output": "claims_evidence_matrix",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "data_acquisition.cohort_manifest->survey_method_landscape.companion_in_0",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "survey_method_landscape",
+      "source_output": "cohort_manifest",
+      "target_input": "companion_in_0"
+    },
+    {
+      "edge_id": "data_acquisition.cohort_manifest->validate_data_acquisition.validated_artifact",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "validate_data_acquisition",
+      "source_output": "cohort_manifest",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "data_acquisition.raw_reads->raw_qc.raw_reads",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "raw_qc",
+      "source_output": "raw_reads",
+      "target_input": "raw_reads"
+    },
+    {
+      "edge_id": "differential_expression.de_results->contextualize_findings_with_literature.residual_in_2",
+      "source_node_id": "differential_expression",
+      "target_node_id": "contextualize_findings_with_literature",
+      "source_output": "de_results",
+      "target_input": "residual_in_2"
+    },
+    {
+      "edge_id": "differential_expression.de_results->reporting.aggregated_results",
+      "source_node_id": "differential_expression",
+      "target_node_id": "reporting",
+      "source_output": "de_results",
+      "target_input": "aggregated_results"
+    },
+    {
+      "edge_id": "differential_expression.de_results->validate_differential_expression.validated_artifact",
+      "source_node_id": "differential_expression",
+      "target_node_id": "validate_differential_expression",
+      "source_output": "de_results",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "dimensionality_reduction.embedding->clustering.embedding",
+      "source_node_id": "dimensionality_reduction",
+      "target_node_id": "clustering",
+      "source_output": "embedding",
+      "target_input": "embedding"
+    },
+    {
+      "edge_id": "dimensionality_reduction.embedding->validate_dimensionality_reduction.validated_artifact",
+      "source_node_id": "dimensionality_reduction",
+      "target_node_id": "validate_dimensionality_reduction",
+      "source_output": "embedding",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "discover_alignment.method_recommendation->alignment.companion_in_1",
+      "source_node_id": "discover_alignment",
+      "target_node_id": "alignment",
+      "source_output": "method_recommendation",
+      "target_input": "companion_in_1"
+    },
+    {
+      "edge_id": "discover_batch_correction.method_recommendation->batch_correction.companion_in_1",
+      "source_node_id": "discover_batch_correction",
+      "target_node_id": "batch_correction",
+      "source_output": "method_recommendation",
+      "target_input": "companion_in_1"
+    },
+    {
+      "edge_id": "discover_cell_type_annotation.method_recommendation->cell_type_annotation.companion_in_1",
+      "source_node_id": "discover_cell_type_annotation",
+      "target_node_id": "cell_type_annotation",
+      "source_output": "method_recommendation",
+      "target_input": "companion_in_1"
+    },
+    {
+      "edge_id": "discover_clustering.method_recommendation->clustering.companion_in_1",
+      "source_node_id": "discover_clustering",
+      "target_node_id": "clustering",
+      "source_output": "method_recommendation",
+      "target_input": "companion_in_1"
+    },
+    {
+      "edge_id": "discover_differential_expression.method_recommendation->differential_expression.companion_in_2",
+      "source_node_id": "discover_differential_expression",
+      "target_node_id": "differential_expression",
+      "source_output": "method_recommendation",
+      "target_input": "companion_in_2"
+    },
+    {
+      "edge_id": "discover_dimensionality_reduction.method_recommendation->dimensionality_reduction.companion_in_1",
+      "source_node_id": "discover_dimensionality_reduction",
+      "target_node_id": "dimensionality_reduction",
+      "source_output": "method_recommendation",
+      "target_input": "companion_in_1"
+    },
+    {
+      "edge_id": "discover_normalisation.method_recommendation->normalisation.companion_in_1",
+      "source_node_id": "discover_normalisation",
+      "target_node_id": "normalisation",
+      "source_output": "method_recommendation",
+      "target_input": "companion_in_1"
+    },
+    {
+      "edge_id": "discover_quantification.method_recommendation->quantification.companion_in_1",
+      "source_node_id": "discover_quantification",
+      "target_node_id": "quantification",
+      "source_output": "method_recommendation",
+      "target_input": "companion_in_1"
+    },
+    {
+      "edge_id": "discover_sequence_trimming.method_recommendation->sequence_trimming.companion_in_1",
+      "source_node_id": "discover_sequence_trimming",
+      "target_node_id": "sequence_trimming",
+      "source_output": "method_recommendation",
+      "target_input": "companion_in_1"
+    },
+    {
+      "edge_id": "final_reporting.final_report_html->validate_final_reporting.validated_artifact",
+      "source_node_id": "final_reporting",
+      "target_node_id": "validate_final_reporting",
+      "source_output": "final_report_html",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "integration.integrated_matrix->dimensionality_reduction.normalized_counts",
+      "source_node_id": "integration",
+      "target_node_id": "dimensionality_reduction",
+      "source_output": "integrated_matrix",
+      "target_input": "normalized_counts"
+    },
+    {
+      "edge_id": "integration.integrated_matrix->validate_integration.validated_artifact",
+      "source_node_id": "integration",
+      "target_node_id": "validate_integration",
+      "source_output": "integrated_matrix",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "normalisation.normalized_counts->batch_correction.normalized_counts",
+      "source_node_id": "normalisation",
+      "target_node_id": "batch_correction",
+      "source_output": "normalized_counts",
+      "target_input": "normalized_counts"
+    },
+    {
+      "edge_id": "normalisation.normalized_counts->dimensionality_reduction.normalized_counts",
+      "source_node_id": "normalisation",
+      "target_node_id": "dimensionality_reduction",
+      "source_output": "normalized_counts",
+      "target_input": "normalized_counts"
+    },
+    {
+      "edge_id": "normalisation.normalized_counts->validate_normalisation.validated_artifact",
+      "source_node_id": "normalisation",
+      "target_node_id": "validate_normalisation",
+      "source_output": "normalized_counts",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "qc_preprocessing.filtered_count_matrix->normalisation.count_matrix",
+      "source_node_id": "qc_preprocessing",
+      "target_node_id": "normalisation",
+      "source_output": "filtered_count_matrix",
+      "target_input": "count_matrix"
+    },
+    {
+      "edge_id": "qc_preprocessing.filtered_count_matrix->validate_qc_preprocessing.validated_artifact",
+      "source_node_id": "qc_preprocessing",
+      "target_node_id": "validate_qc_preprocessing",
+      "source_output": "filtered_count_matrix",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "quantification.count_matrix->qc_preprocessing.count_matrix",
+      "source_node_id": "quantification",
+      "target_node_id": "qc_preprocessing",
+      "source_output": "count_matrix",
+      "target_input": "count_matrix"
+    },
+    {
+      "edge_id": "quantification.count_matrix->validate_quantification.validated_artifact",
+      "source_node_id": "quantification",
+      "target_node_id": "validate_quantification",
+      "source_output": "count_matrix",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "raw_qc.qc_metrics->sequence_trimming.residual_in_2",
+      "source_node_id": "raw_qc",
+      "target_node_id": "sequence_trimming",
+      "source_output": "qc_metrics",
+      "target_input": "residual_in_2"
+    },
+    {
+      "edge_id": "raw_qc.qc_metrics->survey_method_landscape.companion_in_1",
+      "source_node_id": "raw_qc",
+      "target_node_id": "survey_method_landscape",
+      "source_output": "qc_metrics",
+      "target_input": "companion_in_1"
+    },
+    {
+      "edge_id": "raw_qc.qc_metrics->validate_raw_qc.validated_artifact",
+      "source_node_id": "raw_qc",
+      "target_node_id": "validate_raw_qc",
+      "source_output": "qc_metrics",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "reporting.report_html->final_reporting.analysis_bundle",
+      "source_node_id": "reporting",
+      "target_node_id": "final_reporting",
+      "source_output": "report_html",
+      "target_input": "analysis_bundle"
+    },
+    {
+      "edge_id": "reporting.report_html->validate_reporting.validated_artifact",
+      "source_node_id": "reporting",
+      "target_node_id": "validate_reporting",
+      "source_output": "report_html",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "review_prior_work.prior_claims_matrix->contextualize_findings_with_literature.prior_claims_matrix",
+      "source_node_id": "review_prior_work",
+      "target_node_id": "contextualize_findings_with_literature",
+      "source_output": "prior_claims_matrix",
+      "target_input": "prior_claims_matrix"
+    },
+    {
+      "edge_id": "review_prior_work.prior_claims_matrix->validate_review_prior_work.validated_artifact",
+      "source_node_id": "review_prior_work",
+      "target_node_id": "validate_review_prior_work",
+      "source_output": "prior_claims_matrix",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "sequence_trimming.trimmed_reads->alignment.reads",
+      "source_node_id": "sequence_trimming",
+      "target_node_id": "alignment",
+      "source_output": "trimmed_reads",
+      "target_input": "reads"
+    },
+    {
+      "edge_id": "sequence_trimming.trimmed_reads->validate_sequence_trimming.validated_artifact",
+      "source_node_id": "sequence_trimming",
+      "target_node_id": "validate_sequence_trimming",
+      "source_output": "trimmed_reads",
+      "target_input": "validated_artifact"
+    },
+    {
+      "edge_id": "survey_method_landscape.method_landscape->discover_alignment.companion_in_0",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_alignment",
+      "source_output": "method_landscape",
+      "target_input": "companion_in_0"
+    },
+    {
+      "edge_id": "survey_method_landscape.method_landscape->discover_batch_correction.companion_in_0",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_batch_correction",
+      "source_output": "method_landscape",
+      "target_input": "companion_in_0"
+    },
+    {
+      "edge_id": "survey_method_landscape.method_landscape->discover_cell_type_annotation.companion_in_0",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_cell_type_annotation",
+      "source_output": "method_landscape",
+      "target_input": "companion_in_0"
+    },
+    {
+      "edge_id": "survey_method_landscape.method_landscape->discover_clustering.companion_in_0",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_clustering",
+      "source_output": "method_landscape",
+      "target_input": "companion_in_0"
+    },
+    {
+      "edge_id": "survey_method_landscape.method_landscape->discover_differential_expression.companion_in_0",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_differential_expression",
+      "source_output": "method_landscape",
+      "target_input": "companion_in_0"
+    },
+    {
+      "edge_id": "survey_method_landscape.method_landscape->discover_dimensionality_reduction.companion_in_0",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_dimensionality_reduction",
+      "source_output": "method_landscape",
+      "target_input": "companion_in_0"
+    },
+    {
+      "edge_id": "survey_method_landscape.method_landscape->discover_normalisation.companion_in_0",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_normalisation",
+      "source_output": "method_landscape",
+      "target_input": "companion_in_0"
+    },
+    {
+      "edge_id": "survey_method_landscape.method_landscape->discover_quantification.companion_in_0",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_quantification",
+      "source_output": "method_landscape",
+      "target_input": "companion_in_0"
+    },
+    {
+      "edge_id": "survey_method_landscape.method_landscape->discover_sequence_trimming.companion_in_0",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_sequence_trimming",
+      "source_output": "method_landscape",
+      "target_input": "companion_in_0"
+    }
+  ],
+  "parameter_mappings": [
+    {
+      "source_step": "discover_alignment",
+      "source_output": "method_recommendation",
+      "target_step": "alignment",
+      "target_input": "companion_in_1"
+    },
+    {
+      "source_step": "sequence_trimming",
+      "source_output": "trimmed_reads",
+      "target_step": "alignment",
+      "target_input": "reads"
+    },
+    {
+      "source_step": "discover_batch_correction",
+      "source_output": "method_recommendation",
+      "target_step": "batch_correction",
+      "target_input": "companion_in_1"
+    },
+    {
+      "source_step": "normalisation",
+      "source_output": "normalized_counts",
+      "target_step": "batch_correction",
+      "target_input": "normalized_counts"
+    },
+    {
+      "source_step": "discover_cell_type_annotation",
+      "source_output": "method_recommendation",
+      "target_step": "cell_type_annotation",
+      "target_input": "companion_in_1"
+    },
+    {
+      "source_step": "clustering",
+      "source_output": "cluster_assignments",
+      "target_step": "cell_type_annotation",
+      "target_input": "residual_in_2"
+    },
+    {
+      "source_step": "discover_clustering",
+      "source_output": "method_recommendation",
+      "target_step": "clustering",
+      "target_input": "companion_in_1"
+    },
+    {
+      "source_step": "dimensionality_reduction",
+      "source_output": "embedding",
+      "target_step": "clustering",
+      "target_input": "embedding"
+    },
+    {
+      "source_step": "review_prior_work",
+      "source_output": "prior_claims_matrix",
+      "target_step": "contextualize_findings_with_literature",
+      "target_input": "prior_claims_matrix"
+    },
+    {
+      "source_step": "differential_expression",
+      "source_output": "de_results",
+      "target_step": "contextualize_findings_with_literature",
+      "target_input": "residual_in_2"
+    },
+    {
+      "source_step": "discover_differential_expression",
+      "source_output": "method_recommendation",
+      "target_step": "differential_expression",
+      "target_input": "companion_in_2"
+    },
+    {
+      "source_step": "cell_type_annotation",
+      "source_output": "celltype_assignments",
+      "target_step": "differential_expression",
+      "target_input": "residual_in_3"
+    },
+    {
+      "source_step": "discover_dimensionality_reduction",
+      "source_output": "method_recommendation",
+      "target_step": "dimensionality_reduction",
+      "target_input": "companion_in_1"
+    },
+    {
+      "source_step": "integration",
+      "source_output": "integrated_matrix",
+      "target_step": "dimensionality_reduction",
+      "target_input": "normalized_counts"
+    },
+    {
+      "source_step": "normalisation",
+      "source_output": "normalized_counts",
+      "target_step": "dimensionality_reduction",
+      "target_input": "normalized_counts"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "method_landscape",
+      "target_step": "discover_alignment",
+      "target_input": "companion_in_0"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "method_landscape",
+      "target_step": "discover_batch_correction",
+      "target_input": "companion_in_0"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "method_landscape",
+      "target_step": "discover_cell_type_annotation",
+      "target_input": "companion_in_0"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "method_landscape",
+      "target_step": "discover_clustering",
+      "target_input": "companion_in_0"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "method_landscape",
+      "target_step": "discover_differential_expression",
+      "target_input": "companion_in_0"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "method_landscape",
+      "target_step": "discover_dimensionality_reduction",
+      "target_input": "companion_in_0"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "method_landscape",
+      "target_step": "discover_normalisation",
+      "target_input": "companion_in_0"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "method_landscape",
+      "target_step": "discover_quantification",
+      "target_input": "companion_in_0"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "method_landscape",
+      "target_step": "discover_sequence_trimming",
+      "target_input": "companion_in_0"
+    },
+    {
+      "source_step": "reporting",
+      "source_output": "report_html",
+      "target_step": "final_reporting",
+      "target_input": "analysis_bundle"
+    },
+    {
+      "source_step": "batch_correction",
+      "source_output": "corrected_counts",
+      "target_step": "integration",
+      "target_input": "corrected_matrices"
+    },
+    {
+      "source_step": "discover_normalisation",
+      "source_output": "method_recommendation",
+      "target_step": "normalisation",
+      "target_input": "companion_in_1"
+    },
+    {
+      "source_step": "qc_preprocessing",
+      "source_output": "filtered_count_matrix",
+      "target_step": "normalisation",
+      "target_input": "count_matrix"
+    },
+    {
+      "source_step": "quantification",
+      "source_output": "count_matrix",
+      "target_step": "qc_preprocessing",
+      "target_input": "count_matrix"
+    },
+    {
+      "source_step": "alignment",
+      "source_output": "aligned_reads",
+      "target_step": "quantification",
+      "target_input": "aligned_reads"
+    },
+    {
+      "source_step": "discover_quantification",
+      "source_output": "method_recommendation",
+      "target_step": "quantification",
+      "target_input": "companion_in_1"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "raw_reads",
+      "target_step": "raw_qc",
+      "target_input": "raw_reads"
+    },
+    {
+      "source_step": "contextualize_findings_with_literature",
+      "source_output": "claims_evidence_matrix",
+      "target_step": "reporting",
+      "target_input": "aggregated_results"
+    },
+    {
+      "source_step": "differential_expression",
+      "source_output": "de_results",
+      "target_step": "reporting",
+      "target_input": "aggregated_results"
+    },
+    {
+      "source_step": "discover_sequence_trimming",
+      "source_output": "method_recommendation",
+      "target_step": "sequence_trimming",
+      "target_input": "companion_in_1"
+    },
+    {
+      "source_step": "raw_qc",
+      "source_output": "qc_metrics",
+      "target_step": "sequence_trimming",
+      "target_input": "residual_in_2"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "cohort_manifest",
+      "target_step": "survey_method_landscape",
+      "target_input": "companion_in_0"
+    },
+    {
+      "source_step": "raw_qc",
+      "source_output": "qc_metrics",
+      "target_step": "survey_method_landscape",
+      "target_input": "companion_in_1"
+    },
+    {
+      "source_step": "alignment",
+      "source_output": "aligned_reads",
+      "target_step": "validate_alignment",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "batch_correction",
+      "source_output": "corrected_counts",
+      "target_step": "validate_batch_correction",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "cell_type_annotation",
+      "source_output": "celltype_assignments",
+      "target_step": "validate_cell_type_annotation",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "clustering",
+      "source_output": "cluster_assignments",
+      "target_step": "validate_clustering",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "contextualize_findings_with_literature",
+      "source_output": "claims_evidence_matrix",
+      "target_step": "validate_contextualize_findings_with_literature",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "cohort_manifest",
+      "target_step": "validate_data_acquisition",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "differential_expression",
+      "source_output": "de_results",
+      "target_step": "validate_differential_expression",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "dimensionality_reduction",
+      "source_output": "embedding",
+      "target_step": "validate_dimensionality_reduction",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "final_reporting",
+      "source_output": "final_report_html",
+      "target_step": "validate_final_reporting",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "integration",
+      "source_output": "integrated_matrix",
+      "target_step": "validate_integration",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "normalisation",
+      "source_output": "normalized_counts",
+      "target_step": "validate_normalisation",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "qc_preprocessing",
+      "source_output": "filtered_count_matrix",
+      "target_step": "validate_qc_preprocessing",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "quantification",
+      "source_output": "count_matrix",
+      "target_step": "validate_quantification",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "raw_qc",
+      "source_output": "qc_metrics",
+      "target_step": "validate_raw_qc",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "reporting",
+      "source_output": "report_html",
+      "target_step": "validate_reporting",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "review_prior_work",
+      "source_output": "prior_claims_matrix",
+      "target_step": "validate_review_prior_work",
+      "target_input": "validated_artifact"
+    },
+    {
+      "source_step": "sequence_trimming",
+      "source_output": "trimmed_reads",
+      "target_step": "validate_sequence_trimming",
+      "target_input": "validated_artifact"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "organism",
+      "type": "string",
+      "value": "Homo sapiens",
+      "source": "intake"
+    }
+  ],
+  "validation_rules": [
+    {
+      "rule_id": "discover_alignment:requires_sme_review",
+      "target_step": "discover_alignment",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_batch_correction:requires_sme_review",
+      "target_step": "discover_batch_correction",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_cell_type_annotation:requires_sme_review",
+      "target_step": "discover_cell_type_annotation",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_clustering:requires_sme_review",
+      "target_step": "discover_clustering",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_differential_expression:requires_sme_review",
+      "target_step": "discover_differential_expression",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_dimensionality_reduction:requires_sme_review",
+      "target_step": "discover_dimensionality_reduction",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_normalisation:requires_sme_review",
+      "target_step": "discover_normalisation",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_quantification:requires_sme_review",
+      "target_step": "discover_quantification",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "discover_sequence_trimming:requires_sme_review",
+      "target_step": "discover_sequence_trimming",
+      "severity": "hard"
+    }
+  ],
+  "metadata": {
+    "complexity": "complex",
+    "tags": [
+      "aggregator",
+      "discovery",
+      "operation",
+      "single_cell_rnaseq",
+      "validation"
+    ],
+    "categories": [
+      "single_cell"
+    ],
+    "use_cases": []
+  }
+}

@@ -1,56 +1,56 @@
 {
-  "schema_version": "0.1",
   "ecaa_version": "0.2",
-  "min_reader_version": "0.2",
-  "package_iri": "ro-crate-metadata.json",
-  "evaluated_at": "2026-06-02T00:44:09.660978800+00:00",
+  "evaluated_at": "2026-06-12T21:40:49.493095455+00:00",
   "evaluator": {
     "impl": "ecaa-workflow-audit-proof",
-    "version": "0.1.0",
-    "policy": "warn-only"
+    "policy": "warn-only",
+    "version": "0.1.0"
   },
+  "min_reader_version": "0.2",
+  "package_iri": "ro-crate-metadata.json",
+  "schema_version": "0.1",
   "verdicts": [
     {
+      "detail": "no verified claims; signed verdict sink absent",
       "id": "claim_completeness",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
-      "id": "decision_justification",
-      "status": "unverified",
       "detail": "no method-choice decisions present",
+      "id": "decision_justification",
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
+      "detail": "10 output(s) not referenced and not marked unused: runtime/outputs/data_acquisition/figures/samples_per_study.png, runtime/outputs/final_reporting/figures/summary_dashboard.png, runtime/outputs/raw_qc/figures/per_sample_metric_bar.png, runtime/outputs/raw_qc/figures/per_sample_metric_violin.png, runtime/outputs/raw_qc/figures/qc_summary_bar.png, runtime/outputs/reporting/figures/concordance_heatmap.png, runtime/outputs/reporting/figures/pathway_overlap_bar.png, runtime/outputs/sequence_trimming/figures/retention_bar.png, runtime/outputs/variant_filtering/figures/manhattan.png, runtime/outputs/variant_filtering/figures/qq.png",
       "id": "evidence_coverage",
-      "status": "warn",
-      "detail": "34 output(s) not referenced and not marked unused: workflow:discover_alignment, workflow:sequence_trimming, workflow:review_prior_work, workflow:variant_annotation, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:survey_method_landscape, workflow:reporting, workflow:data_acquisition, workflow:contextualize_findings_with_literature, workflow:variant_annotation, workflow:discover_sequence_trimming, workflow:raw_qc, workflow:data_acquisition, workflow:raw_qc, workflow:alignment, workflow:contextualize_findings_with_literature, workflow:data_acquisition, workflow:final_reporting, workflow:raw_qc, workflow:reporting, workflow:review_prior_work, workflow:sequence_trimming, workflow:variant_annotation, workflow:variant_calling, workflow:variant_filtering, workflow:discover_variant_annotation, workflow:variant_filtering, workflow:alignment, workflow:discover_variant_calling, workflow:discover_variant_filtering, workflow:variant_calling",
-      "n_inspected": 34,
-      "n_violations": 34
+      "n_inspected": 10,
+      "n_violations": 10,
+      "status": "warn"
     },
     {
+      "detail": "no re-execution performed (Q absent)",
       "id": "equivalence_failure",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
+      "detail": "no cross-graph references present",
       "id": "cross_graph_integrity",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
-      "id": "substrate_validity",
-      "status": "unverified",
       "detail": "runcrate not run",
+      "id": "substrate_validity",
       "n_inspected": 1,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     }
   ]
 }

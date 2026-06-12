@@ -4109,13 +4109,27 @@ def decomposition_panel(
         ("seasonal", seasonal, seas_color),
         ("residual", residual, resid_color),
     ]
+    # Plot against an integer position axis so a long categorical/string
+    # time column (e.g. 96 monthly "YYYY-MM" labels) doesn't render one
+    # overlapping tick per point. Tick labels are downsampled from `t` to
+    # at most `max_ticks` and rotated, which keeps the shared x-axis
+    # legible regardless of whether `t` is string, numeric, or datetime.
+    x = np.arange(n)
     for ax, (label, series_y, color) in zip(axes, rows):
-        ax.plot(t, series_y, color=color, linewidth=1.0)
+        ax.plot(x, series_y, color=color, linewidth=1.0)
         ax.set_ylabel(label)
         if label == "residual":
             ax.axhline(0.0, color="#444444", linewidth=0.3, linestyle="--")
 
-    axes[-1].set_xlabel(time_col)
+    ax_bottom = axes[-1]
+    max_ticks = 12
+    step = max(1, int(np.ceil(n / max_ticks)))
+    tick_pos = np.arange(0, n, step)
+    ax_bottom.set_xticks(tick_pos)
+    ax_bottom.set_xticklabels(
+        [str(np.asarray(t)[i]) for i in tick_pos], rotation=45, ha="right"
+    )
+    ax_bottom.set_xlabel(time_col)
     axes[0].set_title(f"{title}\nn = {n}, period = {period}")
     return savefig(fig, out)
 

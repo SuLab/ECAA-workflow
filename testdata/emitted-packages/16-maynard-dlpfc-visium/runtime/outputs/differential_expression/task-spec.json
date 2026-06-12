@@ -21,6 +21,16 @@
   },
   "source_atom_id": "differential_expression",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "deseq2",
+        "edger",
+        "limma_voom",
+        "mast",
+        "wilcoxon"
+      ],
+      "claim_boundary": "Differential expression is statistical association, not biological causation.\nReport effect-size + adjusted p-value + the reference factor level for every\ncontrast. Avoid mechanistic language; prefer \"associated with\" / \"enriched in\"\nover \"drives\" / \"causes\".\n"
+    },
     "expected_artifacts": [
       "de_results.tsv",
       "de_summary.json",

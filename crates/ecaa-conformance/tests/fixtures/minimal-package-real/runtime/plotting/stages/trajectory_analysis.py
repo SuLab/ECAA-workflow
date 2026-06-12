@@ -20,7 +20,6 @@ from ..core import (
     FigureContext,
     register_figure,
     register_view,
-    savefig,
     scatter,
     stage_registry,
     stage_view_registry,

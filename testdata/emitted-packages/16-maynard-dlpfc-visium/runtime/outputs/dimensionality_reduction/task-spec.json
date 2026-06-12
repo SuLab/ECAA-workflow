@@ -20,6 +20,14 @@
   },
   "source_atom_id": "dimensionality_reduction",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "pca",
+        "umap",
+        "tsne",
+        "phate"
+      ]
+    },
     "expected_artifacts": [
       "pca_loadings.tsv",
       "umap_coords.tsv",

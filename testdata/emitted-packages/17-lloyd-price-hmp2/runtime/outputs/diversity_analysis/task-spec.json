@@ -1,0 +1,36 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "taxonomic_classification"
+  ],
+  "description": "Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). ecaax namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
+  "kind": "computation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "diversity_analysis",
+  "spec": {
+    "expected_artifacts": [
+      "diversity_metrics.tsv",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "taxonomic_profiling",
+    "required_figures": [
+      "diversity_violin"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "diversity_analysis"
+}

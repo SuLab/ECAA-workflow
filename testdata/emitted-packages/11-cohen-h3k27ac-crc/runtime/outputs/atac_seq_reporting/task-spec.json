@@ -2,6 +2,7 @@
   "assignee": "agent",
   "container": null,
   "depends_on": [
+    "atac_seq_contextualize_findings_with_literature",
     "atac_seq_differential_accessibility",
     "atac_seq_motif_enrichment",
     "atac_seq_peak_annotation",
@@ -27,6 +28,7 @@
       "manifest.json",
       "result.json"
     ],
+    "plot_stage_id": "reporting",
     "required_figures": [
       "concordance_heatmap",
       "pathway_overlap_bar"

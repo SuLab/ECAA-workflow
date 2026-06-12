@@ -30,7 +30,7 @@ echo "[refresh-real-fixture] running emit roundtrip in keep-output mode..."
 # captured-path marker is the real failure signal.
 TEST_OUTPUT="$(cargo test \
     -p ecaa-workflow-conversation \
-    --test emit_roundtrip_schema_clean \
+    --test emit \
     emit_to_kept_dir_for_fixture_refresh \
     -- --test-threads=1 --nocapture --ignored 2>&1)" || true
 echo "$TEST_OUTPUT"

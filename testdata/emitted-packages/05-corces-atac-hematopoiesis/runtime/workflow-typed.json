@@ -1,0 +1,360 @@
+{
+  "workflow_id": "workflow-9cc1d54d55ed",
+  "name": "workflow-9cc1d54d55ed",
+  "atom_registry_snapshot_id": "atomreg:sha256:922ece4661f84e11",
+  "steps": [
+    {
+      "step_id": "contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "generic_summary",
+        "review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "data_acquisition",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "discover_generic_summary",
+      "parameters": {},
+      "dependencies": [
+        "survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "final_reporting",
+      "parameters": {},
+      "dependencies": [
+        "reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "generic_summary",
+      "parameters": {},
+      "dependencies": [
+        "data_acquisition",
+        "discover_generic_summary"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "reporting",
+      "parameters": {},
+      "dependencies": [
+        "contextualize_findings_with_literature",
+        "generic_summary"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "review_prior_work",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "survey_method_landscape",
+      "parameters": {},
+      "dependencies": [
+        "data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "contextualize_findings_with_literature"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_data_acquisition",
+      "parameters": {},
+      "dependencies": [
+        "data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_final_reporting",
+      "parameters": {},
+      "dependencies": [
+        "final_reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_generic_summary",
+      "parameters": {},
+      "dependencies": [
+        "generic_summary"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_reporting",
+      "parameters": {},
+      "dependencies": [
+        "reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "validate_review_prior_work",
+      "parameters": {},
+      "dependencies": [
+        "review_prior_work"
+      ],
+      "estimated_duration": 1800
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "contextualize_findings_with_literature.out->reporting.in",
+      "source_node_id": "contextualize_findings_with_literature",
+      "target_node_id": "reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "contextualize_findings_with_literature.out->validate_contextualize_findings_with_literature.in",
+      "source_node_id": "contextualize_findings_with_literature",
+      "target_node_id": "validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "data_acquisition.out->generic_summary.in",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "generic_summary",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "data_acquisition.out->survey_method_landscape.in",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "data_acquisition.out->validate_data_acquisition.in",
+      "source_node_id": "data_acquisition",
+      "target_node_id": "validate_data_acquisition",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "discover_generic_summary.out->generic_summary.in",
+      "source_node_id": "discover_generic_summary",
+      "target_node_id": "generic_summary",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "final_reporting.out->validate_final_reporting.in",
+      "source_node_id": "final_reporting",
+      "target_node_id": "validate_final_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "generic_summary.out->contextualize_findings_with_literature.in",
+      "source_node_id": "generic_summary",
+      "target_node_id": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "generic_summary.out->reporting.in",
+      "source_node_id": "generic_summary",
+      "target_node_id": "reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "generic_summary.out->validate_generic_summary.in",
+      "source_node_id": "generic_summary",
+      "target_node_id": "validate_generic_summary",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "reporting.out->final_reporting.in",
+      "source_node_id": "reporting",
+      "target_node_id": "final_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "reporting.out->validate_reporting.in",
+      "source_node_id": "reporting",
+      "target_node_id": "validate_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "review_prior_work.out->contextualize_findings_with_literature.in",
+      "source_node_id": "review_prior_work",
+      "target_node_id": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "review_prior_work.out->validate_review_prior_work.in",
+      "source_node_id": "review_prior_work",
+      "target_node_id": "validate_review_prior_work",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "survey_method_landscape.out->discover_generic_summary.in",
+      "source_node_id": "survey_method_landscape",
+      "target_node_id": "discover_generic_summary",
+      "source_output": "out",
+      "target_input": "in"
+    }
+  ],
+  "parameter_mappings": [
+    {
+      "source_step": "generic_summary",
+      "source_output": "out",
+      "target_step": "contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "review_prior_work",
+      "source_output": "out",
+      "target_step": "contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "survey_method_landscape",
+      "source_output": "out",
+      "target_step": "discover_generic_summary",
+      "target_input": "in"
+    },
+    {
+      "source_step": "reporting",
+      "source_output": "out",
+      "target_step": "final_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "out",
+      "target_step": "generic_summary",
+      "target_input": "in"
+    },
+    {
+      "source_step": "discover_generic_summary",
+      "source_output": "out",
+      "target_step": "generic_summary",
+      "target_input": "in"
+    },
+    {
+      "source_step": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "generic_summary",
+      "source_output": "out",
+      "target_step": "reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "out",
+      "target_step": "survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "validate_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "data_acquisition",
+      "source_output": "out",
+      "target_step": "validate_data_acquisition",
+      "target_input": "in"
+    },
+    {
+      "source_step": "final_reporting",
+      "source_output": "out",
+      "target_step": "validate_final_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "generic_summary",
+      "source_output": "out",
+      "target_step": "validate_generic_summary",
+      "target_input": "in"
+    },
+    {
+      "source_step": "reporting",
+      "source_output": "out",
+      "target_step": "validate_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "review_prior_work",
+      "source_output": "out",
+      "target_step": "validate_review_prior_work",
+      "target_input": "in"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "organism",
+      "type": "string",
+      "value": "Homo sapiens",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_0",
+      "type": "string",
+      "value": "Bowtie2",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_1",
+      "type": "string",
+      "value": "MACS2",
+      "source": "intake"
+    }
+  ],
+  "validation_rules": [
+    {
+      "rule_id": "discover_generic_summary:requires_sme_review",
+      "target_step": "discover_generic_summary",
+      "severity": "hard"
+    }
+  ],
+  "metadata": {
+    "complexity": "moderate",
+    "tags": [
+      "aggregator",
+      "atac_seq",
+      "discovery",
+      "operation",
+      "validation"
+    ],
+    "categories": [
+      "epigenomics"
+    ],
+    "use_cases": [
+      "kind"
+    ]
+  }
+}

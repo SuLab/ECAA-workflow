@@ -1,4 +1,8 @@
 {
+  "n_checked": 0,
+  "n_mismatch": 0,
+  "n_unverifiable": 0,
+  "n_verified": 0,
   "schema_version": "1",
   "verdicts": []
 }

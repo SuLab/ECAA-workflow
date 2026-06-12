@@ -1,5 +1,5 @@
 """DIABLO renderer — components scatter, top-loading heatmap, modality
-concordance heatmap."""
+concordance heatmap, and shared factor-variance summary."""
 
 from __future__ import annotations
 import numpy as np
@@ -14,6 +14,7 @@ from ..core import (
     savefig,
     stage_registry,
 )
+from . import multi_omics_integration as _multi_omics
 
 FIGURES = stage_registry("diablo")
 
@@ -72,3 +73,8 @@ def modality_concordance_heatmap(ctx, out):
         m[order.index(ai), order.index(bi)] = c
     return heatmap(matrix=m, row_labels=order, col_labels=order,
                    title="Modality concordance", out=out, figsize=(5.5, 5.0))
+
+
+@register_figure(FIGURES, "factor_variance_bar")
+def factor_variance_bar(ctx, out):
+    return _multi_omics.factor_variance_bar(ctx, out)

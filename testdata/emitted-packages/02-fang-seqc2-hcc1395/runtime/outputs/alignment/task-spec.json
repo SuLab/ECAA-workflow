@@ -19,7 +19,18 @@
     "sandbox": "none"
   },
   "source_atom_id": "alignment",
-  "spec": null,
+  "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "star",
+        "hisat2",
+        "bwa_mem2",
+        "bwa_mem",
+        "minimap2",
+        "bowtie2"
+      ]
+    }
+  },
   "state": {
     "status": "pending"
   },

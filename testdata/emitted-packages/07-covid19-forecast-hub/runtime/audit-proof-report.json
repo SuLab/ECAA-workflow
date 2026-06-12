@@ -1,56 +1,56 @@
 {
-  "schema_version": "0.1",
   "ecaa_version": "0.2",
-  "min_reader_version": "0.2",
-  "package_iri": "ro-crate-metadata.json",
-  "evaluated_at": "2026-06-02T00:44:08.627026764+00:00",
+  "evaluated_at": "2026-06-12T21:40:49.068984122+00:00",
   "evaluator": {
     "impl": "ecaa-workflow-audit-proof",
-    "version": "0.1.0",
-    "policy": "warn-only"
+    "policy": "warn-only",
+    "version": "0.1.0"
   },
+  "min_reader_version": "0.2",
+  "package_iri": "ro-crate-metadata.json",
+  "schema_version": "0.1",
   "verdicts": [
     {
+      "detail": "no verified claims; signed verdict sink absent",
       "id": "claim_completeness",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
-      "id": "decision_justification",
-      "status": "unverified",
       "detail": "no method-choice decisions present",
+      "id": "decision_justification",
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
+      "detail": "5 output(s) not referenced and not marked unused: runtime/outputs/data_import/figures/samples_per_study.png, runtime/outputs/final_reporting/figures/summary_dashboard.png, runtime/outputs/reporting/figures/concordance_heatmap.png, runtime/outputs/reporting/figures/pathway_overlap_bar.png, runtime/outputs/time_series_forecast_evaluate/figures/forecast_ribbon.png",
       "id": "evidence_coverage",
-      "status": "warn",
-      "detail": "11 output(s) not referenced and not marked unused: workflow:reporting, workflow:time_series_forecast_evaluate, workflow:data_import, workflow:time_series_model_fit, workflow:time_series_decompose, workflow:data_import, workflow:final_reporting, workflow:reporting, workflow:time_series_decompose, workflow:time_series_forecast_evaluate, workflow:time_series_model_fit",
-      "n_inspected": 11,
-      "n_violations": 11
+      "n_inspected": 5,
+      "n_violations": 5,
+      "status": "warn"
     },
     {
+      "detail": "no re-execution performed (Q absent)",
       "id": "equivalence_failure",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
+      "detail": "no cross-graph references present",
       "id": "cross_graph_integrity",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
-      "id": "substrate_validity",
-      "status": "unverified",
       "detail": "runcrate not run",
+      "id": "substrate_validity",
       "n_inspected": 1,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     }
   ]
 }

@@ -20,12 +20,21 @@
   },
   "source_atom_id": "peak_calling",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "macs2",
+        "macs3",
+        "seacr",
+        "genrich"
+      ]
+    },
     "expected_artifacts": [
       "peaks.bed",
       "peak_summary.json",
       "manifest.json",
       "result.json"
     ],
+    "plot_stage_id": "peak_calling",
     "required_figures": [
       "profile_pileup",
       "coverage_track",

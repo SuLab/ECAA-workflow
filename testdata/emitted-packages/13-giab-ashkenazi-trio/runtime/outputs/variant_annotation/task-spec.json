@@ -19,7 +19,16 @@
     "sandbox": "none"
   },
   "source_atom_id": "variant_annotation",
-  "spec": null,
+  "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "vep",
+        "annovar",
+        "snpeff"
+      ],
+      "claim_boundary": "Variant annotations are computational predictions. ClinVar pathogenicity is\ncurator-assigned and may lag literature. Do not assert clinical interpretation\nbeyond the cited annotation source.\n"
+    }
+  },
   "state": {
     "status": "pending"
   },

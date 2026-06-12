@@ -1,0 +1,26 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "atac_seq_contextualize_findings_with_literature"
+  ],
+  "description": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+  "kind": "validation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "validate_contextualize_findings_with_literature",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "atac_seq_validate_contextualize_findings_with_literature"
+}

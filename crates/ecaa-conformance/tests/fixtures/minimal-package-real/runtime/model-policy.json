@@ -2,7 +2,7 @@
   "schema_version": "1",
   "active_model_id": "Sonnet46",
   "api_version": "2023-06-01",
-  "system_prompt_sha256": "0be3a511d7635d4d597b1359d144b5d3b506a7c179e2a6eb3e0e616964302e7d",
+  "system_prompt_sha256": "7635f6c8b0eca374bfc51b3dcb7d2383b9f1a98fa1ef0d1437620c75bd2061d2",
   "tool_schema_version": 1,
   "tool_count": 22,
   "provider_id": "anthropic",

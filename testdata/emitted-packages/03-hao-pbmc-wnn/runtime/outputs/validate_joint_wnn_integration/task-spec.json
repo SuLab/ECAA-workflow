@@ -1,0 +1,26 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "joint_wnn_integration"
+  ],
+  "description": "Validate outputs of: Joint dimensionality reduction over paired single-cell RNA +\nATAC matrices via weighted nearest neighbors (WNN). Produces a\njoint UMAP embedding + joint Leiden clusters that respect both\nmodalities. Seurat v5 WNN at runtime; Signac for the ATAC\nembedding upstream.\n",
+  "kind": "validation",
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "validate_joint_wnn_integration",
+  "spec": null,
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "validate_joint_wnn_integration"
+}

@@ -19,7 +19,17 @@
     "sandbox": "none"
   },
   "source_atom_id": "peptide_search",
-  "spec": null,
+  "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "maxquant",
+        "fragpipe",
+        "spectronaut",
+        "dia_nn",
+        "msfragger"
+      ]
+    }
+  },
   "state": {
     "status": "pending"
   },

@@ -20,6 +20,13 @@
   },
   "source_atom_id": "protein_quantification",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "maxlfq",
+        "irs_normalization",
+        "spectronaut_directlfq"
+      ]
+    },
     "expected_artifacts": [
       "protein_abundance.tsv",
       "peptide_coverage.tsv",

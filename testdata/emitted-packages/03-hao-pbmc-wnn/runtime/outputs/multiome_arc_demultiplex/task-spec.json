@@ -1,0 +1,45 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "data_acquisition",
+    "discover_multiome_arc_demultiplex"
+  ],
+  "description": "Demultiplex 10x Multiome ARC libraries — joint RNA + ATAC capture\non the same nuclei via the 10x ARC v1 chemistry. Produces per-\nnucleus paired (rna_counts, atac_fragments) keyed on a shared\ncell barcode. Cell Ranger ARC at runtime.\n",
+  "kind": "computation",
+  "resource_class": "memory_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "multiome_arc_demultiplex",
+  "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "cellranger_arc"
+      ],
+      "claim_boundary": "Per-nucleus pairing depends on the 10x ARC v1 barcode chemistry\nand droplet capture efficiency. Doublets must be detected on\nBOTH modalities (RNA + ATAC) before downstream analyses.\n"
+    },
+    "expected_artifacts": [
+      "rna_counts.h5",
+      "atac_fragments.tsv.gz",
+      "paired_barcode_table.tsv",
+      "manifest.json",
+      "result.json"
+    ],
+    "plot_stage_id": "barcode_pairing",
+    "required_figures": [
+      "paired_capture_summary"
+    ]
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "multiome_arc_demultiplex"
+}

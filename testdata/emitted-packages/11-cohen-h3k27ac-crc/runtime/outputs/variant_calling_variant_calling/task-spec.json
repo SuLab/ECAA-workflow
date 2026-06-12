@@ -19,7 +19,19 @@
     "sandbox": "none"
   },
   "source_atom_id": "variant_calling",
-  "spec": null,
+  "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "haplotypecaller",
+        "deepvariant",
+        "mutect2",
+        "strelka2",
+        "dragen",
+        "lofreq"
+      ],
+      "measurement_script": "measure_af_spectrum.py"
+    }
+  },
   "state": {
     "status": "pending"
   },

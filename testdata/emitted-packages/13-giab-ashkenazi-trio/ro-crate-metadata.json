@@ -86,6 +86,9 @@
           "@id": "runtime/audit-proof-report.json"
         },
         {
+          "@id": "runtime/ed-cf-self-assessment.json"
+        },
+        {
           "@id": "runtime/validation-summary.json"
         },
         {
@@ -353,6 +356,13 @@
       "name": "Audit-proof invariant report"
     },
     {
+      "@id": "runtime/ed-cf-self-assessment.json",
+      "@type": "CreativeWork",
+      "description": "Deterministic self-location of the system in the Extensibility-Dimension / Counterfactual-Floor design space. Informational — locates, does not validate.",
+      "encodingFormat": "application/json",
+      "name": "ED/CF rubric self-assessment"
+    },
+    {
       "@id": "runtime/validation-summary.json",
       "@type": "CreativeWork",
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
@@ -411,14 +421,14 @@
       "@id": "#step-survey_method_landscape",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
       "position": 7
     },
     {
       "@id": "#step-discover_variant_filtering",
       "@type": "HowToStep",
       "additionalType": "discovery",
-      "name": "Discover method for variant_filtering (options: vqsr, gatk_hard_filter, deepvariant_cnn, bcftools_filter). Surface set_intake_method.",
+      "name": "Discover method for variant_filtering (options: vqsr, gatk_hard_filter, deepvariant_cnn, bcftools_filter, lofreq_filter, vcffilter). Surface set_intake_method.",
       "position": 8
     },
     {
@@ -1039,6 +1049,60 @@
       "targetParameter": {
         "@id": "#step-variant_filtering#input"
       }
+    },
+    {
+      "@id": "A:claim_completeness",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "claim_completeness",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:cross_graph_integrity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "cross_graph_integrity",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:decision_justification",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "decision_justification",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:equivalence_failure",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "equivalence_failure",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:evidence_coverage",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "evidence_coverage",
+      "verdict": "warn"
+    },
+    {
+      "@id": "A:substrate_validity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "substrate_validity",
+      "verdict": "unverified"
     }
   ]
 }

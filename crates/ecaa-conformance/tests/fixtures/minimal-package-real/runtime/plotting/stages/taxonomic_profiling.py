@@ -62,5 +62,5 @@ def diversity_violin_fig(ctx: FigureContext, out: Path) -> Optional[Path]:
     if cols is None:
         raise FileNotFoundError(f"unparseable diversity table: {p}")
     return diversity_violin(
-        frame=cols, title="Alpha diversity", out=out
+        frame=cols, title="Alpha diversity", out=out, diversity_col="value"
     )

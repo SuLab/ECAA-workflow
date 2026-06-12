@@ -19,7 +19,17 @@
     "sandbox": "none"
   },
   "source_atom_id": "quantification",
-  "spec": null,
+  "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "salmon",
+        "kallisto",
+        "featurecounts",
+        "htseq",
+        "rsem"
+      ]
+    }
+  },
   "state": {
     "status": "pending"
   },

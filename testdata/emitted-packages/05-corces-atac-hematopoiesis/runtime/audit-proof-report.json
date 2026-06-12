@@ -1,56 +1,56 @@
 {
-  "schema_version": "0.1",
   "ecaa_version": "0.2",
-  "min_reader_version": "0.2",
-  "package_iri": "ro-crate-metadata.json",
-  "evaluated_at": "2026-06-02T00:44:05.788529442+00:00",
+  "evaluated_at": "2026-06-12T21:40:48.072306945+00:00",
   "evaluator": {
     "impl": "ecaa-workflow-audit-proof",
-    "version": "0.1.0",
-    "policy": "warn-only"
+    "policy": "warn-only",
+    "version": "0.1.0"
   },
+  "min_reader_version": "0.2",
+  "package_iri": "ro-crate-metadata.json",
+  "schema_version": "0.1",
   "verdicts": [
     {
+      "detail": "no verified claims; signed verdict sink absent",
       "id": "claim_completeness",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
-      "id": "decision_justification",
-      "status": "unverified",
       "detail": "no method-choice decisions present",
+      "id": "decision_justification",
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
+      "detail": "4 output(s) not referenced and not marked unused: runtime/outputs/data_acquisition/figures/samples_per_study.png, runtime/outputs/final_reporting/figures/summary_dashboard.png, runtime/outputs/reporting/figures/concordance_heatmap.png, runtime/outputs/reporting/figures/pathway_overlap_bar.png",
       "id": "evidence_coverage",
-      "status": "warn",
-      "detail": "9 output(s) not referenced and not marked unused: workflow:reporting, workflow:raw_qc, workflow:data_acquisition, workflow:generic_summary, workflow:data_acquisition, workflow:final_reporting, workflow:generic_summary, workflow:raw_qc, workflow:reporting",
-      "n_inspected": 9,
-      "n_violations": 9
+      "n_inspected": 4,
+      "n_violations": 4,
+      "status": "warn"
     },
     {
+      "detail": "no re-execution performed (Q absent)",
       "id": "equivalence_failure",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
+      "detail": "no cross-graph references present",
       "id": "cross_graph_integrity",
-      "status": "pass",
-      "detail": null,
       "n_inspected": 0,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     },
     {
-      "id": "substrate_validity",
-      "status": "unverified",
       "detail": "runcrate not run",
+      "id": "substrate_validity",
       "n_inspected": 1,
-      "n_violations": 0
+      "n_violations": 0,
+      "status": "unverified"
     }
   ]
 }

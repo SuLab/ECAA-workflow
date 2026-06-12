@@ -86,6 +86,9 @@
           "@id": "runtime/audit-proof-report.json"
         },
         {
+          "@id": "runtime/ed-cf-self-assessment.json"
+        },
+        {
           "@id": "runtime/validation-summary.json"
         },
         {
@@ -555,6 +558,12 @@
           "@id": "#step-atac_seq_validate_final_reporting"
         },
         {
+          "@id": "#step-atac_seq_review_prior_work"
+        },
+        {
+          "@id": "#step-atac_seq_validate_review_prior_work"
+        },
+        {
           "@id": "#step-atac_seq_data_acquisition"
         },
         {
@@ -622,6 +631,12 @@
         },
         {
           "@id": "#step-atac_seq_validate_differential_accessibility"
+        },
+        {
+          "@id": "#step-atac_seq_contextualize_findings_with_literature"
+        },
+        {
+          "@id": "#step-atac_seq_validate_contextualize_findings_with_literature"
         },
         {
           "@id": "#step-atac_seq_reporting"
@@ -755,6 +770,13 @@
       "name": "Audit-proof invariant report"
     },
     {
+      "@id": "runtime/ed-cf-self-assessment.json",
+      "@type": "CreativeWork",
+      "description": "Deterministic self-location of the system in the Extensibility-Dimension / Counterfactual-Floor design space. Informational — locates, does not validate.",
+      "encodingFormat": "application/json",
+      "name": "ED/CF rubric self-assessment"
+    },
+    {
       "@id": "runtime/validation-summary.json",
       "@type": "CreativeWork",
       "description": "Schema-validation and external-validator rollup for emitted ECAA artifacts.",
@@ -820,14 +842,14 @@
       "@id": "#step-variant_calling_survey_method_landscape",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
       "position": 8
     },
     {
       "@id": "#step-variant_calling_discover_variant_filtering",
       "@type": "HowToStep",
       "additionalType": "discovery",
-      "name": "Discover method for variant_filtering (options: vqsr, gatk_hard_filter, deepvariant_cnn, bcftools_filter). Surface set_intake_method.",
+      "name": "Discover method for variant_filtering (options: vqsr, gatk_hard_filter, deepvariant_cnn, bcftools_filter, lofreq_filter, vcffilter). Surface set_intake_method.",
       "position": 9
     },
     {
@@ -1009,7 +1031,7 @@
       "@id": "#step-chip_seq_survey_method_landscape",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
       "position": 35
     },
     {
@@ -1198,7 +1220,7 @@
       "@id": "#step-bulk_rnaseq_survey_method_landscape",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
       "position": 62
     },
     {
@@ -1377,193 +1399,221 @@
       "position": 87
     },
     {
+      "@id": "#step-atac_seq_review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "position": 88
+    },
+    {
+      "@id": "#step-atac_seq_validate_review_prior_work",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "position": 89
+    },
+    {
       "@id": "#step-atac_seq_data_acquisition",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 88
+      "position": 90
     },
     {
       "@id": "#step-atac_seq_validate_data_acquisition",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "position": 89
+      "position": 91
     },
     {
       "@id": "#step-atac_seq_raw_qc",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 90
+      "position": 92
     },
     {
       "@id": "#step-atac_seq_validate_raw_qc",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "position": 91
+      "position": 93
     },
     {
       "@id": "#step-atac_seq_survey_method_landscape",
       "@type": "HowToStep",
       "additionalType": "computation",
-      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
-      "position": 92
+      "name": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "position": 94
     },
     {
       "@id": "#step-atac_seq_discover_sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
-      "position": 93
+      "position": 95
     },
     {
       "@id": "#step-atac_seq_discover_peak_calling",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for peak_calling (options: macs2, macs3, seacr, genrich). Surface set_intake_method.",
-      "position": 94
+      "position": 96
     },
     {
       "@id": "#step-atac_seq_discover_peak_annotation",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for peak_annotation (options: chipseeker, homer_annotatepeaks, great). Surface set_intake_method.",
-      "position": 95
+      "position": 97
     },
     {
       "@id": "#step-atac_seq_discover_motif_enrichment",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for motif_enrichment (options: homer_findmotifsgenome, meme_chip, monalisa). Surface set_intake_method.",
-      "position": 96
+      "position": 98
     },
     {
       "@id": "#step-atac_seq_discover_differential_accessibility",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for differential_accessibility (options: diffbind, deseq2, edger, csaw). Surface set_intake_method.",
-      "position": 97
+      "position": 99
     },
     {
       "@id": "#step-atac_seq_discover_alignment",
       "@type": "HowToStep",
       "additionalType": "discovery",
       "name": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
-      "position": 98
+      "position": 100
     },
     {
       "@id": "#step-atac_seq_sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 99
+      "position": 101
     },
     {
       "@id": "#step-atac_seq_validate_sequence_trimming",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "position": 100
+      "position": 102
     },
     {
       "@id": "#step-atac_seq_alignment",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 101
+      "position": 103
     },
     {
       "@id": "#step-atac_seq_validate_alignment",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "position": 102
+      "position": 104
     },
     {
       "@id": "#step-atac_seq_peak_calling",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
-      "position": 103
+      "position": 105
     },
     {
       "@id": "#step-atac_seq_validate_peak_calling",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
-      "position": 104
+      "position": 106
     },
     {
       "@id": "#step-atac_seq_peak_annotation",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
-      "position": 105
+      "position": 107
     },
     {
       "@id": "#step-atac_seq_validate_peak_annotation",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
-      "position": 106
+      "position": 108
     },
     {
       "@id": "#step-atac_seq_motif_enrichment",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
-      "position": 107
+      "position": 109
     },
     {
       "@id": "#step-atac_seq_validate_motif_enrichment",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
-      "position": 108
+      "position": 110
     },
     {
       "@id": "#step-atac_seq_differential_accessibility",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
-      "position": 109
+      "position": 111
     },
     {
       "@id": "#step-atac_seq_validate_differential_accessibility",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
-      "position": 110
+      "position": 112
+    },
+    {
+      "@id": "#step-atac_seq_contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "computation",
+      "name": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 113
+    },
+    {
+      "@id": "#step-atac_seq_validate_contextualize_findings_with_literature",
+      "@type": "HowToStep",
+      "additionalType": "validation",
+      "name": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "position": 114
     },
     {
       "@id": "#step-atac_seq_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 111
+      "position": 115
     },
     {
       "@id": "#step-atac_seq_validate_reporting",
       "@type": "HowToStep",
       "additionalType": "validation",
       "name": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 112
+      "position": 116
     },
     {
       "@id": "#step-multi_modal_thematic_comparison",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "position": 113
+      "position": 117
     },
     {
       "@id": "#step-final_reporting",
       "@type": "HowToStep",
       "additionalType": "computation",
       "name": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "position": 114
+      "position": 118
     },
     {
       "@id": "runtime/outputs/atac_seq_data_acquisition/figures/samples_per_study.png",
@@ -2349,6 +2399,26 @@
       }
     },
     {
+      "@id": "#parameter-connection/atac_seq_peak_calling__to__atac_seq_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_peak_calling#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_contextualize_findings_with_literature#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_review_prior_work__to__atac_seq_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_contextualize_findings_with_literature#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/atac_seq_discover_differential_accessibility__to__atac_seq_differential_accessibility",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -2499,6 +2569,16 @@
       }
     },
     {
+      "@id": "#parameter-connection/atac_seq_contextualize_findings_with_literature__to__atac_seq_reporting",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_reporting#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/atac_seq_differential_accessibility__to__atac_seq_reporting",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -2589,6 +2669,16 @@
       }
     },
     {
+      "@id": "#parameter-connection/atac_seq_contextualize_findings_with_literature__to__atac_seq_validate_contextualize_findings_with_literature",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_validate_contextualize_findings_with_literature#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/atac_seq_data_acquisition__to__atac_seq_validate_data_acquisition",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -2656,6 +2746,16 @@
       },
       "targetParameter": {
         "@id": "#step-atac_seq_validate_reporting#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_review_prior_work__to__atac_seq_validate_review_prior_work",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_review_prior_work#output"
+      },
+      "targetParameter": {
+        "@id": "#step-atac_seq_validate_review_prior_work#input"
       }
     },
     {
@@ -3419,6 +3519,16 @@
       }
     },
     {
+      "@id": "#parameter-connection/atac_seq_validate_contextualize_findings_with_literature__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_validate_contextualize_findings_with_literature#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
       "@id": "#parameter-connection/atac_seq_validate_data_acquisition__to__multi_modal_thematic_comparison",
       "@type": "ParameterConnection",
       "sourceParameter": {
@@ -3493,6 +3603,16 @@
       "@type": "ParameterConnection",
       "sourceParameter": {
         "@id": "#step-atac_seq_validate_reporting#output"
+      },
+      "targetParameter": {
+        "@id": "#step-multi_modal_thematic_comparison#input"
+      }
+    },
+    {
+      "@id": "#parameter-connection/atac_seq_validate_review_prior_work__to__multi_modal_thematic_comparison",
+      "@type": "ParameterConnection",
+      "sourceParameter": {
+        "@id": "#step-atac_seq_validate_review_prior_work#output"
       },
       "targetParameter": {
         "@id": "#step-multi_modal_thematic_comparison#input"
@@ -4177,6 +4297,60 @@
       "targetParameter": {
         "@id": "#step-variant_calling_variant_filtering#input"
       }
+    },
+    {
+      "@id": "A:claim_completeness",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "claim_completeness",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:cross_graph_integrity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "cross_graph_integrity",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:decision_justification",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "decision_justification",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:equivalence_failure",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "equivalence_failure",
+      "verdict": "unverified"
+    },
+    {
+      "@id": "A:evidence_coverage",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "evidence_coverage",
+      "verdict": "warn"
+    },
+    {
+      "@id": "A:substrate_validity",
+      "@type": "InvariantVerdict",
+      "evaluated_against": {
+        "@id": "ro-crate-metadata.json"
+      },
+      "invariant_id": "substrate_validity",
+      "verdict": "unverified"
     }
   ]
 }

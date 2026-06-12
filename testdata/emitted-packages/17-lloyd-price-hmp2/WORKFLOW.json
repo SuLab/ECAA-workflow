@@ -8,204 +8,77 @@
   "run_id": "e62e7c7c-f943-2d55-923f-de996a36341a",
   "schema_version": "0.1.0",
   "tasks": {
-    "ehr_clinical_prediction_data_import": {
+    "contextualize_findings_with_literature": {
       "assignee": "agent",
-      "depends_on": [],
-      "description": "Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
+      "depends_on": [
+        "diversity_analysis",
+        "review_prior_work"
+      ],
+      "description": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
       "kind": "computation",
+      "required_artifacts": [
+        {
+          "path": "claims_evidence_matrix.csv",
+          "schema_ref": "schemas/claims_evidence_matrix.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked",
+            "claim_row_has_finding_id",
+            "concordance_flag_in_closed_set"
+          ]
+        },
+        {
+          "path": "evidence/manifest.json",
+          "schema_ref": "schemas/literature_evidence_manifest.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked",
+            "claim_row_has_finding_id",
+            "concordance_flag_in_closed_set"
+          ]
+        }
+      ],
       "resource_class": "cpu_heavy",
-      "source_atom_id": "data_import",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
+      "source_atom_id": "contextualize_findings_with_literature",
       "spec": {
+        "attributes": {
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+        },
         "expected_artifacts": [
-          "imported_data_manifest.json",
-          "manifest.json",
+          "claims_evidence_matrix.csv",
+          "literature_search_protocol.md",
+          "citation_verification_report.md",
+          "evidence/manifest.json",
           "result.json"
-        ],
-        "plot_stage_id": "ehr_clinical_prediction_data_acquisition",
-        "required_figures": [
-          "samples_per_study"
         ]
       },
       "state": {
         "status": "pending"
       }
     },
-    "ehr_clinical_prediction_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "ehr_clinical_prediction_time_series_forecast_evaluate"
-      ],
-      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "reporting",
-      "spec": {
-        "expected_artifacts": [
-          "report.md",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "concordance_heatmap",
-          "pathway_overlap_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "ehr_clinical_prediction_time_series_decompose": {
-      "assignee": "agent",
-      "depends_on": [
-        "ehr_clinical_prediction_data_import"
-      ],
-      "description": "Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "time_series_decompose",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "ehr_clinical_prediction_time_series_forecast_evaluate": {
-      "assignee": "agent",
-      "depends_on": [
-        "ehr_clinical_prediction_time_series_model_fit"
-      ],
-      "description": "Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "time_series_forecast_evaluate",
-      "spec": {
-        "expected_artifacts": [
-          "forecast_table.tsv",
-          "evaluation_metrics.csv",
-          "manifest.json",
-          "result.json"
-        ],
-        "plot_stage_id": "ehr_clinical_prediction_forecasting_inference",
-        "required_figures": [
-          "forecast_ribbon"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "ehr_clinical_prediction_time_series_model_fit": {
-      "assignee": "agent",
-      "depends_on": [
-        "ehr_clinical_prediction_time_series_decompose"
-      ],
-      "description": "Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "time_series_model_fit",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "ehr_clinical_prediction_validate_data_import": {
-      "assignee": "agent",
-      "depends_on": [
-        "ehr_clinical_prediction_data_import"
-      ],
-      "description": "Validate outputs of: Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_data_import",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "ehr_clinical_prediction_validate_final_reporting": {
-      "assignee": "agent",
-      "depends_on": [],
-      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_final_reporting",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "ehr_clinical_prediction_validate_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "ehr_clinical_prediction_reporting"
-      ],
-      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_reporting",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "ehr_clinical_prediction_validate_time_series_decompose": {
-      "assignee": "agent",
-      "depends_on": [
-        "ehr_clinical_prediction_time_series_decompose"
-      ],
-      "description": "Validate outputs of: Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_time_series_decompose",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "ehr_clinical_prediction_validate_time_series_forecast_evaluate": {
-      "assignee": "agent",
-      "depends_on": [
-        "ehr_clinical_prediction_time_series_forecast_evaluate"
-      ],
-      "description": "Validate outputs of: Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_time_series_forecast_evaluate",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "ehr_clinical_prediction_validate_time_series_model_fit": {
-      "assignee": "agent",
-      "depends_on": [
-        "ehr_clinical_prediction_time_series_model_fit"
-      ],
-      "description": "Validate outputs of: Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_time_series_model_fit",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "final_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "multi_modal_thematic_comparison"
-      ],
-      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "final_reporting",
-      "spec": {
-        "expected_artifacts": [
-          "final_report.md",
-          "dashboard_index.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "summary_dashboard"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "metagenomics_data_acquisition": {
+    "data_acquisition": {
       "assignee": "agent",
       "depends_on": [],
       "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
@@ -228,10 +101,10 @@
         "status": "pending"
       }
     },
-    "metagenomics_discover_sequence_trimming": {
+    "discover_sequence_trimming": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_survey_method_landscape"
+        "survey_method_landscape"
       ],
       "description": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
       "kind": {
@@ -247,10 +120,10 @@
         "status": "pending"
       }
     },
-    "metagenomics_discover_taxonomic_classification": {
+    "discover_taxonomic_classification": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_survey_method_landscape"
+        "survey_method_landscape"
       ],
       "description": "Discover method for taxonomic_classification (options: kraken2, metaphlan, qiime2_dada2, qiime2_deblur, bracken, centrifuge). Surface set_intake_method.",
       "kind": {
@@ -266,10 +139,10 @@
         "status": "pending"
       }
     },
-    "metagenomics_diversity_analysis": {
+    "diversity_analysis": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_taxonomic_classification"
+        "taxonomic_classification"
       ],
       "description": "Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). ecaax namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
       "kind": "computation",
@@ -281,7 +154,7 @@
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "metagenomics_taxonomic_profiling",
+        "plot_stage_id": "taxonomic_profiling",
         "required_figures": [
           "diversity_violin"
         ]
@@ -290,10 +163,37 @@
         "status": "pending"
       }
     },
-    "metagenomics_raw_qc": {
+    "final_reporting": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_data_acquisition"
+        "reporting"
+      ],
+      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "final_reporting",
+      "spec": {
+        "attributes": {
+          "claim_boundary": "Findings-first: lead with the validated result rows and the\nbiological_interpretation narrative (when present), then methods and\ncaveats. Restate findings exactly as produced by upstream validated\ntasks — every claim traces to an emitted result row or to an\ninterpretation statement that itself cites one. Do not introduce\nclaims that aren't backed by an emitted artifact; do not soften or\nstrengthen effect-size language; do not recommend methods the\npipeline did not run.\n\nThis report is the read-and-evaluated deliverable, so carry the upstream\nsubstance FORWARD into it rather than collapsing to a thin digest: the\nfindings, their interpretation, and the data/source grounding the\nupstream tasks already recorded must appear in the report itself, not be\nleft behind in per-task outputs or the trace. This is faithful\nre-emission under the trace-to-artifact rule above — NOT license to pad\nwith generic prose, and NOT license to add any finding, theme, value, or\ncitation that no upstream artifact produced (an unsupported addition is a\nfabrication, worse than an omission). Generic reporting discipline only;\ndo not tailor content to any external grading rubric.\n"
+        },
+        "expected_artifacts": [
+          "final_report.md",
+          "dashboard_index.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "summary_dashboard"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "raw_qc": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
       ],
       "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
       "kind": "computation",
@@ -306,7 +206,7 @@
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "metagenomics_quality_control",
+        "plot_stage_id": "quality_control",
         "required_figures": [
           "per_sample_metric_violin",
           "per_sample_metric_bar",
@@ -317,10 +217,11 @@
         "status": "pending"
       }
     },
-    "metagenomics_reporting": {
+    "reporting": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_diversity_analysis"
+        "contextualize_findings_with_literature",
+        "diversity_analysis"
       ],
       "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
       "kind": "computation",
@@ -341,23 +242,109 @@
         "status": "pending"
       }
     },
-    "metagenomics_sequence_trimming": {
+    "review_prior_work": {
+      "assignee": "agent",
+      "depends_on": [],
+      "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "kind": "computation",
+      "required_artifacts": [
+        {
+          "path": "prior_claims_matrix.csv",
+          "schema_ref": "schemas/literature_claims_matrix.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        },
+        {
+          "path": "evidence/manifest.json",
+          "schema_ref": "schemas/literature_evidence_manifest.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        },
+        {
+          "min_size_bytes": 1,
+          "path": "citation_verification_report.md",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        }
+      ],
+      "resource_class": "cpu_heavy",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
+      "source_atom_id": "review_prior_work",
+      "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in prior_claims_matrix.csv is a verbatim quote from one PMID's\navailable source text (PMC OA full-text XML, abstract, or — under explicit\nscope — a locally-fetched PDF). Do NOT paraphrase, summarize, or synthesize\nacross PMIDs. Do NOT assert biological fact, mechanism, or causation. Do NOT\nassert whether the prior work agrees or disagrees with anything — that is\nthe downstream contextualization atom's role, and even there it is row-wise\nmechanical, not narrative. Rows whose evidence_quote does not exactly\nsubstring-match the retrieved source are emitted with verified=false and\nsurface as BlockerKind::ValidationFailed { LiteratureClaim }.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
+        "expected_artifacts": [
+          "prior_claims_matrix.csv",
+          "literature_search_protocol.md",
+          "citation_verification_report.md",
+          "evidence/manifest.json",
+          "result.json"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "sequence_trimming": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_discover_sequence_trimming",
-        "metagenomics_raw_qc"
+        "discover_sequence_trimming",
+        "raw_qc"
       ],
       "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
       "kind": "computation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "sequence_trimming",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "trimmomatic",
+            "cutadapt",
+            "fastp",
+            "trim_galore"
+          ]
+        },
         "expected_artifacts": [
           "retention_summary.json",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "metagenomics_preprocessing",
+        "plot_stage_id": "preprocessing",
         "required_figures": [
           "retention_bar"
         ]
@@ -366,13 +353,13 @@
         "status": "pending"
       }
     },
-    "metagenomics_survey_method_landscape": {
+    "survey_method_landscape": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_data_acquisition",
-        "metagenomics_raw_qc"
+        "data_acquisition",
+        "raw_qc"
       ],
-      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
       "kind": "computation",
       "required_artifacts": [
         {
@@ -421,6 +408,15 @@
       },
       "source_atom_id": "survey_method_landscape",
       "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in method_landscape.csv is a verbatim quote from one resolvable\nsource (PMID/DOI/URL), with its locator, source_class, and evidence_role.\nDo NOT rank, recommend, paraphrase, or synthesize. Ranking is the\ndownstream discover_* atom's deterministic job. Rows whose evidence_quote\ndoes not substring-match the retrieved snapshot are emitted verified=false.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
         "expected_artifacts": [
           "method_landscape.csv",
           "method_landscape.json",
@@ -432,23 +428,33 @@
         "status": "pending"
       }
     },
-    "metagenomics_taxonomic_classification": {
+    "taxonomic_classification": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_discover_taxonomic_classification",
-        "metagenomics_sequence_trimming"
+        "discover_taxonomic_classification",
+        "sequence_trimming"
       ],
       "description": "Assign taxonomic identities to metagenomic reads or contigs. Kraken2 /\nMetaPhlAn / QIIME2 (DADA2 / Deblur) / Bracken selected at runtime by\nmodality (shotgun vs amplicon).\n",
       "kind": "computation",
       "resource_class": "memory_heavy",
       "source_atom_id": "taxonomic_classification",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "kraken2",
+            "metaphlan",
+            "qiime2_dada2",
+            "qiime2_deblur",
+            "bracken",
+            "centrifuge"
+          ]
+        },
         "expected_artifacts": [
           "taxonomic_profile.tsv",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "metagenomics_taxonomic_profiling",
+        "plot_stage_id": "taxonomic_profiling",
         "required_figures": [
           "taxonomic_stacked_bar"
         ]
@@ -457,10 +463,23 @@
         "status": "pending"
       }
     },
-    "metagenomics_validate_data_acquisition": {
+    "validate_contextualize_findings_with_literature": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_data_acquisition"
+        "contextualize_findings_with_literature"
+      ],
+      "description": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_contextualize_findings_with_literature",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
       ],
       "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
       "kind": "validation",
@@ -470,10 +489,10 @@
         "status": "pending"
       }
     },
-    "metagenomics_validate_diversity_analysis": {
+    "validate_diversity_analysis": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_diversity_analysis"
+        "diversity_analysis"
       ],
       "description": "Validate outputs of: Compute alpha (Shannon / Simpson / Chao1 / Faith PD) and beta (Bray-Curtis /\nweighted-UniFrac / Jaccard) diversity from a taxonomic profile, plus\nordination (PCoA / NMDS) and group-comparison statistics (PERMANOVA /\nANOSIM). ecaax namespace per EDAM audit — operation:2238 (statistical\ncalculation) is over-broad.\n",
       "kind": "validation",
@@ -483,9 +502,11 @@
         "status": "pending"
       }
     },
-    "metagenomics_validate_final_reporting": {
+    "validate_final_reporting": {
       "assignee": "agent",
-      "depends_on": [],
+      "depends_on": [
+        "final_reporting"
+      ],
       "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
@@ -494,10 +515,10 @@
         "status": "pending"
       }
     },
-    "metagenomics_validate_raw_qc": {
+    "validate_raw_qc": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_raw_qc"
+        "raw_qc"
       ],
       "description": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
       "kind": "validation",
@@ -507,10 +528,10 @@
         "status": "pending"
       }
     },
-    "metagenomics_validate_reporting": {
+    "validate_reporting": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_reporting"
+        "reporting"
       ],
       "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
       "kind": "validation",
@@ -520,10 +541,23 @@
         "status": "pending"
       }
     },
-    "metagenomics_validate_sequence_trimming": {
+    "validate_review_prior_work": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_sequence_trimming"
+        "review_prior_work"
+      ],
+      "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_review_prior_work",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_sequence_trimming": {
+      "assignee": "agent",
+      "depends_on": [
+        "sequence_trimming"
       ],
       "description": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
       "kind": "validation",
@@ -533,230 +567,15 @@
         "status": "pending"
       }
     },
-    "metagenomics_validate_taxonomic_classification": {
+    "validate_taxonomic_classification": {
       "assignee": "agent",
       "depends_on": [
-        "metagenomics_taxonomic_classification"
+        "taxonomic_classification"
       ],
       "description": "Validate outputs of: Assign taxonomic identities to metagenomic reads or contigs. Kraken2 /\nMetaPhlAn / QIIME2 (DADA2 / Deblur) / Bracken selected at runtime by\nmodality (shotgun vs amplicon).\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "validate_taxonomic_classification",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "multi_modal_thematic_comparison": {
-      "assignee": "agent",
-      "depends_on": [
-        "ehr_clinical_prediction_validate_data_import",
-        "ehr_clinical_prediction_validate_final_reporting",
-        "ehr_clinical_prediction_validate_reporting",
-        "ehr_clinical_prediction_validate_time_series_decompose",
-        "ehr_clinical_prediction_validate_time_series_forecast_evaluate",
-        "ehr_clinical_prediction_validate_time_series_model_fit",
-        "metagenomics_validate_data_acquisition",
-        "metagenomics_validate_diversity_analysis",
-        "metagenomics_validate_final_reporting",
-        "metagenomics_validate_raw_qc",
-        "metagenomics_validate_reporting",
-        "metagenomics_validate_sequence_trimming",
-        "metagenomics_validate_taxonomic_classification",
-        "time_series_forecast_validate_data_import",
-        "time_series_forecast_validate_final_reporting",
-        "time_series_forecast_validate_reporting",
-        "time_series_forecast_validate_time_series_decompose",
-        "time_series_forecast_validate_time_series_forecast_evaluate",
-        "time_series_forecast_validate_time_series_model_fit"
-      ],
-      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "reporting",
-      "spec": {
-        "expected_artifacts": [
-          "report.md",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "concordance_heatmap",
-          "pathway_overlap_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_data_import": {
-      "assignee": "agent",
-      "depends_on": [],
-      "description": "Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "data_import",
-      "spec": {
-        "expected_artifacts": [
-          "imported_data_manifest.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "plot_stage_id": "time_series_forecast_data_acquisition",
-        "required_figures": [
-          "samples_per_study"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "time_series_forecast_time_series_forecast_evaluate"
-      ],
-      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "reporting",
-      "spec": {
-        "expected_artifacts": [
-          "report.md",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "concordance_heatmap",
-          "pathway_overlap_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_time_series_decompose": {
-      "assignee": "agent",
-      "depends_on": [
-        "time_series_forecast_data_import"
-      ],
-      "description": "Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "time_series_decompose",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_time_series_forecast_evaluate": {
-      "assignee": "agent",
-      "depends_on": [
-        "time_series_forecast_time_series_model_fit"
-      ],
-      "description": "Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "time_series_forecast_evaluate",
-      "spec": {
-        "expected_artifacts": [
-          "forecast_table.tsv",
-          "evaluation_metrics.csv",
-          "manifest.json",
-          "result.json"
-        ],
-        "plot_stage_id": "time_series_forecast_forecasting_inference",
-        "required_figures": [
-          "forecast_ribbon"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_time_series_model_fit": {
-      "assignee": "agent",
-      "depends_on": [
-        "time_series_forecast_time_series_decompose"
-      ],
-      "description": "Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "time_series_model_fit",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_validate_data_import": {
-      "assignee": "agent",
-      "depends_on": [
-        "time_series_forecast_data_import"
-      ],
-      "description": "Validate outputs of: Import structured tabular or domain-formatted inputs (CDISC ADaM/SDTM, time-series\npanels, pre-computed count matrices) supplied by the SME. Mirrors `data_acquisition`\nbut for the clinical-trial and time-series-forecast project classes where inputs\nare files-on-disk rather than repository accessions.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_data_import",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_validate_final_reporting": {
-      "assignee": "agent",
-      "depends_on": [],
-      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_final_reporting",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_validate_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "time_series_forecast_reporting"
-      ],
-      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_reporting",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_validate_time_series_decompose": {
-      "assignee": "agent",
-      "depends_on": [
-        "time_series_forecast_time_series_decompose"
-      ],
-      "description": "Validate outputs of: Decompose a time-series panel into trend / seasonality / residual\ncomponents and run stationarity diagnostics. Method-neutral: the\nconcrete decomposition (STL, classical additive/multiplicative,\nX-13ARIMA-SEATS) is selected at runtime by the agent. Closes\nPhase 6.1 B.1 of the dag-design-v3-v4-100-percent-closure plan —\nthe time_series_forecast archetype previously had no producer for\nthis stage and dispatch failed with GoalUnreachable.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_time_series_decompose",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_validate_time_series_forecast_evaluate": {
-      "assignee": "agent",
-      "depends_on": [
-        "time_series_forecast_time_series_forecast_evaluate"
-      ],
-      "description": "Validate outputs of: Produce point forecasts + prediction intervals over the named\nhorizon and evaluate against a held-out window. Emits a tabular\nforecast table tagged as a statistical estimate (data:0951) so\nthe v4 planner can match it to the\n`time_series_forecast` archetype goal. Closes Phase 6.1 B.1 of\nthe dag-design-v3-v4-100-percent-closure plan.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_time_series_forecast_evaluate",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "time_series_forecast_validate_time_series_model_fit": {
-      "assignee": "agent",
-      "depends_on": [
-        "time_series_forecast_time_series_model_fit"
-      ],
-      "description": "Validate outputs of: Fit a forecasting model family (ARIMA / state-space / exponential\nsmoothing / Prophet) to the decomposed panel. Method-neutral: the\nconcrete model family is chosen at runtime by the agent based on\nthe SME-named model and series characteristics; the atom emits a\nfitted-model artifact consumed by the downstream forecast-evaluate\natom. Closes Phase 6.1 B.1 of the\ndag-design-v3-v4-100-percent-closure plan.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_time_series_model_fit",
       "state": {
         "status": "pending"
       }

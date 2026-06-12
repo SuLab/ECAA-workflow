@@ -10,5 +10,5 @@
     "DESeq2",
     "MACS2"
   ],
-  "literature_review_requested": false
+  "literature_review_requested": true
 }

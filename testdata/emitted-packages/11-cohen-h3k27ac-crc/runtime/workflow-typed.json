@@ -1,0 +1,3678 @@
+{
+  "workflow_id": "workflow-095f86f076a7",
+  "name": "workflow-095f86f076a7",
+  "atom_registry_snapshot_id": "atomreg:sha256:922ece4661f84e11",
+  "steps": [
+    {
+      "step_id": "atac_seq_alignment",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_discover_alignment",
+        "atac_seq_sequence_trimming"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_peak_calling",
+        "atac_seq_review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_data_acquisition",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_differential_accessibility",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_discover_differential_accessibility",
+        "atac_seq_peak_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_discover_alignment",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_discover_differential_accessibility",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_discover_motif_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_discover_peak_annotation",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_discover_peak_calling",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_discover_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_motif_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_discover_motif_enrichment",
+        "atac_seq_peak_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_peak_annotation",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_discover_peak_annotation",
+        "atac_seq_peak_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_peak_calling",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_alignment",
+        "atac_seq_discover_peak_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_raw_qc",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_reporting",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_contextualize_findings_with_literature",
+        "atac_seq_differential_accessibility",
+        "atac_seq_motif_enrichment",
+        "atac_seq_peak_annotation",
+        "atac_seq_peak_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_review_prior_work",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_discover_sequence_trimming",
+        "atac_seq_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_survey_method_landscape",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_data_acquisition",
+        "atac_seq_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_alignment",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_alignment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_contextualize_findings_with_literature"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_data_acquisition",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_differential_accessibility",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_differential_accessibility"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_final_reporting",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_motif_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_motif_enrichment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_peak_annotation",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_peak_annotation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_peak_calling",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_peak_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_raw_qc",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_reporting",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_review_prior_work",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "atac_seq_validate_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_sequence_trimming"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_alignment",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_discover_alignment",
+        "bulk_rnaseq_sequence_trimming"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_differential_expression",
+        "bulk_rnaseq_review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_data_acquisition",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_differential_expression",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_discover_differential_expression",
+        "bulk_rnaseq_normalisation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_discover_alignment",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_discover_differential_expression",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_discover_normalisation",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_discover_pathway_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_discover_quantification",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_discover_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_normalisation",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_discover_normalisation",
+        "bulk_rnaseq_qc_preprocessing"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_pathway_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_differential_expression",
+        "bulk_rnaseq_discover_pathway_enrichment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_qc_preprocessing",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_quantification"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_quantification",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_alignment",
+        "bulk_rnaseq_discover_quantification"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_raw_qc",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_reporting",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_contextualize_findings_with_literature",
+        "bulk_rnaseq_differential_expression",
+        "bulk_rnaseq_pathway_enrichment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_review_prior_work",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_discover_sequence_trimming",
+        "bulk_rnaseq_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_survey_method_landscape",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_data_acquisition",
+        "bulk_rnaseq_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_alignment",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_alignment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_contextualize_findings_with_literature"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_data_acquisition",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_differential_expression",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_differential_expression"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_final_reporting",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_normalisation",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_normalisation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_pathway_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_pathway_enrichment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_qc_preprocessing",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_qc_preprocessing"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_quantification",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_quantification"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_raw_qc",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_reporting",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_review_prior_work",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "bulk_rnaseq_validate_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "bulk_rnaseq_sequence_trimming"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_alignment",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_discover_alignment",
+        "chip_seq_sequence_trimming"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_peak_calling",
+        "chip_seq_review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_data_acquisition",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_discover_alignment",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_discover_motif_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_discover_peak_annotation",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_discover_peak_calling",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_discover_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_motif_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_discover_motif_enrichment",
+        "chip_seq_peak_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_peak_annotation",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_discover_peak_annotation",
+        "chip_seq_peak_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_peak_calling",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_alignment",
+        "chip_seq_discover_peak_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_raw_qc",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_reporting",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_contextualize_findings_with_literature",
+        "chip_seq_motif_enrichment",
+        "chip_seq_peak_annotation",
+        "chip_seq_peak_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_review_prior_work",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_discover_sequence_trimming",
+        "chip_seq_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_survey_method_landscape",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_data_acquisition",
+        "chip_seq_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_validate_alignment",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_alignment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_validate_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_contextualize_findings_with_literature"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_validate_data_acquisition",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_validate_final_reporting",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_validate_motif_enrichment",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_motif_enrichment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_validate_peak_annotation",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_peak_annotation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_validate_peak_calling",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_peak_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_validate_raw_qc",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_validate_reporting",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_validate_review_prior_work",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "chip_seq_validate_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "chip_seq_sequence_trimming"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "final_reporting",
+      "parameters": {},
+      "dependencies": [
+        "multi_modal_thematic_comparison"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "multi_modal_thematic_comparison",
+      "parameters": {},
+      "dependencies": [
+        "atac_seq_validate_alignment",
+        "atac_seq_validate_contextualize_findings_with_literature",
+        "atac_seq_validate_data_acquisition",
+        "atac_seq_validate_differential_accessibility",
+        "atac_seq_validate_final_reporting",
+        "atac_seq_validate_motif_enrichment",
+        "atac_seq_validate_peak_annotation",
+        "atac_seq_validate_peak_calling",
+        "atac_seq_validate_raw_qc",
+        "atac_seq_validate_reporting",
+        "atac_seq_validate_review_prior_work",
+        "atac_seq_validate_sequence_trimming",
+        "bulk_rnaseq_validate_alignment",
+        "bulk_rnaseq_validate_contextualize_findings_with_literature",
+        "bulk_rnaseq_validate_data_acquisition",
+        "bulk_rnaseq_validate_differential_expression",
+        "bulk_rnaseq_validate_final_reporting",
+        "bulk_rnaseq_validate_normalisation",
+        "bulk_rnaseq_validate_pathway_enrichment",
+        "bulk_rnaseq_validate_qc_preprocessing",
+        "bulk_rnaseq_validate_quantification",
+        "bulk_rnaseq_validate_raw_qc",
+        "bulk_rnaseq_validate_reporting",
+        "bulk_rnaseq_validate_review_prior_work",
+        "bulk_rnaseq_validate_sequence_trimming",
+        "chip_seq_validate_alignment",
+        "chip_seq_validate_contextualize_findings_with_literature",
+        "chip_seq_validate_data_acquisition",
+        "chip_seq_validate_final_reporting",
+        "chip_seq_validate_motif_enrichment",
+        "chip_seq_validate_peak_annotation",
+        "chip_seq_validate_peak_calling",
+        "chip_seq_validate_raw_qc",
+        "chip_seq_validate_reporting",
+        "chip_seq_validate_review_prior_work",
+        "chip_seq_validate_sequence_trimming",
+        "variant_calling_validate_alignment",
+        "variant_calling_validate_contextualize_findings_with_literature",
+        "variant_calling_validate_data_acquisition",
+        "variant_calling_validate_final_reporting",
+        "variant_calling_validate_raw_qc",
+        "variant_calling_validate_reporting",
+        "variant_calling_validate_review_prior_work",
+        "variant_calling_validate_sequence_trimming",
+        "variant_calling_validate_variant_annotation",
+        "variant_calling_validate_variant_calling",
+        "variant_calling_validate_variant_filtering"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_alignment",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_discover_alignment",
+        "variant_calling_sequence_trimming"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_review_prior_work",
+        "variant_calling_variant_annotation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_data_acquisition",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_discover_alignment",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_discover_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_discover_variant_annotation",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_discover_variant_calling",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_discover_variant_filtering",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_survey_method_landscape"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_raw_qc",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_reporting",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_contextualize_findings_with_literature",
+        "variant_calling_variant_annotation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_review_prior_work",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_discover_sequence_trimming",
+        "variant_calling_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_survey_method_landscape",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_data_acquisition",
+        "variant_calling_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_validate_alignment",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_alignment"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_validate_contextualize_findings_with_literature",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_contextualize_findings_with_literature"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_validate_data_acquisition",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_data_acquisition"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_validate_final_reporting",
+      "parameters": {},
+      "dependencies": [],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_validate_raw_qc",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_raw_qc"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_validate_reporting",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_reporting"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_validate_review_prior_work",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_review_prior_work"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_validate_sequence_trimming",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_sequence_trimming"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_validate_variant_annotation",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_variant_annotation"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_validate_variant_calling",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_variant_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_validate_variant_filtering",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_variant_filtering"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_variant_annotation",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_discover_variant_annotation",
+        "variant_calling_variant_filtering"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_variant_calling",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_alignment",
+        "variant_calling_discover_variant_calling"
+      ],
+      "estimated_duration": 1800
+    },
+    {
+      "step_id": "variant_calling_variant_filtering",
+      "parameters": {},
+      "dependencies": [
+        "variant_calling_discover_variant_filtering",
+        "variant_calling_variant_calling"
+      ],
+      "estimated_duration": 1800
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "atac_seq_alignment.out->atac_seq_peak_calling.in",
+      "source_node_id": "atac_seq_alignment",
+      "target_node_id": "atac_seq_peak_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_alignment.out->atac_seq_validate_alignment.in",
+      "source_node_id": "atac_seq_alignment",
+      "target_node_id": "atac_seq_validate_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_contextualize_findings_with_literature.out->atac_seq_reporting.in",
+      "source_node_id": "atac_seq_contextualize_findings_with_literature",
+      "target_node_id": "atac_seq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_contextualize_findings_with_literature.out->atac_seq_validate_contextualize_findings_with_literature.in",
+      "source_node_id": "atac_seq_contextualize_findings_with_literature",
+      "target_node_id": "atac_seq_validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_data_acquisition.out->atac_seq_raw_qc.in",
+      "source_node_id": "atac_seq_data_acquisition",
+      "target_node_id": "atac_seq_raw_qc",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_data_acquisition.out->atac_seq_survey_method_landscape.in",
+      "source_node_id": "atac_seq_data_acquisition",
+      "target_node_id": "atac_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_data_acquisition.out->atac_seq_validate_data_acquisition.in",
+      "source_node_id": "atac_seq_data_acquisition",
+      "target_node_id": "atac_seq_validate_data_acquisition",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_differential_accessibility.out->atac_seq_reporting.in",
+      "source_node_id": "atac_seq_differential_accessibility",
+      "target_node_id": "atac_seq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_differential_accessibility.out->atac_seq_validate_differential_accessibility.in",
+      "source_node_id": "atac_seq_differential_accessibility",
+      "target_node_id": "atac_seq_validate_differential_accessibility",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_discover_alignment.out->atac_seq_alignment.in",
+      "source_node_id": "atac_seq_discover_alignment",
+      "target_node_id": "atac_seq_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_discover_differential_accessibility.out->atac_seq_differential_accessibility.in",
+      "source_node_id": "atac_seq_discover_differential_accessibility",
+      "target_node_id": "atac_seq_differential_accessibility",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_discover_motif_enrichment.out->atac_seq_motif_enrichment.in",
+      "source_node_id": "atac_seq_discover_motif_enrichment",
+      "target_node_id": "atac_seq_motif_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_discover_peak_annotation.out->atac_seq_peak_annotation.in",
+      "source_node_id": "atac_seq_discover_peak_annotation",
+      "target_node_id": "atac_seq_peak_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_discover_peak_calling.out->atac_seq_peak_calling.in",
+      "source_node_id": "atac_seq_discover_peak_calling",
+      "target_node_id": "atac_seq_peak_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_discover_sequence_trimming.out->atac_seq_sequence_trimming.in",
+      "source_node_id": "atac_seq_discover_sequence_trimming",
+      "target_node_id": "atac_seq_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_motif_enrichment.out->atac_seq_reporting.in",
+      "source_node_id": "atac_seq_motif_enrichment",
+      "target_node_id": "atac_seq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_motif_enrichment.out->atac_seq_validate_motif_enrichment.in",
+      "source_node_id": "atac_seq_motif_enrichment",
+      "target_node_id": "atac_seq_validate_motif_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_peak_annotation.out->atac_seq_reporting.in",
+      "source_node_id": "atac_seq_peak_annotation",
+      "target_node_id": "atac_seq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_peak_annotation.out->atac_seq_validate_peak_annotation.in",
+      "source_node_id": "atac_seq_peak_annotation",
+      "target_node_id": "atac_seq_validate_peak_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_peak_calling.out->atac_seq_contextualize_findings_with_literature.in",
+      "source_node_id": "atac_seq_peak_calling",
+      "target_node_id": "atac_seq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_peak_calling.out->atac_seq_differential_accessibility.in",
+      "source_node_id": "atac_seq_peak_calling",
+      "target_node_id": "atac_seq_differential_accessibility",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_peak_calling.out->atac_seq_motif_enrichment.in",
+      "source_node_id": "atac_seq_peak_calling",
+      "target_node_id": "atac_seq_motif_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_peak_calling.out->atac_seq_peak_annotation.in",
+      "source_node_id": "atac_seq_peak_calling",
+      "target_node_id": "atac_seq_peak_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_peak_calling.out->atac_seq_reporting.in",
+      "source_node_id": "atac_seq_peak_calling",
+      "target_node_id": "atac_seq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_peak_calling.out->atac_seq_validate_peak_calling.in",
+      "source_node_id": "atac_seq_peak_calling",
+      "target_node_id": "atac_seq_validate_peak_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_raw_qc.out->atac_seq_sequence_trimming.in",
+      "source_node_id": "atac_seq_raw_qc",
+      "target_node_id": "atac_seq_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_raw_qc.out->atac_seq_survey_method_landscape.in",
+      "source_node_id": "atac_seq_raw_qc",
+      "target_node_id": "atac_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_raw_qc.out->atac_seq_validate_raw_qc.in",
+      "source_node_id": "atac_seq_raw_qc",
+      "target_node_id": "atac_seq_validate_raw_qc",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_reporting.out->atac_seq_validate_reporting.in",
+      "source_node_id": "atac_seq_reporting",
+      "target_node_id": "atac_seq_validate_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_review_prior_work.out->atac_seq_contextualize_findings_with_literature.in",
+      "source_node_id": "atac_seq_review_prior_work",
+      "target_node_id": "atac_seq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_review_prior_work.out->atac_seq_validate_review_prior_work.in",
+      "source_node_id": "atac_seq_review_prior_work",
+      "target_node_id": "atac_seq_validate_review_prior_work",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_sequence_trimming.out->atac_seq_alignment.in",
+      "source_node_id": "atac_seq_sequence_trimming",
+      "target_node_id": "atac_seq_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_sequence_trimming.out->atac_seq_validate_sequence_trimming.in",
+      "source_node_id": "atac_seq_sequence_trimming",
+      "target_node_id": "atac_seq_validate_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_survey_method_landscape.out->atac_seq_discover_alignment.in",
+      "source_node_id": "atac_seq_survey_method_landscape",
+      "target_node_id": "atac_seq_discover_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_survey_method_landscape.out->atac_seq_discover_differential_accessibility.in",
+      "source_node_id": "atac_seq_survey_method_landscape",
+      "target_node_id": "atac_seq_discover_differential_accessibility",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_survey_method_landscape.out->atac_seq_discover_motif_enrichment.in",
+      "source_node_id": "atac_seq_survey_method_landscape",
+      "target_node_id": "atac_seq_discover_motif_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_survey_method_landscape.out->atac_seq_discover_peak_annotation.in",
+      "source_node_id": "atac_seq_survey_method_landscape",
+      "target_node_id": "atac_seq_discover_peak_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_survey_method_landscape.out->atac_seq_discover_peak_calling.in",
+      "source_node_id": "atac_seq_survey_method_landscape",
+      "target_node_id": "atac_seq_discover_peak_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_survey_method_landscape.out->atac_seq_discover_sequence_trimming.in",
+      "source_node_id": "atac_seq_survey_method_landscape",
+      "target_node_id": "atac_seq_discover_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_alignment.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_alignment",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_contextualize_findings_with_literature.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_contextualize_findings_with_literature",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_data_acquisition.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_data_acquisition",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_differential_accessibility.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_differential_accessibility",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_final_reporting.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_final_reporting",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_motif_enrichment.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_motif_enrichment",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_peak_annotation.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_peak_annotation",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_peak_calling.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_peak_calling",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_raw_qc.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_raw_qc",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_reporting.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_reporting",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_review_prior_work.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_review_prior_work",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "atac_seq_validate_sequence_trimming.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "atac_seq_validate_sequence_trimming",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_alignment.out->bulk_rnaseq_quantification.in",
+      "source_node_id": "bulk_rnaseq_alignment",
+      "target_node_id": "bulk_rnaseq_quantification",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_alignment.out->bulk_rnaseq_validate_alignment.in",
+      "source_node_id": "bulk_rnaseq_alignment",
+      "target_node_id": "bulk_rnaseq_validate_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_contextualize_findings_with_literature.out->bulk_rnaseq_reporting.in",
+      "source_node_id": "bulk_rnaseq_contextualize_findings_with_literature",
+      "target_node_id": "bulk_rnaseq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_contextualize_findings_with_literature.out->bulk_rnaseq_validate_contextualize_findings_with_literature.in",
+      "source_node_id": "bulk_rnaseq_contextualize_findings_with_literature",
+      "target_node_id": "bulk_rnaseq_validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_data_acquisition.out->bulk_rnaseq_raw_qc.in",
+      "source_node_id": "bulk_rnaseq_data_acquisition",
+      "target_node_id": "bulk_rnaseq_raw_qc",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_data_acquisition.out->bulk_rnaseq_survey_method_landscape.in",
+      "source_node_id": "bulk_rnaseq_data_acquisition",
+      "target_node_id": "bulk_rnaseq_survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_data_acquisition.out->bulk_rnaseq_validate_data_acquisition.in",
+      "source_node_id": "bulk_rnaseq_data_acquisition",
+      "target_node_id": "bulk_rnaseq_validate_data_acquisition",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_differential_expression.out->bulk_rnaseq_contextualize_findings_with_literature.in",
+      "source_node_id": "bulk_rnaseq_differential_expression",
+      "target_node_id": "bulk_rnaseq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_differential_expression.out->bulk_rnaseq_pathway_enrichment.in",
+      "source_node_id": "bulk_rnaseq_differential_expression",
+      "target_node_id": "bulk_rnaseq_pathway_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_differential_expression.out->bulk_rnaseq_reporting.in",
+      "source_node_id": "bulk_rnaseq_differential_expression",
+      "target_node_id": "bulk_rnaseq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_differential_expression.out->bulk_rnaseq_validate_differential_expression.in",
+      "source_node_id": "bulk_rnaseq_differential_expression",
+      "target_node_id": "bulk_rnaseq_validate_differential_expression",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_discover_alignment.out->bulk_rnaseq_alignment.in",
+      "source_node_id": "bulk_rnaseq_discover_alignment",
+      "target_node_id": "bulk_rnaseq_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_discover_differential_expression.out->bulk_rnaseq_differential_expression.in",
+      "source_node_id": "bulk_rnaseq_discover_differential_expression",
+      "target_node_id": "bulk_rnaseq_differential_expression",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_discover_normalisation.out->bulk_rnaseq_normalisation.in",
+      "source_node_id": "bulk_rnaseq_discover_normalisation",
+      "target_node_id": "bulk_rnaseq_normalisation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_discover_pathway_enrichment.out->bulk_rnaseq_pathway_enrichment.in",
+      "source_node_id": "bulk_rnaseq_discover_pathway_enrichment",
+      "target_node_id": "bulk_rnaseq_pathway_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_discover_quantification.out->bulk_rnaseq_quantification.in",
+      "source_node_id": "bulk_rnaseq_discover_quantification",
+      "target_node_id": "bulk_rnaseq_quantification",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_discover_sequence_trimming.out->bulk_rnaseq_sequence_trimming.in",
+      "source_node_id": "bulk_rnaseq_discover_sequence_trimming",
+      "target_node_id": "bulk_rnaseq_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_normalisation.out->bulk_rnaseq_differential_expression.in",
+      "source_node_id": "bulk_rnaseq_normalisation",
+      "target_node_id": "bulk_rnaseq_differential_expression",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_normalisation.out->bulk_rnaseq_validate_normalisation.in",
+      "source_node_id": "bulk_rnaseq_normalisation",
+      "target_node_id": "bulk_rnaseq_validate_normalisation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_pathway_enrichment.out->bulk_rnaseq_reporting.in",
+      "source_node_id": "bulk_rnaseq_pathway_enrichment",
+      "target_node_id": "bulk_rnaseq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_pathway_enrichment.out->bulk_rnaseq_validate_pathway_enrichment.in",
+      "source_node_id": "bulk_rnaseq_pathway_enrichment",
+      "target_node_id": "bulk_rnaseq_validate_pathway_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_qc_preprocessing.out->bulk_rnaseq_normalisation.in",
+      "source_node_id": "bulk_rnaseq_qc_preprocessing",
+      "target_node_id": "bulk_rnaseq_normalisation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_qc_preprocessing.out->bulk_rnaseq_validate_qc_preprocessing.in",
+      "source_node_id": "bulk_rnaseq_qc_preprocessing",
+      "target_node_id": "bulk_rnaseq_validate_qc_preprocessing",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_quantification.out->bulk_rnaseq_qc_preprocessing.in",
+      "source_node_id": "bulk_rnaseq_quantification",
+      "target_node_id": "bulk_rnaseq_qc_preprocessing",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_quantification.out->bulk_rnaseq_validate_quantification.in",
+      "source_node_id": "bulk_rnaseq_quantification",
+      "target_node_id": "bulk_rnaseq_validate_quantification",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_raw_qc.out->bulk_rnaseq_sequence_trimming.in",
+      "source_node_id": "bulk_rnaseq_raw_qc",
+      "target_node_id": "bulk_rnaseq_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_raw_qc.out->bulk_rnaseq_survey_method_landscape.in",
+      "source_node_id": "bulk_rnaseq_raw_qc",
+      "target_node_id": "bulk_rnaseq_survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_raw_qc.out->bulk_rnaseq_validate_raw_qc.in",
+      "source_node_id": "bulk_rnaseq_raw_qc",
+      "target_node_id": "bulk_rnaseq_validate_raw_qc",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_reporting.out->bulk_rnaseq_validate_reporting.in",
+      "source_node_id": "bulk_rnaseq_reporting",
+      "target_node_id": "bulk_rnaseq_validate_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_review_prior_work.out->bulk_rnaseq_contextualize_findings_with_literature.in",
+      "source_node_id": "bulk_rnaseq_review_prior_work",
+      "target_node_id": "bulk_rnaseq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_review_prior_work.out->bulk_rnaseq_validate_review_prior_work.in",
+      "source_node_id": "bulk_rnaseq_review_prior_work",
+      "target_node_id": "bulk_rnaseq_validate_review_prior_work",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_sequence_trimming.out->bulk_rnaseq_alignment.in",
+      "source_node_id": "bulk_rnaseq_sequence_trimming",
+      "target_node_id": "bulk_rnaseq_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_sequence_trimming.out->bulk_rnaseq_validate_sequence_trimming.in",
+      "source_node_id": "bulk_rnaseq_sequence_trimming",
+      "target_node_id": "bulk_rnaseq_validate_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_survey_method_landscape.out->bulk_rnaseq_discover_alignment.in",
+      "source_node_id": "bulk_rnaseq_survey_method_landscape",
+      "target_node_id": "bulk_rnaseq_discover_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_survey_method_landscape.out->bulk_rnaseq_discover_differential_expression.in",
+      "source_node_id": "bulk_rnaseq_survey_method_landscape",
+      "target_node_id": "bulk_rnaseq_discover_differential_expression",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_survey_method_landscape.out->bulk_rnaseq_discover_normalisation.in",
+      "source_node_id": "bulk_rnaseq_survey_method_landscape",
+      "target_node_id": "bulk_rnaseq_discover_normalisation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_survey_method_landscape.out->bulk_rnaseq_discover_pathway_enrichment.in",
+      "source_node_id": "bulk_rnaseq_survey_method_landscape",
+      "target_node_id": "bulk_rnaseq_discover_pathway_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_survey_method_landscape.out->bulk_rnaseq_discover_quantification.in",
+      "source_node_id": "bulk_rnaseq_survey_method_landscape",
+      "target_node_id": "bulk_rnaseq_discover_quantification",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_survey_method_landscape.out->bulk_rnaseq_discover_sequence_trimming.in",
+      "source_node_id": "bulk_rnaseq_survey_method_landscape",
+      "target_node_id": "bulk_rnaseq_discover_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_alignment.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_alignment",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_contextualize_findings_with_literature.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_contextualize_findings_with_literature",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_data_acquisition.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_data_acquisition",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_differential_expression.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_differential_expression",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_final_reporting.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_final_reporting",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_normalisation.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_normalisation",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_pathway_enrichment.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_pathway_enrichment",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_qc_preprocessing.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_qc_preprocessing",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_quantification.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_quantification",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_raw_qc.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_raw_qc",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_reporting.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_reporting",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_review_prior_work.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_review_prior_work",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "bulk_rnaseq_validate_sequence_trimming.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "bulk_rnaseq_validate_sequence_trimming",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_alignment.out->chip_seq_peak_calling.in",
+      "source_node_id": "chip_seq_alignment",
+      "target_node_id": "chip_seq_peak_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_alignment.out->chip_seq_validate_alignment.in",
+      "source_node_id": "chip_seq_alignment",
+      "target_node_id": "chip_seq_validate_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_contextualize_findings_with_literature.out->chip_seq_reporting.in",
+      "source_node_id": "chip_seq_contextualize_findings_with_literature",
+      "target_node_id": "chip_seq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_contextualize_findings_with_literature.out->chip_seq_validate_contextualize_findings_with_literature.in",
+      "source_node_id": "chip_seq_contextualize_findings_with_literature",
+      "target_node_id": "chip_seq_validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_data_acquisition.out->chip_seq_raw_qc.in",
+      "source_node_id": "chip_seq_data_acquisition",
+      "target_node_id": "chip_seq_raw_qc",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_data_acquisition.out->chip_seq_survey_method_landscape.in",
+      "source_node_id": "chip_seq_data_acquisition",
+      "target_node_id": "chip_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_data_acquisition.out->chip_seq_validate_data_acquisition.in",
+      "source_node_id": "chip_seq_data_acquisition",
+      "target_node_id": "chip_seq_validate_data_acquisition",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_discover_alignment.out->chip_seq_alignment.in",
+      "source_node_id": "chip_seq_discover_alignment",
+      "target_node_id": "chip_seq_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_discover_motif_enrichment.out->chip_seq_motif_enrichment.in",
+      "source_node_id": "chip_seq_discover_motif_enrichment",
+      "target_node_id": "chip_seq_motif_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_discover_peak_annotation.out->chip_seq_peak_annotation.in",
+      "source_node_id": "chip_seq_discover_peak_annotation",
+      "target_node_id": "chip_seq_peak_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_discover_peak_calling.out->chip_seq_peak_calling.in",
+      "source_node_id": "chip_seq_discover_peak_calling",
+      "target_node_id": "chip_seq_peak_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_discover_sequence_trimming.out->chip_seq_sequence_trimming.in",
+      "source_node_id": "chip_seq_discover_sequence_trimming",
+      "target_node_id": "chip_seq_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_motif_enrichment.out->chip_seq_reporting.in",
+      "source_node_id": "chip_seq_motif_enrichment",
+      "target_node_id": "chip_seq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_motif_enrichment.out->chip_seq_validate_motif_enrichment.in",
+      "source_node_id": "chip_seq_motif_enrichment",
+      "target_node_id": "chip_seq_validate_motif_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_peak_annotation.out->chip_seq_reporting.in",
+      "source_node_id": "chip_seq_peak_annotation",
+      "target_node_id": "chip_seq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_peak_annotation.out->chip_seq_validate_peak_annotation.in",
+      "source_node_id": "chip_seq_peak_annotation",
+      "target_node_id": "chip_seq_validate_peak_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_peak_calling.out->chip_seq_contextualize_findings_with_literature.in",
+      "source_node_id": "chip_seq_peak_calling",
+      "target_node_id": "chip_seq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_peak_calling.out->chip_seq_motif_enrichment.in",
+      "source_node_id": "chip_seq_peak_calling",
+      "target_node_id": "chip_seq_motif_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_peak_calling.out->chip_seq_peak_annotation.in",
+      "source_node_id": "chip_seq_peak_calling",
+      "target_node_id": "chip_seq_peak_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_peak_calling.out->chip_seq_reporting.in",
+      "source_node_id": "chip_seq_peak_calling",
+      "target_node_id": "chip_seq_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_peak_calling.out->chip_seq_validate_peak_calling.in",
+      "source_node_id": "chip_seq_peak_calling",
+      "target_node_id": "chip_seq_validate_peak_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_raw_qc.out->chip_seq_sequence_trimming.in",
+      "source_node_id": "chip_seq_raw_qc",
+      "target_node_id": "chip_seq_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_raw_qc.out->chip_seq_survey_method_landscape.in",
+      "source_node_id": "chip_seq_raw_qc",
+      "target_node_id": "chip_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_raw_qc.out->chip_seq_validate_raw_qc.in",
+      "source_node_id": "chip_seq_raw_qc",
+      "target_node_id": "chip_seq_validate_raw_qc",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_reporting.out->chip_seq_validate_reporting.in",
+      "source_node_id": "chip_seq_reporting",
+      "target_node_id": "chip_seq_validate_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_review_prior_work.out->chip_seq_contextualize_findings_with_literature.in",
+      "source_node_id": "chip_seq_review_prior_work",
+      "target_node_id": "chip_seq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_review_prior_work.out->chip_seq_validate_review_prior_work.in",
+      "source_node_id": "chip_seq_review_prior_work",
+      "target_node_id": "chip_seq_validate_review_prior_work",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_sequence_trimming.out->chip_seq_alignment.in",
+      "source_node_id": "chip_seq_sequence_trimming",
+      "target_node_id": "chip_seq_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_sequence_trimming.out->chip_seq_validate_sequence_trimming.in",
+      "source_node_id": "chip_seq_sequence_trimming",
+      "target_node_id": "chip_seq_validate_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_survey_method_landscape.out->chip_seq_discover_alignment.in",
+      "source_node_id": "chip_seq_survey_method_landscape",
+      "target_node_id": "chip_seq_discover_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_survey_method_landscape.out->chip_seq_discover_motif_enrichment.in",
+      "source_node_id": "chip_seq_survey_method_landscape",
+      "target_node_id": "chip_seq_discover_motif_enrichment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_survey_method_landscape.out->chip_seq_discover_peak_annotation.in",
+      "source_node_id": "chip_seq_survey_method_landscape",
+      "target_node_id": "chip_seq_discover_peak_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_survey_method_landscape.out->chip_seq_discover_peak_calling.in",
+      "source_node_id": "chip_seq_survey_method_landscape",
+      "target_node_id": "chip_seq_discover_peak_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_survey_method_landscape.out->chip_seq_discover_sequence_trimming.in",
+      "source_node_id": "chip_seq_survey_method_landscape",
+      "target_node_id": "chip_seq_discover_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_validate_alignment.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "chip_seq_validate_alignment",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_validate_contextualize_findings_with_literature.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "chip_seq_validate_contextualize_findings_with_literature",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_validate_data_acquisition.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "chip_seq_validate_data_acquisition",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_validate_final_reporting.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "chip_seq_validate_final_reporting",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_validate_motif_enrichment.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "chip_seq_validate_motif_enrichment",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_validate_peak_annotation.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "chip_seq_validate_peak_annotation",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_validate_peak_calling.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "chip_seq_validate_peak_calling",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_validate_raw_qc.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "chip_seq_validate_raw_qc",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_validate_reporting.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "chip_seq_validate_reporting",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_validate_review_prior_work.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "chip_seq_validate_review_prior_work",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "chip_seq_validate_sequence_trimming.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "chip_seq_validate_sequence_trimming",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "multi_modal_thematic_comparison.out->final_reporting.in",
+      "source_node_id": "multi_modal_thematic_comparison",
+      "target_node_id": "final_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_alignment.out->variant_calling_validate_alignment.in",
+      "source_node_id": "variant_calling_alignment",
+      "target_node_id": "variant_calling_validate_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_alignment.out->variant_calling_variant_calling.in",
+      "source_node_id": "variant_calling_alignment",
+      "target_node_id": "variant_calling_variant_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_contextualize_findings_with_literature.out->variant_calling_reporting.in",
+      "source_node_id": "variant_calling_contextualize_findings_with_literature",
+      "target_node_id": "variant_calling_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_contextualize_findings_with_literature.out->variant_calling_validate_contextualize_findings_with_literature.in",
+      "source_node_id": "variant_calling_contextualize_findings_with_literature",
+      "target_node_id": "variant_calling_validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_data_acquisition.out->variant_calling_raw_qc.in",
+      "source_node_id": "variant_calling_data_acquisition",
+      "target_node_id": "variant_calling_raw_qc",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_data_acquisition.out->variant_calling_survey_method_landscape.in",
+      "source_node_id": "variant_calling_data_acquisition",
+      "target_node_id": "variant_calling_survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_data_acquisition.out->variant_calling_validate_data_acquisition.in",
+      "source_node_id": "variant_calling_data_acquisition",
+      "target_node_id": "variant_calling_validate_data_acquisition",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_discover_alignment.out->variant_calling_alignment.in",
+      "source_node_id": "variant_calling_discover_alignment",
+      "target_node_id": "variant_calling_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_discover_sequence_trimming.out->variant_calling_sequence_trimming.in",
+      "source_node_id": "variant_calling_discover_sequence_trimming",
+      "target_node_id": "variant_calling_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_discover_variant_annotation.out->variant_calling_variant_annotation.in",
+      "source_node_id": "variant_calling_discover_variant_annotation",
+      "target_node_id": "variant_calling_variant_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_discover_variant_calling.out->variant_calling_variant_calling.in",
+      "source_node_id": "variant_calling_discover_variant_calling",
+      "target_node_id": "variant_calling_variant_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_discover_variant_filtering.out->variant_calling_variant_filtering.in",
+      "source_node_id": "variant_calling_discover_variant_filtering",
+      "target_node_id": "variant_calling_variant_filtering",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_raw_qc.out->variant_calling_sequence_trimming.in",
+      "source_node_id": "variant_calling_raw_qc",
+      "target_node_id": "variant_calling_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_raw_qc.out->variant_calling_survey_method_landscape.in",
+      "source_node_id": "variant_calling_raw_qc",
+      "target_node_id": "variant_calling_survey_method_landscape",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_raw_qc.out->variant_calling_validate_raw_qc.in",
+      "source_node_id": "variant_calling_raw_qc",
+      "target_node_id": "variant_calling_validate_raw_qc",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_reporting.out->variant_calling_validate_reporting.in",
+      "source_node_id": "variant_calling_reporting",
+      "target_node_id": "variant_calling_validate_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_review_prior_work.out->variant_calling_contextualize_findings_with_literature.in",
+      "source_node_id": "variant_calling_review_prior_work",
+      "target_node_id": "variant_calling_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_review_prior_work.out->variant_calling_validate_review_prior_work.in",
+      "source_node_id": "variant_calling_review_prior_work",
+      "target_node_id": "variant_calling_validate_review_prior_work",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_sequence_trimming.out->variant_calling_alignment.in",
+      "source_node_id": "variant_calling_sequence_trimming",
+      "target_node_id": "variant_calling_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_sequence_trimming.out->variant_calling_validate_sequence_trimming.in",
+      "source_node_id": "variant_calling_sequence_trimming",
+      "target_node_id": "variant_calling_validate_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_survey_method_landscape.out->variant_calling_discover_alignment.in",
+      "source_node_id": "variant_calling_survey_method_landscape",
+      "target_node_id": "variant_calling_discover_alignment",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_survey_method_landscape.out->variant_calling_discover_sequence_trimming.in",
+      "source_node_id": "variant_calling_survey_method_landscape",
+      "target_node_id": "variant_calling_discover_sequence_trimming",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_survey_method_landscape.out->variant_calling_discover_variant_annotation.in",
+      "source_node_id": "variant_calling_survey_method_landscape",
+      "target_node_id": "variant_calling_discover_variant_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_survey_method_landscape.out->variant_calling_discover_variant_calling.in",
+      "source_node_id": "variant_calling_survey_method_landscape",
+      "target_node_id": "variant_calling_discover_variant_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_survey_method_landscape.out->variant_calling_discover_variant_filtering.in",
+      "source_node_id": "variant_calling_survey_method_landscape",
+      "target_node_id": "variant_calling_discover_variant_filtering",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_validate_alignment.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "variant_calling_validate_alignment",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_validate_contextualize_findings_with_literature.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "variant_calling_validate_contextualize_findings_with_literature",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_validate_data_acquisition.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "variant_calling_validate_data_acquisition",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_validate_final_reporting.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "variant_calling_validate_final_reporting",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_validate_raw_qc.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "variant_calling_validate_raw_qc",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_validate_reporting.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "variant_calling_validate_reporting",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_validate_review_prior_work.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "variant_calling_validate_review_prior_work",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_validate_sequence_trimming.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "variant_calling_validate_sequence_trimming",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_validate_variant_annotation.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "variant_calling_validate_variant_annotation",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_validate_variant_calling.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "variant_calling_validate_variant_calling",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_validate_variant_filtering.out->multi_modal_thematic_comparison.in",
+      "source_node_id": "variant_calling_validate_variant_filtering",
+      "target_node_id": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_variant_annotation.out->variant_calling_contextualize_findings_with_literature.in",
+      "source_node_id": "variant_calling_variant_annotation",
+      "target_node_id": "variant_calling_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_variant_annotation.out->variant_calling_reporting.in",
+      "source_node_id": "variant_calling_variant_annotation",
+      "target_node_id": "variant_calling_reporting",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_variant_annotation.out->variant_calling_validate_variant_annotation.in",
+      "source_node_id": "variant_calling_variant_annotation",
+      "target_node_id": "variant_calling_validate_variant_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_variant_calling.out->variant_calling_validate_variant_calling.in",
+      "source_node_id": "variant_calling_variant_calling",
+      "target_node_id": "variant_calling_validate_variant_calling",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_variant_calling.out->variant_calling_variant_filtering.in",
+      "source_node_id": "variant_calling_variant_calling",
+      "target_node_id": "variant_calling_variant_filtering",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_variant_filtering.out->variant_calling_validate_variant_filtering.in",
+      "source_node_id": "variant_calling_variant_filtering",
+      "target_node_id": "variant_calling_validate_variant_filtering",
+      "source_output": "out",
+      "target_input": "in"
+    },
+    {
+      "edge_id": "variant_calling_variant_filtering.out->variant_calling_variant_annotation.in",
+      "source_node_id": "variant_calling_variant_filtering",
+      "target_node_id": "variant_calling_variant_annotation",
+      "source_output": "out",
+      "target_input": "in"
+    }
+  ],
+  "parameter_mappings": [
+    {
+      "source_step": "atac_seq_discover_alignment",
+      "source_output": "out",
+      "target_step": "atac_seq_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_sequence_trimming",
+      "source_output": "out",
+      "target_step": "atac_seq_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_peak_calling",
+      "source_output": "out",
+      "target_step": "atac_seq_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_review_prior_work",
+      "source_output": "out",
+      "target_step": "atac_seq_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_discover_differential_accessibility",
+      "source_output": "out",
+      "target_step": "atac_seq_differential_accessibility",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_peak_calling",
+      "source_output": "out",
+      "target_step": "atac_seq_differential_accessibility",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "atac_seq_discover_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "atac_seq_discover_differential_accessibility",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "atac_seq_discover_motif_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "atac_seq_discover_peak_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "atac_seq_discover_peak_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "atac_seq_discover_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_discover_motif_enrichment",
+      "source_output": "out",
+      "target_step": "atac_seq_motif_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_peak_calling",
+      "source_output": "out",
+      "target_step": "atac_seq_motif_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_discover_peak_annotation",
+      "source_output": "out",
+      "target_step": "atac_seq_peak_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_peak_calling",
+      "source_output": "out",
+      "target_step": "atac_seq_peak_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_alignment",
+      "source_output": "out",
+      "target_step": "atac_seq_peak_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_discover_peak_calling",
+      "source_output": "out",
+      "target_step": "atac_seq_peak_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_data_acquisition",
+      "source_output": "out",
+      "target_step": "atac_seq_raw_qc",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "atac_seq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_differential_accessibility",
+      "source_output": "out",
+      "target_step": "atac_seq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_motif_enrichment",
+      "source_output": "out",
+      "target_step": "atac_seq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_peak_annotation",
+      "source_output": "out",
+      "target_step": "atac_seq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_peak_calling",
+      "source_output": "out",
+      "target_step": "atac_seq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_discover_sequence_trimming",
+      "source_output": "out",
+      "target_step": "atac_seq_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_raw_qc",
+      "source_output": "out",
+      "target_step": "atac_seq_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_data_acquisition",
+      "source_output": "out",
+      "target_step": "atac_seq_survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_raw_qc",
+      "source_output": "out",
+      "target_step": "atac_seq_survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_alignment",
+      "source_output": "out",
+      "target_step": "atac_seq_validate_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "atac_seq_validate_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_data_acquisition",
+      "source_output": "out",
+      "target_step": "atac_seq_validate_data_acquisition",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_differential_accessibility",
+      "source_output": "out",
+      "target_step": "atac_seq_validate_differential_accessibility",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_motif_enrichment",
+      "source_output": "out",
+      "target_step": "atac_seq_validate_motif_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_peak_annotation",
+      "source_output": "out",
+      "target_step": "atac_seq_validate_peak_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_peak_calling",
+      "source_output": "out",
+      "target_step": "atac_seq_validate_peak_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_raw_qc",
+      "source_output": "out",
+      "target_step": "atac_seq_validate_raw_qc",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_reporting",
+      "source_output": "out",
+      "target_step": "atac_seq_validate_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_review_prior_work",
+      "source_output": "out",
+      "target_step": "atac_seq_validate_review_prior_work",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_sequence_trimming",
+      "source_output": "out",
+      "target_step": "atac_seq_validate_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_discover_alignment",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_sequence_trimming",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_differential_expression",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_review_prior_work",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_discover_differential_expression",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_differential_expression",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_normalisation",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_differential_expression",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_discover_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_discover_differential_expression",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_discover_normalisation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_discover_pathway_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_discover_quantification",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_discover_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_discover_normalisation",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_normalisation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_qc_preprocessing",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_normalisation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_differential_expression",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_pathway_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_discover_pathway_enrichment",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_pathway_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_quantification",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_qc_preprocessing",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_alignment",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_quantification",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_discover_quantification",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_quantification",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_data_acquisition",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_raw_qc",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_differential_expression",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_pathway_enrichment",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_discover_sequence_trimming",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_raw_qc",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_data_acquisition",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_raw_qc",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_alignment",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_data_acquisition",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_data_acquisition",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_differential_expression",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_differential_expression",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_normalisation",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_normalisation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_pathway_enrichment",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_pathway_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_qc_preprocessing",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_qc_preprocessing",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_quantification",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_quantification",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_raw_qc",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_raw_qc",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_reporting",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_review_prior_work",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_review_prior_work",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_sequence_trimming",
+      "source_output": "out",
+      "target_step": "bulk_rnaseq_validate_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_discover_alignment",
+      "source_output": "out",
+      "target_step": "chip_seq_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_sequence_trimming",
+      "source_output": "out",
+      "target_step": "chip_seq_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_peak_calling",
+      "source_output": "out",
+      "target_step": "chip_seq_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_review_prior_work",
+      "source_output": "out",
+      "target_step": "chip_seq_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "chip_seq_discover_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "chip_seq_discover_motif_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "chip_seq_discover_peak_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "chip_seq_discover_peak_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "chip_seq_discover_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_discover_motif_enrichment",
+      "source_output": "out",
+      "target_step": "chip_seq_motif_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_peak_calling",
+      "source_output": "out",
+      "target_step": "chip_seq_motif_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_discover_peak_annotation",
+      "source_output": "out",
+      "target_step": "chip_seq_peak_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_peak_calling",
+      "source_output": "out",
+      "target_step": "chip_seq_peak_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_alignment",
+      "source_output": "out",
+      "target_step": "chip_seq_peak_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_discover_peak_calling",
+      "source_output": "out",
+      "target_step": "chip_seq_peak_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_data_acquisition",
+      "source_output": "out",
+      "target_step": "chip_seq_raw_qc",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "chip_seq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_motif_enrichment",
+      "source_output": "out",
+      "target_step": "chip_seq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_peak_annotation",
+      "source_output": "out",
+      "target_step": "chip_seq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_peak_calling",
+      "source_output": "out",
+      "target_step": "chip_seq_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_discover_sequence_trimming",
+      "source_output": "out",
+      "target_step": "chip_seq_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_raw_qc",
+      "source_output": "out",
+      "target_step": "chip_seq_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_data_acquisition",
+      "source_output": "out",
+      "target_step": "chip_seq_survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_raw_qc",
+      "source_output": "out",
+      "target_step": "chip_seq_survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_alignment",
+      "source_output": "out",
+      "target_step": "chip_seq_validate_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "chip_seq_validate_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_data_acquisition",
+      "source_output": "out",
+      "target_step": "chip_seq_validate_data_acquisition",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_motif_enrichment",
+      "source_output": "out",
+      "target_step": "chip_seq_validate_motif_enrichment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_peak_annotation",
+      "source_output": "out",
+      "target_step": "chip_seq_validate_peak_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_peak_calling",
+      "source_output": "out",
+      "target_step": "chip_seq_validate_peak_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_raw_qc",
+      "source_output": "out",
+      "target_step": "chip_seq_validate_raw_qc",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_reporting",
+      "source_output": "out",
+      "target_step": "chip_seq_validate_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_review_prior_work",
+      "source_output": "out",
+      "target_step": "chip_seq_validate_review_prior_work",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_sequence_trimming",
+      "source_output": "out",
+      "target_step": "chip_seq_validate_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "multi_modal_thematic_comparison",
+      "source_output": "out",
+      "target_step": "final_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_alignment",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_data_acquisition",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_differential_accessibility",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_final_reporting",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_motif_enrichment",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_peak_annotation",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_peak_calling",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_raw_qc",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_reporting",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_review_prior_work",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "atac_seq_validate_sequence_trimming",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_alignment",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_data_acquisition",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_differential_expression",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_final_reporting",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_normalisation",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_pathway_enrichment",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_qc_preprocessing",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_quantification",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_raw_qc",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_reporting",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_review_prior_work",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "bulk_rnaseq_validate_sequence_trimming",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_validate_alignment",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_validate_data_acquisition",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_validate_final_reporting",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_validate_motif_enrichment",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_validate_peak_annotation",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_validate_peak_calling",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_validate_raw_qc",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_validate_reporting",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_validate_review_prior_work",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "chip_seq_validate_sequence_trimming",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_validate_alignment",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_validate_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_validate_data_acquisition",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_validate_final_reporting",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_validate_raw_qc",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_validate_reporting",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_validate_review_prior_work",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_validate_sequence_trimming",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_validate_variant_annotation",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_validate_variant_calling",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_validate_variant_filtering",
+      "source_output": "out",
+      "target_step": "multi_modal_thematic_comparison",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_discover_alignment",
+      "source_output": "out",
+      "target_step": "variant_calling_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_sequence_trimming",
+      "source_output": "out",
+      "target_step": "variant_calling_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_review_prior_work",
+      "source_output": "out",
+      "target_step": "variant_calling_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_variant_annotation",
+      "source_output": "out",
+      "target_step": "variant_calling_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "variant_calling_discover_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "variant_calling_discover_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "variant_calling_discover_variant_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "variant_calling_discover_variant_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_survey_method_landscape",
+      "source_output": "out",
+      "target_step": "variant_calling_discover_variant_filtering",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_data_acquisition",
+      "source_output": "out",
+      "target_step": "variant_calling_raw_qc",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "variant_calling_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_variant_annotation",
+      "source_output": "out",
+      "target_step": "variant_calling_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_discover_sequence_trimming",
+      "source_output": "out",
+      "target_step": "variant_calling_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_raw_qc",
+      "source_output": "out",
+      "target_step": "variant_calling_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_data_acquisition",
+      "source_output": "out",
+      "target_step": "variant_calling_survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_raw_qc",
+      "source_output": "out",
+      "target_step": "variant_calling_survey_method_landscape",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_alignment",
+      "source_output": "out",
+      "target_step": "variant_calling_validate_alignment",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_contextualize_findings_with_literature",
+      "source_output": "out",
+      "target_step": "variant_calling_validate_contextualize_findings_with_literature",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_data_acquisition",
+      "source_output": "out",
+      "target_step": "variant_calling_validate_data_acquisition",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_raw_qc",
+      "source_output": "out",
+      "target_step": "variant_calling_validate_raw_qc",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_reporting",
+      "source_output": "out",
+      "target_step": "variant_calling_validate_reporting",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_review_prior_work",
+      "source_output": "out",
+      "target_step": "variant_calling_validate_review_prior_work",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_sequence_trimming",
+      "source_output": "out",
+      "target_step": "variant_calling_validate_sequence_trimming",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_variant_annotation",
+      "source_output": "out",
+      "target_step": "variant_calling_validate_variant_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_variant_calling",
+      "source_output": "out",
+      "target_step": "variant_calling_validate_variant_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_variant_filtering",
+      "source_output": "out",
+      "target_step": "variant_calling_validate_variant_filtering",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_discover_variant_annotation",
+      "source_output": "out",
+      "target_step": "variant_calling_variant_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_variant_filtering",
+      "source_output": "out",
+      "target_step": "variant_calling_variant_annotation",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_alignment",
+      "source_output": "out",
+      "target_step": "variant_calling_variant_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_discover_variant_calling",
+      "source_output": "out",
+      "target_step": "variant_calling_variant_calling",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_discover_variant_filtering",
+      "source_output": "out",
+      "target_step": "variant_calling_variant_filtering",
+      "target_input": "in"
+    },
+    {
+      "source_step": "variant_calling_variant_calling",
+      "source_output": "out",
+      "target_step": "variant_calling_variant_filtering",
+      "target_input": "in"
+    }
+  ],
+  "parameters": [
+    {
+      "name": "organism",
+      "type": "string",
+      "value": "Homo sapiens",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_0",
+      "type": "string",
+      "value": "HISAT2",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_1",
+      "type": "string",
+      "value": "BWA-MEM",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_2",
+      "type": "string",
+      "value": "featureCounts",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_3",
+      "type": "string",
+      "value": "DESeq2",
+      "source": "intake"
+    },
+    {
+      "name": "sme_method_4",
+      "type": "string",
+      "value": "MACS2",
+      "source": "intake"
+    }
+  ],
+  "validation_rules": [
+    {
+      "rule_id": "atac_seq_discover_alignment:requires_sme_review",
+      "target_step": "atac_seq_discover_alignment",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "atac_seq_discover_differential_accessibility:requires_sme_review",
+      "target_step": "atac_seq_discover_differential_accessibility",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "atac_seq_discover_motif_enrichment:requires_sme_review",
+      "target_step": "atac_seq_discover_motif_enrichment",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "atac_seq_discover_peak_annotation:requires_sme_review",
+      "target_step": "atac_seq_discover_peak_annotation",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "atac_seq_discover_peak_calling:requires_sme_review",
+      "target_step": "atac_seq_discover_peak_calling",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "atac_seq_discover_sequence_trimming:requires_sme_review",
+      "target_step": "atac_seq_discover_sequence_trimming",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "bulk_rnaseq_discover_alignment:requires_sme_review",
+      "target_step": "bulk_rnaseq_discover_alignment",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "bulk_rnaseq_discover_differential_expression:requires_sme_review",
+      "target_step": "bulk_rnaseq_discover_differential_expression",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "bulk_rnaseq_discover_normalisation:requires_sme_review",
+      "target_step": "bulk_rnaseq_discover_normalisation",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "bulk_rnaseq_discover_pathway_enrichment:requires_sme_review",
+      "target_step": "bulk_rnaseq_discover_pathway_enrichment",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "bulk_rnaseq_discover_quantification:requires_sme_review",
+      "target_step": "bulk_rnaseq_discover_quantification",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "bulk_rnaseq_discover_sequence_trimming:requires_sme_review",
+      "target_step": "bulk_rnaseq_discover_sequence_trimming",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "chip_seq_discover_alignment:requires_sme_review",
+      "target_step": "chip_seq_discover_alignment",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "chip_seq_discover_motif_enrichment:requires_sme_review",
+      "target_step": "chip_seq_discover_motif_enrichment",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "chip_seq_discover_peak_annotation:requires_sme_review",
+      "target_step": "chip_seq_discover_peak_annotation",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "chip_seq_discover_peak_calling:requires_sme_review",
+      "target_step": "chip_seq_discover_peak_calling",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "chip_seq_discover_sequence_trimming:requires_sme_review",
+      "target_step": "chip_seq_discover_sequence_trimming",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "variant_calling_discover_alignment:requires_sme_review",
+      "target_step": "variant_calling_discover_alignment",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "variant_calling_discover_sequence_trimming:requires_sme_review",
+      "target_step": "variant_calling_discover_sequence_trimming",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "variant_calling_discover_variant_annotation:requires_sme_review",
+      "target_step": "variant_calling_discover_variant_annotation",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "variant_calling_discover_variant_calling:requires_sme_review",
+      "target_step": "variant_calling_discover_variant_calling",
+      "severity": "hard"
+    },
+    {
+      "rule_id": "variant_calling_discover_variant_filtering:requires_sme_review",
+      "target_step": "variant_calling_discover_variant_filtering",
+      "severity": "hard"
+    }
+  ],
+  "metadata": {
+    "complexity": "complex",
+    "tags": [
+      "bulk_rnaseq",
+      "discovery",
+      "operation",
+      "validation"
+    ],
+    "categories": [
+      "transcriptomics"
+    ],
+    "use_cases": [
+      "kind"
+    ]
+  }
+}

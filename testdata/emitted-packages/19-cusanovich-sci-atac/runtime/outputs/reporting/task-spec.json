@@ -2,6 +2,7 @@
   "assignee": "agent",
   "container": null,
   "depends_on": [
+    "contextualize_findings_with_literature",
     "generic_summary"
   ],
   "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",

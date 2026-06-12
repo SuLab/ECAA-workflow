@@ -1,10 +1,4 @@
 {
-  "schemaVersion": "1.1",
-  "targetStages": [
-    "discover_interpretation",
-    "biological_interpretation",
-    "validate_interpretation"
-  ],
   "claimBoundary": {
     "associativeOnly": [
       "Report pathway/gene-set enrichment as statistical associations only",
@@ -15,57 +9,86 @@
       "Disease-relevance language must cite the disease-gene panel source"
     ]
   },
-  "verifiableEntities": {
-    "enabled": true,
-    "entityNamePatterns": [
-      "[A-Z][A-Z0-9]{1,}",
-      "GO:\\d{7}",
-      "R-HSA-\\d+",
-      "R-MMU-\\d+",
-      "R-RNO-\\d+",
-      "R-DRE-\\d+",
-      "(?:hsa|mmu|rno|dre|cel|sce|dme|ath)\\d{5}",
-      "K\\d{5}",
-      "WP\\d+",
-      "MP:\\d{7}",
-      "DOID:\\d+",
-      "EFO_\\d+",
-      "HP:\\d{7}",
-      "REACTOME:R-[A-Z]{3}-\\d+",
-      "FB(?:gn|tr|pp)\\d{7}",
-      "ENS[A-Z]{0,4}[GTP]\\d{6,}",
-      "WBGene\\d{8}",
-      "ZDB-GENE-\\d+-\\d+",
-      "AT[1-5MC]G\\d{5}",
-      "Y[A-P][LR]\\d{3}[WC]"
-    ],
-    "entityNameExcludePatterns": [
-      "^USA$", "^WHO$", "^CDC$", "^BBC$", "^EU$", "^US$", "^UK$",
-      "^PCR$", "^QPCR$", "^DNA$", "^RNA$", "^ATP$", "^ADP$", "^AMP$",
-      "^NGS$", "^ELISA$", "^SDS$", "^PAGE$", "^BSA$", "^HRP$",
-      "^FDA$", "^EMA$", "^ISO$", "^GMP$",
-      "^MS$", "^MS2$", "^MS3$",
-      "^IVD$", "^IVT$",
-      "^FDR$", "^FC$", "^DE$", "^DEG$", "^DEGS$", "^LFC$",
-      "^GSEA$", "^GO$", "^KEGG$", "^MSIGDB$", "^ORA$", "^FGSEA$",
-      "^TPM$", "^CPM$", "^RPKM$", "^FPKM$", "^TMM$", "^VST$", "^RLE$",
-      "^UMI$", "^PCA$", "^UMAP$", "^TSNE$", "^QC$",
-      "^SME$", "^FASTQ$", "^BH$", "^SWFC$", "^ECAA$", "^SAP$",
-      "^ITT$", "^MMRM$", "^GEO$", "^SRA$", "^ENA$", "^BAM$", "^SAM$",
-      "^VCF$", "^GFF$", "^GTF$", "^BED$", "^CSV$", "^TSV$", "^JSON$",
-      "^ES$", "^SE$", "^CI$", "^SD$", "^IQR$", "^AUC$", "^ROC$"
-    ],
-    "directionVocab": {
-      "up": [
+  "evidenceRules": [
+    {
+      "appliesTo": [
+        "differentially_expressed",
         "upregulated",
-        "up-regulated",
-        "increased",
-        "elevated",
+        "downregulated",
         "enriched",
-        "induced",
-        "higher",
-        "activated"
+        "depleted"
       ],
+      "description": "Any significance claim about a gene/feature must cite an FDR-adjusted p-value column (padj, FDR, q_value, adj.P.Val). Raw p-values without multiple-testing correction are not sufficient for differential-expression assertions.",
+      "id": "adjusted_p_value_required",
+      "severity": "blocking"
+    },
+    {
+      "appliesTo": [
+        "upregulated",
+        "downregulated",
+        "increased",
+        "decreased",
+        "elevated",
+        "reduced"
+      ],
+      "description": "When a narrative declares an entity 'upregulated' / 'increased' / 'higher', the cited effect-size column (log2FC, logFC, effect_size) must be positive on the row matching the entity. The mirror rule applies for downregulation. Sign mismatches surface as ClaimVerificationReport mismatches.",
+      "id": "effect_size_sign_consistency",
+      "severity": "blocking"
+    },
+    {
+      "appliesTo": [
+        "all_directional_claims"
+      ],
+      "description": "Direction-language vocabulary in narrative prose must match one of the configured directionVocab terms (up / down sets). Free-form synonyms outside the vocab are flagged so the SME can either extend the vocab or rephrase the claim.",
+      "id": "direction_vocab_match",
+      "severity": "warning"
+    },
+    {
+      "appliesTo": [
+        "pathway_enriched",
+        "pathway_depleted",
+        "gene_set_enriched"
+      ],
+      "description": "Pathway / gene-set enrichment claims must cite the enrichment method (e.g. fgsea, gprofiler, gseapy) and the database version (e.g. Reactome 2025-09, GO 2025-Q3). The claimBoundary.requiresEvidence rule drives this — narrative without method+version cite is downgraded to an associative-only restatement.",
+      "id": "pathway_claim_requires_method_and_db_version",
+      "severity": "blocking"
+    },
+    {
+      "appliesTo": [
+        "concordant_with_literature",
+        "consistent_with_prior",
+        "replicates_prior",
+        "corroborates_prior"
+      ],
+      "description": "Any claim that an analytical finding is concordant with / consistent with / replicates prior literature must cite at least minPapers distinct PMIDs that the claims_evidence_matrix.csv records as verified supporting rows, drawn from at least minSources distinct source kinds. A cited PMID absent from the matrix, or a matrix row flagged opposite_direction, surfaces as a ClaimVerificationReport mismatch.",
+      "id": "literature_concordance_verified",
+      "severity": "blocking"
+    },
+    {
+      "appliesTo": [
+        "concordant_with_literature",
+        "consistent_with_prior",
+        "replicates_prior",
+        "corroborates_prior"
+      ],
+      "description": "A literature-grounded support claim must anchor to one or more PMID citations; concordance / prior-work language without a PMID citation cannot be cross-checked against the claims_evidence_matrix.csv prior-work rows and is downgraded to an unverifiable assertion.",
+      "id": "literature_support_requires_pmid",
+      "severity": "blocking"
+    }
+  ],
+  "note": "schemaVersion 1.1 adds verifiableEntities: a policy block consumed by the claim verifier to check that narrative reports cite values matching the committed result tables.",
+  "schemaVersion": "1.1",
+  "targetStages": [
+    "discover_interpretation",
+    "biological_interpretation",
+    "validate_interpretation"
+  ],
+  "validationContract": {
+    "metrics": [],
+    "requiredOutputs": []
+  },
+  "verifiableEntities": {
+    "directionVocab": {
       "down": [
         "downregulated",
         "down-regulated",
@@ -76,6 +99,16 @@
         "lower",
         "repressed",
         "inhibited"
+      ],
+      "up": [
+        "upregulated",
+        "up-regulated",
+        "increased",
+        "elevated",
+        "enriched",
+        "induced",
+        "higher",
+        "activated"
       ]
     },
     "effectSizeColumns": [
@@ -90,6 +123,7 @@
       "NES",
       "es"
     ],
+    "enabled": true,
     "entityColumns": [
       "gene",
       "gene_name",
@@ -132,6 +166,115 @@
       "transcript",
       "transcript_id"
     ],
+    "entityNameExcludePatterns": [
+      "^USA$",
+      "^WHO$",
+      "^CDC$",
+      "^BBC$",
+      "^EU$",
+      "^US$",
+      "^UK$",
+      "^PCR$",
+      "^QPCR$",
+      "^DNA$",
+      "^RNA$",
+      "^ATP$",
+      "^ADP$",
+      "^AMP$",
+      "^NGS$",
+      "^ELISA$",
+      "^SDS$",
+      "^PAGE$",
+      "^BSA$",
+      "^HRP$",
+      "^FDA$",
+      "^EMA$",
+      "^ISO$",
+      "^GMP$",
+      "^MS$",
+      "^MS2$",
+      "^MS3$",
+      "^IVD$",
+      "^IVT$",
+      "^FDR$",
+      "^FC$",
+      "^DE$",
+      "^DEG$",
+      "^DEGS$",
+      "^LFC$",
+      "^GSEA$",
+      "^GO$",
+      "^KEGG$",
+      "^MSIGDB$",
+      "^ORA$",
+      "^FGSEA$",
+      "^TPM$",
+      "^CPM$",
+      "^RPKM$",
+      "^FPKM$",
+      "^TMM$",
+      "^VST$",
+      "^RLE$",
+      "^UMI$",
+      "^PCA$",
+      "^UMAP$",
+      "^TSNE$",
+      "^QC$",
+      "^SME$",
+      "^FASTQ$",
+      "^BH$",
+      "^SWFC$",
+      "^ECAA$",
+      "^SAP$",
+      "^ITT$",
+      "^MMRM$",
+      "^GEO$",
+      "^SRA$",
+      "^ENA$",
+      "^BAM$",
+      "^SAM$",
+      "^VCF$",
+      "^GFF$",
+      "^GTF$",
+      "^BED$",
+      "^CSV$",
+      "^TSV$",
+      "^JSON$",
+      "^ES$",
+      "^SE$",
+      "^CI$",
+      "^SD$",
+      "^IQR$",
+      "^AUC$",
+      "^ROC$"
+    ],
+    "entityNamePatterns": [
+      "[A-Z][A-Z0-9]{1,}",
+      "GO:\\d{7}",
+      "R-HSA-\\d+",
+      "R-MMU-\\d+",
+      "R-RNO-\\d+",
+      "R-DRE-\\d+",
+      "(?:hsa|mmu|rno|dre|cel|sce|dme|ath)\\d{5}",
+      "K\\d{5}",
+      "WP\\d+",
+      "MP:\\d{7}",
+      "DOID:\\d+",
+      "EFO_\\d+",
+      "HP:\\d{7}",
+      "REACTOME:R-[A-Z]{3}-\\d+",
+      "FB(?:gn|tr|pp)\\d{7}",
+      "ENS[A-Z]{0,4}[GTP]\\d{6,}",
+      "WBGene\\d{8}",
+      "ZDB-GENE-\\d+-\\d+",
+      "AT[1-5MC]G\\d{5}",
+      "Y[A-P][LR]\\d{3}[WC]"
+    ],
+    "expected": [],
+    "literatureGrounding": {
+      "minPapers": 2,
+      "minSources": 1
+    },
     "pvalueColumns": [
       "pvalue",
       "p_value",
@@ -151,36 +294,5 @@
       "log2FcAbsoluteDelta": 0.05,
       "pvalueRelativeDelta": 0.1
     }
-  },
-  "validationContract": {
-    "requiredOutputs": [],
-    "metrics": []
-  },
-  "evidenceRules": [
-    {
-      "id": "adjusted_p_value_required",
-      "description": "Any significance claim about a gene/feature must cite an FDR-adjusted p-value column (padj, FDR, q_value, adj.P.Val). Raw p-values without multiple-testing correction are not sufficient for differential-expression assertions.",
-      "appliesTo": ["differentially_expressed", "upregulated", "downregulated", "enriched", "depleted"],
-      "severity": "blocking"
-    },
-    {
-      "id": "effect_size_sign_consistency",
-      "description": "When a narrative declares an entity 'upregulated' / 'increased' / 'higher', the cited effect-size column (log2FC, logFC, effect_size) must be positive on the row matching the entity. The mirror rule applies for downregulation. Sign mismatches surface as ClaimVerificationReport mismatches.",
-      "appliesTo": ["upregulated", "downregulated", "increased", "decreased", "elevated", "reduced"],
-      "severity": "blocking"
-    },
-    {
-      "id": "direction_vocab_match",
-      "description": "Direction-language vocabulary in narrative prose must match one of the configured directionVocab terms (up / down sets). Free-form synonyms outside the vocab are flagged so the SME can either extend the vocab or rephrase the claim.",
-      "appliesTo": ["all_directional_claims"],
-      "severity": "warning"
-    },
-    {
-      "id": "pathway_claim_requires_method_and_db_version",
-      "description": "Pathway / gene-set enrichment claims must cite the enrichment method (e.g. fgsea, gprofiler, gseapy) and the database version (e.g. Reactome 2025-09, GO 2025-Q3). The claimBoundary.requiresEvidence rule drives this — narrative without method+version cite is downgraded to an associative-only restatement.",
-      "appliesTo": ["pathway_enriched", "pathway_depleted", "gene_set_enriched"],
-      "severity": "blocking"
-    }
-  ],
-  "note": "schemaVersion 1.1 adds verifiableEntities: a policy block consumed by the claim verifier to check that narrative reports cite values matching the committed result tables."
+  }
 }

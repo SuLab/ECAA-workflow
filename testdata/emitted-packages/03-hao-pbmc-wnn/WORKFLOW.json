@@ -8,375 +8,105 @@
   "run_id": "92e1f214-78e5-a3f3-95d0-8e582a34b8f8",
   "schema_version": "0.1.0",
   "tasks": {
-    "atac_seq_alignment": {
+    "cell_type_annotation": {
       "assignee": "agent",
       "depends_on": [
-        "atac_seq_discover_alignment",
-        "atac_seq_sequence_trimming"
+        "clustering",
+        "discover_cell_type_annotation"
       ],
-      "description": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "kind": "computation",
-      "resource_class": "memory_heavy",
-      "source_atom_id": "alignment",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_data_acquisition": {
-      "assignee": "agent",
-      "depends_on": [],
-      "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
+      "description": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
       "kind": "computation",
       "resource_class": "cpu_heavy",
-      "source_atom_id": "data_acquisition",
+      "source_atom_id": "cell_type_annotation",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "celltypist",
+            "singler",
+            "azimuth",
+            "sctype",
+            "marker_panel"
+          ],
+          "claim_boundary": "Cell-type calls are statistical assignments, not pathology. Report the\nreference / panel / marker set used alongside every label. Do not infer\nfunctional state from identity alone.\n"
+        },
         "expected_artifacts": [
-          "cohort_manifest.tsv",
-          "per_accession_summary.json",
-          "matrices_index.json",
+          "celltype_assignments.tsv",
+          "marker_panel_audit.json",
           "manifest.json",
           "result.json"
         ],
         "required_figures": [
-          "samples_per_study"
+          "umap_by_celltype",
+          "celltype_size_bar"
         ]
       },
       "state": {
         "status": "pending"
       }
     },
-    "atac_seq_differential_accessibility": {
+    "clustering": {
       "assignee": "agent",
       "depends_on": [
-        "atac_seq_discover_differential_accessibility",
-        "atac_seq_peak_calling"
+        "discover_clustering",
+        "joint_wnn_integration"
       ],
-      "description": "Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
+      "description": "Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
       "kind": "computation",
       "resource_class": "cpu_heavy",
-      "source_atom_id": "differential_accessibility",
+      "source_atom_id": "clustering",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "leiden",
+            "louvain",
+            "kmeans",
+            "hierarchical"
+          ]
+        },
         "expected_artifacts": [
-          "differential_peaks.tsv",
-          "diffacc_summary.json",
+          "cluster_assignments.tsv",
+          "resolution_sweep.json",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "atac_seq_differential_accessibility",
         "required_figures": [
-          "volcano",
-          "ma_plot",
-          "diff_heatmap"
+          "umap_clusters",
+          "cluster_size_bar"
         ]
       },
       "state": {
         "status": "pending"
       }
     },
-    "atac_seq_discover_alignment": {
+    "contextualize_findings_with_literature": {
       "assignee": "agent",
       "depends_on": [
-        "atac_seq_survey_method_landscape"
+        "peak_to_gene_linking",
+        "review_prior_work"
       ],
-      "description": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_alignment",
-      "spec": {
-        "stage_class": "alignment"
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_discover_differential_accessibility": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_survey_method_landscape"
-      ],
-      "description": "Discover method for differential_accessibility (options: diffbind, deseq2, edger, csaw). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_differential_accessibility",
-      "spec": {
-        "stage_class": "differential_accessibility"
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_discover_motif_enrichment": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_survey_method_landscape"
-      ],
-      "description": "Discover method for motif_enrichment (options: homer_findmotifsgenome, meme_chip, monalisa). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_motif_enrichment",
-      "spec": {
-        "stage_class": "motif_enrichment"
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_discover_peak_annotation": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_survey_method_landscape"
-      ],
-      "description": "Discover method for peak_annotation (options: chipseeker, homer_annotatepeaks, great). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_peak_annotation",
-      "spec": {
-        "stage_class": "peak_annotation"
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_discover_peak_calling": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_survey_method_landscape"
-      ],
-      "description": "Discover method for peak_calling (options: macs2, macs3, seacr, genrich). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_peak_calling",
-      "spec": {
-        "stage_class": "peak_calling"
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_discover_sequence_trimming": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_survey_method_landscape"
-      ],
-      "description": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_sequence_trimming",
-      "spec": {
-        "stage_class": "sequence_trimming"
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_motif_enrichment": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_discover_motif_enrichment",
-        "atac_seq_peak_calling"
-      ],
-      "description": "Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "motif_enrichment",
-      "spec": {
-        "expected_artifacts": [
-          "enriched_motifs.tsv",
-          "motif_occurrences.tsv",
-          "motif_summary.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "plot_stage_id": "atac_seq_motif_enrichment",
-        "required_figures": [
-          "motif_enrichment_table",
-          "motif_logo_grid"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_peak_annotation": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_discover_peak_annotation",
-        "atac_seq_peak_calling"
-      ],
-      "description": "Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "peak_annotation",
-      "spec": {
-        "expected_artifacts": [
-          "peak_annotation.tsv",
-          "annotation_summary.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "plot_stage_id": "atac_seq_peak_annotation",
-        "required_figures": [
-          "peak_feature_distribution",
-          "tss_distance_distribution"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_peak_calling": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_alignment",
-        "atac_seq_discover_peak_calling"
-      ],
-      "description": "Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "peak_calling",
-      "spec": {
-        "expected_artifacts": [
-          "peaks.bed",
-          "peak_summary.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "profile_pileup",
-          "coverage_track",
-          "peak_saturation"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_raw_qc": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_data_acquisition"
-      ],
-      "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "raw_qc",
-      "spec": {
-        "expected_artifacts": [
-          "qc_metrics.tsv",
-          "qc_summary.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "plot_stage_id": "atac_seq_quality_control",
-        "required_figures": [
-          "per_sample_metric_violin",
-          "per_sample_metric_bar",
-          "qc_summary_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_differential_accessibility",
-        "atac_seq_motif_enrichment",
-        "atac_seq_peak_annotation",
-        "atac_seq_peak_calling"
-      ],
-      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "reporting",
-      "spec": {
-        "expected_artifacts": [
-          "report.md",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "concordance_heatmap",
-          "pathway_overlap_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_sequence_trimming": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_discover_sequence_trimming",
-        "atac_seq_raw_qc"
-      ],
-      "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "sequence_trimming",
-      "spec": {
-        "expected_artifacts": [
-          "retention_summary.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "plot_stage_id": "atac_seq_preprocessing",
-        "required_figures": [
-          "retention_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_survey_method_landscape": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_data_acquisition",
-        "atac_seq_raw_qc"
-      ],
-      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "description": "Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
       "kind": "computation",
       "required_artifacts": [
         {
-          "path": "method_landscape.csv",
-          "schema_ref": "schemas/method_landscape_matrix.schema.json",
+          "path": "claims_evidence_matrix.csv",
+          "schema_ref": "schemas/claims_evidence_matrix.schema.json",
           "validation_obligations": [
-            "source_resolves",
+            "pmid_resolves",
             "evidence_quote_substring_match",
             "redistributable_or_marked",
-            "claim_support_satisfied",
-            "doc_page_matches_tool"
+            "claim_row_has_finding_id",
+            "concordance_flag_in_closed_set"
           ]
         },
         {
           "path": "evidence/manifest.json",
           "schema_ref": "schemas/literature_evidence_manifest.schema.json",
           "validation_obligations": [
-            "source_resolves",
+            "pmid_resolves",
             "evidence_quote_substring_match",
             "redistributable_or_marked",
-            "claim_support_satisfied",
-            "doc_page_matches_tool"
+            "claim_row_has_finding_id",
+            "concordance_flag_in_closed_set"
           ]
         }
       ],
@@ -401,11 +131,15 @@
         "provisioning": "declared_only",
         "sandbox": "none"
       },
-      "source_atom_id": "survey_method_landscape",
+      "source_atom_id": "contextualize_findings_with_literature",
       "spec": {
+        "attributes": {
+          "claim_boundary": "This atom emits row-level concordance flags ONLY. Each row references one\nupstream finding (finding_id), zero or more prior PMIDs, and a closed-set\nconcordance flag whose semantics are: same_direction iff the prior's effect\ndirection matches the analysis effect direction AND both effect-size\nmagnitudes are >0; opposite_direction iff signs differ; no_prior_finding\niff zero prior rows for this entity in this tissue; unverifiable iff prior\nrows exist but their evidence_quote does not specify a direction. Do NOT\nintroduce composite or narrative claims. Do NOT generate paragraphs that\nthe upstream atom did not also generate row-wise.\n\nEVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior\nPMID — and assert same_direction / opposite_direction / unverifiable — ONLY\nfor a PMID that has a DOWNLOADED evidence snapshot you can point to (a\nsnapshots/<sha256> file recorded in an evidence/manifest.json, either this\ntask's own or an upstream literature task's such as review_prior_work /\nsurvey_method_landscape). Before writing ANY PMID into\nclaims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it\ndoes not, DROP the citation and set that row to no_prior_finding (leave the\nprior PMID column empty). NEVER cite a PMID from memory, from the finding's\ngene/region/variant name, or one you have not actually retrieved — an\nunretrieved PMID is an unsupported claim and will block the workflow. Record\nevery PMID you DO cite as an entry in THIS task's evidence/manifest.json\n(reuse the upstream snapshot path) so downstream validation resolves it.\n"
+        },
         "expected_artifacts": [
-          "method_landscape.csv",
-          "method_landscape.json",
+          "claims_evidence_matrix.csv",
+          "literature_search_protocol.md",
+          "citation_verification_report.md",
           "evidence/manifest.json",
           "result.json"
         ]
@@ -414,306 +148,7 @@
         "status": "pending"
       }
     },
-    "atac_seq_validate_alignment": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_alignment"
-      ],
-      "description": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_alignment",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_validate_data_acquisition": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_data_acquisition"
-      ],
-      "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_data_acquisition",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_validate_differential_accessibility": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_differential_accessibility"
-      ],
-      "description": "Validate outputs of: Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_differential_accessibility",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_validate_final_reporting": {
-      "assignee": "agent",
-      "depends_on": [],
-      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_final_reporting",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_validate_motif_enrichment": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_motif_enrichment"
-      ],
-      "description": "Validate outputs of: Identify enriched DNA-binding motifs in a peak set. HOMER\nfindMotifsGenome.pl / MEME-ChIP / monaLisa selected at runtime by\norganism + reference. Outputs a ranked motif table (motif id, family,\np-value, fold enrichment) plus per-peak occurrence calls.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_motif_enrichment",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_validate_peak_annotation": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_peak_annotation"
-      ],
-      "description": "Validate outputs of: Annotate called peaks (ChIP-seq narrow / broad, ATAC-seq accessible\nregions, CUT&RUN / CUT&Tag enriched intervals) to the nearest gene\nand overlapping genomic feature (promoter, exon, intron, UTR,\nintergenic). ChIPseeker / HOMER annotatePeaks.pl / GREAT selected at\nruntime by organism + reference build. Emits a per-peak annotation\ntable with distance-to-TSS, nearest-gene id/symbol, and feature class.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_peak_annotation",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_validate_peak_calling": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_peak_calling"
-      ],
-      "description": "Validate outputs of: Identify regions of significant read enrichment from ChIP-seq / ATAC-seq /\nCUT&RUN alignments. MACS2 / MACS3 / SEACR / Genrich selected at runtime\nby mark type (narrow / broad).\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_peak_calling",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_validate_raw_qc": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_raw_qc"
-      ],
-      "description": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_raw_qc",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_validate_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_reporting"
-      ],
-      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_reporting",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "atac_seq_validate_sequence_trimming": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_sequence_trimming"
-      ],
-      "description": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_sequence_trimming",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "final_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "multi_modal_thematic_comparison"
-      ],
-      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "final_reporting",
-      "spec": {
-        "expected_artifacts": [
-          "final_report.md",
-          "dashboard_index.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "summary_dashboard"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "multi_modal_thematic_comparison": {
-      "assignee": "agent",
-      "depends_on": [
-        "atac_seq_validate_alignment",
-        "atac_seq_validate_data_acquisition",
-        "atac_seq_validate_differential_accessibility",
-        "atac_seq_validate_final_reporting",
-        "atac_seq_validate_motif_enrichment",
-        "atac_seq_validate_peak_annotation",
-        "atac_seq_validate_peak_calling",
-        "atac_seq_validate_raw_qc",
-        "atac_seq_validate_reporting",
-        "atac_seq_validate_sequence_trimming",
-        "single_cell_rnaseq_validate_alignment",
-        "single_cell_rnaseq_validate_batch_correction",
-        "single_cell_rnaseq_validate_cell_type_annotation",
-        "single_cell_rnaseq_validate_clustering",
-        "single_cell_rnaseq_validate_data_acquisition",
-        "single_cell_rnaseq_validate_differential_expression",
-        "single_cell_rnaseq_validate_dimensionality_reduction",
-        "single_cell_rnaseq_validate_final_reporting",
-        "single_cell_rnaseq_validate_integration",
-        "single_cell_rnaseq_validate_normalisation",
-        "single_cell_rnaseq_validate_pathway_enrichment",
-        "single_cell_rnaseq_validate_qc_preprocessing",
-        "single_cell_rnaseq_validate_quantification",
-        "single_cell_rnaseq_validate_raw_qc",
-        "single_cell_rnaseq_validate_reporting",
-        "single_cell_rnaseq_validate_sequence_trimming",
-        "single_cell_vdj_validate_cdr3_clonotype_clustering",
-        "single_cell_vdj_validate_data_acquisition",
-        "single_cell_vdj_validate_final_reporting",
-        "single_cell_vdj_validate_repertoire_diversity",
-        "single_cell_vdj_validate_reporting",
-        "single_cell_vdj_validate_vdj_reconstruction"
-      ],
-      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "reporting",
-      "spec": {
-        "expected_artifacts": [
-          "report.md",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "concordance_heatmap",
-          "pathway_overlap_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_alignment": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_discover_alignment",
-        "single_cell_rnaseq_sequence_trimming"
-      ],
-      "description": "Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "kind": "computation",
-      "resource_class": "memory_heavy",
-      "source_atom_id": "alignment",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_batch_correction": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_discover_batch_correction",
-        "single_cell_rnaseq_normalisation"
-      ],
-      "description": "Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
-      "kind": "computation",
-      "resource_class": "memory_heavy",
-      "source_atom_id": "batch_correction",
-      "spec": {
-        "expected_artifacts": [
-          "integration_stats.json",
-          "corrected_embedding.tsv",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "mixing_score_bar",
-          "umap_pre_post"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_cell_type_annotation": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_clustering",
-        "single_cell_rnaseq_discover_cell_type_annotation"
-      ],
-      "description": "Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "cell_type_annotation",
-      "spec": {
-        "expected_artifacts": [
-          "celltype_assignments.tsv",
-          "marker_panel_audit.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "umap_by_celltype",
-          "celltype_size_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_clustering": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_dimensionality_reduction",
-        "single_cell_rnaseq_discover_clustering"
-      ],
-      "description": "Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "clustering",
-      "spec": {
-        "expected_artifacts": [
-          "cluster_assignments.tsv",
-          "resolution_sweep.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "umap_clusters",
-          "cluster_size_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_data_acquisition": {
+    "data_acquisition": {
       "assignee": "agent",
       "depends_on": [],
       "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
@@ -736,17 +171,64 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_differential_expression": {
+    "differential_accessibility": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_cell_type_annotation",
-        "single_cell_rnaseq_discover_differential_expression"
+        "cell_type_annotation",
+        "discover_differential_accessibility",
+        "joint_wnn_integration"
+      ],
+      "description": "Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "differential_accessibility",
+      "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "diffbind",
+            "deseq2",
+            "edger",
+            "csaw"
+          ]
+        },
+        "expected_artifacts": [
+          "differential_peaks.tsv",
+          "diffacc_summary.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "differential_accessibility",
+        "required_figures": [
+          "volcano",
+          "ma_plot",
+          "diff_heatmap"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "differential_expression": {
+      "assignee": "agent",
+      "depends_on": [
+        "cell_type_annotation",
+        "discover_differential_expression"
       ],
       "description": "Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
       "kind": "computation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "differential_expression",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "deseq2",
+            "edger",
+            "limma_voom",
+            "mast",
+            "wilcoxon"
+          ],
+          "claim_boundary": "Differential expression is statistical association, not biological causation.\nReport effect-size + adjusted p-value + the reference factor level for every\ncontrast. Avoid mechanistic language; prefer \"associated with\" / \"enriched in\"\nover \"drives\" / \"causes\".\n"
+        },
         "expected_artifacts": [
           "de_results.tsv",
           "de_summary.json",
@@ -762,75 +244,10 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_dimensionality_reduction": {
+    "discover_cell_type_annotation": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_discover_dimensionality_reduction",
-        "single_cell_rnaseq_integration",
-        "single_cell_rnaseq_normalisation"
-      ],
-      "description": "Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "dimensionality_reduction",
-      "spec": {
-        "expected_artifacts": [
-          "pca_loadings.tsv",
-          "umap_coords.tsv",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "variance_explained_elbow",
-          "embedding_scatter"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_discover_alignment": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_survey_method_landscape"
-      ],
-      "description": "Discover method for alignment (options: star, hisat2, bwa_mem2, bwa_mem, minimap2, bowtie2). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_alignment",
-      "spec": {
-        "stage_class": "alignment"
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_discover_batch_correction": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_survey_method_landscape"
-      ],
-      "description": "Discover method for batch_correction (options: harmony, scvi, bbknn, mnn_correct, combat, seurat_cca). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_batch_correction",
-      "spec": {
-        "stage_class": "batch_correction"
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_discover_cell_type_annotation": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_survey_method_landscape"
+        "survey_method_landscape"
       ],
       "description": "Discover method for cell_type_annotation (options: celltypist, singler, azimuth, sctype, marker_panel). Surface set_intake_method.",
       "kind": {
@@ -846,10 +263,10 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_discover_clustering": {
+    "discover_clustering": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_survey_method_landscape"
+        "survey_method_landscape"
       ],
       "description": "Discover method for clustering (options: leiden, louvain, kmeans, hierarchical, seurat). Surface set_intake_method.",
       "kind": {
@@ -869,10 +286,29 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_discover_differential_expression": {
+    "discover_differential_accessibility": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_survey_method_landscape"
+        "survey_method_landscape"
+      ],
+      "description": "Discover method for differential_accessibility (options: diffbind, deseq2, edger, csaw). Surface set_intake_method.",
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "requires_sme_review": true,
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "discover_differential_accessibility",
+      "spec": {
+        "stage_class": "differential_accessibility"
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_differential_expression": {
+      "assignee": "agent",
+      "depends_on": [
+        "survey_method_landscape"
       ],
       "description": "Discover method for differential_expression (options: deseq2, edger, limma_voom, mast, wilcoxon). Surface set_intake_method.",
       "kind": {
@@ -888,29 +324,48 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_discover_dimensionality_reduction": {
+    "discover_joint_wnn_integration": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_survey_method_landscape"
+        "survey_method_landscape"
       ],
-      "description": "Discover method for dimensionality_reduction (options: pca, umap, tsne, phate). Surface set_intake_method.",
+      "description": "Discover method for joint_wnn_integration (options: seurat_wnn, muon, mofa_plus). Surface set_intake_method.",
       "kind": {
         "discovery": "best_practice"
       },
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_dimensionality_reduction",
+      "source_atom_id": "discover_joint_wnn_integration",
       "spec": {
-        "stage_class": "dimensionality_reduction"
+        "stage_class": "joint_wnn_integration"
       },
       "state": {
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_discover_normalisation": {
+    "discover_multiome_arc_demultiplex": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_survey_method_landscape"
+        "survey_method_landscape"
+      ],
+      "description": "Discover method for multiome_arc_demultiplex (options: cellranger_arc). Surface set_intake_method.",
+      "kind": {
+        "discovery": "best_practice"
+      },
+      "requires_sme_review": true,
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "discover_multiome_arc_demultiplex",
+      "spec": {
+        "stage_class": "multiome_arc_demultiplex"
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "discover_normalisation": {
+      "assignee": "agent",
+      "depends_on": [
+        "survey_method_landscape"
       ],
       "description": "Discover method for normalisation (options: deseq2_vst, edger_tmm, scran, seurat_lognormalize, sctransform). Surface set_intake_method.",
       "kind": {
@@ -926,10 +381,10 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_discover_pathway_enrichment": {
+    "discover_pathway_enrichment": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_survey_method_landscape"
+        "survey_method_landscape"
       ],
       "description": "Discover method for pathway_enrichment (options: fgsea, clusterprofiler, gsea, enrichr). Surface set_intake_method.",
       "kind": {
@@ -945,75 +400,149 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_discover_quantification": {
+    "discover_peak_to_gene_linking": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_survey_method_landscape"
+        "survey_method_landscape"
       ],
-      "description": "Discover method for quantification (options: salmon, kallisto, featurecounts, htseq, rsem). Surface set_intake_method.",
+      "description": "Discover method for peak_to_gene_linking (options: signac_linkpeaks, archr_peak2gene, cicero). Surface set_intake_method.",
       "kind": {
         "discovery": "best_practice"
       },
       "requires_sme_review": true,
       "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_quantification",
+      "source_atom_id": "discover_peak_to_gene_linking",
       "spec": {
-        "stage_class": "quantification"
+        "stage_class": "peak_to_gene_linking"
       },
       "state": {
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_discover_sequence_trimming": {
+    "final_reporting": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_survey_method_landscape"
+        "reporting"
       ],
-      "description": "Discover method for sequence_trimming (options: trimmomatic, cutadapt, fastp, trim_galore). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
+      "description": "Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
+      "kind": "computation",
       "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_sequence_trimming",
+      "source_atom_id": "final_reporting",
       "spec": {
-        "stage_class": "sequence_trimming"
+        "attributes": {
+          "claim_boundary": "Findings-first: lead with the validated result rows and the\nbiological_interpretation narrative (when present), then methods and\ncaveats. Restate findings exactly as produced by upstream validated\ntasks — every claim traces to an emitted result row or to an\ninterpretation statement that itself cites one. Do not introduce\nclaims that aren't backed by an emitted artifact; do not soften or\nstrengthen effect-size language; do not recommend methods the\npipeline did not run.\n\nThis report is the read-and-evaluated deliverable, so carry the upstream\nsubstance FORWARD into it rather than collapsing to a thin digest: the\nfindings, their interpretation, and the data/source grounding the\nupstream tasks already recorded must appear in the report itself, not be\nleft behind in per-task outputs or the trace. This is faithful\nre-emission under the trace-to-artifact rule above — NOT license to pad\nwith generic prose, and NOT license to add any finding, theme, value, or\ncitation that no upstream artifact produced (an unsupported addition is a\nfabrication, worse than an omission). Generic reporting discipline only;\ndo not tailor content to any external grading rubric.\n"
+        },
+        "expected_artifacts": [
+          "final_report.md",
+          "dashboard_index.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "required_figures": [
+          "summary_dashboard"
+        ]
       },
       "state": {
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_integration": {
+    "joint_wnn_integration": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_batch_correction"
+        "discover_joint_wnn_integration",
+        "multiome_arc_demultiplex",
+        "normalisation"
       ],
-      "description": "Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
-      "kind": "gate",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "integration",
+      "description": "Joint dimensionality reduction over paired single-cell RNA +\nATAC matrices via weighted nearest neighbors (WNN). Produces a\njoint UMAP embedding + joint Leiden clusters that respect both\nmodalities. Seurat v5 WNN at runtime; Signac for the ATAC\nembedding upstream.\n",
+      "kind": "computation",
+      "resource_class": "memory_heavy",
+      "source_atom_id": "joint_wnn_integration",
+      "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "seurat_wnn",
+            "muon",
+            "mofa_plus"
+          ],
+          "claim_boundary": "WNN clusters are joint statistical groupings that respect both\nmodalities — they are not biological cell-type assignments\nwithout downstream marker-based annotation. The WNN weights\nper cell quantify which modality drives each cell's cluster\nmembership; report the modality-balance histogram.\n"
+        },
+        "expected_artifacts": [
+          "joint_embedding.h5",
+          "joint_clusters.tsv",
+          "wnn_summary.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "joint_wnn",
+        "required_figures": [
+          "wnn_umap",
+          "cluster_composition_bar"
+        ]
+      },
       "state": {
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_normalisation": {
+    "multiome_arc_demultiplex": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_discover_normalisation",
-        "single_cell_rnaseq_qc_preprocessing"
+        "data_acquisition",
+        "discover_multiome_arc_demultiplex"
+      ],
+      "description": "Demultiplex 10x Multiome ARC libraries — joint RNA + ATAC capture\non the same nuclei via the 10x ARC v1 chemistry. Produces per-\nnucleus paired (rna_counts, atac_fragments) keyed on a shared\ncell barcode. Cell Ranger ARC at runtime.\n",
+      "kind": "computation",
+      "resource_class": "memory_heavy",
+      "source_atom_id": "multiome_arc_demultiplex",
+      "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "cellranger_arc"
+          ],
+          "claim_boundary": "Per-nucleus pairing depends on the 10x ARC v1 barcode chemistry\nand droplet capture efficiency. Doublets must be detected on\nBOTH modalities (RNA + ATAC) before downstream analyses.\n"
+        },
+        "expected_artifacts": [
+          "rna_counts.h5",
+          "atac_fragments.tsv.gz",
+          "paired_barcode_table.tsv",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "barcode_pairing",
+        "required_figures": [
+          "paired_capture_summary"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "normalisation": {
+      "assignee": "agent",
+      "depends_on": [
+        "discover_normalisation",
+        "qc_preprocessing"
       ],
       "description": "Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
       "kind": "computation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "normalisation",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "deseq2_vst",
+            "edger_tmm",
+            "scran",
+            "seurat_lognormalize",
+            "sctransform"
+          ]
+        },
         "expected_artifacts": [
           "normalized_counts_index.json",
           "hvg_list.tsv",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "single_cell_rnaseq_normalization",
+        "plot_stage_id": "normalization",
         "required_figures": [
           "mean_variance",
           "hvg_count_bar"
@@ -1023,24 +552,33 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_pathway_enrichment": {
+    "pathway_enrichment": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_differential_expression",
-        "single_cell_rnaseq_discover_pathway_enrichment"
+        "differential_expression",
+        "discover_pathway_enrichment"
       ],
       "description": "Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
       "kind": "computation",
       "resource_class": "cpu_heavy",
       "source_atom_id": "pathway_enrichment",
       "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "fgsea",
+            "clusterprofiler",
+            "gsea",
+            "enrichr"
+          ],
+          "claim_boundary": "Enrichment is a statistical signal that a gene set is over-represented at\nthe top / bottom of a ranked list. It does not establish that the pathway\nis biologically activated or repressed in the experimental system.\n"
+        },
         "expected_artifacts": [
           "pathway_results.tsv",
           "pathway_summary.json",
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "single_cell_rnaseq_biological_interpretation",
+        "plot_stage_id": "biological_interpretation",
         "required_figures": [
           "top_enriched_terms"
         ]
@@ -1049,10 +587,46 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_qc_preprocessing": {
+    "peak_to_gene_linking": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_quantification"
+        "cell_type_annotation",
+        "discover_peak_to_gene_linking",
+        "joint_wnn_integration"
+      ],
+      "description": "Link ATAC-derived peaks to RNA-derived gene expression within\nshared nuclei to identify regulatory peak-to-gene relationships.\nSignac LinkPeaks / ArchR addPeak2GeneLinks / cicero at runtime.\nStandard inputs: per-cluster differential peaks + DE genes;\noutputs candidate cis-regulatory edges with statistical support.\n",
+      "kind": "computation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "peak_to_gene_linking",
+      "spec": {
+        "attributes": {
+          "candidate_tools": [
+            "signac_linkpeaks",
+            "archr_peak2gene",
+            "cicero"
+          ],
+          "claim_boundary": "Peak-to-gene links are statistical correlations between\nper-nucleus chromatin accessibility and gene expression. They\ndo not directly establish causal regulation — orthogonal\nevidence (TF perturbation, eQTL data, reporter assays) is\nrequired before any regulatory-mechanism claim.\n"
+        },
+        "expected_artifacts": [
+          "peak_to_gene_links.tsv",
+          "linking_summary.json",
+          "manifest.json",
+          "result.json"
+        ],
+        "plot_stage_id": "peak_to_gene",
+        "required_figures": [
+          "peak_to_gene_arc",
+          "links_per_cluster_bar"
+        ]
+      },
+      "state": {
+        "status": "pending"
+      }
+    },
+    "qc_preprocessing": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
       ],
       "description": "Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
       "kind": "computation",
@@ -1065,7 +639,7 @@
           "manifest.json",
           "result.json"
         ],
-        "plot_stage_id": "single_cell_rnaseq_quality_control",
+        "plot_stage_id": "quality_control",
         "required_figures": [
           "per_sample_metric_violin",
           "per_sample_metric_bar",
@@ -1076,52 +650,14 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_quantification": {
+    "reporting": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_alignment",
-        "single_cell_rnaseq_discover_quantification"
-      ],
-      "description": "Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
-      "kind": "computation",
-      "resource_class": "memory_heavy",
-      "source_atom_id": "quantification",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_raw_qc": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_data_acquisition"
-      ],
-      "description": "Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "raw_qc",
-      "spec": {
-        "expected_artifacts": [
-          "qc_metrics.tsv",
-          "qc_summary.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "plot_stage_id": "single_cell_rnaseq_quality_control",
-        "required_figures": [
-          "per_sample_metric_violin",
-          "per_sample_metric_bar",
-          "qc_summary_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_differential_expression",
-        "single_cell_rnaseq_pathway_enrichment"
+        "contextualize_findings_with_literature",
+        "differential_accessibility",
+        "differential_expression",
+        "pathway_enrichment",
+        "peak_to_gene_linking"
       ],
       "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
       "kind": "computation",
@@ -1142,38 +678,91 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_sequence_trimming": {
+    "review_prior_work": {
       "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_discover_sequence_trimming",
-        "single_cell_rnaseq_raw_qc"
-      ],
-      "description": "Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "depends_on": [],
+      "description": "Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
       "kind": "computation",
+      "required_artifacts": [
+        {
+          "path": "prior_claims_matrix.csv",
+          "schema_ref": "schemas/literature_claims_matrix.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        },
+        {
+          "path": "evidence/manifest.json",
+          "schema_ref": "schemas/literature_evidence_manifest.schema.json",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        },
+        {
+          "min_size_bytes": 1,
+          "path": "citation_verification_report.md",
+          "validation_obligations": [
+            "pmid_resolves",
+            "evidence_quote_substring_match",
+            "redistributable_or_marked"
+          ]
+        }
+      ],
       "resource_class": "cpu_heavy",
-      "source_atom_id": "sequence_trimming",
+      "safety": {
+        "code_execution": "none",
+        "level": "network",
+        "network": {
+          "allowlist": [
+            "eutils.ncbi.nlm.nih.gov",
+            "ftp.ncbi.nlm.nih.gov",
+            "api.openalex.org",
+            "api.crossref.org",
+            "readthedocs.io",
+            "bioconductor.org",
+            "github.com",
+            "raw.githubusercontent.com",
+            "nf-co.re"
+          ],
+          "kind": "none"
+        },
+        "provisioning": "declared_only",
+        "sandbox": "none"
+      },
+      "source_atom_id": "review_prior_work",
       "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in prior_claims_matrix.csv is a verbatim quote from one PMID's\navailable source text (PMC OA full-text XML, abstract, or — under explicit\nscope — a locally-fetched PDF). Do NOT paraphrase, summarize, or synthesize\nacross PMIDs. Do NOT assert biological fact, mechanism, or causation. Do NOT\nassert whether the prior work agrees or disagrees with anything — that is\nthe downstream contextualization atom's role, and even there it is row-wise\nmechanical, not narrative. Rows whose evidence_quote does not exactly\nsubstring-match the retrieved source are emitted with verified=false and\nsurface as BlockerKind::ValidationFailed { LiteratureClaim }.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
         "expected_artifacts": [
-          "retention_summary.json",
-          "manifest.json",
+          "prior_claims_matrix.csv",
+          "literature_search_protocol.md",
+          "citation_verification_report.md",
+          "evidence/manifest.json",
           "result.json"
-        ],
-        "plot_stage_id": "single_cell_rnaseq_preprocessing",
-        "required_figures": [
-          "retention_bar"
         ]
       },
       "state": {
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_survey_method_landscape": {
+    "survey_method_landscape": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_data_acquisition",
-        "single_cell_rnaseq_raw_qc"
+        "data_acquisition",
+        "qc_preprocessing"
       ],
-      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
+      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. When the task carries\nan attributes.goal_context (the SME analysis goal), treat it as RETRIEVAL\nSCOPE — gather candidate methods + evidence relevant to that goal (e.g. a\nlow-allele-frequency / heteroplasmy detection goal widens retrieval toward\nAF-window-aware candidates). This conditions WHAT is retrieved only; it is\nnever a ranking or recommendation instruction. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
       "kind": "computation",
       "required_artifacts": [
         {
@@ -1222,6 +811,15 @@
       },
       "source_atom_id": "survey_method_landscape",
       "spec": {
+        "attributes": {
+          "claim_boundary": "Every row in method_landscape.csv is a verbatim quote from one resolvable\nsource (PMID/DOI/URL), with its locator, source_class, and evidence_role.\nDo NOT rank, recommend, paraphrase, or synthesize. Ranking is the\ndownstream discover_* atom's deterministic job. Rows whose evidence_quote\ndoes not substring-match the retrieved snapshot are emitted verified=false.\n",
+          "retrieval_tools": [
+            "pubmed_eutilities_esearch",
+            "pubmed_eutilities_efetch_pmc_xml",
+            "pubmed_eutilities_efetch_abstract"
+          ],
+          "source_scope_env": "ECAA_LIT_SOURCE_SCOPE"
+        },
         "expected_artifacts": [
           "method_landscape.csv",
           "method_landscape.json",
@@ -1233,36 +831,10 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_validate_alignment": {
+    "validate_cell_type_annotation": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_alignment"
-      ],
-      "description": "Validate outputs of: Align trimmed reads to a reference genome. Method neutrality: the concrete\naligner (STAR / HISAT2 / BWA-MEM2 / minimap2 / Bowtie2 / Salmon-alevin)\nis selected at runtime by the agent. EDAM operation:3198 (Read mapping)\nis the more-specific child of operation:0292 (Sequence alignment).\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_alignment",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_validate_batch_correction": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_batch_correction"
-      ],
-      "description": "Validate outputs of: Remove technical batch effects between donors / runs / sequencing centres\nwhile preserving biological signal. ecaax namespace per EDAM audit —\noperation:3435 conflates with normalisation.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_batch_correction",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_validate_cell_type_annotation": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_cell_type_annotation"
+        "cell_type_annotation"
       ],
       "description": "Validate outputs of: Label each cluster with a cell-identity from marker-gene panels or reference\nmapping (CellTypist / SingleR / Azimuth / sctype). ecaax namespace per the\nEDAM audit — operation:0361 (sequence annotation) is a semantic mismatch\nfor cell-identity calling on count matrices.\n",
       "kind": "validation",
@@ -1272,10 +844,10 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_validate_clustering": {
+    "validate_clustering": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_clustering"
+        "clustering"
       ],
       "description": "Validate outputs of: Group cells / samples by transcriptional similarity in the reduced embedding.\nLeiden / Louvain / k-means / hierarchical methods selected at runtime.\nResolution sweep is part of the emitted artifact so downstream review can\nre-pick without recomputation.\n",
       "kind": "validation",
@@ -1285,10 +857,23 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_validate_data_acquisition": {
+    "validate_contextualize_findings_with_literature": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_data_acquisition"
+        "contextualize_findings_with_literature"
+      ],
+      "description": "Validate outputs of: Map each row of the upstream findings table (DE genes / called peaks /\ncalled variants) to PMID-anchored prior-work rows. Emit\nclaims_evidence_matrix.csv with deterministic concordance flags\n(same_direction / opposite_direction / no_prior_finding / unverifiable).\nNo synthesis; no narrative.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_contextualize_findings_with_literature",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_data_acquisition": {
+      "assignee": "agent",
+      "depends_on": [
+        "data_acquisition"
       ],
       "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
       "kind": "validation",
@@ -1298,10 +883,23 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_validate_differential_expression": {
+    "validate_differential_accessibility": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_differential_expression"
+        "differential_accessibility"
+      ],
+      "description": "Validate outputs of: Test for differential chromatin accessibility between sample groups\nfrom ATAC-seq / CUT&RUN / CUT&Tag peak counts. DiffBind / DESeq2-on-\nconsensus-peaks / edgeR / csaw selected at runtime. Operates on a\nconsensus peak set produced by peak_calling; emits per-peak\ndifferential statistics (log2FC, p-value, FDR).\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_differential_accessibility",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_differential_expression": {
+      "assignee": "agent",
+      "depends_on": [
+        "differential_expression"
       ],
       "description": "Validate outputs of: Test for differentially expressed genes between conditions / cell types.\nDESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on\nmodality (bulk vs single-cell) and design.\n",
       "kind": "validation",
@@ -1311,22 +909,11 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_validate_dimensionality_reduction": {
+    "validate_final_reporting": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_dimensionality_reduction"
+        "final_reporting"
       ],
-      "description": "Validate outputs of: Project the (normalised, batch-corrected) feature matrix to a low-dimensional\nembedding for visualization and clustering. PCA followed by UMAP or t-SNE is\nthe default; method choice deferred to runtime.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_dimensionality_reduction",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_validate_final_reporting": {
-      "assignee": "agent",
-      "depends_on": [],
       "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
@@ -1335,23 +922,36 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_validate_integration": {
+    "validate_joint_wnn_integration": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_integration"
+        "joint_wnn_integration"
       ],
-      "description": "Validate outputs of: Sensitivity comparison across batch-correction methods (Harmony / scVI /\nBBKNN / Scanorama). Materialises method-vs-method concordance metrics so\nthe SME can pick a winner via `select_sensitivity_winner`. Aggregator role\nbecause it fans in multiple corrected matrices.\n",
+      "description": "Validate outputs of: Joint dimensionality reduction over paired single-cell RNA +\nATAC matrices via weighted nearest neighbors (WNN). Produces a\njoint UMAP embedding + joint Leiden clusters that respect both\nmodalities. Seurat v5 WNN at runtime; Signac for the ATAC\nembedding upstream.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_integration",
+      "source_atom_id": "validate_joint_wnn_integration",
       "state": {
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_validate_normalisation": {
+    "validate_multiome_arc_demultiplex": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_normalisation"
+        "multiome_arc_demultiplex"
+      ],
+      "description": "Validate outputs of: Demultiplex 10x Multiome ARC libraries — joint RNA + ATAC capture\non the same nuclei via the 10x ARC v1 chemistry. Produces per-\nnucleus paired (rna_counts, atac_fragments) keyed on a shared\ncell barcode. Cell Ranger ARC at runtime.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_multiome_arc_demultiplex",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_normalisation": {
+      "assignee": "agent",
+      "depends_on": [
+        "normalisation"
       ],
       "description": "Validate outputs of: Standardise expression values to remove library-size and composition biases.\nMethod neutrality: DESeq2 VST / edgeR TMM / scran pooling / Seurat\nLogNormalize / scnorm / sctransform are selected at runtime.\n",
       "kind": "validation",
@@ -1361,10 +961,10 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_validate_pathway_enrichment": {
+    "validate_pathway_enrichment": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_pathway_enrichment"
+        "pathway_enrichment"
       ],
       "description": "Validate outputs of: Test pre-defined gene sets (KEGG / Reactome / GO / MSigDB hallmark) against\nranked DE results. fgsea / clusterProfiler / GSEA / enrichr selected at runtime.\n",
       "kind": "validation",
@@ -1374,10 +974,23 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_validate_qc_preprocessing": {
+    "validate_peak_to_gene_linking": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_qc_preprocessing"
+        "peak_to_gene_linking"
+      ],
+      "description": "Validate outputs of: Link ATAC-derived peaks to RNA-derived gene expression within\nshared nuclei to identify regulatory peak-to-gene relationships.\nSignac LinkPeaks / ArchR addPeak2GeneLinks / cicero at runtime.\nStandard inputs: per-cluster differential peaks + DE genes;\noutputs candidate cis-regulatory edges with statistical support.\n",
+      "kind": "validation",
+      "resource_class": "cpu_heavy",
+      "source_atom_id": "validate_peak_to_gene_linking",
+      "state": {
+        "status": "pending"
+      }
+    },
+    "validate_qc_preprocessing": {
+      "assignee": "agent",
+      "depends_on": [
+        "qc_preprocessing"
       ],
       "description": "Validate outputs of: Apply count-matrix-level QC: cell or sample filtering by total counts, gene\ndetection, mitochondrial fraction, and doublet score. Distinct from `raw_qc`\n(which operates on raw reads). ecaax:scrnaseq_cell_qc per the EDAM audit —\nEDAM operation:3218 conflates raw-read QC with count-matrix QC.\n",
       "kind": "validation",
@@ -1387,36 +1000,10 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_validate_quantification": {
+    "validate_reporting": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_quantification"
-      ],
-      "description": "Validate outputs of: Quantify gene- or transcript-level expression from aligned reads. Method\nneutrality: featureCounts / HTSeq / Salmon / kallisto / RSEM are selected\nat runtime. Emits a count matrix consumed by downstream normalisation.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_quantification",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_validate_raw_qc": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_raw_qc"
-      ],
-      "description": "Validate outputs of: Run sequencing QC (FastQC, MultiQC) on raw FASTQ inputs. Emits a per-sample metric\ntable and aggregated report; downstream `sequence_trimming` reads the trim-needed\nflag.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_raw_qc",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_rnaseq_validate_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_rnaseq_reporting"
+        "reporting"
       ],
       "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
       "kind": "validation",
@@ -1426,343 +1013,15 @@
         "status": "pending"
       }
     },
-    "single_cell_rnaseq_validate_sequence_trimming": {
+    "validate_review_prior_work": {
       "assignee": "agent",
       "depends_on": [
-        "single_cell_rnaseq_sequence_trimming"
+        "review_prior_work"
       ],
-      "description": "Validate outputs of: Trim adapters and low-quality bases from raw reads. Conditional in legacy\ntaxonomies on `raw_qc.result.needs_trimming`; the atom always runs and emits\ntrimmed FASTQ regardless of whether it altered the inputs (idempotent on\nalready-clean data).\n",
+      "description": "Validate outputs of: Retrieve prior literature (PMC OA full-text XML by default, broader via\nECAA_LIT_SOURCE_SCOPE) on the analysis's target entities + tissue +\nmodality. Emit a structured prior_claims_matrix.csv where every row is\nPMID-anchored with a substring-verified evidence_quote. No biological\nsynthesis, no narrative review.\n",
       "kind": "validation",
       "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_sequence_trimming",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_cdr3_clonotype_clustering": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_discover_cdr3_clonotype_clustering",
-        "single_cell_vdj_vdj_reconstruction"
-      ],
-      "description": "Cluster CDR3 amino-acid sequences across donors to detect public\nclonotypes (shared TCR/BCR sequences across individuals,\npotentially antigen-responsive). TCRdist3 / GLIPH2 for T cells;\nSCOPer / Immcantation for B-cell SHM-aware clustering.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "cdr3_clonotype_clustering",
-      "spec": {
-        "expected_artifacts": [
-          "clonotype_clusters.tsv",
-          "public_clonotypes.tsv",
-          "clustering_summary.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "plot_stage_id": "single_cell_vdj_vdj_repertoire",
-        "required_figures": [
-          "public_clonotype_size_bar",
-          "clonotype_network"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_data_acquisition": {
-      "assignee": "agent",
-      "depends_on": [],
-      "description": "Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "data_acquisition",
-      "spec": {
-        "expected_artifacts": [
-          "cohort_manifest.tsv",
-          "per_accession_summary.json",
-          "matrices_index.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "samples_per_study"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_discover_cdr3_clonotype_clustering": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_survey_method_landscape"
-      ],
-      "description": "Discover method for cdr3_clonotype_clustering (options: tcrdist3, gliph2, scoper, immcantation). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_cdr3_clonotype_clustering",
-      "spec": {
-        "stage_class": "cdr3_clonotype_clustering"
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_discover_repertoire_diversity": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_survey_method_landscape"
-      ],
-      "description": "Discover method for repertoire_diversity (options: alakazam, tcrdist3, immunarch). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_repertoire_diversity",
-      "spec": {
-        "stage_class": "repertoire_diversity"
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_discover_vdj_reconstruction": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_survey_method_landscape"
-      ],
-      "description": "Discover method for vdj_reconstruction (options: cellranger_vdj, bd_rhapsody_vdj, mixcr_singlecell, immcantation_changeo). Surface set_intake_method.",
-      "kind": {
-        "discovery": "best_practice"
-      },
-      "requires_sme_review": true,
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "discover_vdj_reconstruction",
-      "spec": {
-        "stage_class": "vdj_reconstruction"
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_repertoire_diversity": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_discover_repertoire_diversity",
-        "single_cell_vdj_vdj_reconstruction"
-      ],
-      "description": "Compute repertoire-diversity summary statistics per donor:\nShannon entropy, clonal-frequency rank distribution, V/J\ngene-segment usage, CDR3 length distribution. For B cells:\nper-donor somatic-hypermutation rate via IMGT comparison.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "repertoire_diversity",
-      "spec": {
-        "expected_artifacts": [
-          "repertoire_diversity.tsv",
-          "diversity_summary.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "plot_stage_id": "single_cell_vdj_vdj_repertoire",
-        "required_figures": [
-          "clonal_frequency_rank",
-          "v_segment_usage_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_cdr3_clonotype_clustering",
-        "single_cell_vdj_repertoire_diversity"
-      ],
-      "description": "Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "reporting",
-      "spec": {
-        "expected_artifacts": [
-          "report.md",
-          "manifest.json",
-          "result.json"
-        ],
-        "required_figures": [
-          "concordance_heatmap",
-          "pathway_overlap_bar"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_survey_method_landscape": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_data_acquisition"
-      ],
-      "description": "Retrieve a context-scoped METHOD-LANDSCAPE for this analysis: for each\nruntime method-choice axis in the workflow, gather candidate methods and\nPMID/DOI/URL-anchored evidence, conditioned on the specific data\n(organism, protocol, sample count, missingness from the upstream QC +\nsample-manifest) and the analysis goal/modality. Honors\nconfig/downstream-policy/source-discovery-policy.json. Emit a\nmethod_landscape.csv where every row is locator-anchored with a\nsubstring-verified evidence_quote. No synthesis; no ranking (the\ndiscover_* atoms rank deterministically from this table).\n",
-      "kind": "computation",
-      "required_artifacts": [
-        {
-          "path": "method_landscape.csv",
-          "schema_ref": "schemas/method_landscape_matrix.schema.json",
-          "validation_obligations": [
-            "source_resolves",
-            "evidence_quote_substring_match",
-            "redistributable_or_marked",
-            "claim_support_satisfied",
-            "doc_page_matches_tool"
-          ]
-        },
-        {
-          "path": "evidence/manifest.json",
-          "schema_ref": "schemas/literature_evidence_manifest.schema.json",
-          "validation_obligations": [
-            "source_resolves",
-            "evidence_quote_substring_match",
-            "redistributable_or_marked",
-            "claim_support_satisfied",
-            "doc_page_matches_tool"
-          ]
-        }
-      ],
-      "resource_class": "cpu_heavy",
-      "safety": {
-        "code_execution": "none",
-        "level": "network",
-        "network": {
-          "allowlist": [
-            "eutils.ncbi.nlm.nih.gov",
-            "ftp.ncbi.nlm.nih.gov",
-            "api.openalex.org",
-            "api.crossref.org",
-            "readthedocs.io",
-            "bioconductor.org",
-            "github.com",
-            "raw.githubusercontent.com",
-            "nf-co.re"
-          ],
-          "kind": "none"
-        },
-        "provisioning": "declared_only",
-        "sandbox": "none"
-      },
-      "source_atom_id": "survey_method_landscape",
-      "spec": {
-        "expected_artifacts": [
-          "method_landscape.csv",
-          "method_landscape.json",
-          "evidence/manifest.json",
-          "result.json"
-        ]
-      },
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_validate_cdr3_clonotype_clustering": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_cdr3_clonotype_clustering"
-      ],
-      "description": "Validate outputs of: Cluster CDR3 amino-acid sequences across donors to detect public\nclonotypes (shared TCR/BCR sequences across individuals,\npotentially antigen-responsive). TCRdist3 / GLIPH2 for T cells;\nSCOPer / Immcantation for B-cell SHM-aware clustering.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_cdr3_clonotype_clustering",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_validate_data_acquisition": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_data_acquisition"
-      ],
-      "description": "Validate outputs of: Acquire raw experimental data from public repositories (SRA, GEO, ArrayExpress,\nENA, PRIDE, ClinVar, gnomAD, GTEx) or SME-supplied paths. Emits a cohort manifest,\nper-accession provenance summary, and an index pointing at the materialized\nartifacts. Downstream atoms consume the manifest, not the raw bytes directly.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_data_acquisition",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_validate_final_reporting": {
-      "assignee": "agent",
-      "depends_on": [],
-      "description": "Validate outputs of: Assemble the project-level final report: cross-stage narrative, dashboard\nindex, key figures, methods + caveats. Final node before SME review.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_final_reporting",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_validate_repertoire_diversity": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_repertoire_diversity"
-      ],
-      "description": "Validate outputs of: Compute repertoire-diversity summary statistics per donor:\nShannon entropy, clonal-frequency rank distribution, V/J\ngene-segment usage, CDR3 length distribution. For B cells:\nper-donor somatic-hypermutation rate via IMGT comparison.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_repertoire_diversity",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_validate_reporting": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_reporting"
-      ],
-      "description": "Validate outputs of: Assemble narrative tables, figures, and summary text from upstream stage\noutputs into a per-stage HTML / Markdown report. Modality-agnostic; bio\ntaxonomies override the description at the include site to specify what\ngoes into the report.\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_reporting",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_validate_vdj_reconstruction": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_vdj_reconstruction"
-      ],
-      "description": "Validate outputs of: Reconstruct productive T-cell-receptor (TRA/TRB) or B-cell-receptor\n(IGH/IGK/IGL) contig pairs per cell from single-cell V(D)J library\nreads. Cell Ranger V(D)J / BD Rhapsody V(D)J / MiXCR-single-cell /\nImmcantation at runtime. Output is a per-cell receptor-chain\nassignment table (productive only by default).\n",
-      "kind": "validation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "validate_vdj_reconstruction",
-      "state": {
-        "status": "pending"
-      }
-    },
-    "single_cell_vdj_vdj_reconstruction": {
-      "assignee": "agent",
-      "depends_on": [
-        "single_cell_vdj_data_acquisition",
-        "single_cell_vdj_discover_vdj_reconstruction"
-      ],
-      "description": "Reconstruct productive T-cell-receptor (TRA/TRB) or B-cell-receptor\n(IGH/IGK/IGL) contig pairs per cell from single-cell V(D)J library\nreads. Cell Ranger V(D)J / BD Rhapsody V(D)J / MiXCR-single-cell /\nImmcantation at runtime. Output is a per-cell receptor-chain\nassignment table (productive only by default).\n",
-      "kind": "computation",
-      "resource_class": "cpu_heavy",
-      "source_atom_id": "vdj_reconstruction",
-      "spec": {
-        "expected_artifacts": [
-          "per_cell_vdj.tsv",
-          "vdj_summary.json",
-          "manifest.json",
-          "result.json"
-        ],
-        "plot_stage_id": "single_cell_vdj_vdj_repertoire",
-        "required_figures": [
-          "chain_assignment_per_cell_bar",
-          "cdr3_length_distribution"
-        ]
-      },
+      "source_atom_id": "validate_review_prior_work",
       "state": {
         "status": "pending"
       }

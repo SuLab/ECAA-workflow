@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 from typing import List, Tuple
 
-from ..core import FigureContext, register_figure, sankey, stage_registry
+from ..core import register_figure, sankey, stage_registry
 
 FIGURES = stage_registry("barcode_pairing")
 

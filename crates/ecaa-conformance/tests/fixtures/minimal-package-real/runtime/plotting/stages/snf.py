@@ -1,5 +1,5 @@
-"""SNF (similarity-network fusion) renderer — fused-similarity heatmap +
-cluster-size bar."""
+"""SNF (similarity-network fusion) renderer — fused-similarity heatmap,
+cluster-size bar, and shared multi-omics summaries."""
 
 from __future__ import annotations
 import numpy as np
@@ -12,6 +12,7 @@ from ..core import (
     resolve_artifact_path,
     stage_registry,
 )
+from . import multi_omics_integration as _multi_omics
 
 FIGURES = stage_registry("snf")
 
@@ -54,3 +55,13 @@ def snf_cluster_size_bar(ctx, out):
         raise ValueError("no clusters")
     return bar(names=names, values=values, title="SNF cluster sizes",
                xlabel="cluster", ylabel="n samples", out=out)
+
+
+@register_figure(FIGURES, "modality_concordance_heatmap")
+def modality_concordance_heatmap(ctx, out):
+    return _multi_omics.modality_concordance_heatmap(ctx, out)
+
+
+@register_figure(FIGURES, "factor_variance_bar")
+def factor_variance_bar(ctx, out):
+    return _multi_omics.factor_variance_bar(ctx, out)

@@ -1,45 +1,54 @@
 {
   "schema_version": "0.1",
+  "ecaa_version": "0.2",
+  "min_reader_version": "0.2",
+  "package_iri": "ro-crate-metadata.json",
+  "evaluated_at": "2026-06-12T21:42:37.467330873+00:00",
+  "evaluator": {
+    "impl": "ecaa-workflow-audit-proof",
+    "version": "0.1.0",
+    "policy": "warn-only"
+  },
   "verdicts": [
     {
       "id": "claim_completeness",
-      "status": "pass",
-      "detail": null,
+      "status": "unverified",
+      "detail": "no verified claims; signed verdict sink absent",
       "n_inspected": 0,
       "n_violations": 0
     },
     {
       "id": "decision_justification",
       "status": "unverified",
-      "detail": "no method_choice decisions present",
+      "detail": "no method-choice decisions present",
       "n_inspected": 0,
       "n_violations": 0
     },
     {
       "id": "evidence_coverage",
-      "status": "unverified",
-      "detail": "no execution outputs declared",
-      "n_inspected": 0,
-      "n_violations": 0
+      "status": "warn",
+      "detail": "23 output(s) not referenced and not marked unused: runtime/outputs/batch_correction/figures/mixing_score_bar.png, runtime/outputs/batch_correction/figures/umap_pre_post.png, runtime/outputs/cell_type_annotation/figures/celltype_size_bar.png, runtime/outputs/cell_type_annotation/figures/umap_by_celltype.png, runtime/outputs/clustering/figures/cluster_size_bar.png, runtime/outputs/clustering/figures/umap_clusters.png, runtime/outputs/data_acquisition/figures/samples_per_study.png, runtime/outputs/differential_expression/figures/top_features_heatmap.png, runtime/outputs/differential_expression/figures/volcano.png, runtime/outputs/dimensionality_reduction/figures/embedding_scatter.png, runtime/outputs/dimensionality_reduction/figures/variance_explained_elbow.png, runtime/outputs/final_reporting/figures/summary_dashboard.png, runtime/outputs/normalisation/figures/hvg_count_bar.png, runtime/outputs/normalisation/figures/mean_variance.png, runtime/outputs/qc_preprocessing/figures/per_sample_metric_bar.png, runtime/outputs/qc_preprocessing/figures/per_sample_metric_violin.png, runtime/outputs/qc_preprocessing/figures/qc_summary_bar.png, runtime/outputs/raw_qc/figures/per_sample_metric_bar.png, runtime/outputs/raw_qc/figures/per_sample_metric_violin.png, runtime/outputs/raw_qc/figures/qc_summary_bar.png, runtime/outputs/reporting/figures/concordance_heatmap.png, runtime/outputs/reporting/figures/pathway_overlap_bar.png, runtime/outputs/sequence_trimming/figures/retention_bar.png",
+      "n_inspected": 23,
+      "n_violations": 23
     },
     {
       "id": "equivalence_failure",
-      "status": "pass",
-      "detail": null,
+      "status": "unverified",
+      "detail": "no re-execution performed (Q absent)",
       "n_inspected": 0,
       "n_violations": 0
     },
     {
       "id": "cross_graph_integrity",
-      "status": "pass",
-      "detail": null,
+      "status": "unverified",
+      "detail": "no cross-graph references present",
       "n_inspected": 0,
       "n_violations": 0
     },
     {
       "id": "substrate_validity",
-      "status": "pass",
-      "detail": null,
+      "status": "unverified",
+      "detail": "runcrate not run",
       "n_inspected": 1,
       "n_violations": 0
     }

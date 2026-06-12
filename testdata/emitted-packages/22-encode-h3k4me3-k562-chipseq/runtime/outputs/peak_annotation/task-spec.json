@@ -20,6 +20,13 @@
   },
   "source_atom_id": "peak_annotation",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "chipseeker",
+        "homer_annotatepeaks",
+        "great"
+      ]
+    },
     "expected_artifacts": [
       "peak_annotation.tsv",
       "annotation_summary.json",

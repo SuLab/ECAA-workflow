@@ -20,6 +20,15 @@
   },
   "source_atom_id": "pathway_enrichment",
   "spec": {
+    "attributes": {
+      "candidate_tools": [
+        "fgsea",
+        "clusterprofiler",
+        "gsea",
+        "enrichr"
+      ],
+      "claim_boundary": "Enrichment is a statistical signal that a gene set is over-represented at\nthe top / bottom of a ranked list. It does not establish that the pathway\nis biologically activated or repressed in the experimental system.\n"
+    },
     "expected_artifacts": [
       "pathway_results.tsv",
       "pathway_summary.json",

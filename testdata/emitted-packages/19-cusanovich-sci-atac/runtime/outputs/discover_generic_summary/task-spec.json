@@ -1,0 +1,30 @@
+{
+  "assignee": "agent",
+  "container": null,
+  "depends_on": [
+    "survey_method_landscape"
+  ],
+  "description": "Discover method for generic_summary (options: descriptive_statistics, hypothesis_testing, correlation_analysis, regression_modeling, dimensionality_reduction, clustering). Surface set_intake_method.",
+  "kind": {
+    "discovery": "best_practice"
+  },
+  "resource_class": "cpu_heavy",
+  "safety": {
+    "code_execution": "none",
+    "level": "compute",
+    "network": {
+      "allowlist": [],
+      "kind": "none"
+    },
+    "provisioning": "declared_only",
+    "sandbox": "none"
+  },
+  "source_atom_id": "discover_generic_summary",
+  "spec": {
+    "stage_class": "generic_summary"
+  },
+  "state": {
+    "status": "pending"
+  },
+  "task_id": "discover_generic_summary"
+}

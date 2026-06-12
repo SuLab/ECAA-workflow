@@ -2,7 +2,11 @@
 
 **Modality:** metagenomics
 **Domain:** computational biology
-**Description:** 
+**Description:** Shotgun metagenomics or 16S amplicon taxonomic profiling. Standard
+pipeline: raw QC, trim, classify reads against a reference database
+(Kraken2 / MetaPhlAn / QIIME2-DADA2), then alpha + beta diversity
+with group-comparison statistics.
+
 **EDAM topic:** topic:3174
 **EDAM operation:** operation:3460
 **Confidence:** high (100%)

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import gzip
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 
@@ -48,7 +48,9 @@ def _load_enrichments(ctx: FigureContext) -> Optional[list]:
                     i_t = header.index("term")
                     i_p = header.index("p_value") if "p_value" in header else header.index("pvalue")
                     i_adj = header.index("adj_p_value") if "adj_p_value" in header else (
-                        header.index("adj_p") if "adj_p" in header else (header.index("padj") if "padj" in header else None)
+                        header.index("adj_p") if "adj_p" in header else (
+                            header.index("padj") if "padj" in header else None
+                        )
                     )
                     i_n = header.index("n_overlap") if "n_overlap" in header else None
                 except ValueError:

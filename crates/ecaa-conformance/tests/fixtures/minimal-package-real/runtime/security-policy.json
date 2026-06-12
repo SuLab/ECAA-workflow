@@ -1,9 +1,157 @@
 {
   "schema_version": "1",
-  "atom_policies": [],
+  "atom_policies": [
+    {
+      "atom_id": "alignment",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "batch_correction",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "cell_type_annotation",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "clustering",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "contextualize_findings_with_literature",
+      "safety_level": "Network",
+      "network_policy": "None { allowlist: [\"eutils.ncbi.nlm.nih.gov\", \"ftp.ncbi.nlm.nih.gov\", \"api.openalex.org\", \"api.crossref.org\", \"readthedocs.io\", \"bioconductor.org\", \"github.com\", \"raw.githubusercontent.com\", \"nf-co.re\"] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "data_acquisition",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "differential_expression",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "dimensionality_reduction",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "final_reporting",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "integration",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "normalisation",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "qc_preprocessing",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "quantification",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "raw_qc",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "reporting",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "review_prior_work",
+      "safety_level": "Network",
+      "network_policy": "None { allowlist: [\"eutils.ncbi.nlm.nih.gov\", \"ftp.ncbi.nlm.nih.gov\", \"api.openalex.org\", \"api.crossref.org\", \"readthedocs.io\", \"bioconductor.org\", \"github.com\", \"raw.githubusercontent.com\", \"nf-co.re\"] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "sequence_trimming",
+      "safety_level": "Compute",
+      "network_policy": "None { allowlist: [] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    },
+    {
+      "atom_id": "survey_method_landscape",
+      "safety_level": "Network",
+      "network_policy": "None { allowlist: [\"eutils.ncbi.nlm.nih.gov\", \"ftp.ncbi.nlm.nih.gov\", \"api.openalex.org\", \"api.crossref.org\", \"readthedocs.io\", \"bioconductor.org\", \"github.com\", \"raw.githubusercontent.com\", \"nf-co.re\"] }",
+      "code_execution": "None",
+      "sandbox_requirement": "None",
+      "provisioning_policy": "DeclaredOnly"
+    }
+  ],
   "package_max_safety_level": "Compute",
   "package_max_network_policy": "None",
   "package_requires_sandbox": false,
-  "container_image_digests": [],
+  "container_image_digests": [
+    "content-hash:sha256:c038c0062175491a",
+    "content-hash:sha256:c0a757659f12c20a"
+  ],
   "scan_results_summary": null
 }

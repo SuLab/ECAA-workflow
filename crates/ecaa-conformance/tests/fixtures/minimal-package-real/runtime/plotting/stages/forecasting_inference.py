@@ -43,13 +43,19 @@ def forecast_ribbon_fig(ctx: FigureContext, out: Path) -> Optional[Path]:
             "lower": ("lower", "lcl", "yhat_lower", "low"),
             "upper": ("upper", "ucl", "yhat_upper", "high"),
             "actual?": ("actual", "y", "observed"),
+            "group?": ("group", "series", "series_id", "chapter", "icd10_chapter"),
         },
     )
     if cols is None:
         raise FileNotFoundError(f"unparseable forecast table: {p}")
     actual_col = "actual" if "actual" in cols else None
+    group_col = "group" if "group" in cols else None
     return forecast_ribbon(
-        frame=cols, title="Forecast", out=out, actual_col=actual_col
+        frame=cols,
+        title="Forecast",
+        out=out,
+        actual_col=actual_col,
+        group_col=group_col,
     )
 
 

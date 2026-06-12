@@ -18,8 +18,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 
 DelegateFn = Callable[..., "object"]

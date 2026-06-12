@@ -3,6 +3,7 @@
   "container": null,
   "depends_on": [
     "atac_seq_validate_alignment",
+    "atac_seq_validate_contextualize_findings_with_literature",
     "atac_seq_validate_data_acquisition",
     "atac_seq_validate_differential_accessibility",
     "atac_seq_validate_final_reporting",
@@ -11,6 +12,7 @@
     "atac_seq_validate_peak_calling",
     "atac_seq_validate_raw_qc",
     "atac_seq_validate_reporting",
+    "atac_seq_validate_review_prior_work",
     "atac_seq_validate_sequence_trimming",
     "bulk_rnaseq_validate_alignment",
     "bulk_rnaseq_validate_contextualize_findings_with_literature",
@@ -68,6 +70,7 @@
       "manifest.json",
       "result.json"
     ],
+    "plot_stage_id": "reporting",
     "required_figures": [
       "concordance_heatmap",
       "pathway_overlap_bar"
