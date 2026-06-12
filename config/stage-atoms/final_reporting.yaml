@@ -31,6 +31,17 @@ claim_boundary: |
   claims that aren't backed by an emitted artifact; do not soften or
   strengthen effect-size language; do not recommend methods the
   pipeline did not run.
+
+  This report is the read-and-evaluated deliverable, so carry the upstream
+  substance FORWARD into it rather than collapsing to a thin digest: the
+  findings, their interpretation, and the data/source grounding the
+  upstream tasks already recorded must appear in the report itself, not be
+  left behind in per-task outputs or the trace. This is faithful
+  re-emission under the trace-to-artifact rule above — NOT license to pad
+  with generic prose, and NOT license to add any finding, theme, value, or
+  citation that no upstream artifact produced (an unsupported addition is a
+  fabrication, worse than an omission). Generic reporting discipline only;
+  do not tailor content to any external grading rubric.
 interpretation_exempt_from_word_budget: true
 # Explicit rich ports.
 # Consumes the full upstream analysis bundle; emits the final
