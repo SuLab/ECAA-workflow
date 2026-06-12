@@ -5277,7 +5277,7 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
         // analysis packages are present; this block says HOW to use the
         // environment and install the rest. See AGENT-EXECUTOR.md.
         "environment": {
-            "note": "Image-agnostic execution contract. The dispatch wrapper resolves the canonical interpreter for whatever container image is configured and puts it first on PATH (and in $ECAA_PY), so these defaults hold regardless of image layout. Use them; do not search for interpreters or guess install commands.",
+            "note": "Image-agnostic execution contract. The dispatch wrapper resolves the interpreters and install verb for whatever container image is configured and puts them first on PATH (the resolved python is also in $ECAA_PY), so these defaults hold regardless of image layout. Use them; do not search for interpreters or guess install commands.",
             "python": {
                 "interpreter": "python3",
                 "note": "`python3` on PATH (also `$ECAA_PY`) is the Python interpreter the wrapper put first on PATH for this image. Use it directly; do not hunt for alternate pythons. If an import is genuinely missing, add it with `ecaa-install py <pkg>`."
@@ -6388,6 +6388,14 @@ mod read_dag_tests {
             serde_json::from_slice(&std::fs::read(tmp.path().join("runtime/env_capability.json")).unwrap())
                 .unwrap();
         let env = body.get("environment").unwrap();
+        // The outer environment note must not single out "the canonical
+        // interpreter" (which reads as Python-primary); it describes interpreter
+        // resolution neutrally.
+        let outer_note = env.get("note").unwrap().as_str().unwrap();
+        assert!(
+            !outer_note.contains("the canonical interpreter"),
+            "environment.note must not frame a single 'canonical interpreter' (Python-primary reading)"
+        );
         let py_note = env.get("python").unwrap().get("note").unwrap().as_str().unwrap();
         // The python note must NOT cite the renderer substrate as why python is
         // canonical for general compute.
