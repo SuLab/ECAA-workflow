@@ -4638,18 +4638,34 @@ fn enforce_validation_contract(
         );
     }
 
-    // For each validate_<stage> that's Completed, run its contract block.
-    // Typed role via `derive_role_from_id`.
+    // Enforce each stage's contract as soon as its PARENT COMPUTE task is
+    // Completed — not only when the validate_<stage> companion completes.
+    // Downstream COMPUTE tasks depend on the parent (not its validator), so
+    // gating enforcement on the validator's completion let a contract-violating
+    // result reach downstream tasks + the eval scorer before the re-block landed
+    // (a heteroplasmy-dropping variant_filtering reached Completed,
+    // variant_annotation ran, and the scorer read the bad VCFs, all before the
+    // lagging validator re-blocked). Collect each parent stage to check once
+    // (deduped): triggered by the parent compute task being Completed (the early
+    // gate) OR — for back-compat — its validate_<stage> companion being Completed.
     let task_ids: Vec<String> = dag.tasks.keys().map(|id| id.to_string()).collect();
-    for tid in task_ids {
-        if !ecaa_workflow_core::taxonomy::derive_role_from_id(&tid).is_validation() {
+    let mut to_check: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for tid in &task_ids {
+        let completed = matches!(
+            dag.tasks.get(tid.as_str()).map(|t| &t.state),
+            Some(TaskState::Completed { .. })
+        );
+        if !completed {
             continue;
         }
-        let task = dag.tasks.get(tid.as_str()).unwrap();
-        if !matches!(task.state, TaskState::Completed { .. }) {
-            continue;
+        let role = ecaa_workflow_core::taxonomy::derive_role_from_id(tid);
+        if role.is_validation() {
+            to_check.insert(tid.trim_start_matches("validate_").to_string());
+        } else if !tid.starts_with("discover_") {
+            to_check.insert(tid.to_string());
         }
-        let parent_id = tid.trim_start_matches("validate_").to_string();
+    }
+    for parent_id in to_check {
         let stage_class = dag
             .tasks
             .get(parent_id.as_str())
@@ -4683,26 +4699,28 @@ fn enforce_validation_contract(
         }
         if !failed_ids.is_empty() {
             violations.push((parent_id.clone(), failed_ids.clone()));
-            // Re-block the validator
-            let reason = format!(
-                "Harness validation-contract check: required assertion(s) unsatisfied: {}. See policies/validation-contract.json for detail. The parent compute task '{}' has also been re-blocked so the agent can remediate.",
-                failed_ids.join(", "),
-                parent_id
-            );
-            if let Some(t) = dag.tasks.get_mut(tid.as_str()) {
-                t.state = TaskState::Blocked {
-                    record: ecaa_workflow_core::dag::BlockedRecord {
-                        reason: reason.clone(),
-                        attempts: vec![],
-                    },
-                };
-            }
-            // Re-block the parent
+            // Re-block the parent compute task so downstream tasks (which depend
+            // on it, not on its validator) cannot proceed until the agent
+            // remediates.
             if let Some(t) = dag.tasks.get_mut(parent_id.as_str()) {
                 t.state = TaskState::Blocked {
                     record: ecaa_workflow_core::dag::BlockedRecord {
                         reason: format!(
-                            "Harness validation-contract check (from validate_{}): required assertion(s) unsatisfied: {}. Remediate and re-run.",
+                            "Harness validation-contract check: required assertion(s) unsatisfied: {}. See policies/validation-contract.json. Remediate and re-run.",
+                            failed_ids.join(", ")
+                        ),
+                        attempts: vec![],
+                    },
+                };
+            }
+            // Re-block the validate_<stage> companion when present so a premature
+            // validation pass is undone and re-runs after remediation.
+            let vid = format!("validate_{parent_id}");
+            if let Some(t) = dag.tasks.get_mut(vid.as_str()) {
+                t.state = TaskState::Blocked {
+                    record: ecaa_workflow_core::dag::BlockedRecord {
+                        reason: format!(
+                            "Parent compute task '{}' re-blocked by validation-contract: {}. See policies/validation-contract.json.",
                             parent_id,
                             failed_ids.join(", ")
                         ),
@@ -4724,6 +4742,53 @@ fn read_json_pointer_f64(path: &Path, pointer: &str) -> Option<f64> {
     let bytes = read_bytes_capped(path, resolve_max_bytes()).ok()?;
     let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
     v.pointer(pointer).and_then(|x| x.as_f64())
+}
+
+/// Read the raw JSON value at `pointer` from `path` (cloned). `None` on
+/// file/parse failure or a missing pointer. Used by the `when`-clause gate.
+fn read_json_pointer_value(path: &Path, pointer: &str) -> Option<serde_json::Value> {
+    let bytes = read_bytes_capped(path, resolve_max_bytes()).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v.pointer(pointer).cloned()
+}
+
+/// Evaluate an assertion's optional `when` clause — a guard that makes the
+/// assertion CONDITIONAL on a value in a result.json. Returns true when the
+/// assertion should run (no `when`, or the predicate holds), false when it is
+/// not applicable and should be skipped.
+///
+/// Shape (target defaults to the assertion's own `target` file):
+///   "when": { "json_pointer": "/is_mtdna", "equals": true }
+///
+/// An unreadable file / missing pointer makes the clause UNSATISFIED (skip).
+/// This scopes heteroplasmy-specific variant assertions to mtDNA call sets
+/// without false-failing nuclear germline/somatic calling that flows through
+/// the shared archetype: the universal assertions (vcf present, AF<=1, count
+/// monotonicity) still force the measurement to run and still block, so the
+/// fail-open-on-missing here cannot be used to dodge enforcement.
+fn when_clause_satisfied(pkg_dir: &Path, assertion: &serde_json::Value) -> bool {
+    let Some(when) = assertion.get("when") else {
+        return true; // unconditional
+    };
+    let target = when
+        .get("target")
+        .and_then(|v| v.as_str())
+        .or_else(|| assertion.get("target").and_then(|v| v.as_str()));
+    let Some(target) = target else {
+        return false;
+    };
+    let Some(pointer) = when.get("json_pointer").and_then(|v| v.as_str()) else {
+        return false;
+    };
+    let path = pkg_dir.join(target.trim_start_matches('/'));
+    let Some(actual) = read_json_pointer_value(&path, pointer) else {
+        return false; // unreadable / absent -> not applicable
+    };
+    if let Some(expected) = when.get("equals") {
+        return &actual == expected;
+    }
+    // No explicit `equals`: treat presence + truthiness as satisfied.
+    actual.as_bool().unwrap_or(false)
 }
 
 /// Compare `lhs op rhs` for the contract comparison vocabulary.
@@ -4777,6 +4842,12 @@ fn run_assertion(
     assertion: &serde_json::Value,
     upstream: &std::collections::BTreeMap<String, std::path::PathBuf>,
 ) -> bool {
+    // A `when` clause makes the assertion conditional (e.g. mtDNA-only). When
+    // the guard does not hold, the assertion is NOT APPLICABLE for this call set
+    // and is treated as passed so it never blocks.
+    if !when_clause_satisfied(pkg_dir, assertion) {
+        return true;
+    }
     let atype = match assertion.get("assertion_type").and_then(|v| v.as_str()) {
         Some(s) => s,
         None => return false,
@@ -5728,6 +5799,101 @@ mod read_dag_tests {
     }
 
     #[test]
+    fn validation_contract_blocks_parent_before_its_validator_completes() {
+        // The early-gate contract: a contract-violating compute task must be
+        // re-blocked the moment IT reaches Completed, even though its
+        // validate_<stage> companion has NOT completed yet. Downstream compute
+        // tasks depend on the parent (not the validator), so waiting for the
+        // validator to complete let bad results flow downstream first. Here the
+        // validator is still Pending — enforcement must fire on the parent alone.
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("policies")).unwrap();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/qc")).unwrap();
+        let contract = serde_json::json!({
+            "contract_id": "test",
+            "stages": {
+                "qc": {
+                    "assertions": [
+                        {
+                            "id": "qc.manifest_present",
+                            "assertion_type": "artifact_present",
+                            "target": "runtime/outputs/qc/manifest.json",
+                            "severity": "required"
+                        }
+                    ]
+                }
+            }
+        });
+        std::fs::write(
+            pkg.join("policies/validation-contract.json"),
+            serde_json::to_string_pretty(&contract).unwrap(),
+        )
+        .unwrap();
+
+        let mut tasks: std::collections::BTreeMap<TaskId, Task> = std::collections::BTreeMap::new();
+        tasks.insert(
+            "qc".into(),
+            Task {
+                kind: TaskKind::Computation,
+                state: TaskState::Completed {
+                    result: serde_json::json!({"method": "x"}),
+                },
+                depends_on: vec![],
+                assignee: Assignee::Agent,
+                description: "qc".into(),
+                spec: Some(serde_json::json!({"stage_class": "qc"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+            },
+        );
+        // validate_qc exists but is still Pending — the OLD validate-gated loop
+        // would skip enforcement entirely here.
+        tasks.insert(
+            "validate_qc".into(),
+            Task {
+                kind: TaskKind::Validation,
+                state: TaskState::Pending,
+                depends_on: vec!["qc".into()],
+                assignee: Assignee::Agent,
+                description: "validate qc".into(),
+                spec: Some(serde_json::json!({"stage_class": "qc"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+            },
+        );
+        let mut dag = DAG {
+            version: "1.0".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "t".into(),
+            current_task: None,
+            tasks,
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+        };
+        let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
+        assert_eq!(violations.len(), 1, "parent stage must be enforced before validator completes");
+        assert_eq!(violations[0].0, "qc");
+        assert!(matches!(
+            dag.tasks.get("qc").unwrap().state,
+            TaskState::Blocked { .. }
+        ));
+    }
+
+    #[test]
     fn validation_contract_passes_when_artifact_present() {
         use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
         let tmp = tempfile::tempdir().unwrap();
@@ -6094,6 +6260,90 @@ mod read_dag_tests {
             "check": {}
         });
         assert!(!run_assertion(pkg, &a, &empty));
+    }
+
+    /// A `when`-gated assertion is SKIPPED (treated as passed) when the guard
+    /// predicate is unmet — e.g. an mtDNA-only het-band check against a nuclear
+    /// germline call set (is_mtdna=false). Without the skip, the mtDNA-tuned
+    /// assertion would false-fail correct germline output.
+    #[test]
+    fn when_clause_skips_assertion_for_non_mtdna_call_set() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/variant_calling")).unwrap();
+        // Germline-shaped result: no low-AF band variants, flagged non-mtDNA.
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_calling/result.json"),
+            serde_json::json!({ "is_mtdna": false, "low_af_band_count": 0 }).to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        let a = serde_json::json!({
+            "id": "vc.het_tail",
+            "assertion_type": "numeric_threshold",
+            "target": "runtime/outputs/variant_calling/result.json",
+            "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 },
+            "when": { "json_pointer": "/is_mtdna", "equals": true }
+        });
+        // low_af_band_count (0) >= 1 would FAIL, but the when-guard skips it.
+        assert!(
+            run_assertion(pkg, &a, &empty),
+            "non-mtDNA call set must skip the mtDNA-only assertion"
+        );
+    }
+
+    /// The same `when`-gated assertion RUNS (and can fail) when the guard holds
+    /// — an mtDNA call set that dropped its heteroplasmic tail must be caught.
+    #[test]
+    fn when_clause_runs_assertion_for_mtdna_call_set() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/variant_calling")).unwrap();
+        // mtDNA result that dropped the het: empty low-AF band, flagged mtDNA.
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_calling/result.json"),
+            serde_json::json!({ "is_mtdna": true, "low_af_band_count": 0 }).to_string(),
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        let a = serde_json::json!({
+            "id": "vc.het_tail",
+            "assertion_type": "numeric_threshold",
+            "target": "runtime/outputs/variant_calling/result.json",
+            "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 },
+            "when": { "json_pointer": "/is_mtdna", "equals": true }
+        });
+        assert!(
+            !run_assertion(pkg, &a, &empty),
+            "mtDNA call set with an empty het band must FAIL the het-tail check"
+        );
+    }
+
+    /// A `when` clause whose target/pointer is unreadable makes the assertion
+    /// not-applicable (skip), not a hard failure — the universal assertions are
+    /// what force the measurement to exist.
+    #[test]
+    fn when_clause_skips_when_guard_field_absent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/variant_calling")).unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/variant_calling/result.json"),
+            serde_json::json!({ "low_af_band_count": 0 }).to_string(), // no is_mtdna
+        )
+        .unwrap();
+        let empty = std::collections::BTreeMap::new();
+        let a = serde_json::json!({
+            "id": "vc.het_tail",
+            "assertion_type": "numeric_threshold",
+            "target": "runtime/outputs/variant_calling/result.json",
+            "check": { "json_pointer": "/low_af_band_count", "op": "gte", "value": 1.0 },
+            "when": { "json_pointer": "/is_mtdna", "equals": true }
+        });
+        assert!(
+            run_assertion(pkg, &a, &empty),
+            "absent guard field -> assertion not applicable -> skipped"
+        );
     }
 
     #[test]
