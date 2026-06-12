@@ -330,6 +330,22 @@ class BiomniBench(Benchmark):
                 headline.get("levels", {}), cross.get("levels", {}))
         else:
             extra["partial_judging"] = True
+        # Persist the judge's free-text rationale (per-criterion reasons +
+        # overall_reasoning) so every scorecard row records WHY it scored as it
+        # did — recoverable for future RCA without re-running the judge. Keyed by
+        # the actual scoring judge (primary) plus the cross-check when present.
+        if primary and primary.get("rationales"):
+            extra["judge_rationale"] = primary["rationales"]
+        if headline and cross and cross.get("rationales"):
+            extra["cross_judge_rationale"] = cross["rationales"]
+        # Persist per-criterion A/B/C levels so a scorecard reader can see WHICH
+        # criterion drove each per-dimension mean and at what level per arm — the
+        # per-dimension numbers are a single-criterion title-keyword heuristic at
+        # this n, so the driving level is the honest unit of comparison.
+        if primary and primary.get("levels"):
+            extra["judge_levels"] = primary["levels"]
+        if headline and cross and cross.get("levels"):
+            extra["cross_judge_levels"] = cross["levels"]
         return Score(task_id=task.task_id, arm=arm.value, trial=trial,
                      overall=primary["overall"], dimensions=primary["dimensions"],
                      jaccard=None, error_cells=None, judge_id=judge_id, extra=extra)
@@ -345,6 +361,10 @@ class BiomniBench(Benchmark):
                      extra={"cross_check": cross["overall"],
                             "judge_exact": exact,
                             "judge_kappa": kappa,
+                            "judge_rationale": headline.get("rationales", {}),
+                            "cross_judge_rationale": cross.get("rationales", {}),
+                            "judge_levels": headline.get("levels", {}),
+                            "cross_judge_levels": cross.get("levels", {}),
                             "intra_narrative_self_consistency":
                                 compute_intra_narrative_self_consistency(
                                     output.trace_md, output.answer_txt),
@@ -381,6 +401,19 @@ class BiomniBench(Benchmark):
                                    "bucketed by title-keyword match. BiomniBench-DA "
                                    "defines no dimensions; only the overall 0-100 score "
                                    "is benchmark-faithful."),
+                               "dimension_read_note": (
+                                   "READ PER-DIMENSION DELTAS AS DRIVING-CRITERION LEVELS, "
+                                   "NOT percentages. At this n each dimension is typically "
+                                   "driven by ONE rubric criterion, so a per-arm value maps "
+                                   "to that criterion's A/B/C level (persisted per row in "
+                                   "extra.judge_levels). For a PENALTY criterion "
+                                   "(source_reliability is scored A=0 / B=-5 / C=-10) the "
+                                   "displayed value is a satisfaction-normalization "
+                                   "(A->100, B->50, C->0): a '50' means level B (one "
+                                   "interpretive claim lacked inline source attribution), "
+                                   "NOT 'half the sources are bad'. A single-trial "
+                                   "per-dimension swing can be one criterion flipping one "
+                                   "level on one task — never cite it as a powered result."),
                                "published_best": (
                                    "Claude Code+Opus 4.7 = 73.34 (paper figure: "
                                    "100-task mean with an Opus-4.7 agent; this run "

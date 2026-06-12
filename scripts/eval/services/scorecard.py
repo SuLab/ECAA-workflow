@@ -273,6 +273,10 @@ def _render_dimensions(meta: dict, card: Scorecard) -> list[str]:
     if caveat:
         lines.append(f"> **HEURISTIC — NOT PAPER-FAITHFUL.** {caveat}")
         lines.append("")
+    read_note = meta.get("dimension_read_note")
+    if read_note:
+        lines.append(f"> **HOW TO READ THESE DELTAS.** {read_note}")
+        lines.append("")
     ecaa_vals = dims_meta.get("ecaa", {})
     direct_vals = dims_meta.get("claude-direct", {})
     counts = _dimension_pair_counts(card)

@@ -132,6 +132,35 @@ def test_parse_verdict_parses_reference_scorer_json():
     assert out["overall"] == 55.0
 
 
+def test_parse_verdict_surfaces_judge_rationale():
+    """The judge's per-criterion free-text reasons + overall_reasoning must be
+    surfaced under `rationales` so they can be persisted into the scorecard —
+    regression for the lost-rationale bug where parse_verdict read only `level`
+    and silently discarded `reason`, leaving the *why* of every score
+    unrecoverable from the scorecard."""
+    judge_json = json.dumps({
+        "criteria": {
+            "criterion_1": {"level": "A", "reason": "loaded and filtered well"},
+            "criterion_2": {"level": "B", "reason": "multiple-testing correction unclear"},
+            "criterion_3": {"level": "C",
+                            "reason": "fabricated PubMed citation that does not resolve"},
+        },
+        "overall_reasoning": "solid analysis, weak sourcing",
+    })
+    out = parse_verdict(ABS_RUBRIC, judge_json)
+    r = out["rationales"]
+    assert r["criterion_1"] == "loaded and filtered well"
+    assert r["criterion_3"] == "fabricated PubMed citation that does not resolve"
+    assert r["overall_reasoning"] == "solid analysis, weak sourcing"
+
+
+def test_parse_verdict_rationale_empty_for_legacy_line_format():
+    """Legacy `id: A` line verdicts carry no reasons -> rationales is an empty
+    dict (no crash, no fabricated text)."""
+    out = parse_verdict(ABS_RUBRIC, "criterion_1: A\ncriterion_2: A\ncriterion_3: A")
+    assert out["rationales"] == {}
+
+
 def test_parse_verdict_json_with_surrounding_prose_and_fences():
     """JSON wrapped in prose / ```json fences (as a model may emit) still parses,
     matching the reference scorer's brace-balanced extraction."""

@@ -162,7 +162,37 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
         overall = 100.0 * earned_pts / total_pts if total_pts else 0.0
         dims = {d: (100.0 * dim_earned[d] / dim_total[d] if dim_total[d] else 0.0)
                 for d in dim_total}
-    return {"overall": round(overall, 4), "dimensions": dims, "levels": levels}
+    rationales = _parse_judge_rationales(judge_text)
+    return {"overall": round(overall, 4), "dimensions": dims, "levels": levels,
+            "rationales": rationales}
+
+
+def _parse_judge_rationales(judge_text: str) -> dict:
+    """Extract the judge's per-criterion free-text REASONS + the
+    ``overall_reasoning`` summary, mirroring :func:`_parse_judge_levels`.
+
+    Returns ``{criterion_id_lowercased: reason, ..., "overall_reasoning": str}``.
+    The judge prompt requests ``{"criteria": {"criterion_1": {"level","reason"},
+    ...}, "overall_reasoning": "..."}`` (see ``_prompt``); ``parse_verdict``
+    historically read only ``level`` and DISCARDED ``reason``, so the *why* behind
+    every score was lost from the scorecard (only the raw, hash-named judge cache
+    retained it, unlinked to any task). This restores the rationale so it can be
+    persisted into ``Score.extra`` and the scorecard for every future run.
+    Empty when the response carries no reasons (legacy line-based verdicts)."""
+    out: dict[str, str] = {}
+    obj = _extract_json_object(judge_text)
+    if isinstance(obj, dict):
+        criteria = obj.get("criteria")
+        if isinstance(criteria, dict):
+            for cid, c in criteria.items():
+                if isinstance(c, dict):
+                    reason = c.get("reason")
+                    if isinstance(reason, str) and reason.strip():
+                        out[str(cid).lower()] = reason.strip()
+        overall = obj.get("overall_reasoning")
+        if isinstance(overall, str) and overall.strip():
+            out["overall_reasoning"] = overall.strip()
+    return out
 
 
 def _cache_path(judge_id: str, rubric: dict, trace: str, answer: str) -> Path:
