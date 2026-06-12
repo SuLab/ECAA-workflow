@@ -1569,4 +1569,26 @@ mod validation_contract_hop_tests {
             "StageTaxonomy must inherit the archetype's validation_contract_ref"
         );
     }
+
+    #[test]
+    fn single_cell_taxonomy_carries_contract_ref() {
+        let config_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("config");
+        let tax = build_taxonomy_metadata_for_modality(
+            "single_cell_rnaseq",
+            ecaa_workflow_core::project_class::ProjectClass::Bioinformatics,
+            &config_dir,
+        )
+        .expect("taxonomy build must succeed");
+        assert_eq!(
+            tax.validation_contract_ref.as_deref(),
+            Some("validation-contract-singlecell.json"),
+            "single-cell StageTaxonomy must inherit the archetype's validation_contract_ref \
+             (so the chat/emit path writes policies/validation-contract.json)"
+        );
+    }
 }

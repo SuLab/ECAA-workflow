@@ -1170,6 +1170,23 @@ mod tests {
     }
 
     #[test]
+    fn single_cell_de_carries_validation_contract_ref() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("config/archetypes");
+        let reg = ArchetypeRegistry::load_from_dir(&dir).unwrap();
+        let a = reg.get("single_cell_de").unwrap();
+        assert_eq!(
+            a.validation_contract_ref.as_deref(),
+            Some("validation-contract-singlecell.json"),
+            "single_cell_de must name the single-cell validation contract"
+        );
+    }
+
+    #[test]
     fn find_match_scores_and_orders() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

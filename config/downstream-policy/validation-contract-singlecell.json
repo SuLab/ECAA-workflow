@@ -1,13 +1,13 @@
 {
   "contract_id": "validation-contract-singlecell",
-  "description": "Per-stage required assertions for the single-cell RNA-seq taxonomy. Each stage_class block lists assertions the validator MUST run; the harness cross-checks the validator's validation_report.json after completion and re-blocks the parent compute task if any `required` assertion is missing or failed. Derived from the Lotz IVD spec (specs/0[1-9]_*.md + 1[0-2]_*.md).",
-  "version": "1.0.0",
+  "description": "Per-stage required assertions for the single-cell RNA-seq taxonomy, carried by the single_cell_de archetype. Stage keys match the archetype's task ids (the harness matches on task_id when spec.stage_class is absent); required-artifact filenames match the single_cell_de atoms' declared required_artifacts, so a free-choice agent that fulfils its task spec passes. Goal-agnostic: required assertions check only that each stage produced its declared output (recursive `**` glob, so flat OR compartment-partitioned layouts both match). Study-specific clinical covariates carried over from the original IVD derivation (a disease-grade column, a tissue-compartment column, an age column, a study column) were REMOVED from the required metadata-column check — they would false-fail a general single-cell study (tumour/immune atlas); only a sample-level join key is required. Stages absent from a given DAG self-gate (the harness only enforces a stage_class that has a matching completed task).",
+  "version": "1.1.0",
   "stages": {
     "data_acquisition": {
       "assertions": [
         {
           "id": "data_acquisition.registry_present",
-          "description": "A dataset_registry.tsv must be produced listing every accession with kept/dropped status.",
+          "description": "A dataset_registry.tsv listing every accession with kept/dropped status is recommended.",
           "assertion_type": "artifact_present",
           "target": "runtime/outputs/data_acquisition/dataset_registry.tsv",
           "severity": "recommended"
@@ -18,40 +18,30 @@
       "assertions": [
         {
           "id": "metadata_harmonization.sample_metadata_present",
-          "description": "sample_metadata.tsv must be produced by the metadata_harmonization stage.",
+          "description": "sample_metadata.tsv must be produced when a metadata_harmonization stage runs.",
           "assertion_type": "artifact_present",
           "target": "runtime/outputs/metadata_harmonization/sample_metadata.tsv",
           "severity": "required"
         },
         {
-          "id": "metadata_harmonization.canonical_columns",
-          "description": "sample_metadata.tsv must carry the canonical columns for downstream DE + composition analysis.",
+          "id": "metadata_harmonization.sample_join_key_present",
+          "description": "Harmonized metadata must carry a sample-level join key so cells can be tied to samples downstream. Goal-agnostic: any of the common key names satisfies it. Study-specific clinical covariates (e.g. age, disease grade, tissue compartment) are NOT required here — those belong to a scenario overlay, not the general single-cell contract.",
           "assertion_type": "string_contains",
           "target": "runtime/outputs/metadata_harmonization/sample_metadata.tsv",
           "check": {
-            "substrings": ["study", "sample_key", "condition", "age_years", "pfirrmann_grade", "compartment"]
+            "substrings_any": ["sample_key", "sample_id", "sample"]
           },
           "severity": "required"
         }
       ]
     },
-    "preprocessing": {
+    "qc_preprocessing": {
       "assertions": [
         {
-          "id": "preprocessing.cellranger_or_passthrough_documented",
-          "description": "Either Cell Ranger 7.x is the method, or the passthrough is explicitly documented with a spec-deviation rationale in known_limitations.",
+          "id": "qc_preprocessing.doublet_detection_documented",
+          "description": "Doublet detection (Scrublet/DoubletFinder or equivalent) is recommended; recorded in the manifest.",
           "assertion_type": "string_contains",
-          "target": "runtime/outputs/preprocessing/manifest.json",
-          "check": {
-            "substrings_any": ["cellranger_7", "cellranger_8", "skip_preprocessing_passthrough"]
-          },
-          "severity": "recommended"
-        },
-        {
-          "id": "preprocessing.doublet_detection_ran",
-          "description": "Scrublet or an equivalent doublet detection method must have run.",
-          "assertion_type": "string_contains",
-          "target": "runtime/outputs/preprocessing/manifest.json",
+          "target": "runtime/outputs/qc_preprocessing/manifest.json",
           "check": {
             "substrings_any": ["scrublet", "doubletfinder", "doublet_detection"]
           },
@@ -63,16 +53,16 @@
       "assertions": [
         {
           "id": "batch_correction.integration_stats_present",
-          "description": "Every compartment directory must contain an integration_stats.json.",
+          "description": "integration_stats.json must be produced when batch_correction runs (matches the atom's declared required_artifact). Recursive glob: flat or compartment-partitioned layouts both match.",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/batch_correction/compartment_*/integration_stats.json",
+          "target": "runtime/outputs/batch_correction/**/integration_stats.json",
           "severity": "required"
         },
         {
-          "id": "batch_correction.ilisi_recorded",
-          "description": "iLISI (or equivalent batch-mixing metric) must be present in each compartment's integration_stats.json.",
+          "id": "batch_correction.mixing_metric_recorded",
+          "description": "A batch-mixing metric (iLISI or equivalent) in integration_stats.json is recommended.",
           "assertion_type": "string_contains",
-          "target": "runtime/outputs/batch_correction/compartment_NP/integration_stats.json",
+          "target": "runtime/outputs/batch_correction/integration_stats.json",
           "check": {
             "substrings_any": ["ilisi", "batch_mixing_post", "mixing_post"]
           },
@@ -84,14 +74,14 @@
       "assertions": [
         {
           "id": "clustering.cluster_assignments_present",
-          "description": "Every compartment directory must contain cluster_assignments.tsv(.gz).",
+          "description": "cluster_assignments.tsv(.gz) must be produced (matches the atom's declared required_artifact). Recursive glob handles flat or partitioned layouts.",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/clustering/compartment_*/cluster_assignments.tsv*",
+          "target": "runtime/outputs/clustering/**/cluster_assignments.tsv*",
           "severity": "required"
         },
         {
           "id": "clustering.resolution_sweep_documented",
-          "description": "A resolution sweep must be recorded in the manifest (the spec's step-0.1 sweep is preferred; looser sweeps are a documented deviation).",
+          "description": "A clustering-resolution sweep recorded in the manifest is recommended.",
           "assertion_type": "string_contains",
           "target": "runtime/outputs/clustering/manifest.json",
           "check": {
@@ -105,9 +95,9 @@
       "assertions": [
         {
           "id": "cell_type_annotation.labels_present",
-          "description": "Per-compartment annotation_per_cell.tsv(.gz) must be produced with a cell-type column.",
+          "description": "celltype_assignments.tsv(.gz) must be produced with a cell-type column (matches the atom's declared required_artifact). Recursive glob handles flat or partitioned layouts.",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/cell_type_annotation/compartment_*/annotation_per_cell.tsv*",
+          "target": "runtime/outputs/cell_type_annotation/**/celltype_assignments.tsv*",
           "severity": "required"
         }
       ]
@@ -116,30 +106,30 @@
       "assertions": [
         {
           "id": "differential_expression.results_non_empty",
-          "description": "de_results.tsv(.gz) for at least one compartment must carry more than its header row — an empty DE table marks the stage as not actually run.",
+          "description": "de_results.tsv(.gz) must carry more than its header row — an empty DE table marks the stage as not actually run. Recursive glob handles flat or partitioned layouts.",
           "assertion_type": "artifact_non_empty_table",
-          "target": "runtime/outputs/differential_expression/compartment_*/de_results.tsv*",
+          "target": "runtime/outputs/differential_expression/**/de_results.tsv*",
           "severity": "required"
         },
         {
           "id": "differential_expression.design_records_covariates",
-          "description": "The DE design string in the manifest should record the condition + study covariates at minimum; ivd_score is spec-preferred when available.",
+          "description": "The DE design string in the manifest should record the condition/grouping covariate at minimum.",
           "assertion_type": "string_contains",
           "target": "runtime/outputs/differential_expression/manifest.json",
           "check": {
-            "substrings_any": ["condition", "design"]
+            "substrings_any": ["condition", "design", "group"]
           },
           "severity": "recommended"
         }
       ]
     },
-    "biological_interpretation": {
+    "pathway_enrichment": {
       "assertions": [
         {
-          "id": "biological_interpretation.enrichment_present",
-          "description": "Per-compartment enrichment tables must be produced (ora, method_consensus, or gsea).",
+          "id": "pathway_enrichment.results_present",
+          "description": "An enrichment/pathway table must be produced (ORA, GSEA, or method-consensus). Recursive glob over any .tsv handles the atom's pathway_results.tsv and partitioned layouts.",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/biological_interpretation/compartment_*/*.tsv*",
+          "target": "runtime/outputs/pathway_enrichment/**/*.tsv*",
           "severity": "required"
         }
       ]
@@ -148,9 +138,9 @@
       "assertions": [
         {
           "id": "trajectory_analysis.pseudotime_present",
-          "description": "Per-compartment pseudotime assignments (dpt_per_cell.tsv.gz or equivalent) must be produced when the stage runs.",
+          "description": "Pseudotime assignments (dpt_per_cell.tsv.gz or equivalent) when the stage runs (recommended).",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/trajectory_analysis/compartment_*/dpt_per_cell.tsv*",
+          "target": "runtime/outputs/trajectory_analysis/**/dpt_per_cell.tsv*",
           "severity": "recommended"
         }
       ]
@@ -159,9 +149,9 @@
       "assertions": [
         {
           "id": "cell_cell_communication.interactions_present",
-          "description": "Per-compartment interaction tables must be produced (LIANA or CellChat).",
+          "description": "An interaction table must be produced when the stage runs (LIANA or CellChat). Recursive glob over any .tsv handles flat or partitioned layouts.",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/cell_cell_communication/compartment_*/*.tsv*",
+          "target": "runtime/outputs/cell_cell_communication/**/*.tsv*",
           "severity": "required"
         }
       ]

@@ -14,6 +14,12 @@ goal_data: "data:0951"
 goal_format: "format:3475"
 project_class: bioinformatics
 modality_hint: single_cell_rnaseq
+# Per-stage domain-correctness contract emitted into policies/validation-contract.json
+# and enforced by the harness's enforce_validation_contract. Stage keys match the
+# task ids below; required-artifact filenames match the atoms' declared
+# required_artifacts (cluster_assignments.tsv, celltype_assignments.tsv,
+# de_results.tsv, integration_stats.json, pathway_results.tsv).
+validation_contract_ref: validation-contract-singlecell.json
 atoms:
   - atom_id: data_acquisition
     required: true

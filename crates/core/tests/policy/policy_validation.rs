@@ -254,3 +254,62 @@ fn interpretation_policy_excludes_stats_acronyms_not_genes() {
         entities
     );
 }
+
+// The single-cell validation contract is carried by the GENERAL single_cell_de
+// archetype, so its `required` assertions must be goal-agnostic. This guards
+// against regressing the IVD-derivation anti-pattern: no required metadata
+// column may be a study-specific clinical covariate, and no required artifact
+// path may hardcode the Lotz `compartment_*` partitioning (a flat-layout
+// single-cell run must still pass). Recursive `**` globs are how both layouts
+// are matched.
+#[test]
+fn singlecell_contract_required_assertions_are_goal_agnostic() {
+    let path = policies_dir().join("validation-contract-singlecell.json");
+    let raw = fs::read_to_string(&path).expect("singlecell contract readable");
+    let contract: serde_json::Value = serde_json::from_str(&raw).expect("contract parses");
+    let stages = contract["stages"].as_object().expect("stages object");
+
+    for (stage, block) in stages {
+        for a in block["assertions"].as_array().expect("assertions array") {
+            if a["severity"].as_str() != Some("required") {
+                continue;
+            }
+            let id = a["id"].as_str().unwrap_or("<no id>");
+
+            // (1) No required metadata-column check may demand a study-specific
+            // clinical covariate. Only a sample-level join key is universal.
+            if let Some(check) = a.get("check") {
+                let needles = check
+                    .get("substrings")
+                    .or_else(|| check.get("substrings_any"))
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|s| s.as_str())
+                            .map(str::to_lowercase)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                for n in &needles {
+                    for banned in ["pfirrmann", "compartment", "age_years", "ivd_score"] {
+                        assert!(
+                            !n.contains(banned),
+                            "required assertion `{id}` (stage {stage}) demands study-specific \
+                             column `{n}` (contains `{banned}`) — would false-fail a general \
+                             single-cell study; only a sample join key may be required"
+                        );
+                    }
+                }
+            }
+
+            // (2) No required artifact path may hardcode `compartment_*`/`compartment_NP`.
+            if let Some(target) = a.get("target").and_then(|v| v.as_str()) {
+                assert!(
+                    !target.contains("compartment_"),
+                    "required assertion `{id}` (stage {stage}) hardcodes a `compartment_*` path \
+                     (`{target}`) — use a recursive `**` glob so a flat single-cell layout passes"
+                );
+            }
+        }
+    }
+}
