@@ -60,6 +60,32 @@ def test_variant_count_per_sample_is_array_with_pooled_fallback():
     assert m2["variant_count_per_sample"] == [2, 2, 2, 3]
 
 
+def test_is_mtdna_classification_is_reference_driven():
+    mod = _load_module()
+    # Contig aliases normalize (strip leading "chr", lowercase).
+    assert mod._normalize_contig("chrM") == "m"
+    assert mod._normalize_contig("MT") == "mt"
+    assert mod._normalize_contig("NC_012920.1") == "nc_012920.1"
+    # Pure mtDNA call set -> mitochondrial.
+    assert mod.is_mtdna_call_set(3, 3) is True
+    # Majority-mito (tolerates a stray NUMT/nuclear contaminant).
+    assert mod.is_mtdna_call_set(2, 3) is True
+    # Nuclear WGS incidentally calling chrM -> NOT mitochondrial.
+    assert mod.is_mtdna_call_set(1, 5000) is False
+    # Empty call set -> not mitochondrial (no division by zero).
+    assert mod.is_mtdna_call_set(0, 0) is False
+
+
+def test_is_mtdna_flag_emitted_and_defaults_false():
+    mod = _load_module()
+    # Default (callers without contig info): not mitochondrial.
+    m = mod.compute_metrics([0.04, 0.95], n_samples=2)
+    assert m["is_mtdna"] is False
+    # Explicitly mitochondrial.
+    m2 = mod.compute_metrics([0.04, 0.95], n_samples=2, is_mtdna=True)
+    assert m2["is_mtdna"] is True
+
+
 def test_result_json_is_sorted_keys(tmp_path):
     mod = _load_module()
     out = tmp_path / "result.json"

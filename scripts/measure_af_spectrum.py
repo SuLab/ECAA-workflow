@@ -20,14 +20,53 @@ import sys
 NOISE_FLOOR = 0.01
 HOMOPLASMY_CUTOFF = 0.5
 
+# Mitochondrial contig aliases (rCRS / GRCh38 / common conventions), normalized
+# by stripping a leading "chr" and lowercasing. Used to classify whether a call
+# set is mitochondrial so the heteroplasmy-specific contract assertions
+# (het_tail_band_nonempty, no_sub_noise_floor_calls, the mtDNA per-sample count
+# ranges) apply ONLY to mtDNA analyses and are skipped for nuclear germline /
+# somatic calling — whose AF spectra and variant counts have a different
+# (correct) shape. The contig is fixed by the reference genome, NOT chosen by
+# the agent, so this is a non-gameable goal signal.
+MITO_CONTIGS = {
+    "m", "mt", "mtdna", "rcrs",
+    "nc_012920.1", "nc_012920.2", "nc_012920", "j01415.2",
+}
+# A call set is treated as mitochondrial when at least this fraction of its
+# records sit on a mito contig. A pure mtDNA analysis is ~1.0; a nuclear WGS
+# that incidentally calls chrM is far below 0.5.
+MITO_FRACTION_MIN = 0.5
 
-def compute_metrics(af_values, n_samples, per_sample_counts=None):
+
+def _normalize_contig(chrom):
+    c = chrom.strip().lower()
+    if c.startswith("chr"):
+        c = c[3:]
+    return c
+
+
+def is_mtdna_call_set(mito_record_count, total_record_count):
+    """Pure: classify a call set as mitochondrial (unit-tested directly).
+
+    True when records exist and the mito-contig fraction meets MITO_FRACTION_MIN.
+    Reference-driven (contig names), so the agent cannot flip it by method choice.
+    """
+    if total_record_count <= 0:
+        return False
+    return (mito_record_count / total_record_count) >= MITO_FRACTION_MIN
+
+
+def compute_metrics(af_values, n_samples, per_sample_counts=None, is_mtdna=False):
     """Pure metric core (unit-tested directly). af_values: list[float].
 
     `per_sample_counts`: list[int] of variant counts per FORMAT sample (from
     _per_sample_counts). When None/empty — the lofreq INFO-only / sample-less
     regime where the VCF carries no FORMAT sample columns — the pooled count is
     attributed to one effective sample as a single-element array [variant_count].
+
+    `is_mtdna`: whether the call set is mitochondrial (computed by main() from
+    the VCF's contigs via is_mtdna_call_set). Emitted so the heteroplasmy-specific
+    contract assertions can gate on `/is_mtdna` and skip nuclear germline/somatic.
     """
     af_sorted = sorted(float(x) for x in af_values)
     variant_count = len(af_sorted)
@@ -50,6 +89,9 @@ def compute_metrics(af_values, n_samples, per_sample_counts=None):
     return {
         "af_values": af_sorted,
         "variant_count": variant_count,
+        # Reference-driven mitochondrial classification. The heteroplasmy-specific
+        # contract assertions gate on this so they apply only to mtDNA analyses.
+        "is_mtdna": bool(is_mtdna),
         "n_samples": n,
         # ARRAY of per-sample variant counts read by the reference-range
         # assertions; single-element [variant_count] when the VCF has no FORMAT
@@ -142,6 +184,29 @@ def _per_sample_counts(vcf_path):
     return [counts[n] for n in names]
 
 
+def _mito_record_fraction(vcf_path):
+    """(mito_record_count, total_record_count) from the VCF's CHROM column.
+    Reference-driven: the contig is fixed by the alignment reference, not the
+    agent. Returns (0, 0) when CHROM can't be read (is_mtdna_call_set → False)."""
+    proc = subprocess.run(
+        ["bcftools", "query", "-f", "%CHROM\n", vcf_path],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        return (0, 0)
+    total = 0
+    mito = 0
+    for line in proc.stdout.splitlines():
+        chrom = line.strip()
+        if not chrom:
+            continue
+        total += 1
+        if _normalize_contig(chrom) in MITO_CONTIGS:
+            mito += 1
+    return (mito, total)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="AF-spectrum measurement (container-run)")
     parser.add_argument("--vcf", required=True, help="path to the post-filter VCF (gz-aware)")
@@ -150,7 +215,9 @@ def main(argv=None):
     af_values = _extract_af_values(args.vcf)
     n_samples = _count_samples(args.vcf)
     per_sample = _per_sample_counts(args.vcf)
-    metrics = compute_metrics(af_values, n_samples, per_sample)
+    mito, total = _mito_record_fraction(args.vcf)
+    is_mtdna = is_mtdna_call_set(mito, total)
+    metrics = compute_metrics(af_values, n_samples, per_sample, is_mtdna=is_mtdna)
     write_result(metrics, args.out)
     return 0
 

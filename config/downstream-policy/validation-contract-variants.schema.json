@@ -43,6 +43,17 @@
                 },
                 "target": { "type": "string", "minLength": 1 },
                 "check": { "type": "object" },
+                "when": {
+                  "type": "object",
+                  "description": "Optional guard: the assertion runs only when this predicate holds, else it is skipped (not applicable, never blocks). Used to scope mtDNA-heteroplasmy-specific assertions to mitochondrial call sets via /is_mtdna.",
+                  "required": ["json_pointer"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "json_pointer": { "type": "string", "minLength": 1 },
+                    "target": { "type": "string", "minLength": 1 },
+                    "equals": {}
+                  }
+                },
                 "severity": { "type": "string", "enum": ["required", "recommended"] }
               }
             }
