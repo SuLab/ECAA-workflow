@@ -24,12 +24,30 @@ HOMOPLASMY_CUTOFF = 0.5
 def compute_metrics(af_values, n_samples):
     """Pure metric core (unit-tested directly). af_values: list[float]."""
     af_sorted = sorted(float(x) for x in af_values)
+    variant_count = len(af_sorted)
     low_af_band_count = sum(1 for a in af_sorted if NOISE_FLOOR <= a < HOMOPLASMY_CUTOFF)
     sub_noise_floor_count = sum(1 for a in af_sorted if a < NOISE_FLOOR)
+    # A VCF carrying variant records represents at least one sample even when it
+    # is sample-less in the header — lofreq writes AF to INFO with NO FORMAT
+    # sample column, so `bcftools query -l` returns 0. Floor at 1 (only when
+    # there ARE records) so the cross-stage `sample_count_consistent` /
+    # `sample_count_recorded` (>=1) assertions read a well-defined value rather
+    # than 0, and the per-sample rate below never divides by zero.
+    n = max(int(n_samples), 1) if variant_count else int(n_samples)
     return {
         "af_values": af_sorted,
-        "variant_count": len(af_sorted),
-        "n_samples": int(n_samples),
+        "variant_count": variant_count,
+        "n_samples": n,
+        # Post-filter (or post-call) per-sample variant rate the
+        # `*_variant_count_per_sample_in_range` reference-range assertions read.
+        "variant_count_per_sample": round(variant_count / n, 4) if n else 0.0,
+        # Minimum surviving allele frequency (informational only). We deliberately
+        # do NOT emit a `min_surviving_af_meets_declared_threshold` pass/fail flag:
+        # defining it as `sub_noise_floor_count == 0` would be TAUTOLOGICAL with the
+        # no_sub_noise_floor_calls assertion (a self-satisfying check = gaming), and
+        # this script cannot know the AGENT'S declared filter threshold. The
+        # noise-floor invariant is enforced directly by no_sub_noise_floor_calls.
+        "min_surviving_af": af_sorted[0] if af_sorted else 0.0,
         "low_af_band_count": low_af_band_count,
         "sub_noise_floor_count": sub_noise_floor_count,
     }

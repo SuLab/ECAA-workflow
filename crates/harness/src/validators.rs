@@ -566,19 +566,21 @@ impl ValidatorRunner for VariantAfSpectrumPlausibleRunner {
                 ),
             };
         }
-        let stats = ecaa_workflow_core::statistical_helpers::compute_distribution_stats(&values);
-        // A heteroplasmy-dominated mtDNA AF spectrum is right-skewed: the
-        // median must not sit above the midpoint. A median > 0.5 means the
-        // call set is dominated by near-homoplasmic calls, which flags a
-        // reference / allele-frequency-orientation error.
-        if stats.p50 > 0.5 {
-            return ValidatorOutcome::Failed {
-                message: format!(
-                    "AF spectrum median {:.4} > 0.5 — not the right-skewed shape expected for mtDNA heteroplasmy",
-                    stats.p50
-                ),
-            };
-        }
+        // NOTE: a median-AF bound is NOT a valid mtDNA plausibility criterion and
+        // was removed. mtDNA called against the rCRS reference is
+        // HOMOPLASMY-DOMINATED — most variants are fixed differences from rCRS at
+        // AF≈1.0, with heteroplasmic sites the low-AF MINORITY. The Nekrutenko
+        // ground-truth answer key itself has a pooled AF median of 0.9972 (88.9%
+        // of calls > 0.5), so the former `median <= 0.5` ("right-skewed")
+        // assertion FAILED the benchmark's own truth set — a biologically wrong
+        // rule that blocked correct call sets. Both heteroplasmy-rich (low median)
+        // and homoplasmy-dominated (high median) spectra are valid; the median
+        // does not discriminate a correct call set from a reference/orientation
+        // error. The real shape guard is AF ∈ [0, 1] above (an inverted/garbled AF
+        // column or wrong-reference call still has to land in the unit interval,
+        // and gross reference errors surface via coordinate_in_contig + the
+        // per-sample-count reference-range assertion). Keep this validator to the
+        // unit-interval invariant; do not reinstate a median bound.
         ValidatorOutcome::Passed
     }
 }
@@ -893,17 +895,19 @@ mod tests {
     }
 
     #[test]
-    fn variant_af_spectrum_plausible_fails_high_median() {
+    fn variant_af_spectrum_plausible_passes_homoplasmy_dominated_set() {
+        // A high-median, homoplasmy-dominated AF spectrum is VALID for mtDNA
+        // called against rCRS (most variants are fixed differences from the
+        // reference at AF≈1.0). The Nekrutenko ground-truth key itself has a
+        // pooled median of 0.9972, so the former `median <= 0.5` rule failed the
+        // benchmark's own answer set. The validator now only guards AF ∈ [0, 1].
         let tmp = TempDir::new().unwrap();
         write_result_json(
             tmp.path(),
             serde_json::json!({ "af_values": [0.90, 0.95, 0.99, 0.92] }),
         );
         let runner = VariantAfSpectrumPlausibleRunner;
-        match runner.run(tmp.path()) {
-            ValidatorOutcome::Failed { message } => assert!(message.contains("median"), "{message}"),
-            other => panic!("expected Failed, got {other:?}"),
-        }
+        assert_eq!(runner.run(tmp.path()), ValidatorOutcome::Passed);
     }
 
     #[test]
