@@ -1404,5 +1404,34 @@ mod figure_contract_tests {
             !AGENT_EXECUTOR_BRIEF.contains("from runtime.plotting.core import generate"),
             "AGENT-EXECUTOR.md must not carry the render-it-yourself snippet"
         );
+
+        // (d) COMPUTE-LANGUAGE NEUTRALITY (render-as-contract intent): the
+        // plotting machinery's language must not bias the agent's task-code
+        // language choice. Guard both directions so neither steer can drift back
+        // to privileging a compute language via the (Python) renderer substrate.
+        //   Positive: the explicit neutrality clause is present.
+        assert!(
+            prompt.contains("compute language is free"),
+            "PROMPT.md must keep the explicit 'compute language is free' neutrality clause"
+        );
+        assert!(
+            AGENT_EXECUTOR_BRIEF.contains("Compute language is your free choice"),
+            "AGENT-EXECUTOR.md must keep the explicit compute-language-neutrality statement"
+        );
+        //   Negative: the interpreter guidance must NOT justify a compute
+        //   language by the plotting substrate the renderers use. The figure
+        //   prohibition legitimately names "matplotlib/ggplot" as forbidden-for-
+        //   figures imports, so we forbid the SPECIFIC substrate-justification
+        //   phrasings, not the word "matplotlib" outright.
+        for needle in ["scientific-python substrate", "numpy/pandas/matplotlib", "renderers use"] {
+            assert!(
+                !prompt.contains(needle),
+                "PROMPT.md must not justify a compute language via the renderer substrate: found {needle:?}"
+            );
+            assert!(
+                !AGENT_EXECUTOR_BRIEF.contains(needle),
+                "AGENT-EXECUTOR.md must not justify a compute language via the renderer substrate: found {needle:?}"
+            );
+        }
     }
 }

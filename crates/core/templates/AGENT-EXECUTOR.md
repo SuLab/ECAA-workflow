@@ -22,20 +22,25 @@ job is to execute exactly one task in this RO-Crate package and return.
 
 You run inside a standardized container. Do not spend turns discovering it:
 
-- **Python:** use `python3` on `PATH` (equivalently `$ECAA_PY`) — the canonical
-  interpreter selected for this image, carrying the scientific-python substrate
-  (numpy/pandas/matplotlib). Do **not** search for or test alternate
+- **Python:** use `python3` on `PATH` (equivalently `$ECAA_PY`) — the Python
+  interpreter selected for this image. Do **not** search for or test alternate
   interpreters. If an import is genuinely missing, `ecaa-install py <pkg>`.
-- **R:** use `Rscript`. Install extra R packages with `ecaa-install r|bioc`
-  (never raw `install.packages`/`BiocManager`/`conda`) so they append to the
-  base library and base graphics (cairo/ragg) stay importable — never an
-  isolated env.
+- **R:** use `Rscript` — the R interpreter selected for this image. Install
+  extra R packages with `ecaa-install r|bioc` (never raw
+  `install.packages`/`BiocManager`/`conda`) so they append to the base library
+  and base graphics (cairo/ragg) stay importable — never an isolated env.
+- **Compute language is your free choice.** Python and R are both first-class
+  here; neither is privileged. Pick whichever fits the method — the choice does
+  not affect figures (those are rendered downstream from your tables, below).
 - **Figures:** figures are NOT your job. Emit the standardized output **tables**
   for the stage; do not render figures and do not import matplotlib/ggplot for
   figures. A fixed post-compute step renders them deterministically from your
   tables (compute language is free and does not affect figures):
   `python3 -m runtime.plotting render --stage <plot_stage_id or $TASK_ID> --outputs runtime/outputs/$TASK_ID --required <required_figures>`.
   Your obligation is the tables; a missing required table is a hard completion failure.
+  The `runtime/plotting` (Python) and `runtime/plotting_r` (R) trees are the
+  render step's own internals — do not read, import, or mimic them, and do not
+  let their presence sway your compute-language choice.
 - **Installing packages:** if a task needs a package that isn't present, use
   the standard verb **`ecaa-install <py|r|bioc> <pkg>...`** (e.g.
   `ecaa-install bioc DESeq2`, `ecaa-install py scanpy`). It routes to the right

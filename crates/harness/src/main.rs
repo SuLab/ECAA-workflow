@@ -5280,12 +5280,13 @@ fn write_env_capability(pkg_dir: &Path) -> Result<()> {
             "note": "Image-agnostic execution contract. The dispatch wrapper resolves the canonical interpreter for whatever container image is configured and puts it first on PATH (and in $ECAA_PY), so these defaults hold regardless of image layout. Use them; do not search for interpreters or guess install commands.",
             "python": {
                 "interpreter": "python3",
-                "note": "`python3` on PATH (also `$ECAA_PY`) is the canonical interpreter the wrapper selected for this image — the one carrying the scientific-python substrate (numpy/pandas/matplotlib) the shipped renderers use. Use it directly; do not hunt for alternate pythons. If an import is genuinely missing, add it with `ecaa-install py <pkg>`."
+                "note": "`python3` on PATH (also `$ECAA_PY`) is the Python interpreter the wrapper put first on PATH for this image. Use it directly; do not hunt for alternate pythons. If an import is genuinely missing, add it with `ecaa-install py <pkg>`."
             },
             "r": {
                 "interpreter": "Rscript",
-                "note": "`Rscript` on PATH. Install extra R packages with `ecaa-install r|bioc` so they land in the user library appended to the base .libPaths() — base graphics (cairo/ragg) stay importable. Do NOT create an isolated R/conda env, which drops base packages."
+                "note": "`Rscript` on PATH is the R interpreter for this image. Install extra R packages with `ecaa-install r|bioc` so they land in the user library appended to the base .libPaths() — base graphics (cairo/ragg) stay importable. Do NOT create an isolated R/conda env, which drops base packages."
             },
+            "compute_language": "Python and R are both first-class compute interpreters here; neither is privileged. Choose whichever fits the method — the choice does not affect figures (a fixed post-compute step renders those from your tables).",
             "figure_rendering": {
                 "use": "python3 -m runtime.plotting render",
                 "how": "python3 -m runtime.plotting render --stage <plot_stage_id or task_id> --outputs runtime/outputs/<task_id> --required <required_figures>",
@@ -6372,6 +6373,39 @@ mod read_dag_tests {
         }
         assert!(body.get("probed_at").unwrap().is_string());
         assert!(body.get("host_os").unwrap().is_string());
+    }
+
+    /// Compute-language neutrality (render-as-contract intent): the environment
+    /// contract must not justify a compute language by the (Python) renderer
+    /// substrate. The python interpreter note must read as a neutral environment
+    /// fact, symmetric with the R note, and an explicit neutrality statement
+    /// must be present. Guards against regression of the env_capability leak.
+    #[test]
+    fn env_capability_compute_language_is_neutral() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_env_capability(tmp.path()).unwrap();
+        let body: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(tmp.path().join("runtime/env_capability.json")).unwrap())
+                .unwrap();
+        let env = body.get("environment").unwrap();
+        let py_note = env.get("python").unwrap().get("note").unwrap().as_str().unwrap();
+        // The python note must NOT cite the renderer substrate as why python is
+        // canonical for general compute.
+        for needle in ["scientific-python substrate", "numpy/pandas/matplotlib", "renderers use", "canonical interpreter"] {
+            assert!(
+                !py_note.contains(needle),
+                "env_capability python.note must not justify python via the renderer substrate: found {needle:?}"
+            );
+        }
+        // Explicit symmetric neutrality statement is present and names both.
+        let neutral = env
+            .get("compute_language")
+            .and_then(|v| v.as_str())
+            .expect("environment.compute_language neutrality statement must be present");
+        assert!(
+            neutral.contains("Python") && neutral.contains("R") && neutral.to_lowercase().contains("neither is privileged"),
+            "compute_language statement must present Python and R as un-privileged peers"
+        );
     }
 
     /// Build a one-compute-task DAG so the stamp_safety_network tests
