@@ -123,3 +123,17 @@ claim_boundary: |
   rows exist but their evidence_quote does not specify a direction. Do NOT
   introduce composite or narrative claims. Do NOT generate paragraphs that
   the upstream atom did not also generate row-wise.
+
+  EVIDENCE GATING (MANDATORY; enforced by post-task validation): cite a prior
+  PMID — and assert same_direction / opposite_direction / unverifiable — ONLY
+  for a PMID that has a DOWNLOADED evidence snapshot you can point to (a
+  snapshots/<sha256> file recorded in an evidence/manifest.json, either this
+  task's own or an upstream literature task's such as review_prior_work /
+  survey_method_landscape). Before writing ANY PMID into
+  claims_evidence_matrix.csv, confirm it resolves to such a manifest entry; if it
+  does not, DROP the citation and set that row to no_prior_finding (leave the
+  prior PMID column empty). NEVER cite a PMID from memory, from the finding's
+  gene/region/variant name, or one you have not actually retrieved — an
+  unretrieved PMID is an unsupported claim and will block the workflow. Record
+  every PMID you DO cite as an entry in THIS task's evidence/manifest.json
+  (reuse the upstream snapshot path) so downstream validation resolves it.
