@@ -21,8 +21,14 @@ NOISE_FLOOR = 0.01
 HOMOPLASMY_CUTOFF = 0.5
 
 
-def compute_metrics(af_values, n_samples):
-    """Pure metric core (unit-tested directly). af_values: list[float]."""
+def compute_metrics(af_values, n_samples, per_sample_counts=None):
+    """Pure metric core (unit-tested directly). af_values: list[float].
+
+    `per_sample_counts`: list[int] of variant counts per FORMAT sample (from
+    _per_sample_counts). When None/empty — the lofreq INFO-only / sample-less
+    regime where the VCF carries no FORMAT sample columns — the pooled count is
+    attributed to one effective sample as a single-element array [variant_count].
+    """
     af_sorted = sorted(float(x) for x in af_values)
     variant_count = len(af_sorted)
     low_af_band_count = sum(1 for a in af_sorted if NOISE_FLOOR <= a < HOMOPLASMY_CUTOFF)
@@ -34,13 +40,23 @@ def compute_metrics(af_values, n_samples):
     # `sample_count_recorded` (>=1) assertions read a well-defined value rather
     # than 0, and the per-sample rate below never divides by zero.
     n = max(int(n_samples), 1) if variant_count else int(n_samples)
+    # Per-sample variant counts as an ARRAY — the shape the
+    # `*_variant_count_per_sample_in_range` reference_range_outlier assertions
+    # read (the harness checks EACH sample's count against the reference band).
+    # Single-element pooled fallback for sample-less VCFs (one effective sample).
+    per_sample = [int(c) for c in per_sample_counts] if per_sample_counts else (
+        [variant_count] if variant_count else []
+    )
     return {
         "af_values": af_sorted,
         "variant_count": variant_count,
         "n_samples": n,
-        # Post-filter (or post-call) per-sample variant rate the
-        # `*_variant_count_per_sample_in_range` reference-range assertions read.
-        "variant_count_per_sample": round(variant_count / n, 4) if n else 0.0,
+        # ARRAY of per-sample variant counts read by the reference-range
+        # assertions; single-element [variant_count] when the VCF has no FORMAT
+        # sample columns (lofreq INFO-only).
+        "variant_count_per_sample": per_sample,
+        # Pooled scalar rate, informational only (NOT read by any assertion).
+        "variant_count_per_sample_mean": round(variant_count / n, 4) if n else 0.0,
         # Minimum surviving allele frequency (informational only). We deliberately
         # do NOT emit a `min_surviving_af_meets_declared_threshold` pass/fail flag:
         # defining it as `sub_noise_floor_count == 0` would be TAUTOLOGICAL with the
@@ -99,6 +115,33 @@ def _count_samples(vcf_path):
     return sum(1 for line in proc.stdout.splitlines() if line.strip())
 
 
+def _per_sample_counts(vcf_path):
+    """Per-FORMAT-sample called-variant counts, in header order. Empty list when
+    the VCF has no FORMAT sample columns (lofreq INFO-only) — compute_metrics then
+    falls back to a single-element pooled array. Counts records where the sample
+    carries a called ALT genotype (GT="alt"), the standard per-sample call tally."""
+    names_proc = subprocess.run(
+        ["bcftools", "query", "-l", vcf_path], capture_output=True, text=True
+    )
+    if names_proc.returncode != 0:
+        return []
+    names = [s.strip() for s in names_proc.stdout.splitlines() if s.strip()]
+    if not names:
+        return []
+    counts = {n: 0 for n in names}
+    proc = subprocess.run(
+        ["bcftools", "query", "-f", "[%SAMPLE\n]", "-i", 'GT="alt"', vcf_path],
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode == 0:
+        for line in proc.stdout.splitlines():
+            s = line.strip()
+            if s in counts:
+                counts[s] += 1
+    return [counts[n] for n in names]
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="AF-spectrum measurement (container-run)")
     parser.add_argument("--vcf", required=True, help="path to the post-filter VCF (gz-aware)")
@@ -106,7 +149,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     af_values = _extract_af_values(args.vcf)
     n_samples = _count_samples(args.vcf)
-    metrics = compute_metrics(af_values, n_samples)
+    per_sample = _per_sample_counts(args.vcf)
+    metrics = compute_metrics(af_values, n_samples, per_sample)
     write_result(metrics, args.out)
     return 0
 

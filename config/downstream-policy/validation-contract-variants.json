@@ -7,9 +7,9 @@
       "assertions": [
         {
           "id": "variant_calling.vcf_present",
-          "description": "A called VCF must exist.",
+          "description": "A called VCF must exist (searched recursively: agents commonly place per-sample VCFs in a vcf/ subdirectory).",
           "assertion_type": "artifact_glob_any",
-          "target": "runtime/outputs/variant_calling/*.vcf*",
+          "target": "runtime/outputs/variant_calling/**/*.vcf*",
           "severity": "required"
         },
         {
@@ -30,7 +30,7 @@
         },
         {
           "id": "variant_calling.variant_count_per_sample_in_range",
-          "description": "§3.1 mtDNA: per-sample variant counts must fall in a plausible mtDNA reference range; values far outside flag a reference-genome or pipeline error. Reference [5, 500] with 10% band padding — operator-authored, SME-overridable.",
+          "description": "§3.1 mtDNA: per-sample variant counts must fall in a plausible mtDNA reference range; values far outside flag a reference-genome or pipeline error. /variant_count_per_sample is an ARRAY of per-sample counts (a single-element pooled array when the VCF has no FORMAT sample columns); each element is checked. Reference [5, 500] with 10% band padding — operator-authored, SME-overridable.",
           "assertion_type": "reference_range_outlier",
           "target": "runtime/outputs/variant_calling/result.json",
           "check": {
@@ -91,7 +91,7 @@
         },
         {
           "id": "variant_filtering.post_filter_variant_count_per_sample_in_range",
-          "description": "§3.1 mtDNA: post-filter per-sample variant counts must remain in a plausible mtDNA reference range. Reference [1, 500] with 10% band padding — operator-authored, SME-overridable.",
+          "description": "§3.1 mtDNA: post-filter per-sample variant counts must remain in a plausible mtDNA reference range. /variant_count_per_sample is an ARRAY of per-sample counts (a single-element pooled array when the VCF has no FORMAT sample columns); each element is checked. Reference [1, 500] with 10% band padding — operator-authored, SME-overridable.",
           "assertion_type": "reference_range_outlier",
           "target": "runtime/outputs/variant_filtering/result.json",
           "check": {

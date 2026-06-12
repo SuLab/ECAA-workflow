@@ -78,3 +78,29 @@ def test_gt_af_spectrum_is_homoplasmy_dominated():
     # homoplasmy-dominated, so a `median <= 0.5` rule rejects correct call sets.
     assert med > 0.5, f"GT pooled AF median {med:.4f} unexpectedly <= 0.5"
     assert frac_high > 0.5, f"GT >0.5 fraction {frac_high:.3f} unexpectedly a minority"
+
+
+def test_gt_per_sample_counts_fit_contract_ranges():
+    """Grounds the per-sample-count assertion shape + bounds. The contract reads
+    /variant_count_per_sample as a per-sample ARRAY (reference_range_outlier);
+    each GT per-sample count must satisfy the filtering band [1,500]. Also
+    documents that the GT counts are mtDNA-low (2-3/sample), so the array shape —
+    not a tighter bound — is the fix: a scalar would fail-closed against this
+    correct answer key."""
+    d = _gt_results_dir()
+    if d is None:
+        pytest.skip("nekrutenko ground-truth not in local cache (pinned dataset absent)")
+    counts = []
+    for f in sorted(d.glob("*.vcf.gz")):
+        n = 0
+        with gzip.open(f, "rt") as fh:
+            for ln in fh:
+                if not ln.startswith("#"):
+                    n += 1
+        counts.append(n)
+    assert counts, "no per-sample GT VCFs found"
+    for c in counts:
+        assert 1 <= c <= 500, f"GT per-sample count {c} outside filtering band [1,500]"
+    # mtDNA-low: confirms the bound was never the blocker — the scalar-vs-array
+    # shape mismatch was (a scalar fails reference_range_outlier's array read).
+    assert all(c < 5 for c in counts), f"expected mtDNA-low per-sample counts; got {counts}"

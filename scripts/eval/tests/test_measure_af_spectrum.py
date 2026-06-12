@@ -43,6 +43,23 @@ def test_metrics_empty_band_when_het_dropped():
     assert m["sub_noise_floor_count"] == 0
 
 
+def test_variant_count_per_sample_is_array_with_pooled_fallback():
+    mod = _load_module()
+    # Sample-less VCF (no FORMAT columns, e.g. lofreq INFO-only): the pooled
+    # count is attributed to one effective sample as a single-element ARRAY, so
+    # the reference_range_outlier assertion (which reads an f64 array) can
+    # evaluate it instead of failing closed on a scalar.
+    m = mod.compute_metrics([0.04, 0.95, 0.99], n_samples=1)
+    assert isinstance(m["variant_count_per_sample"], list), "must be an ARRAY"
+    assert m["variant_count_per_sample"] == [3]
+    assert m["variant_count_per_sample_mean"] == 3.0  # scalar kept informational
+    # Explicit per-sample counts (multi-sample FORMAT VCF) pass through as the
+    # array the assertion checks element-by-element (e.g. the GT's [2,2,2,3]).
+    m2 = mod.compute_metrics([0.04, 0.95, 0.99, 0.5], n_samples=4,
+                             per_sample_counts=[2, 2, 2, 3])
+    assert m2["variant_count_per_sample"] == [2, 2, 2, 3]
+
+
 def test_result_json_is_sorted_keys(tmp_path):
     mod = _load_module()
     out = tmp_path / "result.json"
