@@ -354,6 +354,91 @@ fn singlecell_contract_uses_only_implemented_assertion_types() {
     }
 }
 
+/// Helper: collect all assertions of a contract stage as (id, value) pairs.
+fn stage_assertions<'a>(
+    contract: &'a serde_json::Value,
+    stage: &str,
+) -> Vec<&'a serde_json::Value> {
+    contract
+        .get("stages")
+        .and_then(|s| s.get(stage))
+        .and_then(|b| b.get("assertions"))
+        .and_then(|a| a.as_array())
+        .map(|v| v.iter().collect())
+        .unwrap_or_default()
+}
+
+/// Fail-open closure (gaming-audit hardening): the mtDNA heteroplasmy checks are
+/// `when`-gated on /is_mtdna, so a result.json that OMITS is_mtdna would skip them
+/// (skip-as-pass). Each variant stage that carries those gated checks must ALSO
+/// carry a universal (un-gated) REQUIRED `is_mtdna_recorded` assertion so an
+/// absent/tampered is_mtdna fails closed instead of silently dodging the het
+/// checks. Guards against silently removing that closure.
+#[test]
+fn variant_contract_has_ungated_is_mtdna_recorded_guard() {
+    let path = policies_dir().join("validation-contract-variants.json");
+    let contract: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    for stage in ["variant_calling", "variant_filtering"] {
+        let guard = stage_assertions(&contract, stage).into_iter().find(|a| {
+            a.get("id").and_then(|v| v.as_str()) == Some(&format!("{stage}.is_mtdna_recorded"))
+        });
+        let g = guard.unwrap_or_else(|| {
+            panic!("{stage} must carry an is_mtdna_recorded fail-open-closure assertion")
+        });
+        assert_eq!(
+            g.get("severity").and_then(|v| v.as_str()),
+            Some("required"),
+            "{stage}.is_mtdna_recorded must be required"
+        );
+        assert!(
+            g.get("when").is_none(),
+            "{stage}.is_mtdna_recorded must be UN-gated (no `when`) — gating it would \
+             reintroduce the fail-open it closes"
+        );
+        let subs = g
+            .get("check")
+            .and_then(|c| c.get("substrings"))
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>())
+            .unwrap_or_default();
+        assert!(
+            subs.contains(&"is_mtdna"),
+            "{stage}.is_mtdna_recorded must require the is_mtdna field"
+        );
+    }
+}
+
+/// Self-report-evasion hardening (gaming-audit): the covariate-adjustment check
+/// is `when`-gated on /available_covariates, so omitting it would skip the check.
+/// The `design_recorded` precondition must REQUIRE available_covariates so it
+/// cannot be omitted to dodge the covariate check.
+#[test]
+fn association_design_recorded_requires_available_covariates() {
+    let path = policies_dir().join("validation-contract-association.json");
+    let contract: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&path).unwrap()).unwrap();
+    let recorded = stage_assertions(&contract, "differential_expression")
+        .into_iter()
+        .find(|a| {
+            a.get("id").and_then(|v| v.as_str())
+                == Some("differential_expression.design_recorded")
+        })
+        .expect("association contract must have a design_recorded precondition");
+    let subs = recorded
+        .get("check")
+        .and_then(|c| c.get("substrings"))
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().filter_map(|s| s.as_str()).collect::<Vec<_>>())
+        .unwrap_or_default();
+    for required in ["design_formula", "response_variable", "available_covariates"] {
+        assert!(
+            subs.contains(&required),
+            "design_recorded must require `{required}` (closing the omission false-negative)"
+        );
+    }
+}
+
 // The single-cell validation contract is carried by the GENERAL single_cell_de
 // archetype, so its `required` assertions must be goal-agnostic. This guards
 // against regressing the IVD-derivation anti-pattern: no required metadata
