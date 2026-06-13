@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "$id": "https://ecaa-workflow/validation-contract-singlecell.schema.json",
-  "title": "Validation contract — per-stage required + recommended assertions",
+  "$id": "https://ecaa-workflow/validation-contract-association.schema.json",
+  "title": "Validation contract — differential-expression / regression method-correctness assertions",
   "type": "object",
   "required": ["contract_id", "stages"],
   "additionalProperties": false,
@@ -34,16 +34,29 @@
                     "string_contains",
                     "numeric_threshold",
                     "json_key_equals",
+                    "cross_stage_output_comparison",
+                    "numeric_distribution",
+                    "reference_range_outlier",
+                    "positive_control_present",
+                    "negative_control_present",
                     "cross_field_equals",
                     "formula_references_covariates"
                   ]
                 },
                 "target": { "type": "string", "minLength": 1 },
                 "check": { "type": "object" },
-                "severity": {
-                  "type": "string",
-                  "enum": ["required", "recommended"]
-                }
+                "when": {
+                  "type": "object",
+                  "description": "Optional guard: the assertion runs only when this predicate holds, else it is skipped (not applicable, never blocks). Used to scope the method-correctness assertions to records that carry the relevant field (/available_covariates, /stated_outcome).",
+                  "required": ["json_pointer"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "json_pointer": { "type": "string", "minLength": 1 },
+                    "target": { "type": "string", "minLength": 1 },
+                    "equals": {}
+                  }
+                },
+                "severity": { "type": "string", "enum": ["required", "recommended"] }
               }
             }
           }

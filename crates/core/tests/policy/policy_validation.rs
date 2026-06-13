@@ -255,6 +255,105 @@ fn interpretation_policy_excludes_stats_acronyms_not_genes() {
     );
 }
 
+/// The set of `assertion_type` values the harness's `run_assertion`
+/// (crates/harness/src/main.rs) actually implements. Kept here as the
+/// cross-crate guard because the test crate (core) can't link the harness
+/// binary's private `run_assertion`. CRITICAL: `run_assertion` ends with
+/// `_ => false` (fail-closed), so a contract that names an assertion_type the
+/// harness does NOT implement would silently fail EVERY task that stage gates
+/// (the json_key_equals trap: it is in the schema enum but unimplemented).
+/// This list must stay in lockstep with the `match atype` arms in
+/// `run_assertion`. `json_key_equals` is deliberately EXCLUDED — it is a schema
+/// enum value with no implementing arm; any contract using it would fail
+/// closed, so the assertion below treats it as unimplemented.
+const HARNESS_IMPLEMENTED_ASSERTION_TYPES: &[&str] = &[
+    "artifact_present",
+    "artifact_non_empty_table",
+    "artifact_glob_any",
+    "string_contains",
+    "numeric_threshold",
+    "numeric_distribution",
+    "reference_range_outlier",
+    "positive_control_present",
+    "negative_control_present",
+    "cross_stage_output_comparison",
+    "cross_field_equals",
+    "formula_references_covariates",
+];
+
+/// Collect every distinct `assertion_type` used across a validation contract's
+/// stages.
+fn assertion_types_in_contract(contract: &serde_json::Value) -> std::collections::BTreeSet<String> {
+    let mut out = std::collections::BTreeSet::new();
+    if let Some(stages) = contract.get("stages").and_then(|v| v.as_object()) {
+        for block in stages.values() {
+            if let Some(arr) = block.get("assertions").and_then(|v| v.as_array()) {
+                for a in arr {
+                    if let Some(t) = a.get("assertion_type").and_then(|v| v.as_str()) {
+                        out.insert(t.to_string());
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The new DE/regression method-correctness contract must (1) validate against
+/// its schema sidecar, and (2) use ONLY assertion_types the harness implements
+/// in `run_assertion`. Guards the json_key_equals fail-closed trap: a contract
+/// naming an unimplemented type would block every gated task silently because
+/// `run_assertion`'s `_ => false` arm fails closed.
+#[test]
+fn association_contract_validates_and_uses_only_implemented_assertion_types() {
+    let path = policies_dir().join("validation-contract-association.json");
+    // (1) schema validation (also catches a missing sidecar).
+    let contract = load_and_validate(&path)
+        .unwrap_or_else(|e| panic!("association contract failed schema validation: {:#}", e));
+
+    // (2) every assertion_type is implemented in the harness.
+    let used = assertion_types_in_contract(&contract);
+    assert!(
+        !used.is_empty(),
+        "association contract declares no assertions"
+    );
+    for t in &used {
+        assert!(
+            HARNESS_IMPLEMENTED_ASSERTION_TYPES.contains(&t.as_str()),
+            "association contract uses assertion_type `{t}` which is NOT implemented in \
+             run_assertion (it would fail closed via the `_ => false` arm — the \
+             json_key_equals trap). Implement it or stop using it."
+        );
+    }
+    // The two new method-correctness arms must actually appear (otherwise the
+    // contract isn't doing its job).
+    assert!(
+        used.contains("cross_field_equals"),
+        "association contract must use cross_field_equals (da-8-1 inversion catch)"
+    );
+    assert!(
+        used.contains("formula_references_covariates"),
+        "association contract must use formula_references_covariates (da-15-1 naked-design catch)"
+    );
+}
+
+/// The single-cell contract's DE stage now carries the same two method-correctness
+/// arms; assert it too only uses harness-implemented assertion_types (it routes
+/// through the same fail-closed `run_assertion`).
+#[test]
+fn singlecell_contract_uses_only_implemented_assertion_types() {
+    let path = policies_dir().join("validation-contract-singlecell.json");
+    let contract = load_and_validate(&path)
+        .unwrap_or_else(|e| panic!("singlecell contract failed schema validation: {:#}", e));
+    for t in assertion_types_in_contract(&contract) {
+        assert!(
+            HARNESS_IMPLEMENTED_ASSERTION_TYPES.contains(&t.as_str()),
+            "singlecell contract uses assertion_type `{t}` not implemented in run_assertion \
+             (would fail closed)"
+        );
+    }
+}
+
 // The single-cell validation contract is carried by the GENERAL single_cell_de
 // archetype, so its `required` assertions must be goal-agnostic. This guards
 // against regressing the IVD-derivation anti-pattern: no required metadata

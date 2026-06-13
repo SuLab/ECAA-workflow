@@ -12,6 +12,15 @@ goal_data: "data:0951"
 goal_format: "format:3475"
 project_class: bioinformatics
 modality_hint: bulk_rnaseq
+# Per-stage method-correctness contract emitted into policies/validation-contract.json
+# and enforced by the harness's enforce_validation_contract. Stage key
+# `differential_expression` carries the design-covariate-adjustment +
+# response-vs-stated-outcome assertions that catch a covariate-omitting DESeq2
+# design (da-15-1) and an inverted regression (da-8-1). Method-neutral: the
+# assertions check the agent's OWN recorded model fields against the agent's own
+# record of the data/task — they never prescribe a model. See the contract's
+# description and docs/known-limitations.md.
+validation_contract_ref: validation-contract-association.json
 atoms:
   - atom_id: data_acquisition
     required: true

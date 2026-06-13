@@ -7,6 +7,25 @@ description: |
   Test for differentially expressed genes between conditions / cell types.
   DESeq2 / edgeR / limma-voom / MAST / Wilcoxon selected at runtime based on
   modality (bulk vs single-cell) and design.
+
+  RECORD-WHAT-YOU-DID (audit, not instruction): in result.json, write down the
+  model you actually fit so it can be audited — this does NOT tell you which
+  model/test to use, only to state your own choice. Record:
+    - design_formula: the model formula you fit (e.g. "~ condition + sex + RIN").
+    - response_variable: the model's outcome / left-hand side (the thing being
+      explained). For a contrast-based DE this is the expression/count response;
+      for a regression against an outcome it is that outcome variable.
+    - available_covariates: the covariate columns you observed in the sample
+      metadata (your honest list of what was available, e.g.
+      ["condition","sex","age","RIN"]).
+    - primary_variable: the main comparison variable for the contrast (e.g.
+      "condition").
+    - stated_outcome: the SME's stated outcome for the task, when the task names
+      one (otherwise omit).
+  These are YOUR record of YOUR choices and of the data/task — a domain-correctness
+  contract checks them for internal + task consistency (e.g. the design adjusts
+  for an available covariate; the response matches the stated outcome). It never
+  prescribes a model.
 edam_operation: "operation:3223"
 edam_data: "data:3917"
 edam_format: "format:3475"
@@ -28,6 +47,26 @@ attributes:
     - limma_voom
     - mast
     - wilcoxon
+  # Record-what-you-did contract consumed by the harness method-correctness
+  # validation contract (validation-contract-association.json /
+  # validation-contract-singlecell.json `differential_expression` stage). These
+  # are fields the agent records in result.json describing its OWN model + its
+  # OWN observation of the data/task — NOT a prescription of which model/test to
+  # fit. The contract checks them for internal + task consistency (design
+  # adjusts for an available covariate; response matches the stated outcome).
+  result_contract:
+    record_in_result_json:
+      - design_formula
+      - response_variable
+      - available_covariates
+      - primary_variable
+      - stated_outcome
+    note: >-
+      record-what-you-did, not be-told-what-to-do. State the model you fit and
+      the covariate columns you observed; the harness checks your own record for
+      domain-correctness. available_covariates/stated_outcome are agent-recorded
+      in v1 — pinning available_covariates to a measurement script is a follow-up
+      (docs/known-limitations.md).
 resource_profile:
   cpu: moderate
   memory: medium

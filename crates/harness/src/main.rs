@@ -4744,6 +4744,19 @@ fn read_json_pointer_f64(path: &Path, pointer: &str) -> Option<f64> {
     v.pointer(pointer).and_then(|x| x.as_f64())
 }
 
+/// Read a JSON value at `pointer` (RFC-6901) from `path` and return it
+/// as a String. Returns `None` when the file is missing/unparseable, the
+/// pointer doesn't resolve, or the value isn't a JSON string. Used by the
+/// `cross_field_equals` / `formula_references_covariates` assertion arms;
+/// pessimistic by construction (None → false at the call site).
+fn read_json_pointer_str(path: &Path, pointer: &str) -> Option<String> {
+    let bytes = read_bytes_capped(path, resolve_max_bytes()).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    v.pointer(pointer)
+        .and_then(|x| x.as_str())
+        .map(str::to_string)
+}
+
 /// Read the raw JSON value at `pointer` from `path` (cloned). `None` on
 /// file/parse failure or a missing pointer. Used by the `when`-clause gate.
 fn read_json_pointer_value(path: &Path, pointer: &str) -> Option<serde_json::Value> {
@@ -4787,8 +4800,50 @@ fn when_clause_satisfied(pkg_dir: &Path, assertion: &serde_json::Value) -> bool 
     if let Some(expected) = when.get("equals") {
         return &actual == expected;
     }
-    // No explicit `equals`: treat presence + truthiness as satisfied.
-    actual.as_bool().unwrap_or(false)
+    // No explicit `equals`: treat a present, truthy value as satisfied. The
+    // pointer already resolved (absent -> None -> skipped above), so we are
+    // deciding on a present value. A literal `false`, an empty array, or an
+    // empty string read as "not applicable" (e.g. a recorded-but-empty
+    // available_covariates gates nothing); any other present value satisfies.
+    // This generalizes the original bool-only gate to the presence gates the
+    // method-correctness assertions use (/available_covariates, /stated_outcome).
+    match &actual {
+        serde_json::Value::Bool(b) => *b,
+        serde_json::Value::Array(a) => !a.is_empty(),
+        serde_json::Value::String(s) => !s.is_empty(),
+        serde_json::Value::Null => false,
+        // Numbers / objects: present and non-null -> satisfied.
+        _ => true,
+    }
+}
+
+/// Casefold + trim: lowercase and strip surrounding whitespace. The single
+/// normalization the method-correctness arms (`cross_field_equals`,
+/// `formula_references_covariates`) apply so a recorded outcome/covariate name
+/// matches regardless of capitalization or stray padding (e.g. "SBP " vs
+/// "sbp"). Deterministic and pure.
+fn casefold_trim(s: &str) -> String {
+    s.trim().to_lowercase()
+}
+
+/// Split a model design-formula string into its referenced variable tokens.
+/// Strips an optional `<lhs> ~ <rhs>` response prefix and splits the RHS on
+/// the formula combinators `+`, `*`, `:` (interaction/crossing), then on
+/// whitespace, casefolding + trimming each token and dropping the intercept
+/// markers (`1`, `0`, empty). Pure + deterministic — used only to test whether
+/// a formula REFERENCES a covariate the agent itself recorded, never to author
+/// or prescribe a formula.
+fn formula_terms(formula: &str) -> std::collections::BTreeSet<String> {
+    // Keep only the right-hand side when a `~` is present (the response is
+    // checked separately by cross_field_equals).
+    let rhs = match formula.split_once('~') {
+        Some((_, r)) => r,
+        None => formula,
+    };
+    rhs.split(['+', '*', ':', '(', ')', ' ', '\t'])
+        .map(casefold_trim)
+        .filter(|t| !t.is_empty() && t != "1" && t != "0")
+        .collect()
 }
 
 /// Compare `lhs op rhs` for the contract comparison vocabulary.
@@ -5044,6 +5099,100 @@ fn run_assertion(
                 None => return false,
             };
             numeric_compare(this_val, op, up_val)
+        }
+        "cross_field_equals" => {
+            // Method-correctness: two AGENT-RECORDED string fields in the same
+            // result.json must be equal after normalization. Catches the
+            // inverted-regression error (da-8-1): the model's recorded
+            // response_variable must equal the task's recorded stated_outcome
+            // — if the agent regressed `metabolite ~ SBP` while the task's
+            // outcome is SBP, the two disagree and this fails. It compares the
+            // agent's own choice (this_pointer) against the agent's own record
+            // of the task (other_pointer); it never prescribes a model. Fail
+            // closed on either pointer missing/unreadable.
+            let path = resolve(target);
+            let Some(check) = assertion.get("check") else {
+                return false;
+            };
+            let Some(this_ptr) = check.get("this_pointer").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(other_ptr) = check.get("other_pointer").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let normalize = check
+                .get("normalize")
+                .and_then(|v| v.as_str())
+                .unwrap_or("casefold_trim");
+            let (Some(a_raw), Some(b_raw)) = (
+                read_json_pointer_str(&path, this_ptr),
+                read_json_pointer_str(&path, other_ptr),
+            ) else {
+                return false; // missing pointer -> pessimistic
+            };
+            match normalize {
+                "casefold_trim" => casefold_trim(&a_raw) == casefold_trim(&b_raw),
+                // exact (no normalization)
+                "exact" | "none" => a_raw == b_raw,
+                // Unknown normalization -> pessimistic.
+                _ => false,
+            }
+        }
+        "formula_references_covariates" => {
+            // Method-correctness: the AGENT-RECORDED design-formula string must
+            // REFERENCE at least one of the AGENT-RECORDED available covariates
+            // (after removing the primary comparison variable from the
+            // covariate set). Catches the naked-design error (da-15-1): a DESeq2
+            // design recorded as `~ condition` while the metadata the agent
+            // observed carries sex/age/RIN — none of those non-primary
+            // covariates appears in the formula, so this fails. PASSES when ≥1
+            // non-primary covariate is referenced, OR when no non-primary
+            // covariate remains (nothing to adjust for). It compares the
+            // agent's own formula against the agent's own record of the data's
+            // columns; it never tells the agent WHICH covariates to include or
+            // which model to fit. Fail closed on any pointer missing/unreadable.
+            let path = resolve(target);
+            let Some(check) = assertion.get("check") else {
+                return false;
+            };
+            let Some(formula_ptr) = check.get("formula_pointer").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(cov_ptr) = check.get("covariates_pointer").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(primary_ptr) = check.get("primary_pointer").and_then(|v| v.as_str()) else {
+                return false;
+            };
+            let Some(formula) = read_json_pointer_str(&path, formula_ptr) else {
+                return false; // missing formula -> pessimistic
+            };
+            // available_covariates is an array of column-name strings.
+            let Some(cov_value) = read_json_pointer_value(&path, cov_ptr) else {
+                return false; // missing covariate record -> pessimistic
+            };
+            let Some(cov_arr) = cov_value.as_array() else {
+                return false; // not an array -> pessimistic
+            };
+            // primary variable is optional: when absent, no term is removed.
+            let primary = read_json_pointer_str(&path, primary_ptr).map(|p| casefold_trim(&p));
+            let remaining: std::collections::BTreeSet<String> = cov_arr
+                .iter()
+                .filter_map(|v| v.as_str())
+                .map(casefold_trim)
+                .filter(|c| !c.is_empty())
+                .filter(|c| primary.as_deref() != Some(c.as_str()))
+                .collect();
+            if remaining.is_empty() {
+                // No non-primary covariate available to adjust for -> nothing to
+                // assert; a naked design is correct here. PASS. (The `when`
+                // gate on /available_covariates already skips the empty case in
+                // the shipped contract; this is defense-in-depth.)
+                return true;
+            }
+            let terms = formula_terms(&formula);
+            // PASS iff the formula references ≥1 remaining covariate.
+            remaining.iter().any(|c| terms.contains(c))
         }
         _ => false,
     }
@@ -5799,6 +5948,271 @@ mod read_dag_tests {
         ));
     }
 
+    /// Method-correctness contract, end-to-end through enforce_validation_contract:
+    /// a Completed differential_expression task whose result.json records a naked
+    /// `~ condition` design (covariates available) AND an inverted regression
+    /// (response != stated outcome) must re-block the parent compute task and its
+    /// validate_<stage> companion. Mirrors the variant-contract enforce test, but
+    /// exercises the new cross_field_equals + formula_references_covariates arms.
+    #[test]
+    fn association_contract_reblocks_inverted_and_naked_design() {
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("policies")).unwrap();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/differential_expression")).unwrap();
+
+        // The shipped association contract (the three required assertions).
+        let contract = serde_json::json!({
+            "contract_id": "test-association",
+            "stages": {
+                "differential_expression": {
+                    "assertions": [
+                        {
+                            "id": "differential_expression.design_recorded",
+                            "assertion_type": "string_contains",
+                            "target": "runtime/outputs/differential_expression/result.json",
+                            "check": { "substrings": ["design_formula", "response_variable"] },
+                            "severity": "required"
+                        },
+                        {
+                            "id": "differential_expression.design_adjusts_available_covariates",
+                            "assertion_type": "formula_references_covariates",
+                            "target": "runtime/outputs/differential_expression/result.json",
+                            "check": {
+                                "formula_pointer": "/design_formula",
+                                "covariates_pointer": "/available_covariates",
+                                "primary_pointer": "/primary_variable"
+                            },
+                            "when": { "json_pointer": "/available_covariates" },
+                            "severity": "required"
+                        },
+                        {
+                            "id": "differential_expression.response_matches_stated_outcome",
+                            "assertion_type": "cross_field_equals",
+                            "target": "runtime/outputs/differential_expression/result.json",
+                            "check": {
+                                "this_pointer": "/response_variable",
+                                "other_pointer": "/stated_outcome",
+                                "normalize": "casefold_trim"
+                            },
+                            "when": { "json_pointer": "/stated_outcome" },
+                            "severity": "required"
+                        }
+                    ]
+                }
+            }
+        });
+        std::fs::write(
+            pkg.join("policies/validation-contract.json"),
+            serde_json::to_string_pretty(&contract).unwrap(),
+        )
+        .unwrap();
+
+        // Both errors present: naked `~ condition` (sex/age/RIN available) AND an
+        // inverted regression (response=metabolite, stated outcome=SBP).
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/result.json"),
+            serde_json::json!({
+                "design_formula": "~ condition",
+                "response_variable": "metabolite",
+                "available_covariates": ["condition", "sex", "age", "RIN"],
+                "primary_variable": "condition",
+                "stated_outcome": "SBP"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut tasks: std::collections::BTreeMap<TaskId, Task> = std::collections::BTreeMap::new();
+        tasks.insert(
+            "differential_expression".into(),
+            Task {
+                kind: TaskKind::Computation,
+                state: TaskState::Completed {
+                    result: serde_json::json!({"method": "deseq2"}),
+                },
+                depends_on: vec![],
+                assignee: Assignee::Agent,
+                description: "de".into(),
+                spec: Some(serde_json::json!({"stage_class": "differential_expression"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+            },
+        );
+        tasks.insert(
+            "validate_differential_expression".into(),
+            Task {
+                kind: TaskKind::Validation,
+                state: TaskState::Completed {
+                    result: serde_json::json!({"outcome": "pass"}),
+                },
+                depends_on: vec!["differential_expression".into()],
+                assignee: Assignee::Agent,
+                description: "validate de".into(),
+                spec: Some(serde_json::json!({"stage_class": "differential_expression"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+            },
+        );
+        let mut dag = DAG {
+            version: "1.0".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "t".into(),
+            current_task: None,
+            tasks,
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+        };
+        let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
+        assert_eq!(violations.len(), 1, "exactly the DE stage violates");
+        assert_eq!(violations[0].0, "differential_expression");
+        // Both method-correctness assertions failed; design_recorded passed.
+        assert!(violations[0]
+            .1
+            .contains(&"differential_expression.design_adjusts_available_covariates".to_string()));
+        assert!(violations[0]
+            .1
+            .contains(&"differential_expression.response_matches_stated_outcome".to_string()));
+        assert!(!violations[0]
+            .1
+            .contains(&"differential_expression.design_recorded".to_string()));
+        // Parent + validator re-blocked.
+        assert!(matches!(
+            dag.tasks.get("differential_expression").unwrap().state,
+            TaskState::Blocked { .. }
+        ));
+        assert!(matches!(
+            dag.tasks
+                .get("validate_differential_expression")
+                .unwrap()
+                .state,
+            TaskState::Blocked { .. }
+        ));
+    }
+
+    /// The same contract PASSES a correctly-specified DE: the design adjusts for
+    /// an available covariate and the response matches the stated outcome — no
+    /// violation, the parent stays Completed.
+    #[test]
+    fn association_contract_passes_correct_design() {
+        use ecaa_workflow_core::dag::{Assignee, ResourceClass, Task, TaskKind, TaskState};
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        std::fs::create_dir_all(pkg.join("policies")).unwrap();
+        std::fs::create_dir_all(pkg.join("runtime/outputs/differential_expression")).unwrap();
+        let contract = serde_json::json!({
+            "contract_id": "test-association",
+            "stages": {
+                "differential_expression": {
+                    "assertions": [
+                        {
+                            "id": "differential_expression.design_recorded",
+                            "assertion_type": "string_contains",
+                            "target": "runtime/outputs/differential_expression/result.json",
+                            "check": { "substrings": ["design_formula", "response_variable"] },
+                            "severity": "required"
+                        },
+                        {
+                            "id": "differential_expression.design_adjusts_available_covariates",
+                            "assertion_type": "formula_references_covariates",
+                            "target": "runtime/outputs/differential_expression/result.json",
+                            "check": {
+                                "formula_pointer": "/design_formula",
+                                "covariates_pointer": "/available_covariates",
+                                "primary_pointer": "/primary_variable"
+                            },
+                            "when": { "json_pointer": "/available_covariates" },
+                            "severity": "required"
+                        },
+                        {
+                            "id": "differential_expression.response_matches_stated_outcome",
+                            "assertion_type": "cross_field_equals",
+                            "target": "runtime/outputs/differential_expression/result.json",
+                            "check": {
+                                "this_pointer": "/response_variable",
+                                "other_pointer": "/stated_outcome",
+                                "normalize": "casefold_trim"
+                            },
+                            "when": { "json_pointer": "/stated_outcome" },
+                            "severity": "required"
+                        }
+                    ]
+                }
+            }
+        });
+        std::fs::write(
+            pkg.join("policies/validation-contract.json"),
+            serde_json::to_string_pretty(&contract).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            pkg.join("runtime/outputs/differential_expression/result.json"),
+            serde_json::json!({
+                "design_formula": "~ SBP + sex + age + RIN",
+                "response_variable": "SBP",
+                "available_covariates": ["SBP", "sex", "age", "RIN"],
+                "primary_variable": "SBP",
+                "stated_outcome": "SBP"
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        let mut tasks: std::collections::BTreeMap<TaskId, Task> = std::collections::BTreeMap::new();
+        tasks.insert(
+            "differential_expression".into(),
+            Task {
+                kind: TaskKind::Computation,
+                state: TaskState::Completed {
+                    result: serde_json::json!({"method": "deseq2"}),
+                },
+                depends_on: vec![],
+                assignee: Assignee::Agent,
+                description: "de".into(),
+                spec: Some(serde_json::json!({"stage_class": "differential_expression"})),
+                resolution: None,
+                result_ref: None,
+                resource_class: ResourceClass::CpuHeavy,
+                requires_sme_review: false,
+                required_artifacts: vec![],
+                container: None,
+                source_atom_id: None,
+                safety: Default::default(),
+            },
+        );
+        let mut dag = DAG {
+            version: "1.0".into(),
+            schema_version: ecaa_workflow_core::dag::current_dag_schema_version(),
+            workflow_id: "t".into(),
+            current_task: None,
+            tasks,
+            reverse_deps: std::collections::BTreeMap::new(),
+            run_id: None,
+        };
+        let violations = enforce_validation_contract(pkg, &mut dag).unwrap();
+        assert!(
+            violations.is_empty(),
+            "a correctly-specified DE must not violate: {violations:?}"
+        );
+        assert!(matches!(
+            dag.tasks.get("differential_expression").unwrap().state,
+            TaskState::Completed { .. }
+        ));
+    }
+
     #[test]
     fn validation_contract_blocks_parent_before_its_validator_completes() {
         // The early-gate contract: a contract-violating compute task must be
@@ -6344,6 +6758,231 @@ mod read_dag_tests {
         assert!(
             run_assertion(pkg, &a, &empty),
             "absent guard field -> assertion not applicable -> skipped"
+        );
+    }
+
+    // ---- Method-correctness assertions (DE / regression) ----
+    //
+    // Helper: write a differential_expression result.json and return the pkg
+    // dir so the assertion arms (which resolve against pkg-relative targets)
+    // can read it.
+    fn write_de_result(body: serde_json::Value) -> tempfile::TempDir {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(tmp.path().join("runtime/outputs/differential_expression"))
+            .unwrap();
+        std::fs::write(
+            tmp.path()
+                .join("runtime/outputs/differential_expression/result.json"),
+            body.to_string(),
+        )
+        .unwrap();
+        tmp
+    }
+
+    fn cross_field_equals_assertion() -> serde_json::Value {
+        serde_json::json!({
+            "id": "de.response_matches_stated_outcome",
+            "assertion_type": "cross_field_equals",
+            "target": "runtime/outputs/differential_expression/result.json",
+            "check": {
+                "this_pointer": "/response_variable",
+                "other_pointer": "/stated_outcome",
+                "normalize": "casefold_trim"
+            }
+        })
+    }
+
+    fn formula_assertion() -> serde_json::Value {
+        serde_json::json!({
+            "id": "de.design_adjusts_available_covariates",
+            "assertion_type": "formula_references_covariates",
+            "target": "runtime/outputs/differential_expression/result.json",
+            "check": {
+                "formula_pointer": "/design_formula",
+                "covariates_pointer": "/available_covariates",
+                "primary_pointer": "/primary_variable"
+            }
+        })
+    }
+
+    /// cross_field_equals PASSES when the agent's recorded response_variable
+    /// matches the agent's recorded stated_outcome (a correctly-oriented model).
+    #[test]
+    fn cross_field_equals_passes_on_matching_outcome() {
+        let tmp = write_de_result(serde_json::json!({
+            "response_variable": "SBP",
+            "stated_outcome": "SBP"
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            run_assertion(tmp.path(), &cross_field_equals_assertion(), &empty),
+            "response_variable == stated_outcome must pass"
+        );
+    }
+
+    /// cross_field_equals FAILS on the da-8-1 inversion: the agent regressed
+    /// `metabolite ~ SBP`, recording response_variable=metabolite while the
+    /// task's stated_outcome is SBP — the recorded outcome disagrees.
+    #[test]
+    fn cross_field_equals_fails_on_inverted_regression() {
+        let tmp = write_de_result(serde_json::json!({
+            "response_variable": "metabolite",
+            "stated_outcome": "SBP"
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            !run_assertion(tmp.path(), &cross_field_equals_assertion(), &empty),
+            "inverted regression (response != stated outcome) must FAIL"
+        );
+    }
+
+    /// cross_field_equals normalizes with casefold+trim so capitalization /
+    /// padding differences in the agent's own records do not false-fail.
+    #[test]
+    fn cross_field_equals_casefold_trim_matches() {
+        let tmp = write_de_result(serde_json::json!({
+            "response_variable": "  sbp ",
+            "stated_outcome": "SBP"
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            run_assertion(tmp.path(), &cross_field_equals_assertion(), &empty),
+            "casefold+trim must normalize '  sbp ' and 'SBP' to equal"
+        );
+    }
+
+    /// cross_field_equals FAILS CLOSED when either pointer is absent — an
+    /// unrecorded outcome is not an excuse to pass (the `when` gate decides
+    /// applicability, not the arm).
+    #[test]
+    fn cross_field_equals_fails_closed_on_missing_pointer() {
+        let tmp = write_de_result(serde_json::json!({
+            "response_variable": "SBP"
+            // no stated_outcome
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            !run_assertion(tmp.path(), &cross_field_equals_assertion(), &empty),
+            "missing other_pointer must fail closed"
+        );
+    }
+
+    /// formula_references_covariates PASSES on a full design that references a
+    /// non-primary available covariate (the agent adjusted for sex/RIN).
+    #[test]
+    fn formula_references_covariates_passes_on_full_design() {
+        let tmp = write_de_result(serde_json::json!({
+            "design_formula": "~ condition + sex + RIN",
+            "available_covariates": ["condition", "sex", "age", "RIN"],
+            "primary_variable": "condition"
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            run_assertion(tmp.path(), &formula_assertion(), &empty),
+            "a design referencing a non-primary covariate must pass"
+        );
+    }
+
+    /// formula_references_covariates FAILS on the da-15-1 naked design: the
+    /// agent recorded `~ condition` while sex/age/RIN were available — none of
+    /// the non-primary covariates is referenced.
+    #[test]
+    fn formula_references_covariates_fails_on_naked_condition() {
+        let tmp = write_de_result(serde_json::json!({
+            "design_formula": "~ condition",
+            "available_covariates": ["condition", "sex", "age", "RIN"],
+            "primary_variable": "condition"
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            !run_assertion(tmp.path(), &formula_assertion(), &empty),
+            "naked `~ condition` with covariates available must FAIL"
+        );
+    }
+
+    /// formula_references_covariates PASSES (nothing to adjust for) when the
+    /// only available covariate IS the primary variable — a naked design is
+    /// correct there. The arm-level fallthrough handles this even without the
+    /// `when` gate.
+    #[test]
+    fn formula_references_covariates_passes_when_only_primary_available() {
+        let tmp = write_de_result(serde_json::json!({
+            "design_formula": "~ condition",
+            "available_covariates": ["condition"],
+            "primary_variable": "condition"
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            run_assertion(tmp.path(), &formula_assertion(), &empty),
+            "only the primary covariate available -> nothing to adjust for -> pass"
+        );
+    }
+
+    /// formula_references_covariates is SKIPPED via the `when` gate when no
+    /// covariates were recorded — mirrors the shipped contract's
+    /// `when: {json_pointer: /available_covariates}`.
+    #[test]
+    fn formula_references_covariates_skips_when_no_covariates_recorded() {
+        let tmp = write_de_result(serde_json::json!({
+            "design_formula": "~ condition"
+            // no available_covariates
+        }));
+        let empty = std::collections::BTreeMap::new();
+        let mut a = formula_assertion();
+        a.as_object_mut().unwrap().insert(
+            "when".to_string(),
+            serde_json::json!({ "json_pointer": "/available_covariates" }),
+        );
+        assert!(
+            run_assertion(tmp.path(), &a, &empty),
+            "no recorded covariates -> when gate skips -> not applicable -> pass"
+        );
+    }
+
+    /// formula_references_covariates FAILS CLOSED when the design_formula
+    /// pointer is missing (an unrecorded model is a failure, not a pass).
+    #[test]
+    fn formula_references_covariates_fails_closed_on_missing_formula() {
+        let tmp = write_de_result(serde_json::json!({
+            "available_covariates": ["condition", "sex"],
+            "primary_variable": "condition"
+            // no design_formula
+        }));
+        let empty = std::collections::BTreeMap::new();
+        assert!(
+            !run_assertion(tmp.path(), &formula_assertion(), &empty),
+            "missing design_formula must fail closed"
+        );
+    }
+
+    /// design_recorded (string_contains, both keys required) PASSES only when
+    /// result.json names BOTH design_formula and response_variable.
+    #[test]
+    fn design_recorded_requires_both_keys() {
+        let a = serde_json::json!({
+            "id": "de.design_recorded",
+            "assertion_type": "string_contains",
+            "target": "runtime/outputs/differential_expression/result.json",
+            "check": { "substrings": ["design_formula", "response_variable"] }
+        });
+        let empty = std::collections::BTreeMap::new();
+
+        let both = write_de_result(serde_json::json!({
+            "design_formula": "~ condition + sex",
+            "response_variable": "counts"
+        }));
+        assert!(
+            run_assertion(both.path(), &a, &empty),
+            "both keys recorded -> pass"
+        );
+
+        let only_one = write_de_result(serde_json::json!({
+            "design_formula": "~ condition + sex"
+            // no response_variable
+        }));
+        assert!(
+            !run_assertion(only_one.path(), &a, &empty),
+            "missing response_variable -> fail (unauditable model)"
         );
     }
 

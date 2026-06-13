@@ -1170,6 +1170,23 @@ mod tests {
     }
 
     #[test]
+    fn bulk_rnaseq_de_carries_validation_contract_ref() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("config/archetypes");
+        let reg = ArchetypeRegistry::load_from_dir(&dir).unwrap();
+        let a = reg.get("bulk_rnaseq_de").unwrap();
+        assert_eq!(
+            a.validation_contract_ref.as_deref(),
+            Some("validation-contract-association.json"),
+            "bulk_rnaseq_de must name the DE/regression method-correctness contract"
+        );
+    }
+
+    #[test]
     fn single_cell_de_carries_validation_contract_ref() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()

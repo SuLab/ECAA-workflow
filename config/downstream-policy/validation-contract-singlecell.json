@@ -120,6 +120,40 @@
             "substrings_any": ["condition", "design", "group"]
           },
           "severity": "recommended"
+        },
+        {
+          "id": "differential_expression.design_recorded",
+          "description": "Method-correctness precondition (shared with validation-contract-association): result.json must record the fitted model so it is auditable. An unauditable model (no recorded design_formula / response_variable) is itself a failure. Substrings are field-name keys, not model prescriptions. available_covariates/stated_outcome are the agent's honest record of the data's columns / the task's stated outcome (record-what-you-did); hardening available_covariates to a pinned measurement script is a follow-up (docs/known-limitations.md).",
+          "assertion_type": "string_contains",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": { "substrings": ["design_formula", "response_variable"] },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.design_adjusts_available_covariates",
+          "description": "Catches a covariate-omitting design (da-15-1): the agent-recorded design_formula must REFERENCE at least one of the agent-recorded available_covariates after the primary comparison variable is removed. Compares the agent's own formula against the agent's own record of the data's columns; it never names which covariates to include (method-neutral). GATED on /available_covariates so it SKIPS when no covariate columns were recorded.",
+          "assertion_type": "formula_references_covariates",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "formula_pointer": "/design_formula",
+            "covariates_pointer": "/available_covariates",
+            "primary_pointer": "/primary_variable"
+          },
+          "when": { "json_pointer": "/available_covariates" },
+          "severity": "required"
+        },
+        {
+          "id": "differential_expression.response_matches_stated_outcome",
+          "description": "Catches an inverted regression (da-8-1): the agent-recorded response_variable (model outcome / LHS) must equal the agent-recorded stated_outcome (the SME's stated outcome) after casefold+trim. Compares the agent's own model outcome against the agent's own record of the task's stated outcome; it never names which variable to regress on (method-neutral). GATED on /stated_outcome so it SKIPS plain DE-by-condition with no SME-stated outcome.",
+          "assertion_type": "cross_field_equals",
+          "target": "runtime/outputs/differential_expression/result.json",
+          "check": {
+            "this_pointer": "/response_variable",
+            "other_pointer": "/stated_outcome",
+            "normalize": "casefold_trim"
+          },
+          "when": { "json_pointer": "/stated_outcome" },
+          "severity": "required"
         }
       ]
     },
