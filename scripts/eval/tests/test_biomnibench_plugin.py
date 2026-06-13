@@ -112,6 +112,60 @@ def test_collect_bare_empty_when_nothing_present(tmp_path):
     assert output.answer_txt == ""
 
 
+def test_collect_bare_empty_answer_falls_back_to_trace(tmp_path):
+    """Arm-symmetric fallback (mirrors flatten.py's ECAA-arm invariant): a
+    complete trace must NEVER yield an empty answer channel. A bare run with an
+    empty/absent answer.txt but a non-empty trace.md falls back to the trace
+    narrative as the answer, so a run whose agent computed a real result in its
+    trace is not scored 0 purely because the answer channel was empty."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "trace.md").write_text("TRACE: ran DE; 312 genes up, padj<0.05")
+    (run_dir / "answer.txt").write_text("   \n")  # present but whitespace-only
+
+    spec = RunSpec(arm=Arm.CLAUDE_CODE_DIRECT, workdir=run_dir, kind="bare",
+                   instruction="some prompt")
+    output = BiomniBench().collect(spec, run_dir)
+
+    assert output.trace_md.strip()
+    assert output.answer_txt == "TRACE: ran DE; 312 genes up, padj<0.05"
+    # RAW narrative only — the answer equals the trace verbatim (no augmentation).
+    assert output.answer_txt == output.trace_md
+
+
+def test_collect_bare_empty_answer_falls_back_to_stdout_narrative(tmp_path):
+    """When only agent-stdout.json is present (no trace.md/answer.txt), the bare
+    arm already routes the stdout into BOTH trace and answer; the arm-symmetric
+    fallback keeps the answer non-empty when it would otherwise be blank."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "agent-stdout.json").write_text(
+        json.dumps({"result": "STDOUT RESULT: 312 upregulated genes"}))
+
+    spec = RunSpec(arm=Arm.CLAUDE_CODE_DIRECT, workdir=run_dir, kind="bare",
+                   instruction="some prompt")
+    output = BiomniBench().collect(spec, run_dir)
+
+    assert output.answer_txt.strip()
+    assert "312 upregulated genes" in output.answer_txt
+
+
+def test_collect_bare_fallback_does_not_override_nonempty_answer(tmp_path):
+    """The fallback must NOT clobber a non-empty answer.txt: when both trace and
+    answer are present, the real answer wins (no trace substitution)."""
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "trace.md").write_text("TRACE: long analytical narrative")
+    (run_dir / "answer.txt").write_text("REAL ANSWER: 312 upregulated genes")
+
+    spec = RunSpec(arm=Arm.CLAUDE_CODE_DIRECT, workdir=run_dir, kind="bare",
+                   instruction="some prompt")
+    output = BiomniBench().collect(spec, run_dir)
+
+    assert output.answer_txt == "REAL ANSWER: 312 upregulated genes"
+    assert output.answer_txt != output.trace_md
+
+
 def test_collect_bare_recovers_nested_deliverables(tmp_path):
     """An agent that writes trace.md/answer.txt one directory down (e.g. into
     an ``app/`` subdir it created after a `/app` permission fallback) must still

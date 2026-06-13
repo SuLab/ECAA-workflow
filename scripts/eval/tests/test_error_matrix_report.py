@@ -48,3 +48,30 @@ def test_errored_cells_recorded_inconclusive_not_dropped():
     assert em["n_inconclusive"] == 3     # the errored cells are COUNTED, not dropped
     assert any("UnrunnablePackageError" in r for r in em["inconclusive_reasons"])
     assert em["recover_rate"] == 1.0     # rate driven by scored cells only
+    # A bare RuntimeError (the type name is NOT "UnrunnablePackage") classifies
+    # as `unknown` — a potential arm limitation, not silently excluded as infra.
+    assert em["inconclusive_kinds"] == {"infra": 0, "unknown": 3}
+
+
+def test_report_surfaces_infra_vs_arm_inconclusive_kinds():
+    """report() surfaces a per-arm infra-vs-arm tally so an infra failure
+    (correctly excluded) is distinguishable from a potential arm-limitation that
+    should NOT be silently excluded."""
+    import subprocess
+    from scripts.eval.eval_runner import _errored_cell_record
+    scored = _cells(True)  # 3 genuine scored cells
+    infra = [
+        _errored_cell_record(("flake_first_call", "bwa", 10),
+                             subprocess.TimeoutExpired(cmd="harness", timeout=7200)),
+        _errored_cell_record(("flake_first_call", "bwa", 11),
+                             OSError("No space left on device")),
+    ]
+    arm_limit = [
+        _errored_cell_record(("flake_first_call", "bwa", 12),
+                             RuntimeError("agent emitted no variant table")),
+    ]
+    rows = [Score("mtdna", "ecaa", 0, 100.0, {}, 1.0,
+                  scored + infra + arm_limit, "deterministic")]
+    em = Nekrutenko().report(rows).meta["error_matrix"]["ecaa"]
+    assert em["n_inconclusive"] == 3
+    assert em["inconclusive_kinds"] == {"infra": 2, "unknown": 1}

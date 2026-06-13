@@ -87,17 +87,21 @@ def _render_penalty_stripped(card: Scorecard) -> list[str]:
     lines = ["", "## Source-penalty-stripped score (apples-to-apples vs published 73.34)", ""]
     lines.append(
         "The headline `overall` above is UNCHANGED and applies the paper-documented "
-        "source-reliability penalty (A=0/B=-5/C=-10) as written. The published "
+        "source-reliability penalty (A=0/B=-5/C=-10) as written. **The penalized "
+        "headline IS the ECAA result.** The published "
         "BiomniBench 73.34 baseline never paid that penalty — the dataset's shipped "
         "reference scorer's `Levels:` regex can't read negative level values and "
-        "silently zeroes them. The **penalty-stripped** column below strips the "
-        "negative source penalty (per-criterion floored at 0) to match the published "
-        "scorer, so the comparison vs 73.34 is apples-to-apples. **73.34 is a loose "
+        "silently zeroes them. The **reference-scorer-reproduction** column below "
+        "strips the "
+        "negative source penalty (per-criterion floored at 0) ONLY to reproduce the "
+        "published scorer's behaviour, so the comparison vs 73.34 is apples-to-apples. "
+        "**It is NOT the ECAA result and must not be cited as such** — it exists "
+        "solely to make the loose 73.34 reference legible. **73.34 is a loose "
         "reference (50 public tasks + Sonnet-4.6 here vs 100 tasks + Opus-4.7 in the "
         "paper), not a head-to-head target.**"
     )
     lines.append("")
-    lines.append("| arm | n | headline (penalized) | penalty-stripped | penalty paid |")
+    lines.append("| arm | n | headline (penalized — THE ECAA RESULT) | penalty-stripped (reference-scorer reproduction — NOT the ECAA result) | penalty paid |")
     lines.append("| --- | --- | --- | --- | --- |")
     for arm in arms:
         p = pen.get(arm, [])

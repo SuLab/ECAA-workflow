@@ -95,6 +95,29 @@ def _target_n(pattern: str, n_samples: int = len(_SAMPLE_NAMES)) -> int:
     return n_samples
 
 
+def _tally_inconclusive_kinds(cells: list[dict]) -> dict[str, int]:
+    """Histogram the inconclusive cells by ``error_kind`` (`infra`/`unknown`).
+
+    Each errored cell carries ``error_kind`` (set by
+    ``eval_runner._classify_error_kind``): ``infra`` for an environmental/harness
+    failure (timeout / unrunnable package / disk / OS) that is CORRECTLY excluded
+    from arm comparison, ``unknown`` for anything else — which might be an arm
+    limitation that should NOT be silently excluded. Cells flagged inconclusive
+    for a non-error reason (a bypassed shim) carry no ``error`` and are skipped.
+    A cell that recorded an ``error`` but predates the ``error_kind`` field counts
+    as ``unknown`` (conservative — an unclassified failure is never silently
+    treated as infra)."""
+    tally = {"infra": 0, "unknown": 0}
+    for c in cells:
+        if not (c.get("inconclusive") and c.get("error")):
+            continue
+        kind = c.get("error_kind", "unknown")
+        if kind not in tally:
+            kind = "unknown"
+        tally[kind] += 1
+    return tally
+
+
 # Task prompt fed IDENTICALLY to both arms (ECAA intake + bare instruction).
 # It names the canonical recipe tools (bwa/samtools/lofreq) deliberately — the
 # eval pins that recipe (see locked_methods) for fidelity to the Nekrutenko
@@ -367,6 +390,14 @@ class Nekrutenko(Benchmark):
                 "inconclusive_reasons": sorted(
                     {c["error"] for c in cells
                      if c.get("inconclusive") and c.get("error")}),
+                # Per-arm infra-vs-arm tally of the inconclusive cells. An `infra`
+                # failure (timeout / unrunnable package / disk / OS) is correctly
+                # EXCLUDED from arm comparison; an `unknown` failure might be an arm
+                # limitation that should NOT be silently excluded — distinguishing
+                # the two keeps a real arm shortfall from hiding behind the
+                # legitimate infra exclusions. Cells errored before `error_kind` was
+                # recorded count as `unknown` (conservative — never silently infra).
+                "inconclusive_kinds": _tally_inconclusive_kinds(cells),
                 "handle_counts": handle_counts,
                 "by_pattern": {
                     pat: {"recover_rate": mean(v["recover"]),

@@ -577,6 +577,31 @@ def _cell_key(task_id, arm, trial, pattern, tool, seed):
     return f"{task_id}:{arm}:{trial}:cell:{pattern}:{tool}:{seed}"
 
 
+def _classify_error_kind(exc: BaseException) -> str:
+    """Classify an errored-cell exception as ``"infra"`` or ``"unknown"``.
+
+    An ``"infra"`` failure is environmental/harness-side (a timeout, an unrunnable
+    package, an OS/IO error, disk exhaustion) — it is correctly EXCLUDED from arm
+    comparison because it says nothing about the arm under test. An ``"unknown"``
+    failure (anything else) might be an arm limitation that should NOT be silently
+    excluded, so it is tagged distinctly for operator review. Classification is on
+    the exception TYPE NAME (not isinstance) so a package-level
+    ``UnrunnablePackage``-style error raised anywhere in the stack still classifies
+    without importing its type."""
+    name = type(exc).__name__
+    if isinstance(exc, (subprocess.TimeoutExpired, TimeoutError, OSError)):
+        return "infra"
+    # OSError already covers IOError (an alias) and most disk-full errors
+    # (ENOSPC). The name checks catch package-level / disk errors raised as
+    # non-OSError types.
+    lowered = (name + " " + str(exc)).lower()
+    if "unrunnablepackage" in name.lower():
+        return "infra"
+    if "no space left" in lowered or "disk" in lowered and "full" in lowered:
+        return "infra"
+    return "unknown"
+
+
 def _errored_cell_record(cell_spec, exc: BaseException) -> dict:
     """Build an INCONCLUSIVE error-matrix cell for a cell that RAISED during its
     run or classification, so the failure is RECORDED with its reason instead of
@@ -588,11 +613,14 @@ def _errored_cell_record(cell_spec, exc: BaseException) -> dict:
     is captured here. `inconclusive: True` + `shim_invoked: False` keep it OUT of
     the recover/diagnose rates (report() excludes inconclusive cells) while
     counting it under n_inconclusive and surfacing `error` so the operator sees
-    WHY — never a silent empty matrix again."""
+    WHY — never a silent empty matrix again. `error_kind` (`infra`/`unknown`)
+    distinguishes an environmental failure (correctly excluded) from a potential
+    arm-limitation that should NOT be silently excluded."""
     pattern, tool, seed = cell_spec
     return {"pattern": pattern, "tool": tool, "seed": seed,
             "inconclusive": True, "shim_invoked": False,
-            "error": f"{type(exc).__name__}: {exc}"[:500]}
+            "error": f"{type(exc).__name__}: {exc}"[:500],
+            "error_kind": _classify_error_kind(exc)}
 
 
 def _score_to_dict(s: Score) -> dict:

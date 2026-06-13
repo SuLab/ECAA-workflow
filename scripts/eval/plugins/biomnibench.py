@@ -276,6 +276,17 @@ class BiomniBench(Benchmark):
                 else:
                     trace = ""
                     answer = ""
+            # Arm-symmetric fallback (mirrors flatten.py's ECAA-arm invariant): a
+            # complete trace must NEVER yield an empty answer channel. When the bare
+            # answer resolved empty (no answer.txt / nested answer) but the agent
+            # did produce a non-empty trace or stdout narrative, fall back to that
+            # narrative as the answer — otherwise a run whose agent computed a real
+            # result in its trace scores 0 purely because the answer channel was
+            # empty. RAW narrative only (no augmentation), so both arms feed the
+            # judge the SAME KIND of text (H1 arm fairness). A non-empty answer.txt
+            # is never overridden.
+            if not answer.strip() and trace.strip():
+                answer = trace
         return Output(trace_md=trace, answer_txt=answer, artifacts=artifacts,
                       exit_ok=True, wall_secs=0.0)
 

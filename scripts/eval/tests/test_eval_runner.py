@@ -24,6 +24,38 @@ def test_errored_cell_record_is_inconclusive_with_reason():
     assert (rec["pattern"], rec["tool"], rec["seed"]) == ("flake_first_call", "bwa", 42)
     assert "TimeoutError" in rec["error"] and "7200s" in rec["error"]
 
+
+def test_errored_cell_record_tags_error_kind():
+    """error_kind classifies an environmental/harness failure (`infra`, correctly
+    excluded from arm comparison) distinctly from a potential arm-limitation
+    (`unknown`, must NOT be silently excluded)."""
+    import subprocess
+    # infra: TimeoutError
+    infra = eval_runner._errored_cell_record(
+        ("flake_first_call", "bwa", 42), TimeoutError("harness exceeded 7200s"))
+    assert infra["error_kind"] == "infra"
+    # infra: subprocess.TimeoutExpired
+    infra2 = eval_runner._errored_cell_record(
+        ("slow_tool", "lofreq", 1),
+        subprocess.TimeoutExpired(cmd="harness", timeout=7200))
+    assert infra2["error_kind"] == "infra"
+    # infra: OSError / disk-space
+    infra3 = eval_runner._errored_cell_record(
+        ("flake_first_call", "bwa", 2), OSError("No space left on device"))
+    assert infra3["error_kind"] == "infra"
+
+    # infra: package-level UnrunnablePackage classified by type-name (no import).
+    class UnrunnablePackageError(Exception):
+        pass
+    infra4 = eval_runner._errored_cell_record(
+        ("flake_first_call", "bwa", 3), UnrunnablePackageError("blocked DAG"))
+    assert infra4["error_kind"] == "infra"
+
+    # unknown: a generic RuntimeError might be an arm limitation, not infra.
+    unknown = eval_runner._errored_cell_record(
+        ("flake_first_call", "bwa", 43), RuntimeError("agent produced no VCF"))
+    assert unknown["error_kind"] == "unknown"
+
 def test_skip_without_live_flag(monkeypatch, capsys):
     monkeypatch.delenv("ECAA_EVAL_LIVE", raising=False)
     rc = eval_runner.main(["biomnibench", "--smoke"])

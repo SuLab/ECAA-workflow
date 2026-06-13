@@ -445,6 +445,13 @@ def test_penalty_stripped_section_renders_and_headline_unchanged(tmp_path):
     # The note states the headline is unchanged + 73.34 is a loose reference.
     assert "UNCHANGED" in md
     assert "loose reference" in md
+    # Citation-hygiene: the column header itself disambiguates which number is the
+    # ECAA result, so the stripped figure cannot be lifted as "ECAA's score".
+    assert "reference-scorer reproduction — NOT the ECAA result" in md
+    assert "penalized — THE ECAA RESULT" in md
+    assert "The penalized headline IS the ECAA result." in md or \
+        "penalized headline IS the ECAA result" in md
+    assert "NOT the ECAA result and must not be cited as such" in md
     # Headline arm-means table is unchanged: the penalized means still show.
     assert "| ecaa | 1 | 95.0 |" in md
     assert "| claude-direct | 1 | 80.0 |" in md
