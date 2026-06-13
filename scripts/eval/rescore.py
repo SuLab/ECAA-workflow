@@ -140,7 +140,7 @@ def main(argv: list[str]) -> int:
     trials = trials_seen or args.trials
     # Rebuild the Task objects (rubrics live on them) from the cached dataset.
     handle = plugin.fetch(cache_root())
-    tasks = plugin.tasks(handle, smoke=args.smoke or True)
+    tasks = plugin.tasks(handle, smoke=args.smoke)
     task_by_id = {t.task_id: t for t in tasks}
     arms = [Arm(a) for a in arms_seen] or [Arm.ECAA_WORKFLOW, Arm.CLAUDE_CODE_DIRECT]
 
