@@ -322,8 +322,17 @@ class BiomniBench(Benchmark):
                 output.trace_md, output.answer_txt)
         if output.artifacts.get("incomplete_reason"):
             extra["incomplete_reason"] = output.artifacts["incomplete_reason"]
+        # Source-penalty-stripped companion of the primary headline (the same
+        # score WITHOUT the negative source-reliability penalty, matching the
+        # published reference scorer). The headline Score.overall stays the
+        # penalized primary["overall"]; this only travels in extra.
+        if primary and "overall_no_source_penalty" in primary:
+            extra["overall_no_source_penalty"] = primary["overall_no_source_penalty"]
         if headline and cross:
             extra["cross_check"] = cross["overall"]
+            if "overall_no_source_penalty" in cross:
+                extra["cross_overall_no_source_penalty"] = \
+                    cross["overall_no_source_penalty"]
             extra["judge_exact"] = per_criterion_exact(
                 headline.get("levels", {}), cross.get("levels", {}))
             extra["judge_kappa"] = linear_weighted_kappa(
@@ -355,20 +364,28 @@ class BiomniBench(Benchmark):
         cross = judge("anthropic-opus", task.rubric, output.trace_md, output.answer_txt)
         exact = per_criterion_exact(headline.get("levels", {}), cross.get("levels", {}))
         kappa = linear_weighted_kappa(headline.get("levels", {}), cross.get("levels", {}))
+        extra = {"cross_check": cross["overall"],
+                 "judge_exact": exact,
+                 "judge_kappa": kappa,
+                 "judge_rationale": headline.get("rationales", {}),
+                 "cross_judge_rationale": cross.get("rationales", {}),
+                 "judge_levels": headline.get("levels", {}),
+                 "cross_judge_levels": cross.get("levels", {}),
+                 "intra_narrative_self_consistency":
+                     compute_intra_narrative_self_consistency(
+                         output.trace_md, output.answer_txt),
+                 "judge_cost_usd": headline.get("cost_usd", 0.0) + cross.get("cost_usd", 0.0)}
+        # Source-penalty-stripped companion (headline WITHOUT the negative source
+        # penalty, matching the published reference scorer). Headline overall is
+        # unchanged.
+        if "overall_no_source_penalty" in headline:
+            extra["overall_no_source_penalty"] = headline["overall_no_source_penalty"]
+        if "overall_no_source_penalty" in cross:
+            extra["cross_overall_no_source_penalty"] = cross["overall_no_source_penalty"]
         return Score(task_id=task.task_id, arm=arm.value, trial=trial,
                      overall=headline["overall"], dimensions=headline["dimensions"],
                      jaccard=None, error_cells=None, judge_id="gemini-3.1-pro",
-                     extra={"cross_check": cross["overall"],
-                            "judge_exact": exact,
-                            "judge_kappa": kappa,
-                            "judge_rationale": headline.get("rationales", {}),
-                            "cross_judge_rationale": cross.get("rationales", {}),
-                            "judge_levels": headline.get("levels", {}),
-                            "cross_judge_levels": cross.get("levels", {}),
-                            "intra_narrative_self_consistency":
-                                compute_intra_narrative_self_consistency(
-                                    output.trace_md, output.answer_txt),
-                            "judge_cost_usd": headline.get("cost_usd", 0.0) + cross.get("cost_usd", 0.0)})
+                     extra=extra)
 
     def report(self, scores):
         dims: dict[str, dict[str, list[float]]] = {}

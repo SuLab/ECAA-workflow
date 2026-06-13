@@ -419,3 +419,67 @@ def test_three_arm_card_renders_all_arms(tmp_path):
     # The arm table has three data rows (plus header + separator).
     data = json.loads((out / "scorecard.json").read_text())
     assert len({r["arm"] for r in data["rows"]}) == 3
+
+
+# ── RCA #3: source-penalty-stripped companion section ────────────────────────
+
+def test_penalty_stripped_section_renders_and_headline_unchanged(tmp_path):
+    """The penalty-stripped section renders with both columns; the headline
+    arm-means table is unchanged; meta carries no_penalty_mean >= penalized_mean.
+
+    ecaa pays a B-level source penalty (headline 95, stripped 100); claude-direct
+    pays a C-level penalty (headline 80, stripped 90)."""
+    from scripts.eval.services.scorecard import write_scorecard
+    rows = [
+        Score("t1", "ecaa", 0, 95.0, {}, None, None, "gemini-3.1-pro",
+              extra={"overall_no_source_penalty": 100.0}),
+        Score("t1", "claude-direct", 0, 80.0, {}, None, None, "gemini-3.1-pro",
+              extra={"overall_no_source_penalty": 90.0}),
+    ]
+    out = write_scorecard(Scorecard("biomnibench", rows), tmp_path)
+    md = (out / "scorecard.md").read_text()
+    # New section present.
+    assert "Source-penalty-stripped score" in md
+    assert "apples-to-apples vs published 73.34" in md
+    assert "penalty paid" in md
+    # The note states the headline is unchanged + 73.34 is a loose reference.
+    assert "UNCHANGED" in md
+    assert "loose reference" in md
+    # Headline arm-means table is unchanged: the penalized means still show.
+    assert "| ecaa | 1 | 95.0 |" in md
+    assert "| claude-direct | 1 | 80.0 |" in md
+
+    data = json.loads((out / "scorecard.json").read_text())
+    sps = data["meta"]["source_penalty_stripped"]
+    assert sps["ecaa"]["penalized_mean"] == 95.0
+    assert sps["ecaa"]["no_penalty_mean"] == 100.0
+    assert sps["ecaa"]["no_penalty_mean"] >= sps["ecaa"]["penalized_mean"]
+    assert sps["ecaa"]["penalty_paid"] == 5.0
+    assert sps["claude-direct"]["penalty_paid"] == 10.0
+    # The headline rows' `overall` is untouched.
+    overalls = {r["arm"]: r["overall"] for r in data["rows"]}
+    assert overalls["ecaa"] == 95.0
+    assert overalls["claude-direct"] == 80.0
+    # The rich key is not also printed as a stray scalar bullet.
+    assert "- **source_penalty_stripped:**" not in md
+
+
+def test_penalty_stripped_fallback_when_key_absent(tmp_path):
+    """Rows WITHOUT overall_no_source_penalty (older cards / fraction mode) still
+    render the section with penalty_paid 0 — no crash, the stripped mean falls
+    back to the penalized overall."""
+    from scripts.eval.services.scorecard import write_scorecard
+    rows = [
+        Score("t1", "ecaa", 0, 80.0, {}, None, None, "gemini-3.1-pro"),
+        Score("t1", "claude-direct", 0, 70.0, {}, None, None, "gemini-3.1-pro"),
+    ]
+    out = write_scorecard(Scorecard("biomnibench", rows), tmp_path)
+    md = (out / "scorecard.md").read_text()
+    assert "Source-penalty-stripped score" in md
+    data = json.loads((out / "scorecard.json").read_text())
+    sps = data["meta"]["source_penalty_stripped"]
+    # Fallback: stripped == penalized, penalty paid 0.
+    assert sps["ecaa"]["penalized_mean"] == 80.0
+    assert sps["ecaa"]["no_penalty_mean"] == 80.0
+    assert sps["ecaa"]["penalty_paid"] == 0.0
+    assert sps["claude-direct"]["penalty_paid"] == 0.0

@@ -113,6 +113,13 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
     absolute = rubric.get("scoring") == "absolute"
     total_pts = 0.0
     earned_pts = 0.0
+    # Floored variant: each criterion's contribution clamped to >=0 BEFORE the
+    # sum, reproducing the published BiomniBench reference scorer's `Levels:`
+    # regex (which can't read negatives and silently zeroes them). Floor
+    # per-criterion (not special-casing source_reliability) so it stays correct
+    # for any future penalty criterion. In fraction mode there are no negatives,
+    # so this tracks earned_pts identically.
+    earned_pts_floored = 0.0
     dim_total: dict[str, float] = {}
     dim_earned: dict[str, float] = {}
     dim_worst: dict[str, float] = {}
@@ -128,6 +135,9 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
             earned = float(c["levels"].get(level, 0.0))
             total_pts += pts
             earned_pts += earned
+            # Penalty contributions (negative `earned`) floor to 0 here, so the
+            # floored total never pays a negative source-reliability penalty.
+            earned_pts_floored += max(0.0, earned)
             dim_total[dim] = dim_total.get(dim, 0.0) + pts
             dim_earned[dim] = dim_earned.get(dim, 0.0) + earned
             # Most-negative level (C for a penalty criterion, 0 normally): the
@@ -143,6 +153,10 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
         # Sum-and-clamp: a penalty criterion (A=0) drags a perfect-but-unsourced
         # run below 100; an all-A run sums to 100 exactly.
         overall = max(0.0, min(100.0, earned_pts))
+        # Apples-to-apples-vs-published companion: the same clamp over the
+        # per-criterion-floored sum, so the negative source penalty never
+        # subtracts — matching what the published scorer's regex actually paid.
+        overall_no_penalty = max(0.0, min(100.0, earned_pts_floored))
         # Per-dimension SATISFACTION rate, normalized between the dimension's worst
         # and best achievable: (earned - worst)/(best - worst). For a normal
         # dimension (best=A-weights, worst=0) this is the historic earned/best%;
@@ -162,8 +176,13 @@ def parse_verdict(rubric: dict, judge_text: str) -> dict:
         overall = 100.0 * earned_pts / total_pts if total_pts else 0.0
         dims = {d: (100.0 * dim_earned[d] / dim_total[d] if dim_total[d] else 0.0)
                 for d in dim_total}
+        # No negatives in fraction mode, so the penalty-stripped score is the
+        # identity of the headline.
+        overall_no_penalty = overall
     rationales = _parse_judge_rationales(judge_text)
-    return {"overall": round(overall, 4), "dimensions": dims, "levels": levels,
+    return {"overall": round(overall, 4),
+            "overall_no_source_penalty": round(overall_no_penalty, 4),
+            "dimensions": dims, "levels": levels,
             "rationales": rationales}
 
 

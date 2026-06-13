@@ -51,6 +51,68 @@ def _by_arm(card: Scorecard) -> dict[str, list[float]]:
     return out
 
 
+def _by_arm_no_penalty(card: Scorecard) -> dict[str, list[float]]:
+    """Per-arm SOURCE-PENALTY-STRIPPED overall scores (the same headline WITHOUT
+    the negative source-reliability penalty, reproducing the published reference
+    scorer). Mirrors :func:`_by_arm` exactly — same partial-judging exclusion —
+    reading ``Score.extra['overall_no_source_penalty']`` and falling back to the
+    penalized ``Score.overall`` when the key is absent (older cards, or the
+    non-absolute fraction mode where there is no penalty)."""
+    out: dict[str, list[float]] = {}
+    for r in card.rows:
+        if _is_partial_judging(r):
+            continue
+        v = (r.extra or {}).get("overall_no_source_penalty")
+        if not isinstance(v, (int, float)):
+            v = r.overall
+        out.setdefault(r.arm, []).append(float(v))
+    return out
+
+
+def _render_penalty_stripped(card: Scorecard) -> list[str]:
+    """Apples-to-apples-vs-published companion of the headline arm-means table.
+
+    The headline ``overall`` pays the paper-documented source-reliability penalty
+    (A=0/B=-5/C=-10). The published BiomniBench 73.34 baseline never paid it: the
+    dataset's shipped reference scorer's ``Levels:`` regex cannot read negative
+    level values and silently zeroes them. This section reports each arm's score
+    BOTH WAYS — the unchanged penalized headline AND the penalty-stripped score
+    that matches the published scorer — so a reader comparing against 73.34 is
+    comparing like with like. The headline above is UNCHANGED; this is additive."""
+    pen = _by_arm(card)
+    nopen = _by_arm_no_penalty(card)
+    arms = sorted(set(pen) | set(nopen))
+    if not arms:
+        return []
+    lines = ["", "## Source-penalty-stripped score (apples-to-apples vs published 73.34)", ""]
+    lines.append(
+        "The headline `overall` above is UNCHANGED and applies the paper-documented "
+        "source-reliability penalty (A=0/B=-5/C=-10) as written. The published "
+        "BiomniBench 73.34 baseline never paid that penalty — the dataset's shipped "
+        "reference scorer's `Levels:` regex can't read negative level values and "
+        "silently zeroes them. The **penalty-stripped** column below strips the "
+        "negative source penalty (per-criterion floored at 0) to match the published "
+        "scorer, so the comparison vs 73.34 is apples-to-apples. **73.34 is a loose "
+        "reference (50 public tasks + Sonnet-4.6 here vs 100 tasks + Opus-4.7 in the "
+        "paper), not a head-to-head target.**"
+    )
+    lines.append("")
+    lines.append("| arm | n | headline (penalized) | penalty-stripped | penalty paid |")
+    lines.append("| --- | --- | --- | --- | --- |")
+    for arm in arms:
+        p = pen.get(arm, [])
+        np_ = nopen.get(arm, [])
+        p_mean = mean(p) if p else 0.0
+        np_mean = mean(np_) if np_ else 0.0
+        # penalty paid = stripped_mean − penalized_mean (>=0; the points the
+        # penalty subtracted from the headline).
+        paid = max(0.0, np_mean - p_mean)
+        n = max(len(p), len(np_))
+        lines.append(
+            f"| {arm} | {n} | {p_mean:.1f} | {np_mean:.1f} | {paid:.1f} |")
+    return lines
+
+
 def _partial_judging_count(card: Scorecard) -> int:
     return sum(1 for r in card.rows if _is_partial_judging(r))
 
@@ -1059,7 +1121,9 @@ def _markdown(card: Scorecard) -> str:
                   # WS-3: rendered as the Claim groundedness table, not a bullet.
                   "claim_groundedness",
                   # H2: rendered as the Relaunch budget table, not a bullet.
-                  "relaunch"}
+                  "relaunch",
+                  # rendered as the Source-penalty-stripped table, not a bullet.
+                  "source_penalty_stripped"}
     if card.meta:
         for k, v in card.meta.items():
             if k not in _RICH_KEYS:
@@ -1084,6 +1148,12 @@ def _markdown(card: Scorecard) -> str:
     if "ecaa" in arms and "claude-direct" in arms:
         delta = mean(arms["ecaa"]) - mean(arms["claude-direct"])
         lines.append(f"**ecaa - claude-direct raw-mean delta:** {delta:+.1f}")
+
+    # Source-penalty-stripped companion: each arm's score WITH (headline,
+    # unchanged) and WITHOUT the negative source-reliability penalty, so the
+    # comparison vs the published 73.34 is apples-to-apples. Rendered right after
+    # the headline table; never alters the headline.
+    lines += _render_penalty_stripped(card)
 
     # Two-judge view: Gemini headline AND Anthropic cross-check as first-class
     # per-arm means + per-judge paired deltas. The headline table above is
@@ -1180,6 +1250,28 @@ def write_scorecard(card: Scorecard, out_dir: Path, *, plugin=None, package_dir=
     relaunch = _aggregate_relaunch(card)
     if relaunch and "relaunch" not in meta:
         meta["relaunch"] = relaunch
+    # Source-penalty-stripped per-arm rollup in the machine scorecard: each arm's
+    # penalized headline mean alongside the penalty-stripped mean + penalty paid,
+    # so a JSON reader gets the apples-to-apples-vs-published figure too. The
+    # headline `overall` is untouched. A pre-set meta value wins.
+    if "source_penalty_stripped" not in meta:
+        pen = _by_arm(card)
+        nopen = _by_arm_no_penalty(card)
+        sps_arms = sorted(set(pen) | set(nopen))
+        if sps_arms:
+            sps: dict[str, dict] = {}
+            for arm in sps_arms:
+                p = pen.get(arm, [])
+                np_ = nopen.get(arm, [])
+                p_mean = mean(p) if p else 0.0
+                np_mean = mean(np_) if np_ else 0.0
+                sps[arm] = {
+                    "penalized_mean": p_mean,
+                    "no_penalty_mean": np_mean,
+                    "penalty_paid": max(0.0, np_mean - p_mean),
+                    "n": max(len(p), len(np_)),
+                }
+            meta["source_penalty_stripped"] = sps
     # Two-judge per-arm means (Gemini headline + Anthropic cross) in the machine
     # scorecard so a JSON reader gets both judges, not just the headline.
     if "per_judge_means" not in meta:

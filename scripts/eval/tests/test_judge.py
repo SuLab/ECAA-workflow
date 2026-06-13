@@ -283,3 +283,54 @@ def test_prompt_level_suffix_tracks_scoring_mode():
     assert "(0.5 points)" not in fp
     assert "(1 points)" not in fp
     assert " points)" not in fp   # the level-suffix points form is absent entirely
+
+
+# ---------------------------------------------------------------------------
+# Source-penalty-stripped companion: each verdict reports overall BOTH WAYS —
+# WITH the negative source-reliability penalty (headline, unchanged) AND WITHOUT
+# it (reproducing the published reference scorer, whose `Levels:` regex zeroes
+# negatives). The stripped score must always be >= the penalized headline.
+# ---------------------------------------------------------------------------
+
+def test_no_source_penalty_at_least_penalized():
+    """The penalty-stripped score is >= the penalized headline for any sourcing
+    level (the floor can only ADD back the subtracted penalty)."""
+    for src in ("A", "B", "C"):
+        out = parse_verdict(
+            ABS_RUBRIC, f"criterion_1: A\ncriterion_2: A\ncriterion_3: {src}")
+        assert out["overall_no_source_penalty"] >= out["overall"]
+
+
+def test_no_source_penalty_equal_when_source_a():
+    """source=A pays no penalty, so the two scores coincide (penalty paid 0)."""
+    out = parse_verdict(
+        ABS_RUBRIC, "criterion_1: A\ncriterion_2: A\ncriterion_3: A")
+    assert out["overall"] == 100.0
+    assert out["overall_no_source_penalty"] == 100.0
+
+
+def test_no_source_penalty_strips_b_level_penalty():
+    """A B-level source criterion subtracts 5 from the headline; the stripped
+    score floors that contribution to 0, so it reads 5 points higher."""
+    out = parse_verdict(
+        ABS_RUBRIC, "criterion_1: A\ncriterion_2: A\ncriterion_3: B")
+    # headline: 30 + 70 + (-5) = 95; stripped: 30 + 70 + 0 = 100.
+    assert out["overall"] == 95.0
+    assert out["overall_no_source_penalty"] == 100.0
+
+
+def test_no_source_penalty_strips_c_level_penalty():
+    """A C-level source criterion subtracts 10; the stripped score floors it."""
+    out = parse_verdict(
+        ABS_RUBRIC, "criterion_1: A\ncriterion_2: A\ncriterion_3: C")
+    assert out["overall"] == 90.0
+    assert out["overall_no_source_penalty"] == 100.0
+
+
+def test_no_source_penalty_identity_in_fraction_mode():
+    """Fraction-mode rubrics carry no negatives, so the penalty-stripped score is
+    identical to the headline for every sourcing level."""
+    out = parse_verdict(RUBRIC, "c1: B\nc2: A\nc3: C")
+    assert out["overall_no_source_penalty"] == out["overall"]
+    out_full = parse_verdict(RUBRIC, "c1: A\nc2: A\nc3: A")
+    assert out_full["overall_no_source_penalty"] == out_full["overall"] == 100.0
