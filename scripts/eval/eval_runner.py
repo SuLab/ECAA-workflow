@@ -206,16 +206,78 @@ def _reset_workflow_task_states(pkg: Path) -> None:
     tmp.replace(wf)
 
 
-def _isolated_pkg_copy(src_pkg: Path, dest: Path) -> Path:
+def _downstream_closure(tasks: dict, anchor: str) -> set:
+    """Task ids transitively downstream of `anchor` (inclusive), via depends_on
+    over the object-keyed task map. The fault-recovery measurement only needs the
+    fault-targeted recipe stage (where the faulted tool runs) plus everything that
+    CONSUMES it (so the fault propagates to the scored artifact); everything
+    UPSTREAM is identical to the base run and can be reused. Returns {} when the
+    anchor is absent or the shape isn't object-keyed (caller falls back to a full
+    reset)."""
+    if not isinstance(tasks, dict) or anchor not in tasks:
+        return set()
+    deps_by_id = {tid: list((t or {}).get("depends_on", []) or []) for tid, t in tasks.items()}
+    closure = {anchor}
+    changed = True
+    while changed:
+        changed = False
+        for tid, deps in deps_by_id.items():
+            if tid not in closure and any(d in closure for d in deps):
+                closure.add(tid)
+                changed = True
+    return closure
+
+
+def _scoped_reset_from_anchor(pkg: Path, anchor: str) -> int:
+    """Reset ONLY `anchor` + its transitive downstream to pending (and clear THEIR
+    runtime outputs), KEEPING upstream tasks terminal with their outputs staged.
+    This lets an error cell re-run just the fault-targeted recipe stage(s) instead
+    of the whole DAG — reusing the base run's upstream outputs (discovery decisions,
+    data acquisition, and, for a downstream anchor, the alignment BAM) — so an ECAA
+    cell is ~as cheap as a single stage rather than ~60x the bare cell. Returns the
+    number of tasks reset; 0 (with no mutation) if the anchor is absent, so the
+    caller falls back to a full reset (correct, just slower)."""
+    wf = pkg / "WORKFLOW.json"
+    try:
+        data = json.loads(wf.read_text())
+    except (OSError, ValueError):
+        return 0
+    tasks = data.get("tasks")
+    reset = _downstream_closure(tasks if isinstance(tasks, dict) else {}, anchor)
+    if not reset:
+        return 0
+    pending = {"status": "pending"}
+    for tid in reset:
+        if isinstance(tasks.get(tid), dict):
+            tasks[tid]["state"] = pending
+    tmp = wf.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    tmp.replace(wf)
+    # Clear ONLY the reset tasks' stale outputs (the base run's VCFs/result.json for
+    # those stages); upstream outputs stay so the harness skips them as Completed.
+    for tid in reset:
+        shutil.rmtree(pkg / "runtime" / "outputs" / tid, ignore_errors=True)
+    return len(reset)
+
+
+def _isolated_pkg_copy(src_pkg: Path, dest: Path, reset_anchor: str | None = None) -> Path:
     """Copy an emitted package tree to a fresh dir so each error-matrix cell runs
-    on a clean, genuinely re-runnable package. Beyond the raw copy we (a) reset
-    every WORKFLOW.json task to pending and (b) delete runtime/outputs/* (the base
-    run's per-task VCFs / result.json), while PRESERVING inputs/ and any staged
-    reference — otherwise the harness sees a completed DAG, never re-runs, and the
-    fault-injection cell is scored against the base run's untouched outputs."""
+    on a genuinely re-runnable package.
+
+    SCOPED (reset_anchor set, e.g. the recipe stage the faulted tool runs in): reset
+    only that stage + its transitive downstream to pending and clear only THEIR
+    outputs, reusing the base run's upstream outputs — the cell re-runs ~1-2 stages
+    under fault instead of all 28 (the efficiency fix). Falls back to a FULL reset
+    when the anchor is absent from the DAG.
+
+    FULL (reset_anchor None, the legacy/bare path): reset every task to pending and
+    delete runtime/outputs/* so the harness re-runs the whole DAG. PRESERVES inputs/
+    + any staged reference either way."""
     if dest.exists():
         shutil.rmtree(dest)
     shutil.copytree(src_pkg, dest)
+    if reset_anchor and _scoped_reset_from_anchor(dest, reset_anchor) > 0:
+        return dest
     _reset_workflow_task_states(dest)
     shutil.rmtree(dest / "runtime" / "outputs", ignore_errors=True)
     return dest
@@ -555,7 +617,13 @@ def _cell_run_fn(spec, max_iter):
     recorded errored rather than silently scored against an empty/stale package."""
     def _fn(cell_workdir, env):
         if spec.kind == "ecaa_package":
-            pkg_copy = _isolated_pkg_copy(spec.package_dir, cell_workdir / "pkg")
+            # Scoped reset (efficiency fix): the plugin sets EVAL_CELL_RESET_ANCHOR
+            # to the recipe stage the faulted tool runs in, so the cell re-runs only
+            # that stage + downstream under fault and reuses the base run's upstream
+            # outputs. Absent (or anchor not in the DAG) -> full reset (legacy).
+            anchor = (env or {}).get("EVAL_CELL_RESET_ANCHOR") or None
+            pkg_copy = _isolated_pkg_copy(
+                spec.package_dir, cell_workdir / "pkg", reset_anchor=anchor)
             if _ready_or_pending_task_count(pkg_copy) < 1:
                 raise UnrunnablePackageError(
                     f"cell package copy {pkg_copy} has 0 runnable tasks after "

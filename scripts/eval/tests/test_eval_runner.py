@@ -25,6 +25,102 @@ def test_errored_cell_record_is_inconclusive_with_reason():
     assert "TimeoutError" in rec["error"] and "7200s" in rec["error"]
 
 
+# --- Scoped error-cell reset (efficiency fix): re-run only the fault-targeted
+# recipe stage + downstream, reusing the base run's upstream outputs ---
+
+def test_downstream_closure_includes_anchor_and_dependents():
+    tasks = {
+        "data_acquisition": {"depends_on": []},
+        "alignment": {"depends_on": ["data_acquisition"]},
+        "variant_calling": {"depends_on": ["alignment"]},
+        "validate_variant_calling": {"depends_on": ["variant_calling"]},
+        "variant_filtering": {"depends_on": ["variant_calling"]},
+    }
+    # lofreq anchor: only variant_calling + what consumes it.
+    assert eval_runner._downstream_closure(tasks, "variant_calling") == {
+        "variant_calling", "validate_variant_calling", "variant_filtering"}
+    # bwa anchor: alignment + everything downstream (propagates to the scored VCF).
+    assert eval_runner._downstream_closure(tasks, "alignment") == {
+        "alignment", "variant_calling", "validate_variant_calling", "variant_filtering"}
+    # upstream is NOT in the closure (reused, not re-run).
+    assert "data_acquisition" not in eval_runner._downstream_closure(tasks, "alignment")
+    # absent anchor -> empty (caller falls back to full reset).
+    assert eval_runner._downstream_closure(tasks, "absent") == set()
+
+
+def test_scoped_reset_keeps_upstream_completed_and_outputs(tmp_path):
+    wf = {"tasks": {
+        "data_acquisition": {"state": {"status": "completed"}, "depends_on": []},
+        "alignment": {"state": {"status": "completed"}, "depends_on": ["data_acquisition"]},
+        "variant_calling": {"state": {"status": "blocked"}, "depends_on": ["alignment"]},
+        "variant_filtering": {"state": {"status": "pending"}, "depends_on": ["variant_calling"]},
+    }}
+    (tmp_path / "WORKFLOW.json").write_text(json.dumps(wf))
+    out = tmp_path / "runtime" / "outputs"
+    for tid in ("data_acquisition", "alignment", "variant_calling"):
+        (out / tid).mkdir(parents=True)
+        (out / tid / "result.json").write_text("{}")
+
+    n = eval_runner._scoped_reset_from_anchor(tmp_path, "variant_calling")
+    assert n == 2  # variant_calling + variant_filtering
+
+    data = json.loads((tmp_path / "WORKFLOW.json").read_text())["tasks"]
+    # Upstream kept terminal, outputs STAGED (reused, not re-run).
+    assert data["data_acquisition"]["state"] == {"status": "completed"}
+    assert data["alignment"]["state"] == {"status": "completed"}
+    assert (out / "alignment" / "result.json").exists()
+    assert (out / "data_acquisition" / "result.json").exists()
+    # Anchor + downstream reset to pending; their stale outputs cleared.
+    assert data["variant_calling"]["state"] == {"status": "pending"}
+    assert data["variant_filtering"]["state"] == {"status": "pending"}
+    assert not (out / "variant_calling").exists()
+
+
+def test_scoped_reset_absent_anchor_no_mutation(tmp_path):
+    wf = {"tasks": {"alignment": {"state": {"status": "completed"}, "depends_on": []}}}
+    (tmp_path / "WORKFLOW.json").write_text(json.dumps(wf))
+    assert eval_runner._scoped_reset_from_anchor(tmp_path, "nope") == 0
+    data = json.loads((tmp_path / "WORKFLOW.json").read_text())["tasks"]
+    assert data["alignment"]["state"] == {"status": "completed"}  # untouched
+
+
+def test_isolated_pkg_copy_scoped_vs_full(tmp_path):
+    src = tmp_path / "src"
+    src.mkdir()
+    wf = {"tasks": {
+        "alignment": {"state": {"status": "completed"}, "depends_on": []},
+        "variant_calling": {"state": {"status": "completed"}, "depends_on": ["alignment"]},
+    }}
+    (src / "WORKFLOW.json").write_text(json.dumps(wf))
+    (src / "runtime" / "outputs" / "alignment").mkdir(parents=True)
+    (src / "runtime" / "outputs" / "alignment" / "bam.txt").write_text("BAM")
+
+    # Scoped: alignment kept completed + its BAM staged; only variant_calling reset.
+    d1 = eval_runner._isolated_pkg_copy(src, tmp_path / "scoped", reset_anchor="variant_calling")
+    s = json.loads((d1 / "WORKFLOW.json").read_text())["tasks"]
+    assert s["alignment"]["state"] == {"status": "completed"}
+    assert (d1 / "runtime" / "outputs" / "alignment" / "bam.txt").exists()
+    assert s["variant_calling"]["state"] == {"status": "pending"}
+
+    # Full (no anchor): everything reset to pending, all outputs deleted.
+    d2 = eval_runner._isolated_pkg_copy(src, tmp_path / "full", reset_anchor=None)
+    f = json.loads((d2 / "WORKFLOW.json").read_text())["tasks"]
+    assert f["alignment"]["state"] == {"status": "pending"}
+    assert not (d2 / "runtime" / "outputs").exists()
+
+    # Anchor absent from the DAG -> falls back to full reset.
+    d3 = eval_runner._isolated_pkg_copy(src, tmp_path / "fallback", reset_anchor="nonexistent")
+    f3 = json.loads((d3 / "WORKFLOW.json").read_text())["tasks"]
+    assert f3["alignment"]["state"] == {"status": "pending"}
+    assert not (d3 / "runtime" / "outputs").exists()
+
+
+def test_nekrutenko_recipe_stage_for_tool_map():
+    from scripts.eval.plugins.nekrutenko import _RECIPE_STAGE_FOR_TOOL
+    assert _RECIPE_STAGE_FOR_TOOL["bwa"] == "alignment"
+    assert _RECIPE_STAGE_FOR_TOOL["lofreq"] == "variant_calling"
+
+
 def test_errored_cell_record_tags_error_kind():
     """error_kind classifies an environmental/harness failure (`infra`, correctly
     excluded from arm comparison) distinctly from a potential arm-limitation

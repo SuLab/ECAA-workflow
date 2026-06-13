@@ -78,6 +78,19 @@ _SEEDS = tuple(
 # against these stems, so a stray extra VCF cannot inflate the count.
 _SAMPLE_NAMES = ("M117-bl", "M117-ch", "M117C1-bl", "M117C1-ch")
 
+# Recipe stage each faulted tool runs in, on the variant_calling_germline archetype
+# the ECAA arm compiles. EFFICIENCY: an error cell re-runs ONLY this stage + its
+# transitive downstream under fault (reusing the base run's upstream outputs —
+# discovery decisions, data acquisition, and, for the lofreq anchor, the alignment
+# BAM), instead of re-running all ~28 tasks (~60x cheaper per cell). bwa runs in
+# `alignment` (and the fault propagates downstream to the scored VCFs via
+# variant_calling); lofreq runs in `variant_calling` directly. A tool absent here
+# falls back to a full-DAG reset (correct, just slower). The anchor is honored by
+# eval_runner._cell_run_fn via the EVAL_CELL_RESET_ANCHOR env var; if the anchor id
+# isn't in the emitted DAG (e.g. the agent chose a non-recipe tool, which the shim
+# bypass-detection already flags inconclusive) the reset falls back to full.
+_RECIPE_STAGE_FOR_TOOL = {"bwa": "alignment", "lofreq": "variant_calling"}
+
 
 def _target_n(pattern: str, n_samples: int = len(_SAMPLE_NAMES)) -> int:
     """Best-achievable valid-sample count for a fault pattern — a faithful port
@@ -489,6 +502,13 @@ class Nekrutenko(Benchmark):
             env["EVAL_INJECT_TARGET"] = tool
             env["EVAL_INJECT_STATE"] = str(state_dir)
             env["ECAA_EVAL_SHIM_DIR"] = shim_dir
+            # Efficiency: scope an ECAA cell's re-run to the recipe stage the faulted
+            # tool runs in (+ downstream), reusing the base run's upstream outputs.
+            # The bare arm has no DAG, ignores this env. Absent mapping / absent
+            # stage -> eval_runner falls back to a full reset.
+            anchor = _RECIPE_STAGE_FOR_TOOL.get(tool)
+            if anchor:
+                env["EVAL_CELL_RESET_ANCHOR"] = anchor
 
             result = run_fn(cell_dir, env)
 
