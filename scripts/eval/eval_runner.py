@@ -577,6 +577,24 @@ def _cell_key(task_id, arm, trial, pattern, tool, seed):
     return f"{task_id}:{arm}:{trial}:cell:{pattern}:{tool}:{seed}"
 
 
+def _errored_cell_record(cell_spec, exc: BaseException) -> dict:
+    """Build an INCONCLUSIVE error-matrix cell for a cell that RAISED during its
+    run or classification, so the failure is RECORDED with its reason instead of
+    being silently dropped (run_phase returns the exception object, and the cell
+    loop previously `continue`d past it — so a whole arm's cells could vanish with
+    no journal and no log, which is exactly how the ECAA Nekrutenko cells were
+    lost). Atom-agnostic: ANY arm/package whose cell raises for ANY reason
+    (subprocess timeout, blocked/partial DAG, disk-full scratch, classifier edge)
+    is captured here. `inconclusive: True` + `shim_invoked: False` keep it OUT of
+    the recover/diagnose rates (report() excludes inconclusive cells) while
+    counting it under n_inconclusive and surfacing `error` so the operator sees
+    WHY — never a silent empty matrix again."""
+    pattern, tool, seed = cell_spec
+    return {"pattern": pattern, "tool": tool, "seed": seed,
+            "inconclusive": True, "shim_invoked": False,
+            "error": f"{type(exc).__name__}: {exc}"[:500]}
+
+
 def _score_to_dict(s: Score) -> dict:
     return {"task_id": s.task_id, "arm": s.arm, "trial": s.trial,
             "overall": s.overall, "dimensions": s.dimensions, "jaccard": s.jaccard,
@@ -894,8 +912,20 @@ def main(argv: list[str]) -> int:
 
             def _run_cell_item(item):
                 task, arm, trial, cs, spec = item
-                cell = plugin.run_error_cell(task, cs, _cell_run_fn(spec, args.max_iterations))
                 bk = _base_key(task.task_id, arm.value, trial)
+                try:
+                    cell = plugin.run_error_cell(
+                        task, cs, _cell_run_fn(spec, args.max_iterations))
+                except Exception as e:  # noqa: BLE001 — never let a cell vanish silently
+                    # A cell that raises (timeout, blocked/partial package, disk,
+                    # classifier edge) is RECORDED as inconclusive-with-reason
+                    # rather than dropped, so the matrix can never be silently
+                    # incomplete for any arm/atom. report() excludes it from rates
+                    # + counts it under n_inconclusive.
+                    cell = _errored_cell_record(cs, e)
+                    print(f"[error-matrix] cell {bk}:{cs[0]}:{cs[1]}:{cs[2]} ERRORED "
+                          f"-> recorded inconclusive: {type(e).__name__}: {e}",
+                          file=sys.stderr)
                 return {"kind": "cell",
                         "key": _cell_key(task.task_id, arm.value, trial, *cs),
                         "parent_key": bk, "cell": cell}

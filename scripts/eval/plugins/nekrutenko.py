@@ -361,6 +361,12 @@ class Nekrutenko(Benchmark):
                 "diagnose_rate": mean(c["diagnose"] for c in scored) if scored else 0.0,
                 "n_cells": len(scored),
                 "n_inconclusive": len(cells) - len(scored),
+                # Surface WHY cells were inconclusive (deduped error reasons) so a
+                # silently-empty arm (e.g. all ECAA cells erroring on a blocked
+                # DAG) is diagnosable from the scorecard instead of invisible.
+                "inconclusive_reasons": sorted(
+                    {c["error"] for c in cells
+                     if c.get("inconclusive") and c.get("error")}),
                 "handle_counts": handle_counts,
                 "by_pattern": {
                     pat: {"recover_rate": mean(v["recover"]),

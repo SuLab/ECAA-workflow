@@ -28,3 +28,23 @@ def test_error_matrix_rollup_and_render(tmp_path):
     assert em["ecaa"]["recover_rate"] == 1.0 and em["claude-direct"]["recover_rate"] == 0.0
     md = (write_scorecard(card, tmp_path) / "scorecard.md").read_text()
     assert "Error matrix" in md and "flake_first_call" in md
+
+
+def test_errored_cells_recorded_inconclusive_not_dropped():
+    """An arm whose cells ERRORED (e.g. the ECAA DAG blocked under fault
+    injection) is recorded as inconclusive-with-reason: counted under
+    n_inconclusive, the reason surfaced in inconclusive_reasons, and EXCLUDED
+    from the recover/diagnose rates — never a silently-empty arm."""
+    from scripts.eval.eval_runner import _errored_cell_record
+    scored = _cells(True)  # 3 genuine scored cells (recover=diagnose=True)
+    errored = [
+        _errored_cell_record(("flake_first_call", "bwa", s),
+                             RuntimeError("UnrunnablePackageError: 0 runnable tasks"))
+        for s in (42, 43, 44)
+    ]
+    rows = [Score("mtdna", "ecaa", 0, 100.0, {}, 1.0, scored + errored, "deterministic")]
+    em = Nekrutenko().report(rows).meta["error_matrix"]["ecaa"]
+    assert em["n_cells"] == 3            # only the scored cells
+    assert em["n_inconclusive"] == 3     # the errored cells are COUNTED, not dropped
+    assert any("UnrunnablePackageError" in r for r in em["inconclusive_reasons"])
+    assert em["recover_rate"] == 1.0     # rate driven by scored cells only

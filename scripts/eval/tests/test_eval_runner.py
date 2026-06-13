@@ -11,6 +11,19 @@ from scripts.eval.services.journal import Journal
 def test_registry_has_both():
     assert set(eval_runner.PLUGINS) == {"biomnibench", "nekrutenko"}
 
+
+def test_errored_cell_record_is_inconclusive_with_reason():
+    """A cell that RAISES is converted to an inconclusive-with-reason record so
+    the matrix can never silently lose a cell for any arm/atom (the defect that
+    dropped all 12 ECAA Nekrutenko cells)."""
+    rec = eval_runner._errored_cell_record(
+        ("flake_first_call", "bwa", 42),
+        TimeoutError("harness exceeded 7200s"))
+    assert rec["inconclusive"] is True
+    assert rec["shim_invoked"] is False
+    assert (rec["pattern"], rec["tool"], rec["seed"]) == ("flake_first_call", "bwa", 42)
+    assert "TimeoutError" in rec["error"] and "7200s" in rec["error"]
+
 def test_skip_without_live_flag(monkeypatch, capsys):
     monkeypatch.delenv("ECAA_EVAL_LIVE", raising=False)
     rc = eval_runner.main(["biomnibench", "--smoke"])
