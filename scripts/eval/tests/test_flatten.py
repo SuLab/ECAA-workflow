@@ -63,6 +63,41 @@ def test_flatten_does_not_crash_on_object_keyed_tasks(tmp_path):
     assert answer
 
 
+def test_flatten_falls_back_to_richest_narrative_when_terminal_empty(tmp_path):
+    """da-5-1 regression: a complete cross-omics-style DAG with NO reporting
+    terminal (ends at an analytical node + its validate_* companion) must NOT
+    yield an empty answer. The substance lives in the analytical tail's output;
+    the fallback surfaces it so a correctly-computed analysis is never scored 0
+    purely because the answer channel was empty."""
+    wf = {"tasks": {
+        "data_acquisition": _task([]),
+        "druggable_target_prioritization": _task(["data_acquisition"]),
+        "validate_druggable_target_prioritization": _task(
+            ["druggable_target_prioritization"]),
+    }}
+    (tmp_path / "WORKFLOW.json").write_text(json.dumps(wf))
+    out = tmp_path / "runtime" / "outputs"
+    (out / "data_acquisition").mkdir(parents=True)
+    (out / "data_acquisition" / "report.md").write_text("# data_acquisition\nloaded CPTAC\n")
+    (out / "druggable_target_prioritization").mkdir(parents=True)
+    (out / "druggable_target_prioritization" / "result.json").write_text(
+        json.dumps({"narrative": "353 dual-evidence targets; 13 Tier-1 including KRAS"}))
+    (out / "validate_druggable_target_prioritization").mkdir(parents=True)  # empty
+
+    _, answer = flatten_outputs(out, tmp_path / "WORKFLOW.json")
+    assert answer.strip(), "a complete trace must never yield an empty answer"
+    assert "353 dual-evidence targets" in answer
+    assert "KRAS" in answer
+
+
+def test_flatten_fallback_does_not_fire_when_terminal_has_content(tmp_path):
+    """Regression guard: the empty-answer fallback must NOT override a terminal
+    that produced a real narrative (the normal path)."""
+    pkg = _pkg(tmp_path)
+    _, answer = flatten_outputs(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")
+    assert "Treatment reduces recovery time." in answer  # the final_reporting terminal
+
+
 def test_flatten_orders_and_picks_terminal(tmp_path):
     pkg = _pkg(tmp_path)
     trace, answer = flatten_outputs(pkg / "runtime" / "outputs", pkg / "WORKFLOW.json")

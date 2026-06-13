@@ -239,6 +239,24 @@ def flatten_outputs(outputs_dir: Path, workflow_json: Path) -> tuple[str, str]:
                 outputs_dir / terminal_id)).strip()
         else:
             answer = answer.strip()
+    # Fallback: a complete trace must NEVER yield an empty answer channel. When
+    # the resolved terminal produced no narrative (e.g. a goal-driven DAG with no
+    # reporting terminal, so the terminal resolves to a leaf/validate_* with an
+    # empty output dir), fall back to the richest non-empty narrative among the
+    # SUBSTANTIVE tasks (skip validate_*/discover_*). A complete-but-empty-terminal
+    # analysis (e.g. cross-omics ending at druggable_target_prioritization) would
+    # otherwise score 0 purely because the answer channel was empty. Length tie ->
+    # the later (downstream) task wins, so the analytical tail beats early QC. Raw
+    # narrative only (no augment claims-block) to preserve H1 arm fairness.
+    if not answer:
+        best = ""
+        for tid in order:
+            if tid.startswith("validate_") or tid.startswith("discover_"):
+                continue
+            narr = _narrative(outputs_dir / tid).strip()
+            if narr and len(narr) >= len(best):
+                best = narr
+        answer = best
     return trace, answer
 
 

@@ -274,6 +274,34 @@ fn repair_orphan_analytical_strands(tasks: &mut BTreeMap<TaskId, Task>) {
     // intermediate report) over `final_reporting` (which then
     // aggregates `reporting`). Falls back to `generic_summary` for the
     // time_series_forecast / generic_omics archetypes.
+    let is_qa = |id: &str| -> bool {
+        id.starts_with("validate_") || id.starts_with("discover_") || id.starts_with("adapter_")
+    };
+    let is_reporting = |id: &str| -> bool {
+        id == "reporting"
+            || id == "final_reporting"
+            || id == "generic_summary"
+            || id.ends_with("_reporting")
+            || id.ends_with("_thematic_comparison")
+            || id.ends_with("_final_reporting")
+    };
+
+    // Pick the canonical reporting target. Prefer `reporting` (the
+    // intermediate report) over `final_reporting` (which then
+    // aggregates `reporting`). Falls back to `generic_summary` for the
+    // time_series_forecast / generic_omics archetypes. When NONE exists
+    // — a goal-driven / proposal-extended path (e.g. cross-omics) that
+    // never synthesized a terminal — SYNTHESIZE a bare `final_reporting`
+    // terminal so the analytical tail is never stranded. Without this the
+    // emitted package's answer channel comes back EMPTY downstream even
+    // though the analysis is complete (the eval `flatten` resolves the
+    // terminal to a leaf/validate_* with no narrative -> a correctly
+    // computed analysis scored 0). Additive-only (always-emit safe: never
+    // refuses, never removes), byte-stable (fixed id `final_reporting`, no
+    // clock/uuid/random), and `container: None` so it runs in the default
+    // image (the digest-pin invariant skips None-container tasks). Only
+    // synthesized when there is substantive (non-QA, non-reporting) work to
+    // report on; a truly degenerate DAG is left untouched.
     let reporting_target: TaskId = if tasks.contains_key(&TaskId::from("reporting")) {
         TaskId::from("reporting")
     } else if tasks.contains_key(&TaskId::from("generic_summary")) {
@@ -281,7 +309,34 @@ fn repair_orphan_analytical_strands(tasks: &mut BTreeMap<TaskId, Task>) {
     } else if tasks.contains_key(&TaskId::from("final_reporting")) {
         TaskId::from("final_reporting")
     } else {
-        return;
+        let has_substantive = tasks.keys().any(|id| {
+            let s = id.as_str();
+            !is_qa(s) && !is_reporting(s)
+        });
+        if !has_substantive {
+            return;
+        }
+        let synth = Task {
+            kind: TaskKind::Computation,
+            state: TaskState::Pending,
+            depends_on: Vec::new(), // analytical leaves wired in by the loop below
+            assignee: Assignee::Agent,
+            description: "Synthesized SME-facing final report: aggregate the \
+                completed analytical outputs into a narrative answer (no reporting \
+                atom was present in the composed DAG)."
+                .to_string(),
+            spec: None,
+            resolution: None,
+            result_ref: None,
+            resource_class: ResourceClass::default(),
+            requires_sme_review: false,
+            required_artifacts: Vec::new(),
+            container: None,
+            source_atom_id: Some("final_reporting".to_string()),
+            safety: crate::atom::SafetyPolicy::default(),
+        };
+        tasks.insert(TaskId::from("final_reporting"), synth);
+        TaskId::from("final_reporting")
     };
 
     // Build reverse adjacency: for each task, the set of tasks that
@@ -295,18 +350,6 @@ fn repair_orphan_analytical_strands(tasks: &mut BTreeMap<TaskId, Task>) {
 
     let task_ids: Vec<TaskId> = tasks.keys().cloned().collect();
     let mut to_add_to_reporting: Vec<TaskId> = Vec::new();
-
-    let is_qa = |id: &str| -> bool {
-        id.starts_with("validate_") || id.starts_with("discover_") || id.starts_with("adapter_")
-    };
-    let is_reporting = |id: &str| -> bool {
-        id == "reporting"
-            || id == "final_reporting"
-            || id == "generic_summary"
-            || id.ends_with("_reporting")
-            || id.ends_with("_thematic_comparison")
-            || id.ends_with("_final_reporting")
-    };
 
     for tid in &task_ids {
         let tid_str = tid.as_str();
@@ -951,35 +994,65 @@ mod tests {
         n
     }
 
+    fn reporting_node() -> TaskNode {
+        let mut n = TaskNode::skeleton("reporting", "Assemble report");
+        n.attributes
+            .insert("role".into(), serde_json::Value::String("operation".into()));
+        n.attributes
+            .insert("assignee".into(), serde_json::Value::String("agent".into()));
+        n
+    }
+
+    // A complete DAG: align -> quantify -> reporting. Carries a reporting
+    // terminal so the orphan-strand repair's terminal SYNTHESIS path does not
+    // fire here (that path is covered by the dedicated
+    // `synthesizes_final_reporting_terminal_when_none_exists` test); these
+    // fixtures exercise node-lowering / round-trip mechanics on real nodes.
     fn simple_dag() -> WorkflowDag {
         WorkflowDag {
             id: "test_dag".into(),
-            nodes: vec![align_node(), quantify_node()],
-            edges: vec![EdgeContract {
-                from_node: "align_reads".into(),
-                from_port: "bam".into(),
-                to_node: "quantify_features".into(),
-                to_port: "bam".into(),
-                proof: CompatibilityProof {
-                    producer_type: "data:0863".into(),
-                    consumer_type: "data:0863".into(),
-                    ..Default::default()
+            nodes: vec![align_node(), quantify_node(), reporting_node()],
+            edges: vec![
+                EdgeContract {
+                    from_node: "align_reads".into(),
+                    from_port: "bam".into(),
+                    to_node: "quantify_features".into(),
+                    to_port: "bam".into(),
+                    proof: CompatibilityProof {
+                        producer_type: "data:0863".into(),
+                        consumer_type: "data:0863".into(),
+                        ..Default::default()
+                    },
+                    kind: EdgeKind::TypedDataFlow,
+                    chain_of_custody: None,
                 },
-                kind: EdgeKind::TypedDataFlow,
-                chain_of_custody: None,
-            }],
+                EdgeContract {
+                    from_node: "quantify_features".into(),
+                    from_port: "counts".into(),
+                    to_node: "reporting".into(),
+                    to_port: "counts".into(),
+                    proof: CompatibilityProof {
+                        producer_type: "data:0863".into(),
+                        consumer_type: "data:0863".into(),
+                        ..Default::default()
+                    },
+                    kind: EdgeKind::TypedDataFlow,
+                    chain_of_custody: None,
+                },
+            ],
             assumptions: AssumptionLedger::default(),
             source_template: None,
         }
     }
 
     #[test]
-    fn lowering_produces_two_tasks() {
+    fn lowering_produces_expected_tasks() {
         let dag = simple_dag();
         let result = lower_to_workflow_json(&dag, &EmitContext::defaults()).unwrap();
-        assert_eq!(result.dag.tasks.len(), 2);
+        assert_eq!(result.dag.tasks.len(), 3);
         assert!(result.dag.tasks.contains_key("align_reads"));
         assert!(result.dag.tasks.contains_key("quantify_features"));
+        assert!(result.dag.tasks.contains_key("reporting"));
     }
 
     #[test]
@@ -1023,6 +1096,118 @@ mod tests {
         assert_eq!(q.depends_on, vec![TaskId::from("align_reads")]);
         let a = result.dag.tasks.get("align_reads").unwrap();
         assert!(a.depends_on.is_empty());
+    }
+
+    fn bare_task(deps: &[&str]) -> Task {
+        Task {
+            kind: TaskKind::Computation,
+            state: TaskState::Pending,
+            depends_on: deps.iter().map(|d| TaskId::from(*d)).collect(),
+            assignee: Assignee::Agent,
+            description: String::new(),
+            spec: None,
+            resolution: None,
+            result_ref: None,
+            resource_class: ResourceClass::default(),
+            requires_sme_review: false,
+            required_artifacts: Vec::new(),
+            container: None,
+            source_atom_id: None,
+            safety: crate::atom::SafetyPolicy::default(),
+        }
+    }
+
+    #[test]
+    fn synthesizes_final_reporting_terminal_when_none_exists() {
+        // A goal-driven / proposal-extended tail with NO reporting terminal
+        // (the da-5-1 cross-omics shape): analytical leaf + its validate_*
+        // companion, nothing else. The repair must synthesize a final_reporting
+        // terminal that consumes the analytical leaf, so the answer channel is
+        // never empty.
+        let mut tasks: BTreeMap<TaskId, Task> = BTreeMap::new();
+        tasks.insert(TaskId::from("data_acquisition"), bare_task(&[]));
+        tasks.insert(
+            TaskId::from("druggable_target_prioritization"),
+            bare_task(&["data_acquisition"]),
+        );
+        tasks.insert(
+            TaskId::from("validate_druggable_target_prioritization"),
+            bare_task(&["druggable_target_prioritization"]),
+        );
+
+        repair_orphan_analytical_strands(&mut tasks);
+
+        let fr = tasks
+            .get(&TaskId::from("final_reporting"))
+            .expect("a final_reporting terminal must be synthesized");
+        assert!(
+            fr.depends_on
+                .contains(&TaskId::from("druggable_target_prioritization")),
+            "synthesized terminal must consume the analytical tail"
+        );
+        assert!(
+            !fr.depends_on
+                .contains(&TaskId::from("validate_druggable_target_prioritization")),
+            "QA leaves must be excluded from the terminal"
+        );
+        assert_eq!(fr.source_atom_id.as_deref(), Some("final_reporting"));
+        assert!(fr.container.is_none(), "synthesized terminal runs in the default image");
+
+        // Idempotent + deterministic: a second pass changes nothing.
+        let deps_before = fr.depends_on.clone();
+        repair_orphan_analytical_strands(&mut tasks);
+        assert_eq!(
+            tasks
+                .keys()
+                .filter(|k| k.as_str() == "final_reporting")
+                .count(),
+            1,
+            "no duplicate terminal on re-run"
+        );
+        assert_eq!(
+            tasks.get(&TaskId::from("final_reporting")).unwrap().depends_on,
+            deps_before,
+            "repair is idempotent"
+        );
+    }
+
+    #[test]
+    fn no_terminal_synthesis_for_degenerate_qa_only_dag() {
+        // No substantive (non-QA, non-reporting) task -> nothing to report on ->
+        // do NOT synthesize a terminal (preserves prior behavior for degenerate DAGs).
+        let mut tasks: BTreeMap<TaskId, Task> = BTreeMap::new();
+        tasks.insert(TaskId::from("validate_orphan"), bare_task(&[]));
+        repair_orphan_analytical_strands(&mut tasks);
+        assert!(
+            !tasks.contains_key(&TaskId::from("final_reporting")),
+            "must not synthesize a terminal when there is no substantive work"
+        );
+    }
+
+    #[test]
+    fn existing_terminal_not_duplicated_by_synthesis() {
+        // When a reporting terminal already exists, synthesis must not fire;
+        // the existing terminal is used and dangling leaves wired into it.
+        let mut tasks: BTreeMap<TaskId, Task> = BTreeMap::new();
+        tasks.insert(TaskId::from("data_acquisition"), bare_task(&[]));
+        tasks.insert(
+            TaskId::from("differential_expression"),
+            bare_task(&["data_acquisition"]),
+        );
+        tasks.insert(TaskId::from("reporting"), bare_task(&[]));
+        repair_orphan_analytical_strands(&mut tasks);
+        assert!(
+            !tasks.contains_key(&TaskId::from("final_reporting")),
+            "must not synthesize when `reporting` already exists"
+        );
+        assert!(
+            tasks
+                .get(&TaskId::from("reporting"))
+                .unwrap()
+                .depends_on
+                .contains(&TaskId::from("differential_expression")),
+            "dangling analytical leaf wired into the existing terminal"
+        );
     }
 
     #[test]
@@ -1075,7 +1260,9 @@ mod tests {
             .lines()
             .filter(|l| !l.trim().is_empty())
             .count();
-        assert_eq!(line_count, 1);
+        // simple_dag has two typed-data-flow edges (align->quantify,
+        // quantify->reporting); one proof line per edge.
+        assert_eq!(line_count, 2);
     }
 
     #[test]
@@ -1136,7 +1323,7 @@ mod tests {
         assert_eq!(emitter.name(), "workflow_json");
         let dag = simple_dag();
         let result = emitter.emit(&dag, &EmitContext::defaults()).unwrap();
-        assert_eq!(result.dag.tasks.len(), 2);
+        assert_eq!(result.dag.tasks.len(), 3);
     }
 
     #[test]
