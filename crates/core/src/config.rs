@@ -286,16 +286,21 @@ pub struct Config {
     /// `validation_recovery::recovery_enabled`; this field is the typed
     /// catalog entry (C7) so the flag is discoverable in one place.
     pub harness_validation_recovery: bool,
-    /// `ECAA_HARNESS_CONTRACT_ADVISORY`. When truthy, the harness evaluates
-    /// `required` validation-contract assertions but treats a failure as an
-    /// advisory diagnostic rather than a block: the task stays in its
-    /// completed state, the DAG proceeds, and each failure is appended to a
-    /// per-package `runtime/validation-warnings.jsonl` sidecar. Advisory
+    /// `ECAA_HARNESS_CONTRACT_ADVISORY`. When truthy, ALL domain-correctness
+    /// gates become non-blocking diagnostics rather than blocks: the task
+    /// stays in its completed state and the DAG proceeds. The flag now covers
+    /// three gates — (1) the harness `required` validation-contract
+    /// assertions, (2) the harness Phase-13 post-completion validator bundle,
+    /// and (3) the server-side `claim_coverage` recall-gap re-verify gate.
+    /// For (1) and (2) each failure is appended to a per-package
+    /// `runtime/validation-warnings.jsonl` sidecar; for (3) the recall gap is
+    /// already persisted into the signed verdict sink + audit-proof report
+    /// and the Blocked/ValidationFailed transition is suppressed. Advisory
     /// mode takes precedence over `harness_validation_recovery` — when both
     /// are set, advisory wins (no block, no re-dispatch). Default `false`
     /// preserves the production / SME human checkpoint (a failed required
-    /// assertion blocks the task for the SME). This field is the typed
-    /// catalog entry (C7) so the flag is discoverable in one place.
+    /// assertion or recall gap blocks the task for the SME). This field is
+    /// the typed catalog entry (C7) so the flag is discoverable in one place.
     pub harness_contract_advisory: bool,
 
     /// `ECAA_HARNESS_BIN_PATH`. Optional override for integration tests.
@@ -454,9 +459,10 @@ impl Config {
         // checkpoint is preserved.
         let harness_validation_recovery =
             parse_bool(env, "ECAA_HARNESS_VALIDATION_RECOVERY", false);
-        // `ECAA_HARNESS_CONTRACT_ADVISORY` — evaluate required assertions as
-        // non-blocking diagnostics. Off by default so the SME human
-        // checkpoint is preserved. Takes precedence over recovery.
+        // `ECAA_HARNESS_CONTRACT_ADVISORY` — evaluate ALL domain-correctness
+        // gates (contract assertions, Phase-13 validators, server-side
+        // claim_coverage) as non-blocking diagnostics. Off by default so the
+        // SME human checkpoint is preserved. Takes precedence over recovery.
         let harness_contract_advisory =
             parse_bool(env, "ECAA_HARNESS_CONTRACT_ADVISORY", false);
 

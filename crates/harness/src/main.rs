@@ -3650,13 +3650,43 @@ fn run_loop(
                             tid,
                             summary.human_summary(),
                         );
-                        task.state = TaskState::Blocked {
-                            record: ecaa_workflow_core::dag::BlockedRecord {
-                                reason,
-                                attempts: vec![],
-                            },
-                        };
-                        guard_flipped.push(tid.to_string());
+                        // Advisory / warn-only mode (default OFF). When
+                        // ECAA_HARNESS_CONTRACT_ADVISORY is truthy this
+                        // domain-correctness gate becomes a non-blocking
+                        // diagnostic: record one AdvisoryWarning per FAILED
+                        // validator row into
+                        // runtime/validation-warnings.jsonl and leave the
+                        // task Completed so the DAG proceeds — matching the
+                        // contract-assertion advisory path. When OFF the
+                        // strict block below is byte-identical to before.
+                        if validation_recovery::advisory_enabled() {
+                            let warnings = validation_recovery::phase13_advisory_warnings(
+                                tid.as_str(),
+                                &summary,
+                                &reason,
+                            );
+                            tracing::warn!(
+                                target: "contract-advisory",
+                                "[contract-advisory] {reason} (advisory, not blocking)"
+                            );
+                            if let Err(e) =
+                                validation_recovery::append_warnings(path, &warnings)
+                            {
+                                tracing::warn!(
+                                    target: "contract-advisory",
+                                    error = format!("{:#}", e),
+                                    "failed to persist advisory validation-warnings sidecar (Phase 13)"
+                                );
+                            }
+                        } else {
+                            task.state = TaskState::Blocked {
+                                record: ecaa_workflow_core::dag::BlockedRecord {
+                                    reason,
+                                    attempts: vec![],
+                                },
+                            };
+                            guard_flipped.push(tid.to_string());
+                        }
                     }
                 }
             }

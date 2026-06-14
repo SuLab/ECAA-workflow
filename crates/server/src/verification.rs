@@ -435,27 +435,48 @@ pub async fn reverify_and_block_on_mismatch(
             // it too: the ablated arm (B') skips the recall-gap block alongside
             // the Mismatch block.
             if let Some(cov) = coverage.as_ref() {
-                if coverage_should_block(cov) && block_enforced_under_current_env() {
+                if coverage_should_block(cov) {
                     let detail = format!(
                         "recall gap on task {}: {} required claim(s) absent, {} unverifiable",
                         task_id, cov.required_absent, cov.required_unverifiable
                     );
-                    let kind = ecaa_workflow_core::blocker::BlockerKind::ValidationFailed {
-                        check: format!("claim_coverage:{}", task_id),
-                        message: detail.clone(),
-                        cause: None,
-                    };
-                    if let Err(e) = app
-                        .conversation
-                        .block_from_harness(session_id, task_id.to_string(), detail, kind)
-                        .await
-                    {
-                        tracing::debug!(
+                    // Advisory / warn-only mode (default OFF). When
+                    // ECAA_HARNESS_CONTRACT_ADVISORY is truthy this
+                    // domain-correctness gate becomes a non-blocking
+                    // diagnostic: the recall gap is already persisted into the
+                    // signed verdict sink + audit-proof report above, so the
+                    // task is LEFT completed and the Blocked/ValidationFailed
+                    // transition is suppressed. Read via the typed Config
+                    // loaded once at startup (not a per-call std::env::var,
+                    // which races across the multi-threaded test binary).
+                    // Scoped to the coverage gate ONLY — the Mismatch block
+                    // above keeps using `block_enforced_under_current_env` so
+                    // the ECAA_ABLATE_CLAIM_CONSISTENCY contrast is unchanged.
+                    if app.config.harness_contract_advisory {
+                        tracing::warn!(
+                            target: "contract-advisory",
                             ?session_id,
                             %task_id,
-                            error = %e,
-                            "coverage block no-op (already blocked)"
+                            "[contract-advisory] {detail} (advisory, not blocking)"
                         );
+                    } else if block_enforced_under_current_env() {
+                        let kind = ecaa_workflow_core::blocker::BlockerKind::ValidationFailed {
+                            check: format!("claim_coverage:{}", task_id),
+                            message: detail.clone(),
+                            cause: None,
+                        };
+                        if let Err(e) = app
+                            .conversation
+                            .block_from_harness(session_id, task_id.to_string(), detail, kind)
+                            .await
+                        {
+                            tracing::debug!(
+                                ?session_id,
+                                %task_id,
+                                error = %e,
+                                "coverage block no-op (already blocked)"
+                            );
+                        }
                     }
                 }
             }
@@ -1534,6 +1555,161 @@ mod recall_gate_end_to_end_tests {
             "empty task with no package manifest must stay Disabled, got {}",
             out.label()
         );
+        std::env::remove_var("ECAA_CONFIG_DIR");
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn advisory_on_suppresses_recall_gap_block_but_still_persists_sink() {
+        // Broadened ECAA_HARNESS_CONTRACT_ADVISORY: when ON, the claim_coverage
+        // recall-gap gate becomes a non-blocking diagnostic. The session must
+        // stay completed (NOT Blocked), while the signed verdict sink still
+        // records the gap (durable diagnostic trail, no new sidecar needed).
+        let cfg = config_dir();
+        std::env::set_var("ECAA_CONFIG_DIR", &cfg);
+        std::env::remove_var("ECAA_ABLATE_CLAIM_CONSISTENCY");
+
+        let task_id = "differential_expression";
+        let pkg = tempfile::tempdir().unwrap();
+        scaffold_package_with_required_manifest_and_empty_result(pkg.path(), task_id);
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = ecaa_workflow_conversation::SessionStore::open(dir.path())
+            .await
+            .unwrap();
+        let backend: std::sync::Arc<dyn ecaa_workflow_conversation::LlmBackend> =
+            std::sync::Arc::new(ecaa_workflow_conversation::MockLlmBackend::new(vec![]));
+        let mut app = crate::chat_routes::ChatAppState::with_backend(backend, store, cfg.clone());
+        // Flip the typed advisory flag ON (the verify path reads
+        // app.config.harness_contract_advisory, loaded once at startup — here
+        // we substitute a test Config carrying the flag).
+        app.config = std::sync::Arc::new(
+            ecaa_workflow_core::config::Config::for_test()
+                .config_dir(cfg.clone())
+                .harness_contract_advisory(true)
+                .build(),
+        );
+
+        let session_id =
+            seed_session_with_completed_task(&app, task_id, Some(pkg.path().to_path_buf())).await;
+        app.conversation
+            .store_handle()
+            .update(session_id, |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Emitted;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let secret = app
+            .conversation
+            .get_session(session_id)
+            .await
+            .unwrap()
+            .audit_writer_secret;
+
+        let outcome = reverify_and_block_on_mismatch(&app, session_id, task_id).await;
+        assert!(
+            matches!(outcome, Some(VerifyOutcome::Verified(_))),
+            "reverify must still run the Verified arm (coverage recompute + persist)"
+        );
+
+        // The signed sink still carries the recall-gap (durable diagnostic).
+        let writer = AuditWriter::with_secret(secret);
+        let sink_path = pkg
+            .path()
+            .join("runtime/verification-reports/claim-verification.signed.json");
+        assert!(
+            sink_path.exists(),
+            "signed verdict sink must still be written under advisory mode"
+        );
+        let line = fs::read_to_string(&sink_path).unwrap();
+        let signed: serde_json::Value = serde_json::from_str(line.trim_end()).unwrap();
+        let inner = writer
+            .verify_row(&signed)
+            .expect("signed sink must verify with the session secret");
+        assert_eq!(
+            inner["coverage"]["required_absent"],
+            serde_json::json!(1),
+            "sink coverage block must still record the Required recall gap under advisory mode"
+        );
+
+        // The session must NOT be Blocked — the gate is advisory-only.
+        let after = app.conversation.get_session(session_id).await.unwrap();
+        assert!(
+            !matches!(
+                after.state,
+                ecaa_workflow_conversation::SessionState::Blocked { .. }
+            ),
+            "advisory mode must NOT transition the task to Blocked, got {:?}",
+            after.state
+        );
+
+        std::env::remove_var("ECAA_CONFIG_DIR");
+    }
+
+    #[tokio::test]
+    #[serial_test::serial]
+    async fn advisory_off_still_blocks_on_recall_gap_regression() {
+        // Regression guard: with the advisory flag OFF (the production /
+        // SME default), the claim_coverage recall gap still hard-blocks.
+        let cfg = config_dir();
+        std::env::set_var("ECAA_CONFIG_DIR", &cfg);
+        std::env::remove_var("ECAA_ABLATE_CLAIM_CONSISTENCY");
+
+        let task_id = "differential_expression";
+        let pkg = tempfile::tempdir().unwrap();
+        scaffold_package_with_required_manifest_and_empty_result(pkg.path(), task_id);
+
+        let dir = tempfile::tempdir().unwrap();
+        let store = ecaa_workflow_conversation::SessionStore::open(dir.path())
+            .await
+            .unwrap();
+        let backend: std::sync::Arc<dyn ecaa_workflow_conversation::LlmBackend> =
+            std::sync::Arc::new(ecaa_workflow_conversation::MockLlmBackend::new(vec![]));
+        // with_backend builds a test Config with harness_contract_advisory =
+        // false by default, so no override is needed for the OFF path.
+        let app = crate::chat_routes::ChatAppState::with_backend(backend, store, cfg.clone());
+        assert!(
+            !app.config.harness_contract_advisory,
+            "test Config default must keep advisory OFF for the regression arm"
+        );
+
+        let session_id =
+            seed_session_with_completed_task(&app, task_id, Some(pkg.path().to_path_buf())).await;
+        app.conversation
+            .store_handle()
+            .update(session_id, |s| {
+                s.state = ecaa_workflow_conversation::SessionState::Emitted;
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        let outcome = reverify_and_block_on_mismatch(&app, session_id, task_id).await;
+        assert!(
+            matches!(outcome, Some(VerifyOutcome::Verified(_))),
+            "reverify must run the Verified arm"
+        );
+
+        let after = app.conversation.get_session(session_id).await.unwrap();
+        match &after.state {
+            ecaa_workflow_conversation::SessionState::Blocked { blocker_kind, .. } => {
+                assert!(
+                    matches!(
+                        blocker_kind,
+                        Some(ecaa_workflow_core::blocker::BlockerKind::ValidationFailed { .. })
+                    ),
+                    "advisory OFF must still surface BlockerKind::ValidationFailed, got {:?}",
+                    blocker_kind
+                );
+            }
+            other => panic!(
+                "advisory OFF: session must be Blocked after the recall gap, got {:?}",
+                other
+            ),
+        }
+
         std::env::remove_var("ECAA_CONFIG_DIR");
     }
 }

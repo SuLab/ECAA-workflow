@@ -93,11 +93,17 @@ pub fn recovery_enabled() -> bool {
 /// Whether the advisory / warn-only contract path is enabled. Default
 /// OFF — only the canonical truthy table (matching `recovery_enabled` and
 /// `core::config`'s `parse_bool`) enables it, so a typo never silently
-/// turns a production / SME block into a non-blocking diagnostic. When ON,
-/// a failed `required` assertion is appended to the per-package
+/// turns a production / SME block into a non-blocking diagnostic.
+///
+/// When ON, ALL domain-correctness gates become non-blocking diagnostics:
+/// (1) a failed `required` validation-CONTRACT assertion and (2) a failed
+/// Phase-13 post-completion VALIDATOR are appended to the per-package
 /// `runtime/validation-warnings.jsonl` sidecar instead of re-blocking the
-/// task; advisory mode takes PRECEDENCE over [`recovery_enabled`] (no
-/// block, no re-dispatch).
+/// task; (3) the server-side `claim_coverage` recall-gap gate (read there
+/// via the typed `Config.harness_contract_advisory`, not this fn) suppresses
+/// its Blocked transition while still persisting the gap into the signed
+/// verdict sink + audit-proof report. Advisory mode takes PRECEDENCE over
+/// [`recovery_enabled`] (no block, no re-dispatch).
 pub fn advisory_enabled() -> bool {
     matches!(
         std::env::var(ENV_CONTRACT_ADVISORY)
@@ -275,6 +281,34 @@ pub fn append_warnings(package: &Path, new_warnings: &[AdvisoryWarning]) -> anyh
     ecaa_workflow_core::fs_helpers::atomic_write_bytes_sync(&path, body.as_bytes())
         .with_context(|| format!("atomic write advisory warnings at {}", path.display()))?;
     Ok(())
+}
+
+/// Build the advisory warnings for a Phase-13 post-completion validator
+/// bundle that reported failures. Returns one [`AdvisoryWarning`] per FAILED
+/// validator row (its `obligation_id` is the assertion id); errored,
+/// unimplemented, and passed rows are skipped (only a hard `Failed` outcome is
+/// a domain-correctness violation). `reason` is the SAME `[validation_failed]`
+/// task-level string the strict block path computes, recorded verbatim so the
+/// sidecar carries exactly what the SME would have seen on a block.
+///
+/// Pure + deterministic (rows are visited in summary order); the caller gates
+/// on [`advisory_enabled`] and persists the result via [`append_warnings`].
+pub fn phase13_advisory_warnings(
+    task_id: &str,
+    summary: &crate::validators::ValidationReportSummary,
+    reason: &str,
+) -> Vec<AdvisoryWarning> {
+    summary
+        .rows
+        .iter()
+        .filter(|r| matches!(r.outcome, crate::validators::ValidatorOutcome::Failed { .. }))
+        .map(|r| AdvisoryWarning {
+            task_id: task_id.to_string(),
+            assertion_id: r.obligation_id.clone(),
+            severity: "required".to_string(),
+            reason: reason.to_string(),
+        })
+        .collect()
 }
 
 /// Read a JSON value at `pointer` (RFC-6901) from `path` as `f64`.
@@ -896,5 +930,90 @@ mod tests {
         let before = std::fs::read_to_string(warnings_path(pkg)).unwrap();
         append_warnings(pkg, &[]).unwrap();
         assert_eq!(std::fs::read_to_string(warnings_path(pkg)).unwrap(), before);
+    }
+
+    /// Build a Phase-13 summary with one failed + one passed + one errored
+    /// row, so the advisory builder can prove it only records FAILED rows.
+    fn phase13_summary_mixed() -> crate::validators::ValidationReportSummary {
+        use crate::validators::{ValidatorOutcome, ValidatorRow};
+        crate::validators::ValidationReportSummary {
+            task_id: "variant_calling".into(),
+            rows: vec![
+                ValidatorRow {
+                    obligation_id: "het_tail_band_nonempty".into(),
+                    outcome: ValidatorOutcome::Failed {
+                        message: "band has 0 calls".into(),
+                    },
+                },
+                ValidatorRow {
+                    obligation_id: "p_value_in_unit_interval".into(),
+                    outcome: ValidatorOutcome::Passed,
+                },
+                ValidatorRow {
+                    obligation_id: "manifest_present".into(),
+                    outcome: ValidatorOutcome::Errored {
+                        reason: "result.json missing".into(),
+                    },
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn phase13_advisory_warnings_only_records_failed_rows() {
+        let summary = phase13_summary_mixed();
+        let reason = "[validation_failed] task=variant_calling task variant_calling: 1/3 passed, 1 failed, 1 errored, 0 unimplemented — Phase 13 validator(s) reported failures.";
+        let warnings = phase13_advisory_warnings("variant_calling", &summary, reason);
+        assert_eq!(warnings.len(), 1, "only the FAILED row becomes a warning");
+        assert_eq!(warnings[0].task_id, "variant_calling");
+        assert_eq!(warnings[0].assertion_id, "het_tail_band_nonempty");
+        assert_eq!(warnings[0].severity, "required");
+        assert_eq!(
+            warnings[0].reason, reason,
+            "the [validation_failed] task-level reason is recorded verbatim"
+        );
+    }
+
+    #[test]
+    fn phase13_advisory_path_records_to_sidecar_and_leaves_no_block() {
+        // End-to-end of the advisory side of SITE 1 at the library boundary:
+        // building the warnings from a failing summary and persisting them
+        // produces exactly the sidecar a re-block path would NOT have written
+        // (the task stays completed; no block state is involved here).
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        let summary = phase13_summary_mixed();
+        let reason = "[validation_failed] task=variant_calling band has 0 calls — Phase 13 validator(s) reported failures.";
+        let warnings = phase13_advisory_warnings("variant_calling", &summary, reason);
+        append_warnings(pkg, &warnings).unwrap();
+        let raw = std::fs::read_to_string(warnings_path(pkg)).unwrap();
+        let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines.len(), 1, "one warning line for the single failed row");
+        let parsed: AdvisoryWarning = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(parsed.assertion_id, "het_tail_band_nonempty");
+        assert_eq!(parsed.reason, reason);
+    }
+
+    #[test]
+    fn phase13_advisory_off_means_no_warnings_recorded_regression() {
+        // Regression mirror of the strict (advisory OFF) path: with the flag
+        // unset the harness takes the block branch and NEVER calls
+        // phase13_advisory_warnings / append_warnings, so the sidecar stays
+        // absent. We assert the gate stays OFF by default and that an empty
+        // warnings persist is a no-op (the strict path's observable footprint
+        // on the warnings sidecar is nil).
+        std::env::remove_var(ENV_CONTRACT_ADVISORY);
+        assert!(
+            !advisory_enabled(),
+            "advisory must default OFF so the strict Phase-13 block path runs"
+        );
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path();
+        // The strict path records nothing to the warnings sidecar.
+        append_warnings(pkg, &[]).unwrap();
+        assert!(
+            !warnings_path(pkg).exists(),
+            "strict path must leave the advisory sidecar absent"
+        );
     }
 }
